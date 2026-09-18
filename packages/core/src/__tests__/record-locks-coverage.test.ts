@@ -80,10 +80,18 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
   // --- staff ---
   'staff:StaffTeam': { status: 'enabled', resourceKind: 'staff.team', reason: 'enabled — Phase 5; presence + CRUD decorator. Notes/addresses sub-resources send the lock header (Phase 7).' },
   'staff:StaffTeamRole': { status: 'enabled', resourceKind: 'staff.team_role', reason: 'enabled — Phase 5; presence + CRUD decorator. Team-member/leave-request edits enabled too; accept/reject = status txn.' },
+  'staff:StaffTimeTaskStatus': { status: 'enabled', resourceKind: 'staff.timesheets.task_status', reason: 'enabled — T3.1 (D-1); the Kanban columns are project configuration edited through the task-statuses CRUD route (floor + record_locks via the generic reader). Column moves and the board-wide reorder are position writes carried by the same guarded route.' },
+  'staff:StaffTimeTask': { status: 'enabled', resourceKind: 'staff.timesheets.time_task', reason: 'enabled — T3.2; presence + CRUD decorator (floor + record_locks) on the tasks route. Board drags and drawer edits are status/field writes carried by the same guarded kind.' },
+  'staff:StaffTimeTag': { status: 'enabled', resourceKind: 'staff.timesheets.tag', reason: 'enabled — presence + CRUD decorator on the tags route. Entry/task tag assignments are junction writes guarded under their own `entry_tag` / `task_tag` kinds.' },
+  'staff:StaffTimeTaskComment': { status: 'enabled', resourceKind: 'staff.timesheets.task_comment', reason: 'enabled — hand-written thread route; the lock is enforced at the command layer via `assertOptimisticLock` (case c), matching the routes-map note in optimistic-lock-editable-entities.' },
+  'staff:StaffTimeReport': { status: 'enabled', resourceKind: 'staff.timesheets.time_report', reason: 'enabled — T6; presence + CRUD decorator on the reports route. Close/unlock are status transactions on the same kind and carry the report lock audit trail.' },
 
   // --- resources ---
   'resources:ResourcesResource': { status: 'enabled', resourceKind: 'resources.resource', reason: 'enabled — Phase 5; presence + CRUD decorator. Notes sub-resource sends the lock header (Phase 7); tags exempt.' },
   'resources:ResourcesResourceType': { status: 'enabled', resourceKind: 'resources.resource_type', reason: 'enabled — Phase 5; presence + CRUD decorator.' },
+
+  // --- devices ---
+  'devices:UserDevice': { status: 'exempt', resourceKind: '', reason: 'OSS-floor-only — user devices are per-owner rows (rename/deactivate by the owning user or an admin), not a shared collaborative-edit surface; the hand-written deviceOps routes enforce the synchronous OSS `enforceCommandOptimisticLock` updated_at floor (allowlisted in optimistic-lock-command-coverage). Enterprise record_locks migration deferred.' },
 
   // --- dictionaries ---
   'dictionaries:Dictionary': { status: 'enabled', resourceKind: 'dictionaries.dictionary', reason: 'enabled — Phase 6; routes migrated to the async command seam.' },
@@ -106,8 +114,28 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
   'directory:Organization': { status: 'enabled', resourceKind: 'directory.organization', reason: 'enabled — Phase 5; presence + CRUD decorator (admin view).' },
   'directory:Tenant': { status: 'enabled', resourceKind: 'directory.tenant', reason: 'enabled — Phase 5; presence + CRUD decorator.' },
 
+  // --- eudr ---
+  'eudr:EudrProductMapping': { status: 'enabled', resourceKind: 'eudr.product_mapping', reason: 'enabled — presence + CRUD decorator.' },
+  'eudr:EudrEvidenceSubmission': { status: 'enabled', resourceKind: 'eudr.evidence_submission', reason: 'enabled — presence + CRUD decorator.' },
+  'eudr:EudrDueDiligenceStatement': { status: 'enabled', resourceKind: 'eudr.due_diligence_statement', reason: 'enabled — presence + CRUD decorator.' },
+  'eudr:EudrPlot': { status: 'enabled', resourceKind: 'eudr.plot', reason: 'enabled — presence + CRUD decorator.' },
+  'eudr:EudrRiskAssessment': { status: 'enabled', resourceKind: 'eudr.risk_assessment', reason: 'enabled — presence + CRUD decorator.' },
+  'eudr:EudrMitigationAction': { status: 'enabled', resourceKind: 'eudr.mitigation_action', reason: 'enabled — presence + CRUD decorator.' },
+
   // --- messages ---
   'messages:Message': { status: 'exempt', resourceKind: 'messages.message', reason: 'OSS-floor-only — draft edits + message actions are hand-written command routes (no makeCrudRoute decorator surface); they enforce the synchronous OSS `enforceCommandOptimisticLock` updated_at floor and surface the conflict on the shared banner (#3260). The two call sites are allowlisted in optimistic-lock-command-coverage. Enterprise record_locks migration deferred.' },
+
+  // --- warranty_claims ---
+  'warranty_claims:WarrantyClaim': { status: 'enabled', resourceKind: 'warranty_claims.claim', reason: 'enabled — CRUD decorator (floor + record_locks); triage-workspace guarded mutations use resourceKind warranty_claims.claim; action endpoints enforce the command-level lock on the parent claim.' },
+  'warranty_claims:WarrantyClaimLine': { status: 'enabled', resourceKind: 'warranty_claims.claim_line', reason: 'enabled — lines edit via their own CRUD decorator route (per-line updatedAt lock header); parent-claim status guard blocks writes on terminal claims.' },
+  'warranty_claims:WarrantyClaimSettings': { status: 'enabled', resourceKind: 'warranty_claims.settings', reason: 'enabled — the settings page is a hand-written form whose save wraps buildOptimisticLockHeader(generalSettings.updatedAt) and enforces the command-level updated_at floor; the header is omitted only on first save, when no row exists yet.' },
+  'warranty_claims:WarrantyClaimRegistration': { status: 'enabled', resourceKind: 'warranty_claims.registration', reason: 'enabled — CrudForm edit page spreads the full record into initialValues, so the lock header is auto-derived from updatedAt on update and delete; the CRUD route projects and returns updatedAt.' },
+  'warranty_claims:WarrantyVendorPolicy': { status: 'enabled', resourceKind: 'warranty_claims.vendor_policy', reason: 'enabled — CrudForm edit page auto-derives the lock header from initialValues.updatedAt; the CRUD route projects and returns updatedAt.' },
+  'warranty_claims:WarrantyTroubleshootingGuide': { status: 'enabled', resourceKind: 'warranty_claims.troubleshooting_guide', reason: 'enabled — CrudForm edit page auto-derives the lock header from initialValues.updatedAt; the CRUD route projects and returns updatedAt.' },
+
+  // --- notifications ---
+  'notifications:NotificationTypeOverride': { status: 'exempt', resourceKind: '', reason: 'OSS-floor-only — a tenant-scoped operator override edited only via the custom `PATCH /api/notifications/types` handler (no makeCrudRoute decorator surface), which enforces the synchronous OSS `enforceCommandOptimisticLock` updated_at floor and 409s a stale write on the shared conflict banner. Enterprise record_locks migration deferred.' },
+  'notifications:NotificationPreference': { status: 'exempt', resourceKind: '', reason: 'OSS-floor-only — per-(user, type, channel) preference rows a user edits only for themselves (not a shared collaborative-edit surface); written via the idempotent `setPreferences` upsert, which is last-writer-wins by design. Carries updated_at for the OSS floor; tenant/org record_locks enrichment is not engaged.' },
 }
 
 /**

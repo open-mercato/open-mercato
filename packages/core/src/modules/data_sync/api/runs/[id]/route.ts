@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { ProgressService } from '../../../../progress/lib/progressService'
 import type { SyncRunService } from '../../../lib/sync-run-service'
@@ -18,8 +19,12 @@ export const openApi = {
 
 export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const rawParams = (ctx.params && typeof (ctx.params as Promise<unknown>).then === 'function')
@@ -34,7 +39,7 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
   const container = await createRequestContainer()
   const syncRunService = container.resolve('dataSyncRunService') as SyncRunService
   const progressService = container.resolve('progressService') as ProgressService
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId, tenantId: auth.tenantId }
 
   const run = await syncRunService.getRun(parsed.data.id, scope)
   if (!run) {
@@ -44,7 +49,7 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
   const progressJob = run.progressJobId
     ? await progressService.getJob(run.progressJobId, {
       tenantId: auth.tenantId,
-      organizationId: auth.orgId,
+      organizationId,
       userId: auth.sub,
     })
     : null
@@ -64,6 +69,7 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
     batchesCompleted: run.batchesCompleted,
     lastError: run.lastError ?? null,
     progressJobId: run.progressJobId ?? null,
+    parameters: run.parameters ?? null,
     progressJob: progressJob
       ? {
         id: progressJob.id,

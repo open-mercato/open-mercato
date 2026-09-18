@@ -81,12 +81,18 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'attachments', from: '@open-mercato/core' },
   { id: 'catalog', from: '@open-mercato/core' },
   { id: 'sales', from: '@open-mercato/core' },
+  { id: 'warranty_claims', from: '@open-mercato/core' },
   { id: 'wms', from: '@open-mercato/core' },
   { id: 'api_keys', from: '@open-mercato/core' },
+  { id: 'devices', from: '@open-mercato/core' },
   { id: 'dictionaries', from: '@open-mercato/core' },
+  { id: 'seeds', from: '@open-mercato/core' },
   { id: 'content', from: '@open-mercato/content' },
   { id: 'onboarding', from: '@open-mercato/onboarding' },
   { id: 'api_docs', from: '@open-mercato/core' },
+  // Live DS component gallery at /backend/design-system (feature-gated by
+  // design_system.view). Disable by removing this line.
+  { id: 'design_system', from: '@open-mercato/core' },
   { id: 'business_rules', from: '@open-mercato/core' },
   { id: 'feature_toggles', from: '@open-mercato/core' },
   { id: 'workflows', from: '@open-mercato/core' },
@@ -106,20 +112,41 @@ export const enabledModules: ModuleEntry[] = [
   // (Slack, WhatsApp, Email) to the unified Messages inbox. Provider packages
   // (channel-slack, channel-whatsapp, future email providers) register adapters here.
   { id: 'communication_channels', from: '@open-mercato/core' },
+  // Push notification rails — `push` delivery strategy + delivery log + send-push worker.
+  // Fans out to `devices` tokens and sends through the `communication_channels` hub.
+  { id: 'push_notifications', from: '@open-mercato/core' },
+  { id: 'phone_calls', from: '@open-mercato/core' },
   { id: 'ai_assistant', from: '@open-mercato/ai-assistant' },
+  // agent_orchestrator moved to the enterprise catalog — enabled below behind
+  // OM_ENABLE_ENTERPRISE_MODULES + OM_ENABLE_ENTERPRISE_MODULES_AGENTS.
   { id: 'translations', from: '@open-mercato/core' },
   { id: 'scheduler', from: '@open-mercato/scheduler' },
   { id: 'inbox_ops', from: '@open-mercato/core' },
   { id: 'payment_gateways', from: '@open-mercato/core' },
   { id: 'checkout', from: '@open-mercato/checkout' },
+  { id: 'documents', from: '@open-mercato/documents' },
   { id: 'gateway_stripe', from: '@open-mercato/gateway-stripe' },
   // Per-user email channels for the Communications Hub (SPEC-045d / email
   // integration spec). Each provider package registers its `ChannelAdapter`
   // at import time via `setup.ts`; the hub picks them up by `providerKey`.
+  { id: 'channel_resend', from: '@open-mercato/channel-resend' },
+  { id: 'channel_ses', from: '@open-mercato/channel-ses' },
   { id: 'channel_imap', from: '@open-mercato/channel-imap' },
   { id: 'channel_gmail', from: '@open-mercato/channel-gmail' },
+  // Mobile push providers for the push_notifications channel. Each registers a
+  // `push` ChannelAdapter at import time; the push delivery strategy routes each
+  // device to the channel whose providerKey matches its push_provider.
+  { id: 'channel_apns', from: '@open-mercato/channel-apns' },
+  { id: 'channel_expo', from: '@open-mercato/channel-expo' },
+  { id: 'channel_fcm', from: '@open-mercato/channel-fcm' },
+  // Discord bot channel (SPEC 2026-06-19) — two-way Discord via REST + a
+  // provider-owned Gateway worker + a signed Interactions endpoint, plus an
+  // optional AI auto-reply subscriber.
+  { id: 'channel_discord', from: '@open-mercato/channel-discord' },
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
+  { id: 'tillio', from: '@open-mercato/tillio' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
+  { id: 'eudr', from: '@open-mercato/core' },
   { id: 'webhooks', from: '@open-mercato/webhooks' },
   { id: 'customer_accounts', from: '@open-mercato/core' },
   { id: 'portal', from: '@open-mercato/core' },
@@ -127,6 +154,9 @@ export const enabledModules: ModuleEntry[] = [
     id: 'example',
     from: '@app',
     overrides: {
+      acl: {
+        features: { 'example.manage': null },
+      },
       // Keep the real-bootstrap nav override probe isolated from normal app behavior. The integration
       // runner sets OM_INTEGRATION_TEST, while development and production keep Example at the tail.
       nav: parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false)
@@ -166,6 +196,7 @@ if (parseBooleanWithDefault(process.env.OM_ENABLE_STORAGE_S3, false)) {
 const enterpriseModulesEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)
 const enterpriseSsoEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO, false)
 const enterpriseSecurityEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY, false)
+const enterpriseAgentsEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_AGENTS, false)
 
 if (enterpriseModulesEnabled) {
   enabledModules.push(
@@ -180,4 +211,12 @@ if (enterpriseModulesEnabled && enterpriseSsoEnabled) {
 
 if (enterpriseModulesEnabled && enterpriseSecurityEnabled) {
   enabledModules.push({ id: 'security', from: '@open-mercato/enterprise' })
+}
+
+if (enterpriseModulesEnabled && enterpriseAgentsEnabled) {
+  enabledModules.push({ id: 'agent_orchestrator', from: '@open-mercato/enterprise' })
+  // Example app module: shows how to declare an Agent Orchestrator agent from a
+  // brand-new module (see apps/mercato/src/modules/agent_examples/README.md).
+  // It imports the orchestrator SDK, so it is only enabled alongside it.
+  enabledModules.push({ id: 'agent_examples', from: '@app' })
 }

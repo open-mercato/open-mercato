@@ -1,4 +1,5 @@
 {
+  "notifications.categories.webhooks": "Webhooks",
   "webhooks.deliveries.actions.retry": "Retry",
   "webhooks.deliveries.actions.viewDetails": "Details anzeigen",
   "webhooks.deliveries.autoRefreshHint": "The delivery log refreshes automatically while this page is open.",
@@ -157,5 +158,6 @@
   "webhooks.nav.group": "Integrations",
   "webhooks.nav.title": "Webhooks",
   "webhooks.notifications.delivery.failed.body": "Webhook {webhookName} konnte das Ereignis {eventType} nicht zustellen. {errorMessage}",
+  "webhooks.notifications.delivery.failed.label": "Webhook-Zustellung fehlgeschlagen",
   "webhooks.notifications.delivery.failed.title": "Webhook-Zustellung für {webhookName} fehlgeschlagen"
 }

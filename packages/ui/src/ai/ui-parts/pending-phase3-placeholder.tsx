@@ -11,7 +11,7 @@ import type { AiUiPartProps } from '../ui-part-registry'
  * Consumers that forget to register the real mutation-approval cards still
  * see a humane "Phase 3 pending" state instead of the neutral debug chip the
  * `<AiChat>` fallback uses for genuinely unknown component ids. Uses the
- * shared DS `Alert` primitive with `variant="info"` — no hardcoded colors.
+ * shared DS `Alert` primitive with `status="information"` — no hardcoded colors.
  *
  * When Step 5.10 lands the real cards, app bootstrappers will call
  * `registerAiUiPart('mutation-preview-card', MutationPreviewCard)` (etc.)
@@ -23,7 +23,7 @@ export function PendingPhase3Placeholder({ componentId }: AiUiPartProps) {
   const t = useT()
   return (
     <Alert
-      variant="info"
+      status="information"
       data-ai-ui-part-pending-phase3={componentId}
     >
       <AlertTitle>

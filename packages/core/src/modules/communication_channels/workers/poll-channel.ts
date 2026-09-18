@@ -9,6 +9,7 @@ import {
 } from '../commands/ingest-inbound-message'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
 import { preservePushState } from '../lib/push-state'
+import { isHubPolledChannel } from '../lib/polling-eligibility'
 import { writeIngestDeadLetter } from '../lib/dead-letter'
 import { classifyOutboundError, computeBackoffMs, isReauthError } from '../lib/error-classification'
 import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
@@ -123,9 +124,8 @@ export default async function handle(
     logger.warn('no adapter for provider', { providerKey: channel.providerKey, channelId })
     return
   }
-  // Adapter opted out of polling — webhook providers.
-  const capabilities = (channel.capabilities as { realtimePush?: boolean } | null) ?? null
-  if (capabilities?.realtimePush !== false) {
+  // Adapter opted out of polling — webhook and gateway providers.
+  if (!isHubPolledChannel(channel.capabilities)) {
     // realtimePush is `true` (default for back-compat) — don't poll push providers.
     return
   }

@@ -26,6 +26,10 @@ Fill these templates in steps 5–6. Never add raw session excerpts, source path
 - Generated files: <count>
 - Models/harness: <sanitized values when reliably available, otherwise “not asserted”>
 
+## ⏹ Stop cause
+- Classification: `<completed | provider-limit | provider-error | user-abort | unknown>`
+- Last-entry error: <sanitized name, status, and message when present; otherwise “none”>
+
 ## 🔒 Privacy gate
 - Local automated sanitization: passed; <category counts>.
 - Full semantic review of the sanitized session and unpacked generated files: passed.

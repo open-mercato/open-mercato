@@ -368,6 +368,23 @@ yarn mercato queue clear events
 yarn mercato events emit order.created '{"id":123}' --persistent
 ```
 
+:::warning A worker must actually be running
+With single-delivery on (the default), persistent subscribers run **only** in the events worker. The
+bus does not check whether one exists - the queue is durable, so an emit with no worker yet is
+delayed, not lost, and a worker started later drains the backlog. Make sure something drains the
+`events` queue.
+
+`mercato server`/`mercato server start` reconciles this for a process it *knows* runs no worker: with
+`AUTO_SPAWN_WORKERS=false` and no `OM_EVENTS_EXTERNAL_WORKER`, that bootstrap rewrites
+`OM_EVENTS_SINGLE_DELIVERY=false` so subscribers run inline instead. A custom entrypoint (a bare
+`next start`, your own server) never runs that bootstrap, so nothing is rewritten for it - run a
+worker.
+
+The worker dispatches through the DI event bus, so it must run inside a bootstrapped process
+(`mercato queue worker ...`, or any entrypoint that builds a request container). A worker that cannot
+resolve `eventBus` fails the job loudly rather than completing it with nothing dispatched.
+:::
+
 ## Configuration
 
 ### Strategy Selection

@@ -1,8 +1,8 @@
 # UI Package - Agent Guidelines
 
-UI usage patterns based on customers, sales, and staff modules. Use these defaults when building new UI in `packages/ui` or consuming from other modules.
+UI defaults for `packages/ui` and its consumers.
 
-> **DS reference:** [`.ai/ds-rules.md`](../../.ai/ds-rules.md) — color tokens, typography, spacing, decision trees. **Component reference (variants/sizes/props/examples/MUST rules):** [`.ai/ui-components.md`](../../.ai/ui-components.md). **Backend component families (charts, filters, detail sections, schedule, messages, page scaffolding):** [`.ai/ui-backend-components.md`](../../.ai/ui-backend-components.md) — check it before building any of these from scratch.
+> References: [DS rules](../../.ai/ds-rules.md), [component contracts](../../.ai/ui-components.md), and [backend component families](../../.ai/ui-backend-components.md).
 
 ## Always
 
@@ -14,6 +14,7 @@ UI usage patterns based on customers, sales, and staff modules. Use these defaul
 - Use i18n keys and `useT()` for user-facing copy.
 - Keep UMES spot IDs, replacement handles, field/group IDs, and portal page metadata stable.
 - Follow `.ai/ds-rules.md` and `.ai/ui-components.md` for tokens, primitives, and component contracts.
+- Keep documented primitive additions/renames and their `figma/*.figma.tsx` mappings in the same PR; run `yarn ds:code-connect:check`.
 
 ## Ask First
 
@@ -36,6 +37,7 @@ UI usage patterns based on customers, sales, and staff modules. Use these defaul
 ```bash
 yarn workspace @open-mercato/ui test
 yarn workspace @open-mercato/ui build
+yarn ds:code-connect:check
 yarn i18n:check
 ```
 
@@ -289,6 +291,7 @@ const leadTagMap: TagMap<'customer' | 'hot' | 'inactive' | 'renewal'> = {
 - Use `RowActions` for per-row actions; navigate via `onRowClick` or action links.
 - Keep table state (paging, sorting, filters, search) in component state and reload on scope changes.
 - Keep `extensionTableId` stable and deterministic.
+- Prefer `showSaveViewButton` for "Save view" affordances; build your own on `viewApiRef`/`onColumnsDirtyChange` only for a host with a custom `toolbar`. Never patch `DataTable`. See `apps/docs/docs/framework/admin-ui/perspectives.mdx`.
 - Render injected row actions and bulk actions through `RowActions`/bulk handlers so they follow the same guard and i18n behavior as built-ins.
 - For mutating bulk actions, show operation progress in `ProgressTopBar`: return `{ ok, progressJobId }` from server/queued actions, or use shared bulk helpers that emit client-local progress events for browser-bound loops. MUST NOT add custom per-page progress bars for DataTable bulk work.
 - Prefer server-side `ProgressJob` + queue workers for bulk work that may exceed one second, touch many records, call external services, or should continue after navigation. Use client-local progress only for short in-page loops that intentionally preserve response-side metadata such as undo headers.

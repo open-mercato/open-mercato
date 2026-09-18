@@ -262,7 +262,7 @@ Run manually to see current DS metrics:
 bash .ai/scripts/ds-health-check.sh
 ```
 
-Output saved to `.ai/reports/ds-health-YYYY-MM-DD.txt`. Automatically compares with the previous report to show delta.
+Output saved to `.ai/reports/ds-health-latest.txt`, overwriting the previous run. Automatically compares with that previous run to show delta; the longer trend is in git history.
 
 ### Metrics tracked
 

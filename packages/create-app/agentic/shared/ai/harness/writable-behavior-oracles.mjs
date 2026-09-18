@@ -183,14 +183,17 @@ const FAMILY_PROBES = {
 
     const checked = []
     let executedRows = []
+    const observedProgressJobs = []
     const result = await action(rows, {
       async authorize(feature) { return feature === 'sales.orders.manage' },
       async checkVersion(row) { checked.push(row.id + ':' + row.updatedAt); return true },
       async surfaceConflict() {},
       async execute(selectedRows) { executedRows = selectedRows; return { ok: true, progressJobId: 'job-1' } },
+      async observeProgress(progressJobId) { observedProgressJobs.push(progressJobId) },
     })
     checks.push({ id: 'executes-exact-selected-orders', passed: checked.join(',') === 'one:v1,two:v2' && executedRows === rows })
     checks.push({ id: 'returns-shared-progress-job', passed: result?.ok === true && result?.progressJobId === 'job-1' })
+    checks.push({ id: 'connects-shared-progress-job-lifecycle', passed: observedProgressJobs.join(',') === 'job-1' })
     return { checks }
     })();
   `),

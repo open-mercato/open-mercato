@@ -303,7 +303,14 @@ export async function verifyTotpChallenge(
   })
 }
 
-export async function verifyPasskeyChallenge(
+/**
+ * Negative-path helper. It prepares a real passkey challenge and then submits the two values the
+ * server already discloses — the credential id and the challenge — instead of a WebAuthn assertion.
+ * Passkey verification must refuse this; accepting it was the second-factor bypass fixed in #3852.
+ * There is no API-level happy path for passkey verification: producing a genuine assertion requires
+ * an authenticator, so a real one needs a Playwright virtual authenticator driving the browser flow.
+ */
+export async function attemptUnsignedPasskeyVerify(
   request: APIRequestContext,
   pendingToken: string,
   challengeId: string,

@@ -145,6 +145,11 @@ export class GatewayPaymentOperation {
   name: 'gateway_session_initializations_scope_operation_unique',
   properties: ['operationKey', 'providerKey', 'organizationId', 'tenantId'],
 })
+@Index({
+  name: 'gateway_session_initializations_prune_idx',
+  expression:
+    'create index "gateway_session_initializations_prune_idx" on "gateway_session_initializations" ("tenant_id", "organization_id", "updated_at") where "gateway_transaction_id" is not null',
+})
 export class GatewaySessionInitialization {
   [OptionalProps]?: 'claimToken' | 'claimedAt' | 'gatewayTransactionId' | 'createdAt' | 'updatedAt'
 

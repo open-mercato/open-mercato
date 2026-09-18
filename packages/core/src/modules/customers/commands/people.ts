@@ -181,6 +181,7 @@ type PersonSnapshot = {
     id: string
     dealId: string
     participantRole: string | null
+    isPrimary?: boolean
     createdAt: Date
   }>
   activities: PersonActivitySnapshot[]
@@ -206,6 +207,7 @@ const personCrudEvents: CrudEventsConfig<CustomerEntity> = {
     entityId: ctx.entity?.id ?? ctx.identifiers.id,
     organizationId: ctx.identifiers.organizationId,
     tenantId: ctx.identifiers.tenantId,
+    ...(ctx.syncOrigin ? { syncOrigin: ctx.syncOrigin } : {}),
   }),
 }
 
@@ -345,6 +347,7 @@ function serializePersonSnapshot(
         id: link.id,
         dealId: link.deal.id,
         participantRole: link.participantRole ?? null,
+        isPrimary: link.isPrimary === true,
         createdAt: link.createdAt,
       })),
     activities: activities.map((activity) => ({
@@ -721,6 +724,8 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
         tenantId,
         organizationId,
       },
+      syncOrigin: ctx.syncOrigin,
+      actorUserId: ctx.auth?.sub ?? null,
       indexer: personCrudIndexer,
       events: personCrudEvents,
     })
@@ -782,6 +787,8 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       action: 'deleted',
       entity,
       identifiers,
+      syncOrigin: ctx.syncOrigin,
+      actorUserId: ctx.auth?.sub ?? null,
       indexer: personCrudIndexer,
       events: personCrudEvents,
     })
@@ -902,6 +909,8 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
         tenantId: restoredEntity.tenantId,
         organizationId: restoredEntity.organizationId,
       },
+      syncOrigin: ctx.syncOrigin,
+      actorUserId: ctx.auth?.sub ?? null,
       indexer: personCrudIndexer,
       events: personCrudEvents,
     })
@@ -1055,6 +1064,8 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
         tenantId: record.tenantId,
         organizationId: record.organizationId,
       },
+      syncOrigin: ctx.syncOrigin,
+      actorUserId: ctx.auth?.sub ?? null,
       indexer: personCrudIndexer,
       events: personCrudEvents,
     })
@@ -1197,6 +1208,8 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
         organizationId: before.entity.organizationId,
         tenantId: before.entity.tenantId,
       },
+      syncOrigin: ctx.syncOrigin,
+      actorUserId: ctx.auth?.sub ?? null,
       indexer: personCrudIndexer,
       events: personCrudEvents,
     })
@@ -1320,6 +1333,8 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           organizationId: record.organizationId,
           tenantId: record.tenantId,
         },
+        syncOrigin: ctx.syncOrigin,
+        actorUserId: ctx.auth?.sub ?? null,
         indexer: personCrudIndexer,
         events: personCrudEvents,
       })
@@ -1522,6 +1537,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           deal,
           person: entity,
           participantRole: link.participantRole,
+          isPrimary: link.isPrimary === true,
           createdAt: link.createdAt,
         })
         em.persist(restoredLink)
@@ -1674,6 +1690,8 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           organizationId: entity.organizationId,
           tenantId: entity.tenantId,
         },
+        syncOrigin: ctx.syncOrigin,
+        actorUserId: ctx.auth?.sub ?? null,
         indexer: personCrudIndexer,
         events: personCrudEvents,
       })

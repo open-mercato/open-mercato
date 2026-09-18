@@ -99,6 +99,34 @@ Notes:
 - With `--old-key`, rotation only updates fields that can be decrypted with that key; mismatched rows are skipped and logged.
 - Always pass `--tenant` (and `--org` when possible) during rotation to avoid accidental cross-tenant use.
 - Rotation always re-encrypts with the current KMS/fallback key. Ensure the new key is already active (Vault configured or `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` set) before running these commands.
+- These commands are tenant-scoped. They skip entities whose map is system-scoped (see the next section) and say so, because a tenant key cannot open system-scoped ciphertext.
+
+## Backfilling system-scoped records
+
+Some records exist before any tenant does — a self-service onboarding request is created while the person filling the form still has no workspace. Those entities are encrypted under a **system-scoped** map (`keyScope: 'system'`) declared in module code rather than under a per-tenant map in the database, so `rotate-encryption-key` never sees them: it walks the `encryption_maps` table and skips every row without a tenant.
+
+Use `backfill-system-encryption` to encrypt rows of that kind that were written before the map existed:
+
+```bash
+# Preview only (no writes) — always start here
+yarn mercato entities backfill-system-encryption --dry-run
+
+# Encrypt every system-scoped entity
+yarn mercato entities backfill-system-encryption
+
+# Restrict the run to one entity
+yarn mercato entities backfill-system-encryption --entity onboarding:onboarding_request
+
+# Tune the page size for a large table (default 500)
+yarn mercato entities backfill-system-encryption --batch-size 1000
+```
+
+Notes:
+- The command is forward-only: it encrypts plaintext and populates the matching lookup-hash columns. It never decrypts and accepts no `--old-key`, so it cannot re-encrypt data under the wrong key.
+- It is idempotent — values that already decrypt under the current system key are left untouched, so an interrupted run can simply be repeated.
+- It aborts without touching a single row when `TENANT_DATA_ENCRYPTION` is off or the KMS is unhealthy.
+- If it reports rows whose plaintext could not be encrypted, the system key was unavailable: fix the KMS/fallback configuration and re-run. `--debug` lists the affected row ids.
+- Take a backup first, as with every command on this page.
 
 ## Decrypting data (removing encryption)
 

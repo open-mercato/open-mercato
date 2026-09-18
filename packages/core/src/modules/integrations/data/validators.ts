@@ -1,13 +1,23 @@
 import { z } from 'zod'
 
+const credentialFieldKeySchema = z.string().min(1).max(128)
+
 export const saveCredentialsSchema = z.object({
   credentials: z.record(
-    z.string().min(1).max(128),
+    credentialFieldKeySchema,
     z.union([z.string().max(20_000), z.number(), z.boolean(), z.null()]),
   ),
+  unchangedSecretFields: z.array(credentialFieldKeySchema).max(200).optional(),
 }).refine((value) => Object.keys(value.credentials).length <= 200, {
   message: 'At most 200 credential fields are allowed',
-})
+}).refine(
+  (value) => !value.unchangedSecretFields
+    || new Set(value.unchangedSecretFields).size === value.unchangedSecretFields.length,
+  {
+    message: 'Unchanged secret field names must be unique',
+    path: ['unchangedSecretFields'],
+  },
+)
 
 export type SaveCredentialsInput = z.infer<typeof saveCredentialsSchema>
 

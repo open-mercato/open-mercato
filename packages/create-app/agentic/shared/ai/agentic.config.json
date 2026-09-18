@@ -7,6 +7,7 @@
       "yarn generate",
       "yarn typecheck",
       "yarn lint",
+      "yarn ds:check",
       "yarn test",
       "yarn build"
     ]
@@ -36,6 +37,7 @@
       "qa-approved",
       "qa-self-verified",
       "in-progress",
+      "ci-monitoring",
       "screenshots"
     ],
     "priority": [

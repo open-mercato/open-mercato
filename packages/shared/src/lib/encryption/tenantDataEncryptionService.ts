@@ -4,6 +4,7 @@ import { decryptWithAesGcm, encryptWithAesGcm, hashForLookup } from './aes'
 import { createKmsService, type KmsService, type TenantDek } from './kms'
 import { isTenantDataEncryptionEnabled, isEncryptionDebugEnabled } from './toggles'
 import { createLogger } from '../logger'
+import type { EncryptionKeyScope, ModuleEncryptionMap } from '../../modules/encryption'
 
 const logger = createLogger('shared').child({ component: 'tenant-encryption' })
 
@@ -14,6 +15,7 @@ export type EncryptedFieldRule = {
 
 export type EncryptionMapRecord = {
   entityId: string
+  keyScope?: EncryptionKeyScope
   fields: EncryptedFieldRule[]
 }
 
@@ -132,6 +134,21 @@ function readEncryptedFieldsJson(row: Record<string, unknown>): EncryptedFieldRu
   return []
 }
 
+/**
+ * The KMS key id an encryption map's payloads are sealed under: a system-scoped map
+ * uses a per-entity key that exists before any tenant does, everything else uses the
+ * tenant's own key. Exported so callers that need to probe key availability without
+ * encrypting (the encryption CLIs) derive the same id instead of re-spelling the
+ * `system:` convention (#5950).
+ */
+export function resolveEncryptionKeyId(
+  entityId: string,
+  keyScope: EncryptionKeyScope | undefined,
+  tenantId: string | null | undefined
+): string | null {
+  return keyScope === 'system' ? `system:${entityId}` : tenantId ?? null
+}
+
 function getSqlConnection(em: EntityManager): SqlConnection | null {
   const source = em as { getConnection?: () => unknown }
   const conn = source.getConnection?.()
@@ -154,13 +171,23 @@ export class TenantDataEncryptionService {
   private readonly inflightDeks = TenantDataEncryptionService.globalInflightDeks
   private readonly inflightMaps = TenantDataEncryptionService.globalInflightMaps
   private readonly missCache = TenantDataEncryptionService.globalMissCache
+  private readonly systemDefaultMaps: Map<string, ModuleEncryptionMap>
 
   constructor(
     private em: EntityManager,
-    opts?: { cache?: CacheStrategy; kms?: KmsService }
+    opts?: {
+      cache?: CacheStrategy
+      kms?: KmsService
+      defaultEncryptionMaps?: readonly ModuleEncryptionMap[]
+    }
   ) {
     this.cache = opts?.cache
     this.kms = opts?.kms ?? createKmsService()
+    this.systemDefaultMaps = new Map(
+      (opts?.defaultEncryptionMaps ?? [])
+        .filter((map) => map.keyScope === 'system')
+        .map((map) => [map.entityId, map]),
+    )
   }
 
   isEnabled(): boolean {
@@ -186,9 +213,23 @@ export class TenantDataEncryptionService {
     return dek
   }
 
-  private async resolveDekForEncrypt(tenantId: string | null): Promise<TenantDek | null> {
+  /**
+   * Resolves the DEK an encrypt call should seal under, provisioning one when the
+   * tenant has none yet.
+   *
+   * Provisioning writes real key material to the KMS/Vault backend, so it is a
+   * state change — not a cache fill. Callers whose intent is only to preview or
+   * check ("would this row be encrypted?") pass `createIfMissing: false` to get a
+   * `null` instead, leaving KMS untouched (issue #5950). The default stays `true`
+   * so every existing write path keeps provisioning on first use.
+   */
+  private async resolveDekForEncrypt(
+    tenantId: string | null,
+    options?: { createIfMissing?: boolean }
+  ): Promise<TenantDek | null> {
     const existing = await this.getDek(tenantId)
     if (existing || !tenantId) return existing ?? null
+    if (options?.createIfMissing === false) return null
     if (typeof this.kms.createTenantDek !== 'function') return existing ?? null
     // Dedupe concurrent first-time creation within this process so two callers
     // can't each generate a distinct DEK and overwrite one another (#2746).
@@ -239,6 +280,24 @@ export class TenantDataEncryptionService {
     }
   }
 
+  private applySystemDefault(record: EncryptionMapRecord | null, entityId: string): EncryptionMapRecord | null {
+    const declared = this.systemDefaultMaps.get(entityId)
+    if (!declared) return record
+    const fields: EncryptedFieldRule[] = declared.fields.map((field) => ({
+      field: field.field,
+      hashField: field.hashField ?? null,
+    }))
+    const declaredFields = new Set(fields.map((field) => field.field))
+    for (const field of record?.fields ?? []) {
+      if (!declaredFields.has(field.field)) fields.push(field)
+    }
+    return {
+      entityId,
+      keyScope: 'system',
+      fields,
+    }
+  }
+
   private async getMap(key: MapCacheKey): Promise<EncryptionMapRecord | null> {
     const shouldSkipLookup = (tag: string) => {
       const expiresAt = this.missCache.get(tag)
@@ -262,13 +321,13 @@ export class TenantDataEncryptionService {
       if (this.inflightMaps.has(tag)) {
         const pending = this.inflightMaps.get(tag)!
         const resolved = await pending
-        if (resolved) return resolved
+        if (resolved) return this.applySystemDefault(resolved, key.entityId)
       }
       const mem = this.memoryCache.get(tag)
-      if (mem) return mem
+      if (mem) return this.applySystemDefault(mem, key.entityId)
       if (this.cache && typeof this.cache.get === 'function') {
         const cached = await this.cache.get(tag)
-        if (cached) return cached as EncryptionMapRecord
+        if (cached) return this.applySystemDefault(cached as EncryptionMapRecord, key.entityId)
       }
       const pending = this.fetchMap(candidate)
       this.inflightMaps.set(tag, pending)
@@ -288,9 +347,9 @@ export class TenantDataEncryptionService {
       if (this.cache && typeof this.cache.set === 'function') {
         await this.cache.set(tag, loaded, { ttl: 300 })
       }
-      return loaded
+      return this.applySystemDefault(loaded, key.entityId)
     }
-    return null
+    return this.applySystemDefault(null, key.entityId)
   }
 
   private async fetchAllOrganizationFieldNames(entityId: string, tenantId: string | null): Promise<string[]> {
@@ -425,24 +484,36 @@ export class TenantDataEncryptionService {
     return clone
   }
 
+  /**
+   * Encrypts the fields an entity's encryption map covers.
+   *
+   * `options.createMissingDek` (default `true`) controls whether a tenant without
+   * a DEK gets one provisioned as a side effect. Preview/check callers — most
+   * notably `mercato entities rotate-encryption-key --dry-run` — pass `false` so a
+   * read-only invocation cannot write key material to KMS (issue #5950). With
+   * `false` and no existing DEK the payload is returned unchanged, exactly as it
+   * is when the KMS declines to issue a key.
+   */
   async encryptEntityPayload(
     entityId: string,
     payload: Record<string, unknown>,
     tenantId: string | null | undefined,
-    organizationId?: string | null
+    organizationId?: string | null,
+    options?: { createMissingDek?: boolean }
   ): Promise<Record<string, unknown>> {
     if (!this.isEnabled()) {
       debug('⚪️ encrypt.skip.disabled', { entityId, tenantId })
       return payload
     }
-    const dek = await this.resolveDekForEncrypt(tenantId ?? null)
-    if (!dek) {
-      debug('⚠️ encrypt.skip.no-dek', { entityId, tenantId })
-      return payload
-    }
     const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null })
     if (!map || !map.fields?.length) {
       debug('⚪️ encrypt.skip.no-map', { entityId, tenantId })
+      return payload
+    }
+    const keyId = resolveEncryptionKeyId(entityId, map.keyScope, tenantId)
+    const dek = await this.resolveDekForEncrypt(keyId, { createIfMissing: options?.createMissingDek !== false })
+    if (!dek) {
+      debug('⚠️ encrypt.skip.no-dek', { entityId, tenantId, keyScope: map.keyScope ?? 'tenant' })
       return payload
     }
     debug('🔒 encrypt_entity', { entityId, tenantId, organizationId, fields: map.fields.length })
@@ -459,14 +530,15 @@ export class TenantDataEncryptionService {
       debug('⚪️ decrypt.skip.disabled', { entityId, tenantId })
       return payload
     }
-    const dek = await this.getDek(tenantId ?? null)
-    if (!dek) {
-      debug('⚠️ decrypt.skip.no-dek', { entityId, tenantId })
-      return payload
-    }
     const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null })
     if (!map || !map.fields?.length) {
       debug('⚪️ decrypt.skip.no-map', { entityId, tenantId })
+      return payload
+    }
+    const keyId = resolveEncryptionKeyId(entityId, map.keyScope, tenantId)
+    const dek = await this.getDek(keyId)
+    if (!dek) {
+      debug('⚠️ decrypt.skip.no-dek', { entityId, tenantId, keyScope: map.keyScope ?? 'tenant' })
       return payload
     }
     debug('🔓 decrypt_entity', { entityId, tenantId, organizationId, fields: map.fields.length })

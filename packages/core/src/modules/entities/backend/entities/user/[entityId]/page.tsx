@@ -574,7 +574,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       <Page>
         <PageBody>
           <div className="p-6">
-            <Alert variant="destructive">
+            <Alert status="error">
               <AlertTitle>{t('entities.userEntities.edit.errors.invalidEntityTitle', 'Invalid entity')}</AlertTitle>
               <AlertDescription>{t('entities.userEntities.edit.errors.invalidEntityDescription', 'The requested entity ID is missing or invalid.')}</AlertDescription>
             </Alert>
@@ -611,6 +611,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         <CrudForm
           schema={entityFormSchema}
           title={t('entities.userEntities.edit.title', 'Edit Entity: {{entityId}}', { entityId })}
+          titleHeadingLevel={1}
           backHref={entitySource === 'code' ? "/backend/entities/system" : "/backend/entities/user"}
           fields={fields}
           groups={groups}

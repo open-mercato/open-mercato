@@ -52,8 +52,10 @@ export async function POST(req: Request) {
   await customerUserService.resetFailedAttempts(user)
   await customerUserService.updateLastLoginAt(user)
 
-  const acl = await customerRbacService.loadAcl(user.id, { tenantId: user.tenantId, organizationId: user.organizationId })
-  const resolvedFeatures = acl.features
+  const resolvedFeatures = await customerRbacService.getEffectiveFeatures(user.id, {
+    tenantId: user.tenantId,
+    organizationId: user.organizationId,
+  })
 
   const ip = getClientIp(req, 0)
   const userAgent = req.headers.get('user-agent') || null

@@ -1,6 +1,7 @@
 import type { CacheStrategy, CacheEntry, CacheGetOptions, CacheSetOptions, CacheValue } from '../types'
 import { CacheDependencyUnavailableError } from '../errors'
-import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
+import { getRedisUrlOrThrow, REDIS_WIRE_PROTOCOL } from '@open-mercato/shared/lib/redis/connection'
+import type { RedisProtocolVersion } from '@open-mercato/shared/lib/redis/connection'
 import { matchCacheKeyPattern } from '../patterns'
 
 type RedisPipeline = {
@@ -27,7 +28,7 @@ type RedisClient = {
   once?(event: 'end', listener: () => void): void
 }
 
-type RedisConstructor = new (url?: string) => RedisClient
+type RedisConstructor = new (url?: string, options?: { protocol?: RedisProtocolVersion }) => RedisClient
 type PossibleRedisModule = unknown
 
 type RequireFn = (id: string) => unknown
@@ -151,7 +152,7 @@ async function acquireRedisClient(key: string, entry: RedisRegistryEntry): Promi
       if (!ctor) {
         throw new CacheDependencyUnavailableError('redis', 'ioredis', new Error('No usable Redis constructor'))
       }
-      const client = new ctor(key)
+      const client = new ctor(key, { protocol: REDIS_WIRE_PROTOCOL })
       entry.client = client
       entry.creating = undefined
       client.once?.('end', () => {

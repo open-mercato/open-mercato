@@ -113,9 +113,15 @@ export async function pushRegister(params: {
   } catch {
     credentialsService = null
   }
+  // Resolve credentials at the channel's OWN org, not the caller's scope org.
+  // Tenant-wide channels store `organization_id = NULL` and their credentials
+  // live at `organization_id = tenantId` (see connect-credential-channel.ts).
+  // Keying on `channel.organizationId ?? tenantId` matches the write key for
+  // both org-scoped (per-user) and tenant-wide channels; keying on the caller's
+  // scope org would silently resolve `{}` for a tenant-wide channel.
   const credentialsScope = {
     tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
+    organizationId: channel.organizationId ?? scope.tenantId,
     userId: channel.userId ?? null,
   }
   let credentials: Record<string, unknown> = {}

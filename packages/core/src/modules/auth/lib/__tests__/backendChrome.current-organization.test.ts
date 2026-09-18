@@ -17,6 +17,7 @@ const mockGetSelectedOrganizationFromRequest = jest.fn()
 const mockEm = { find: jest.fn(async () => []), findOne: jest.fn(async () => null) }
 const mockRbacService = {
   loadAcl: jest.fn(async () => ({ isSuperAdmin: true, features: ['*'] })),
+  getEffectiveFeatures: jest.fn(async () => ['*']),
   userHasAllFeatures: jest.fn(async () => true),
 }
 
@@ -53,8 +54,10 @@ jest.mock('@open-mercato/shared/security/enabledModulesRegistry', () => ({
 jest.mock('@open-mercato/ui/backend/utils/nav', () => ({
   buildAdminNav: jest.fn(async () => []),
   buildSettingsSections: jest.fn(() => []),
+  buildProfileSections: jest.fn(() => []),
   computeSettingsPathPrefixes: jest.fn(() => []),
   convertToSectionNavGroups: jest.fn(() => []),
+  mergeSectionsWithDiscovered: jest.fn((baseline: unknown) => baseline),
 }))
 
 jest.mock('@open-mercato/ui/backend/icons/lucideRegistry', () => ({
@@ -69,7 +72,7 @@ jest.mock('../profile-sections', () => ({
 jest.mock('@open-mercato/core/modules/auth/services/sidebarPreferencesService', () => ({
   applySidebarPreference: (groups: unknown) => groups,
   loadFirstRoleSidebarPreference: jest.fn(async () => null),
-  loadSidebarPreference: jest.fn(async () => null),
+  findSidebarPreference: jest.fn(async () => null),
 }))
 
 import { resolveBackendChromePayload } from '../backendChrome'
@@ -120,6 +123,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   mockEm.find.mockResolvedValue([])
   mockRbacService.loadAcl.mockResolvedValue({ isSuperAdmin: true, features: ['*'] })
+  mockRbacService.getEffectiveFeatures.mockResolvedValue(['*'])
   mockRbacService.userHasAllFeatures.mockResolvedValue(true)
   mockGetSelectedOrganizationFromRequest.mockReturnValue(null)
   mockResolveFeatureCheckContext.mockResolvedValue(concreteSelection(ORG_ID))
@@ -147,7 +151,11 @@ describe('resolveBackendChromePayload — currentOrganization', () => {
     expect(payload.currentOrganization).toEqual({ id: ORG_ID, name: 'Northwind Ltd' })
     expect(payload.brand).toEqual({
       name: 'Northwind Ltd',
-      logo: { src: 'https://cdn.example.com/logo.png', alt: 'Northwind Ltd logo' },
+      logo: {
+        src: 'https://cdn.example.com/logo.png',
+        alt: 'Northwind Ltd logo',
+        preserveAspectRatio: false,
+      },
     })
   })
 
@@ -178,7 +186,11 @@ describe('resolveBackendChromePayload — currentOrganization', () => {
     expect(payload.currentOrganization).toBeNull()
     expect(payload.brand).toEqual({
       name: 'Northwind Ltd',
-      logo: { src: 'https://cdn.example.com/logo.png', alt: 'Northwind Ltd logo' },
+      logo: {
+        src: 'https://cdn.example.com/logo.png',
+        alt: 'Northwind Ltd logo',
+        preserveAspectRatio: false,
+      },
     })
   })
 

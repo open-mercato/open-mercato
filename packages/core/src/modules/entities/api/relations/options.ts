@@ -8,12 +8,16 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['entities.definitions.view'] },
 }
 
 const ALLOWED_ROUTE_CONTEXT_FIELDS = new Set(['kind', 'entity_id', 'product_id'])
+
+const logger = createLogger('entities')
 
 export async function GET(req: Request) {
   const url = new URL(req.url)
@@ -44,17 +48,27 @@ export async function GET(req: Request) {
   const qe = container.resolve('queryEngine') as QueryEngine
   const em = container.resolve('em') as EntityManager
 
-  if (!labelField) {
-    const cfg = await em.findOne(CustomEntity, {
-      entityId,
-      $and: [
-        { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
-        { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
-      ],
-      isActive: true,
-    })
-    labelField = (cfg?.labelField as string | undefined) || ''
+  const customEntity = await em.findOne(CustomEntity, {
+    entityId,
+    $and: [
+      { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
+      { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
+    ],
+    isActive: true,
+  })
+
+  // A relation field can point at an entity that does not exist — most often a half-configured
+  // `relatedEntityId` that was never filled in (#4949 reported `entityId=p:0`). The query engine
+  // falls back to a pluralized table-name guess for ids it cannot resolve, so such a lookup used
+  // to reach Postgres as `select ... from "0s"` and escape this handler as an unhandled 500 on
+  // every render of the section holding the field. Resolve the id first and answer with an empty
+  // option list instead, mirroring the empty-`entityId` contract above.
+  if (!customEntity && resolveRegisteredEntityTableName(em, entityId) === null) {
+    logger.warn('Relation options requested for an unresolvable entity id', { entityId })
+    return NextResponse.json({ items: [] })
   }
+
+  if (!labelField) labelField = (customEntity?.labelField as string | undefined) || ''
   if (!labelField) {
     const candidates = ['name', 'title', 'code', 'email']
     const table = tableNameFromEntityId(entityId)
@@ -122,7 +136,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'List relation options',
-      description: 'Returns up to 200 option entries for populating relation dropdowns, automatically resolving label fields when omitted.',
+      description: 'Returns up to 200 option entries for populating relation dropdowns, automatically resolving label fields when omitted. An entityId that matches neither an active custom entity nor a registered ORM entity yields an empty option list.',
       query: relationOptionsQuerySchema,
       responses: [
         {

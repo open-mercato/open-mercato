@@ -51,13 +51,15 @@ export async function GET(req: Request) {
   }
 
   const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId, organizationId: auth.orgId })
-  const grantedFeatures = acl.isPortalAdmin ? ['*'] : acl.features
+  const grantedFeatures = await rbac.getEffectiveFeatures(auth.sub, {
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+  })
 
   const groups = buildPortalNav({
     routes: getFrontendRouteManifests(),
     orgSlug,
     grantedFeatures,
-    isPortalAdmin: acl.isPortalAdmin,
   })
 
   return NextResponse.json({
@@ -72,7 +74,7 @@ export async function GET(req: Request) {
 const getMethodDoc: OpenApiMethodDoc = {
   summary: 'Portal sidebar navigation',
   description:
-    'Returns the portal sidebar for the authenticated customer. Items are derived from each portal page\'s `nav` metadata and filtered by `requireCustomerFeatures` against the customer\'s grants (wildcards honored).',
+    'Returns the portal sidebar for the authenticated customer. Items are derived from each portal page\'s `nav` metadata and filtered by `requireCustomerFeatures` against concrete effective features.',
   tags: ['Customer Portal'],
   responses: [{ status: 200, description: 'Portal sidebar groups', schema: navResponseSchema }],
   errors: [

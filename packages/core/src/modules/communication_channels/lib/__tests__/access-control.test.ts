@@ -2,8 +2,94 @@ import {
   ADMIN_FEATURE,
   assertCanAccessChannel,
   assertCanManageChannel,
+  channelOrgScopeWhere,
+  channelOrgScopeWhereFromFilter,
+  channelOwnerScopeWhere,
   ChannelAccessDeniedError,
 } from '../access-control'
+
+describe('channelOrgScopeWhere', () => {
+  // Tenant-scoped push channels (FCM/APNs/Expo) are stored with
+  // `organization_id IS NULL` deliberately. A read scoped to a non-null
+  // selected org must ALSO match those NULL rows, otherwise a channel
+  // connected while an admin had a non-null org is invisible to every
+  // listing/detail/health/test-send query.
+  it('matches both the selected org and tenant-wide (null) rows for a non-null org', () => {
+    const orgId = '22222222-2222-4222-8222-222222222222'
+    expect(channelOrgScopeWhere(orgId)).toEqual({
+      $or: [{ organizationId: orgId }, { organizationId: null }],
+    })
+  })
+
+  it('narrows to tenant-wide (null) rows only when the caller has no selected org', () => {
+    expect(channelOrgScopeWhere(null)).toEqual({ organizationId: null })
+  })
+
+  it('treats undefined org the same as null (tenant-wide only)', () => {
+    expect(channelOrgScopeWhere(undefined)).toEqual({ organizationId: null })
+  })
+
+  it('treats an empty-string org as tenant-wide only (falsy)', () => {
+    expect(channelOrgScopeWhere('')).toEqual({ organizationId: null })
+  })
+})
+
+describe('channelOrgScopeWhereFromFilter', () => {
+  // Read routes resolve the *selected* organization (#5012), which yields a list
+  // of org ids — or undefined for a caller who is not restricted to any org.
+  it('matches the resolved orgs and tenant-wide (null) rows', () => {
+    const organizationIds = ['22222222-2222-4222-8222-222222222222']
+    expect(channelOrgScopeWhereFromFilter({ organizationIds })).toEqual({
+      $or: [{ organizationId: { $in: organizationIds } }, { organizationId: null }],
+    })
+  })
+
+  it('applies no org restriction for an unrestricted caller', () => {
+    expect(channelOrgScopeWhereFromFilter({ organizationIds: undefined })).toEqual({})
+    expect(channelOrgScopeWhereFromFilter({ organizationIds: [] })).toEqual({})
+    expect(channelOrgScopeWhereFromFilter(null)).toEqual({})
+  })
+})
+
+/**
+ * The SQL twin of `assertCanAccessChannel`. A listing that hardcodes one half of
+ * the rule is how the Discord AI auto-reply panel ended up structurally empty
+ * (#5602) — and hardcoding the other half would be a privacy bug rather than an
+ * empty page, so the two must agree.
+ */
+describe('channelOwnerScopeWhere', () => {
+  it('admits shared channels and the caller’s own personal ones', () => {
+    expect(channelOwnerScopeWhere('user-1')).toEqual({
+      $or: [{ userId: null }, { userId: 'user-1' }],
+    })
+  })
+
+  it('admits shared channels only when there is no caller', () => {
+    expect(channelOwnerScopeWhere(null)).toEqual({ userId: null })
+    expect(channelOwnerScopeWhere(undefined)).toEqual({ userId: null })
+    expect(channelOwnerScopeWhere('')).toEqual({ userId: null })
+  })
+
+  it('agrees with assertCanAccessChannel on every ownership case', () => {
+    const clause = channelOwnerScopeWhere('user-1')
+    const admits = (channel: { userId: string | null }) =>
+      (clause.$or as Array<{ userId: string | null }>).some(
+        (branch) => branch.userId === channel.userId,
+      )
+    const allows = (channel: { userId: string | null }) => {
+      try {
+        assertCanAccessChannel(channel, 'user-1', [ADMIN_FEATURE])
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    for (const channel of [{ userId: null }, { userId: 'user-1' }, { userId: 'user-2' }]) {
+      expect(admits(channel)).toBe(allows(channel))
+    }
+  })
+})
 
 describe('assertCanAccessChannel', () => {
   it('throws on a null channel', () => {

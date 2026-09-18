@@ -72,7 +72,7 @@ The generator aggregates every module's agents into `apps/mercato/.mercato/gener
 | `executionEngine` | no (default `stream-text`) | `'stream-text'` (default `streamText` dispatch) or `'tool-loop-agent'` (opt into Vercel `Experimental_Agent`). See [Choosing an execution engine](#choosing-an-execution-engine). |
 | `allowRuntimeOverride` | no (default `true`) | Permit per-call `<ModelPicker>` + `?provider=&model=&loopBudget=...` overrides. Renamed from `allowRuntimeModelOverride`. |
 | `taskPlan` | no | `{ enabled: true }` opts the agent into the visible planning helper. The registry exposes `meta.update_task_plan` automatically; omit it from `allowedTools`. CRM/customer agents enable this by default, other shipped agents do not. |
-| `resolvePageContext` | no | Async callback invoked when the request carries `{ entityType, recordId }`. Returns extra prompt text appended to `systemPrompt`. |
+| `resolvePageContext` | no | Async callback invoked when the request carries `{ entityType, recordId }`. Returns extra prompt text appended to `systemPrompt`. Its input also carries `tenantId`, `organizationId` and the authenticated caller's `userId` — see [Page context](./developer-guide#page-context). |
 | `suggestions` | no | Starter prompts shown by generic chat launchers before the first message. |
 | `keywords` / `domain` / `dataCapabilities` | no | Metadata for the agent picker and search. |
 

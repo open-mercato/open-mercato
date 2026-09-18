@@ -36,6 +36,16 @@ function arraysEqual(a: string[], b: string[]): boolean {
  * render. Syncing derived order back into state via an effect looped forever
  * when a host recreated `defaultGroupIds` with different content on every
  * render (#4386), so no effect writes state from `defaultGroupIds` here.
+ *
+ * `stableIdsRef` is mutated during render, which React's render-purity rule
+ * normally forbids. It is safe here because the guard swaps the reference only
+ * when the *content* differs: a concurrent render that React discards can leave
+ * behind a different array identity, but never a content-stale value, and the
+ * render that commits always leaves `stableIdsRef.current` content-equal to its
+ * own `mergedIds`. `reorder` advances the same ref from its event handler so
+ * that several reorders within one commit compose instead of overwriting each
+ * other; a discarded state update leaves the ref ahead of `savedOrder` only
+ * until the next render's content guard pulls it back (#4691).
  */
 export function useGroupOrder(pageType: string, defaultGroupIds: string[]) {
   const [savedOrder, setSavedOrder] = React.useState<string[] | null>(null)
@@ -45,10 +55,7 @@ export function useGroupOrder(pageType: string, defaultGroupIds: string[]) {
     setSavedOrder(Array.isArray(saved) ? saved : null)
   }, [pageType])
 
-  const mergedIds = React.useMemo(
-    () => (savedOrder ? mergeOrder(savedOrder, defaultGroupIds) : defaultGroupIds),
-    [defaultGroupIds, savedOrder],
-  )
+  const mergedIds = savedOrder ? mergeOrder(savedOrder, defaultGroupIds) : defaultGroupIds
 
   const stableIdsRef = React.useRef(mergedIds)
   if (!arraysEqual(stableIdsRef.current, mergedIds)) {
@@ -61,6 +68,7 @@ export function useGroupOrder(pageType: string, defaultGroupIds: string[]) {
       const next = [...stableIdsRef.current]
       const [moved] = next.splice(fromIndex, 1)
       next.splice(toIndex, 0, moved)
+      stableIdsRef.current = next
       writeJsonToLocalStorage(getStorageKey(pageType), next)
       setSavedOrder(next)
     },

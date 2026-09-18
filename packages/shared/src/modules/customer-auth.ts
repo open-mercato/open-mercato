@@ -20,6 +20,7 @@ export interface CustomerAuthContext {
   customerEntityId?: string | null
   personEntityId?: string | null
   resolvedFeatures: string[]
+  isPortalAdmin?: boolean
 }
 
 export type CustomerUser = {

@@ -63,6 +63,16 @@ export type CommunicationChannelStatus =
   expression:
     `create unique index "communication_channels_user_provider_external_uq" on "communication_channels" ("tenant_id", "user_id", "provider_key", "external_identifier") where "deleted_at" is null and "user_id" is not null and "external_identifier" is not null`,
 })
+// One tenant-wide push channel per (tenant, provider): push providers (FCM/APNs/
+// Expo) have no `external_identifier` and `user_id IS NULL`, so the mailbox
+// unique index above does not cover them. This keeps an admin reconnect healing
+// the single shared row (see `createConnectedChannelRow`) instead of inserting
+// duplicates the fan-out would silently ignore.
+@Index({
+  name: 'communication_channels_tenant_push_provider_uq',
+  expression:
+    `create unique index "communication_channels_tenant_push_provider_uq" on "communication_channels" ("tenant_id", "provider_key") where "channel_type" = 'push' and "user_id" is null and "deleted_at" is null`,
+})
 export class CommunicationChannel {
   [OptionalProps]?:
     | 'createdAt'

@@ -2,7 +2,7 @@
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/checkout/modules/checkout/extension-points'
 import { useSearchParams } from 'next/navigation'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -29,6 +29,7 @@ type TransactionsResponse = {
   items: TransactionRow[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
   canViewPii?: boolean
 }
 
@@ -69,6 +70,7 @@ export default function CheckoutTransactionsPage() {
   const [filters, setFilters] = React.useState<FilterValues>(() => (initialLinkId ? { linkId: initialLinkId } : {}))
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [loading, setLoading] = React.useState(true)
   const [canViewPii, setCanViewPii] = React.useState(false)
   const [linkLabels, setLinkLabels] = React.useState<Record<string, string>>({})
@@ -171,6 +173,7 @@ export default function CheckoutTransactionsPage() {
     )
     setTotal(result.total ?? 0)
     setTotalPages(result.totalPages ?? 1)
+    setTotalIsCapped(result?.totalIsCapped === true)
     setCanViewPii(result.canViewPii === true)
     setLoading(false)
   }, [filters.linkId, filters.status, page, rememberLinkOptions, search])
@@ -226,7 +229,8 @@ export default function CheckoutTransactionsPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('checkout.admin.transactions.title')}
+        title={t('checkout.admin.transactions.title')}
+        titleHeadingLevel={1}
           columns={columns}
           data={rows}
           isLoading={loading}
@@ -237,7 +241,7 @@ export default function CheckoutTransactionsPage() {
           filterValues={filters}
           onFiltersApply={(next) => { setFilters(next); setPage(1) }}
           onFiltersClear={() => { setFilters({}); setPage(1) }}
-          pagination={{ page, pageSize: 25, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: 25, total, totalPages, totalIsCapped, onPageChange: setPage }}
           perspective={{ tableId: extensionPoints.hosts.transactionsTable.tableId }}
           rowClickActionIds={['view']}
           rowActions={(row) => <RowActions items={[{ id: 'view', label: t('checkout.admin.transactions.actions.viewDetail'), href: `/backend/checkout/transactions/${encodeURIComponent(row.id)}` }]} />}

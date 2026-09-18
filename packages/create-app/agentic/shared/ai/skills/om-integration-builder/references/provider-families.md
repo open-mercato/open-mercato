@@ -12,3 +12,14 @@ Load this reference to choose provider contracts.
 - **Storage/media:** authorize object/record access (`artifact-authorization`); use scoped keys, signed access, encrypted metadata (`encrypted-storage`), retention, and lifecycle cleanup (`cleanup`).
 
 Combine branches only when the provider genuinely owns them. Keep generic orchestration in the installed host services.
+
+## Canonical example source
+
+The `example` module ships credential-free **mock** adapters — the smallest complete adapter shape for each of three registries, and the DI file that registers them:
+
+- Payment gateway adapter: [`lib/mock-gateway-adapter.ts`](../../../../src/modules/example/lib/mock-gateway-adapter.ts)
+- Shipping carrier adapter: [`lib/mock-shipping-adapter.ts`](../../../../src/modules/example/lib/mock-shipping-adapter.ts)
+- Webhook endpoint adapter incl. signature verification: [`lib/mock-webhook-endpoint-adapter.ts`](../../../../src/modules/example/lib/mock-webhook-endpoint-adapter.ts)
+- Registration through the external adapter registries: [`di.ts`](../../../../src/modules/example/di.ts)
+
+They are mocks: they hold no encrypted credentials, no `integration.ts` descriptor, no health check, and no data-sync cursor. Read them for adapter shape and DI registration only; every credential, health, SSRF, signature-replay, retry, and cursor rule stays with `references/security-and-reliability.md` and `references/package-and-activation.md`, resolved against exact installed provider source through `om-framework-context`.

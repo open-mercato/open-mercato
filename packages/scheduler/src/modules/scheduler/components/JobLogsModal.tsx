@@ -122,7 +122,7 @@ export function JobLogsModal({
         )}
 
         {error && (
-          <Alert variant="destructive">
+          <Alert status="error">
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}

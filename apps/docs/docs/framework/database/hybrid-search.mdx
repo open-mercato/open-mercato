@@ -343,6 +343,9 @@ The `OM_SEARCH_*` flags below are **token/Postgres-only** — they tune the `sea
 | `OM_SEARCH_HASH_ALGO` | `sha256` | Token hash algorithm (`sha1`/`md5` also accepted). |
 | `OM_SEARCH_STORE_RAW_TOKENS` | `false` | Store plaintext token alongside the hash — **security-sensitive**; avoid in production. |
 | `OM_SEARCH_FIELD_BLOCKLIST` | — | Comma-separated extra field names excluded from tokenization (merged with built-in `password,token,secret,hash`). See below for entity-scoped entries. |
+| `OM_SEARCH_MAX_FIELD_CHARS` | `20000` | Maximum input characters considered per field value before splitting or prefix expansion; `0` disables the limit. |
+| `OM_SEARCH_MAX_TOKENS_PER_FIELD` | `5000` | Maximum distinct token rows across all values of one field; `0` disables the limit. |
+| `OM_SEARCH_MAX_TOKENS_PER_RECORD` | `20000` | Maximum token rows across all fields in one indexed record; `0` disables the limit. |
 | `OM_SEARCH_DEBUG` | `false` | Verbose token/indexing debug logging (redacted — never logs raw tokens or PII). |
 
 ### Excluding fields from the token index

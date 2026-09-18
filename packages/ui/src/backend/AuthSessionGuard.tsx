@@ -1,9 +1,37 @@
 'use client'
 import * as React from 'react'
 import { apiCall } from './utils/apiCall'
+import { clearAllPerspectiveState } from './perspectiveState'
 
 export const AUTH_IDENTITY_STORAGE_KEY = 'om:auth:identity'
 export const AUTH_IDENTITY_BROADCAST_CHANNEL = 'om-auth-identity'
+export const AUTH_IDENTITY_USER_STORAGE_KEY = 'om:auth:identity:user'
+
+/**
+ * Purge browser-local DataTable perspective state whenever the backend renders for a
+ * different user than the one it last rendered for (#4185).
+ *
+ * The login form also purges on submit, but that only fires when its client handler
+ * runs: a form submitted before hydration, an SSO/magic-link return, or any other
+ * entry point into the backend bypasses it entirely and the previous account's unsaved
+ * column widths carry over. Anchoring the purge to the observed server identity covers
+ * every route into the backend instead of one form.
+ *
+ * Missing identity metadata is treated as a legacy browser state and purged once:
+ * snapshots may predate this marker and belong to a different account. After the
+ * marker is recorded, an account's own unsaved widths survive a plain reload.
+ */
+function purgePerspectiveStateOnIdentityChange(serverUserId: string | null): void {
+  if (typeof window === 'undefined' || !serverUserId) return
+  try {
+    const lastSeenUserId = window.localStorage.getItem(AUTH_IDENTITY_USER_STORAGE_KEY)
+    if (lastSeenUserId === serverUserId) return
+    clearAllPerspectiveState()
+    window.localStorage.setItem(AUTH_IDENTITY_USER_STORAGE_KEY, serverUserId)
+  } catch {
+    // private mode / quota errors are non-fatal
+  }
+}
 
 type FeatureCheckResponse = {
   ok: boolean
@@ -24,6 +52,7 @@ export const __reload = {
 export function AuthSessionGuard({ serverUserId }: AuthSessionGuardProps) {
   React.useEffect(() => {
     if (typeof window === 'undefined') return
+    purgePerspectiveStateOnIdentityChange(serverUserId)
     let cancelled = false
     let reloadScheduled = false
 

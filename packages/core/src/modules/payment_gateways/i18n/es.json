@@ -79,5 +79,9 @@
   "payment_gateways.transactions.success.capture": "Pago capturado",
   "payment_gateways.transactions.success.refreshStatus": "El estado de la transaccion se actualizo",
   "payment_gateways.transactions.tableTitle": "Transacciones",
-  "payment_gateways.transactions.title": "Transacciones de pago"
+  "payment_gateways.transactions.title": "Transacciones de pago",
+  "payment_gateways.upgradeActions.sessionInitializationPrune.cta": "Programar limpieza de reclamaciones",
+  "payment_gateways.upgradeActions.sessionInitializationPrune.loading": "Programando limpieza de reclamaciones…",
+  "payment_gateways.upgradeActions.sessionInitializationPrune.message": "Registra la limpieza diaria que elimina las reclamaciones de sesiones de pago completadas después de su ventana de repetición de 24 horas.",
+  "payment_gateways.upgradeActions.sessionInitializationPrune.success": "La limpieza de reclamaciones de sesiones de pago está programada."
 }

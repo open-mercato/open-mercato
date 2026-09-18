@@ -1,3 +1,5 @@
+import { DEFAULT_WEBHOOK_BODY_LIMIT_BYTES } from '../../lib/webhooks/body'
+
 // ── Unified Payment Status ──────────────────────────────────────────────────
 
 export type UnifiedPaymentStatus =
@@ -251,6 +253,7 @@ export interface WebhookHandlerRegistration {
   handler: (input: VerifyWebhookInput) => Promise<WebhookEvent>
   queue?: string
   readSessionIdHint?: (payload: Record<string, unknown> | null) => string | null
+  maxBodyBytes?: number
 }
 
 // ── Adapter Registry Options ────────────────────────────────────────────────
@@ -345,13 +348,25 @@ export function registerWebhookHandler(
   options?: {
     queue?: string
     readSessionIdHint?: (payload: Record<string, unknown> | null) => string | null
+    maxBodyBytes?: number
   },
 ): () => void {
+  if (
+    options?.maxBodyBytes !== undefined
+    && (!Number.isSafeInteger(options.maxBodyBytes)
+      || options.maxBodyBytes <= 0
+      || options.maxBodyBytes > DEFAULT_WEBHOOK_BODY_LIMIT_BYTES)
+  ) {
+    throw new Error(
+      `[internal] Payment gateway webhook maxBodyBytes must be a positive safe integer no greater than ${DEFAULT_WEBHOOK_BODY_LIMIT_BYTES}`,
+    )
+  }
   const webhookHandlerRegistry = getWebhookHandlerRegistry()
   webhookHandlerRegistry.set(providerKey, {
     handler,
     queue: options?.queue,
     readSessionIdHint: options?.readSessionIdHint,
+    maxBodyBytes: options?.maxBodyBytes,
   })
   return () => {
     webhookHandlerRegistry.delete(providerKey)

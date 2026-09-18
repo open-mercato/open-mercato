@@ -3,6 +3,7 @@
 import {
   convertAdvancedFilterToWhere,
   deserializeAdvancedFilter,
+  deserializeTree,
   serializeAdvancedFilter,
   type AdvancedFilterState,
 } from '../advanced-filter'
@@ -56,6 +57,41 @@ describe('advanced filter', () => {
         { id: '1', field: 'primary_email', operator: 'contains', value: 'info', join: 'or' },
       ],
     })
+  })
+
+  it('drops conditions whose field names a Where combinator instead of a column', () => {
+    // `$and`/`$or`/`$not` live in the same key namespace as column names, so a condition naming one
+    // would compile to a combinator key and collide with whatever the route put there — including a
+    // scope predicate. Dropped like an unrecognized operator, leaving the remaining conditions.
+    expect(
+      deserializeAdvancedFilter({
+        'filter[conditions][0][field]': '$and',
+        'filter[conditions][0][op]': 'is_empty',
+        'filter[conditions][1][field]': 'platform',
+        'filter[conditions][1][op]': 'is',
+        'filter[conditions][1][value]': 'ios',
+      }),
+    ).toEqual({
+      logic: 'and',
+      conditions: [{ id: '1', field: 'platform', operator: 'is', value: 'ios', join: 'and' }],
+    })
+
+    expect(
+      deserializeAdvancedFilter({
+        'filter[conditions][0][field]': '$or',
+        'filter[conditions][0][op]': 'is_empty',
+      }),
+    ).toBeNull()
+
+    expect(
+      deserializeTree({
+        'filter[v]': '2',
+        'filter[root][combinator]': 'and',
+        'filter[root][children][0][type]': 'rule',
+        'filter[root][children][0][field]': '$and',
+        'filter[root][children][0][op]': 'is_empty',
+      })?.root.children,
+    ).toEqual([])
   })
 
   it('ignores empty values for operators that require a concrete value', () => {

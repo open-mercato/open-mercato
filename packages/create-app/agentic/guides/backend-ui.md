@@ -18,11 +18,15 @@ Every app page is module-owned and auto-discovered: author it under `src/modules
 | Public frontend | `src/modules/<id>/frontend/**/page.tsx`; explicitly declare auth posture in metadata. |
 | Customer portal | `src/modules/<id>/frontend/[orgSlug]/portal/**/page.tsx`; public login/signup/verify/landing pages are `navHidden` without customer auth, authenticated pages require customer auth/features, and only sidebar destinations add `nav`. |
 
-List destinations need stable `pageGroup`, `pageGroupKey`, and order. Prefer a registered string icon name in `page.meta.ts` so generated metadata stays serializable; use `lucide-react` components in page-body UI. Hide create/edit/detail destinations from navigation when they are reached from a list.
+List destinations need stable `pageGroup`, `pageGroupKey`, and order. A `page.meta.ts` `icon` MUST be a name the installed icon registry already lists — an unlisted Lucide name renders no icon at all, silently — so verify it before use; use `lucide-react` components in page-body UI. Hide create/edit/detail destinations from navigation when they are reached from a list.
 
 ## Default CRUD Completeness
 
 For a new editable entity or module, unless the brief explicitly excludes an operation, deliver list, create, view/edit, and delete as one connected slice. The `DataTable` list owns server filter/search controls, a localized add action linking to create, and a stable linked row action to view/edit. `CrudForm` owns create/update/delete, custom-field save/reload/clear, `updatedAt` conflicts, and return navigation. Do not leave a new backend entity reachable only by typing a URL.
+
+## Cross-Record References
+
+When a form field or table column references another record — in this module or an installed one — render display names, never raw IDs. Form references are selection controls (searchable select or picker) backed by a scoped option-source route; reuse the owning module's picker or option source when one exists instead of authoring a new route. Table columns render the referenced record's display name or a stored display snapshot. UUIDs appear only in API payloads: a user never types one into a field and never reads one off a page.
 
 ## DataTable
 
@@ -78,3 +82,9 @@ For a new editable entity or module, unless the brief explicitly excludes an ope
 2. Exercise loading, empty, validation error, server error, conflict, success, and delete flows.
 3. Save, reload, edit, clear nullable fields, and verify the API payload and rendered state agree.
 4. Check keyboard and narrow-width behavior; run affected integration tests through real API fixtures.
+
+## Canonical example source
+
+This guide stays the rule owner. For one compiling implementation of a table, form, page shell, or rendered injected widget, open the exact row in [`src/modules/example/references/surface-map.md`](../../src/modules/example/references/surface-map.md) — its `Backend UI` section links each file — or go straight to [`components/TodosTable.tsx`](../../src/modules/example/components/TodosTable.tsx) and [`components/TodoForm.tsx`](../../src/modules/example/components/TodoForm.tsx). That module is source-present and runtime-disabled: read one row, never the tree, and rename every `example` identifier.
+
+When you need what the component *accepts*, not how the example uses it, open the installed implementation: [`@open-mercato/ui/src/backend/DataTable.tsx`](../../node_modules/@open-mercato/ui/src/backend/DataTable.tsx). That exact file is what your app installs. Read-only: never edit inside `node_modules`, and take no sibling or import target this guide does not link.

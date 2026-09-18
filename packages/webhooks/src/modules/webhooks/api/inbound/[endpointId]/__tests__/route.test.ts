@@ -62,12 +62,13 @@ import { POST, buildInboundRateLimitKey, resolveInboundReceiptMessageId } from '
 
 const routeContext = { params: Promise.resolve({ endpointId: 'mock_inbound' }) }
 
-function createRequest(body: string = '{"ok":true}') {
+function createRequest(body: string = '{"ok":true}', headers: Record<string, string> = {}) {
   return new Request('http://localhost/api/webhooks/inbound/mock_inbound', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       'webhook-id': 'msg-1',
+      ...headers,
     },
     body,
   })
@@ -95,6 +96,103 @@ describe('POST', () => {
       translate: (_key: string, fallback?: string) => fallback ?? '',
     })
     mockIsWebhookIntegrationEnabled.mockResolvedValue(true)
+    mockGetWebhookEndpointAdapter.mockReturnValue(createAdapter(
+      {
+        eventType: 'mock.inbound.received',
+        payload: { ok: true },
+      },
+      { allowUnscopedInbound: true },
+    ))
+  })
+
+  it('rejects stale Standard Webhooks timestamps before persisting a fresh message id', async () => {
+    const staleTimestamp = String(Math.floor(Date.now() / 1000) - 10 * 60)
+
+    const response = await POST(createRequest('{"ok":true}', {
+      'webhook-id': 'fresh-message-id',
+      'webhook-timestamp': staleTimestamp,
+      'webhook-signature': 'v1,mock',
+    }), routeContext)
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: 'Webhook timestamp is outside the allowed replay window' })
+    expect(mockRouteEm.persist).not.toHaveBeenCalled()
+    expect(mockRouteEm.flush).not.toHaveBeenCalled()
+    expect(mockEmitWebhooksEvent).not.toHaveBeenCalled()
+  })
+
+  it('rejects when any present Standard or Svix timestamp header is stale', async () => {
+    const now = Math.floor(Date.now() / 1000)
+
+    const response = await POST(createRequest('{"ok":true}', {
+      'webhook-id': 'fresh-message-id',
+      'webhook-timestamp': String(now),
+      'webhook-signature': 'v1,mock',
+      'svix-timestamp': String(now - 10 * 60),
+    }), routeContext)
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: 'Webhook timestamp is outside the allowed replay window' })
+    expect(mockRouteEm.persist).not.toHaveBeenCalled()
+    expect(mockRouteEm.flush).not.toHaveBeenCalled()
+    expect(mockEmitWebhooksEvent).not.toHaveBeenCalled()
+  })
+
+  it.each(['', 'not-a-number'])('rejects malformed Standard Webhooks timestamps: %j', async (timestamp) => {
+    const response = await POST(createRequest('{"ok":true}', {
+      'webhook-id': 'fresh-message-id',
+      'webhook-timestamp': timestamp,
+      'webhook-signature': 'v1,mock',
+    }), routeContext)
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: 'Webhook timestamp is outside the allowed replay window' })
+    expect(mockRouteEm.persist).not.toHaveBeenCalled()
+    expect(mockRouteEm.flush).not.toHaveBeenCalled()
+    expect(mockEmitWebhooksEvent).not.toHaveBeenCalled()
+  })
+
+  it('accepts fresh Standard Webhooks timestamps', async () => {
+    mockGetWebhookEndpointAdapter.mockReturnValue(createAdapter(
+      {
+        eventType: 'mock.inbound.received',
+        payload: { ok: true },
+      },
+      { allowUnscopedInbound: true },
+    ))
+    const freshTimestamp = String(Math.floor(Date.now() / 1000))
+
+    const response = await POST(createRequest('{"ok":true}', {
+      'webhook-id': 'fresh-message-id',
+      'webhook-timestamp': freshTimestamp,
+      'webhook-signature': 'v1,mock',
+    }), routeContext)
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(mockRouteEm.persist).toHaveBeenCalledTimes(1)
+    expect(mockRouteEm.flush).toHaveBeenCalledTimes(1)
+    expect(mockEmitWebhooksEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects an oversized declared body before adapter verification', async () => {
+    const adapter = createAdapter({
+      eventType: 'mock.inbound.received',
+      payload: { ok: true },
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    mockGetWebhookEndpointAdapter.mockReturnValue(adapter)
+    const request = new Request('http://localhost/api/webhooks/inbound/mock_inbound', {
+      method: 'POST',
+      headers: { 'content-length': String(1024 * 1024 + 1) },
+      body: '{}',
+    })
+
+    const response = await POST(request, routeContext)
+
+    expect(response.status).toBe(413)
+    expect(adapter.verifyWebhook).not.toHaveBeenCalled()
   })
 
   it('rejects verified inbound webhooks without tenant and organization scope before side effects', async () => {

@@ -100,7 +100,7 @@ None — all required sections present.
 | `packages/core/AGENTS.md` | Always supply `tenantId`/`organizationId` to decryption helpers | ✅ Byte-copied |
 | `packages/shared/AGENTS.md` | MUST NOT add domain-specific logic to shared | ✅ All moved logic lives in `staff/lib/`; explicitly rejected in Alternatives table |
 | `packages/core/src/modules/customers/AGENTS.md` | Customers is the reference CRUD module | ✅ New staff route mirrors customers' `findWithDecryption + scope + paged` pattern |
-| root `AGENTS.md` Feature-gated runtime helpers (lessons.md line 171) | Must use wildcard-aware matcher | ✅ Spec uses `rbac.userHasAllFeatures()` (the service method already wildcard-aware) — not a raw `features.includes()` check |
+| root `AGENTS.md` Feature-gated runtime helpers ([lesson](../../lessons/feature-gated-runtime-helpers-must-use-wildcard-aware.md)) | Must use wildcard-aware matcher | ✅ Spec uses `rbac.userHasAllFeatures()` (the service method already wildcard-aware) — not a raw `features.includes()` check |
 | `BACKWARD_COMPATIBILITY.md` Deprecation Protocol | `RELEASE_NOTES.md` entry required | ✅ Phase 1.C Step 2 makes it mandatory |
 | `BACKWARD_COMPATIBILITY.md` Deprecation Protocol | Spec MUST include "Migration & Backward Compatibility" section | ✅ Present |
 

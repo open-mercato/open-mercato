@@ -48,6 +48,11 @@ export const errorResponseSchema = z.object({
   error: z.string(),
 })
 
+export const scopeErrorResponseSchema = z.object({
+  error: z.string(),
+  code: z.string(),
+})
+
 export const unreadCountResponseSchema = z.object({
   unreadCount: z.number(),
 })

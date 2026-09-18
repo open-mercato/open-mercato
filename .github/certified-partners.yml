@@ -25,6 +25,8 @@ partners:
     contributors: [adeptofvoltron, lbajsarowicz]
   - company: Freight Tech
     contributors: [fto-aubergine, karolina-fto]
+  - company: Full Stack House
+    contributors: [kamwro, maxidragon, jtomaszewski, patrykbojczuk, KubaBir, frshy]
   - company: GoNextStage
     contributors: [truongx, mat-kruk]
   - company: Itrix
@@ -34,7 +36,7 @@ partners:
   - company: Omdyo
     contributors: [zielivia, haxiorz]
   - company: 8lines
-    contributors: [jtomaszewski, RadnoK, KamilGrocholski, patrykbojczuk, KubaBir, frshy]
+    contributors: [RadnoK]
   - company: Evojam
     contributors: [marcinwadon, abankowski]
   - company: Idego

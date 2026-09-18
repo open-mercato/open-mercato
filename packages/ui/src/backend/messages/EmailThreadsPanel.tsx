@@ -141,7 +141,7 @@ export function EmailThreadsPanel({
       {!canCompose && composeDisabledHint ? <div>{composeDisabledHint}</div> : null}
 
       {error ? (
-        <Alert variant="destructive">
+        <Alert status="error">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : null}

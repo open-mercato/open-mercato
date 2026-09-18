@@ -3,7 +3,8 @@
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/wms/extension-points'
 import Link from 'next/link'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { RowData, SortingState } from '@tanstack/react-table'
 import { useQuery } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -57,6 +58,7 @@ type PagedResponse<T> = {
   items: T[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 type InventoryBalanceRow = {
@@ -234,7 +236,7 @@ function buildInventoryQuery(
   return params.toString()
 }
 
-type InventoryDataTableSectionProps<T> = {
+type InventoryDataTableSectionProps<T extends RowData> = {
   sectionQueryKey: string
   endpoint: string
   titleKey: string
@@ -263,7 +265,7 @@ type InventoryDataTableSectionProps<T> = {
   emptyStateAction?: React.ReactNode
 }
 
-function InventoryDataTableSection<T>({
+function InventoryDataTableSection<T extends RowData>({
   sectionQueryKey,
   endpoint,
   titleKey,
@@ -340,6 +342,7 @@ function InventoryDataTableSection<T>({
       <DataTable
         embedded
         title={t(titleKey, titleFallback)}
+        titleHeadingLevel={2}
         columns={columns}
         data={query.data?.items ?? []}
         isLoading={query.isLoading}
@@ -356,6 +359,7 @@ function InventoryDataTableSection<T>({
           pageSize: 20,
           total: query.data?.total ?? 0,
           totalPages: query.data?.totalPages ?? 1,
+          totalIsCapped: query.data?.totalIsCapped === true,
           onPageChange: setPage,
         }}
         perspective={{ tableId }}

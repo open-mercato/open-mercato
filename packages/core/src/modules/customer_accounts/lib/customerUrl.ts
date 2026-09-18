@@ -5,6 +5,8 @@
 
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
 type DomainMappingService = {
   resolveActiveByOrg(orgId: string): Promise<{ hostname: string } | null>
@@ -12,6 +14,10 @@ type DomainMappingService = {
 
 type OrgService = {
   findById(orgId: string): Promise<{ id: string; slug: string | null } | null>
+}
+
+type EntityManagerResolver = {
+  resolve(name: 'em'): EntityManager
 }
 
 function platformBaseUrl(): string {
@@ -30,6 +36,26 @@ function platformBaseUrl(): string {
 function resolveContainer(container?: AppContainer): Promise<AppContainer> {
   if (container) return Promise.resolve(container)
   return createRequestContainer()
+}
+
+async function resolveOrgSlug(container: AppContainer, orgId: string): Promise<string | null> {
+  try {
+    const orgService = container.resolve('orgService') as OrgService | undefined
+    if (orgService && typeof orgService.findById === 'function') {
+      const org = await orgService.findById(orgId)
+      return org?.slug ?? null
+    }
+  } catch {
+    // orgService is optional in standalone/runtime contexts — fall through to EntityManager.
+  }
+
+  try {
+    const em = (container as AppContainer & EntityManagerResolver).resolve('em')
+    const org = await em.findOne(Organization, { id: orgId, deletedAt: null })
+    return org?.slug ?? null
+  } catch {
+    return null
+  }
 }
 
 export async function urlForCustomerOrg(
@@ -55,17 +81,7 @@ export async function urlForCustomerOrg(
     return `https://${active.hostname}${safePath}`
   }
 
-  let orgSlug: string | null = null
-  try {
-    const orgService = container.resolve('orgService') as OrgService | undefined
-    if (orgService && typeof orgService.findById === 'function') {
-      const org = await orgService.findById(orgId)
-      orgSlug = org?.slug ?? null
-    }
-  } catch {
-    orgSlug = null
-  }
-
+  const orgSlug = await resolveOrgSlug(container, orgId)
   const base = platformBaseUrl()
   if (orgSlug) return `${base}/${orgSlug}/portal${safePath}`
   return `${base}${safePath}`

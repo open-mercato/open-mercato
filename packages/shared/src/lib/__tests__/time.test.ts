@@ -82,22 +82,54 @@ describe('formatRelativeTime', () => {
     expect(/year|month/.test(future!)).toBeTruthy()
   })
 
-it('uses fallback if Intl.RelativeTimeFormat is not available', () => {
-  const descriptor = Object.getOwnPropertyDescriptor(Intl, 'RelativeTimeFormat')
-  Object.defineProperty(Intl, 'RelativeTimeFormat', { value: undefined, configurable: true })
-  try {
-    expect(formatRelativeTime(sub(3_600_000))).toMatch(/ago/)
-    expect(formatRelativeTime(add(3_600_000))).toMatch(/from now/)
-  } finally {
-    Object.defineProperty(Intl, 'RelativeTimeFormat', descriptor!)
-  }
-})
+  it('uses fallback if Intl.RelativeTimeFormat is not available', () => {
+    const descriptor = Object.getOwnPropertyDescriptor(Intl, 'RelativeTimeFormat')
+    Object.defineProperty(Intl, 'RelativeTimeFormat', { value: undefined, configurable: true })
+    try {
+      expect(formatRelativeTime(sub(3_600_000))).toMatch(/ago/)
+      expect(formatRelativeTime(add(3_600_000))).toMatch(/from now/)
+    } finally {
+      Object.defineProperty(Intl, 'RelativeTimeFormat', descriptor!)
+    }
+  })
 
-it('uses custom translate if provided', () => {
-  const translate = (key: string, fallback?: string) => `T(${key})`
-  expect(formatRelativeTime(sub(3_600_000), { translate })).toMatch(/T\(time\.relative\.ago\)/)
-  expect(formatRelativeTime(add(3_600_000), { translate })).toMatch(/T\(time\.relative\.fromNow\)/)
-})
+  it('uses custom translate for the fallback suffix when Intl.RelativeTimeFormat is not available', () => {
+    const translate = (key: string) => `T(${key})`
+    const descriptor = Object.getOwnPropertyDescriptor(Intl, 'RelativeTimeFormat')
+    Object.defineProperty(Intl, 'RelativeTimeFormat', { value: undefined, configurable: true })
+    try {
+      expect(formatRelativeTime(sub(3_600_000), { translate })).toMatch(/T\(time\.relative\.ago\)/)
+      expect(formatRelativeTime(add(3_600_000), { translate })).toMatch(/T\(time\.relative\.fromNow\)/)
+    } finally {
+      Object.defineProperty(Intl, 'RelativeTimeFormat', descriptor!)
+    }
+  })
+
+  it('localizes unit, number and suffix in a non-English locale', () => {
+    expect(formatRelativeTime(sub(3_600_000), { locale: 'pl' })).toBe('1 godzinę temu')
+    expect(formatRelativeTime(sub(600_000), { locale: 'pl' })).toBe('10 minut temu')
+    expect(formatRelativeTime(add(18_000_000), { locale: 'pl' })).toBe('za 5 godzin')
+  })
+
+  it('localizes in the requested locale even when a translate function is supplied', () => {
+    const translate = (_key: string, fallback?: string) => fallback ?? _key
+    const polish = formatRelativeTime(sub(600_000), { locale: 'pl', translate })
+    const english = formatRelativeTime(sub(600_000), { locale: 'en', translate })
+    expect(polish).toBe('10 minut temu')
+    expect(polish).not.toMatch(/minutes|ago/)
+    expect(english).not.toEqual(polish)
+  })
+
+  it('applies the locale plural rules instead of English pluralization', () => {
+    expect(formatRelativeTime(sub(120_000), { locale: 'pl' })).toBe('2 minuty temu')
+    expect(formatRelativeTime(sub(300_000), { locale: 'pl' })).toBe('5 minut temu')
+  })
+
+  it('renders differently per locale for the same instant', () => {
+    const value = sub(172_800_000)
+    const rendered = ['en', 'pl', 'de', 'es'].map((locale) => formatRelativeTime(value, { locale }))
+    expect(new Set(rendered).size).toBe(rendered.length)
+  })
 })
 describe('formatDateTime', () => {
   it('returns null for invalid or missing values', () => {

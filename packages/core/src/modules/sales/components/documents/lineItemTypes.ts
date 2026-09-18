@@ -3,6 +3,7 @@ import type { SalesLineUomSnapshot } from '../../lib/types'
 export type SalesLineRecord = {
   id: string
   name: string | null
+  description?: string | null
   productId: string | null
   productVariantId: string | null
   quantity: number
@@ -12,6 +13,10 @@ export type SalesLineRecord = {
   currencyCode: string | null
   unitPriceNet: number
   unitPriceGross: number
+  /** Resolved discount for the whole line, not per unit. */
+  discountAmount?: number
+  /** Percentage the discount was requested as, if it was requested that way. */
+  discountPercent?: number
   taxRate: number
   totalNet: number
   totalGross: number

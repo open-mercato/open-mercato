@@ -184,6 +184,29 @@ list: {
 }
 ```
 
+#### Default and tiebreak sorting
+
+When a request carries no `sortField` / `sort` param the factory sorts by `id` ascending. That is only a meaningful order for sequential ids — entities with `defaultRaw: 'gen_random_uuid()'` primary keys get an arbitrary order that changes every time the rows are rewritten. Set `defaultSort` to pick the column that actually carries the domain's ordering, and `tiebreakSortField` to keep rows with equal primary values stable across pages and re-fetches:
+
+```ts
+list: {
+  schema: listSchema,
+  entityId: E.sales.sales_order_line,
+  fields: lineFields,
+  sortFieldMap: { lineNumber: 'line_number', createdAt: 'created_at' },
+  defaultSort: { field: 'lineNumber', dir: 'asc' },
+  tiebreakSortField: 'id',
+}
+```
+
+Notes:
+
+- Both options are resolved through `sortFieldMap`: name the public alias when the map defines one (`lineNumber`), and an unmapped name is used as the column directly (which is why `tiebreakSortField: 'id'` works above without an `id` entry in the map).
+- **Both apply to the Query Engine path only** — the route must set `entityId` *and* `fields`. The plain-ORM fallback list issues an unordered `find` and already ignores `sortField` today, so a route configured without `entityId`/`fields` will set `defaultSort` and observe no ordering at all.
+- `defaultSort.dir` applies only together with `defaultSort.field`. An explicit `sortField` without a `sortDir` still defaults to ascending.
+- The list schema must keep `sortField` **optional**. A zod `.default()` on `sortField` reaches the sort resolver as an explicit request and pins the order itself, so `defaultSort` never takes effect.
+- `tiebreakSortField` is appended as a secondary ascending sort only when it differs from the resolved primary sort, and it applies to explicit sorts too.
+
 #### Per-request projection (function-form `fields`)
 
 `fields` accepts either a static array or a function `(query, ctx) => string[]` that resolves the projection per request. The function form lets a route narrow the columns the Query Engine selects based on the validated query — most usefully to drop large detail-only columns (encrypted JSONB snapshots, payload blobs) from grid listings while still selecting them for single-record fetches.

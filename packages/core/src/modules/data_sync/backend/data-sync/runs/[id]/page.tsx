@@ -1,6 +1,6 @@
 "use client"
 import * as React from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Card, CardHeader, CardTitle, CardContent } from '@open-mercato/ui/primitives/card'
@@ -19,6 +19,17 @@ import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { RotateCcw, XCircle } from 'lucide-react'
 import { getSyncRunStatusVariant } from '../../../../lib/syncRunStatus'
+import {
+  buildRetryFailureMessage,
+  resolveRunParameterText,
+  type RetryFailureBody,
+} from '../../../../components/RunParameterFields'
+
+type RunParameterDeclaration = {
+  key: string
+  label?: string
+  labelKey?: string
+}
 
 type SyncRunDetail = {
   id: string
@@ -33,6 +44,7 @@ type SyncRunDetail = {
   batchesCompleted: number
   lastError: string | null
   progressJobId: string | null
+  parameters: Record<string, unknown> | null
   progressJob: {
     id: string
     status: string
@@ -75,28 +87,15 @@ function formatEtaSeconds(seconds: number): string {
 
 type SyncRunDetailPageProps = {
   params?: {
-    id?: string | string[]
+    id?: string
   }
-}
-
-function resolveRouteId(value: string | string[] | undefined): string | undefined {
-  if (Array.isArray(value)) return value[0]
-  return value
-}
-
-function resolvePathnameId(pathname: string): string | undefined {
-  const parts = pathname.split('/').filter(Boolean)
-  const runId = parts.at(-1)
-  if (!runId || runId === 'runs' || runId === 'data-sync') return undefined
-  return decodeURIComponent(runId)
 }
 
 const LOG_PAGE_SIZE = 50
 
 export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
-  const pathname = usePathname()
   const router = useRouter()
-  const runId = resolveRouteId(params?.id) ?? resolvePathnameId(pathname)
+  const runId = params?.id
   const t = useT()
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({
     contextId: 'data_sync.runDetail',
@@ -111,25 +110,41 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   const [logsTotal, setLogsTotal] = React.useState(0)
   const [logsPage, setLogsPage] = React.useState(1)
   const logsPageRef = React.useRef(1)
+  const [parameterLabels, setParameterLabels] = React.useState<Record<string, string>>({})
+  // Declarations cannot change between two refreshes of the same run, so the
+  // options list is fetched once per integration rather than on every progress
+  // event that re-reads the run.
+  const parameterLabelsIntegrationRef = React.useRef<string | null>(null)
 
-  const resolveCurrentRunId = React.useCallback(() => {
-    return runId ?? (
-      typeof window !== 'undefined'
-        ? resolvePathnameId(window.location.pathname)
-        : undefined
+  // The run row stores machine keys. Resolve the adapter's declared labels so a
+  // past run reads as "Start id" rather than "startId"; keys the adapter no
+  // longer declares keep their raw form, which keeps historical runs readable.
+  const loadParameterLabels = React.useCallback(async (integrationId: string) => {
+    if (parameterLabelsIntegrationRef.current === integrationId) return
+    parameterLabelsIntegrationRef.current = integrationId
+    const call = await apiCall<{ items?: Array<{ integrationId: string; runParameters?: RunParameterDeclaration[] }> }>(
+      '/api/data_sync/options',
+      undefined,
+      { fallback: { items: [] } },
     )
-  }, [runId])
+    const declared = (call.result?.items ?? []).find((item) => item.integrationId === integrationId)?.runParameters ?? []
+    const labels: Record<string, string> = {}
+    for (const param of declared) {
+      const resolved = resolveRunParameterText(t, param.labelKey, param.label)
+      if (resolved) labels[param.key] = resolved
+    }
+    setParameterLabels(labels)
+  }, [t])
 
   const loadRun = React.useCallback(async () => {
-    const currentRunId = resolveCurrentRunId()
-    if (!currentRunId) {
+    if (!runId) {
       setError(t('data_sync.runs.detail.loadError'))
       setIsLoading(false)
       return
     }
     setIsNotFound(false)
     const call = await apiCall<SyncRunDetail>(
-      `/api/data_sync/runs/${encodeURIComponent(currentRunId)}`,
+      `/api/data_sync/runs/${encodeURIComponent(runId)}`,
       undefined,
       { fallback: null },
     )
@@ -144,14 +159,16 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
     }
     setRun(call.result)
     setIsLoading(false)
-  }, [resolveCurrentRunId, t])
+    if (call.result.parameters && Object.keys(call.result.parameters).length > 0) {
+      void loadParameterLabels(call.result.integrationId)
+    }
+  }, [loadParameterLabels, runId, t])
 
   const loadLogs = React.useCallback(async (page?: number) => {
-    const currentRunId = resolveCurrentRunId()
-    if (!currentRunId) return
+    if (!runId) return
     const targetPage = page ?? logsPageRef.current
     setIsLoadingLogs(true)
-    const params = new URLSearchParams({ runId: currentRunId, pageSize: String(LOG_PAGE_SIZE), page: String(targetPage) })
+    const params = new URLSearchParams({ runId, pageSize: String(LOG_PAGE_SIZE), page: String(targetPage) })
     const call = await apiCall<{ items: LogEntry[]; total?: number }>(
       `/api/integrations/logs?${params.toString()}`,
       undefined,
@@ -164,7 +181,7 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
       setLogsPage(targetPage)
     }
     setIsLoadingLogs(false)
-  }, [resolveCurrentRunId])
+  }, [runId])
 
   React.useEffect(() => {
     void loadRun()
@@ -225,18 +242,17 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   }, [loadLogs, loadRun])
 
   const handleCancel = React.useCallback(async () => {
-    const currentRunId = resolveCurrentRunId()
-    if (!currentRunId) return
+    if (!runId) return
     const call = await runMutation({
       // optimistic-lock-exempt: run lifecycle action endpoint (cancel), not a concurrent record edit
-      operation: () => apiCall(`/api/data_sync/runs/${encodeURIComponent(currentRunId)}/cancel`, {
+      operation: () => apiCall(`/api/data_sync/runs/${encodeURIComponent(runId)}/cancel`, {
         method: 'POST',
       }, { fallback: null }),
-      mutationPayload: { runId: currentRunId },
+      mutationPayload: { runId },
       context: {
         operation: 'update',
         actionId: 'cancel-sync-run',
-        runId: currentRunId,
+        runId,
       },
     })
     if (call.ok) {
@@ -245,32 +261,31 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
     } else {
       flash(t('data_sync.runs.detail.cancelError'), 'error')
     }
-  }, [resolveCurrentRunId, runMutation, t, loadRun])
+  }, [runId, runMutation, t, loadRun])
 
   const handleRetry = React.useCallback(async () => {
-    const currentRunId = resolveCurrentRunId()
-    if (!currentRunId) return
+    if (!runId) return
     const call = await runMutation({
       // optimistic-lock-exempt: starts a new retry run (create), not a concurrent record edit
-      operation: () => apiCall<{ id: string }>(`/api/data_sync/runs/${encodeURIComponent(currentRunId)}/retry`, {
+      operation: () => apiCall<{ id: string }>(`/api/data_sync/runs/${encodeURIComponent(runId)}/retry`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fromBeginning: false }),
       }, { fallback: null }),
-      mutationPayload: { runId: currentRunId, fromBeginning: false },
+      mutationPayload: { runId, fromBeginning: false },
       context: {
         operation: 'create',
         actionId: 'retry-sync-run',
-        runId: currentRunId,
+        runId,
       },
     })
     if (call.ok && call.result) {
       flash(t('data_sync.runs.detail.retrySuccess'), 'success')
       router.push(`/backend/data-sync/runs/${encodeURIComponent(call.result.id)}`)
     } else {
-      flash(t('data_sync.runs.detail.retryError'), 'error')
+      flash(buildRetryFailureMessage(call.result as RetryFailureBody | null, t), 'error')
     }
-  }, [resolveCurrentRunId, router, runMutation, t])
+  }, [runId, router, runMutation, t])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('data_sync.runs.detail.title')} /></PageBody></Page>
   if (isNotFound) {
@@ -403,6 +418,26 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
             </CardContent>
           </Card>
         </div>
+
+        {run.parameters && Object.keys(run.parameters).length > 0 ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('data_sync.runs.detail.parameters', 'Run parameters')}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {Object.entries(run.parameters).map(([key, value]) => (
+                  <div key={key} className="flex items-center justify-between gap-3 rounded-md border bg-card px-3 py-2 text-sm">
+                    <dt className="font-medium text-muted-foreground">{parameterLabels[key] ?? key}</dt>
+                    <dd className="font-mono text-foreground">
+                      {typeof value === 'boolean' ? String(value) : String(value ?? '')}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </CardContent>
+          </Card>
+        ) : null}
 
         {run.lastError && (
           <Card className="border-status-error-border bg-status-error-bg">

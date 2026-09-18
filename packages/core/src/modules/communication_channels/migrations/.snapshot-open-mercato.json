@@ -1005,6 +1005,15 @@
           "expression": "create unique index \"communication_channels_user_provider_external_uq\" on \"communication_channels\" (\"tenant_id\", \"user_id\", \"provider_key\", \"external_identifier\") where \"deleted_at\" is null and \"user_id\" is not null and \"external_identifier\" is not null"
         },
         {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "communication_channels_tenant_push_provider_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"communication_channels_tenant_push_provider_uq\" on \"communication_channels\" (\"tenant_id\", \"provider_key\") where \"channel_type\" = 'push' and \"user_id\" is null and \"deleted_at\" is null"
+        },
+        {
           "columnNames": [
             "id"
           ],

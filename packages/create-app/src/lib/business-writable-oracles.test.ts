@@ -127,7 +127,9 @@ export async function reviewOrderRisk(rows: any[], effects: any) {
       throw new Error('stale order')
     }
   }
-  return effects.execute(rows)
+  const result = await effects.execute(rows)
+  await effects.observeProgress(result.progressJobId)
+  return result
 }
 
 export const orderRiskReviewWidget = {

@@ -7,6 +7,9 @@ export const runSyncSchema = z.object({
   fullSync: z.boolean().default(false),
   batchSize: z.number().int().min(1).max(1000).default(100),
   triggeredBy: z.string().optional(),
+  // Adapter-declared run parameters. Validated/coerced against the adapter's
+  // `runParameters` declaration in the run route; here we only accept a record.
+  parameters: z.record(z.string(), z.unknown()).optional(),
 })
 
 export type RunSyncInput = z.infer<typeof runSyncSchema>

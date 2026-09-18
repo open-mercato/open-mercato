@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
+import { listActionLogs } from '@open-mercato/core/modules/audit_logs/__integration__/helpers/auditLogsApi'
 
 /**
  * TC-SALES-ATOMIC-VERIFY: backward-compatibility & data-safety verification for the
@@ -79,6 +80,46 @@ async function runUndo(request: APIRequestContext, token: string, undoToken: str
   expect(response.status(), `POST ${SALES_UNDO_PATH} should be 200`).toBe(200)
   const body = await readJson(response)
   expect(body.ok, 'undo response should report ok: true').toBe(true)
+}
+
+async function unwindOrderActionsThroughCreate(
+  request: APIRequestContext,
+  token: string,
+  orderId: string,
+  createUndoToken: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const response = await apiRequest(request, 'POST', SALES_UNDO_PATH, {
+      token,
+      data: { undoToken: createUndoToken },
+    })
+    if (response.status() === 200) {
+      const body = await readJson(response)
+      expect(body.ok, 'order-create undo response should report ok: true').toBe(true)
+      return
+    }
+
+    const responseBody = await readJson(response)
+    expect(responseBody.error, 'create undo should only wait behind a newer order action').toBe(
+      'Undo token not available',
+    )
+    const logs = await listActionLogs(request, token, {
+      resourceKind: 'sales.order',
+      resourceId: orderId,
+      pageSize: 100,
+    })
+    expect(logs.status, 'order action-log lookup should return 200').toBe(200)
+    const latest = logs.body?.items.find(
+      (item) => item.executionState === 'done' && typeof item.undoToken === 'string',
+    )
+    expect(latest, 'a newer undoable order action should be available').toBeDefined()
+    expect(latest?.undoToken, 'the newer order action should differ from the create action').not.toBe(
+      createUndoToken,
+    )
+    await runUndo(request, token, latest!.undoToken!)
+  }
+
+  throw new Error('[internal] order creation remained blocked behind newer undoable actions')
 }
 
 test.describe('TC-SALES-ATOMIC-VERIFY: atomic-write backward-compat & data safety', () => {
@@ -488,7 +529,7 @@ test.describe('TC-SALES-ATOMIC-VERIFY: atomic-write backward-compat & data safet
       const createUndoToken = parseUndoToken(createResponse)
       expect(createUndoToken, 'order create should emit an undo token').toBeTruthy()
 
-      await runUndo(request, token, createUndoToken!)
+      await unwindOrderActionsThroughCreate(request, token, orderId, createUndoToken!)
       const afterCreateUndo = await apiRequest(request, 'GET', `/api/sales/orders?id=${encodeURIComponent(orderId)}`, {
         token,
       })

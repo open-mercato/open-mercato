@@ -12,6 +12,7 @@ const mockUserHasAllFeatures = jest.fn()
 const mockGetAuthFromRequest = jest.fn()
 const mockGetCustomerAuthFromRequest = jest.fn()
 const mockRequireCustomerFeature = jest.fn()
+const mockSendCustomerInvitationEmail = jest.fn()
 
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/rateLimiter', () => ({
   checkAuthRateLimit: (...args: unknown[]) => mockCheckAuthRateLimit(...args),
@@ -40,6 +41,10 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/customerAuth', () => ({
   getCustomerAuthFromRequest: (...args: unknown[]) => mockGetCustomerAuthFromRequest(...args),
   requireCustomerFeature: (...args: unknown[]) => mockRequireCustomerFeature(...args),
+}))
+
+jest.mock('@open-mercato/core/modules/customer_accounts/lib/invitationEmail', () => ({
+  sendCustomerInvitationEmail: (...args: unknown[]) => mockSendCustomerInvitationEmail(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -79,6 +84,7 @@ describe('customer invitation endpoints — rate limiting', () => {
       invitation: { id: 'inv-1', email: 'buyer@example.com', expiresAt: new Date().toISOString() },
       rawToken: 'raw',
     })
+    mockSendCustomerInvitationEmail.mockResolvedValue(undefined)
   })
 
   it('admin route checks the invite rate limit with the normalized invitee email', async () => {

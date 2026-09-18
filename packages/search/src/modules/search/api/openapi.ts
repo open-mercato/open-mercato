@@ -246,6 +246,8 @@ export const vectorDriverStatusSchema = z.object({
   name: z.string(),
   configured: z.boolean(),
   implemented: z.boolean(),
+  available: z.boolean().nullable(),
+  unavailableReason: z.string().nullable(),
   envVars: z.array(vectorDriverEnvVarSchema),
 })
 
@@ -333,11 +335,11 @@ export const vectorReindexResponseSchema = z.object({
 export const searchOpenApi: OpenApiRouteDoc = {
   tag: 'Search',
   summary: 'Search across all indexed entities',
-  description: 'Performs a search using configured strategies (fulltext, vector, tokens). Use for search playground.',
+  description: 'Performs a search using configured strategies (fulltext, vector, tokens). Use for search playground. Results are limited to the entity types the caller holds the declared view features for; superadmins are exempt.',
   methods: {
     GET: {
       summary: 'Search across all indexed entities',
-      description: 'Performs a search using configured strategies (fulltext, vector, tokens). Use for search playground.',
+      description: 'Performs a search using configured strategies (fulltext, vector, tokens). Use for search playground. Results are limited to the entity types the caller holds the declared view features for; superadmins are exempt.',
       tags: ['Search'],
       query: searchQueryParamsSchema,
       responses: [

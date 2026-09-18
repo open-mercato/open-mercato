@@ -16,7 +16,22 @@ export type CiphertextWarningEncryptionService = {
   isEnabled?: () => boolean
 } | null | undefined
 
-export type CiphertextLikeFallbackReason = 'no-indexable-tokens' | 'no-search-tokens' | 'search-disabled'
+export type CiphertextLikeFallbackReason =
+  | 'no-indexable-tokens'
+  | 'no-search-tokens'
+  | 'search-disabled'
+  | 'raw-orm-filter'
+
+const REASON_HINTS: Record<CiphertextLikeFallbackReason, string> = {
+  'search-disabled':
+    'OM_SEARCH_ENABLED is off, so the filter runs as ILIKE against ciphertext and matches nothing.',
+  'no-indexable-tokens':
+    'The filter value produced no search tokens, so it runs as ILIKE against ciphertext and matches nothing. Use at least OM_SEARCH_MIN_LEN indexable characters, or filter on the deterministic hash column.',
+  'no-search-tokens':
+    'No search_tokens exist for this entity and scope, so the filter runs as ILIKE against ciphertext and matches nothing. Index the entity through query_index and reindex, or filter on the deterministic hash column.',
+  'raw-orm-filter':
+    'This filter bypasses the query engine, so it runs as ILIKE against ciphertext and matches nothing. Resolve ids through findEntityIdsBySearchTokens (@open-mercato/shared/lib/search/tokenLookup), filter on the deterministic hash column, or compare in memory after decryption.',
+}
 
 // One warning per entity/tenant/field per process — the fallback repeats on
 // every request, and an operator only needs to learn about it once.
@@ -79,11 +94,7 @@ export async function warnOnCiphertextLikeFallback(params: {
         entity,
         field,
         reason,
-        hint: reason === 'search-disabled'
-          ? 'OM_SEARCH_ENABLED is off, so the filter runs as ILIKE against ciphertext and matches nothing.'
-          : reason === 'no-indexable-tokens'
-            ? 'The filter value produced no search tokens, so it runs as ILIKE against ciphertext and matches nothing. Use at least OM_SEARCH_MIN_LEN indexable characters, or filter on the deterministic hash column.'
-            : 'No search_tokens exist for this entity and scope, so the filter runs as ILIKE against ciphertext and matches nothing. Index the entity through query_index and reindex, or filter on the deterministic hash column.',
+        hint: REASON_HINTS[reason],
       })
     }
   } catch (err) {

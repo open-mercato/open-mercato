@@ -142,6 +142,52 @@ export function resolveGroupExpression(
   return { expression: groupMapping.dbColumn, dbColumn: groupMapping.dbColumn, jsonPath: null }
 }
 
+/**
+ * Normalizes the value of a set filter (`in` / `not_in`) into the list of members it selects.
+ *
+ * The list is rendered as one placeholder per member rather than as a single array parameter:
+ * MikroORM does not bind parameters at the driver level — `AbstractSqlConnection.execute` calls
+ * `platform.formatQuery`, which interpolates each value through `BasePostgreSqlPlatform.escape`,
+ * and that renders a JavaScript array as a bare comma-separated list. The previous
+ * `= ANY(?)` / `!= ALL(?)` form therefore produced `= ANY('a', 'b')`, which PostgreSQL rejects
+ * for every shape of value (#4669).
+ *
+ * A missing value yields an empty set rather than a dropped filter, so an `in` filter the caller
+ * failed to populate selects nothing instead of silently widening the result.
+ *
+ * A null or undefined *member* is refused instead of rendered. `column IN (NULL)` matches no row
+ * and `column NOT IN ('a', NULL)` is NULL for every row, so such a member would return an empty
+ * aggregation with no error — a silent zero on a reporting surface, which is worse than a loud
+ * failure. Requests are already rejected at the API boundary by `widgetDataFilterSchema` in
+ * `api/widgets/data/schema.ts`; this throw keeps in-process callers, whose filter values are
+ * typed as `unknown`, from reaching the same silent path. Nullness is queried with the dedicated
+ * `is_null` / `is_not_null` operators.
+ */
+function normalizeSetFilterValues(value: unknown): unknown[] {
+  const values = Array.isArray(value) ? value : value === undefined ? [] : [value]
+  if (values.some((member) => member === null || member === undefined)) {
+    throw new Error(
+      '[internal] Set filter members must not be null or undefined — use the is_null / is_not_null operators to filter on nullness',
+    )
+  }
+  return values
+}
+
+/**
+ * Builds the shared WHERE clause every aggregation query reads from, together with its parameters.
+ *
+ * The `eq` / `neq` cases branch on a null value instead of binding it (#5016). Under SQL
+ * three-valued logic neither `column = NULL` nor `column != NULL` is ever `TRUE`, so binding a raw
+ * null selected zero rows and rendered as a legitimate-looking empty aggregation — a silent zero on
+ * a reporting surface. Nullness has to be asked with the `IS NULL` / `IS NOT NULL` keywords, which
+ * take no parameter; that is also what the dedicated `is_null` / `is_not_null` operators emit, and
+ * it mirrors how the query index builds column filters (`query_index/lib/engine.ts`).
+ *
+ * The ordering operators (`gt`/`gte`/`lt`/`lte`) deliberately keep binding the value: comparing an
+ * ordering against NULL is genuinely undefined rather than a mistake, so their never-`TRUE` result
+ * is the correct answer. Set operators refuse null members outright — see
+ * `normalizeSetFilterValues`.
+ */
 function buildWhereClause(
   options: Pick<BuildAggregationQueryOptions, 'entityType' | 'dateRange' | 'filters' | 'scope' | 'registry'>,
 ): { clause: string; params: unknown[] } {
@@ -176,10 +222,18 @@ function buildWhereClause(
 
       switch (filter.operator) {
         case 'eq':
+          if (filter.value === null) {
+            whereClauses.push(`${filterMapping.dbColumn} IS NULL`)
+            break
+          }
           whereClauses.push(`${filterMapping.dbColumn} = ?`)
           params.push(filter.value)
           break
         case 'neq':
+          if (filter.value === null) {
+            whereClauses.push(`${filterMapping.dbColumn} IS NOT NULL`)
+            break
+          }
           whereClauses.push(`${filterMapping.dbColumn} != ?`)
           params.push(filter.value)
           break
@@ -200,13 +254,18 @@ function buildWhereClause(
           params.push(filter.value)
           break
         case 'in':
-          whereClauses.push(`${filterMapping.dbColumn} = ANY(?)`)
-          params.push(filter.value)
+        case 'not_in': {
+          const values = normalizeSetFilterValues(filter.value)
+          if (values.length === 0) {
+            whereClauses.push(filter.operator === 'in' ? 'FALSE' : 'TRUE')
+            break
+          }
+          const keyword = filter.operator === 'in' ? 'IN' : 'NOT IN'
+          const placeholders = values.map(() => '?').join(', ')
+          whereClauses.push(`${filterMapping.dbColumn} ${keyword} (${placeholders})`)
+          params.push(...values)
           break
-        case 'not_in':
-          whereClauses.push(`${filterMapping.dbColumn} != ALL(?)`)
-          params.push(filter.value)
-          break
+        }
         case 'is_null':
           whereClauses.push(`${filterMapping.dbColumn} IS NULL`)
           break

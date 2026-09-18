@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .codex/hooks/gate-evidence.mjs record",
+            "statusMessage": "Recording validation-gate outcome",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .codex/hooks/gate-evidence.mjs check",
+            "statusMessage": "Checking gate evidence before finishing",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}

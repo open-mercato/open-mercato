@@ -112,7 +112,7 @@ export type EditorRelatedTo = {
 }
 
 export type EditorParticipant = {
-  userId: string
+  userId?: string
   name: string
   email?: string
   isCustomer: boolean
@@ -405,13 +405,14 @@ function parseParticipants(item: CalendarItem): EditorParticipant[] {
   const rawParticipants = Array.isArray(item.raw.participants) ? item.raw.participants : []
   const statusByUserId = new Map<string, string | null>()
   for (const raw of rawParticipants) {
+    if (!raw.userId) continue
     statusByUserId.set(raw.userId, readUnknownString((raw as Record<string, unknown>).status))
   }
   return item.participants.map((participant) => ({
     userId: participant.userId,
-    name: participant.name ?? participant.email ?? participant.userId,
+    name: participant.name ?? participant.email ?? participant.userId ?? '',
     email: participant.email,
-    isCustomer: statusByUserId.get(participant.userId) === 'customer',
+    isCustomer: participant.userId ? statusByUserId.get(participant.userId) === 'customer' : false,
   }))
 }
 

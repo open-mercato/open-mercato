@@ -16,6 +16,7 @@ export type StartDataSyncRunInput = {
   cursor?: string | null
   triggeredBy?: string | null
   batchSize?: number
+  parameters?: Record<string, unknown> | null
   createProgressJob?: boolean
   progressJob?: {
     jobType?: string
@@ -64,6 +65,7 @@ export async function startDataSyncRun(params: {
       direction: input.direction,
       cursor: input.cursor ?? null,
       triggeredBy: input.triggeredBy ?? scope.userId ?? null,
+      parameters: input.parameters ?? null,
       progressJobId: progressJob?.id ?? null,
     },
     {

@@ -139,7 +139,7 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
 
   return (
     <div className="space-y-4">
-      <Alert variant="info">
+      <Alert status="information">
         <AlertDescription>
           {t('checkout.customerFieldsEditor.notices.defaultFields')}
         </AlertDescription>
@@ -328,7 +328,7 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
           </div>
         ) : (
           <div className="px-4 py-8">
-            <Alert variant="info">
+            <Alert status="information">
               <AlertDescription>
                 {t('checkout.customerFieldsEditor.notices.empty')}
               </AlertDescription>

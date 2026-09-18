@@ -17,10 +17,11 @@ import { join, relative, sep } from 'node:path'
  *   - canonical/internal keys → `(a, b) => (a < b ? -1 : a > b ? 1 : 0)`
  *   - numbers → `(a, b) => a - b`
  *
- * This audit fails if any non-test source file under a package `src` root or
- * under `scripts/` calls `.sort()` / `.toSorted()` with empty parens. Test and
- * spec files are intentionally out of scope — their bare sorts operate on known
- * string fixtures for assertion convenience.
+ * This audit fails if any non-test source file under a package production root
+ * (`src`, plus a standalone `server` process directory when the package ships
+ * one) or under `scripts/` calls `.sort()` / `.toSorted()` with empty parens.
+ * Test and spec files are intentionally out of scope — their bare sorts operate
+ * on known string fixtures for assertion convenience.
  */
 
 const repoRoot = join(__dirname, '..', '..', '..', '..')
@@ -29,7 +30,13 @@ const SKIP_DIRS = new Set(['node_modules', '__tests__', '__integration__', 'gene
 const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mjs', '.js']
 const BARE_SORT = /\.(?:sort|toSorted)\(\s*\)/
 
-function discoverPackageSrcRoots(): string[] {
+// Production code does not always live under `src`. A package may also ship a
+// standalone long-lived process from its own top-level directory (for example
+// the Documents collaboration sidecar in `packages/documents/server`), which is
+// compiled and published just like `src` and must be audited the same way.
+const PACKAGE_PRODUCTION_DIRS = ['src', 'server']
+
+function discoverPackageProductionRoots(): string[] {
   const roots: string[] = []
   let packages: string[]
   try {
@@ -38,19 +45,21 @@ function discoverPackageSrcRoots(): string[] {
     return roots
   }
   for (const name of packages.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
-    const srcDir = join(repoRoot, 'packages', name, 'src')
-    try {
-      if (statSync(srcDir).isDirectory()) {
-        roots.push(`packages/${name}/src`)
+    for (const dir of PACKAGE_PRODUCTION_DIRS) {
+      const candidate = join(repoRoot, 'packages', name, dir)
+      try {
+        if (statSync(candidate).isDirectory()) {
+          roots.push(`packages/${name}/${dir}`)
+        }
+      } catch {
+        // package without this production directory — skip
       }
-    } catch {
-      // package without a src directory — skip
     }
   }
   return roots
 }
 
-const SCAN_ROOTS = [...discoverPackageSrcRoots(), 'scripts']
+const SCAN_ROOTS = [...discoverPackageProductionRoots(), 'scripts']
 
 function isSourceFile(name: string): boolean {
   if (name.endsWith('.d.ts')) return false
@@ -86,8 +95,32 @@ function findBareSortLines(source: string): number[] {
   if (!source.includes('.sort(') && !source.includes('.toSorted(')) return []
   const hits: number[] = []
   const lines = source.split('\n')
+  let inBlockComment = false
   for (let index = 0; index < lines.length; index += 1) {
-    if (BARE_SORT.test(lines[index])) hits.push(index + 1)
+    // Comments are stripped before matching. Prose documenting this very rule
+    // ("never a bare `.sort()`") is not a call site, and flagging it would make
+    // the guard unsatisfiable without deleting the explanation it exists to
+    // enforce.
+    let line = lines[index]
+    if (inBlockComment) {
+      const end = line.indexOf('*/')
+      if (end === -1) continue
+      line = line.slice(end + 2)
+      inBlockComment = false
+    }
+    const blockStart = line.indexOf('/*')
+    if (blockStart !== -1) {
+      const end = line.indexOf('*/', blockStart + 2)
+      if (end === -1) {
+        line = line.slice(0, blockStart)
+        inBlockComment = true
+      } else {
+        line = line.slice(0, blockStart) + line.slice(end + 2)
+      }
+    }
+    const lineComment = line.indexOf('//')
+    if (lineComment !== -1) line = line.slice(0, lineComment)
+    if (BARE_SORT.test(line)) hits.push(index + 1)
   }
   return hits
 }
@@ -118,12 +151,22 @@ describe('sort/toSorted call sites use explicit comparators (#3620)', () => {
     }
   })
 
+  it('covers standalone package server processes that ship outside src', () => {
+    expect(SCAN_ROOTS).toContain('packages/documents/server')
+  })
+
   it('detects a bare sort and accepts an explicit comparator', () => {
     expect(findBareSortLines('const a = [2, 1].sort()')).toEqual([1])
     expect(findBareSortLines('const a = items.toSorted()')).toEqual([1])
     expect(findBareSortLines('const a = [2, 1].sort((x, y) => x - y)')).toEqual([])
     expect(findBareSortLines('const a = keys.sort((x, y) => x.localeCompare(y))')).toEqual([])
     expect(findBareSortLines('const a = keys.sort((x, y) => (x < y ? -1 : x > y ? 1 : 0))')).toEqual([])
+  })
+
+  it('ignores a mention inside a comment, so the rule can be documented in prose', () => {
+    expect(findBareSortLines('// never a bare `.sort()` here')).toEqual([])
+    expect(findBareSortLines('/**\n * explicit and stable rather than a bare `.sort()`.\n */')).toEqual([])
+    expect(findBareSortLines('const a = [2, 1].sort() // still a violation')).toEqual([1])
   })
 
   it('no production sort/toSorted call omits its comparator', () => {

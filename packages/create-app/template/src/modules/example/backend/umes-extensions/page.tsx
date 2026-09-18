@@ -10,7 +10,7 @@ import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 
 type TodoListProbe = {
   _example?: {
@@ -309,6 +309,7 @@ export default function UmesExtensionsPage() {
           </div>
           <DataTable
             title={t('example.umes.extensions.table.title', 'Replacement Handles')}
+            titleHeadingLevel={2}
             columns={columns}
             data={SAMPLE_HANDLES}
             perspective={{ tableId: 'example.umes.extensions' }}

@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -89,12 +90,15 @@ test('recursive shared emission produces a complete hash-owned standalone harnes
     '.ai/harness/fixtures/seeds.json',
     '.ai/harness/release-result.schema.json',
     '.ai/harness/target-validation-result.schema.json',
+    '.ai/lessons.md',
+    '.ai/lessons/_template.md',
     '.ai/skills/om-evolve-harness/SKILL.md',
     '.ai/skills/om-share-this-session/SKILL.md',
     '.ai/skills/om-share-this-session/references/consent-and-review.md',
     '.ai/skills/om-share-this-session/scripts/prepare-share-bundle.mjs',
     'scripts/evaluate-agent-harness.mjs',
     'scripts/framework-context.mjs',
+    'scripts/check-lessons.mjs',
     'scripts/install-skills.sh',
     'scripts/install-skills.mjs',
     'scripts/prepare-agent-harness-fixture.mjs',
@@ -108,7 +112,7 @@ test('recursive shared emission produces a complete hash-owned standalone harnes
 
   const manifest = JSON.parse(readFileSync(join(targetDir, '.ai', 'harness', 'manifest.json'), 'utf8')) as {
     generator: string
-    files: Array<{ path: string; sha256: string; source: string }>
+    files: Array<{ path: string; sha256: string; source: string; userEditable: boolean }>
   }
   assert.match(manifest.generator, /^open-mercato-agentic@(?:unknown|\d+\.\d+\.\d+(?:[-+].+)?)$/)
   assert.ok(manifest.files.length > 80, 'the ownership manifest must cover the complete emitted tree')
@@ -125,6 +129,15 @@ test('recursive shared emission produces a complete hash-owned standalone harnes
     manifest.files.find((entry) => entry.path === '.ai/skills/om-module-scaffold/SKILL.md')?.source,
     'local-skill',
   )
+  assert.equal(manifest.files.find((entry) => entry.path === '.ai/lessons.md')?.userEditable, true)
+  assert.equal(manifest.files.find((entry) => entry.path === '.ai/lessons/_template.md')?.userEditable, true)
+  assert.equal(manifest.files.find((entry) => entry.path === 'scripts/check-lessons.mjs')?.userEditable, false)
+  const lessonCheck = spawnSync(
+    process.execPath,
+    [join(targetDir, 'scripts', 'check-lessons.mjs'), '--root', targetDir],
+    { encoding: 'utf8' },
+  )
+  assert.equal(lessonCheck.status, 0, `${lessonCheck.stdout}\n${lessonCheck.stderr}`)
   assert.equal(
     manifest.files.find((entry) => entry.path === '.ai/skills/om-share-this-session/SKILL.md')?.source,
     'local-skill',

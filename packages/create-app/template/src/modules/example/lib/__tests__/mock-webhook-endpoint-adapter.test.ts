@@ -13,8 +13,8 @@ const ORIGINAL_NODE_ENV = process.env.NODE_ENV
 function resetEnv() {
   if (ORIGINAL_SECRET_ENV === undefined) delete process.env.MOCK_INBOUND_WEBHOOK_SECRET
   else process.env.MOCK_INBOUND_WEBHOOK_SECRET = ORIGINAL_SECRET_ENV
-  if (ORIGINAL_NODE_ENV === undefined) Reflect.deleteProperty(process.env, 'NODE_ENV')
-  else Reflect.set(process.env, 'NODE_ENV', ORIGINAL_NODE_ENV)
+  if (ORIGINAL_NODE_ENV === undefined) delete process.env.NODE_ENV
+  else process.env.NODE_ENV = ORIGINAL_NODE_ENV
 }
 
 describe('mockWebhookEndpointAdapter.verifyWebhook', () => {
@@ -105,6 +105,20 @@ describe('mockWebhookEndpointAdapter.verifyWebhook', () => {
     ).resolves.toMatchObject({ eventType: 'mock.inbound.received' })
   })
 
+  it('verifies the production secret wired by the ephemeral integration harness', async () => {
+    process.env.NODE_ENV = 'production'
+    process.env.MOCK_INBOUND_WEBHOOK_SECRET = 'open-mercato-mock-dev-inbound-webhook-secret'
+    const body = JSON.stringify({ type: 'mock.inbound.received', data: { externalId: 'ext-1' } })
+    const signature = computeMockInboundWebhookSignature(body, 'open-mercato-mock-dev-inbound-webhook-secret')
+    await expect(
+      mockWebhookEndpointAdapter.verifyWebhook({
+        headers: { [MOCK_INBOUND_SIGNATURE_HEADER]: signature },
+        body,
+        method: 'POST',
+      }),
+    ).resolves.toMatchObject({ eventType: 'mock.inbound.received' })
+  })
+
   it('accepts a request authenticated with the static token header', async () => {
     const body = JSON.stringify({ type: 'mock.inbound.received', data: { externalId: 'ext-token' } })
     await expect(
@@ -142,7 +156,7 @@ describe('mockWebhookEndpointAdapter.verifyWebhook', () => {
   })
 
   it('refuses to fall back to the dev secret in production', async () => {
-    Reflect.set(process.env, 'NODE_ENV', 'production')
+    process.env.NODE_ENV = 'production'
     delete process.env.MOCK_INBOUND_WEBHOOK_SECRET
     const body = JSON.stringify({ type: 'mock.inbound.received', data: {} })
     const signature = computeMockInboundWebhookSignature(body, MOCK_INBOUND_DEV_WEBHOOK_SECRET)

@@ -361,6 +361,17 @@ export class AiAgentRuntimeOverride {
    */
   @Property({ name: 'loop_active_tools_json', type: 'jsonb', nullable: true })
   loopActiveToolsJson?: unknown | null
+
+  /**
+   * Per-agent (or tenant-wide when `agent_id` is null) input-moderation
+   * override. `true` = on, `false` = off, `null` = inherit (env default →
+   * off). Additive nullable column; existing rows inherit. The `untrustedInput`
+   * agent flag still forces moderation regardless of this value.
+   *
+   * Spec `2026-06-04-ai-input-moderation-and-safety-identifiers`.
+   */
+  @Property({ name: 'input_moderation', type: 'boolean', nullable: true })
+  inputModeration?: boolean | null
 }
 
 /**
@@ -932,4 +943,49 @@ export class AiChatMessage {
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
+}
+
+/**
+ * Append-only audit record of an input that the moderation gate blocked.
+ *
+ * Stores ONLY category flags + numeric scores — never the prompt content or
+ * any PII (Q4 data-minimization decision). Enough to identify repeat abusers
+ * and tune policy. No `updated_at` / `deleted_at`: rows are immutable. Two
+ * indexes back the audit listing (`tenant_id, created_at`) and the per-user
+ * abuse review (`tenant_id, user_id`); every read filters `tenant_id`.
+ *
+ * Spec `2026-06-04-ai-input-moderation-and-safety-identifiers`.
+ */
+@Entity({ tableName: 'ai_moderation_flags' })
+@Index({ name: 'ai_moderation_flags_tenant_created_idx', properties: ['tenantId', 'createdAt'] })
+@Index({ name: 'ai_moderation_flags_tenant_user_idx', properties: ['tenantId', 'userId'] })
+export class AiModerationFlag {
+  [OptionalProps]?: 'id' | 'createdAt' | 'organizationId'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'agent_id', type: 'text' })
+  agentId!: string
+
+  @Property({ name: 'user_id', type: 'text' })
+  userId!: string
+
+  @Property({ name: 'provider_id', type: 'text' })
+  providerId!: string
+
+  @Property({ name: 'model_id', type: 'text' })
+  modelId!: string
+
+  @Property({ name: 'categories', type: 'jsonb' })
+  categories!: Record<string, { flagged: boolean; score: number }>
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
 }

@@ -1,16 +1,18 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { UserConsent } from '@open-mercato/core/modules/auth/data/entities'
+import { User, UserConsent } from '@open-mercato/core/modules/auth/data/entities'
 import { verifyConsentIntegrityHash } from '@open-mercato/core/modules/auth/lib/consentIntegrity'
 import { assertActorCanAccessUserTarget } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { ConsentItem } from '@open-mercato/core/modules/auth/lib/consentTypes'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 export const metadata = {
   path: '/auth/users/consents',
@@ -38,23 +40,55 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
+  const rbacService = container.resolve('rbacService') as RbacService
   const tenantId = auth.tenantId ?? null
   const organizationId = auth.orgId ?? null
+
+  const actorAcl = auth.sub ? await rbacService.loadAcl(auth.sub, { tenantId, organizationId }) : null
+  const actorIsSuperAdmin = !!actorAcl?.isSuperAdmin
+
+  if (!actorIsSuperAdmin && !tenantId) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({
+      ok: false,
+      error: translate('auth.users.consents.errors.tenantContextRequired', 'Tenant context is required'),
+    }, { status: 403 })
+  }
 
   if (auth.sub) {
     try {
       await assertActorCanAccessUserTarget({
         em,
-        rbacService: container.resolve('rbacService') as RbacService,
+        rbacService,
         actorUserId: auth.sub,
         tenantId,
         organizationId,
         targetUserId: parsed.data.userId,
+        actorIsSuperAdmin,
+        organizationScope: await resolveOrganizationScopeForRequest({
+          container,
+          auth,
+          request: req,
+          tenantId,
+        }),
       })
     } catch (err) {
       if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
       throw err
     }
+  }
+
+  let scopeTenantId = tenantId
+  if (!scopeTenantId) {
+    const target = await findOneWithDecryption(
+      em,
+      User,
+      { id: parsed.data.userId } as FilterQuery<User>,
+      {},
+      { tenantId: null, organizationId: null },
+    )
+    if (!target) return NextResponse.json({ ok: true, items: [] })
+    scopeTenantId = target.tenantId ?? null
   }
 
   const consents = await findWithDecryption(
@@ -63,11 +97,11 @@ export async function GET(req: Request) {
     {
       userId: parsed.data.userId,
       deletedAt: null,
-      ...(tenantId ? { tenantId } : {}),
+      tenantId: scopeTenantId,
       ...(organizationId ? { organizationId } : {}),
     },
     { orderBy: { createdAt: 'DESC' } },
-    { tenantId, organizationId },
+    { tenantId: scopeTenantId, organizationId },
   )
 
   const items: ConsentItem[] = consents.map((c) => ({

@@ -37,6 +37,16 @@ describe('useGroupOrder', () => {
     expect(result.current.orderedIds).toEqual(['a', 'd', 'b', 'c'])
   })
 
+  it('composes two reorder() calls made within a single commit', () => {
+    const { result } = renderHook(() => useGroupOrder('people', ['a', 'b', 'c']))
+    act(() => {
+      result.current.reorder(0, 2)
+      result.current.reorder(0, 1)
+    })
+    expect(result.current.orderedIds).toEqual(['c', 'b', 'a'])
+    expect(JSON.parse(localStorage.getItem('om:group-order:people')!)).toEqual(['c', 'b', 'a'])
+  })
+
   it('updates ordering when defaults change to include a new id', () => {
     const { result, rerender } = renderHook(
       ({ ids }) => useGroupOrder('p', ids),

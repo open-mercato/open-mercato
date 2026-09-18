@@ -4,7 +4,8 @@ import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/wms/extension-points'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import { useQuery } from '@tanstack/react-query'
 import { Layers } from 'lucide-react'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
@@ -40,6 +41,7 @@ type PagedResponse<T> = {
   items: T[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 function parseExpiryWindow(value: string | null): ExpiryWindow | null {
@@ -259,6 +261,7 @@ export default function WmsLotsListPage() {
             <DataTable
               embedded
               title={title}
+              titleHeadingLevel={2}
               columns={columns}
               data={lotsQuery.data.items}
               isLoading={lotsQuery.isFetching}
@@ -279,6 +282,7 @@ export default function WmsLotsListPage() {
                 pageSize: 25,
                 total: lotsQuery.data.total,
                 totalPages: lotsQuery.data.totalPages,
+                totalIsCapped: lotsQuery.data?.totalIsCapped === true,
                 onPageChange: setPage,
               }}
               perspective={{ tableId: extensionPoints.hosts.lotsTable.tableId }}

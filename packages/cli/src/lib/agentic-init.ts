@@ -6,6 +6,7 @@ interface AgenticInitOptions {
   tool?: string
   force?: boolean
   updateHarness?: boolean
+  experimentalHooksValidator?: boolean
 }
 
 const TOOL_EXISTING_FILES: Record<string, string[]> = {
@@ -20,6 +21,10 @@ const TOOL_EXISTING_FILES: Record<string, string[]> = {
   'cursor': [
     '.cursor/hooks.json',
   ],
+  'github-copilot': [
+    '.github/copilot-instructions.md',
+    '.vscode/mcp.json.example',
+  ],
 }
 
 function parseArgs(args: string[]): AgenticInitOptions {
@@ -30,6 +35,8 @@ function parseArgs(args: string[]): AgenticInitOptions {
       options.force = true
     } else if (arg === '--update-harness') {
       options.updateHarness = true
+    } else if (arg === '--experimental-hooks-validator') {
+      options.experimentalHooksValidator = true
     } else if (arg.startsWith('--tool=')) {
       options.tool = arg.slice('--tool='.length)
     } else if (arg === '--tool') {
@@ -104,6 +111,7 @@ export async function runAgenticInit(args: string[]): Promise<number> {
       tool: options.tool,
       force: options.force,
       updateHarness: options.updateHarness,
+      experimentalHooksValidator: options.experimentalHooksValidator,
     })
   } finally {
     rl.close()

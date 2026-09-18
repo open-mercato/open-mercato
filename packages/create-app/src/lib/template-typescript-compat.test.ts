@@ -19,6 +19,8 @@ test('standalone home page does not import an autologin subpath ahead of its dep
   const source = fs.readFileSync(homePagePath, 'utf8')
 
   assert.doesNotMatch(source, /@open-mercato\/core\/modules\/auth\/lib\/autologin/)
+  assert.match(source, /function isAutoLoginEnabled\(\): boolean/)
+  assert.match(source, /!auth && isAutoLoginEnabled\(\)/)
   assert.match(source, /process\.env\.OM_AUTOLOGIN_EMAIL\?\.trim\(\)/)
   assert.match(source, /process\.env\.OM_AUTOLOGIN_PASSWORD/)
 })

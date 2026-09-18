@@ -35,6 +35,13 @@ jest.mock('../../data/entities', () => ({
   SyncSchedule: class SyncSchedule {},
 }))
 
+const mockResolveAdapterForIntegration = jest.fn()
+
+jest.mock('../../lib/start-cursor', () => ({
+  ...jest.requireActual('../../lib/start-cursor'),
+  resolveAdapterForIntegration: (...args: unknown[]) => mockResolveAdapterForIntegration(...args),
+}))
+
 type WorkerModule = typeof import('../sync-scheduled')
 let handle: WorkerModule['default']
 
@@ -79,6 +86,7 @@ describe('data-sync scheduled worker', () => {
     }))
     mockProgressService.createJob.mockResolvedValue({ id: 'progress-1' })
     mockEm.flush.mockResolvedValue(undefined)
+    mockResolveAdapterForIntegration.mockReturnValue(null)
   })
 
   it('creates a ProgressJob and links it to the scheduled run', async () => {
@@ -137,6 +145,71 @@ describe('data-sync scheduled worker', () => {
 
     expect(schedule.lastRunAt).toBeInstanceOf(Date)
     expect(mockEm.flush).toHaveBeenCalled()
+  })
+
+  // A schedule has no parameter form, but the adapter's declared defaults still
+  // apply — otherwise the same adapter sees a different parameter set from a
+  // schedule than from the dashboard, and silently takes a different branch.
+  it('hands the adapter its declared run-parameter defaults', async () => {
+    mockFindOneWithDecryption.mockResolvedValue({
+      id: 'schedule-1',
+      integrationId: 'sync_excel',
+      entityType: 'customers.person',
+      direction: 'import',
+      isEnabled: true,
+      fullSync: false,
+    })
+    mockResolveAdapterForIntegration.mockReturnValue({
+      providerKey: 'excel',
+      runParameters: [
+        { key: 'dryRun', label: 'Dry run', type: 'boolean', defaultValue: true },
+        { key: 'mode', label: 'Mode', type: 'select', defaultValue: 'fast', options: [{ value: 'fast' }, { value: 'thorough' }] },
+        { key: 'startId', label: 'Start id', type: 'number' },
+      ],
+    })
+
+    await handle(buildJob(), buildContext())
+
+    const createRunInput = mockSyncRunService.createRun.mock.calls[0][0]
+    expect(createRunInput.parameters).toEqual({ dryRun: true, mode: 'fast' })
+  })
+
+  it('stores null parameters when the adapter declares none', async () => {
+    mockFindOneWithDecryption.mockResolvedValue({
+      id: 'schedule-1',
+      integrationId: 'sync_excel',
+      entityType: 'customers.person',
+      direction: 'import',
+      isEnabled: true,
+      fullSync: false,
+    })
+
+    await handle(buildJob(), buildContext())
+
+    const createRunInput = mockSyncRunService.createRun.mock.calls[0][0]
+    expect(createRunInput.parameters).toBeNull()
+  })
+
+  it('skips the run when the adapter declares a default that violates its own declaration', async () => {
+    mockFindOneWithDecryption.mockResolvedValue({
+      id: 'schedule-1',
+      integrationId: 'sync_excel',
+      entityType: 'customers.person',
+      direction: 'import',
+      isEnabled: true,
+      fullSync: false,
+    })
+    mockResolveAdapterForIntegration.mockReturnValue({
+      providerKey: 'excel',
+      runParameters: [
+        { key: 'startId', label: 'Start id', type: 'number', min: 0, defaultValue: -5 },
+      ],
+    })
+
+    await handle(buildJob(), buildContext())
+
+    expect(mockSyncRunService.createRun).not.toHaveBeenCalled()
+    expect(mockEnqueue).not.toHaveBeenCalled()
   })
 
   it('resolves a null cursor for full-sync schedules', async () => {

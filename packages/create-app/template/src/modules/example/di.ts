@@ -1,14 +1,18 @@
+import { asFunction, asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import {
   registerGatewayAdapter,
   registerPaymentGatewayDescriptor,
   registerWebhookHandler,
 } from '@open-mercato/shared/modules/payment_gateways/types'
+import { createExampleTodoSummaryService } from './lib/todoSummaryService'
 import { registerShippingAdapter } from '@open-mercato/core/modules/shipping_carriers/lib/adapter-registry'
 import { registerWebhookEndpointAdapter } from '@open-mercato/webhooks/modules/webhooks/lib/adapter-registry'
 import { mockGatewayAdapter } from './lib/mock-gateway-adapter'
 import { mockWebhookEndpointAdapter } from './lib/mock-webhook-endpoint-adapter'
 import { mockShippingAdapter } from './lib/mock-shipping-adapter'
+import { exampleCurrencyRateProvider } from './lib/mock-currency-rate-provider'
+import { registerCurrencyRateProvider } from '@open-mercato/core/modules/currencies/services/providers/registry'
 
 function readMockWebhookSessionId(payload: Record<string, unknown> | null): string | null {
   const data = payload?.data
@@ -17,8 +21,23 @@ function readMockWebhookSessionId(payload: Record<string, unknown> | null): stri
   return typeof sessionId === 'string' && sessionId.trim().length > 0 ? sessionId.trim() : null
 }
 
+/** DI token this module owns. Exported so callers and tests name it once. */
+export const EXAMPLE_TODO_SUMMARY_SERVICE = 'exampleTodoSummaryService' as const
+export const EXAMPLE_CURRENCY_RATE_PROVIDER = 'exampleCurrencyRateProvider' as const
+
 // Example DI registrar; modules can register their own services/components
 export function register(container: AppContainer) {
+  // The module's own service registration, as opposed to the adapter-registry calls
+  // below (which register into module-external registries, not into this container).
+  //
+  // `.scoped()` is the lifetime that matters here: the service closes over the request
+  // container's `em`, so a singleton would pin one request's EntityManager — and with it
+  // one request's tenant — for the life of the process.
+  container.register({
+    [EXAMPLE_TODO_SUMMARY_SERVICE]: asFunction(createExampleTodoSummaryService).scoped(),
+    [EXAMPLE_CURRENCY_RATE_PROVIDER]: asValue(exampleCurrencyRateProvider),
+  })
+
   // Register mock gateway adapter for payment testing (no real credentials needed)
   registerGatewayAdapter(mockGatewayAdapter)
   registerGatewayAdapter({
@@ -111,6 +130,7 @@ export function register(container: AppContainer) {
 
   // Register mock shipping adapter for carrier testing (no real credentials needed)
   registerShippingAdapter(mockShippingAdapter)
+  registerCurrencyRateProvider(exampleCurrencyRateProvider)
 
   // Register mock inbound webhook adapter for webhooks module integration tests
   registerWebhookEndpointAdapter(mockWebhookEndpointAdapter)

@@ -12,6 +12,7 @@ type MessageDescriptor = {
 const exactMessageMap = new Map<string, MessageDescriptor>([
   ['Not implemented', { key: 'security.api.errors.notImplemented', fallback: 'Not implemented.' }],
   ['Unauthorized', { key: 'api.errors.unauthorized', fallback: 'Unauthorized' }],
+  ['Forbidden', { key: 'api.errors.forbidden', fallback: 'Forbidden' }],
   ['Invalid payload', { key: 'api.errors.invalidPayload', fallback: 'Invalid payload.' }],
   ['Invalid query parameters', { key: 'security.api.errors.invalidQueryParameters', fallback: 'Invalid query parameters.' }],
   ['Invalid route parameters', { key: 'security.api.errors.invalidRouteParameters', fallback: 'Invalid route parameters.' }],

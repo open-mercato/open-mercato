@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/audit_logs/extension-points'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { DataTable, type PaginationProps } from '@open-mercato/ui/backend/DataTable'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -73,6 +73,7 @@ export function AccessLogsTable({ items, isLoading, actions, pagination }: { ite
   return (
     <DataTable<AccessLogItem>
       title={t('audit_logs.access.title')}
+      titleHeadingLevel={2}
       data={accessItems}
       columns={columns}
       perspective={{ tableId: extensionPoints.hosts.accessLogsTable.tableId }}

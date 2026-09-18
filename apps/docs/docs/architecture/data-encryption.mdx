@@ -81,6 +81,68 @@ flowchart TD
 2. Hook uses map + tenant DEK to decrypt mapped fields.
 3. API/CRUD receives hydrated plaintext while the DB keeps ciphertext.
 
+### Querying encrypted columns
+
+Decryption happens on **load**, not on **filter**. A `where` clause is passed to the database as
+written, so a plaintext predicate against an encrypted column is compared to ciphertext:
+
+- **It matches nothing, and it does not raise.** `{ title: 'Renewal' }`, `{ title: { $in: [...] } }`
+  and `em.count()` with such a filter return empty/zero rather than an error. Guard clauses and
+  idempotency checks built this way silently no-op once encryption is enabled — and keep working in
+  local dev with `TENANT_DATA_ENCRYPTION=no`, which is how the mistake survives review.
+- **For exact lookups, declare a hash column.** Add `hashField` to the field's rule in the module's
+  encryption map and filter on the hash (this is how `users.email_hash` supports login).
+- **Otherwise read, then compare in memory.** `findWithDecryption` / `findOneWithDecryption` /
+  `findAndCountWithDecryption` (`@open-mercato/shared/lib/encryption/find`) hydrate plaintext, so the
+  comparison happens on decrypted values. Scope the query by tenant/organization first so the set
+  stays bounded.
+- Sorting has the same limitation — see the encrypted-sort helpers in the `customers` module for the
+  established pattern.
+
+#### Text search: `$ilike` never matches an encrypted column
+
+This is the same failure as above, but it is worth calling out on its own because it is the one
+teams keep rediscovering (issue #5051). A hand-written substring search:
+
+```ts
+// Returns an empty page the moment `title` is added to an encryption map.
+const rows = await findWithDecryption(em, MailMessage, { title: { $ilike: `%${term}%` } })
+```
+
+compares a plaintext pattern against ciphertext. There is no error and no partial result — just an
+empty page that looks exactly like "nothing matched", so the feature ships green and the regression
+surfaces months later in production.
+
+**Use the token index instead.** `search_tokens` stores hashes of the *plaintext*, so it keeps
+matching after encryption is enabled:
+
+```ts
+import { findEntityIdsBySearchTokens } from '@open-mercato/shared/lib/search/tokenLookup'
+
+const match = await findEntityIdsBySearchTokens({
+  db: em.getKysely<any>(),
+  entityType: E.customers.customer_entity,
+  query: term,
+  fields: ['display_name', 'primary_email'],
+  scope: { tenantId, organizationId },
+})
+if (match.matched && match.ids.length) filters.$or.push({ id: { $in: match.ids } })
+```
+
+`matched: false` means the index was **not consulted** (blank query, `OM_SEARCH_ENABLED=off`, or a
+term too short to tokenize) — not "nothing matched". Keep the caller's own predicate in that case.
+
+Queries that go through the **query engine** get this routing automatically. Raw `em.find` and
+Kysely list routes must wire it themselves; where that is not yet done, #2990 tracks the migration.
+
+**Both paths now warn instead of failing silently.** Outside production, a `$like` / `$ilike` /
+`$re` filter passed to the `…WithDecryption` helpers that targets a property registered in an
+encryption map logs a warning naming the entity, the column and the remedy. The query engines log
+the equivalent warning when their own `ILIKE` fallback would run against an encrypted column. The
+check is limited to non-production because resolving the encryption map costs an uncached read;
+it is a development aid, not a runtime guard, so a search that only breaks under a
+production-only encryption map still needs a test.
+
 ### Failure modes
 
 - **KMS unreachable** – encryption layer logs a warning and (per requirements) continues without encryption; maps are still evaluated so we can re-enable later.
@@ -99,6 +161,7 @@ flowchart TD
 - **Rotation** – future addition: new version stored under suffix `tenant_key_<tenantId>_v2` with dual-read, single-write strategy; current design keeps a single active DEK per tenant.
 - **Caching** – DEKs cached with TTL (e.g., 15 minutes) and proactive refresh on expiry; invalidated if KMS returns a new version.
 - **Derived-key fallback** – when running without Vault and with a dedicated fallback secret, the derived KMS hashes the chosen secret to a root key and produces per-tenant DEKs with PBKDF2-SHA512 using the tenant id as salt, encoded base64. The key stays stable for a tenant while the secret is unchanged.
+- **Lazy provisioning is a state change** – `encryptEntityPayload` provisions the tenant's DEK on first use, which writes real key material to Vault. Callers that only preview or check ("would this row be encrypted?") MUST pass `{ createMissingDek: false }` so KMS stays untouched; the payload then comes back unchanged, exactly as when KMS declines a key. `getDek(keyId)` is the read-only probe for "does a key exist yet", and `resolveEncryptionKeyId(entityId, keyScope, tenantId)` derives the id a map's payloads are sealed under (`system:<entityId>` for system-scoped maps). The `--dry-run` modes of `mercato entities rotate-encryption-key` and `mercato entities backfill-system-encryption` use this path, so they report the rows a real run would rewrite without creating a key (#5950).
 
 ## Integration points to implement
 
@@ -109,6 +172,81 @@ flowchart TD
 - Auth adjustments: add `email_hash` column, populate on write, query by hash during login.
 - Tenant bootstrap: generate + store DEK when `TENANT_DATA_ENCRYPTION` is enabled; warn otherwise.
 - Health/warning surfacing: warning record when Vault unavailable; telemetry hooks around map cache misses and KMS failures.
+
+## Turning encryption off
+
+`TENANT_DATA_ENCRYPTION=no` is a supported state, but it only governs **new** writes. Rows already
+encrypted stay ciphertext, and the decrypt-on-load hook that used to hide that is gone with the
+toggle. On a database that has never encrypted anything, set the flag and restart. Otherwise the
+order matters:
+
+```bash
+# 1. While encryption is still ON — this needs the DEK.
+yarn mercato entities decrypt-database --tenant <uuid> --confirm <uuid> --dry-run
+yarn mercato entities decrypt-database --tenant <uuid> --confirm <uuid> --deactivate-maps
+
+# 2. Only now flip the flag, and restart every replica (DEK and map caches are in-process).
+#    TENANT_DATA_ENCRYPTION=no
+
+# 3. Rebuild the search/filter indexes.
+yarn mercato query_index reindex --tenant <uuid>
+
+# 4. Re-save every configured integration's credentials from the admin UI (see below).
+```
+
+**Flipping the flag before step 1 is the mistake to avoid.** Search tokens are hashes of
+*plaintext* — the indexer decrypts a document before tokenising it, which is what lets the token
+index survive encryption being switched on or off. With the toggle already off there is nothing to
+decrypt with, so a reindex would tokenise ciphertext. The write path detects the envelope by shape
+and preserves the existing tokens rather than replacing them, and logs a warning naming the
+affected fields, but those fields stay unsearchable until you decrypt and reindex properly.
+
+That detection runs **only while no DEK is reachable** — `disabled` or `unavailable` below, the
+states where shape is the only test available. A shape is forgeable, and in `active` mode the
+indexer really did decrypt the document, so a value that still looks like an envelope there is
+plaintext somebody typed and is indexed as such.
+
+### Three states, not two
+
+Code that branches on encryption must distinguish an operator opt-out from a KMS outage. Use
+`resolveEncryptionMode(kms)` from `@open-mercato/shared/lib/encryption/kms`:
+
+| Mode | Meaning | Correct handling |
+| --- | --- | --- |
+| `disabled` | `TENANT_DATA_ENCRYPTION=no` | Plaintext is the intended outcome — degrade to it. |
+| `active` | Encryption on, DEK reachable | Encrypt. |
+| `unavailable` | Encryption on, no DEK reachable | Fail closed. Never write a secret in the clear. |
+
+Do **not** branch on `kmsService.isHealthy()` alone. `NoopKmsService.isHealthy()` is deliberately
+inverted — it reports healthy exactly when encryption is off, so that `enabled && healthy`
+collapses correctly — which means a bare `if (!kms.isHealthy())` reads the first and third rows as
+the same condition.
+
+### What still needs a decrypted database
+
+- **Integration credentials** are stored in the clear under `disabled`, but a blob sealed *before*
+  the toggle was flipped cannot be opened by any key. Reads raise
+  `CredentialsEncryptionUnavailableError` with `reason: 'sealed-while-disabled'` rather than
+  handing an adapter a garbage secret.
+
+  `decrypt-database` does **not** fix this, and step 4 above is not optional: credentials carry a
+  second, service-level envelope under `__om_encrypted_credentials_blob_v1` *inside* the
+  `integration_credentials.credentials` value. The command decrypts the column that the encryption
+  map covers; the envelope inside it survives. **Every integration's credentials must be re-entered
+  once after the flag flips.** The admin credentials form loads as if nothing were configured (the
+  route degrades on this reason specifically), and saving stores them in the clear. Until then the
+  adapter itself fails loudly rather than running with a broken secret.
+- **Ephemeral session API key secrets** (MCP / AI chat) are stored in the clear under `disabled`.
+  Sessions minted while encryption was on are unrecoverable afterwards; they expire within 30
+  minutes, so re-issuing the session key is the remedy.
+
+### Search precision is a separate switch
+
+Disabling encryption does not by itself restore exact SQL `ILIKE` on list search. The token rewrite
+is gated on `OM_SEARCH_ENABLED` (default `true`), not on the encryption toggle. To get exact
+matching back on plaintext columns, set `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=true` — only
+then does the encryption toggle feed into that decision. `OM_SEARCH_ENABLED=false` turns the token
+machinery off entirely.
 
 ## Operational notes
 

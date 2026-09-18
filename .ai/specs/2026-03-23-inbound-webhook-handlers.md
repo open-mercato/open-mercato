@@ -74,7 +74,8 @@ External services (Stripe, PayPal, DHL, SendGrid, Shopify, etc.) all send webhoo
 > `[endpointId]` segment resolves against the new `webhookSourceRegistry` first (source-based flow
 > below). If no source matches, it falls back to `getWebhookEndpointAdapter(endpointId)` and the
 > legacy adapter path runs unchanged. So `…/inbound/stripe` means "source key `stripe`" when a
-> source is registered, and "adapter provider key `stripe`" otherwise.
+> source is registered, and "adapter provider key `stripe`" otherwise. Before either dispatch path,
+> the route applies the shared Standard Webhooks/Svix timestamp replay-window check.
 
 ```
   ┌──────────────┐  POST /api/webhooks/inbound/stripe   ┌─────────────────────┐
@@ -723,8 +724,9 @@ constraint; the cache fast-path is optional and additive.
 
 ### 10.4 Replay Protection
 
-Timestamp-based replay protection (optional, per source):
-- If the source provides a timestamp, reject webhooks older than 5 minutes (configurable)
+Timestamp-based replay protection:
+- Before either the source-first or legacy adapter flow, reject requests with Standard Webhooks/Svix timestamp headers older than 5 minutes (configurable)
+- Sources and adapters remain responsible for any provider-specific timestamp rules
 
 ---
 
@@ -994,6 +996,9 @@ preserved. The handler resolves the path segment in this order:
 2. Otherwise `getWebhookEndpointAdapter(endpointId)` → the **legacy adapter path runs exactly as
    before** (verify, receipt dedup, emit `webhooks.inbound.received`).
 3. Otherwise `404`.
+
+After resolving the path segment and before entering either dispatch flow, the route rejects stale
+Standard Webhooks/Svix timestamp headers using the shared configurable replay window.
 
 This keeps every existing adapter working with zero behavior change and avoids a colliding route file.
 

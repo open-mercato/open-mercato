@@ -9,7 +9,9 @@ jest.mock('@open-mercato/shared/lib/commands', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: jest.fn().mockResolvedValue({
-    translate: (_key: string, fallback?: string) => fallback ?? _key,
+    translate: (key: string, _fallback?: string, params?: Record<string, unknown>) => (
+      params?.max === undefined ? `translated:${key}` : `translated:${key}:max=${params.max}`
+    ),
   }),
 }))
 
@@ -76,7 +78,10 @@ describe('scheduler.jobs active schedule tenant limit', () => {
     const em = makeEm(null)
     em.count.mockResolvedValue(2)
 
-    await expect(create.execute(createInput(), makeCtx(em))).rejects.toMatchObject({ status: 422 })
+    await expect(create.execute(createInput(), makeCtx(em))).rejects.toMatchObject({
+      status: 422,
+      body: { error: 'translated:scheduler.error.active_schedule_limit:max=2' },
+    })
 
     expect(em.count).toHaveBeenCalledWith(expect.any(Function), {
       tenantId: 'tenant-a',
@@ -115,7 +120,10 @@ describe('scheduler.jobs active schedule tenant limit', () => {
     const em = makeEm(schedule)
     em.count.mockResolvedValue(2)
 
-    await expect(update.execute({ id: 'job-1', isEnabled: true }, makeCtx(em))).rejects.toMatchObject({ status: 422 })
+    await expect(update.execute({ id: 'job-1', isEnabled: true }, makeCtx(em))).rejects.toMatchObject({
+      status: 422,
+      body: { error: 'translated:scheduler.error.active_schedule_limit:max=2' },
+    })
 
     expect(em.count).toHaveBeenCalledWith(expect.any(Function), {
       tenantId: 'tenant-a',
@@ -164,7 +172,10 @@ describe('scheduler.jobs active schedule tenant limit', () => {
 
     await expect(
       update.execute({ id: 'job-1', scheduleType: 'interval', scheduleValue: '1s' }, makeCtx(em)),
-    ).rejects.toMatchObject({ status: 422 })
+    ).rejects.toMatchObject({
+      status: 422,
+      body: { error: 'translated:scheduler.error.invalid_schedule_value' },
+    })
 
     expect(schedule.scheduleValue).toBe('15m')
     expect(schedule.nextRunAt).toEqual(new Date('2026-01-01T00:15:00.000Z'))

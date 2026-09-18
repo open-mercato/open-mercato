@@ -173,6 +173,25 @@ describe('applyHarnessUpdate', () => {
     expect(manifest.files.map((item) => item.path)).toEqual([modified])
   })
 
+  it('removes retired flat module facts even when their generated copy was modified', () => {
+    const installedFact = '.ai/guides/modules/customers.md'
+    const referenceFact = '.ai/guides/reference-modules/example.md'
+    const unknownFact = '.ai/guides/modules/private.md'
+    write(join(targetDir, installedFact), 'locally modified generated facts\n')
+    write(join(targetDir, referenceFact), 'locally modified reference facts\n')
+    write(join(targetDir, unknownFact), 'unknown local file\n')
+    writeManifest(targetDir, [
+      entry(installedFact, 'old installed facts\n'),
+      entry(referenceFact, 'old reference facts\n'),
+    ])
+    writeManifest(stagingDir, [])
+
+    expect(applyHarnessUpdate(targetDir, stagingDir)).toEqual([])
+    expect(existsSync(join(targetDir, installedFact))).toBe(false)
+    expect(existsSync(join(targetDir, referenceFact))).toBe(false)
+    expect(readFileSync(join(targetDir, unknownFact), 'utf8')).toBe('unknown local file\n')
+  })
+
   it('leaves the prior manifest and app files untouched when candidate validation fails', () => {
     write(join(targetDir, '.ai', 'owned.md'), 'old\n')
     const oldManifestPath = writeManifest(targetDir, [entry('.ai/owned.md', 'old\n')])
@@ -262,6 +281,12 @@ describe('runAgenticSetup ownership modes', () => {
       '# Private\n',
     )
     expect(existsSync(join(appDir, '.ai', 'harness', 'manifest.json'))).toBe(true)
+    const manifest = JSON.parse(
+      readFileSync(join(appDir, '.ai', 'harness', 'manifest.json'), 'utf8'),
+    ) as { files: ManifestEntry[] }
+    expect(manifest.files.find((item) => item.path === '.ai/lessons.md')?.userEditable).toBe(true)
+    expect(manifest.files.find((item) => item.path === '.ai/lessons/_template.md')?.userEditable).toBe(true)
+    expect(existsSync(join(appDir, 'scripts', 'check-lessons.mjs'))).toBe(true)
     if (process.platform !== 'win32') {
       expect(statSync(join(appDir, 'scripts', 'install-skills.sh')).mode & 0o111).not.toBe(0)
     }
@@ -372,9 +397,14 @@ describe('runAgenticSetup ownership modes', () => {
     expect(existsSync(join(appDir, '.claude', 'settings.json'))).toBe(true)
     expect(existsSync(join(appDir, '.codex', 'mcp.json.example'))).toBe(true)
     expect(existsSync(join(appDir, '.cursor', 'hooks.json'))).toBe(false)
+    expect(existsSync(join(appDir, '.github', 'copilot-instructions.md'))).toBe(false)
     const tiers = JSON.parse(readFileSync(join(appDir, '.ai', 'skills', 'tiers.json'), 'utf8')) as {
       agents?: { ignore?: string[] }
     }
+    // Every SKILL-MANAGED tool the app did not select is ignored, so the skills
+    // installer skips its links. GitHub Copilot is deliberately absent: it reads
+    // `.github/` instruction files rather than a skills directory, and the
+    // installer rejects its id as an unknown agent.
     expect(tiers.agents?.ignore).toEqual(['cursor'])
   })
 })

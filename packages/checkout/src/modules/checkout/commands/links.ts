@@ -520,5 +520,9 @@ registerCommand(updateLinkCommand)
 registerCommand(deleteLinkCommand)
 
 export function serializeLinkRecord(record: CheckoutLink) {
-  return serializeTemplateOrLink(record)
+  // completionCount is link-only state (templates have no completions), so it is
+  // added here rather than in the shared template/link serializer. It is the
+  // observable proof that a terminal transaction was applied exactly once, which
+  // TC-CHKT-043 asserts and could not previously read from any API.
+  return { ...serializeTemplateOrLink(record), completionCount: record.completionCount ?? 0 }
 }

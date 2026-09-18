@@ -48,6 +48,31 @@ export interface ChannelCapabilities {
    * Optional; existing chat providers (Slack, WhatsApp) omit and are treated as `true`.
    */
   realtimePush?: boolean
+
+  /**
+   * Shape of the outbound recipient this provider's `sendMessage` accepts as
+   * `metadata.to`. Optional; when absent the hub validates recipients as email
+   * addresses, so every provider that predates this field keeps its exact
+   * behavior.
+   *
+   * Declare `'provider-native'` when recipients are provider-issued identifiers
+   * rather than email addresses (e.g. a Discord channel snowflake). The hub then
+   * applies transport-safety checks only (see `validateOutboundRecipient`) and
+   * the adapter owns the provider-specific format — it MUST treat the value as
+   * untrusted input.
+   *
+   * **`'provider-native'` also opts the provider into presence-optionality, not
+   * only format.** The hub accepts an outbound request that names no recipient
+   * at all and forwards it with no `metadata.to` key, on the understanding that
+   * the adapter resolves its own configured target (Discord: `defaultChannelId`).
+   * An adapter declaring this therefore MUST resolve such a target, and MUST
+   * fail legibly — an operator-readable `SendMessageResult.error`, not a throw —
+   * when it has none, because that message is surfaced verbatim to whoever ran
+   * the send. Declare `'email'` (or omit the field) if your provider has no
+   * default destination: the hub then keeps answering `Recipient is required`,
+   * which is the correct outcome for a request with nowhere to go.
+   */
+  recipientFormat?: 'email' | 'provider-native'
 }
 
 // ── Send / status / sender listing ────────────────────────────
@@ -486,6 +511,14 @@ export interface ValidateCredentialsResult {
   ok: boolean
   /** Field-level error messages keyed by credential field name; for `createCrudFormError`. */
   errors?: Record<string, string>
+  /**
+   * Stable machine-readable code per failing field, keyed the same way as
+   * `errors`. Lets a UI render a localized message instead of the English
+   * prose in `errors` (which stays reserved for logs and API consumers), the
+   * same split the route-level `code` field already uses. Optional: adapters
+   * that don't emit codes keep working and callers fall back to `errors`.
+   */
+  errorCodes?: Record<string, string>
 }
 
 // ── The adapter contract ─────────────────────────────────────
@@ -493,6 +526,23 @@ export interface ValidateCredentialsResult {
 export interface ChannelAdapter {
   readonly providerKey: string
   readonly channelType: 'whatsapp' | 'slack' | 'email' | 'sms' | string
+
+  /**
+   * Scope of a connected channel for this provider. Governs whether the connect
+   * flow stamps `CommunicationChannel.user_id` with the connecting user or leaves
+   * it NULL (tenant-wide):
+   *
+   * - `'user'` (default when absent) — one channel per user (Gmail, IMAP). The
+   *   credential belongs to the connecting user.
+   * - `'tenant'` — one shared channel per tenant (`user_id = NULL`), connected by
+   *   an admin. Used by push providers (FCM/APNs/Expo) whose service account /
+   *   signing key serves every device in the tenant. Reading (fan-out/delivery)
+   *   is already scope-agnostic; this only affects the connect/write path.
+   *
+   * ADDITIVE-ONLY (BACKWARD_COMPATIBILITY.md): existing adapters that omit it keep
+   * their per-user behaviour unchanged.
+   */
+  readonly channelScope?: 'tenant' | 'user'
 
   /** Declare supported features */
   readonly capabilities: ChannelCapabilities

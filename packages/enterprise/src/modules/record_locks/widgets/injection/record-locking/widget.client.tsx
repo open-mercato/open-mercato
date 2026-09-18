@@ -367,6 +367,33 @@ export function resolveRecordLockSaveErrorDecision(args: {
   return { action: 'apply-conflict', payload }
 }
 
+/**
+ * Merge the lock returned by `/api/record_locks/validate` into the widget's
+ * current lock state. `/validate` intentionally strips the token from the
+ * caller's OWN lock (`toLockView(..., includeToken=false)`), so a naive
+ * `payloadLock ?? currentLock` overwrites a good token with `null`, flips
+ * `mine` false, and flashes a spurious "locked by another user" banner for the
+ * ~1s round-trip of every save (#5289). Preserve the current token when the
+ * response describes the same *active* lock id; a genuinely different (foreign)
+ * lock, or a same-id lock the server no longer reports as active, keeps its null
+ * token so real contention banners and re-acquisition still work.
+ */
+export function resolveLockAfterValidate(
+  currentLock: RecordLockUiView | null | undefined,
+  payloadLock: RecordLockUiView | null | undefined,
+): RecordLockUiView | null {
+  if (!payloadLock) return currentLock ?? null
+  if (
+    payloadLock.token == null
+    && payloadLock.status === 'active'
+    && currentLock
+    && currentLock.id === payloadLock.id
+  ) {
+    return { ...payloadLock, token: currentLock.token }
+  }
+  return payloadLock
+}
+
 function clearIncomingChangesQueryFlag() {
   if (typeof window === 'undefined') return
   try {
@@ -1342,7 +1369,7 @@ export default function RecordLockingWidget({
           ) : null}
           {(state?.conflict?.changes?.length ?? 0) === 0 ? (
             !isRecordDeleted ? (
-            <Alert variant="info">
+            <Alert status="information">
               <AlertDescription>
                 {t(
                   'record_locks.conflict.no_field_details',
@@ -1353,7 +1380,7 @@ export default function RecordLockingWidget({
             ) : null
           ) : null}
           {showOverrideBlockedNotice ? (
-            <Alert variant="warning">
+            <Alert status="warning">
               <AlertDescription>
                 {t(
                   'record_locks.conflict.override_blocked_notice',
@@ -1558,7 +1585,7 @@ export async function validateBeforeSave(
       resourceKind,
       resourceId,
       latestActionLogId: payload.latestActionLogId ?? state?.latestActionLogId ?? null,
-      lock: payload.lock ?? state?.lock ?? null,
+      lock: resolveLockAfterValidate(state?.lock, payload.lock),
       conflict: preserveConflictUntilSuccessfulSave ? (state?.conflict ?? null) : null,
       pendingConflictId: nextResolution === 'normal' ? null : (conflictId ?? state?.pendingConflictId ?? null),
       pendingResolution: nextResolution,
@@ -1569,7 +1596,7 @@ export async function validateBeforeSave(
   setRecordLockFormState(formId, {
     resourceKind,
     resourceId,
-    lock: payload.lock ?? state?.lock ?? null,
+    lock: resolveLockAfterValidate(state?.lock, payload.lock),
     conflict: payload.conflict ?? state?.conflict ?? null,
     pendingConflictId: payload.conflict?.id ?? conflictId ?? state?.pendingConflictId ?? null,
     pendingResolution: resolution === 'normal' ? 'normal' : resolution,

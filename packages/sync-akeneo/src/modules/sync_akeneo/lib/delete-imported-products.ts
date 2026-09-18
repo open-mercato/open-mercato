@@ -5,6 +5,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { ProgressService, ProgressServiceContext } from '@open-mercato/core/modules/progress/lib/progressService'
 import { CatalogProduct } from '@open-mercato/core/modules/catalog/data/entities'
 import { SyncCursor } from '@open-mercato/core/modules/data_sync/data/entities'
+import type { SyncRunService } from '@open-mercato/core/modules/data_sync/lib/sync-run-service'
 import { SyncExternalIdMapping } from '@open-mercato/core/modules/integrations/data/entities'
 
 export const AKENEO_DELETE_IMPORTED_PRODUCTS_QUEUE = 'sync-akeneo-delete-products'
@@ -132,6 +133,7 @@ export async function deleteImportedProductsWithProgress(params: {
   const em = container.resolve('em') as EntityManager
   const commandBus = container.resolve('commandBus') as CommandBus
   const progressService = container.resolve('progressService') as ProgressService
+  const syncRunService = container.resolve('dataSyncRunService') as SyncRunService
   const progressContext: ProgressServiceContext = {
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
@@ -188,6 +190,14 @@ export async function deleteImportedProductsWithProgress(params: {
     integrationId: 'sync_akeneo',
     entityType: 'products',
     direction: 'import',
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+  })
+
+  // Deleting the shared row only resets entity types that write one. Clear the
+  // run-scoped position too, so this stays a full reset if the products adapter
+  // ever opts out of the shared cursor.
+  await syncRunService.resetResumePosition('sync_akeneo', 'products', 'import', {
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
   })

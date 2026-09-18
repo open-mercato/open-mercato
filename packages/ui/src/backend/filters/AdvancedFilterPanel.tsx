@@ -444,7 +444,7 @@ export function AdvancedFilterPanel(props: AdvancedFilterPanelProps) {
           )}
           {props.pendingErrors.length > 0 ? (
             <div className="p-3 border-t border-border" data-testid="filter-validation-banner">
-              <Alert variant="destructive">
+              <Alert status="error">
                 <AlertDescription>
                   {props.pendingErrors.length === 1
                     ? t('ui.advancedFilter.banner.incomplete', '{count} filter is incomplete — filters won\'t apply until all values are picked.', { count: 1 })

@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -34,6 +34,7 @@ type RolesResponse = {
   items?: RoleRow[]
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 export default function CustomerRolesPage() {
@@ -45,6 +46,7 @@ export default function CustomerRolesPage() {
   const [pageSize] = React.useState(50)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
@@ -88,6 +90,7 @@ export default function CustomerRolesPage() {
         setRows(items)
         setTotal(typeof payload?.total === 'number' ? payload.total : items.length)
         setTotalPages(typeof payload?.totalPages === 'number' ? payload.totalPages : 1)
+        setTotalIsCapped(payload?.totalIsCapped === true)
       } catch (err) {
         if (!cancelled) {
           const message = err instanceof Error ? err.message : t('customer_accounts.admin.roles.error.load', 'Failed to load roles')
@@ -201,7 +204,8 @@ export default function CustomerRolesPage() {
     <Page>
       <PageBody>
         <DataTable<RoleRow>
-          title={t('customer_accounts.admin.roles.title', 'Customer Roles')}
+        title={t('customer_accounts.admin.roles.title', 'Customer Roles')}
+        titleHeadingLevel={1}
           actions={(
             <Button asChild>
               <Link href="/backend/customer_accounts/roles/create">
@@ -240,7 +244,7 @@ export default function CustomerRolesPage() {
               ]}
             />
           )}
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
         />
       </PageBody>

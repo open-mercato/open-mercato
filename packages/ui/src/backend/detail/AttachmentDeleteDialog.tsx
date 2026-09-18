@@ -38,7 +38,7 @@ export function AttachmentDeleteDialog({ open, onOpenChange, fileName, onConfirm
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isDeleting}>
             {t('attachments.library.metadata.cancel', 'Cancel')}
           </Button>
-          <Button type="button" variant="destructive" onClick={onConfirm} disabled={isDeleting}>
+          <Button type="button" variant="destructive-solid" onClick={onConfirm} disabled={isDeleting}>
             {t('attachments.library.actions.delete', 'Delete')}
           </Button>
         </DialogFooter>

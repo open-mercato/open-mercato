@@ -398,7 +398,7 @@ export function DictionaryEntrySelect({
                       labels={appearanceLabels ?? DEFAULT_APPEARANCE_LABELS}
                     />
                   ) : null}
-                  {formError ? <p className="text-sm text-red-600">{formError}</p> : null}
+                  {formError ? <p className="text-sm text-status-error-text">{formError}</p> : null}
                 </div>
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>

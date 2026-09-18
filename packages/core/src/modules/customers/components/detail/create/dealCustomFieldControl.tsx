@@ -133,7 +133,7 @@ export function DealCustomFieldControl({
         label={field.label}
         required={field.required}
         description={field.description}
-        error={error}
+        error={field.rendersOwnError ? undefined : error}
       >
         {field.component({
           id: field.id,

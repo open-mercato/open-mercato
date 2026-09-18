@@ -1,0 +1,73 @@
+• turbo 2.9.16
+
+   • Packages in scope: @open-mercato/app
+   • Running generate in 1 packages
+   • Remote caching disabled, using shared worktree cache
+
+@open-mercato/app:generate: cache bypass, force executing c69037eab9563b10
+@open-mercato/app:generate: ◇ injected env (97) from .env // tip: ⌁ auth for agents [www.vestauth.com]
+@open-mercato/app:generate: ╔═══════════════════════╗
+@open-mercato/app:generate: ║  🧩 Open Mercato CLI  ║
+@open-mercato/app:generate: ╚═══════════════════════╝
+@open-mercato/app:generate: 
+@open-mercato/app:generate: 🚀 Running generate:all 
+@open-mercato/app:generate: Running all generators...
+@open-mercato/app:generate: Generated .mercato/generated/modules.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/modules.runtime.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/frontend-routes.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/backend-routes.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/api-routes.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/subscribers.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/search.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/notifications.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/notifications.client.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/payments.client.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/notification-handlers.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/message-types.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/message-objects.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/messages.client.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/ai-tools.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/ai-agents.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/events.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/analytics.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/translations-fields.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/enrichers.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/interceptors.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/component-overrides.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/inbox-actions.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/guards.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/command-interceptors.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/frontend-middleware.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/backend-middleware.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/dashboard-widgets.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/injection-widgets.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/injection-tables.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/workflows.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/bootstrap-registrations.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/modules.app.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/bootstrap-modules.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/enabled-module-ids.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/modules.cli.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/cli-modules.generated.ts
+@open-mercato/app:generate: Generated .mercato/generated/module-package-sources.css
+@open-mercato/app:generate: [OpenAPI] Found 398 API route files
+@open-mercato/app:generate: [OpenAPI] Bundle approach: 398 paths, 281 with requestBody schemas
+@open-mercato/app:generate: [OpenAPI] Skipped (unchanged): /home/bernard/workspace/OpenMercatoTest/.ai/tmp/auto-create-pr/ai-input-moderation-safety-identifiers-20260610-145153/apps/mercato/.mercato/generated/openapi.generated.json
+@open-mercato/app:generate: [generate] Purging structural cache for all tenants...
+@open-mercato/app:generate: [41m[97m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+@open-mercato/app:generate: [41m[97m 🚨 Using derived tenant encryption keys (Vault unavailable / no DEK)                                         [0m
+@open-mercato/app:generate: [41m[97m Source: TENANT_DATA_ENCRYPTION_FALLBACK_KEY                                                                  [0m
+@open-mercato/app:generate: [41m[97m Secret fingerprint (sha256, truncated): c7eabc7b8d9e7cd0                                                     [0m
+@open-mercato/app:generate: [41m[97m Persist this secret securely. Without it, encrypted tenant data cannot be recovered after restart.           [0m
+@open-mercato/app:generate: [41m[97m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+@open-mercato/app:generate: [cache] sqlite strategy unavailable (better-sqlite3 failed to load). Falling back to memory strategy.
+@open-mercato/app:generate: [cache] sqlite strategy unavailable (better-sqlite3 failed to load). Falling back to memory strategy.
+@open-mercato/app:generate: [cache] sqlite strategy unavailable (better-sqlite3 failed to load). Falling back to memory strategy.
+@open-mercato/app:generate: [generate] Structural cache purge completed.
+@open-mercato/app:generate: All generators completed.
+@open-mercato/app:generate: ⏱️ Done in 16849ms
+
+ Tasks:    1 successful, 1 total
+Cached:    0 cached, 1 total
+  Time:    18.558s 
+

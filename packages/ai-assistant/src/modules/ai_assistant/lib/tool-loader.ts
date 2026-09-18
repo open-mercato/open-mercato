@@ -1,3 +1,4 @@
+/// <reference path="./ai-tools-generated.d.ts" />
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { z } from 'zod'
 import type { SearchService } from '@open-mercato/search/service'
@@ -16,6 +17,8 @@ import {
 } from './generated-registry-loader'
 
 const logger = createLogger('ai_assistant').child({ component: 'tools' })
+
+let allModuleToolsLoad: Promise<void> | null = null
 
 /**
  * Module tool definition as exported from ai-tools.ts files.
@@ -172,7 +175,10 @@ async function importGeneratedAiToolsModule(): Promise<Record<string, unknown> |
   } catch {
     const tsPath = findGeneratedFile('ai-tools.generated.ts')
     if (!tsPath) return null
-    return compileAndImportGenerated(tsPath)
+    // App-source modules (apps/<app>/src/modules/*/ai-tools.ts) are .ts that
+    // node cannot import directly — bundle their sources so one app-source tool
+    // does not abort the whole registry.
+    return compileAndImportGenerated(tsPath, { bundleLocalModules: true })
   }
 }
 
@@ -235,7 +241,7 @@ export async function loadGeneratedModuleAiTools(): Promise<number> {
  * Dynamically load tools from known module paths.
  * This is called during MCP server startup.
  */
-export async function loadAllModuleTools(): Promise<void> {
+async function loadAllModuleToolsUncached(): Promise<void> {
   // 1. Register built-in tools
   registerMcpTool(contextWhoamiTool, { moduleId: 'context' })
   logger.debug('Registered built-in context_whoami tool')
@@ -273,6 +279,53 @@ export async function loadAllModuleTools(): Promise<void> {
   } catch (error) {
     logger.error('Could not register API route manifests', { err: error })
   }
+}
+
+export function loadAllModuleTools(): Promise<void> {
+  if (!allModuleToolsLoad) {
+    allModuleToolsLoad = loadAllModuleToolsUncached().catch((error) => {
+      allModuleToolsLoad = null
+      throw error
+    })
+  }
+  return allModuleToolsLoad
+}
+
+/** @__internal Test-only hook — reset the process-wide loader memo. */
+export function resetAllModuleToolsLoadForTests(): void {
+  allModuleToolsLoad = null
+}
+
+/**
+ * Guarantee the tool registry is populated, at most once per process.
+ *
+ * {@link loadAllModuleTools} was only ever called by the entry points that
+ * exist to serve tools — the MCP servers, `/api/ai_assistant/tools[/execute]`,
+ * the action-confirm route, the CLI. Every OTHER path that resolves an agent's
+ * tools (the chat dispatcher, `runAiAgentText`, `runAiAgentObject`) assumed a
+ * populated registry without ever populating it, so whether an in-app agent
+ * could see its own allowlisted tools depended on what that Node process had
+ * happened to serve first. When it had served none, the policy gate rejected
+ * every tool as `tool_unknown`, the runtime silently degraded to a toolless
+ * call, and an agent whose prompt told it to self-check with a tool had no tool
+ * to call. Resolving tools is now the thing that guarantees they are loaded.
+ *
+ * Repeat calls are free. `loadAllModuleTools` itself is idempotent — it
+ * re-registers into a keyed map — but it also re-runs four dynamic imports and
+ * an OpenAPI spec load, so its own memo is about cost, not correctness. This
+ * function holds no second memo of its own: stacking one over that memo made a
+ * reset at either layer insufficient to observe a reload.
+ */
+export async function ensureModuleToolsLoaded(): Promise<void> {
+  await loadAllModuleTools()
+}
+
+/**
+ * @__internal
+ * Test-only hook — drops the memo so a suite can observe the load again.
+ */
+export function resetModuleToolsLoadedForTests(): void {
+  resetAllModuleToolsLoadForTests()
 }
 
 /**

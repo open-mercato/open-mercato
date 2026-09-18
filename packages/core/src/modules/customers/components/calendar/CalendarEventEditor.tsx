@@ -170,7 +170,7 @@ function EditorBody({
     const ids: string[] = []
     if (form.relatedTo && form.relatedTo.kind !== 'company') ids.push(form.relatedTo.id)
     for (const participant of form.participants) {
-      if (participant.isCustomer) ids.push(participant.userId)
+      if (participant.isCustomer && participant.userId) ids.push(participant.userId)
     }
     return Array.from(new Set(ids))
   }, [form.relatedTo, form.participants])
@@ -189,7 +189,7 @@ function EditorBody({
     // and the type switcher span both columns.
     <div className="grid w-full grid-cols-1 items-start gap-4 lg:grid-cols-2 lg:gap-x-6">
       {conflict ? (
-        <Alert variant="warning" className="rounded-lg lg:col-span-2">
+        <Alert status="warning" className="rounded-lg lg:col-span-2">
           <AlertTitle>{t('customers.calendar.editor.conflictTitle', 'Calendar conflict')}</AlertTitle>
           <AlertDescription>{conflict}</AlertDescription>
         </Alert>

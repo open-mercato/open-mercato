@@ -12,4 +12,4 @@ Use the concern guides below. This path remains only so older prompts and links 
 | AI agents/tools/orchestrators or workflows | `.ai/guides/ai-workflows.md` |
 | Diagnosis and regression verification | `.ai/guides/testing-debugging.md` |
 
-For a complete new module, invoke `om-module-scaffold`; it loads the relevant branches. For a concrete installed-module fact, read its generated `.ai/guides/modules/<id>.md` first. Invoke `om-framework-context` only when generated facts cannot answer the implementation question.
+For a complete new module, invoke `om-module-scaffold`; it loads the relevant branches. For a concrete installed-module fact, read its generated `.ai/guides/modules/<id>/index.md` first. Invoke `om-framework-context` only when generated facts cannot answer the implementation question.

@@ -81,7 +81,7 @@ export default function PortalVerifyPage({ params }: Props) {
 
   return (
     <div className="mx-auto flex max-w-sm flex-col gap-4 py-12">
-      <Alert variant="destructive">
+      <Alert status="error">
         <AlertDescription>{error || t('portal.verify.error.generic', 'Email verification failed. Please try again.')}</AlertDescription>
       </Alert>
       <Button asChild variant="outline" className="rounded-lg">

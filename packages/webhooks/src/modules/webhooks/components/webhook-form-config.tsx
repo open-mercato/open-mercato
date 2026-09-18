@@ -137,7 +137,7 @@ export function buildWebhookFormGroups(t: TranslateFn): CrudFormGroup[] {
       title: t('webhooks.form.group.events'),
       column: 1,
       component: () => (
-        <Alert variant="info">
+        <Alert status="information">
           <AlertDescription>{t('webhooks.form.eventsPatternTip')}</AlertDescription>
         </Alert>
       ),
@@ -148,7 +148,7 @@ export function buildWebhookFormGroups(t: TranslateFn): CrudFormGroup[] {
       title: t('webhooks.form.group.delivery'),
       column: 2,
       component: () => (
-        <Alert variant="info">
+        <Alert status="information">
           <AlertDescription>{t('webhooks.form.deliveryDefaultsTip')}</AlertDescription>
         </Alert>
       ),
@@ -159,7 +159,7 @@ export function buildWebhookFormGroups(t: TranslateFn): CrudFormGroup[] {
       title: t('webhooks.form.group.advanced'),
       column: 2,
       component: () => (
-        <Alert variant="info">
+        <Alert status="information">
           <AlertDescription>{t('webhooks.form.advancedStrategyTip')}</AlertDescription>
         </Alert>
       ),
@@ -227,11 +227,11 @@ export function normalizeWebhookFormPayload(values: WebhookFormValues, t: Transl
 export function buildWebhookFormContentHeader(t: TranslateFn) {
   return (
     <div className="grid gap-3 lg:grid-cols-2">
-      <Alert variant="info">
+      <Alert status="information">
         <AlertTitle>{t('webhooks.form.guidanceTitle')}</AlertTitle>
         <AlertDescription>{t('webhooks.form.guidanceBody')}</AlertDescription>
       </Alert>
-      <Alert variant="warning">
+      <Alert status="warning">
         <AlertTitle>{t('webhooks.form.guidanceSecurityTitle')}</AlertTitle>
         <AlertDescription>{t('webhooks.form.guidanceSecurityBody')}</AlertDescription>
       </Alert>
@@ -245,7 +245,7 @@ function WebhookCustomHeadersField(props: CrudCustomFieldRenderProps) {
 
   return (
     <div className="space-y-3">
-      <Alert variant="info">
+      <Alert status="information">
         <AlertDescription>{t('webhooks.form.customHeadersTip')}</AlertDescription>
       </Alert>
       <JsonBuilder

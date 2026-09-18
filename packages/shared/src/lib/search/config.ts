@@ -8,11 +8,32 @@ export type SearchConfig = {
   enablePartials: boolean
   hashAlgorithm: 'sha256' | 'sha1' | 'md5'
   storeRawTokens: boolean
+  /**
+   * When true, a like/ilike on a PLAINTEXT base column runs as exact SQL ILIKE instead of being
+   * rewritten into an approximate search-token match; encrypted columns always keep the token
+   * path (ILIKE against ciphertext cannot match). Off by default: token matching can be faster
+   * than an unanchored ILIKE, which may need a full scan without a trigram index — but it is
+   * approximate (fragments under minTokenLength vanish, so `ZK 1/2026` degrades to its year and
+   * an all-short term drops the predicate). Flip it on when list search must be exact.
+   */
+  useIlikeForNonEncryptedFields?: boolean
   blocklistedFields: string[]
   entityBlocklistedFields?: Record<string, string[]>
+  maxFieldChars?: number
+  maxTokensPerField?: number
+  maxTokensPerRecord?: number
 }
 
 export const DEFAULT_SEARCH_MIN_TOKEN_LENGTH = 3
+export const DEFAULT_SEARCH_MAX_FIELD_CHARS = 20_000
+export const DEFAULT_SEARCH_MAX_TOKENS_PER_FIELD = 5_000
+export const DEFAULT_SEARCH_MAX_TOKENS_PER_RECORD = 20_000
+
+export type SearchTokenLimits = {
+  maxFieldChars: number
+  maxTokensPerField: number
+  maxTokensPerRecord: number
+}
 
 const DEFAULT_BLOCKLIST = ['password', 'token', 'secret', 'hash']
 
@@ -24,6 +45,19 @@ function parseBoolean(raw: string | undefined, fallback: boolean): boolean {
 
 function parseNumber(raw: string | undefined, fallback: number, min = 1): number {
   return parseNumberWithDefault(raw, fallback, { integer: true, min })
+}
+
+export function resolveSearchTokenLimits(config: SearchConfig): SearchTokenLimits {
+  const resolveLimit = (value: number | undefined, fallback: number): number => {
+    if (value === undefined) return fallback
+    if (!Number.isFinite(value) || value < 0) return fallback
+    return Math.trunc(value)
+  }
+  return {
+    maxFieldChars: resolveLimit(config.maxFieldChars, DEFAULT_SEARCH_MAX_FIELD_CHARS),
+    maxTokensPerField: resolveLimit(config.maxTokensPerField, DEFAULT_SEARCH_MAX_TOKENS_PER_FIELD),
+    maxTokensPerRecord: resolveLimit(config.maxTokensPerRecord, DEFAULT_SEARCH_MAX_TOKENS_PER_RECORD),
+  }
 }
 
 function parseHashAlgorithm(raw: string | undefined): 'sha256' | 'sha1' | 'md5' {
@@ -87,8 +121,12 @@ export function resolveSearchConfig(): SearchConfig {
     enablePartials: parseBoolean(process.env.OM_SEARCH_ENABLE_PARTIAL, true),
     hashAlgorithm: parseHashAlgorithm(process.env.OM_SEARCH_HASH_ALGO),
     storeRawTokens: parseBoolean(process.env.OM_SEARCH_STORE_RAW_TOKENS, false),
+    useIlikeForNonEncryptedFields: parseBoolean(process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS, false),
     blocklistedFields: blocklist.global,
     entityBlocklistedFields: blocklist.byEntity,
+    maxFieldChars: parseNumber(process.env.OM_SEARCH_MAX_FIELD_CHARS, DEFAULT_SEARCH_MAX_FIELD_CHARS, 0),
+    maxTokensPerField: parseNumber(process.env.OM_SEARCH_MAX_TOKENS_PER_FIELD, DEFAULT_SEARCH_MAX_TOKENS_PER_FIELD, 0),
+    maxTokensPerRecord: parseNumber(process.env.OM_SEARCH_MAX_TOKENS_PER_RECORD, DEFAULT_SEARCH_MAX_TOKENS_PER_RECORD, 0),
   }
 }
 

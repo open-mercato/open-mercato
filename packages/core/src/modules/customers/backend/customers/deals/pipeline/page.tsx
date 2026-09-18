@@ -1766,7 +1766,7 @@ export default function DealsKanbanPage(): React.ReactElement {
   }, [invalidateKanbanData, scopeVersion, selectedPipelineId])
 
   const updateDealStatus = React.useCallback(
-    async (dealId: string, status: 'win' | 'loose') => {
+    async (dealId: string, status: 'win' | 'lost') => {
       const dealVersion = deals.find((deal) => deal.id === dealId)?.updatedAt ?? null
       setPendingDealId(dealId)
       try {
@@ -2348,7 +2348,7 @@ export default function DealsKanbanPage(): React.ReactElement {
       {
         id: 'mark-lost',
         label: translateWithFallback(t, 'customers.deals.kanban.menu.markLost', 'Mark as Lost'),
-        onSelect: () => void updateDealStatus(deal.id, 'loose'),
+        onSelect: () => void updateDealStatus(deal.id, 'lost'),
       },
       {
         id: 'delete',
@@ -2750,7 +2750,7 @@ export default function DealsKanbanPage(): React.ReactElement {
           </div>
         ) : firstError ? (
           <div className="max-w-xl">
-            <Alert variant="destructive">
+            <Alert status="error">
               <AlertTitle>{translateWithFallback(t, 'ui.errors.defaultTitle', 'Something went wrong')}</AlertTitle>
               <AlertDescription>
                 {firstError instanceof Error

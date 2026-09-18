@@ -37,8 +37,26 @@ describe('communication_channels ACL — slice 3a additions', () => {
     expect(setup.defaultRoleFeatures?.employee ?? []).not.toContain('communication_channels.admin')
   })
 
-  it('has exactly eight ACL features after Spec C Phase C1 additions', () => {
-    expect(features).toHaveLength(8)
+  it('has exactly nine ACL features after the tenant-wide channel addition', () => {
+    expect(features).toHaveLength(9)
+  })
+
+  it('exports the connect_tenant_channel feature granted only to superadmin + admin', () => {
+    const feat = features.find((f) => f.id === 'communication_channels.connect_tenant_channel')
+    expect(feat).toBeDefined()
+    expect(feat?.module).toBe('communication_channels')
+    expect(setup.defaultRoleFeatures?.superadmin).toContain(
+      'communication_channels.connect_tenant_channel',
+    )
+    expect(setup.defaultRoleFeatures?.admin).toContain(
+      'communication_channels.connect_tenant_channel',
+    )
+    expect(setup.defaultRoleFeatures?.manager ?? []).not.toContain(
+      'communication_channels.connect_tenant_channel',
+    )
+    expect(setup.defaultRoleFeatures?.employee ?? []).not.toContain(
+      'communication_channels.connect_tenant_channel',
+    )
   })
 
   it('exports the channel.push.manage feature (Spec C § Phase C1)', () => {

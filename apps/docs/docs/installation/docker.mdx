@@ -16,7 +16,7 @@ This setup works on any OS. On **Windows**, it is slower than the [native monore
 - **Docker Desktop** — [Windows](https://docs.docker.com/desktop/setup/install/windows-install/) · [macOS](https://docs.docker.com/desktop/setup/install/mac-install/) · [Linux](https://docs.docker.com/desktop/setup/install/linux/)
 - Docker Compose v2+ (bundled with Docker Desktop)
 - **Git** — [Windows](https://git-scm.com/download/win) · macOS: `xcode-select --install` · Linux: `sudo apt install git`
-- At least **4 GB RAM** allocated to Docker (Docker Desktop → Settings → Resources)
+- At least **4 GB RAM** allocated to Docker for the infra-only compose (`starters/docker/compose.infra.yml`: databases + search, app on the host). Running the **full containerized stack** (`starters/docker/compose.fullapp.dev.yml`: app + MCP + OpenCode + Keycloak + infra) needs **12 GB machine RAM minimum, 16 GB recommended** — on Windows the one-command launcher sizes the WSL2 VM for you (see the [Windows setup](./monorepo#windows-one-command))
 
 :::info Windows-specific
 - Enable the **WSL 2 backend** in Docker Desktop (Settings → General → "Use the WSL 2 based engine").
@@ -39,7 +39,7 @@ git checkout develop
 cp apps/mercato/.env.example apps/mercato/.env
 
 # Build and start the full dev stack
-docker compose -f docker-compose.fullapp.dev.yml up --build
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up --build
 ```
 
 The first run takes several minutes — Docker builds the image, installs dependencies, builds packages, applies migrations, and seeds demo data. Subsequent starts are much faster because initialisation is cached in a named volume.
@@ -55,7 +55,7 @@ Sign in with the default credentials printed during initialisation (typically `a
 
 ## How it works
 
-The `docker-compose.fullapp.dev.yml` stack runs five services:
+The `starters/docker/compose.fullapp.dev.yml` stack runs five services:
 
 | Service | Image | Purpose |
 |---------|-------|---------|
@@ -77,23 +77,23 @@ The `app` container:
 
 ```bash
 # Start in detached mode (background)
-docker compose -f docker-compose.fullapp.dev.yml up -d
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up -d
 
 # View logs — all services
-docker compose -f docker-compose.fullapp.dev.yml logs -f
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml logs -f
 
 # View logs — app only
-docker compose -f docker-compose.fullapp.dev.yml logs -f app
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml logs -f app
 
 # Rebuild after pulling new commits
-docker compose -f docker-compose.fullapp.dev.yml up --build
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up --build
 
 # Stop all services
-docker compose -f docker-compose.fullapp.dev.yml down
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml down
 
 # Full reset — deletes all data and cached builds
-docker compose -f docker-compose.fullapp.dev.yml down -v
-docker compose -f docker-compose.fullapp.dev.yml up --build
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml down -v
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up --build
 ```
 
 ---
@@ -119,7 +119,10 @@ yarn docker:db:migrate
 yarn docker:lint
 yarn docker:typecheck
 yarn docker:test
+yarn docker:install-skills # optional — only if you use an AI coding agent
 ```
+
+`yarn docker:install-skills` is the container equivalent of `yarn install-skills`: nothing in the Docker setup installs agent skills for you, so run it once per clone if you plan to use Codex, Claude Code, Cursor, or another supported coding agent. It fetches the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection into the gitignored `.agents/skills/` directory. Skip it otherwise; see [Develop setup steps](./setup#develop-setup-steps-recommended) for the full explanation.
 
 Restart the app service and tail logs:
 
@@ -134,7 +137,7 @@ yarn docker:dev -- --skip-rebuilt
 
 ## Environment variables
 
-All variables are pre-configured with sensible defaults in the compose file. Override them in `apps/mercato/.env` before starting.
+Most variables are pre-configured with sensible defaults in the compose file. Override them in the **`.env` file next to the compose file** (the repository root) before starting — that is the only file Compose interpolates `${...}` values from. `apps/mercato/.env` is read by the app itself and cannot override a variable the compose file already sets in the container.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -142,10 +145,10 @@ All variables are pre-configured with sensible defaults in the compose file. Ove
 | `OM_DEV_SPLASH_PORT` | `4000` | Host port for the startup splash page |
 | `OM_DEV_AUTO_OPEN` | `1` | Set to `0` to disable browser auto-open |
 | `POSTGRES_PASSWORD` | `postgres` | Database password |
-| `JWT_SECRET` | `JWT` | Auth token secret — change for production |
+| `JWT_SECRET` | **required, no default** | Auth token secret. The full-app stacks refuse to start without it — generate one with `openssl rand -hex 32`. In production the app also rejects placeholder values and secrets shorter than 32 characters |
 | `OPENAI_API_KEY` | — | Enables OpenAI-backed AI features; combine it with `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=false` to turn vector auto-indexing on |
 | `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING` | `true` in the shipped example env | Set to `false` or remove it to enable automatic vector indexing |
-| `DEMO_MODE` | `true` | Seeds demo CRM data on first run |
+| `DEMO_MODE` | `true` | Demo-deployment behaviour: shows the backend contact/feedback widget, locks attachment partition settings, and keeps the demo superadmin during `mercato init`. The demo notice bar is dropped only by the literal value `false`. To hide just the contact widget while leaving the rest on, use the [`ff_om_hide_contact` browser flag](../architecture/configuration-decision-guide.mdx#ff-om-hide-contact) |
 
 Vector auto-indexing is disabled by default in `apps/mercato/.env.example`. To enable it, configure an embedding provider such as `OPENAI_API_KEY` and set `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=false` before you start the stack. The legacy alias `DISABLE_VECTOR_SEARCH_AUTOINDEXING=1` is still honored for older deployments.
 
@@ -161,19 +164,19 @@ Vector auto-indexing is disabled by default in `apps/mercato/.env.example`. To e
 **File changes not detected:**
 The compose file sets polling by default. If changes are still not picked up:
 ```bash
-docker compose -f docker-compose.fullapp.dev.yml restart app
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml restart app
 ```
 
 **Port conflicts:**
 ```bash
 # Change app port
-APP_PORT=3001 docker compose -f docker-compose.fullapp.dev.yml up
+APP_PORT=3001 docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up
 
 # Change splash port
-OM_DEV_SPLASH_PORT=4100 docker compose -f docker-compose.fullapp.dev.yml up
+OM_DEV_SPLASH_PORT=4100 docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up
 
 # Change Postgres port (when localhost:5432 is occupied)
-POSTGRES_PORT=55432 docker compose -f docker-compose.fullapp.dev.yml up
+POSTGRES_PORT=55432 docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up
 # And update DATABASE_URL in .env to match
 ```
 

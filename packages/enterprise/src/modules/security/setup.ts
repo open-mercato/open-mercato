@@ -4,7 +4,7 @@ export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
     superadmin: ['security.*'],
     admin: ['security.*'],
-    employee: ['security.profile.view', 'security.profile.password', 'security.profile.manage'],
+    employee: ['security.profile.view', 'security.profile.password', 'security.profile.manage', 'security.mfa.manage'],
   },
 }
 

@@ -14,7 +14,7 @@ const paramsSchema = z.object({
 })
 
 export const metadata = {
-  DELETE: { requireAuth: true },
+  DELETE: { requireAuth: true, requireFeatures: ['security.mfa.manage'] },
 }
 
 export async function DELETE(req: Request, context: { params: Promise<{ id: string }> }) {

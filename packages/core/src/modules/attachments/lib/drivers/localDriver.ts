@@ -3,7 +3,7 @@ import path from 'path'
 import { randomUUID } from 'crypto'
 import { resolvePartitionRoot } from '../storage'
 import { resolveContainedPath } from '../pathContainment'
-import type { StorageDriver, StoreFilePayload, StoredFile, ReadFileResult } from './types'
+import type { PrepareFilePayload, StorageDriver, StoreFilePayload, StoredFile, ReadFileResult } from './types'
 
 function sanitizeFileName(fileName: string): string {
   if (!fileName) return 'file'
@@ -23,17 +23,21 @@ function resolveTenantSegment(tenantId: string | null | undefined): string {
 export class LocalStorageDriver implements StorageDriver {
   readonly key = 'local'
 
-  async store(payload: StoreFilePayload): Promise<StoredFile> {
-    const root = resolvePartitionRoot(payload.partitionCode)
+  prepareStoragePath(payload: PrepareFilePayload): string {
     const orgSegment = resolveOrgSegment(payload.orgId ?? null)
     const tenantSegment = resolveTenantSegment(payload.tenantId ?? null)
     const safeName = sanitizeFileName(payload.fileName || 'file')
     const uniqueSuffix = randomUUID().replace(/-/g, '').slice(0, 12)
     const storedName = `${Date.now()}_${uniqueSuffix}_${safeName}`
-    const relativePath = path.join(orgSegment, tenantSegment, storedName)
+    return path.join(orgSegment, tenantSegment, storedName).replace(/\\/g, '/')
+  }
+
+  async store(payload: StoreFilePayload): Promise<StoredFile> {
+    const root = resolvePartitionRoot(payload.partitionCode)
+    const relativePath = payload.storagePath ?? this.prepareStoragePath(payload)
     const absolutePath = path.join(root, relativePath)
     await fs.mkdir(path.dirname(absolutePath), { recursive: true })
-    await fs.writeFile(absolutePath, payload.buffer)
+    await fs.writeFile(absolutePath, payload.buffer, { flag: 'wx' })
     return {
       storagePath: relativePath.replace(/\\/g, '/'),
     }
@@ -46,11 +50,22 @@ export class LocalStorageDriver implements StorageDriver {
   }
 
   async delete(partitionCode: string, storagePath: string): Promise<void> {
+    try {
+      await this.deleteStrict(partitionCode, storagePath)
+    } catch {
+      // Backward-compatible best-effort removal.
+    }
+  }
+
+  async deleteStrict(partitionCode: string, storagePath: string): Promise<void> {
     const absolutePath = this.resolveAbsolutePath(partitionCode, storagePath)
     try {
-      await fs.unlink(absolutePath)
-    } catch {
-      // best-effort removal
+      if (typeof fs.rm === 'function') await fs.rm(absolutePath, { force: true })
+      else await fs.unlink(absolutePath)
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException)?.code
+      const message = error instanceof Error ? error.message : ''
+      if (code !== 'ENOENT' && !message.includes('ENOENT')) throw error
     }
   }
 

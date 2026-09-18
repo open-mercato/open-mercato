@@ -9,12 +9,20 @@ import {
 import type {
   ExtensionHostCapability,
   ExtensionHostFamily,
+  ModuleContributionResolution,
+  ModuleExtensionActivation,
+  ModuleExtensionActivationKind,
   ModuleExtensionContributionFact,
   ModuleExtensionContributionBase,
+  ModuleExtensionContributionKind,
   ModuleExtensionHostFact,
+  ModuleExtensionResolution,
   ModuleExtensionSurfaceFacts,
   ModuleExtensionTargetFact,
+  ModuleExtensionTargetRef,
   ModuleExtensionUnresolvedFact,
+  ModuleFactSourceRef,
+  ModuleIncomingExtensionRef,
 } from '@open-mercato/shared/modules/widgets/extension-points'
 import { extractCommandIdsFromSource } from './module-registry'
 import { scanModuleDir, SCAN_CONFIGS } from './scanner'
@@ -52,6 +60,8 @@ export interface ExtractModuleExtensionFactsOptions {
   notifications?: readonly string[]
   aiTools?: ReadonlyArray<{ name: string; sourcePath: string }>
   aiAgents?: ReadonlyArray<{ id: string; sourcePath: string }>
+  /** Generated-facts compatibility projection. Omitted means the corrected v2 contract. */
+  factsContractVersion?: 1 | 2
 }
 
 export interface CorrelateExtensionFactsOptions {
@@ -61,16 +71,21 @@ export interface CorrelateExtensionFactsOptions {
   apiRoutes: ReadonlySet<string>
   commandIds?: ReadonlySet<string>
   contributingModuleId?: string
+  /** Generated-facts compatibility projection. Omitted means the corrected v2 contract. */
+  factsContractVersion?: 1 | 2
 }
 
 type StaticContext = {
   initializers: Map<string, ts.Expression | ts.FunctionDeclaration>
   sourceFile: ts.SourceFile
   resolving: Set<string>
+  factsContractVersion: 1 | 2
 }
 
 type ApiExtensionHostIds = {
   entityIds: string[]
+  /** Declaring `api/**` file per entity host id, so the host links to a real source. */
+  entitySourceFiles: Record<string, string>
   commandIds: string[]
   routeIds: string[]
 }
@@ -219,7 +234,7 @@ function propertyName(node: ts.PropertyName): string | null {
   return null
 }
 
-function buildStaticContext(file: ts.SourceFile): StaticContext {
+function buildStaticContext(file: ts.SourceFile, factsContractVersion: 1 | 2 = 2): StaticContext {
   const initializers = new Map<string, ts.Expression | ts.FunctionDeclaration>()
   const visit = (node: ts.Node): void => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
@@ -231,7 +246,7 @@ function buildStaticContext(file: ts.SourceFile): StaticContext {
     node.forEachChild(visit)
   }
   file.forEachChild(visit)
-  return { initializers, sourceFile: file, resolving: new Set() }
+  return { initializers, sourceFile: file, resolving: new Set(), factsContractVersion }
 }
 
 function entityRegistryValue(expression: ts.PropertyAccessExpression): string | null {
@@ -256,6 +271,26 @@ function staticTemplate(expression: ts.TemplateExpression, context: StaticContex
   return value
 }
 
+/**
+ * A function-valued property carries no statically readable value, but its
+ * PRESENCE is the discriminant several conventions are keyed on (a
+ * `ComponentOverride` is a wrapper/props-transform/replacement depending on
+ * which callable it declares; an enricher declares `enrichOne`/`enrichMany`).
+ * Method shorthand (`enrichOne() {}`) is already recorded as `true`, so an
+ * arrow/function-expression property — or an identifier bound to one — records
+ * the same marker instead of vanishing from the object.
+ */
+function isFunctionLikeInitializer(expression: ts.Expression, context: StaticContext): boolean {
+  const current = unwrap(expression)
+  if (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) return true
+  if (!ts.isIdentifier(current)) return false
+  const initializer = context.initializers.get(current.text)
+  if (!initializer) return false
+  if (ts.isFunctionDeclaration(initializer)) return true
+  const resolved = unwrap(initializer)
+  return ts.isArrowFunction(resolved) || ts.isFunctionExpression(resolved)
+}
+
 function staticObject(expression: ts.ObjectLiteralExpression, context: StaticContext): StaticObject {
   const result: StaticObject = {}
   for (const property of expression.properties) {
@@ -264,6 +299,7 @@ function staticObject(expression: ts.ObjectLiteralExpression, context: StaticCon
       if (!name) continue
       const value = staticValue(property.initializer, context)
       if (value !== undefined) result[name] = value
+      else if (context.factsContractVersion === 2 && isFunctionLikeInitializer(property.initializer, context)) result[name] = true
       continue
     }
     if (ts.isShorthandPropertyAssignment(property)) {
@@ -316,6 +352,12 @@ function staticValue(expression: ts.Expression, context: StaticContext): StaticV
     return value
   }
   if (ts.isCallExpression(current)) {
+    const handle = componentReplacementHandle(current, context)
+    if (handle) {
+      if (context.factsContractVersion === 2) return handle.resolved
+      const firstArgument = current.arguments[0]
+      return firstArgument ? staticValue(firstArgument, context) : undefined
+    }
     if (ts.isIdentifier(current.expression)) {
       const callable = context.initializers.get(current.expression.text)
       if (callable && (ts.isArrowFunction(callable) || ts.isFunctionExpression(callable) || ts.isFunctionDeclaration(callable))) {
@@ -329,14 +371,19 @@ function staticValue(expression: ts.Expression, context: StaticContext): StaticV
           initializers,
           sourceFile: context.sourceFile,
           resolving: new Set(context.resolving),
+          factsContractVersion: context.factsContractVersion,
         }
         if (callable.body && ts.isExpression(callable.body)) return staticValue(callable.body, childContext)
         const returnStatement = callable.body?.statements.find(ts.isReturnStatement)
         if (returnStatement?.expression) return staticValue(returnStatement.expression, childContext)
       }
     }
+    // Factory-style `defineThing({ … })` calls forward their configuration object,
+    // but a member call (`Handles.section('a', 'b')`) computes a value from its
+    // arguments — forwarding the first one there invents a wrong id, so it stays
+    // unresolved unless a formula above knows the builder.
     const firstArgument = current.arguments[0]
-    if (firstArgument) {
+    if (firstArgument && (context.factsContractVersion === 1 || ts.isIdentifier(current.expression))) {
       const value = staticValue(firstArgument, context)
       if (!isStaticObject(value) || !ts.isIdentifier(current.expression)) return value
       if (current.expression.text === 'dataTableExtensionHost') return { family: 'data-table', ...value }
@@ -351,6 +398,33 @@ function staticValue(expression: ts.Expression, context: StaticContext): StaticV
     return left !== undefined && JSON.stringify(left) === JSON.stringify(right) ? left : undefined
   }
   return undefined
+}
+
+/**
+ * `ComponentReplacementHandles` (packages/shared/src/modules/widgets/component-registry.ts)
+ * is the framework-owned builder every `widgets/components.ts` uses to name a
+ * replacement handle. Without these formulas the generic call fallback would read
+ * `ComponentReplacementHandles.section('ui.detail', 'NotesSection')` as its first
+ * argument and publish `ui.detail` as the handle — a target id that exists nowhere.
+ */
+const COMPONENT_REPLACEMENT_HANDLE_BUILDERS: Record<string, (args: Array<string | undefined>) => string | undefined> = {
+  page: ([routePath]) => routePath ? `page:${routePath}` : undefined,
+  dataTable: ([tableId]) => tableId ? `data-table:${tableId}` : undefined,
+  crudForm: ([entityId]) => entityId ? `crud-form:${entityId}` : undefined,
+  section: ([scope, sectionId]) => scope && sectionId ? `section:${scope}.${sectionId}` : undefined,
+}
+
+function componentReplacementHandle(
+  expression: ts.CallExpression,
+  context: StaticContext,
+): { resolved: string | undefined } | null {
+  if (!ts.isPropertyAccessExpression(expression.expression)) return null
+  const callee = expression.expression
+  if (!ts.isIdentifier(callee.expression) || callee.expression.text !== 'ComponentReplacementHandles') return null
+  const builder = COMPONENT_REPLACEMENT_HANDLE_BUILDERS[callee.name.text]
+  if (!builder) return { resolved: undefined }
+  const args = expression.arguments.map((argument) => stringValue(staticValue(argument, context)))
+  return { resolved: builder(args) }
 }
 
 function isStaticObject(value: StaticValue | undefined): value is StaticObject {
@@ -389,20 +463,32 @@ function conventionPath(moduleRoot: string, relativePath: string): string | null
   return null
 }
 
-export function readConventionObjectArray(filePath: string, exportName: string): StaticObject[] {
+function readConventionObjectArrayForContract(
+  filePath: string,
+  exportName: string,
+  factsContractVersion: 1 | 2,
+): StaticObject[] {
   const file = sourceFile(filePath)
   if (!file) return []
-  const context = buildStaticContext(file)
+  const context = buildStaticContext(file, factsContractVersion)
   const initializer = context.initializers.get(exportName)
   if (!initializer || ts.isFunctionDeclaration(initializer)) return []
   const value = staticValue(initializer, context)
   return Array.isArray(value) ? value.filter(isStaticObject) : []
 }
 
-function readRootObject(filePath: string, variableName: string): StaticObject | null {
+export function readConventionObjectArray(filePath: string, exportName: string): StaticObject[] {
+  return readConventionObjectArrayForContract(filePath, exportName, 2)
+}
+
+function readRootObject(
+  filePath: string,
+  variableName: string,
+  factsContractVersion: 1 | 2 = 2,
+): StaticObject | null {
   const file = sourceFile(filePath)
   if (!file) return null
-  const context = buildStaticContext(file)
+  const context = buildStaticContext(file, factsContractVersion)
   const initializer = context.initializers.get(variableName)
   if (!initializer || ts.isFunctionDeclaration(initializer)) return null
   const value = staticValue(initializer, context)
@@ -651,6 +737,8 @@ function factRefHost(options: {
   family: ExtensionHostFamily
   capabilities: ExtensionHostCapability[]
   factSection: string
+  /** Key inside `factSection`; defaults to the host id when the two coincide. */
+  factKey?: string
   phases?: string[]
   activation?: ModuleExtensionHostFact['activation']
   scopeContract?: string
@@ -667,7 +755,7 @@ function factRefHost(options: {
     ...(options.scopeContract ? { scopeContract: options.scopeContract } : {}),
     bound: true,
     stability: 'stable',
-    source: { kind: 'fact-ref', factSection: options.factSection, factKey: options.id },
+    source: { kind: 'fact-ref', factSection: options.factSection, factKey: options.factKey ?? options.id },
   }
 }
 
@@ -704,6 +792,7 @@ function apiExtensionHostIds(moduleId: string, moduleRoot: string): ApiExtension
   const cached = activeExtractionCache?.apiExtensionHostIds.get(cacheKey)
   if (cached) return cached
   const entityIds = new Set<string>()
+  const entitySourceFiles: Record<string, string> = {}
   const commandIds = new Set<string>()
   const routeIds = new Set<string>()
   for (const filePath of sourceFilesBelow(path.join(moduleRoot, 'api'))) {
@@ -722,7 +811,10 @@ function apiExtensionHostIds(moduleId: string, moduleRoot: string): ApiExtension
         if (name === 'enrichers') {
           const config = staticValue(node.initializer, context)
           const entityId = isStaticObject(config) ? stringValue(config.entityId) : undefined
-          if (entityId) entityIds.add(entityId)
+          if (entityId) {
+            entityIds.add(entityId)
+            if (!entitySourceFiles[entityId]) entitySourceFiles[entityId] = filePath
+          }
         }
       }
       if (
@@ -732,7 +824,10 @@ function apiExtensionHostIds(moduleId: string, moduleRoot: string): ApiExtension
       ) {
         const input = node.arguments[1] ? staticValue(node.arguments[1], context) : undefined
         const entityId = isStaticObject(input) ? stringValue(input.resourceKind) : undefined
-        if (entityId) entityIds.add(entityId)
+        if (entityId) {
+          entityIds.add(entityId)
+          if (!entitySourceFiles[entityId]) entitySourceFiles[entityId] = filePath
+        }
       }
       node.forEachChild(visit)
     }
@@ -740,6 +835,7 @@ function apiExtensionHostIds(moduleId: string, moduleRoot: string): ApiExtension
   }
   const result = {
     entityIds: [...entityIds].sort((left, right) => left.localeCompare(right)),
+    entitySourceFiles,
     commandIds: [...commandIds].sort((left, right) => left.localeCompare(right)),
     routeIds: [...routeIds].sort((left, right) => left.localeCompare(right)),
   }
@@ -763,6 +859,142 @@ export function extractKnownApiRouteIds(moduleId: string, moduleRoot: string): s
 export function extractKnownCommandIds(moduleId: string, moduleRoot: string): string[] {
   const apiHosts = apiExtensionHostIds(moduleId, moduleRoot)
   return moduleCommandIds(moduleRoot, apiHosts.commandIds)
+}
+
+const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const
+export type ApiInterceptorPhase = 'before' | 'after'
+export type ApiRouteInterceptorBridge = {
+  method: (typeof HTTP_METHODS)[number]
+  phases: ApiInterceptorPhase[]
+}
+
+const API_INTERCEPTOR_BRIDGE_CALLS: Record<string, ApiInterceptorPhase> = {
+  runApiInterceptorsBefore: 'before',
+  runApiInterceptorsAfter: 'after',
+}
+
+function isHttpMethodName(value: string): value is (typeof HTTP_METHODS)[number] {
+  return (HTTP_METHODS as readonly string[]).includes(value)
+}
+
+/** HTTP method handlers a route file actually exports. */
+function exportedHttpMethods(file: ts.SourceFile): Array<(typeof HTTP_METHODS)[number]> {
+  const methods = new Set<(typeof HTTP_METHODS)[number]>()
+  const consider = (name: string | undefined): void => {
+    if (name && isHttpMethodName(name)) methods.add(name)
+  }
+  const considerBindingName = (name: ts.BindingName): void => {
+    if (ts.isIdentifier(name)) {
+      consider(name.text)
+      return
+    }
+    for (const element of name.elements) {
+      if (ts.isBindingElement(element)) considerBindingName(element.name)
+    }
+  }
+  const visit = (node: ts.Node): void => {
+    if (ts.isVariableStatement(node) && node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
+      for (const declaration of node.declarationList.declarations) {
+        considerBindingName(declaration.name)
+      }
+    }
+    if (
+      ts.isFunctionDeclaration(node)
+      && node.name
+      && node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+    ) {
+      consider(node.name.text)
+    }
+    if (ts.isExportDeclaration(node) && node.exportClause && ts.isNamedExports(node.exportClause)) {
+      for (const element of node.exportClause.elements) consider(element.name.text)
+    }
+    node.forEachChild(visit)
+  }
+  file.forEachChild(visit)
+  return [...methods].sort((left, right) => left.localeCompare(right))
+}
+
+/**
+ * The interceptor pipeline runs only where a route wires it: `makeCrudRoute` runs
+ * both phases for every method it handles, and a hand-written route runs whichever
+ * of `runApiInterceptorsBefore` / `runApiInterceptorsAfter` it calls. A custom route
+ * that calls neither has no bridge, so an interceptor targeting it is never bound.
+ */
+function extractApiRouteInterceptorBridges(file: ts.SourceFile, context: StaticContext): ApiRouteInterceptorBridge[] {
+  const exportedMethods = exportedHttpMethods(file)
+  const phasesByMethod = new Map<(typeof HTTP_METHODS)[number], Set<ApiInterceptorPhase>>()
+  const addPhase = (method: (typeof HTTP_METHODS)[number], phase: ApiInterceptorPhase): void => {
+    const phases = phasesByMethod.get(method) ?? new Set<ApiInterceptorPhase>()
+    phases.add(phase)
+    phasesByMethod.set(method, phases)
+  }
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      const calleeName = node.expression.text
+      if (calleeName === 'makeCrudRoute') {
+        for (const method of exportedMethods) {
+          addPhase(method, 'before')
+          addPhase(method, 'after')
+        }
+      }
+      const phase = API_INTERCEPTOR_BRIDGE_CALLS[calleeName]
+      if (phase) {
+        const callOptions = node.arguments[0] ? staticValue(node.arguments[0], context) : undefined
+        const declaredMethod = isStaticObject(callOptions) ? stringValue(callOptions.method) : undefined
+        const methods = declaredMethod && isHttpMethodName(declaredMethod) ? [declaredMethod] : exportedMethods
+        for (const method of methods) addPhase(method, phase)
+      }
+    }
+    node.forEachChild(visit)
+  }
+  file.forEachChild(visit)
+  return [...phasesByMethod.entries()]
+    .map(([method, phases]) => ({
+      method,
+      phases: [...phases].sort((left, right) => left.localeCompare(right)),
+    }))
+    .sort((left, right) => left.method.localeCompare(right.method))
+}
+
+/**
+ * Concrete runtime-id owners a module contributes as activation targets: its real
+ * `api/**` route ids (with the interceptor bridges each route actually wires) and
+ * its `commands/**` command ids (dispatched through the command bus). Used
+ * post-selection to synthesize `host-reference`/`owner-reference` bindings with a
+ * portable source.
+ */
+export function extractActivationTargetOwners(options: {
+  moduleId: string
+  moduleRoot: string
+  sourceRoot: string
+}): {
+  apiRoutes: Array<{ id: string; source: ModuleFactSourceRef; bridges: ApiRouteInterceptorBridge[] }>
+  commands: Array<{ id: string; source: ModuleFactSourceRef }>
+} {
+  const apiRoutes: Array<{ id: string; source: ModuleFactSourceRef; bridges: ApiRouteInterceptorBridge[] }> = []
+  for (const filePath of sourceFilesBelow(path.join(options.moduleRoot, 'api'))) {
+    const routeId = apiRouteId(options.moduleId, options.moduleRoot, filePath)
+    if (!routeId) continue
+    const file = sourceFile(filePath)
+    const bridges = file ? extractApiRouteInterceptorBridges(file, buildStaticContext(file)) : []
+    apiRoutes.push({
+      id: routeId,
+      source: { sourcePath: portablePath(options.moduleRoot, options.sourceRoot, filePath) },
+      bridges,
+    })
+  }
+  const commands: Array<{ id: string; source: ModuleFactSourceRef }> = []
+  const seenCommands = new Set<string>()
+  for (const filePath of sourceFilesBelow(path.join(options.moduleRoot, 'commands'))) {
+    if (path.basename(filePath).replace(/\.(?:ts|tsx)$/, '') === 'interceptors') continue
+    const source: ModuleFactSourceRef = { sourcePath: portablePath(options.moduleRoot, options.sourceRoot, filePath) }
+    for (const id of extractCommandIdsFromSource(filePath)) {
+      if (seenCommands.has(id)) continue
+      seenCommands.add(id)
+      commands.push({ id, source })
+    }
+  }
+  return { apiRoutes, commands }
 }
 
 function extractFactRefHosts(options: ExtractModuleExtensionFactsOptions): ModuleExtensionHostFact[] {
@@ -816,6 +1048,7 @@ function extractFactRefHosts(options: ExtractModuleExtensionFactsOptions): Modul
         family: 'query-lifecycle',
         capabilities: ['sync-subscriber'],
         factSection: 'searchEntities',
+        factKey: entityId,
         phases: phase === 'querying' ? ['block', 'query-transform'] : ['result-transform', 'scope-reapply'],
         activation: 'caller-opt-in',
         scopeContract: 'tenant-and-organization-reapplied-after-result',
@@ -824,7 +1057,8 @@ function extractFactRefHosts(options: ExtractModuleExtensionFactsOptions): Modul
   }
   const apiHosts = apiExtensionHostIds(options.moduleId, options.moduleRoot)
   for (const entityId of apiHosts.entityIds) {
-    hosts.push(factRefHost({
+    const declaringFile = apiHosts.entitySourceFiles[entityId]
+    const host = factRefHost({
       key: `api-entity.${entityId}`,
       id: entityId,
       moduleId: options.moduleId,
@@ -833,7 +1067,17 @@ function extractFactRefHosts(options: ExtractModuleExtensionFactsOptions): Modul
       factSection: 'apiRoutes',
       activation: 'host-opt-in',
       scopeContract: 'tenant-and-organization',
-    }))
+    })
+    hosts.push(declaringFile
+      ? {
+          ...host,
+          source: {
+            kind: 'declaration',
+            path: portablePath(options.moduleRoot, options.sourceRoot, declaringFile),
+            symbol: entityId,
+          },
+        }
+      : host)
   }
   return sortHosts([...new Map(hosts.map((host) => [`${host.family}:${host.id}`, host])).values()])
 }
@@ -851,20 +1095,36 @@ function contributionBase(
   }
 }
 
+/**
+ * `ModuleInjectionTable` maps a spot to `ModuleInjectionSlot | ModuleInjectionSlot[]`,
+ * and a slot is either a bare widget-id string or a placement object. The runtime
+ * loader normalizes all three shapes (`injection-loader.ts` → `loadInjectionTable`);
+ * reading only the array form here silently dropped every string and single-object
+ * slot from the generated contribution facts.
+ */
+function injectionTableSlots(value: StaticValue | undefined): StaticValue[] {
+  if (value === undefined) return []
+  return Array.isArray(value) ? value : [value]
+}
+
 function extractInjectionTable(options: ExtractModuleExtensionFactsOptions): ModuleExtensionContributionFact[] {
   const filePath = conventionPath(options.moduleRoot, 'widgets/injection-table.ts')
   if (!filePath) return []
-  const table = readRootObject(filePath, 'injectionTable')
+  const table = readRootObject(filePath, 'injectionTable', options.factsContractVersion ?? 2)
   if (!table) return []
   const sourcePath = portablePath(options.moduleRoot, options.sourceRoot, filePath)
   const facts: ModuleExtensionContributionFact[] = []
   for (const targetId of Object.keys(table).sort((left, right) => left.localeCompare(right))) {
-    const entries = table[targetId]
-    if (!Array.isArray(entries)) continue
+    const entries = options.factsContractVersion === 1
+      ? (Array.isArray(table[targetId]) ? table[targetId] as StaticValue[] : [])
+      : injectionTableSlots(table[targetId])
     for (const entry of entries) {
-      if (!isStaticObject(entry)) continue
-      const widgetId = stringValue(entry.widgetId)
+      if (options.factsContractVersion === 1 && !isStaticObject(entry)) continue
+      const slot = isStaticObject(entry) ? entry : null
+      const widgetId = typeof entry === 'string' ? entry : slot ? stringValue(slot.widgetId) : undefined
       if (!widgetId) continue
+      const features = slot ? strings(slot.features) : []
+      const priority = slot ? numberValue(slot.priority) : undefined
       const payload = targetId.endsWith(':columns') ? 'column'
         : targetId.endsWith(':row-actions') ? 'row-action'
           : targetId.endsWith(':bulk-actions') ? 'bulk-action'
@@ -875,8 +1135,8 @@ function extractInjectionTable(options: ExtractModuleExtensionFactsOptions): Mod
       const shared = {
         ...base,
         targets: [target(targetId)],
-        features: strings(entry.features),
-        placement: numberValue(entry.priority) !== undefined ? { priority: numberValue(entry.priority) } : undefined,
+        features,
+        placement: priority !== undefined ? { priority } : undefined,
       }
       if (targetId.startsWith('data-table:')) {
         facts.push({
@@ -885,7 +1145,7 @@ function extractInjectionTable(options: ExtractModuleExtensionFactsOptions): Mod
           details: {
             payload: payload === 'field' ? 'render' : payload,
             tableId: targetId.replace(/^data-table:/, '').replace(/:(?:columns|row-actions|bulk-actions|filters|toolbar|header|footer|search-trailing)$/, ''),
-            executionGuard: strings(entry.features).length > 0 ? 'both' : 'host',
+            executionGuard: features.length > 0 ? 'both' : 'host',
           },
         })
       } else if (targetId.startsWith('crud-form:')) {
@@ -905,7 +1165,7 @@ function extractInjectionTable(options: ExtractModuleExtensionFactsOptions): Mod
           details: {
             payload: 'render',
             registryKey: widgetId,
-            executionGuard: strings(entry.features).length > 0 ? 'both' : 'host',
+            executionGuard: features.length > 0 ? 'both' : 'host',
           },
         })
       }
@@ -925,7 +1185,9 @@ function extractObjectConvention(options: {
   if (!filePath) return []
   const exportNames = [options.exportName, ...(options.exportAliases ?? [])]
   const entries = exportNames.reduce<StaticObject[]>((found, exportName) =>
-    found.length > 0 ? found : readConventionObjectArray(filePath, exportName), [])
+    found.length > 0
+      ? found
+      : readConventionObjectArrayForContract(filePath, exportName, options.module.factsContractVersion ?? 2), [])
   const sourcePath = portablePath(options.module.moduleRoot, options.module.sourceRoot, filePath)
   return entries.flatMap((entry, index) => options.build(entry, sourcePath, index) ?? [])
 }
@@ -944,7 +1206,12 @@ function extractEnrichers(options: ExtractModuleExtensionFactsOptions): ModuleEx
       const targetEntity = stringValue(entry.targetEntity)
       if (!targetEntity) return null
       const timeoutMs = numberValue(entry.timeout) ?? 2000
-      const queryEngine = isStaticObject(entry.queryEngine) ? entry.queryEngine : null
+      const queryEngineConfig = isStaticObject(entry.queryEngine) ? entry.queryEngine : null
+      // `enricher-registry` selects query-engine enrichers by `queryEngine.enabled === true`,
+      // so a config object that omits it (or sets it false) is NOT query-enabled.
+      const queryEngine = queryEngineConfig && booleanValue(queryEngineConfig.enabled) === true
+        ? queryEngineConfig
+        : null
       const surfaces = [entry.enrichMany === true ? 'list' : null, entry.enrichOne === true ? 'detail' : null]
         .filter((value): value is 'list' | 'detail' => value !== null)
       const base = contributionBase(id, sourcePath, id)
@@ -1097,14 +1364,13 @@ function extractSubscribers(options: ExtractModuleExtensionFactsOptions): Module
   const directory = path.join(options.moduleRoot, 'subscribers')
   if (!fs.existsSync(directory)) return []
   const facts: ModuleExtensionContributionFact[] = []
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
-    if (!entry.isFile() || !/\.(?:ts|tsx)$/.test(entry.name) || /\.(?:test|spec)\./.test(entry.name)) continue
-    const filePath = path.join(directory, entry.name)
+  for (const filePath of sourceFilesBelow(directory)) {
     const metadata = readRootObject(filePath, 'metadata')
     if (!metadata) continue
     const event = stringValue(metadata.event)
     if (!event) continue
-    const subscriberId = stringValue(metadata.id) ?? `${options.moduleId}:${entry.name.replace(/\.tsx?$/, '')}`
+    const relativeStem = path.relative(directory, filePath).replace(/\.tsx?$/, '').split(path.sep).join('/')
+    const subscriberId = stringValue(metadata.id) ?? `${options.moduleId}:${relativeStem}`
     const persistent = booleanValue(metadata.persistent) ?? false
     const sync = booleanValue(metadata.sync) ?? !persistent
     const contribution = contributionBase(subscriberId, portablePath(options.moduleRoot, options.sourceRoot, filePath), 'metadata')
@@ -1152,7 +1418,8 @@ function extractNotificationReactions(options: ExtractModuleExtensionFactsOption
     build(entry, sourcePath, index) {
       const notificationType = stringValue(entry.notificationType)
       if (!notificationType) return null
-      const id = stringValue(entry.id) ?? `${options.moduleId}.notification-handler.${index}`
+      const declaredId = stringValue(entry.id)
+      const id = declaredId ?? `${options.moduleId}.notification-handler.${index}`
       const contribution = contributionBase(id, sourcePath, 'notificationHandlers')
       return {
         ...contribution,
@@ -1164,6 +1431,7 @@ function extractNotificationReactions(options: ExtractModuleExtensionFactsOption
           transports: ['notification-effect'],
           hooks: ['useNotificationEffect'],
           audienceScopeContract: 'tenant-organization-user-role-and-customer',
+          ...(declaredId ? { overrideKey: declaredId } : {}),
         },
       }
     },
@@ -1179,7 +1447,11 @@ function extractComponentOverrides(options: ExtractModuleExtensionFactsOptions):
       const targetDefinition = isStaticObject(entry.target) ? entry.target : null
       const handle = targetDefinition ? stringValue(targetDefinition.componentId) : undefined
       if (!handle) return null
-      const mode = entry.wrapper !== undefined ? 'wrapper' : entry.props !== undefined ? 'props' : 'replace'
+      // `ComponentOverride` discriminates on `wrapper` / `propsTransform` /
+      // `replacement` — never on a `props` property, which the union has no member for.
+      const mode = options.factsContractVersion === 1
+        ? (entry.wrapper !== undefined ? 'wrapper' : entry.props !== undefined ? 'props' : 'replace')
+        : (entry.wrapper !== undefined ? 'wrapper' : entry.propsTransform !== undefined ? 'props' : 'replace')
       const id = `${options.moduleId}.component-override.${index}:${handle}`
       const contribution = contributionBase(id, sourcePath, 'componentOverrides')
       return {
@@ -1238,21 +1510,37 @@ function extractSpecializedRegistries(options: ExtractModuleExtensionFactsOption
 
   const integrationPath = conventionPath(options.moduleRoot, 'integration.ts')
   if (integrationPath) {
-    const integration = readRootObject(integrationPath, 'integration')
     const sourcePath = portablePath(options.moduleRoot, options.sourceRoot, integrationPath)
-    const integrationId = integration ? stringValue(integration.id) : undefined
-    if (integrationId) add(integrationId, 'integration', sourcePath, 'integrations', 'integration')
-    const providerKey = integration ? stringValue(integration.providerKey) : undefined
-    const category = integration ? stringValue(integration.category) : undefined
-    const categoryRegistry = category === 'payment' ? 'payment'
-      : category === 'shipping' ? 'shipping'
-        : category === 'currency' ? 'currency'
-          : null
-    if (providerKey && categoryRegistry) {
-      const specialistRoute = categoryRegistry === 'payment' ? 'paymentGateways'
-        : categoryRegistry === 'shipping' ? 'shippingCarriers'
-          : 'currencies'
-      add(providerKey, categoryRegistry, sourcePath, specialistRoute, 'integration.providerKey')
+    const addIntegration = (integration: StaticObject, symbol: string, bundleId?: string): void => {
+      const integrationId = stringValue(integration.id)
+      if (integrationId) {
+        add(integrationId, 'integration', sourcePath, 'integrations', bundleId ? `${symbol}[${bundleId}]` : symbol)
+      }
+      const providerKey = stringValue(integration.providerKey)
+      const category = stringValue(integration.category)
+      const categoryRegistry = category === 'payment' ? 'payment'
+        : category === 'shipping' ? 'shipping'
+          : category === 'currency' ? 'currency'
+            : null
+      if (providerKey && categoryRegistry) {
+        const specialistRoute = categoryRegistry === 'payment' ? 'paymentGateways'
+          : categoryRegistry === 'shipping' ? 'shippingCarriers'
+            : 'currencies'
+        add(providerKey, categoryRegistry, sourcePath, specialistRoute, `${symbol}.providerKey`)
+      }
+    }
+    const singular = readRootObject(integrationPath, 'integration')
+    if (singular) addIntegration(singular, 'integration')
+    for (const integration of readConventionObjectArray(integrationPath, 'integrations')) {
+      addIntegration(integration, 'integrations')
+    }
+    const bundle = readRootObject(integrationPath, 'integrationBundle') ?? readRootObject(integrationPath, 'bundle')
+    if (bundle) {
+      const bundleId = stringValue(bundle.id) ?? 'bundle'
+      const members = Array.isArray(bundle.integrations) ? bundle.integrations : []
+      for (const member of members) {
+        if (isStaticObject(member)) addIntegration(member, 'integrationBundle', bundleId)
+      }
     }
   }
 
@@ -1317,6 +1605,241 @@ function extractSpecializedRegistries(options: ExtractModuleExtensionFactsOption
   return facts
 }
 
+/**
+ * Closed activation-adapter registry (Spec 2). Each `ModuleExtensionActivationKind`
+ * maps to the contribution kinds it can bind and to the mode by which a `bound`
+ * resolution is proven:
+ *
+ * - `call-site-object` — the host module owns a distinct opt-in call site (a
+ *   `makeCrudRoute` option or a mutation-guard bridge). Presence of the option —
+ *   NOT mere entity/route existence — produces an emitted `ModuleExtensionActivation`
+ *   object. This is what makes "the entity could host X" (capability-only) different
+ *   from "this route actually activates X" (bound).
+ * - `host-reference` — the runtime bridge is universal for any matching host
+ *   (every api route runs the interceptor pipeline; a bound widget/component host
+ *   proves consumption). No object is duplicated; `bound` is derived from the
+ *   existing bound host fact and the incoming row carries no `activationId`.
+ * - `owner-reference` — like host-reference but proven by the target module owning
+ *   the concrete runtime id (command ids have no host fact of their own).
+ *
+ * The registry is exhaustive by construction: the `Record` key set is the full
+ * `ModuleExtensionActivationKind` union, so adding a kind fails the typecheck until
+ * it is classified. `activation-adapter-coverage.test.ts` re-checks this at runtime.
+ */
+type ActivationAdapterMode = 'call-site-object' | 'host-reference' | 'owner-reference'
+
+export const ACTIVATION_ADAPTERS: Record<ModuleExtensionActivationKind, {
+  contributionKinds: ModuleExtensionContributionKind[]
+  mode: ActivationAdapterMode
+}> = {
+  'crud-response-enricher': { contributionKinds: ['response-enricher'], mode: 'call-site-object' },
+  'query-enricher': { contributionKinds: ['response-enricher'], mode: 'call-site-object' },
+  'mutation-guard': { contributionKinds: ['mutation-guard'], mode: 'call-site-object' },
+  'api-interceptor-bridge': { contributionKinds: ['api-interceptor'], mode: 'host-reference' },
+  'command-interceptor-bridge': { contributionKinds: ['command-interceptor'], mode: 'owner-reference' },
+  'widget-injection-consumer': { contributionKinds: ['widget', 'data-table', 'crud-form'], mode: 'host-reference' },
+  'component-extension-consumer': { contributionKinds: ['component-override'], mode: 'host-reference' },
+  'dashboard-host-consumer': { contributionKinds: ['widget'], mode: 'host-reference' },
+}
+
+/**
+ * Every UMES contribution kind classified against the activation registry: either
+ * the ordered set of activation kinds that can bind it, or `capability-only` for
+ * contributions that are always active by declaration/registration and never gain
+ * a route/entity activation. Exhaustive by `Record` construction — a new kind fails
+ * the typecheck until classified.
+ */
+export const CONTRIBUTION_ACTIVATION_CLASSIFICATION: Record<
+  ModuleExtensionContributionKind,
+  ModuleExtensionActivationKind[] | 'capability-only'
+> = {
+  'response-enricher': ['crud-response-enricher', 'query-enricher'],
+  'mutation-guard': ['mutation-guard'],
+  'api-interceptor': ['api-interceptor-bridge'],
+  'command-interceptor': ['command-interceptor-bridge'],
+  'widget': ['widget-injection-consumer', 'dashboard-host-consumer'],
+  'data-table': ['widget-injection-consumer'],
+  'crud-form': ['widget-injection-consumer'],
+  'component-override': ['component-extension-consumer'],
+  'entity-extension': 'capability-only',
+  'subscriber': 'capability-only',
+  'browser-reaction': 'capability-only',
+  'specialized-registry': 'capability-only',
+  'module-override': 'capability-only',
+}
+
+export const ALL_ACTIVATION_KINDS = Object.keys(ACTIVATION_ADAPTERS) as ModuleExtensionActivationKind[]
+export const ALL_CONTRIBUTION_KINDS = Object.keys(CONTRIBUTION_ACTIVATION_CLASSIFICATION) as ModuleExtensionContributionKind[]
+
+/**
+ * Verified mutation-guard bridge shapes. The canonical route helper nests the
+ * resource under `input` (`runRouteMutationGuards({ …, input: { resourceKind } })`),
+ * while the legacy helpers take the resource object directly. Module wrappers around
+ * the canonical helper live under `lib/` as often as under `api/`, so both trees are
+ * scanned.
+ */
+const MUTATION_GUARD_BRIDGE_ADAPTERS: Record<string, { resourceArgument: 'input-property' | 'any-argument' }> = {
+  runRouteMutationGuards: { resourceArgument: 'input-property' },
+  validateCrudMutationGuard: { resourceArgument: 'any-argument' },
+  runMutationGuards: { resourceArgument: 'any-argument' },
+}
+
+const MUTATION_GUARD_SOURCE_DIRECTORIES = ['api', 'lib'] as const
+
+const MUTATION_GUARD_OPERATIONS = new Set(['create', 'update', 'delete', 'custom'])
+
+/**
+ * `'custom'` action endpoints are mapped by `toRegistryMutationOperation` onto the
+ * closest registry operation, `'update'`.
+ */
+function toRegistryGuardOperation(operation: string): string {
+  return operation === 'custom' ? 'update' : operation
+}
+
+function readMutationGuardBridge(
+  node: ts.CallExpression,
+  context: StaticContext,
+): { entityId: string; operations: string[] } | null {
+  const callee = node.expression
+  const calleeName = ts.isIdentifier(callee)
+    ? callee.text
+    : ts.isPropertyAccessExpression(callee)
+      ? callee.name.text
+      : null
+  const adapter = calleeName ? MUTATION_GUARD_BRIDGE_ADAPTERS[calleeName] : undefined
+  if (!adapter) return null
+
+  const argumentObjects = node.arguments
+    .map((argument) => staticValue(argument, context))
+    .filter(isStaticObject)
+  const resourceObjects = adapter.resourceArgument === 'input-property'
+    ? argumentObjects.flatMap((argumentObject) => (isStaticObject(argumentObject.input) ? [argumentObject.input] : []))
+    : argumentObjects
+  for (const resourceObject of resourceObjects) {
+    const entityId = stringValue(resourceObject.resourceKind) ?? stringValue(resourceObject.entityId)
+    if (!entityId) continue
+    const declaredOperation = stringValue(resourceObject.operation)
+    const operations = declaredOperation && MUTATION_GUARD_OPERATIONS.has(declaredOperation)
+      ? [toRegistryGuardOperation(declaredOperation)]
+      : []
+    return { entityId, operations }
+  }
+  return null
+}
+
+function nodeLine(file: ts.SourceFile, node: ts.Node): number {
+  return file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1
+}
+
+function activationId(host: ModuleExtensionTargetRef, kind: ModuleExtensionActivationKind): string {
+  const method = host.method ? `:${host.method}` : ''
+  return `${host.kind}:${host.id}${method}:${kind}`
+}
+
+function sortActivations(activations: ModuleExtensionActivation[]): ModuleExtensionActivation[] {
+  return [...activations].sort((left, right) => left.id.localeCompare(right.id))
+}
+
+/**
+ * Extract the `call-site-object` activations (CRUD response/query enrichers and
+ * mutation guards) from a module's real `api/**` opt-in sites. Entity or route
+ * presence alone never lands here — only a literal `enrichers: { entityId }`
+ * option or a mutation-guard bridge call with a static `resourceKind`/`entityId`.
+ */
+/**
+ * `<engine>.query(entityId, { …, extensions })` — the only call shape that enables the
+ * query-engine enricher and sync query-lifecycle stages.
+ */
+function isQueryWithExtensionsCall(node: ts.Node, context: StaticContext): node is ts.CallExpression {
+  if (!ts.isCallExpression(node)) return false
+  const callee = node.expression
+  const calleeName = ts.isPropertyAccessExpression(callee)
+    ? callee.name.text
+    : ts.isIdentifier(callee)
+      ? callee.text
+      : null
+  if (calleeName !== 'query') return false
+  const queryOptions = node.arguments[1] ? staticValue(node.arguments[1], context) : undefined
+  return isStaticObject(queryOptions) && queryOptions.extensions !== undefined
+}
+
+function extractCallSiteActivations(options: ExtractModuleExtensionFactsOptions): ModuleExtensionActivation[] {
+  const activations: ModuleExtensionActivation[] = []
+  const byId = new Map<string, ModuleExtensionActivation>()
+  const push = (activation: ModuleExtensionActivation): void => {
+    const existing = byId.get(activation.id)
+    if (existing) {
+      if (!existing.operations || !activation.operations) {
+        delete existing.operations
+      } else {
+        existing.operations = [...new Set([...existing.operations, ...activation.operations])]
+          .sort((left, right) => left.localeCompare(right))
+      }
+      return
+    }
+    byId.set(activation.id, activation)
+    activations.push(activation)
+  }
+  const scannedFiles = MUTATION_GUARD_SOURCE_DIRECTORIES
+    .flatMap((directory) => sourceFilesBelow(path.join(options.moduleRoot, directory)))
+  for (const filePath of scannedFiles) {
+    const file = sourceFile(filePath)
+    if (!file) continue
+    const context = buildStaticContext(file)
+    const sourcePath = portablePath(options.moduleRoot, options.sourceRoot, filePath)
+    const visit = (node: ts.Node): void => {
+      // `enrichers: { entityId }` on a CRUD route runs `applyResponseEnrichers` after the
+      // list/detail hook. It does NOT enable the query-engine enricher stage.
+      if (ts.isPropertyAssignment(node) && propertyName(node.name) === 'enrichers') {
+        const config = staticValue(node.initializer, context)
+        const entityId = isStaticObject(config) ? stringValue(config.entityId) : undefined
+        if (entityId) {
+          const host: ModuleExtensionTargetRef = { kind: 'entity', id: entityId, moduleId: options.moduleId }
+          push({
+            id: activationId(host, 'crud-response-enricher'),
+            kind: 'crud-response-enricher',
+            host,
+            contributionKinds: ['response-enricher'],
+            source: { sourcePath, line: nodeLine(file, node) },
+          })
+        }
+      }
+      // The query-engine enricher stage runs only for a query that passes `extensions`,
+      // so the bound call site is `queryEngine.query('<entityId>', { …, extensions })`.
+      if (isQueryWithExtensionsCall(node, context)) {
+        const entityId = stringValue(staticValue(node.arguments[0], context))
+        if (entityId) {
+          const host: ModuleExtensionTargetRef = { kind: 'entity', id: entityId, moduleId: options.moduleId }
+          push({
+            id: activationId(host, 'query-enricher'),
+            kind: 'query-enricher',
+            host,
+            contributionKinds: ['response-enricher'],
+            source: { sourcePath, line: nodeLine(file, node) },
+          })
+        }
+      }
+      if (ts.isCallExpression(node)) {
+        const bridge = readMutationGuardBridge(node, context)
+        if (bridge) {
+          const host: ModuleExtensionTargetRef = { kind: 'entity', id: bridge.entityId, moduleId: options.moduleId }
+          push({
+            id: activationId(host, 'mutation-guard'),
+            kind: 'mutation-guard',
+            host,
+            contributionKinds: ['mutation-guard'],
+            ...(bridge.operations.length > 0 ? { operations: bridge.operations } : {}),
+            source: { sourcePath, line: nodeLine(file, node) },
+          })
+        }
+      }
+      node.forEachChild(visit)
+    }
+    file.forEachChild(visit)
+  }
+  return sortActivations(activations)
+}
+
 export function extractModuleExtensionFacts(options: ExtractModuleExtensionFactsOptions): ModuleExtensionSurfaceFacts {
   const declared = extractDeclaredHosts(options)
   const hosts = sortHosts([...declared.hosts, ...extractFactRefHosts(options)])
@@ -1333,7 +1856,12 @@ export function extractModuleExtensionFacts(options: ExtractModuleExtensionFacts
     ...extractComponentOverrides(options),
     ...extractSpecializedRegistries(options),
   ])
-  return { hosts, contributions, unresolved: declared.unresolved }
+  return {
+    hosts,
+    contributions,
+    unresolved: declared.unresolved,
+    activations: extractCallSiteActivations(options),
+  }
 }
 
 function patternMatches(pattern: string, targetId: string): boolean {
@@ -1348,6 +1876,22 @@ function targetModuleId(targetId: string): string | null {
   const withoutPrefix = targetId.replace(/^(?:data-table|crud-form|detail|portal-page):/, '')
   const match = /^([a-z][a-z0-9_]*)[.:]/.exec(withoutPrefix)
   return match?.[1] ?? null
+}
+
+function normalizedEntityId(value: string): string {
+  return value.replace(/^([a-z][a-z0-9_]*):/, '$1.')
+}
+
+function entityFactKeyForTarget(targetId: string, entityIds: ReadonlySet<string>): string | null {
+  const normalizedTarget = normalizedEntityId(targetId)
+  for (const entityId of entityIds) {
+    const normalizedEntity = normalizedEntityId(entityId)
+    if (normalizedTarget === normalizedEntity) return entityId
+    if (normalizedTarget.startsWith(`${normalizedEntity}.`) && /\.(?:creating|created|updating|updated|deleting|deleted)$/.test(normalizedTarget)) {
+      return entityId
+    }
+  }
+  return null
 }
 
 export function correlateExtensionTarget(
@@ -1383,14 +1927,17 @@ export function correlateExtensionTarget(
   const framework = allFrameworkHosts().find((host) => patternMatches(host.id, targetFact.id))
     ?? (FRAMEWORK_PREFIXES.some((prefix) => targetFact.id.startsWith(prefix)) ? FRAMEWORK_HOSTS[0] : undefined)
   if (framework) return { id: targetFact.id, resolution: 'framework' }
-  if (options.entityIds.has(targetFact.id)) {
-    return { id: targetFact.id, resolution: 'fact-ref', factRef: { factSection: 'entities', factKey: targetFact.id } }
+  const entityFactKey = options.factsContractVersion === 1
+    ? (options.entityIds.has(targetFact.id) ? targetFact.id : null)
+    : entityFactKeyForTarget(targetFact.id, options.entityIds)
+  if (entityFactKey) {
+    return { id: targetFact.id, resolution: 'fact-ref', factRef: { factSection: 'entities', factKey: entityFactKey } }
   }
   if (options.eventIds.has(targetFact.id)) {
     return { id: targetFact.id, resolution: 'fact-ref', factRef: { factSection: 'events', factKey: targetFact.id } }
   }
   if (options.commandIds?.has(targetFact.id)) {
-    return factTarget(targetFact.id, 'commands')
+    return factTarget(targetFact.id, 'ownedContracts.command')
   }
   const route = [...options.apiRoutes].find((apiRoute) => apiRoute === targetFact.id || apiRoute.endsWith(`/${targetFact.id}`))
   if (route) return { id: targetFact.id, resolution: 'fact-ref', factRef: { factSection: 'apiRoutes', factKey: route } }
@@ -1428,9 +1975,458 @@ export function correlateModuleExtensionFacts(options: CorrelateExtensionFactsOp
       hosts: sortHosts([...surface.hosts]),
       contributions: sortContributions(contributions),
       unresolved: unresolved.sort((left, right) => left.key.localeCompare(right.key)),
+      activations: sortActivations([...(surface.activations ?? [])]),
     }
   }
   return result
+}
+
+type IncomingTargetOwner = {
+  moduleId: string
+  source: ModuleFactSourceRef
+  /** Interceptor bridges the owning api route wires (api-route owners only). */
+  bridges?: ApiRouteInterceptorBridge[]
+}
+
+export interface CorrelateIncomingExtensionsOptions {
+  surfacesByModule: Readonly<Record<string, ModuleExtensionSurfaceFacts>>
+  /** Concrete runtime-id owner maps derived from the fully-selected module set. */
+  apiRouteOwners?: ReadonlyMap<string, IncomingTargetOwner>
+  commandOwners?: ReadonlyMap<string, IncomingTargetOwner>
+}
+
+function normalizeRouteId(routeId: string): string {
+  return routeId.replace(/^\//, '')
+}
+
+/**
+ * Owner marker for a contribution bound to a framework host (dashboard, menus,
+ * notifications, …). Framework hosts have no module surface of their own, so the
+ * activation is recorded on the contributor and never produces an incoming row.
+ */
+const FRAMEWORK_HOST_OWNER = 'framework'
+
+/**
+ * Framework host families each host-reference adapter may bind, so a dashboard
+ * contribution resolves through `dashboard-host-consumer` rather than being claimed
+ * by the generic widget-injection adapter that runs first.
+ */
+const FRAMEWORK_HOST_FAMILIES_BY_ACTIVATION: Partial<Record<ModuleExtensionActivationKind, ExtensionHostFamily[]>> = {
+  'dashboard-host-consumer': ['dashboard'],
+  'widget-injection-consumer': ['menu', 'generic', 'crud-form', 'data-table', 'notification', 'integration'],
+  'component-extension-consumer': ['component-handle'],
+}
+
+/**
+ * Resolves a target id against the framework host catalog — exact ids first, then
+ * the patterned entries (`dashboard:*`, `crud-form:*`, `integrations.detail:{id}`),
+ * so a concrete `dashboard:<widget>` contribution reaches `framework.dashboard`.
+ */
+function findFrameworkHost(
+  targetId: string,
+  activationKind: ModuleExtensionActivationKind,
+): ModuleExtensionHostFact | null {
+  const families = FRAMEWORK_HOST_FAMILIES_BY_ACTIVATION[activationKind]
+  if (!families) return null
+  const candidates = FRAMEWORK_HOSTS.filter((host) => families.includes(host.family))
+  const exact = candidates.find((host) => host.id === targetId)
+  if (exact) return exact
+  return candidates.find((host) => host.resolution === 'pattern' && patternMatches(host.id, targetId)) ?? null
+}
+
+/**
+ * A call site that guards only some operations does not activate a contribution
+ * declaring none of them. Either side leaving operations undeclared means "any".
+ */
+function operationsIntersect(
+  activationOperations: readonly string[] | undefined,
+  contributionOperations: readonly string[] | undefined,
+): boolean {
+  if (!activationOperations || activationOperations.length === 0) return true
+  if (!contributionOperations || contributionOperations.length === 0) return true
+  return contributionOperations.some((operation) => activationOperations.includes(operation))
+}
+
+function contributionSourceRef(contribution: ModuleExtensionContributionFact): ModuleFactSourceRef {
+  return {
+    sourcePath: contribution.source.path,
+    ...(contribution.source.symbol ? { exportName: contribution.source.symbol } : {}),
+  }
+}
+
+function targetRefKindFor(
+  contribution: ModuleExtensionContributionFact,
+  targetId: string,
+): ModuleExtensionTargetRef['kind'] {
+  if (targetId === '*' || targetId.includes('*') || targetId.includes('{')) return 'wildcard'
+  switch (contribution.kind) {
+    case 'response-enricher':
+    case 'mutation-guard':
+    case 'entity-extension':
+      return 'entity'
+    case 'api-interceptor':
+      return 'api-route'
+    case 'command-interceptor':
+      return 'command'
+    case 'component-override':
+      return 'component'
+    case 'subscriber':
+      return 'event'
+    case 'browser-reaction':
+      return contribution.details.transports.includes('notification-effect') ? 'notification' : 'event'
+    case 'widget':
+    case 'data-table':
+    case 'crud-form':
+      return 'widget-spot'
+    case 'specialized-registry':
+    case 'module-override':
+      return 'module'
+    default:
+      return 'module'
+  }
+}
+
+/**
+ * Builds the bidirectional incoming/resolution index after every module fact is
+ * extracted and target-correlated. For each contribution target it records one
+ * contributor-owned `ModuleContributionResolution` and, when a concrete target
+ * owner exists, one target-owned `ModuleIncomingExtensionRef` per matching
+ * activation. It never duplicates contribution behavior metadata — incoming rows
+ * point back to the source-owned contribution by `contributorModuleId + contributionId`.
+ */
+export function correlateIncomingExtensions(
+  options: CorrelateIncomingExtensionsOptions,
+): Record<string, ModuleExtensionSurfaceFacts> {
+  const moduleIds = Object.keys(options.surfacesByModule).sort((left, right) => left.localeCompare(right))
+  const apiRouteOwners = options.apiRouteOwners ?? new Map<string, IncomingTargetOwner>()
+  const commandOwners = options.commandOwners ?? new Map<string, IncomingTargetOwner>()
+
+  // Index call-site activations by (kind, normalized host id).
+  const activationIndex = new Map<string, Array<{ moduleId: string; activation: ModuleExtensionActivation }>>()
+  const activationKey = (kind: ModuleExtensionActivationKind, hostKind: ModuleExtensionTargetRef['kind'], id: string): string => {
+    const normId = hostKind === 'api-route' ? normalizeRouteId(id) : id
+    return JSON.stringify([kind, hostKind, normId])
+  }
+  // Index bound hosts by their runtime id for host-reference resolution.
+  const boundHostIndex = new Map<string, { moduleId: string; host: ModuleExtensionHostFact }>()
+
+  for (const moduleId of moduleIds) {
+    const surface = options.surfacesByModule[moduleId]
+    for (const activation of surface.activations ?? []) {
+      const key = activationKey(activation.kind, activation.host.kind, activation.host.id)
+      const bucket = activationIndex.get(key)
+      if (bucket) bucket.push({ moduleId, activation })
+      else activationIndex.set(key, [{ moduleId, activation }])
+    }
+    for (const host of surface.hosts) {
+      if (!host.bound) continue
+      if (!boundHostIndex.has(host.id)) boundHostIndex.set(host.id, { moduleId, host })
+    }
+  }
+
+  const incomingByModule: Record<string, ModuleIncomingExtensionRef[]> = {}
+  const resolutionsByModule: Record<string, ModuleContributionResolution[]> = {}
+  const syntheticActivations: Record<string, ModuleExtensionActivation[]> = {}
+  for (const moduleId of moduleIds) {
+    incomingByModule[moduleId] = []
+    resolutionsByModule[moduleId] = []
+    syntheticActivations[moduleId] = []
+  }
+  const registerSyntheticActivation = (ownerModule: string, activation: ModuleExtensionActivation): void => {
+    if (!syntheticActivations[ownerModule]) syntheticActivations[ownerModule] = []
+    if (!syntheticActivations[ownerModule].some((entry) => entry.id === activation.id)) {
+      syntheticActivations[ownerModule].push(activation)
+    }
+  }
+
+  const findCallSiteActivations = (
+    contributionKind: ModuleExtensionContributionKind,
+    activationKinds: ModuleExtensionActivationKind[],
+    targetRef: ModuleExtensionTargetRef,
+    contributionOperations: readonly string[] | undefined,
+  ): Array<{ moduleId: string; activation: ModuleExtensionActivation }> => {
+    const matches: Array<{ moduleId: string; activation: ModuleExtensionActivation }> = []
+    for (const kind of activationKinds) {
+      if (ACTIVATION_ADAPTERS[kind].mode !== 'call-site-object') continue
+      const bucket = activationIndex.get(activationKey(kind, targetRef.kind, targetRef.id)) ?? []
+      for (const entry of bucket) {
+        if (!entry.activation.contributionKinds.includes(contributionKind)) continue
+        if (!operationsIntersect(entry.activation.operations, contributionOperations)) continue
+        matches.push(entry)
+      }
+    }
+    return matches.sort((left, right) => left.activation.id.localeCompare(right.activation.id))
+  }
+
+  for (const contributorModuleId of moduleIds) {
+    const surface = options.surfacesByModule[contributorModuleId]
+    for (const contribution of surface.contributions) {
+      const classification = CONTRIBUTION_ACTIVATION_CLASSIFICATION[contribution.kind]
+      for (const resolvedTarget of contribution.targets) {
+        const targetKind = targetRefKindFor(contribution, resolvedTarget.id)
+        const baseTarget: ModuleExtensionTargetRef = { kind: targetKind, id: resolvedTarget.id }
+
+        let resolution: ModuleExtensionResolution
+        let ownerModule: string | null = null
+        let boundActivationIds: string[] = []
+
+        if (targetKind === 'wildcard' || resolvedTarget.resolution === 'pattern') {
+          resolution = 'wildcard'
+        } else if (resolvedTarget.resolution === 'optional-external') {
+          resolution = 'optional-target-missing'
+        } else if (resolvedTarget.resolution === 'unresolved') {
+          resolution = 'unresolved'
+        } else {
+          const activationKinds = classification === 'capability-only' ? [] : classification
+          const callSiteMatches = findCallSiteActivations(
+            contribution.kind,
+            activationKinds,
+            baseTarget,
+            contribution.operations,
+          )
+          if (callSiteMatches.length > 0) {
+            resolution = 'bound'
+            ownerModule = callSiteMatches[0].moduleId
+            boundActivationIds = callSiteMatches.map((entry) => entry.activation.id)
+          } else {
+            const referenceBinding = resolveReferenceBinding({
+              contribution,
+              activationKinds,
+              targetRef: baseTarget,
+              boundHostIndex,
+              apiRouteOwners,
+              commandOwners,
+            })
+            if (referenceBinding) {
+              resolution = 'bound'
+              // A framework host owns no module surface: record the activation on the
+              // contributor and leave `ownerModule` unset so no incoming row is emitted.
+              const isFrameworkHost = referenceBinding.ownerModule === FRAMEWORK_HOST_OWNER
+              ownerModule = isFrameworkHost ? null : referenceBinding.ownerModule
+              const activationOwner = isFrameworkHost ? contributorModuleId : referenceBinding.ownerModule
+              for (const activation of referenceBinding.activations) {
+                registerSyntheticActivation(activationOwner, activation)
+              }
+              boundActivationIds = referenceBinding.activations.map((activation) => activation.id)
+            } else {
+              const hostOwner = boundHostIndex.get(resolvedTarget.id)
+              if (hostOwner) {
+                resolution = 'capability-only'
+                ownerModule = hostOwner.moduleId
+              } else {
+                resolution = 'capability-only'
+                ownerModule = null
+              }
+            }
+          }
+        }
+
+        const resolutionTarget: ModuleExtensionTargetRef = ownerModule
+          ? { ...baseTarget, moduleId: ownerModule }
+          : baseTarget
+        resolutionsByModule[contributorModuleId].push({
+          contributionId: contribution.id,
+          target: resolutionTarget,
+          resolution,
+          activationIds: [...boundActivationIds].sort((left, right) => left.localeCompare(right)),
+        })
+
+        // Incoming rows document contributions installed by OTHER modules onto a
+        // target module's surface (cross-module discovery). Same-module targets are
+        // already fully covered by the contributor-owned resolution row above, so
+        // emitting a self-incoming row would only duplicate that fact and bloat the
+        // generated context.
+        if (ownerModule && ownerModule !== contributorModuleId && (resolution === 'bound' || resolution === 'capability-only')) {
+          const source = contributionSourceRef(contribution)
+          const incomingTarget: ModuleExtensionTargetRef = { ...baseTarget, moduleId: ownerModule }
+          if (resolution === 'bound' && boundActivationIds.length > 0) {
+            for (const activationRefId of boundActivationIds) {
+              incomingByModule[ownerModule].push({
+                contributionId: contribution.id,
+                contributionKind: contribution.kind,
+                contributorModuleId,
+                target: incomingTarget,
+                activationId: activationRefId,
+                resolution: 'bound',
+                source,
+              })
+            }
+          } else {
+            incomingByModule[ownerModule].push({
+              contributionId: contribution.id,
+              contributionKind: contribution.kind,
+              contributorModuleId,
+              target: incomingTarget,
+              resolution,
+              source,
+            })
+          }
+        }
+      }
+    }
+  }
+
+  const result: Record<string, ModuleExtensionSurfaceFacts> = {}
+  for (const moduleId of moduleIds) {
+    const surface = options.surfacesByModule[moduleId]
+    result[moduleId] = {
+      ...surface,
+      activations: sortActivations([...(surface.activations ?? []), ...syntheticActivations[moduleId]]),
+      incoming: dedupeIncoming(incomingByModule[moduleId]),
+      contributionResolutions: sortResolutions(resolutionsByModule[moduleId]),
+    }
+  }
+  return result
+}
+
+/**
+ * Intersects an api-interceptor contribution's declared methods and phases with the
+ * bridges its target route actually wires. A route with no bridge, a phase the route
+ * never runs, or a method the route does not handle yields no binding, so the
+ * contribution stays `capability-only` instead of being reported as active.
+ */
+function matchApiInterceptorBridges(
+  contribution: ModuleExtensionContributionFact,
+  owner: IncomingTargetOwner,
+): ApiRouteInterceptorBridge[] {
+  if (contribution.kind !== 'api-interceptor') return []
+  const bridges = owner.bridges ?? []
+  const declaredMethods = contribution.details.methods ?? []
+  const declaredPhases = contribution.phases ?? []
+  const matched: ApiRouteInterceptorBridge[] = []
+  for (const bridge of bridges) {
+    if (declaredMethods.length > 0 && !declaredMethods.includes(bridge.method)) continue
+    const phases = declaredPhases.length > 0
+      ? bridge.phases.filter((phase) => declaredPhases.includes(phase))
+      : bridge.phases
+    if (phases.length === 0) continue
+    matched.push({ method: bridge.method, phases })
+  }
+  return matched
+}
+
+function resolveReferenceBinding(input: {
+  contribution: ModuleExtensionContributionFact
+  activationKinds: ModuleExtensionActivationKind[]
+  targetRef: ModuleExtensionTargetRef
+  boundHostIndex: ReadonlyMap<string, { moduleId: string; host: ModuleExtensionHostFact }>
+  apiRouteOwners: ReadonlyMap<string, IncomingTargetOwner>
+  commandOwners: ReadonlyMap<string, IncomingTargetOwner>
+}): { ownerModule: string; activations: ModuleExtensionActivation[] } | null {
+  for (const kind of input.activationKinds) {
+    const adapter = ACTIVATION_ADAPTERS[kind]
+    if (adapter.mode === 'call-site-object') continue
+    if (!adapter.contributionKinds.includes(input.contribution.kind)) continue
+
+    if (adapter.mode === 'host-reference' && kind === 'api-interceptor-bridge') {
+      const routeId = normalizeRouteId(input.targetRef.id)
+      const owner = input.apiRouteOwners.get(routeId)
+      if (!owner) continue
+      const matchedBridges = matchApiInterceptorBridges(input.contribution, owner)
+      if (matchedBridges.length === 0) continue
+      return {
+        ownerModule: owner.moduleId,
+        activations: matchedBridges.map((bridge) => {
+          const host: ModuleExtensionTargetRef = {
+            kind: 'api-route',
+            id: routeId,
+            moduleId: owner.moduleId,
+            method: bridge.method,
+          }
+          return {
+            id: activationId(host, kind),
+            kind,
+            host,
+            contributionKinds: ['api-interceptor'],
+            phases: bridge.phases,
+            source: owner.source,
+            bridge: { factSection: 'apiRoutes', factKey: `/${routeId}` },
+          }
+        }),
+      }
+    }
+
+    if (adapter.mode === 'owner-reference' && kind === 'command-interceptor-bridge') {
+      const owner = input.commandOwners.get(input.targetRef.id)
+      if (!owner) continue
+      const host: ModuleExtensionTargetRef = { kind: 'command', id: input.targetRef.id, moduleId: owner.moduleId }
+      return {
+        ownerModule: owner.moduleId,
+        activations: [{
+          id: activationId(host, kind),
+          kind,
+          host,
+          contributionKinds: ['command-interceptor'],
+          source: owner.source,
+          bridge: { factSection: 'ownedContracts.command', factKey: input.targetRef.id },
+        }],
+      }
+    }
+
+    if (adapter.mode === 'host-reference' && (kind === 'widget-injection-consumer' || kind === 'component-extension-consumer' || kind === 'dashboard-host-consumer')) {
+      const frameworkHostFact = input.boundHostIndex.has(input.targetRef.id)
+        ? null
+        : findFrameworkHost(input.targetRef.id, kind)
+      const hostEntry = input.boundHostIndex.get(input.targetRef.id)
+        ?? (frameworkHostFact ? { moduleId: FRAMEWORK_HOST_OWNER, host: frameworkHostFact } : undefined)
+      if (!hostEntry) continue
+      const hostSource = hostReferenceSource(hostEntry.host)
+      if (!hostSource) continue
+      const host: ModuleExtensionTargetRef = { ...input.targetRef, moduleId: hostEntry.moduleId }
+      return {
+        ownerModule: hostEntry.moduleId,
+        activations: [{
+          id: activationId(host, kind),
+          kind,
+          host,
+          contributionKinds: adapter.contributionKinds,
+          source: hostSource,
+          bridge: { factSection: 'hosts', factKey: hostEntry.host.key },
+        }],
+      }
+    }
+  }
+  return null
+}
+
+function hostReferenceSource(host: ModuleExtensionHostFact): ModuleFactSourceRef | null {
+  if (host.source.kind === 'declaration' || host.source.kind === 'framework') {
+    return { sourcePath: host.source.path, exportName: host.source.symbol }
+  }
+  return null
+}
+
+function incomingIdentity(entry: ModuleIncomingExtensionRef): string {
+  const target = JSON.stringify([entry.target.kind, entry.target.id])
+  return JSON.stringify([entry.contributorModuleId, entry.contributionId, target, entry.activationId ?? entry.resolution])
+}
+
+function dedupeIncoming(entries: ModuleIncomingExtensionRef[]): ModuleIncomingExtensionRef[] {
+  const seen = new Set<string>()
+  const unique: ModuleIncomingExtensionRef[] = []
+  for (const entry of entries) {
+    const identity = incomingIdentity(entry)
+    if (seen.has(identity)) continue
+    seen.add(identity)
+    unique.push(entry)
+  }
+  return unique.sort((left, right) => incomingIdentity(left).localeCompare(incomingIdentity(right)))
+}
+
+function resolutionIdentity(entry: ModuleContributionResolution): string {
+  return JSON.stringify([entry.contributionId, entry.target.kind, entry.target.id, entry.resolution])
+}
+
+function sortResolutions(entries: ModuleContributionResolution[]): ModuleContributionResolution[] {
+  const seen = new Set<string>()
+  const unique: ModuleContributionResolution[] = []
+  for (const entry of entries) {
+    const identity = resolutionIdentity(entry)
+    if (seen.has(identity)) continue
+    seen.add(identity)
+    unique.push(entry)
+  }
+  return unique.sort((left, right) => resolutionIdentity(left).localeCompare(resolutionIdentity(right)))
 }
 
 export function assertNoUnresolvedExtensionTargets(
@@ -1444,6 +2440,62 @@ export function assertNoUnresolvedExtensionTargets(
   if (unresolved.length > 0) {
     throw new Error(`[module-facts] unresolved first-party extension targets: ${unresolved.join(', ')}`)
   }
+}
+
+/**
+ * Supported merge/replace/disable modes for each dotted unified-override host,
+ * derived from {@link FRAMEWORK_OVERRIDE_HOSTS} (the framework catalog authority
+ * — spec 2026-08-02-module-facts-exact-override-targets). Keyed by the dotted
+ * host id (e.g. `routes.api`, `ai.extensions`, `nav.groupOrder`) so the module
+ * override-target adapters share one mode source of truth with the catalog.
+ *
+ * @deprecated Use {@link getFrameworkOverrideHostOperations}. This helper drops any host whose
+ * declared operation is not one of the three recognized modes, which collapses "the catalog does
+ * not describe this host" into "the catalog describes it with a mode this generator has fallen
+ * behind on" — the distinction the `unknown-framework-domain` / `unknown-framework-mode`
+ * diagnostics exist to keep apart. Every in-tree consumer has moved; the export is retained
+ * because `BACKWARD_COMPATIBILITY.md` classifies exported generator helpers as removable only
+ * through the deprecation protocol, and it stays behaviour-identical for as long as it exists.
+ */
+export function getFrameworkOverrideModes(
+  hosts: readonly ModuleExtensionHostFact[] = FRAMEWORK_OVERRIDE_HOSTS,
+): Record<string, 'disable-replace' | 'replace' | 'additive'> {
+  const modes: Record<string, 'disable-replace' | 'replace' | 'additive'> = {}
+  for (const [dotted, operation] of Object.entries(getFrameworkOverrideHostOperations(hosts))) {
+    if (operation === 'disable-replace' || operation === 'replace' || operation === 'additive') {
+      modes[dotted] = operation
+    }
+  }
+  return modes
+}
+
+/**
+ * The catalog's declared first operation for every dotted unified-override host,
+ * **without** validating it against the known mode set.
+ *
+ * {@link getFrameworkOverrideModes} silently drops a host whose operation is not a
+ * recognized mode, which makes "the catalog does not describe this host at all"
+ * indistinguishable from "the catalog describes it with a mode this generator does
+ * not understand". Consumers that must tell those apart (the override-target
+ * adapters, which emit different diagnostics for each) read the raw operations
+ * here instead — spec `2026-07-31-standalone-canonical-example-module.md`,
+ * § PR #4883 Module-Fact and Extension-Topology Contract.
+ *
+ * `hosts` defaults to the framework catalog. Every catalog host declares a valid
+ * mode today, so the pass-through is unobservable against the real catalog; passing
+ * an explicit host list is how `module-override-targets.unknown-mode.test.ts` proves
+ * that an operation this generator does not recognize really does survive here.
+ */
+export function getFrameworkOverrideHostOperations(
+  hosts: readonly ModuleExtensionHostFact[] = FRAMEWORK_OVERRIDE_HOSTS,
+): Record<string, string> {
+  const operations: Record<string, string> = {}
+  for (const host of hosts) {
+    const dotted = host.key.replace(/^framework\.module-override\./, '')
+    const operation = host.operations?.[0]
+    if (typeof operation === 'string') operations[dotted] = operation
+  }
+  return operations
 }
 
 export function getFrameworkExtensionHosts(): ModuleExtensionHostFact[] {

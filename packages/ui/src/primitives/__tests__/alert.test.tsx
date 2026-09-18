@@ -189,7 +189,47 @@ describe('Alert primitive', () => {
       </Alert>,
     )
     expect(screen.getByText('Saved').tagName).toBe('H5')
-    expect(screen.getByText('Your changes were saved.').tagName).toBe('P')
+    expect(screen.getByText('Your changes were saved.').tagName).toBe('DIV')
+  })
+
+  describe('AlertDescription accepts block-level children', () => {
+    it('renders a div so nested paragraphs stay valid HTML', () => {
+      const { container } = render(
+        <Alert status="information">
+          <AlertDescription>
+            <p>First paragraph.</p>
+            <p>Second paragraph.</p>
+          </AlertDescription>
+        </Alert>,
+      )
+      expect(screen.getByText('First paragraph.').parentElement?.tagName).toBe('DIV')
+      expect(container.querySelectorAll('p p')).toHaveLength(0)
+    })
+
+    it('keeps a nested list out of a paragraph', () => {
+      const { container } = render(
+        <Alert status="warning">
+          <AlertDescription>
+            <p>These records changed:</p>
+            <ul>
+              <li>r-1</li>
+            </ul>
+          </AlertDescription>
+        </Alert>,
+      )
+      expect(container.querySelectorAll('p ul')).toHaveLength(0)
+      expect(container.querySelectorAll('p p')).toHaveLength(0)
+    })
+
+    it('forwards a ref to the rendered div', () => {
+      const ref = React.createRef<HTMLDivElement>()
+      render(
+        <Alert>
+          <AlertDescription ref={ref}>Body</AlertDescription>
+        </Alert>,
+      )
+      expect(ref.current).toBeInstanceOf(HTMLDivElement)
+    })
   })
 
   describe('legacy variant prop (BC)', () => {

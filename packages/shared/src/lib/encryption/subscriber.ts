@@ -6,6 +6,7 @@ import { isTenantDataEncryptionEnabled } from './toggles'
 import { isEncryptionDebugEnabled } from './toggles'
 import { resolveTenantEncryptionService } from './customFieldValues'
 import { createLogger } from '../logger'
+import { listEntityMetadataFromRegistry } from '../db/entityMetadata'
 
 const logger = createLogger('shared').child({ component: 'encryption' })
 
@@ -49,6 +50,31 @@ function isJsonColumnProperty(prop: unknown): boolean {
   return typeof customTypeName === 'string' && customTypeName.toLowerCase().includes('json')
 }
 
+// Encryption is configured on but the service reports disabled — the KMS is
+// unreachable, so this write lands as plaintext. Throttle the warning so a long
+// outage does not flood the log while still leaving an ongoing signal that the
+// fail-open window is open (#5948).
+const ENCRYPTION_PAUSED_WARN_INTERVAL_MS = 60_000
+let lastEncryptionPausedWarnAt = 0
+
+function warnEncryptionPaused(entity: string | undefined): void {
+  const now = Date.now()
+  if (lastEncryptionPausedWarnAt && now - lastEncryptionPausedWarnAt < ENCRYPTION_PAUSED_WARN_INTERVAL_MS) return
+  lastEncryptionPausedWarnAt = now
+  try {
+    logger.warn(
+      'Tenant data encryption is enabled but the KMS is unavailable - entity writes persist as plaintext until it recovers',
+      { entity },
+    )
+  } catch {
+    // ignore
+  }
+}
+
+export function resetEncryptionPausedWarnThrottle(): void {
+  lastEncryptionPausedWarnAt = 0
+}
+
 const registeredEventManagers = new WeakSet<object>()
 
 const subscribersByService = new WeakMap<TenantDataEncryptionService, TenantEncryptionSubscriber>()
@@ -85,13 +111,8 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     try { return registry.find?.(ctor) } catch {}
     try { return registry.get?.(name) } catch {}
     try { return registry.get?.(ctor) } catch {}
-    const all =
-      (typeof registry.getAll === 'function' && registry.getAll()) ||
-      (Array.isArray((registry as any).metadata) ? (registry as any).metadata : undefined) ||
-      (registry as any).metadata ||
-      {}
     try {
-      const entries = Array.isArray(all) ? all : Object.values<any>(all)
+      const entries = listEntityMetadataFromRegistry(registry)
       const match = entries.find(
         (m: any) =>
           m?.className === name ||
@@ -210,8 +231,10 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     em?: { getMetadata?: () => any; getComparator?: () => any },
     changeSet?: { payload?: Record<string, unknown> },
   ) {
-    if (!isTenantDataEncryptionEnabled() || !this.service.isEnabled()) {
+    const encryptionConfigured = isTenantDataEncryptionEnabled()
+    if (!encryptionConfigured || !this.service.isEnabled()) {
       debug('⚪️ subscriber.skip', { reason: 'disabled', entity: meta?.className || meta?.name })
+      if (encryptionConfigured) warnEncryptionPaused(meta?.className || meta?.name)
       return
     }
     const resolvedMeta = this.resolveMeta(meta, target, em)
@@ -224,10 +247,6 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
       return
     }
     const { tenantId, organizationId } = resolveScope(target)
-    if (!tenantId) {
-      debug('⚪️ subscriber.skip', { reason: 'no-tenant', entityId })
-      return
-    }
     const encrypted = await this.service.encryptEntityPayload(entityId, target, tenantId, organizationId)
     const metaProps: Record<string, unknown> = resolvedMeta?.properties && typeof resolvedMeta.properties === 'object'
       ? resolvedMeta.properties
@@ -325,10 +344,6 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     const { tenantId, organizationId } = resolveScope(target)
     const scopedTenantId = tenantId ?? fallbackScope?.tenantId ?? null
     const scopedOrgId = organizationId ?? fallbackScope?.organizationId ?? null
-    if (!scopedTenantId) {
-      debug('⚪️ subscriber.skip', { reason: 'no-tenant', entityId })
-      return
-    }
     // Capture pending (un-flushed) changes BEFORE decrypt mutates the target. Re-baselining a
     // managed entity that a command already mutated would clear its dirty changeset and silently
     // drop the pending write (e.g. an undo handler that mutates an entity, then loads a related

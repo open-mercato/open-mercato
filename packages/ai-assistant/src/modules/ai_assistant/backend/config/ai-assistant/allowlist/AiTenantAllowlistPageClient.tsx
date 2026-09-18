@@ -129,7 +129,7 @@ export function AiTenantAllowlistPageClient(): React.JSX.Element {
     return (
       <div className="flex max-w-3xl flex-col gap-4">
         {pageHeader}
-        <Alert variant="destructive">
+        <Alert status="error">
           <AlertTitle>{t('ai_assistant.allowlist.loadError.title', 'Failed to load allowlist')}</AlertTitle>
           <AlertDescription>
             {settingsQuery.error instanceof Error
@@ -311,7 +311,7 @@ export function AiTenantAllowlistPageClient(): React.JSX.Element {
       {envBanner}
 
       {feedback ? (
-        <Alert variant={feedback.kind === 'error' ? 'destructive' : undefined}>
+        <Alert status={feedback.kind === 'error' ? 'error' : undefined}>
           <AlertDescription>{feedback.text}</AlertDescription>
         </Alert>
       ) : null}

@@ -10,6 +10,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import type { AppEventPayload } from '@open-mercato/shared/modules/widgets/injection'
 import { CompanyCard, type EnrichedCompanyData } from './CompanyCard'
 import { useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { LinkEntityDialog, type LinkEntityOption } from '../linking/LinkEntityDialog'
@@ -369,12 +370,18 @@ export function PersonCompaniesSection({
     [_personName, confirm, loadData, onChanged, personId, runWriteMutation, t, unlinkingId],
   )
 
-  useAppEvent('customers.person_company_link.deleted', (event) => {
+  const reloadOnPersonDetach = React.useCallback((event: AppEventPayload) => {
     const payload = event.payload as { personEntityId?: string | null } | null | undefined
     if (payload && payload.personEntityId === personId) {
       void loadData({ showLoading: false })
     }
   }, [personId, loadData])
+
+  useAppEvent('customers.person_company_link.deleted', reloadOnPersonDetach, [reloadOnPersonDetach])
+  // Legacy profile-only assignments have no link row, so their detach broadcasts this sibling
+  // event instead of `customers.person_company_link.deleted` (#5114). Without it, other viewers
+  // of the same person keep listing a company that is already detached.
+  useAppEvent('customers.person.company_assignment.detached', reloadOnPersonDetach, [reloadOnPersonDetach])
 
   return (
     <>

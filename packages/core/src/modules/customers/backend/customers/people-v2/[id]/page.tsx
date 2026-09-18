@@ -92,10 +92,6 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const [isSaving, setIsSaving] = React.useState(false)
   const formWrapperRef = React.useRef<HTMLDivElement>(null)
 
-  const initialTab = React.useMemo(() => {
-    return resolveLegacyTab(searchParams?.get('tab'))
-  }, [searchParams])
-  const [activeTab, setActiveTab] = React.useState<PersonTabId>(initialTab)
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [scheduleDialogOpen, setScheduleDialogOpen] = React.useState(false)
   const [scheduleEditData, setScheduleEditData] = React.useState<ScheduleActivityEditData | null>(null)
@@ -280,6 +276,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
       scheduledAt: typeof activity.scheduledAt === 'string' ? activity.scheduledAt : null,
       occurredAt: typeof activity.occurredAt === 'string' ? activity.occurredAt : null,
       durationMinutes: durationValue,
+      priority: typeof raw.priority === 'number' ? raw.priority as number : null,
       location: typeof raw.location === 'string' ? raw.location as string : null,
       allDay: typeof raw.allDay === 'boolean' ? raw.allDay as boolean : null,
       recurrenceRule: typeof raw.recurrenceRule === 'string' ? raw.recurrenceRule as string : null,
@@ -312,7 +309,9 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
         .filter((widget) => (widget.placement?.kind ?? 'tab') === 'tab')
         .map((widget) => {
           const tabId = widget.placement?.groupId ?? widget.widgetId
-          const label = widget.placement?.groupLabel ?? widget.module.metadata.title ?? tabId
+          const label = widget.placement?.groupLabel
+            ? t(widget.placement.groupLabel, widget.placement.groupLabel)
+            : widget.module.metadata.title ?? tabId
           const priority = typeof widget.placement?.priority === 'number' ? widget.placement.priority : 0
           const render = () => (
             <widget.module.Widget
@@ -324,10 +323,32 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
           return { id: tabId, label, priority, render }
         })
         .sort((a, b) => b.priority - a.priority),
-    [data, injectedTabWidgets, injectionContext],
+    [data, injectedTabWidgets, injectionContext, t],
   )
 
   const injectedTabMap = React.useMemo(() => new Map(injectedTabs.map((tab) => [tab.id, tab.render])), [injectedTabs])
+
+  const injectedTabIds = React.useMemo(() => injectedTabs.map((tab) => tab.id), [injectedTabs])
+  const initialTab = React.useMemo(
+    () => resolveLegacyTab(searchParams?.get('tab'), injectedTabIds),
+    [injectedTabIds, searchParams],
+  )
+  const [activeTab, setActiveTab] = React.useState<PersonTabId>(initialTab)
+
+  React.useEffect(() => {
+    setActiveTab(initialTab)
+  }, [initialTab])
+
+  const handleTabChange = React.useCallback(
+    (tab: PersonTabId) => {
+      setActiveTab(tab)
+      if (!pathname) return
+      const nextParams = new URLSearchParams(searchParams?.toString() ?? '')
+      nextParams.set('tab', tab)
+      router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false })
+    },
+    [pathname, router, searchParams],
+  )
 
   // Tags
   const handleTagsChange = React.useCallback((nextTags: TagSummary[]) => {
@@ -515,7 +536,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             onDelete={handleFormDelete}
             isDirty={isDirty}
             isSaving={isSaving}
-            onOpenCompaniesTab={() => setActiveTab('companies')}
+            onOpenCompaniesTab={() => handleTabChange('companies')}
             onDataReload={() => { loadData().catch((err) => logger.warn('onDataReload failed', { component: 'people-v2', err })) }}
             onFocusField={(fieldName) => {
               const selectorMap: Record<string, string> = {
@@ -557,7 +578,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             const zone2Content = (
               <PersonDetailTabs
                 activeTab={activeTab}
-                onTabChange={setActiveTab}
+                onTabChange={handleTabChange}
                 injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
                 activitiesCount={interactionCount}
                 dealsCount={dealCount}

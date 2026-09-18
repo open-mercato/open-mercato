@@ -137,6 +137,26 @@ pino never leaks into client bundles: the facade and console transport have zero
 2. **Swappability.** Call sites must never import `pino` directly. If the backend is later swapped, or OpenTelemetry bridging, sampling, or richer redaction is added, one file changes — not thousands of call sites. This is the same rationale as `apiCall` wrapping `fetch` and the DI-resolved cache wrapping Redis.
 3. **Contract stability.** The four-method `Logger` surface is small and frozen under the backward-compatibility contract; pino's full API is not something modules should couple to.
 
+## Telemetry Integration
+
+`@open-mercato/telemetry` does not provide a second logger. When an explicit
+`TELEMETRY_BACKEND` starts successfully, it registers a process-wide extension
+on this facade:
+
+- active `trace_id` and `span_id` fields are added to the local record;
+- the same normalized record is sent once to the active telemetry provider;
+- `OM_LOG_LEVEL` gates both local output and remote export;
+- `OM_LOG_PRETTY` and `OM_LOG_DESTINATION` continue to control the sole local
+  output path.
+
+When telemetry is unset, `noop`, or unknown, the telemetry package is not
+runtime-imported by the app/CLI/queue wiring and no logger extension is
+registered. Extension failures are isolated after the local line is written, so
+an observability outage cannot affect application behavior.
+
+Keep importing `createLogger` from this page's shared path. Module code must not
+import a provider-specific logger.
+
 ## Redaction — a Safety Net, Not a Guarantee
 
 The server transport configures pino's built-in `redact` for the obvious sensitive keys, censoring values to `[Redacted]`:

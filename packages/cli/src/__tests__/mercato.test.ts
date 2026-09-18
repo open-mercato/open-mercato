@@ -359,6 +359,7 @@ describe('init command failure output', () => {
       generateModuleEntities: jest.fn().mockResolvedValue(undefined),
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
@@ -405,6 +406,7 @@ describe('init command failure output', () => {
       generateModuleEntities: jest.fn().mockResolvedValue(undefined),
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
@@ -454,6 +456,7 @@ describe('init command failure output', () => {
       generateModuleEntities: jest.fn().mockResolvedValue(undefined),
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/db', () => ({
@@ -554,6 +557,7 @@ describe('generate post-step structural invalidation', () => {
     const generateModuleEntities = jest.fn().mockResolvedValue(undefined)
     const generateModuleDi = jest.fn().mockResolvedValue(undefined)
     const generateModulePackageSources = jest.fn().mockResolvedValue(undefined)
+    const generateWebResearchAdapters = jest.fn().mockResolvedValue(undefined)
     const generateOpenApi = jest.fn().mockResolvedValue(undefined)
     const invalidate = jest.fn().mockResolvedValue({
       cacheEntriesDeleted: 2,
@@ -568,6 +572,7 @@ describe('generate post-step structural invalidation', () => {
       generateModuleEntities,
       generateModuleDi,
       generateModulePackageSources,
+      generateWebResearchAdapters,
       generateOpenApi,
     }))
     jest.doMock('../lib/resolver', () => ({
@@ -610,6 +615,7 @@ describe('generate post-step structural invalidation', () => {
       generateModuleDi: jest.fn().mockResolvedValue(unchangedResult),
       generateModulePackageSources: jest.fn().mockResolvedValue(unchangedResult),
       generateOpenApi: jest.fn().mockResolvedValue(unchangedResult),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(unchangedResult),
     }
     const invalidate = jest.fn()
 
@@ -649,6 +655,7 @@ describe('generate post-step structural invalidation', () => {
     const generateModuleEntities = jest.fn().mockResolvedValue(undefined)
     const generateModuleDi = jest.fn().mockResolvedValue(undefined)
     const generateModulePackageSources = jest.fn().mockResolvedValue(undefined)
+    const generateWebResearchAdapters = jest.fn().mockResolvedValue(undefined)
     const generateOpenApi = jest.fn().mockResolvedValue(undefined)
     const invalidate = jest.fn().mockRejectedValue(new Error('cache maintenance unavailable'))
 
@@ -658,6 +665,7 @@ describe('generate post-step structural invalidation', () => {
       generateModuleEntities,
       generateModuleDi,
       generateModulePackageSources,
+      generateWebResearchAdapters,
       generateOpenApi,
     }))
     jest.doMock('../lib/resolver', () => ({
@@ -695,6 +703,7 @@ describe('generate post-step structural invalidation', () => {
       generateModuleDi: generate,
       generateModulePackageSources: generate,
       generateOpenApi: generate,
+      generateWebResearchAdapters: generate,
     }))
     jest.doMock('../lib/resolver', () => ({
       createResolver: () => ({
@@ -716,6 +725,7 @@ describe('generate post-step structural invalidation', () => {
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
   })
+
 })
 
 describe('server dev managed process exits', () => {
@@ -799,6 +809,7 @@ describe('server dev managed process exits', () => {
     })
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       resolveEnvironment: () => ({
@@ -840,6 +851,7 @@ describe('server dev managed process exits', () => {
     })
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       resolveEnvironment: () => ({
@@ -1208,6 +1220,7 @@ describe('server dev managed process exits', () => {
     })
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       resolveEnvironment: () => ({
@@ -1263,6 +1276,86 @@ describe('server dev managed process exits', () => {
     consoleLogSpy.mockRestore()
   })
 
+  it('uses lightweight manifest workers instead of handler-bearing CLI modules', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    process.env.OM_AUTO_SPAWN_WORKERS_LAZY = 'true'
+    process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE = 'shared'
+
+    jest.doMock('node:fs', () => {
+      const actual = jest.requireActual('node:fs')
+      return {
+        ...actual,
+        existsSync: jest.fn((candidate: string) =>
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
+        ),
+        unlinkSync: jest.fn(),
+      }
+    })
+    jest.doMock('../lib/generators', () => ({
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      resolveEnvironment: () => ({
+        appDir: '/tmp/test-app',
+        rootDir: '/tmp/test-root',
+      }),
+      createResolver: () => ({}),
+    }))
+
+    const supervisorClose = jest.fn().mockResolvedValue(undefined)
+    const startLazyWorkerSupervisor = jest.fn(() => ({
+      startedQueues: new Set<string>(),
+      getActiveChild: () => undefined,
+      close: supervisorClose,
+      done: Promise.resolve(),
+    }))
+    jest.doMock('../lib/queue-worker-supervisor', () => ({
+      startLazyWorkerSupervisor,
+    }))
+    jest.doMock('child_process', () =>
+      buildMockChildProcessModule((args) =>
+        pathIncludes(args[0] ?? '', 'next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
+      ),
+    )
+
+    const manifestRegistry = await import('../lib/dev-supervisor-manifest')
+    manifestRegistry.registerDevSupervisorManifest({
+      version: 1,
+      workers: [
+        {
+          id: 'manifest:worker',
+          moduleId: 'manifest',
+          queue: 'manifest-events',
+          concurrency: 1,
+        },
+      ],
+      schedulerStartStatus: 'missing-module',
+      requiresFullBootstrap: false,
+    })
+    const mercato = await import('../mercato')
+    mercato.registerCliModules([eventsWorkerFixture as Module])
+
+    const exitCode = await mercato.run(['node', 'mercato', 'server', 'dev'])
+
+    expect(exitCode).toBe(0)
+    expect(startLazyWorkerSupervisor).toHaveBeenCalledTimes(1)
+    const workers = startLazyWorkerSupervisor.mock.calls[0][0].workers
+    expect(workers).toEqual([
+      {
+        id: 'manifest:worker',
+        moduleId: 'manifest',
+        queue: 'manifest-events',
+        concurrency: 1,
+      },
+    ])
+    expect(workers[0]).not.toHaveProperty('handler')
+    expect(supervisorClose).toHaveBeenCalled()
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
   it('starts the lazy scheduler supervisor instead of the scheduler process when OM_AUTO_SPAWN_SCHEDULER_LAZY=true', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
@@ -1282,6 +1375,7 @@ describe('server dev managed process exits', () => {
     })
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       resolveEnvironment: () => ({
@@ -1324,6 +1418,69 @@ describe('server dev managed process exits', () => {
     const allSpawnCalls = (spawn as jest.Mock).mock.calls.map((call) => call[1] as string[])
     const schedulerSpawn = allSpawnCalls.find((args) => args.slice(1).join(' ') === 'scheduler start')
     expect(schedulerSpawn).toBeUndefined()
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('uses the lightweight manifest scheduler status without loading scheduler CLI modules', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    process.env.AUTO_SPAWN_SCHEDULER = 'true'
+    process.env.AUTO_SPAWN_WORKERS = 'false'
+    process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY = 'true'
+
+    jest.doMock('node:fs', () => {
+      const actual = jest.requireActual('node:fs')
+      return {
+        ...actual,
+        existsSync: jest.fn((candidate: string) =>
+          pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
+        ),
+        unlinkSync: jest.fn(),
+      }
+    })
+    jest.doMock('../lib/generators', () => ({
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      resolveEnvironment: () => ({
+        appDir: '/tmp/test-app',
+        rootDir: '/tmp/test-root',
+      }),
+      createResolver: () => ({}),
+    }))
+
+    const schedulerClose = jest.fn().mockResolvedValue(undefined)
+    const startLazySchedulerSupervisor = jest.fn(() => ({
+      started: false,
+      getActiveChild: () => undefined,
+      close: schedulerClose,
+      done: Promise.resolve(),
+    }))
+    jest.doMock('../lib/scheduler-supervisor', () => ({
+      startLazySchedulerSupervisor,
+    }))
+    jest.doMock('child_process', () =>
+      buildMockChildProcessModule((args) =>
+        pathIncludes(args[0] ?? '', 'next/dist/bin/next') ? { code: null, signal: 'SIGTERM' } : undefined,
+      ),
+    )
+
+    const manifestRegistry = await import('../lib/dev-supervisor-manifest')
+    manifestRegistry.registerDevSupervisorManifest({
+      version: 1,
+      workers: [],
+      schedulerStartStatus: 'ok',
+      requiresFullBootstrap: false,
+    })
+    const mercato = await import('../mercato')
+
+    const exitCode = await mercato.run(['node', 'mercato', 'server', 'dev'])
+
+    expect(exitCode).toBe(0)
+    expect(startLazySchedulerSupervisor).toHaveBeenCalledTimes(1)
+    expect(schedulerClose).toHaveBeenCalled()
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
@@ -1499,6 +1656,7 @@ describe('server start managed process exits', () => {
     }))
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       resolveEnvironment: () => ({

@@ -11,6 +11,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { eventDisplayTitle, pluralCategory } from '../../lib/calendar/labels'
+import { formatTimeLabel, formatTimeRangeLabel } from '../../lib/calendar/format'
 import type { AgendaListProps, CalendarCategory, CalendarItem } from './types'
 
 const MAX_AVATARS_PER_ROW = 2
@@ -44,12 +45,8 @@ function formatUrlHost(location: string): string {
   }
 }
 
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-}
-
-function groupLabelOf(date: Date): string {
-  return date.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })
+function groupLabelOf(locale: string, date: Date): string {
+  return date.toLocaleDateString(locale, { weekday: 'long', month: 'short', day: 'numeric' })
 }
 
 function deriveTypeLabel(interactionType: string): string {
@@ -59,7 +56,7 @@ function deriveTypeLabel(interactionType: string): string {
 }
 
 function participantLabel(participant: CalendarItem['participants'][number]): string {
-  return participant.name ?? participant.email ?? participant.userId
+  return participant.name ?? participant.email ?? participant.userId ?? ''
 }
 
 function buildDayGroups(anchor: Date, horizonDays: number, items: CalendarItem[]): AgendaDayGroup[] {
@@ -94,7 +91,7 @@ function AgendaDayHeader({ date, count }: { date: Date; count: number }) {
       : resolvedCount
   return (
     <div className="flex w-full items-center gap-2 bg-muted/50 px-3 py-2.5 sm:px-5">
-      <span className="text-sm font-semibold text-foreground">{groupLabelOf(date)}</span>
+      <span className="text-sm font-semibold text-foreground">{groupLabelOf(locale, date)}</span>
       {todayMarker || tomorrowMarker ? (
         <span className={cn('text-xs font-medium', todayMarker ? 'text-foreground' : 'text-muted-foreground')}>
           {`· ${todayMarker ? t('customers.calendar.agenda.today', 'Today') : t('customers.calendar.agenda.tomorrow', 'Tomorrow')}`}
@@ -116,6 +113,7 @@ function AgendaRow({
   onItemClick: (item: CalendarItem) => void
 }) {
   const t = useT()
+  const locale = useLocale()
   const canceled = item.status === 'canceled'
   const done = item.status === 'done'
   const title = eventDisplayTitle(item.title, t('customers.calendar.grid.untitled', 'Untitled'))
@@ -131,9 +129,9 @@ function AgendaRow({
     : item.locationKind === 'url' && item.location
       ? formatUrlHost(item.location)
       : item.location
-  const startLabel = item.allDay ? t('customers.calendar.grid.allDay', 'All day') : formatTime(item.start)
-  const endLabel = item.allDay ? null : formatTime(item.end)
-  const ariaTime = item.allDay ? startLabel : `${startLabel} – ${endLabel}`
+  const startLabel = item.allDay ? t('customers.calendar.grid.allDay', 'All day') : formatTimeLabel(locale, item.start)
+  const endLabel = item.allDay ? null : formatTimeLabel(locale, item.end)
+  const ariaTime = item.allDay ? startLabel : formatTimeRangeLabel(locale, item.start, item.end)
   return (
     <Button
       type="button"
@@ -173,8 +171,8 @@ function AgendaRow({
       <div className="flex shrink-0 items-center gap-2">
         {item.participants.length > 0 ? (
           <span className="hidden items-center gap-0.5 sm:flex">
-            {item.participants.slice(0, MAX_AVATARS_PER_ROW).map((participant) => (
-              <Avatar key={participant.userId} size="xs" label={participantLabel(participant)} />
+            {item.participants.slice(0, MAX_AVATARS_PER_ROW).map((participant, index) => (
+              <Avatar key={participant.userId ?? participant.email ?? index} size="xs" label={participantLabel(participant)} />
             ))}
             {item.participants.length > MAX_AVATARS_PER_ROW ? (
               <span className="ps-0.5 text-xs font-medium text-muted-foreground">

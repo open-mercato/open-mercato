@@ -8,6 +8,9 @@ type ProductRow = {
   id: string
 }
 
+const FILTERED_IDS_PAGE_SIZE = 100
+const FILTERED_IDS_MAX_PAGES = 1000
+
 type BulkActionContext = {
   confirm?: (options?: {
     title?: string
@@ -32,7 +35,7 @@ function readRowId(row: unknown): string | null {
 }
 
 function buildListParams(context: BulkActionContext): Record<string, string> {
-  const params: Record<string, string> = { pageSize: '100' }
+  const params: Record<string, string> = { pageSize: String(FILTERED_IDS_PAGE_SIZE) }
   const injectionContext = context.injectionContext
   const search = typeof injectionContext?.search === 'string' ? injectionContext.search.trim() : ''
   if (search) params.search = search
@@ -106,19 +109,26 @@ async function fetchFilteredProductIds(context: BulkActionContext): Promise<stri
   const baseParams = buildListParams(context)
   const productIds = new Set<string>()
   let page = 1
-  let totalPages = 1
 
-  while (page <= totalPages) {
+  // Short-page termination: server-reported `totalPages` is a display value, not a loop
+  // bound — it can under-report (capped counts) or drift mid-enumeration. Fail closed at
+  // the page ceiling: a partial id set would turn "delete all filtered" into "delete the
+  // first N" with no signal to the user.
+  for (;;) {
     const payload = await fetchCrudList<ProductRow>('catalog/products', {
       ...baseParams,
       page,
     })
-    for (const item of payload.items) {
+    const items = Array.isArray(payload.items) ? payload.items : []
+    for (const item of items) {
       if (typeof item?.id === 'string' && item.id.length > 0) {
         productIds.add(item.id)
       }
     }
-    totalPages = typeof payload.totalPages === 'number' && payload.totalPages > 0 ? payload.totalPages : 1
+    if (items.length < FILTERED_IDS_PAGE_SIZE) break
+    if (page >= FILTERED_IDS_MAX_PAGES) {
+      throw new Error(`[internal] filtered product enumeration exceeded ${FILTERED_IDS_MAX_PAGES} pages; refusing to bulk-delete a partial set`)
+    }
     page += 1
   }
 

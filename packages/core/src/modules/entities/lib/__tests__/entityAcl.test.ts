@@ -15,6 +15,14 @@ type AclResult = {
 function makeRbac(result: AclResult) {
   return {
     loadAcl: jest.fn().mockResolvedValue(result),
+    userHasAllFeatures: jest.fn().mockImplementation(async (
+      _userId: string,
+      required: string[],
+    ) => result.isSuperAdmin || required.every((feature) => (
+      result.features.includes(feature)
+      || result.features.includes('*')
+      || result.features.some((grant) => grant.endsWith('.*') && feature.startsWith(grant.slice(0, -1)))
+    ))),
   }
 }
 
@@ -102,6 +110,22 @@ describe('canReadEntityMetadata', () => {
     const acl = { isSuperAdmin: false, features: ['directory.*'] }
     expect(canReadEntityMetadata({ entityId: 'directory:tenant', isCustomEntity: false, acl })).toBe(false)
     expect(canReadEntityMetadata({ entityId: 'some_module:unmapped', isCustomEntity: false, acl })).toBe(false)
+  })
+
+  test('preserves superadmin access to platform-only metadata', () => {
+    expect(canReadEntityMetadata({
+      entityId: 'directory:tenant',
+      isCustomEntity: false,
+      acl: { isSuperAdmin: true, features: ['*'] },
+    })).toBe(true)
+  })
+
+  test('preserves superadmin access to unmapped system metadata', () => {
+    expect(canReadEntityMetadata({
+      entityId: 'some_module:unmapped',
+      isCustomEntity: false,
+      acl: { isSuperAdmin: true, features: ['*'] },
+    })).toBe(true)
   })
 })
 
@@ -233,6 +257,7 @@ describe('assertEntityAclForRequest', () => {
       }),
     ).resolves.toBeUndefined()
     expect(rbac.loadAcl).not.toHaveBeenCalled()
+    expect(rbac.userHasAllFeatures).not.toHaveBeenCalled()
   })
 
   test('a restricted custom entity is denied when the per-entity feature is missing', async () => {

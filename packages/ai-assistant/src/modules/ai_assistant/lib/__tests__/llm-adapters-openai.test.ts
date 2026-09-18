@@ -66,7 +66,7 @@ describe('OpenAIAdapter (OpenAI-compatible provider factory)', () => {
     )
     expect(flagged).toEqual(new Set(['openrouter', 'requesty', 'litellm']))
     // Non-gateway backends stay unflagged.
-    for (const id of ['openai', 'deepinfra', 'together', 'fireworks', 'groq', 'azure']) {
+    for (const id of ['openai', 'deepinfra', 'together', 'fireworks', 'groq']) {
       const preset = OPENAI_COMPATIBLE_PRESETS.find((p) => p.id === id)!
       expect(preset.usesVendorPrefixedModelIds).toBeFalsy()
     }
@@ -114,15 +114,12 @@ describe('OpenAIAdapter (OpenAI-compatible provider factory)', () => {
     expect(model).toBeDefined()
   })
 
-  it('azure preset honors baseURLEnvKeys override', () => {
-    const azurePreset = OPENAI_COMPATIBLE_PRESETS.find(
-      (p) => p.id === 'azure',
-    )
-    expect(azurePreset).toBeDefined()
-    expect(azurePreset?.baseURLEnvKeys).toContain('AZURE_OPENAI_BASE_URL')
-    // Sanity: the adapter can be created from the preset.
-    const provider = createOpenAICompatibleProvider(azurePreset!)
-    expect(provider.id).toBe('azure')
+  it('leaves Azure to its native adapter', () => {
+    // Azure was an OpenAI-compatible preset, which speaks Chat Completions and
+    // therefore cannot carry provider-executed tools — its native web search is
+    // a Responses API built-in. A preset here would also overwrite the capable
+    // adapter, since both register under the id `azure`.
+    expect(OPENAI_COMPATIBLE_PRESETS.find((preset) => preset.id === 'azure')).toBeUndefined()
   })
 
   it('preset env baseURL override beats preset default for openai', () => {
@@ -198,7 +195,6 @@ describe('OPENAI_COMPATIBLE_PRESETS built-in catalog', () => {
     expect(ids).toContain('groq')
     expect(ids).toContain('together')
     expect(ids).toContain('fireworks')
-    expect(ids).toContain('azure')
     expect(ids).toContain('litellm')
     expect(ids).toContain('ollama')
     expect(ids).toContain('openrouter')
@@ -328,5 +324,46 @@ describe('LM Studio preset', () => {
       baseURL: 'http://192.168.1.100:1234/v1',
     })
     expect(model).toBeDefined()
+  })
+})
+
+describe('OpenAIAdapter — safety identifier + moderation capability', () => {
+  it('maps an end-user identifier into the OpenAI safetyIdentifier providerOptions fragment', () => {
+    // Key MUST be the AI SDK provider-option name `safetyIdentifier` (camelCase);
+    // the SDK translates it to the `safety_identifier` request-body field and
+    // strips unknown providerOptions keys, so a snake_case key would be dropped.
+    const openaiPreset = OPENAI_COMPATIBLE_PRESETS.find((preset) => preset.id === 'openai')!
+    const provider = createOpenAICompatibleProvider(openaiPreset)
+    expect(provider.mapEndUserIdentifier?.('hashed-id')).toEqual({
+      openai: { safetyIdentifier: 'hashed-id' },
+    })
+  })
+
+  it('does not map a safety identifier for OpenAI-compatible backends (OpenAI-only param)', () => {
+    // `safety_identifier` is an OpenAI-specific body field; compatible/self-hosted
+    // backends (Groq, DeepInfra, Azure, Ollama, …) may reject the unknown param,
+    // so they must not advertise the mapping.
+    const provider = createOpenAICompatibleProvider(DEEPINFRA_PRESET)
+    expect(provider.mapEndUserIdentifier).toBeUndefined()
+    for (const preset of OPENAI_COMPATIBLE_PRESETS) {
+      const built = createOpenAICompatibleProvider(preset)
+      if (preset.id === 'openai') {
+        expect(built.mapEndUserIdentifier).toBeDefined()
+      } else {
+        expect(built.mapEndUserIdentifier).toBeUndefined()
+      }
+    }
+  })
+
+  it('marks the native OpenAI preset as supporting input moderation', () => {
+    const openaiPreset = OPENAI_COMPATIBLE_PRESETS.find((preset) => preset.id === 'openai')
+    expect(openaiPreset).toBeDefined()
+    const provider = createOpenAICompatibleProvider(openaiPreset!)
+    expect(provider.supportsInputModeration).toBe(true)
+  })
+
+  it('leaves OpenAI-compatible backends without moderation support', () => {
+    const provider = createOpenAICompatibleProvider(DEEPINFRA_PRESET)
+    expect(provider.supportsInputModeration).toBe(false)
   })
 })

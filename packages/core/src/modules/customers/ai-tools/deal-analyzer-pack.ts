@@ -192,14 +192,29 @@ const analyzeDealsToolDefinition: CustomersAiToolDefinition<AnalyzeDealsInput, A
     // has no encrypted columns, but the linked CustomerEntity.display_name is
     // encrypted, so resolve names via findWithDecryption rather than
     // populating the relation through raw em.find.
+    // Defense-in-depth: `customer_deal_people` carries no tenant/org columns,
+    // so DB-level scoping is via the tenant-filtered `dealIds` set. Filter the
+    // returned rows against the caller-scoped deals map so a future refactor
+    // that widens `dealIds` cannot surface cross-tenant links.
+    const dealById = new Map<string, CustomerDeal>(deals.map((deal) => [deal.id, deal]))
+    const scopedDealIds = Array.from(dealById.keys())
     const personLinkWhere: Record<string, unknown> = {
-      deal: { $in: dealIds },
+      deal: { $in: scopedDealIds },
     }
-    const personLinks = await em.find(
+    const personLinksRaw = await em.find(
       CustomerDealPersonLink,
       personLinkWhere as any,
       { limit: 500 },
     )
+    const personLinks = personLinksRaw.filter((link) => {
+      const dealRefId = refIdOf((link as { deal?: unknown }).deal)
+      if (!dealRefId) return false
+      const scopedDeal = dealById.get(dealRefId)
+      if (!scopedDeal) return false
+      if (scopedDeal.tenantId !== tenantId) return false
+      if (ctx.organizationId && scopedDeal.organizationId !== ctx.organizationId) return false
+      return true
+    })
 
     const linksByDeal = new Map<string, string>() // dealId → personId (first link wins)
     for (const link of personLinks) {

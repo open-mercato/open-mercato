@@ -16,3 +16,27 @@ Load only the selected branch.
 - **Module override:** supported domain/key, key/value identity, `null` disable semantics, generation/cache/nav cleanup.
 
 Run `yarn generate` for every discovered branch and verify generated registration selects the intended host exactly once.
+
+## Canonical example source
+
+One compiling contributor per branch, plus the callers that consume it. Open only your branch's row.
+
+| Branch | Exact file |
+|---|---|
+| Mutation guard bound to entity kind + operations | [`data/guards.ts`](../../../../src/modules/example/data/guards.ts) |
+| Response enricher with `enrichMany` batching, `fallback`, timeout, `cacheableOnListHit` | [`data/enrichers.ts`](../../../../src/modules/example/data/enrichers.ts) |
+| API interceptors: exact-route and wildcard, rejection, timeout, query rewrite, cross-module `?ids=` narrowing, `after` merge | [`api/interceptors.ts`](../../../../src/modules/example/api/interceptors.ts) |
+| Command interceptors: `beforeExecute` → `afterExecute` state hand-off | [`commands/interceptors.ts`](../../../../src/modules/example/commands/interceptors.ts) |
+| Hosts this module exposes (`defineModuleExtensionPoints`) | [`extension-points.ts`](../../../../src/modules/example/extension-points.ts) |
+| Every supported spot-id shape mapped to widget ids, as one unconditional object literal | [`widgets/injection-table.ts`](../../../../src/modules/example/widgets/injection-table.ts) |
+| CrudForm field contribution with an `onSave` upsert | [`widgets/injection/customer-priority-field/widget.ts`](../../../../src/modules/example/widgets/injection/customer-priority-field/widget.ts) |
+| DataTable column reading an enricher accessor path | [`widgets/injection/customer-priority-column/widget.ts`](../../../../src/modules/example/widgets/injection/customer-priority-column/widget.ts) |
+| DataTable server-strategy filter whose `queryParam` the API interceptor consumes | [`widgets/injection/customer-priority-filter/widget.ts`](../../../../src/modules/example/widgets/injection/customer-priority-filter/widget.ts) |
+| DataTable row action with `InjectionPosition` placement | [`widgets/injection/customer-priority-row-action/widget.ts`](../../../../src/modules/example/widgets/injection/customer-priority-row-action/widget.ts) |
+| DataTable bulk action over selected rows | [`widgets/injection/customer-priority-bulk-actions/widget.ts`](../../../../src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts) |
+| Menu items with `labelKey`, feature gating, `Last`/`Before` placement | [`widgets/injection/example-menus/widget.ts`](../../../../src/modules/example/widgets/injection/example-menus/widget.ts), [`widgets/injection/example-profile-menu/widget.ts`](../../../../src/modules/example/widgets/injection/example-profile-menu/widget.ts) |
+| Rendered widget: data-only registration + focused client leaf | [`widgets/injection/customer-priority-detail/widget.ts`](../../../../src/modules/example/widgets/injection/customer-priority-detail/widget.ts) |
+| Subscribers: before-create rewrite, before-update rejection with status, non-blocking after-delete, ephemeral DI-resolved | [`subscribers/auto-default-priority.ts`](../../../../src/modules/example/subscribers/auto-default-priority.ts), [`subscribers/prevent-uncomplete.ts`](../../../../src/modules/example/subscribers/prevent-uncomplete.ts), [`subscribers/audit-delete.ts`](../../../../src/modules/example/subscribers/audit-delete.ts), [`subscribers/example-event.ts`](../../../../src/modules/example/subscribers/example-event.ts) |
+| Browser reaction: reactive handler + client renderer | [`notifications.handlers.ts`](../../../../src/modules/example/notifications.handlers.ts), [`notifications.client.ts`](../../../../src/modules/example/notifications.client.ts) |
+
+[`widgets/components.ts`](../../../../src/modules/example/widgets/components.ts) is marked `qa-only`: it demonstrates `wrapper` mode only, so `replacement` and `propsTransform` have **no** canonical example — follow the component-override branch text above. The example does ship a `search.ts` (indexed as `search.module-config`), so read that one rather than guessing. It ships no `data/extensions.ts` and no `vector.ts`; do not infer either from an adjacent file. `surface-map.md` is the authority on what is absent — check it before assuming a surface is missing.

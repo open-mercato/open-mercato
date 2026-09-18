@@ -1,7 +1,9 @@
 import { z } from 'zod'
 import { getAuthFromCookies, getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import type { EventBus } from '@open-mercato/events/types'
 import {
   assigneeQuerySchema,
   exampleErrorSchema,
@@ -63,6 +65,25 @@ const emitSseTestSchema = z.object({
   recipientRoleIds: z.array(z.string().min(1)).optional(),
 })
 
+const reservedProbePayloadKeys = new Set([
+  'id',
+  'tenantId',
+  'organizationId',
+  'organizationIds',
+  'recipientUserId',
+  'recipientUserIds',
+  'recipientRoleId',
+  'recipientRoleIds',
+  'syncOrigin',
+])
+
+function forbiddenResponse(): Response {
+  return new Response(JSON.stringify({ error: 'Forbidden' }), {
+    status: 403,
+    headers: { 'content-type': 'application/json' },
+  })
+}
+
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.sub || !auth.tenantId) {
@@ -71,8 +92,9 @@ export async function POST(req: Request) {
       headers: { 'content-type': 'application/json' },
     })
   }
+  if (!auth.orgId) return forbiddenResponse()
 
-  const rawBody = await req.json().catch(() => ({}))
+  const rawBody = await readJsonSafe<unknown>(req, {})
   const parsed = emitSseTestSchema.safeParse(rawBody)
   if (!parsed.success) {
     return new Response(JSON.stringify({ error: 'Invalid payload', issues: parsed.error.issues }), {
@@ -81,15 +103,32 @@ export async function POST(req: Request) {
     })
   }
 
+  const payload = parsed.data.payload ?? {}
+  if (Object.keys(payload).some((key) => reservedProbePayloadKeys.has(key))) {
+    return forbiddenResponse()
+  }
+
+  const actorRoles = new Set(
+    Array.isArray(auth.roles)
+      ? auth.roles.filter((role): role is string => typeof role === 'string')
+      : [],
+  )
+  const hasForbiddenTarget = (
+    typeof parsed.data.organizationId === 'string' && parsed.data.organizationId !== auth.orgId
+  ) || parsed.data.organizationIds?.some((organizationId) => organizationId !== auth.orgId)
+    || (typeof parsed.data.recipientUserId === 'string' && parsed.data.recipientUserId !== auth.sub)
+    || parsed.data.recipientUserIds?.some((userId) => userId !== auth.sub)
+    || (typeof parsed.data.recipientRoleId === 'string' && !actorRoles.has(parsed.data.recipientRoleId))
+    || parsed.data.recipientRoleIds?.some((roleId) => !actorRoles.has(roleId))
+  if (hasForbiddenTarget) return forbiddenResponse()
+
   const container = await createRequestContainer()
-  const eventBus = container.resolve<{
-    emitEvent: (event: string, payload: Record<string, unknown>, options?: { persistent?: boolean }) => Promise<void>
-  }>('eventBus')
+  const eventBus = container.resolve<EventBus>('eventBus')
 
   const eventPayload: Record<string, unknown> = {
-    ...(parsed.data.payload ?? {}),
+    ...payload,
     tenantId: auth.tenantId,
-    organizationId: parsed.data.organizationId ?? auth.orgId ?? null,
+    organizationId: auth.orgId,
   }
 
   if (Array.isArray(parsed.data.organizationIds) && parsed.data.organizationIds.length > 0) {
@@ -108,7 +147,12 @@ export async function POST(req: Request) {
     eventPayload.recipientRoleIds = parsed.data.recipientRoleIds
   }
 
-  await eventBus.emitEvent(parsed.data.eventId, eventPayload, { persistent: false })
+  await eventBus.emitEvent(parsed.data.eventId, eventPayload, {
+    persistent: false,
+    skipPersistentSubscribersInline: true,
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+  })
 
   return new Response(JSON.stringify({ ok: true, eventId: parsed.data.eventId, payload: eventPayload }), {
     headers: { 'content-type': 'application/json' },
@@ -147,6 +191,7 @@ const assigneesPostDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Invalid payload', schema: exampleErrorSchema },
     { status: 401, description: 'Authentication required', schema: exampleErrorSchema },
+    { status: 403, description: 'Targeting outside the authenticated scope is forbidden', schema: exampleErrorSchema },
   ],
 }
 

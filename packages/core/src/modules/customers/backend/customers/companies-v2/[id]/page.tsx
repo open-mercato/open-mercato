@@ -70,6 +70,17 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     return resolveLegacyTab(searchParams?.get('tab'))
   }, [searchParams])
   const [activeTab, setActiveTab] = React.useState<CompanyTabId>(initialTab)
+
+  const handleTabChange = React.useCallback(
+    (tab: CompanyTabId) => {
+      setActiveTab(tab)
+      if (!pathname) return
+      const nextParams = new URLSearchParams(searchParams?.toString() ?? '')
+      nextParams.set('tab', tab)
+      router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false })
+    },
+    [pathname, router, searchParams],
+  )
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const { canViewDeals, isReady: isDealsAccessReady } = useDealsAccess()
 
@@ -236,6 +247,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       scheduledAt: typeof activity.scheduledAt === 'string' ? activity.scheduledAt : null,
       occurredAt: typeof activity.occurredAt === 'string' ? activity.occurredAt : null,
       durationMinutes: durationValue,
+      priority: typeof raw.priority === 'number' ? raw.priority as number : null,
       location: typeof raw.location === 'string' ? raw.location as string : null,
       allDay: typeof raw.allDay === 'boolean' ? raw.allDay as boolean : null,
       recurrenceRule: typeof raw.recurrenceRule === 'string' ? raw.recurrenceRule as string : null,
@@ -294,7 +306,9 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
         .filter((widget) => (widget.placement?.kind ?? 'tab') === 'tab')
         .map((widget) => {
           const tabId = widget.placement?.groupId ?? widget.widgetId
-          const label = widget.placement?.groupLabel ?? widget.module.metadata.title ?? tabId
+          const label = widget.placement?.groupLabel
+            ? t(widget.placement.groupLabel, widget.placement.groupLabel)
+            : widget.module.metadata.title ?? tabId
           const priority = typeof widget.placement?.priority === 'number' ? widget.placement.priority : 0
           const render = () => (
             <widget.module.Widget
@@ -306,7 +320,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
           return { id: tabId, label, priority, render }
         })
         .sort((a, b) => b.priority - a.priority),
-    [data, injectedTabWidgets, injectionContext],
+    [data, injectedTabWidgets, injectionContext, t],
   )
 
   const injectedTabMap = React.useMemo(() => new Map(injectedTabs.map((tab) => [tab.id, tab.render])), [injectedTabs])
@@ -520,7 +534,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
             zone2={
               <CompanyDetailTabs
                 activeTab={activeTab}
-                onTabChange={setActiveTab}
+                onTabChange={handleTabChange}
                 injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
                 peopleCount={data.counts?.people ?? 0}
                 dealsCount={dealCount}

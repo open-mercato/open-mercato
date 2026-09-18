@@ -1,8 +1,12 @@
 import {
+  DEFAULT_SEARCH_MAX_FIELD_CHARS,
+  DEFAULT_SEARCH_MAX_TOKENS_PER_FIELD,
+  DEFAULT_SEARCH_MAX_TOKENS_PER_RECORD,
   DEFAULT_SEARCH_MIN_TOKEN_LENGTH,
   isSearchFieldBlocklisted,
   resolveSearchConfig,
   resolveSearchMinTokenLength,
+  resolveSearchTokenLimits,
 } from '../config'
 
 describe('resolveSearchMinTokenLength', () => {
@@ -106,6 +110,61 @@ describe('OM_SEARCH_FIELD_BLOCKLIST parsing', () => {
     expect(isSearchFieldBlocklisted('body', 'constructor', config)).toBe(true)
     expect(isSearchFieldBlocklisted('summary', 'toString', config)).toBe(true)
     expect(isSearchFieldBlocklisted('notes', '__proto__', config)).toBe(true)
+  })
+})
+
+describe('search token limits', () => {
+  const variableNames = [
+    'OM_SEARCH_MAX_FIELD_CHARS',
+    'OM_SEARCH_MAX_TOKENS_PER_FIELD',
+    'OM_SEARCH_MAX_TOKENS_PER_RECORD',
+  ] as const
+  const originalValues = Object.fromEntries(variableNames.map((name) => [name, process.env[name]]))
+
+  afterEach(() => {
+    for (const name of variableNames) {
+      const original = originalValues[name]
+      if (original === undefined) delete process.env[name]
+      else process.env[name] = original
+    }
+  })
+
+  it('uses safe defaults when limits are unset', () => {
+    for (const name of variableNames) delete process.env[name]
+
+    expect(resolveSearchTokenLimits(resolveSearchConfig())).toEqual({
+      maxFieldChars: DEFAULT_SEARCH_MAX_FIELD_CHARS,
+      maxTokensPerField: DEFAULT_SEARCH_MAX_TOKENS_PER_FIELD,
+      maxTokensPerRecord: DEFAULT_SEARCH_MAX_TOKENS_PER_RECORD,
+    })
+  })
+
+  it('accepts zero to disable individual limits', () => {
+    for (const name of variableNames) process.env[name] = '0'
+
+    expect(resolveSearchTokenLimits(resolveSearchConfig())).toEqual({
+      maxFieldChars: 0,
+      maxTokensPerField: 0,
+      maxTokensPerRecord: 0,
+    })
+  })
+
+  it('normalizes invalid custom config values to defaults', () => {
+    expect(resolveSearchTokenLimits({
+      enabled: true,
+      minTokenLength: 3,
+      enablePartials: true,
+      hashAlgorithm: 'sha256',
+      storeRawTokens: false,
+      blocklistedFields: [],
+      maxFieldChars: Number.NaN,
+      maxTokensPerField: -1,
+      maxTokensPerRecord: 4.8,
+    })).toEqual({
+      maxFieldChars: DEFAULT_SEARCH_MAX_FIELD_CHARS,
+      maxTokensPerField: DEFAULT_SEARCH_MAX_TOKENS_PER_FIELD,
+      maxTokensPerRecord: 4,
+    })
   })
 })
 

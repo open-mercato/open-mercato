@@ -6,12 +6,12 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 const logger = createLogger('ui')
 
 /**
- * @deprecated Use <Alert variant="destructive|warning|info"> instead.
+ * @deprecated Use <Alert status="error|warning|information"> instead.
  * Migration guide: docs/design-system/migration-tables.md#j3-component-mapping
  *
- * Notice variant="error"   → Alert variant="destructive"
- * Notice variant="warning" → Alert variant="warning"
- * Notice variant="info"    → Alert variant="info"
+ * Notice variant="error"   → Alert status="error"
+ * Notice variant="warning" → Alert status="warning"
+ * Notice variant="info"    → Alert status="information"
  */
 
 const variantStyles = {
@@ -51,7 +51,7 @@ export function Notice({
   compact = false,
 }: NoticeProps) {
   if (process.env.NODE_ENV === 'development') {
-    logger.warn('<Notice> is deprecated. Use <Alert variant="destructive|warning|info"> instead. See: docs/design-system/migration-tables.md')
+    logger.warn('<Notice> is deprecated. Use <Alert status="error|warning|information"> instead. See: docs/design-system/migration-tables.md')
   }
 
   const styles = variantStyles[variant]

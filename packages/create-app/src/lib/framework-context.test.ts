@@ -29,6 +29,7 @@ type FixtureOptions = {
   packageVersion?: string
   sourceKind?: 'src' | 'dist'
   moduleFact?: Record<string, unknown>
+  moduleFactV2?: Record<string, unknown>
 }
 
 function createFixture(options: FixtureOptions = {}): string {
@@ -68,6 +69,12 @@ function createFixture(options: FixtureOptions = {}): string {
     write(
       join(root, '.ai', 'guides', 'module-facts.json'),
       JSON.stringify({ customers: options.moduleFact }),
+    )
+  }
+  if (options.moduleFactV2) {
+    write(
+      join(root, '.ai', 'guides', 'module-facts.v2.json'),
+      JSON.stringify({ customers: options.moduleFactV2 }),
     )
   }
   return root
@@ -464,6 +471,37 @@ test('marks generated facts stale when their source package differs at the same 
   const staleWarning = parsed.warnings.find((warning) => warning.includes('Generated facts for customers are stale'))
   assert.match(staleWarning ?? '', /yarn generate, then yarn mercato agentic:init --update-harness/)
   assert.doesNotMatch(staleWarning ?? '', /until yarn generate(?:\W|$)/)
+})
+
+test('prefers corrected v2 facts while retaining the legacy sidecar as fallback', () => {
+  const root = createFixture({
+    moduleFact: {
+      sourcePackage: '@open-mercato/not-core',
+      sourceVersion: '0.6.6',
+    },
+    moduleFactV2: {
+      sourcePackage: '@open-mercato/core',
+      sourceVersion: '0.6.6',
+    },
+  })
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ['scripts/framework-context.mjs', '--module', 'customers', '--json', '--no-materialize'],
+      { cwd: root, encoding: 'utf8' },
+    )
+    assert.equal(result.status, 0, result.stderr)
+    const parsed = JSON.parse(result.stdout) as {
+      generatedFacts: { current: boolean; sourcePackage: string; sourceVersion: string }
+    }
+    assert.deepEqual(parsed.generatedFacts, {
+      current: true,
+      sourcePackage: '@open-mercato/core',
+      sourceVersion: '0.6.6',
+    })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('materializes deterministic search output with one global match cap', () => {

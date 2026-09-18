@@ -85,6 +85,21 @@ export async function POST(req: Request) {
       },
     },
   ).catch(() => undefined)
+  // Queued once here rather than from a partition: the purge deletes every vector for the
+  // scope, so emitting it from inside the fan-out would race the per-record vectorize jobs
+  // its siblings are already queueing and drop vectors this run had just rebuilt.
+  if (force && partitions.length > 1) {
+    try {
+      await bus.emitEvent(
+        'query_index.vectorize_purge',
+        { entityType, tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
+        { persistent: true, deliverInline: false },
+      )
+    } catch {
+      // Best effort: a failed purge leaves stale vectors, which the orphan sweep still prunes.
+    }
+  }
+
   try {
     await Promise.all(
       partitions.map((part) => {

@@ -51,6 +51,7 @@ const customerSessionService = {
 
 const customerRbacService = {
   loadAcl: jest.fn(async () => ({ features: ['portal.view'], isPortalAdmin: false })),
+  getEffectiveFeatures: jest.fn(async () => ['portal.view']),
 }
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({

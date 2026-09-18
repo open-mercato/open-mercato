@@ -42,6 +42,10 @@ describe('fetchAssignableStaffMembersPage', () => {
       teamName: 'Sales',
     })
     expect(result.total).toBe(2)
+    // `servedCount` is the row count the server sent, before the dedupe above.
+    // Load-more guards read it rather than `items.length`, which is short here
+    // and would read as a short page — ending the sequence a page early.
+    expect(result.servedCount).toBe(3)
   })
 
   // Regression for issue #2649: the assignable-staff endpoint is owned by the optional
@@ -52,7 +56,7 @@ describe('fetchAssignableStaffMembersPage', () => {
 
     const result = await fetchAssignableStaffMembersPage('', { page: 1, pageSize: 100 })
 
-    expect(result).toEqual({ items: [], total: 0, page: 1, pageSize: 100 })
+    expect(result).toEqual({ items: [], servedCount: 0, total: 0, page: 1, pageSize: 100 })
   })
 
   it('propagates non-404 failures (e.g. forbidden, server error)', async () => {

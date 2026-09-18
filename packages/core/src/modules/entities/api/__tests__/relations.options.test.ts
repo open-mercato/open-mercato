@@ -10,7 +10,26 @@ const mockQE = {
   })),
 }
 
-const mockEm = {}
+// Entity ids the fake ORM metadata knows about, keyed by the class name the
+// resolver derives from the id's entity segment.
+const registeredTables: Record<string, string> = {
+  CustomerEntity: 'customer_entities',
+}
+
+const mockEm = {
+  // Custom (doc-storage) entities: registered rows make an id queryable.
+  findOne: jest.fn(async (_entity: unknown, where: { entityId?: string }) => (
+    typeof where?.entityId === 'string' && where.entityId.startsWith('virtual:')
+      ? { labelField: null }
+      : null
+  )),
+  getMetadata: () => ({
+    find: (className: string) => (
+      registeredTables[className] ? { tableName: registeredTables[className] } : undefined
+    ),
+    getAll: () => Object.values(registeredTables).map((tableName) => ({ tableName })),
+  }),
+}
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({ resolve: (key: string) => (key === 'queryEngine' ? mockQE : mockEm) }),
@@ -97,6 +116,39 @@ describe('GET /api/entities/relations/options', () => {
         page: { page: 1, pageSize: 200 },
       }),
     )
+  })
+
+  // #4949: a relation custom field whose `relatedEntityId` was never filled in sent
+  // `entityId=p:0`; the query engine guessed a table name for it and Postgres raised
+  // `relation "0s" does not exist`, surfacing as a 500 on every render of the section.
+  it.each([
+    ['a half-configured placeholder id', 'p:0'],
+    ['a well-formed id no entity backs', 'nosuch:thing'],
+    ['an id without a module segment', 'person'],
+  ])('answers with an empty option list for %s', async (_label, entityId) => {
+    const req = new Request(
+      `http://x/api/entities/relations/options?entityId=${encodeURIComponent(entityId)}`,
+    )
+
+    const res = await GET(req)
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({ items: [] })
+    expect(mockQE.query).not.toHaveBeenCalled()
+  })
+
+  it('still queries a registered ORM entity that has no custom entity row', async () => {
+    mockQE.query.mockResolvedValueOnce({ items: [] })
+
+    const req = new Request(
+      'http://x/api/entities/relations/options?entityId=customers:customer_entity&labelField=title',
+    )
+
+    const res = await GET(req)
+
+    expect(res.status).toBe(200)
+    expect(mockEm.findOne).toHaveBeenCalled()
+    expect(mockQE.query).toHaveBeenCalledWith('customers:customer_entity', expect.any(Object))
   })
 
   it('defaults to pageSize 50 when no ids are provided', async () => {

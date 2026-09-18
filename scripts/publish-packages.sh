@@ -34,6 +34,11 @@ for pkg_dir in $PACKAGES; do
   PKG_VERSION=$(jq -r '.version' "$PKG_PATH/package.json" 2>/dev/null)
   PKG_REPOSITORY_URL=$(jq -r '.repository.url // empty' "$PKG_PATH/package.json" 2>/dev/null)
 
+  if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+    echo "  Skipping $PKG_NAME@$PKG_VERSION (already published)"
+    continue
+  fi
+
   echo "  Publishing $PKG_NAME@$PKG_VERSION..."
   cd "$PKG_PATH"
 

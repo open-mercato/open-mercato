@@ -11,6 +11,7 @@ import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { emitSalesDocumentDataRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentDataEvents'
 import { fetchAllDictionaryEntries } from '@open-mercato/core/modules/dictionaries/lib/fetchAllEntries'
+import type { OrderApprovalInitialContext } from './context-keys'
 
 type OrderRecord = {
   id: string
@@ -199,20 +200,28 @@ export default function OrderApprovalWidget({ data }: InjectionWidgetComponentPr
       const approvedStatusId = findStatusId('approved')
       const rejectedStatusId = findStatusId('rejected')
 
+      if (!orderId) {
+        throw new Error(t('workflows.orderApproval.missingOrderId', 'Cannot start the approval workflow before the order has loaded.'))
+      }
+
       if (!pendingApprovalStatusId || !approvedStatusId || !rejectedStatusId) {
         throw new Error(t('workflows.orderApproval.missingStatuses', 'Missing order status entries. Please ensure pending_approval, approved, and rejected statuses exist in the sales.order_status dictionary.'))
+      }
+
+      // Typed against the shared key list so a definition that references a new
+      // {{context.*}} key cannot compile until this seed provides it.
+      const initialContext: OrderApprovalInitialContext = {
+        orderId,
+        pendingApprovalStatusId,
+        approvedStatusId,
+        rejectedStatusId,
       }
 
       const result = await apiCall<{ data: WorkflowInstance }>('/api/workflows/instances', {
         method: 'POST',
         body: JSON.stringify({
           workflowId: WORKFLOW_ID,
-          initialContext: {
-            orderId,
-            pendingApprovalStatusId,
-            approvedStatusId,
-            rejectedStatusId,
-          },
+          initialContext,
           metadata: {
             entityType: 'SalesOrder',
             entityId: orderId,

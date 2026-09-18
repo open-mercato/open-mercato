@@ -19,6 +19,17 @@ test('custom registries exempt exact Open Mercato packages from the release age 
   assert.match(config, /unsafeHttpWhitelist:\n  - "localhost"\n  - "host\.docker\.internal"/)
 })
 
+test('https registries get the quarantine exemption without an http whitelist', () => {
+  const config = buildRegistryConfig('https://npm.internal.example.com')
+
+  assert.match(config, /npmRegistryServer: "https:\/\/npm\.internal\.example\.com"\n    npmMinimalAgeGate: 0/)
+  assert.doesNotMatch(config, /unsafeHttpWhitelist/)
+})
+
+test('an unparseable registry url is rejected before any config is emitted', () => {
+  assert.throws(() => buildRegistryConfig('not a url'), /Invalid registry URL/)
+})
+
 test('custom registry config is accepted by the scaffolded Yarn version', () => {
   assert.ok(templatePackageManager, 'template package.json.template must pin a packageManager')
   const root = mkdtempSync(join(tmpdir(), 'create-mercato-app-registry-config-'))

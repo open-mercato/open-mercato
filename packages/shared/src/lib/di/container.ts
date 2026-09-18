@@ -9,6 +9,7 @@ import { applyDiOverridesToContainer } from '@open-mercato/shared/modules/overri
 import { createOptimisticLockGuardService } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { getAllOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { createCommandOptimisticLockGuardService } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { isTenantDataEncryptionEnabled } from '../encryption/toggles'
 import { createLogger } from '../logger'
 
 const logger = createLogger('shared').child({ component: 'di' })
@@ -24,6 +25,13 @@ export type AppDiRegistrar = (container: AppContainer) => void | Promise<void>
 // file can be loaded as multiple module instances when mixing dynamic and static imports
 const GLOBAL_KEY = '__openMercatoDiRegistrars__'
 const APP_DI_REGISTRAR_KEY = '__openMercatoAppDiRegistrar__'
+const APP_DI_LOAD_WARNING_KEY = '__openMercatoAppDiLoadWarningEmitted__'
+const APP_DI_REGISTER_WARNING_KEY = '__openMercatoAppDiRegisterWarningEmitted__'
+// Set once the legacy `@/di` fallback proves the specifier is unresolvable in this process.
+// Worker/CLI processes run against built package output where the app's `@/` alias does not
+// exist, so retrying the import per request container only repeats a failed module resolution
+// (and its log line) once per job.
+const APP_DI_MODULE_UNRESOLVABLE_KEY = '__openMercatoAppDiModuleUnresolvable__'
 // Phase 5 — process-scoped bootstrap cache. The cache/event-bus/encryption
 // services bootstrap() creates are inherently process-scoped (they hold
 // state across requests). Caching them on globalThis after the first
@@ -86,19 +94,18 @@ function harvestBootstrapCache(container: AwilixContainer): BootstrapCacheEntry 
   return entry
 }
 
-type EncryptionEnabledProbe = { isEnabled?: () => boolean } | null | undefined
-
-function getCachedEncryptionEnabled(service: EncryptionEnabledProbe): boolean | null {
-  if (!service || typeof service.isEnabled !== 'function') return false
+// Caches the STATIC config toggle only. It deliberately does not consult
+// `tenantEncryptionService.isEnabled()`, which ANDs the toggle with the
+// volatile `kms.isHealthy()` — memoizing that for the process lifetime pinned a
+// transient Vault outage into a permanent "encryption off" verdict, so the
+// subscriber was never registered again until a restart (#5948). KMS health is
+// re-checked by the subscriber on every read/write instead.
+function getCachedEncryptionConfigured(): boolean {
   const cached = (globalThis as Record<string, unknown>)[ENCRYPTION_ENABLED_KEY]
   if (typeof cached === 'boolean') return cached
-  try {
-    const result = !!service.isEnabled()
-    ;(globalThis as Record<string, unknown>)[ENCRYPTION_ENABLED_KEY] = result
-    return result
-  } catch {
-    return null
-  }
+  const result = isTenantDataEncryptionEnabled()
+  ;(globalThis as Record<string, unknown>)[ENCRYPTION_ENABLED_KEY] = result
+  return result
 }
 
 function getGlobalRegistrars(): DiRegistrar[] | null {
@@ -118,6 +125,9 @@ export function registerDiRegistrars(registrars: DiRegistrar[]) {
   // Force re-bootstrap on HMR — module subscribers may have changed.
   ;(globalThis as any)[BOOTSTRAP_CACHE_KEY] = null
   ;(globalThis as any)[ENCRYPTION_ENABLED_KEY] = undefined
+  // An app that gains a src/di.ts mid-session reloads through here, so the negative
+  // resolution result must not outlive the reload.
+  ;(globalThis as Record<string, unknown>)[APP_DI_MODULE_UNRESOLVABLE_KEY] = undefined
 }
 
 export function getDiRegistrars(): DiRegistrar[] {
@@ -137,10 +147,44 @@ export function registerAppDiRegistrar(registrar: AppDiRegistrar | null): void {
   ;(globalThis as Record<string, unknown>)[APP_DI_REGISTRAR_KEY] = registrar
 }
 
-/** Test-only helper to drop the process-scoped bootstrap cache. */
+/** Test-only helper to drop process-scoped request-container state. */
 export function resetBootstrapCache(): void {
   (globalThis as any)[BOOTSTRAP_CACHE_KEY] = null
   ;(globalThis as any)[ENCRYPTION_ENABLED_KEY] = undefined
+  ;(globalThis as Record<string, unknown>)[APP_DI_LOAD_WARNING_KEY] = undefined
+  ;(globalThis as Record<string, unknown>)[APP_DI_REGISTER_WARNING_KEY] = undefined
+  ;(globalThis as Record<string, unknown>)[APP_DI_MODULE_UNRESOLVABLE_KEY] = undefined
+}
+
+function isAppDiModuleUnresolvable(): boolean {
+  return (globalThis as Record<string, unknown>)[APP_DI_MODULE_UNRESOLVABLE_KEY] === true
+}
+
+function markAppDiModuleUnresolvable(): void {
+  ;(globalThis as Record<string, unknown>)[APP_DI_MODULE_UNRESOLVABLE_KEY] = true
+}
+
+function isAppDiModuleNotFound(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const { code, message } = error as { code?: unknown; message?: unknown }
+  const text = typeof message === 'string' ? message : ''
+  const moduleNotFound =
+    code === 'MODULE_NOT_FOUND'
+    || code === 'ERR_MODULE_NOT_FOUND'
+    || text.startsWith('Cannot find module')
+    || text.startsWith('Cannot find package')
+  return moduleNotFound && /(?:module|package) ['"]@\/di['"]/.test(text)
+}
+
+function warnAppDiFailureOnce(
+  key: typeof APP_DI_LOAD_WARNING_KEY | typeof APP_DI_REGISTER_WARNING_KEY,
+  message: string,
+  error: unknown,
+): void {
+  const globalScope = globalThis as Record<string, unknown>
+  if (globalScope[key] === true) return
+  globalScope[key] = true
+  logger.warn(message, { err: error })
 }
 
 function isAwilixResolver(value: unknown): value is Resolver<unknown> {
@@ -240,7 +284,7 @@ export async function createRequestContainer(): Promise<AppContainer> {
     } catch (error) {
       logger.error('App-level DI registrar failed', { err: error })
     }
-  } else {
+  } else if (!isAppDiModuleUnresolvable()) {
     // Backward-compatible fallback for apps that have not adopted explicit wiring.
     try {
       // @ts-ignore - @/di only exists in app context, not in packages
@@ -249,26 +293,45 @@ export async function createRequestContainer(): Promise<AppContainer> {
         try {
           const maybe = appDi.register(container)
           if (maybe && typeof maybe.then === 'function') await maybe
-        } catch (error) {
-          logger.error('App-level DI registrar failed', { err: error })
+        } catch (err) {
+          warnAppDiFailureOnce(
+            APP_DI_REGISTER_WARNING_KEY,
+            'App-level DI override (src/di.ts register()) threw; its registrations are skipped',
+            err,
+          )
         }
       }
-    } catch {}
+    } catch (err) {
+      if (isAppDiModuleNotFound(err)) {
+        markAppDiModuleUnresolvable()
+        logger.debug('App-level DI override module (@/di) not resolvable; skipping', { err })
+      } else {
+        warnAppDiFailureOnce(
+          APP_DI_LOAD_WARNING_KEY,
+          'App-level DI override module (@/di) failed to load; its registrations are skipped',
+          err,
+        )
+      }
+    }
   }
   applyDiOverridesToContainer({
     register: (registrations) => container.register(toAwilixRegistrations(registrations)),
     unregister: (key) => container.register({ [key]: asValue(undefined) }),
   })
   // Ensure tenant encryption subscriber is always registered on the fresh request-scoped EM
-  // Phase 5 — cache `tenantEncryptionService.isEnabled()` for the process
-  // lifetime. The result depends only on config that does not change at
-  // runtime, so reading it once skips a config lookup per request.
+  // Phase 5 — cache the tenant-encryption config toggle for the process
+  // lifetime. That toggle does not change at runtime, so reading it once skips
+  // a config lookup per request; KMS health is NOT part of this decision.
   try {
     const emForEnc = container.resolve('em') as any
     const tenantEncryptionService = container.hasRegistration('tenantEncryptionService')
       ? (container.resolve('tenantEncryptionService') as any)
       : null
-    if (emForEnc && tenantEncryptionService && getCachedEncryptionEnabled(tenantEncryptionService) === true) {
+    // The subscriber calls `service.isEnabled()` on every read/write, so a DI
+    // override supplying a service without it would throw per operation. Keep
+    // the shape check that the old health-probe helper performed.
+    const serviceCanReportEnabled = typeof tenantEncryptionService?.isEnabled === 'function'
+    if (emForEnc && serviceCanReportEnabled && getCachedEncryptionConfigured()) {
       const { registerTenantEncryptionSubscriber } = await import('@open-mercato/shared/lib/encryption/subscriber')
       registerTenantEncryptionSubscriber(emForEnc, tenantEncryptionService)
     }

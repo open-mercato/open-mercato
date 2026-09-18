@@ -83,9 +83,16 @@ export function LookupSelect({
   const [query, setQuery] = React.useState('')
   const [items, setItems] = React.useState<LookupSelectItem[]>(options ?? [])
   const [loading, setLoading] = React.useState(false)
+  // Escape collapses the list without clearing the selection. Derived state is not
+  // enough here: Escape empties the query but the fetched `items` linger, so the
+  // list would stay open and the collapsed summary — the branch that keeps a raw
+  // record id out of the DOM (TC-EUDR-013) — would never render.
+  const [collapsed, setCollapsed] = React.useState(false)
   const [hasTyped, setHasTyped] = React.useState(defaultOpen)
   const [error, setError] = React.useState<string | null>(null)
   const [fetchKey, setFetchKey] = React.useState(0)
+  const [activeIndex, setActiveIndex] = React.useState(-1)
+  const listboxId = React.useId()
   const fetchItemsRef = React.useRef(fetchItems ?? fetchOptions)
   const setQueryRef = React.useRef(setQuery)
   const onReadyRef = React.useRef(onReady)
@@ -114,8 +121,80 @@ export function LookupSelect({
     if (onReadyRef.current) onReadyRef.current({ setQuery })
   }, [setQuery])
 
-  const shouldSearch =
-    defaultOpen || query.trim().length >= minQuery || Boolean(value && (options?.length ?? 0) > 0)
+  // A set `value` always opens the list: it is the only place the selected row,
+  // its checkmark and the clear control render, so collapsing over a selection
+  // would hide it with no way to see or undo it. This used to also require an
+  // `options` prop, which left every caller that resolves its selection through
+  // `fetchItems` blind whenever minQuery kept the list shut.
+  const shouldSearch = defaultOpen || query.trim().length >= minQuery || Boolean(value)
+
+  React.useEffect(() => {
+    setActiveIndex(-1)
+  }, [items])
+
+  const optionDomId = React.useCallback(
+    (index: number) => `${listboxId}-option-${index}`,
+    [listboxId],
+  )
+
+  const isInteractiveItem = React.useCallback(
+    (item: LookupSelectItem) => !disabled && (!item.disabled || value === item.id),
+    [disabled, value],
+  )
+
+  const moveActiveIndex = React.useCallback((direction: 1 | -1) => {
+    setActiveIndex((current) => {
+      if (!items.length) return -1
+      let next = current
+      for (let step = 0; step < items.length; step += 1) {
+        next = (next + direction + items.length) % items.length
+        if (isInteractiveItem(items[next])) return next
+      }
+      return current
+    })
+  }, [isInteractiveItem, items])
+
+  React.useEffect(() => {
+    if (activeIndex < 0) return
+    const activeElement = typeof document !== 'undefined'
+      ? document.getElementById(optionDomId(activeIndex))
+      : null
+    if (typeof activeElement?.scrollIntoView === 'function') {
+      activeElement.scrollIntoView({ block: 'nearest' })
+    }
+  }, [activeIndex, optionDomId])
+
+  const listboxVisible = shouldSearch && !disabled
+  const handleInputKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!listboxVisible) return
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      moveActiveIndex(1)
+      return
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      moveActiveIndex(-1)
+      return
+    }
+    if (event.key === 'Enter') {
+      if (activeIndex < 0 || activeIndex >= items.length) return
+      const item = items[activeIndex]
+      if (!isInteractiveItem(item)) return
+      event.preventDefault()
+      onChange(item.id)
+      setActiveIndex(-1)
+      return
+    }
+    if (event.key === 'Escape') {
+      if (query.length === 0 && activeIndex < 0) return
+      event.preventDefault()
+      event.stopPropagation()
+      setQuery('')
+      setActiveIndex(-1)
+      setCollapsed(true)
+    }
+  }, [activeIndex, items, isInteractiveItem, listboxVisible, moveActiveIndex, onChange, query])
   React.useEffect(() => {
     if (disabled) {
       setItems(options ?? [])
@@ -157,6 +236,34 @@ export function LookupSelect({
     }
   }, [query, shouldSearch, fetchKey])
 
+  const [selectedItem, setSelectedItem] = React.useState<LookupSelectItem | null>(null)
+
+  React.useEffect(() => {
+    if (!value) {
+      setSelectedItem(null)
+      return
+    }
+    const match = items.find((item) => item.id === value)
+    if (match) setSelectedItem(match)
+  }, [items, value])
+
+  /*
+   * The collapsed summary is opt-in: only a consumer that supplies
+   * `selectedHintLabel` asks this component to display the selection, so
+   * consumers rendering their own selected-value label keep their layout and
+   * never get a second summary. A resolver that falls back to the id
+   * (`known.get(id) ?? id`) is treated as unresolved and falls through to the
+   * title of the item that was actually fetched — a record id must never reach
+   * the DOM as a label.
+   */
+  const collapsedSelectionLabel = React.useMemo(() => {
+    if (!value || !selectedHintLabel) return null
+    const hinted = selectedHintLabel(value)
+    if (hinted && hinted !== value) return hinted
+    const fetchedTitle = selectedItem && selectedItem.id === value ? selectedItem.title : null
+    return fetchedTitle && fetchedTitle !== value ? fetchedTitle : null
+  }, [selectedHintLabel, selectedItem, value])
+
   return (
     <div className="space-y-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
@@ -168,14 +275,31 @@ export function LookupSelect({
             onChange={(event) => {
               setQuery(event.target.value)
               setHasTyped(true)
+              setCollapsed(false)
             }}
+            onKeyDown={handleInputKeyDown}
             placeholder={resolvedSearchPlaceholder}
             disabled={disabled}
+            role="combobox"
+            aria-expanded={listboxVisible}
+            aria-controls={listboxId}
+            aria-autocomplete="list"
+            aria-activedescendant={activeIndex >= 0 ? optionDomId(activeIndex) : undefined}
           />
         </div>
-        {actionSlot ? <div className="sm:self-start">{actionSlot}</div> : null}
+        {actionSlot && !disabled ? <div className="sm:self-start">{actionSlot}</div> : null}
       </div>
-      {shouldSearch ? (
+      {/*
+       * `shouldSearch` decides whether to FETCH; this decides whether to RENDER a
+       * list. They differ for a set value whose lookup comes back empty: develop's
+       * #5248 work needs the list (and its selected option) whenever items exist,
+       * while the collapsed summary — which keeps a selection visible after the
+       * search box reverts to its placeholder, and keeps a raw record id out of the
+       * DOM (TC-EUDR-013) — is only reachable when they do not. Falling through on
+       * an empty result satisfies both. A non-empty query still renders the list so
+       * its spinner and empty-state are reachable while the user is searching.
+       */}
+      {shouldSearch && !collapsed && (items.length > 0 || query.trim().length > 0) ? (
         <div className="space-y-2">
           {loading || loadingProp ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -186,22 +310,29 @@ export function LookupSelect({
           {!loading && !loadingProp && !items.length ? (
             <p className="text-xs text-muted-foreground">{resolvedEmptyLabel}</p>
           ) : null}
-          <div className="flex flex-col gap-1.5 max-h-80 overflow-y-auto -mx-0.5 px-0.5 py-0.5">
-            {items.map((item) => {
+          <div
+            id={listboxId}
+            role="listbox"
+            className="flex flex-col gap-1.5 max-h-80 overflow-y-auto -mx-0.5 px-0.5 py-0.5"
+          >
+            {items.map((item, index) => {
               const isSelected = value === item.id
-              const isInteractive = !item.disabled || isSelected
+              const isInteractive = isInteractiveItem(item)
+              const isActive = index === activeIndex
               return (
                 <div
                   key={item.id}
+                  id={optionDomId(index)}
                   className={cn(
                     'group flex items-center gap-4 rounded-xl border p-4 transition-all duration-150 focus-visible:outline-none focus-visible:shadow-focus',
                     isInteractive ? 'cursor-pointer' : 'cursor-not-allowed opacity-60',
                     isSelected
                       ? 'border-brand-violet bg-brand-violet/5 shadow-sm'
-                      : 'border-input bg-card hover:border-foreground/20 hover:bg-muted/30 hover:shadow-sm'
+                      : 'border-input bg-card hover:border-foreground/20 hover:bg-muted/30 hover:shadow-sm',
+                    isActive && !isSelected ? 'border-foreground/20 bg-muted/30 shadow-sm' : null
                   )}
-                  role="button"
-                  tabIndex={item.disabled ? -1 : 0}
+                  role="option"
+                  tabIndex={isInteractive ? 0 : -1}
                   onClick={() => {
                     if (!isInteractive) return
                     onChange(item.id)
@@ -213,9 +344,9 @@ export function LookupSelect({
                       onChange(item.id)
                     }
                   }}
-                  aria-pressed={isSelected}
-                  aria-disabled={item.disabled && !isSelected ? true : undefined}
-                  title={isSelected ? resolvedSelectedLabel : resolvedSelectLabel}
+                  aria-selected={isSelected}
+                  aria-disabled={isInteractive ? undefined : true}
+                  title={isSelected ? resolvedSelectedLabel : isInteractive ? resolvedSelectLabel : undefined}
                 >
                   {item.icon ? (
                     <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden [&>svg]:size-6 [&_svg]:text-muted-foreground">
@@ -258,7 +389,7 @@ export function LookupSelect({
               )
             })}
           </div>
-          {value ? (
+          {value && !disabled ? (
             <Button
               type="button"
               variant="ghost"
@@ -270,6 +401,33 @@ export function LookupSelect({
               {resolvedClearLabel}
             </Button>
           ) : null}
+        </div>
+      ) : collapsedSelectionLabel ? (
+        /*
+         * The visible input is the *search box*, not a value display: once the
+         * list closes it shows its placeholder again, so a selection made and
+         * then collapsed left the control looking empty even though the form
+         * held the id. `selectedHintLabel` existed for exactly this and was
+         * never rendered.
+         */
+        <div
+          className="flex items-center justify-between gap-3 rounded-lg border border-input bg-muted/40 px-3 py-2"
+          data-testid="lookup-select-selected"
+        >
+          <span className="truncate text-sm font-medium text-foreground">
+            {collapsedSelectionLabel}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="shrink-0 gap-1 text-sm font-normal"
+            disabled={disabled}
+            onClick={() => onChange(null)}
+          >
+            <X className="h-4 w-4" />
+            {resolvedClearLabel}
+          </Button>
         </div>
       ) : hasTyped ? (
         <p className="text-xs text-muted-foreground">

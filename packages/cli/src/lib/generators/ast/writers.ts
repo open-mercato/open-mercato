@@ -22,6 +22,31 @@ export interface SpreadPropertyWriter {
 export type GeneratedObjectEntry = ObjectPropertyWriter | SpreadPropertyWriter
 export type StatementWriter = WriterFunction
 
+/**
+ * Escapes the characters that are legal inside a JSON string but hazardous inside a
+ * generated JavaScript source file: `<` and `>` so an emitted value can never close a
+ * surrounding script context, and U+2028 / U+2029 which older JavaScript parsers reject
+ * inside a string literal. The escape sequences denote the same runtime string, so this
+ * only ever changes the emitted text, never the emitted value.
+ */
+export function escapeGeneratedJsonLiteral(json: string): string {
+  return json
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
+}
+
+/**
+ * The single point where a string value becomes source text on the AST path. The string
+ * paths that are still emitted as templates share the escaping step above rather than
+ * this function, because they also serialize objects, whose nested strings need the same
+ * hardening.
+ */
+export function stringLiteral(value: string): string {
+  return escapeGeneratedJsonLiteral(JSON.stringify(value))
+}
+
 export function writeLiteral(writer: CodeBlockWriter, value: Exclude<GeneratedValue, WriterFunction>): void {
   if (value === undefined) {
     writer.write('undefined')
@@ -34,7 +59,7 @@ export function writeLiteral(writer: CodeBlockWriter, value: Exclude<GeneratedVa
   }
 
   if (typeof value === 'string') {
-    writer.write(JSON.stringify(value))
+    writer.write(stringLiteral(value))
     return
   }
 

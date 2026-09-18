@@ -1,54 +1,130 @@
 ---
 title: Hybrid query engine
-description: Accelerate entity queries with the optional JSONB index layer.
+description: How the runtime query engine routes between the JSONB index and the join-based plan.
 ---
 
 # Hybrid Query Engine
 
-The query engine can transparently route requests through a denormalised JSONB index. This hybrid approach keeps write operations on the primary tables while enabling fast reads for list and search screens. Its primary target is **user-defined entities** (from the Entities module) which are stored as JSONB documents.
+`HybridQueryEngine` is the implementation registered behind the `queryEngine` DI key at runtime. It answers a query from the shared `entity_indexes` JSONB index when it can, and delegates to `BasicQueryEngine` (the join-based plan) when it cannot.
 
-| Entity type | Defined in | Storage | Primary use | Example |
-| --- | --- | --- | --- | --- |
-| **System entities** | Module `data/entities.ts` (MikroORM) | Relational tables (one per entity) | Core platform objects extended with custom fields | `auth.user`, `directory.organization` |
-| **User entities** | Module `ce.ts` / admin UI | JSONB documents in the Entities module | Customer-specific records managed at runtime | `inventory:item`, CRM pipelines |
+:::tip Read this first
+There is **no per-module opt-in for the engine**. There is no `queryIndex` metadata option, no `hybridQuery: true` flag, and no per-entity `*_index` table — a single shared `entity_indexes` table backs every indexed entity. What is opt-in is *indexing*, not *routing*. See [Keeping the index populated](#keeping-the-index-populated).
+:::
 
-The hybrid query engine optimises **user entities**, while the [JSONB indexing layer](./query-index) targets **system entities with custom fields** (flattening base columns + `cf:<key>` values). Treat them as complementary mechanisms, not replacements for each other.
+## Which engine is live
 
-## How it works
+`createRequestContainer()` registers a `BasicQueryEngine` (`packages/shared/src/lib/di/container.ts`). The `query_index` module's DI registrar then unconditionally replaces that registration with a `HybridQueryEngine` that wraps the basic one as its fallback delegate (`packages/core/src/modules/query_index/di.ts`).
 
-1. Each entity that opts in gains an `*_index` table storing flattened rows (user entity payloads).
-2. Background jobs or CLI commands (`yarn mercato entities install --reindex`) populate and refresh the index.
-3. When the index is up to date, the query engine executes filters and sorts against the JSONB payload, bypassing expensive joins.
-4. If the index is missing or stale, the query engine automatically falls back to the relational query plan.
+The standard app enables `query_index`, so **every consumer of `queryEngine` in that configuration gets the hybrid engine**. `BasicQueryEngine` runs directly only when the `query_index` registration is absent or threw; otherwise it is reachable only as the hybrid engine's fallback.
 
-## Opting in
+Both implement the same interface, which has exactly one method (`packages/shared/src/lib/query/types.ts`):
 
-```ts title="src/modules/inventory/index.ts"
-export const metadata = {
-  id: 'inventory',
-  title: 'Inventory',
-  version: '0.1.0',
-  description: 'Track stock levels for sellable items.',
-  queryIndex: {
-    entities: ['inventory:item'],
-  },
-};
+```ts
+export interface QueryEngine {
+  query<T = any>(entity: EntityId, opts?: QueryOptions): Promise<QueryResult<T>>
+}
 ```
 
-- Add the entity id you want indexed.
-- Run `yarn generate` and `yarn db:generate` to create the index tables.
-- Trigger an initial backfill (for example, `yarn mercato entities sync-index --entity inventory:item --tenant <tenantId>`).
+See [Query engine](./query-engine) for the options and result shape, and [JSONB indexing layer](./query-index) for the index schema, document shape, and backfill CLI.
 
-## Working with custom fields
+## Routing decisions
 
-- User entities: custom fields are already part of the JSONB payload, so the hybrid index copies them verbatim.
-- System entities: continue using the [JSONB indexing layer](./query-index) to flatten base columns and `cf:<key>` values. The hybrid index does not replace that mechanism.
+For a given `query()` call the hybrid engine picks one of three paths.
 
-## Monitoring freshness
+### 1. Custom-entity document storage
 
-- Inspect `modules.generated.ts` to confirm the entity lists `hybridQuery: true`.
-- Each index record carries an `updated_at` timestamp. Use it to detect stale data and schedule incremental refreshes.
-- The engine logs when it falls back to relational mode, making it easy to flag missing indexes during development.
-- Use the Entities module dashboards to confirm user-entity records stay in sync after edits in the admin UI.
+When `opts.forceCustomEntityStorage === true`, or the entity id is classified as a custom entity, the query runs against `custom_entities_storage` instead of a base table. This is a separate reader, not the basic engine.
 
-When you need fast lists for system entities enriched with module-defined custom fields, enable the JSONB indexing layer. When you need performant queries over runtime-defined user entities, opt into the hybrid query engine.
+### 2. Fallback to `BasicQueryEngine`
+
+There are exactly four conditions, all in `packages/core/src/modules/query_index/lib/engine.ts`:
+
+| Condition | Profiler `reason` | Notes |
+| --- | --- | --- |
+| The base table does not exist | `missing_base` | |
+| `opts.omitAutomaticTenantOrgScope === true` | `omit_automatic_tenant_org_scope` | The caller owns scoping. `BasicQueryEngine` still handles `cf:*` filters/sorts, but `search_tokens` fulltext, the JSONB index path, and the vector-search branch are bypassed |
+| No index rows exist for the entity type | `no_index_rows` | Only evaluated when the query wants custom fields |
+| A coverage gap was detected and `FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES` is off | `partial_index` | Additionally requires the entity to have at least one active custom-field definition. See [Partial coverage](#partial-coverage) |
+
+The last two are gated on the query actually wanting custom-field data — `opts.fields` containing a `cf:`/`l10n:` selector, a `cf:`/`l10n:` filter, or an array-form `includeCustomFields`. **A query that asks for no custom fields never falls back for coverage reasons**; it still runs the hybrid engine's own SQL. The data query currently left-joins `entity_indexes` even when no custom fields are requested, while the optimized count path can skip that join.
+
+### 3. The index path
+
+Everything else. Filters, sorts, paging, tenant/organization scoping, joins, and soft-delete exclusion are applied against the base table plus `entity_indexes`.
+
+## What does *not* cause a fallback
+
+These are handled inside the hybrid engine and are easy to misread as fallback triggers:
+
+- **An unsupported sort field** is silently dropped from the `ORDER BY`, not escalated.
+- **An unknown filter field** is routed to `entity_indexes.doc ->> '<field>'` rather than rejected.
+- **Joins** (`opts.joins`, `opts.customFieldSources`) are compiled natively.
+- **Sorting on an encrypted column** uses a two-phase candidate scan and an in-memory sort. When the scan exceeds `OM_ENCRYPTED_SORT_MAX_ROWS` (unset means uncapped) the result carries `meta.encryptedSortRowCapWarning`.
+
+## Filter operators
+
+The supported set is exactly eleven (`packages/shared/src/lib/query/types.ts`):
+
+`eq` · `ne` · `gt` · `gte` · `lt` · `lte` · `in` · `nin` · `like` · `ilike` · `exists`
+
+:::warning Unsupported operators are silently ignored
+An operator outside that list does **not** raise. It is dropped during filter compilation, and the `default:` branches in both engines are permissive — the predicate is either skipped or compiled to `true`. The practical effect is that a filter you expected to narrow the result set may not narrow it at all. Validate operator names at the API boundary; do not rely on the engine to reject them.
+:::
+
+`like`/`ilike` are re-routed to hashed `search_tokens` lookups when search is active. If the tokenizer yields no hashes for the pattern, the predicate is skipped.
+
+## Partial coverage
+
+The engine compares `baseCount` (rows in the base table for the scope) against `indexedCount` (rows in `entity_indexes`), reading a snapshot from `entity_index_coverage`. A gap is any scope where `indexedCount` is below a non-zero `baseCount`, where `indexedCount` exceeds `baseCount` (stale rows), or where no snapshot exists yet.
+
+On a gap:
+
+1. An asynchronous reindex is scheduled — a persistent `query_index.reindex` event, unless `opts.skipAutoReindex` is set or `SCHEDULE_AUTO_REINDEX` is off. **This happens whether or not the query falls back.**
+2. `FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES` decides the read:
+   - **off (the code default)** — fall back to the basic engine. Correct results, join-plan latency.
+   - **on** — stay on the index. Fast, but rows missing from the index are missing from the result.
+3. Either way the result carries `meta.partialIndexWarning` (`entity`, `entityLabel`, `baseCount`, `indexedCount`, `scope`), which the CRUD factory forwards as the `x-om-partial-index` response header so the admin UI can prompt for a reindex via `/backend/query-indexes`.
+
+:::warning Forcing the index trades correctness for latency
+With a real coverage gap, `FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES=true` means unindexed rows silently disappear from filtered lists and counts. Close the gap with a reindex first; only then decide whether to force.
+:::
+
+Coverage snapshots are cached in the `entity_index_coverage` table with a TTL of `QUERY_INDEX_COVERAGE_CACHE_MS` (5 minutes by default). When a snapshot is stale or missing, `OPTIMIZE_INDEX_COVERAGE_STATS` decides what happens: off (the default) recomputes **inline on the request thread**; on schedules an asynchronous refresh and serves the stale snapshot.
+
+## Counts
+
+`QueryResult.total` always comes from a real count query — there is no cap, no cache, and no way to skip it.
+
+The hybrid engine takes an optimized path when the query has **no `cf:`/`l10n:` filters and no cross-entity search source**: it rebuilds the count from the base table with base, or-group, and join filters only, skipping the `entity_indexes` join entirely, then counts distinct base ids. Otherwise it counts `distinct b.id` over the full query shape.
+
+`BasicQueryEngine` uses `count(distinct <table>.id)` when joins, joined aggregates, or custom-field sources could multiply base rows, and `count(*)` when they cannot.
+
+## Keeping the index populated
+
+The query engine never writes index rows. Incremental maintenance runs through the `query_index` subscribers; bulk rebuilds are written directly by the reindexer behind the CLI and admin UI.
+
+| Event | Effect |
+| --- | --- |
+| `query_index.upsert_one` | Rebuild and upsert one row |
+| `query_index.delete_one` | Remove the row and its search tokens, adjust coverage |
+| `query_index.reindex` | Background (re)build for an entity/tenant/organization scope |
+| `query_index.purge` | Drop index rows for a scope |
+| `query_index.coverage.refresh` / `.warmup` | Recompute coverage snapshots |
+
+They are emitted by the DataEngine CRUD side-effect path when a route or command passes `indexer: { entityType }`, and by automatic `<module>.<entity>.created|updated|deleted` subscriptions that the `query_index` DI registrar installs for every entity id appearing in `custom_field_defs` (falling back to every generated entity id when that table is empty). The created/updated handlers forward only when the entity has an active custom-field definition for the scope; the deleted handler always forwards so stale index rows and search tokens are removed even after definitions change.
+
+To rebuild by hand, use the CLI (`mercato query_index rebuild`, `rebuild-all`, `reindex`, `purge`; `yarn mercato reindex` is shorthand for `query_index reindex`) or the admin UI at `/backend/query-indexes`. Flags and partitioning are documented in [JSONB indexing layer](./query-index#backfill).
+
+## Observability
+
+- **Profiler** — set `OM_PROFILE` to emit `[qe:profile]` nodes. The `result` field is `ok`, `fallback` (with a `reason` from the table above), `custom_entity`, or `error`; SQL timings are labelled `query:sql:count` and `query:sql:data` (`query:sql:data:phase1` / `:phase2` when sorting on an encrypted column).
+- **Debug logs** — the engine's debug lines require **both** debug verbosity (`OM_QUERY_INDEX_DEBUG`, or `LOG_VERBOSITY`/`LOG_LEVEL` at `debug` or lower) **and** `QUERY_ENGINE_DEBUG_SQL=true`. Setting verbosity alone prints nothing from this engine.
+- **Warnings** — only the partial-coverage path logs at `warn`. The `missing_base`, `omit_automatic_tenant_org_scope`, and `no_index_rows` fallbacks are visible only through the profiler or debug logs.
+
+## Making a list endpoint fast
+
+1. Make sure the entity is actually indexed — check `/backend/query-indexes` for a coverage snapshot with `indexedCount` matching `baseCount`.
+2. Keep `omitAutomaticTenantOrgScope` off unless the entity's scoping genuinely does not fit `organization_id = X AND tenant_id = Y`. It forces the basic engine, so you lose the index path and vector search and take the join plan instead.
+3. Filter and sort on base columns where you can; `cf:*` predicates are JSONB extractions and are only as fast as the expression indexes you add for them.
+4. Add expression indexes for hot JSON paths — see [Performance tips](./query-index#performance-tips). Note that `entity_indexes` ships **no** GIN index on `doc`; the per-entity partial covering indexes that exist today were hand-written for three `customers:*` entity types and are not generated for other entities.
+5. Watch the count. It is a second query over the same shape, and on large tables an exact filtered total costs more than the page of rows itself.

@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-mercato.dev/schemas/source-link-baseline.schema.json",
+  "title": "Open Mercato source-link baseline disposition ledger",
+  "description": "Structural contract for source-link-baseline.json — the finite `main` parity ledger. It pins the exact baseline assets and carries one checked disposition record for every CommonMark fenced block in them. Derived fields (heading, openingLine, info, contentSha256) and topic resolution are re-derived by scripts/validate-source-links.mjs; this schema pins only the shape a consumer may rely on without re-deriving. Two ledger rules are deliberately NOT expressed here because the JSON Schema subset both validators implement cannot express them: block `id` uniqueness (uniqueItems compares whole records) and the disposition-conditional targetTopicIds/rationale/topicIds rules. Those are enforced in code — scripts/validate-source-links.mjs and the ledger checks in agentic/shared/scripts/validate-knowledge-change.mjs. Because this file is itself a `source-link` asset that a ledger author may edit in the same change, validate-knowledge-change.mjs probes the clauses below against known-bad ledgers before trusting it; widening a pattern, shortening a `required` list or flipping an `additionalProperties` guard fails the knowledge-change gate.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["baselineSha", "baselineAssets", "blocks"],
+  "properties": {
+    "$comment": { "type": "string" },
+    "baselineSha": { "$ref": "#/$defs/gitSha" },
+    "baselineAssets": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/baselineAsset" }
+    },
+    "blocks": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/blockDisposition" }
+    }
+  },
+  "$defs": {
+    "gitSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "assetPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 400,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*//)[^*?\\\\<>|\"]+(?<!/)$",
+      "description": "Repository-relative POSIX path to one exact regular file at baselineSha."
+    },
+    "disposition": {
+      "enum": [
+        "linked",
+        "retained-normative-snippet",
+        "superseded-with-current-rule-and-source",
+        "not-implementation"
+      ]
+    },
+    "topicIdList": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "baselineAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "expectedFenceCount"],
+      "properties": {
+        "path": { "$ref": "#/$defs/assetPath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "expectedFenceCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "blockDisposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "asset",
+        "ordinal",
+        "heading",
+        "openingLine",
+        "info",
+        "contentSha256",
+        "topicIds",
+        "disposition"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^main:.+#fence:[1-9][0-9]*$",
+          "description": "main:<asset>#fence:<ordinal>, one record per parsed fence."
+        },
+        "asset": { "$ref": "#/$defs/assetPath" },
+        "ordinal": { "type": "integer", "minimum": 1 },
+        "heading": {
+          "type": ["string", "null"],
+          "description": "Nearest preceding ATX heading, or null when the fence precedes every heading."
+        },
+        "openingLine": { "type": "string" },
+        "info": { "type": "string" },
+        "contentSha256": { "$ref": "#/$defs/sha256" },
+        "topicIds": { "$ref": "#/$defs/topicIdList" },
+        "disposition": { "$ref": "#/$defs/disposition" },
+        "targetTopicIds": { "$ref": "#/$defs/topicIdList" },
+        "rationale": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

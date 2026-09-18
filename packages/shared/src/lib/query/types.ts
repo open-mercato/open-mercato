@@ -108,11 +108,10 @@ export type QueryOptions = {
    * and MUST fail closed when the authenticated principal lacks a resolvable tenant/org, otherwise
    * queries return cross-tenant rows.
    *
-   * When this flag is set, the hybrid query engine delegates to the basic engine, which means
-   * custom-field (`cf:*`) filters/sorts, `search_tokens` fulltext filtering, and vector-search
-   * branches are BYPASSED. Only use this on entities whose scoping does not match the standard
-   * `organization_id = X AND tenant_id = Y` shape and which do not rely on custom-field/search
-   * features.
+   * When this flag is set, the hybrid query engine delegates to the basic engine. The basic engine
+   * still applies `cf:*` filters/sorts, but `search_tokens` fulltext filtering, the JSONB index read
+   * path, and the vector-search branch are BYPASSED. Only use this on entities whose scoping does
+   * not match the standard `organization_id = X AND tenant_id = Y` shape.
    */
   omitAutomaticTenantOrgScope?: boolean
   // Soft-delete behavior: when false (default), rows with non-null deleted_at
@@ -152,12 +151,27 @@ export type EncryptedSortRowCapWarning = {
   entity: EntityId
   sortFields: string[]
   maxRows: number
+  /**
+   * Exact when `meta.listCountCapWarning` is absent; a floor when it is
+   * present (the list total itself was bounded at the cap).
+   */
   totalMatched: number
+}
+
+/**
+ * Present when the list COUNT was bounded at `cap` matching rows
+ * (`OM_LIST_COUNT_CAP`): `total` is a floor, not an exact value. Surfaced on
+ * CRUD list payloads as `totalIsCapped: true`.
+ */
+export type ListCountCapWarning = {
+  entity: EntityId
+  cap: number
 }
 
 export type QueryResultMeta = {
   partialIndexWarning?: PartialIndexWarning
   encryptedSortRowCapWarning?: EncryptedSortRowCapWarning
+  listCountCapWarning?: ListCountCapWarning
 }
 
 export type QueryResult<T = any> = {

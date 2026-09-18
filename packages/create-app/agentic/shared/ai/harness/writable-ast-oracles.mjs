@@ -1344,6 +1344,14 @@ function importsSharedComponent(facts, name) {
   return facts.importedBindings.get(name)?.startsWith('@open-mercato/ui') === true
 }
 
+function hasArbitraryTailwindValue(value) {
+  return [...value.matchAll(/(?:^|\s)\S*\[[^\]]+\]/g)].some((match) => {
+    const token = match[0].trim()
+    return /^(?:[a-z@][\w@/-]*:)*-?[a-z][\w/-]*-\[[^\]]+\]$/.test(token)
+      || /^\[(?:[&@*.]|[a-z-]+:)[^\]]+\]/.test(token)
+  })
+}
+
 function uiPolicyFailures(facts, { allowFormTag = false } = {}) {
   const rawTags = ['button', 'input', 'select', 'textarea', 'svg', ...(allowFormTag ? [] : ['form'])]
   const failures = []
@@ -1353,7 +1361,7 @@ function uiPolicyFailures(facts, { allowFormTag = false } = {}) {
   if (strings.some((value) => /(?:^|\s)(?:[a-z-]+:)*(?:text|bg|border|ring)-(?:red|green|emerald|blue|amber|orange|yellow|rose|lime|cyan|teal|indigo|violet|purple|pink)-\d{2,3}(?:\/\d+)?\b/.test(value))) {
     failures.push('hard-coded palette class')
   }
-  if (strings.some((value) => /(?:^|\s)\S*\[[^\]]+\]/.test(value))) failures.push('arbitrary Tailwind value')
+  if (strings.some(hasArbitraryTailwindValue)) failures.push('arbitrary Tailwind value')
   if (strings.some((value) => /(?:^|\s)dark:/.test(value))) failures.push('manual dark-mode override')
   for (const name of ['label', 'title', 'placeholder', 'aria-label', 'alt']) {
     if ((facts.jsxLiteralAttributes.get(name)?.size ?? 0) > 0) failures.push(`hard-coded ${name}`)
@@ -1457,7 +1465,10 @@ function pageRoutePath(moduleId, surface, pageFile) {
 }
 
 function installedFactRoutes(root) {
-  const factsFile = path.join(root, '.ai', 'guides', 'module-facts.json')
+  const factsV2File = path.join(root, '.ai', 'guides', 'module-facts.v2.json')
+  const factsFile = safeTargetEntry(root, factsV2File)
+    ? factsV2File
+    : path.join(root, '.ai', 'guides', 'module-facts.json')
   const factsStat = safeTargetEntry(root, factsFile)
   if (!factsStat) return []
   if (!factsStat.isFile()) throw new Error('installed module facts must be a regular file')
@@ -1471,7 +1482,7 @@ function installedFactRoutes(root) {
     if (!moduleFacts || typeof moduleFacts !== 'object' || Array.isArray(moduleFacts)) continue
     const sourceRoot = typeof moduleFacts.sourceRoot === 'string'
       ? moduleFacts.sourceRoot
-      : `.ai/guides/module-facts.json#${moduleId}`
+      : `.ai/guides/${path.basename(factsFile)}#${moduleId}`
     for (const apiRoute of Array.isArray(moduleFacts.apiRoutes) ? moduleFacts.apiRoutes : []) {
       if (!apiRoute || typeof apiRoute !== 'object' || typeof apiRoute.path !== 'string') continue
       const methods = new Set(

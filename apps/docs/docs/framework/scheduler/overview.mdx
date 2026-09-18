@@ -64,7 +64,8 @@ import {
 ```typescript
 class LocalSchedulerService {
   // Polls database every 30s (configurable via SCHEDULER_POLL_INTERVAL_MS)
-  // Uses PostgreSQL advisory locks for single-instance safety
+  // Prevents duplicate execution in-process; the PostgreSQL advisory lock
+  // only serialises the claim, not the run
   // Enqueues to target queues or executes commands directly
   async start(): Promise<void>
   async stop(): Promise<void>
@@ -80,6 +81,23 @@ class LocalSchedulerService {
 - ~30 second timing accuracy
 - Single instance only
 - No execution history UI
+
+:::warning Run exactly one process with `QUEUE_STRATEGY=local`
+
+The local strategy provides **no cross-process protection**. Duplicate prevention is
+in-process only: the PostgreSQL advisory lock is released as soon as the short claim
+transaction commits (holding it across the whole run would pin a connection
+idle-in-transaction and get it reaped), and `nextRunAt` is advanced only after the
+target has run. A second process polling the same database therefore sees the schedule
+as still due and executes it too — the same job is enqueued twice, or the same command
+runs twice.
+
+Two entry points start this engine: `mercato scheduler start` and
+`mercato worker --with-scheduler`. Running both, or overlapping containers during a
+rolling redeploy, double-fires every schedule due in that window. Use
+`QUEUE_STRATEGY=async` when more than one instance may run.
+
+:::
 
 #### Async Strategy (`QUEUE_STRATEGY=async`)
 

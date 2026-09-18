@@ -9,3 +9,13 @@ export const metadata: ModuleInfo = {
   license: 'MIT',
 }
 
+export {
+  type AttachmentOwner,
+  type AttachmentProviderCleanup,
+  type AttachmentService,
+  type CreatedScopedAttachment,
+  type CreateScopedAttachmentInput,
+  type ReadScopedAttachmentInput,
+  type ReadScopedAttachmentResult,
+  type ReleaseScopedAttachmentInput,
+} from './lib/attachment-service'

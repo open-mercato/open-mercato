@@ -20,6 +20,34 @@ Use `persistent: true` for events that:
 
 For background job processing at scale, see the [Queue & Workers](./queue-workers.mdx) documentation.
 
+## Single delivery of persistent events
+
+`OM_EVENTS_SINGLE_DELIVERY` is **on by default**. A `persistent: true` emit is delivered on exactly
+one path:
+
+- the bus **skips** persistent-marked subscribers inline (ephemeral subscribers still run inline, so
+  read-your-writes paths are unaffected);
+- the events worker dispatches the persistent ones by pattern, which is how wildcard (`event: '*'`)
+  persistent subscribers - workflow triggers, business-rule triggers, outbound webhooks - get
+  reached at all.
+
+Set `OM_EVENTS_SINGLE_DELIVERY=false` to run persistent subscribers inline instead. This is not the
+old dual-dispatch: the producer stamps the queued job with what it already delivered, so the worker
+skips it. Either way a persistent emit runs its subscribers exactly once.
+
+### No worker yet is not the same as lost
+
+Persistent jobs sit in a durable queue. If no worker is running, delivery is delayed, not dropped - start
+a worker and the backlog drains. The bus therefore never falls back to inline delivery on its own; doing so
+would move the work onto the caller's request path, which is what a split app/worker deployment sets
+`AUTO_SPAWN_WORKERS=false` to avoid.
+
+:::warning Split app and worker services
+Run at least one process that drains the `events` queue. `mercato server start` auto-spawns one unless
+`AUTO_SPAWN_WORKERS=false`; if you run workers as their own service, make sure that service actually starts
+them (a bare `next start` does not).
+:::
+
 ## Overview
 
 - Subscribers live under `packages/<pkg>/src/modules/<module>/subscribers/*.ts` (or `apps/mercato/src/modules/<module>/subscribers/*.ts` for app-level overrides) and export:

@@ -1,29 +1,51 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import { finalizeHarnessManifest, generateShared } from './tools/shared.js'
+import { enforceGeneratedRootBudget, finalizeHarnessManifest, generateShared } from './tools/shared.js'
 import { generateClaudeCode } from './tools/claude-code.js'
 import { generateCodex } from './tools/codex.js'
 import { generateCursor } from './tools/cursor.js'
+import { generateGithubCopilot } from './tools/github-copilot.js'
 
 export type AskFn = (question: string) => Promise<string>
 
 export interface AgenticSetupOptions {
   tool?: string
   force?: boolean
+  experimentalHooksValidator?: boolean
 }
 
 export interface AgenticConfig {
   projectName: string
   targetDir: string
+  experimentalHooksValidator?: boolean
+}
+
+export const EXPERIMENTAL_HOOKS_VALIDATOR_ENV = 'OM_HARNESS_EXPERIMENTAL_HOOKS_VALIDATOR'
+
+export function resolveExperimentalHooksValidator(
+  explicitValue?: boolean,
+  environment: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (explicitValue !== undefined) return explicitValue
+
+  const token = environment[EXPERIMENTAL_HOOKS_VALIDATOR_ENV]?.trim().toLowerCase()
+  if (!token) return false
+  if (['1', 'true', 'yes', 'on'].includes(token)) return true
+  if (['0', 'false', 'no', 'off'].includes(token)) return false
+
+  throw new Error(
+    `${EXPERIMENTAL_HOOKS_VALIDATOR_ENV} must be one of: 1, true, yes, on, 0, false, no, off`,
+  )
 }
 
 const TOOLS = [
   { key: '1', label: 'Claude Code     (Anthropic)', id: 'claude-code' },
   { key: '2', label: 'Codex           (OpenAI)', id: 'codex' },
   { key: '3', label: 'Cursor          (Anysphere)', id: 'cursor' },
-  { key: '4', label: 'Multiple tools  (select individually)', id: 'multiple' },
-  { key: '5', label: 'Skip — set up manually later', id: 'skip' },
+  { key: '4', label: 'GitHub Copilot  (GitHub)', id: 'github-copilot' },
+  { key: '5', label: 'Multiple tools  (select individually)', id: 'multiple' },
+  { key: '6', label: 'Skip — set up manually later', id: 'skip' },
 ] as const
 
 const SELECTABLE_TOOLS = TOOLS.filter((t) => t.id !== 'multiple' && t.id !== 'skip')
@@ -33,6 +55,14 @@ const DEFAULT_TOOL_ID = TOOLS[0].id
 
 /** Concrete agent tool ids accepted by the `--agents` CLI flag. */
 export const AGENT_TOOL_IDS: readonly string[] = SELECTABLE_TOOLS.map((t) => t.id)
+
+/**
+ * The agents whose SKILL directories `scripts/install-skills.mjs` manages.
+ * GitHub Copilot is a selectable tool but reads instruction files under
+ * `.github/`, not a skills directory, so the installer does not know that id —
+ * naming it in `agents.ignore` aborts the install with "unknown agent".
+ */
+const SKILL_MANAGED_AGENT_IDS = ['claude-code', 'codex', 'cursor']
 
 export interface ParsedAgentsArg {
   /** True when the value asked to skip agentic setup (`none`/`skip`). */
@@ -107,10 +137,10 @@ export async function promptSelection(ask: AskFn): Promise<string[]> {
   const answer = (await ask('   Enter number(s) separated by comma [1]: ')).trim() || '1'
 
   // Handle skip
-  if (answer === '5') return ['skip']
+  if (answer === '6') return ['skip']
 
   // Handle "multiple" — ask for each tool individually
-  if (answer === '4') {
+  if (answer === '5') {
     const selected: string[] = []
     for (const tool of SELECTABLE_TOOLS) {
       const yn = await ask(`   Include ${tool.label}? [y/N]: `)
@@ -157,6 +187,7 @@ export async function runAgenticSetup(
   const config: AgenticConfig = {
     projectName: basename(targetDir),
     targetDir,
+    experimentalHooksValidator: resolveExperimentalHooksValidator(options?.experimentalHooksValidator),
   }
 
   // Order matters — codex patches AGENTS.md created by shared
@@ -164,11 +195,14 @@ export async function runAgenticSetup(
   if (selectedIds.includes('claude-code')) generateClaudeCode(config)
   if (selectedIds.includes('codex')) generateCodex(config)
   if (selectedIds.includes('cursor')) generateCursor(config)
+  if (selectedIds.includes('github-copilot')) generateGithubCopilot(config)
+
+  enforceGeneratedRootBudget(config)
 
   persistAgentSelection(targetDir, selectedIds)
   finalizeHarnessManifest(config, selectedIds)
   installSkills(targetDir)
-  printSummary(selectedIds)
+  printSummary(selectedIds, Boolean(config.experimentalHooksValidator))
   return true
 }
 
@@ -180,7 +214,7 @@ export async function runAgenticSetup(
 function persistAgentSelection(targetDir: string, selectedIds: string[]): void {
   const manifestPath = join(targetDir, '.ai', 'skills', 'tiers.json')
   if (!existsSync(manifestPath)) return
-  const ignore = AGENT_TOOL_IDS.filter((id) => !selectedIds.includes(id))
+  const ignore = SKILL_MANAGED_AGENT_IDS.filter((id) => !selectedIds.includes(id))
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as Record<string, unknown>
   if (ignore.length > 0) {
     manifest.agents = { ignore }
@@ -195,13 +229,17 @@ function installSkills(targetDir: string): void {
   if (!existsSync(installScript)) return
   console.log('')
   console.log('   Installing agent skills (local tiers + external open-mercato/skills subset)...')
-  const result = spawnSync(process.execPath, [installScript], { cwd: targetDir, stdio: 'inherit' })
+  const result = spawnSync(process.execPath, [installScript], {
+    cwd: targetDir,
+    stdio: 'inherit',
+    env: { ...process.env, OM_SKILLS_OUTPUT_INDENT: '3' },
+  })
   if (result.error || result.status !== 0) {
     console.log('   ⚠ Skill installation did not complete; run `yarn install-skills` inside the app when online.')
   }
 }
 
-function printSummary(selectedIds: string[]): void {
+function printSummary(selectedIds: string[], experimentalHooksValidator: boolean): void {
   console.log('')
   console.log('   Agentic setup complete:')
 
@@ -213,6 +251,13 @@ function printSummary(selectedIds: string[]): void {
   }
   if (selectedIds.includes('cursor')) {
     console.log('   ✓ Cursor — .cursor/rules/, .cursor/hooks/, .cursor/mcp.json.example')
+  }
+  if (selectedIds.includes('github-copilot')) {
+    console.log('   ✓ GitHub Copilot — .github/copilot-instructions.md, .github/instructions/, .vscode/mcp.json.example')
+  }
+
+  if (experimentalHooksValidator) {
+    console.log('   ✓ Experimental gate-evidence/typecheck validator hooks')
   }
 
   if (selectedIds.includes('claude-code')) {
