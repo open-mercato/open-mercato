@@ -1,0 +1,216 @@
+.om-catalogue {
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: 2rem;
+  color: var(--foreground);
+  background: var(--background);
+}
+
+.om-catalogue-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2rem;
+  padding: 2rem 0 0;
+}
+
+.om-catalogue-title {
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  font-size: 2.5rem;
+  line-height: 3rem;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.om-catalogue-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 2rem 0 2rem 2rem;
+}
+
+.om-catalogue-brand > div {
+  width: 5rem;
+  height: 8rem;
+}
+
+.om-catalogue-brand-lime {
+  background: var(--brand-lime);
+  border-radius: 1rem;
+  transform: rotate(-12deg) translateY(1rem);
+}
+
+.om-catalogue-brand-yellow {
+  background: var(--brand-yellow);
+  border-radius: 9999px;
+  transform: rotate(12deg) translateY(-1rem);
+}
+
+.om-catalogue-brand-violet {
+  background: var(--brand-violet);
+  border-radius: 1rem;
+  transform: rotate(12deg) translateY(1rem);
+}
+
+.om-catalogue-metrics {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2rem 3rem;
+  margin-top: 1rem;
+  padding: 1.5rem 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.om-catalogue-metrics > div {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 0.5rem;
+}
+
+.om-catalogue-metrics dt {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+.om-catalogue-metrics dd {
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.om-catalogue-library {
+  padding-top: 3rem;
+}
+
+.om-catalogue-library-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.om-catalogue-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.om-catalogue-search {
+  width: 24rem;
+  max-width: 100%;
+}
+
+.om-catalogue-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.5rem;
+}
+
+.om-catalogue-card {
+  min-width: 0;
+  border-color: var(--border);
+  transition: border-color 150ms;
+}
+
+.om-catalogue-card:has(.om-catalogue-entry-link:hover),
+.om-catalogue-card:focus-within {
+  border-color: var(--ring);
+}
+
+.om-catalogue-preview {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 12rem;
+  overflow: hidden;
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--muted);
+  isolation: isolate;
+}
+
+.om-catalogue-specimen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.om-catalogue-specimen-wide {
+  position: absolute;
+  top: 1.5rem;
+  width: 32rem;
+  flex-shrink: 0;
+  transform: scale(0.5);
+  transform-origin: center top;
+  pointer-events: none;
+}
+
+.om-catalogue-entry-link,
+.om-catalogue-text-link {
+  color: var(--foreground);
+  text-decoration: none;
+}
+
+.om-catalogue-text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+}
+
+.om-catalogue-text-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.25rem;
+}
+
+.om-catalogue-entry-link:focus-visible,
+.om-catalogue-text-link:focus-visible {
+  outline: none;
+  border-radius: 0.25rem;
+  box-shadow: var(--shadow-focus);
+}
+
+.om-catalogue-footer {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 3rem;
+  padding: 1.5rem 0 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.om-catalogue-footer > p {
+  min-width: 12rem;
+}
+
+@media (max-width: 1024px) {
+  .om-catalogue-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .om-catalogue-brand > div { width: 3rem; height: 6rem; }
+}
+
+@media (max-width: 640px) {
+  .om-catalogue { padding: 1.5rem; }
+  .om-catalogue-hero { grid-template-columns: minmax(0, 1fr); padding-top: 1rem; gap: 1.5rem; }
+  .om-catalogue-title { font-size: 2rem; line-height: 2.5rem; }
+  .om-catalogue-brand { display: none; }
+  .om-catalogue-metrics { gap: 1.5rem; margin-top: 0; }
+  .om-catalogue-grid { grid-template-columns: minmax(0, 1fr); }
+  .om-catalogue-library { padding-top: 2rem; }
+  .om-catalogue-footer > p { min-width: 0; flex-basis: calc(100% - 2.5rem); }
+}

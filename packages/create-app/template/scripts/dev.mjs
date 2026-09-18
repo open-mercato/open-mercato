@@ -2371,6 +2371,18 @@ async function fetchOpencodeMcpStatus() {
 let opencodeKeyRefreshNeeded = false
 let opencodeRestartAttempted = false
 
+// The monorepo keeps its compose files under starters/docker/; a standalone app
+// scaffolded by create-app keeps them at its own root and gates the OpenCode
+// service behind the `agents` profile. Print the command that actually exists
+// for the layout we are running in.
+function opencodeRestartCommand() {
+  const infraCompose = path.join(process.cwd(), 'starters', 'docker', 'compose.infra.yml')
+  if (fs.existsSync(infraCompose)) {
+    return 'docker compose --project-directory . -f starters/docker/compose.infra.yml restart opencode'
+  }
+  return 'docker compose --profile agents restart opencode'
+}
+
 function restartOpencodeContainer(reason) {
   if (opencodeRestartAttempted || shuttingDown) return false
   opencodeRestartAttempted = true
@@ -2382,7 +2394,7 @@ function restartOpencodeContainer(reason) {
   const restart = spawnSync('docker', ['restart', 'mercato-opencode'], { encoding: 'utf8', timeout: 120_000 })
   if (restart.error || restart.status !== 0) {
     console.warn('⚠️ Could not restart the OpenCode container automatically.')
-    console.warn('   ↳ restart it manually: docker compose --project-directory . -f starters/docker/compose.infra.yml restart opencode')
+    console.warn(`   ↳ restart it manually: ${opencodeRestartCommand()}`)
     return false
   }
   return true
@@ -2393,7 +2405,7 @@ async function checkOpencodeMcpWiring() {
   if (status === null || status === 'connected') return
   if (!restartOpencodeContainer('OpenCode is not connected to the MCP server')) {
     console.warn('⚠️ OpenCode is running but not connected to the MCP server (it may hold a stale key).')
-    console.warn('   ↳ restart it with: docker compose --project-directory . -f starters/docker/compose.infra.yml restart opencode')
+    console.warn(`   ↳ restart it with: ${opencodeRestartCommand()}`)
     return
   }
   await sleepUnlessShuttingDown(30_000)

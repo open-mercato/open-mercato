@@ -178,6 +178,10 @@ const SYNC_DEPENDENCY_KEYS = [
 ] as const
 const SYNC_INTERNAL_PACKAGE_KEYS = [
   '@open-mercato/checkout',
+  // The template enables `agent_orchestrator` behind OM_ENABLE_ENTERPRISE_MODULES_AGENTS,
+  // so the dependency must track the monorepo version or a scaffolded app fails
+  // module resolution the moment the flag is flipped.
+  '@open-mercato/enterprise',
   '@open-mercato/gateway-stripe',
   '@open-mercato/sync-akeneo',
 ] as const
