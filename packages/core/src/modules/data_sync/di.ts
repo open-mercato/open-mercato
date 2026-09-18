@@ -20,6 +20,7 @@ type Cradle = {
   schedulerService?: {
     register: (registration: Record<string, unknown>) => Promise<void>
     unregister: (scheduleId: string) => Promise<void>
+    exists?: (scheduleId: string) => Promise<boolean>
   }
 }
 
