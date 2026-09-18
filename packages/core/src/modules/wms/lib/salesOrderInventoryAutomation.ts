@@ -3,17 +3,21 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { FeatureTogglesService } from '@open-mercato/core/modules/feature_toggles/lib/feature-flag-check'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { E } from '#generated/entities.ids.generated'
 import { InventoryBalance, InventoryReservation } from '../data/entities'
 import { emitWmsEvent } from '../events'
 import { loadExplicitWarehouseIdForOrder } from './salesOrderWarehouseAssignment'
+import { isBalanceLocationReservable } from './inventoryPolicy'
 import {
   resolvePrimaryWarehouseId,
   sortWarehouseAvailabilityForReservation,
   type WarehouseAvailability,
 } from './primaryWarehousePolicy'
 import { resolveWmsIntegrationToggleEnabled } from './wmsIntegrationToggles'
+
+const logger = createLogger('wms')
 
 type EventContext = {
   resolve: <T = unknown>(name: string) => T
@@ -48,8 +52,28 @@ function isBalanceIntegrityViolationError(error: unknown): boolean {
 type SalesOrderRow = {
   id?: string
   order_number?: string | null
+  status?: string | null
+  fulfillment_status?: string | null
   tenant_id?: string | null
   organization_id?: string | null
+}
+
+/** Only confirmed (non-fulfilled / non-cancelled) orders may receive re-reservations. */
+export function isReservableOrderStatus(
+  status?: string | null,
+  fulfillmentStatus?: string | null,
+): boolean {
+  const normalized = (status ?? '').trim().toLowerCase()
+  if (normalized !== 'confirmed') return false
+  const fulfillment = (fulfillmentStatus ?? '').trim().toLowerCase()
+  if (
+    fulfillment === 'fulfilled' ||
+    fulfillment === 'cancelled' ||
+    fulfillment === 'canceled'
+  ) {
+    return false
+  }
+  return true
 }
 
 type SalesOrderLineRow = {
@@ -176,7 +200,7 @@ async function loadBalances(
       organizationId: scope.organizationId,
       deletedAt: null,
     },
-    undefined,
+    { populate: ['location'] },
     scope,
   )
 }
@@ -211,6 +235,10 @@ function buildWarehouseAvailability(
 ): Map<string, WarehouseAvailability[]> {
   const byVariant = new Map<string, Map<string, number>>()
   for (const balance of balances) {
+    // Staging/dock are inbound holding locations — availability for sales
+    // reservation must ignore them so ASN receive re-eval does not claim
+    // stock that putaway still needs to move into storage.
+    if (!isBalanceLocationReservable(balance)) continue
     const warehouseId = getWarehouseId(balance)
     if (!warehouseId) continue
     const available =
@@ -339,6 +367,128 @@ export async function reserveInventoryForConfirmedOrder(
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
     })
+  }
+}
+
+type StockIncreasePayload = {
+  catalogVariantId?: string | null
+  tenantId?: string | null
+  organizationId?: string | null
+}
+
+/**
+ * Re-runs reservation automation for sales orders that include the received
+ * catalog variant. Idempotent: reserveInventoryForConfirmedOrder only fills
+ * remaining shortfall. No-ops when the sales integration toggle is off or
+ * sales query peers are unavailable.
+ *
+ * Candidate discovery starts from currently reservable (confirmed,
+ * non-terminal fulfillment) sales orders — not lifetime `sales_order_line`
+ * history for the variant — then keeps only orders that still reference the
+ * received catalog variant. That bounds work to the open order set.
+ */
+const REEVAL_ORDER_PAGE_SIZE = 500
+
+export async function reevaluateReservationsAfterStockIncrease(
+  payload: StockIncreasePayload,
+  ctx: EventContext,
+): Promise<void> {
+  if (!payload.catalogVariantId || !payload.tenantId || !payload.organizationId) return
+  if (!(await isInventoryAutomationEnabled(ctx, payload.tenantId))) return
+
+  const scope: Scope = {
+    tenantId: payload.tenantId,
+    organizationId: payload.organizationId,
+  }
+
+  let queryEngine: QueryEngine
+  try {
+    queryEngine = ctx.resolve<QueryEngine>('queryEngine')
+  } catch {
+    // Sales module / query engine absent or unavailable — degrade gracefully.
+    return
+  }
+
+  // Page reservable orders, then intersect with lines for this variant.
+  // Process each page immediately (bounded memory); reserveInventoryForConfirmedOrder is idempotent.
+  let page = 1
+
+  for (;;) {
+    let orderItems: SalesOrderRow[]
+    try {
+      const result = await queryEngine.query<SalesOrderRow>(E.sales.sales_order, {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        filters: { status: { $eq: 'confirmed' } },
+        fields: ['id', 'status', 'fulfillment_status'],
+        page: { page, pageSize: REEVAL_ORDER_PAGE_SIZE },
+      })
+      orderItems = result.items
+    } catch {
+      return
+    }
+
+    if (orderItems.length === 0) break
+
+    const reservableOrderIds = orderItems
+      .filter((order) => isReservableOrderStatus(order.status, order.fulfillment_status))
+      .map((order) => order.id)
+      .filter((value): value is string => typeof value === 'string' && value.length > 0)
+
+    if (reservableOrderIds.length > 0) {
+      const matchingOrderIds = new Set<string>()
+      let linePage = 1
+      try {
+        for (;;) {
+          const lines = await queryEngine.query<SalesOrderLineRow & { order_id?: string | null }>(
+            E.sales.sales_order_line,
+            {
+              tenantId: scope.tenantId,
+              organizationId: scope.organizationId,
+              filters: {
+                product_variant_id: { $eq: payload.catalogVariantId },
+                order_id: { $in: reservableOrderIds },
+              },
+              fields: ['id', 'order_id', 'product_variant_id'],
+              page: { page: linePage, pageSize: REEVAL_ORDER_PAGE_SIZE },
+            },
+          )
+          for (const line of lines.items) {
+            if (typeof line.order_id === 'string' && line.order_id.length > 0) {
+              matchingOrderIds.add(line.order_id)
+            }
+          }
+          if (lines.items.length < REEVAL_ORDER_PAGE_SIZE) break
+          linePage += 1
+        }
+      } catch (error) {
+        // Transient peer failure on one page must not abort later order pages.
+        logger.warn('Reservation re-eval line lookup failed; continuing next page', {
+          catalogVariantId: payload.catalogVariantId,
+          page,
+          orderCount: reservableOrderIds.length,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+
+      for (const orderId of matchingOrderIds) {
+        try {
+          await reserveInventoryForConfirmedOrder(
+            {
+              orderId,
+              tenantId: scope.tenantId,
+              organizationId: scope.organizationId,
+            },
+            ctx,
+          )
+        } catch {
+          // Keep processing remaining orders; a single peer failure must not abort the batch.
+        }
+      }
+    }
+
+    if (orderItems.length < REEVAL_ORDER_PAGE_SIZE) break
+    page += 1
   }
 }
 
