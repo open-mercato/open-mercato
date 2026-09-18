@@ -9,7 +9,7 @@ import { Alert } from '../alert'
 import { Badge } from '../badge'
 import { Calendar } from '../calendar'
 import { ColorPicker } from '../color-picker'
-import { CommandMenu, CommandMenuContent, CommandMenuInput } from '../command-menu'
+import { CommandMenu, CommandMenuContent, CommandMenuGroup, CommandMenuInput } from '../command-menu'
 import { Checkbox } from '../checkbox'
 import { CounterInput } from '../counter-input'
 import { DatePicker } from '../date-picker'
@@ -28,12 +28,23 @@ import { Sheet, SheetContent } from '../sheet'
 import { StepIndicator } from '../step-indicator'
 import { Tabs, TabsList, TabsTrigger } from '../tabs'
 import { Tag } from '../tag'
-import { TimePicker } from '../time-picker'
+import { HorizontalScrollRow, TimePicker, TimePickerStatusChip } from '../time-picker'
 
 // Tailwind v4 dropped the preflight rule that gave `button` and `[role="button"]`
 // a pointer cursor, so every clickable primitive has to carry `cursor-pointer`
 // itself. Nothing breaks without it — the control just stops looking pressable —
 // which is exactly why it needs a test.
+//
+// Deliberately outside the invariant:
+//   - `Label` renders a `<label>` and `Slider` a drag handle; the preflight rule
+//     never covered either.
+//   - `NotificationFeedItem` has a test asserting it must NOT look clickable.
+//   - `SelectScrollUpButton` / `SelectScrollDownButton` keep `cursor-default`:
+//     Radix renders them as `aria-hidden` divs that auto-scroll on pointer move,
+//     not as buttons, so v4 changed nothing for them.
+//   - `DialogClose` / `DrawerClose` / `CommandMenuTrigger` and friends are
+//     unstyled Radix pass-throughs meant for `asChild`; the affordance belongs to
+//     whatever they wrap (a `Button` at every call site in this repo).
 const render: typeof rtlRender = (ui: React.ReactElement, options?: Parameters<typeof rtlRender>[1]) =>
   rtlRender(<I18nProvider locale="en" dict={{}}>{ui}</I18nProvider>, options)
 
@@ -252,5 +263,103 @@ describe('clickable primitives advertise a pointer cursor', () => {
   it('TimePicker close button', () => {
     render(<TimePicker value={null} onChange={() => {}} onClose={() => {}} />)
     expectPointer(document.querySelector('[data-slot="time-picker-close"]'))
+  })
+  it('TimePicker selected status chip stays pressable', () => {
+    render(
+      <>
+        <TimePickerStatusChip variant="available" selected onSelect={() => {}} />
+        <TimePickerStatusChip variant="busy" disabled onSelect={() => {}} />
+      </>,
+    )
+    const chips = document.querySelectorAll('[data-slot="time-picker-status-chip"]')
+    expect(chips).toHaveLength(2)
+    expectPointer(chips[0])
+    expect(chips[1].className).not.toContain('cursor-pointer')
+  })
+
+  it('TimePicker horizontal scroll arrows', () => {
+    // jsdom reports every box as 0×0, so the row never believes it overflows.
+    // Stub the three metrics its scroll-state effect reads.
+    const metrics: Array<[string, number]> = [
+      ['scrollLeft', 40],
+      ['clientWidth', 100],
+      ['scrollWidth', 500],
+    ]
+    const originals = metrics.map(([name]) => [
+      name,
+      Object.getOwnPropertyDescriptor(HTMLElement.prototype, name),
+    ] as const)
+    for (const [name, value] of metrics) {
+      Object.defineProperty(HTMLElement.prototype, name, { configurable: true, value })
+    }
+    try {
+      render(
+        <HorizontalScrollRow ariaLabel="Slots">
+          <span>09:00</span>
+        </HorizontalScrollRow>,
+      )
+      expectPointer(document.querySelector('[data-slot="time-picker-scroll-left"]'))
+      expectPointer(document.querySelector('[data-slot="time-picker-scroll-right"]'))
+    } finally {
+      for (const [name, descriptor] of originals) {
+        if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor)
+        else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name]
+      }
+    }
+  })
+
+  it('Calendar month-grid controls', async () => {
+    render(<Calendar mode="single" month={new Date(2026, 4, 1)} />)
+    await act(async () => {
+      fireEvent.click(document.querySelector('[aria-label$="open month and year navigation"]')!)
+    })
+    const grid = document.querySelector('[role="dialog"][aria-label="Select month and year"]')!
+    expectPointer(grid.querySelector('[aria-label^="Go to previous year"]'))
+    expectPointer(grid.querySelector('[aria-label$="back to day selection"]'))
+    expectPointer(grid.querySelector('[aria-pressed]'))
+  })
+
+  it('ColorPicker edit, remove and add controls', async () => {
+    render(
+      <ColorPicker
+        value="#112233"
+        onChange={() => {}}
+        onRemoveColor={() => {}}
+        onEditSavedColors={() => {}}
+        onAddSwatch={() => {}}
+      />,
+    )
+    await act(async () => {
+      fireEvent.click(document.querySelector('[data-slot="color-picker-trigger"]')!)
+    })
+    expectPointer(document.querySelector('[data-slot="color-picker-edit"]'))
+    expectPointer(document.querySelector('[data-slot="color-picker-remove"]'))
+    expectPointer(document.querySelector('[data-slot="color-picker-add"]'))
+  })
+
+  it('ColorPicker eyedropper', async () => {
+    // The eyedropper renders only when the browser exposes the API and the
+    // remove button has not taken its place.
+    ;(window as unknown as Record<string, unknown>).EyeDropper = class {}
+    try {
+      render(<ColorPicker value="#112233" onChange={() => {}} />)
+      await act(async () => {
+        fireEvent.click(document.querySelector('[data-slot="color-picker-trigger"]')!)
+      })
+      expectPointer(document.querySelector('[data-slot="color-picker-eyedropper"]'))
+    } finally {
+      delete (window as unknown as Record<string, unknown>).EyeDropper
+    }
+  })
+
+  it('CommandMenu group action', () => {
+    render(
+      <CommandMenu open>
+        <CommandMenuContent>
+          <CommandMenuGroup heading="Recent" actionLabel="See all" onAction={() => {}} />
+        </CommandMenuContent>
+      </CommandMenu>,
+    )
+    expectPointer(document.querySelector('[data-slot="command-menu-group-action"] button'))
   })
 })
