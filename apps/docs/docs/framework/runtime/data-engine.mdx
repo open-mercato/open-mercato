@@ -12,6 +12,18 @@ API
   - Persists custom field values (using definitions where available).
   - Emits `<module>.<entity>.updated` with `{ id, organizationId, tenantId }` when `notify !== false` (default true).
 
+## Scope reconciliation on write
+
+A custom field value's logical key is `(entity_id, record_id, field_key)` — the organization and tenant columns record which scope the value was written under, they are not part of the identity. The Query Engine follows that rule: its value join matches the three key columns, tolerates a `NULL` tenant, and does not filter `organization_id` at all. (The query-index reader in `query_index/lib/indexer.ts` does scope `organization_id`, but only ever for a record it is already indexing under that organization, so it never returns another organization's row.)
+
+`recordId` must therefore be unique across organizations and tenants for a given `entity_id`. Every caller passes the record's own primary key, which satisfies this. A caller that passed a per-organization natural key — a code, a slug, a settings name — would have one organization's write delete another organization's live values.
+
+Each `setCustomFields` write is authoritative over every row a reader in the caller's own tenant scope could return for that record: same logical key, **any** organization, and either the caller's tenant or the instance-global `NULL` tenant. When a record's organization has changed since the field was last written, the write removes the row left behind by the previous organization instead of adding a second live row next to it; the same pass collapses duplicates from two writes that raced. Reconciliation happens per field key, only for keys present in `values`, so a field a record never writes again keeps whatever rows it already has.
+
+**Another tenant's own rows are never touched.** A cross-tenant `DELETE` would be a worse failure than the duplicate it prevents, so a record moved between tenants can still leave an unreachable row behind under its old tenant; that row answers no query, and cleaning it up is an out-of-band audit concern. Rows with a `NULL` tenant are a deliberate exception: they are instance-global and answer *every* tenant's reads, so leaving one behind would reproduce exactly the ambiguity this reconciles — a tenant-scoped write removes them.
+
+The table intentionally carries **no** unique constraint on that key: a multi-value custom field stores one row per selected value, all sharing `(entity_id, record_id, field_key, organization_id, tenant_id)` and differing only in the value column. The `cf_values_entity_record_key_idx` index backs the reconciliation lookup and the reader join, but the "one live row per single-value field" invariant is enforced by the write path in `packages/core/src/modules/entities/lib/helpers.ts`. Any code that writes `custom_field_values` directly rather than through `setCustomFields` bypasses that guarantee.
+
 DI registration
 - Resolved via `dataEngine` from the request container:
   - `packages/shared/src/lib/di/container.ts`
