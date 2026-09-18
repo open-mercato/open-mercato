@@ -5,6 +5,13 @@
 > review purposes even though its `financial_pl`-side half belongs in the
 > separate `official-modules` repo, mirroring `2026-09-11-jpk-kr-pd-financial-pl.md`
 > (SPEC-010)'s own note.
+>
+> **Update (2026-09-18):** SPEC-010 has since completed exactly the move
+> described above — it no longer lives in this repo at all; it's now
+> `.ai/specs/SPEC-010-2026-09-11-jpk-kr-pd-financial-pl.md` in
+> `official-modules#54`. This document's own `financial_pl` half hasn't made
+> that move yet — the staging reasoning above still applies to it until it
+> does.
 
 ## TLDR
 
@@ -558,3 +565,16 @@ Ed.).**
   the same way GL core engine's simpler `reportType` question was
   (replaced with a tenant-configured, per-Wn/Ma-side settings entity,
   once the debit/credit-dependent classification requirement surfaced).
+
+### 2026-09-18 (cont. — SPEC-010 moved to official-modules, banner note updated)
+
+- **Update, not a scope or design change.** `2026-09-11-jpk-kr-pd-financial-pl.md`
+  (SPEC-010), which this document's own "Temporary location" banner
+  points to as precedent, has moved: it now lives at
+  `.ai/specs/SPEC-010-2026-09-11-jpk-kr-pd-financial-pl.md` in
+  `official-modules#54`, following a maintainer-review round and a
+  code-verified compliance pass against that repo's own AGENTS.md/
+  spec-writing rules. Added a dated note to this document's banner
+  pointing at the new location. This document's own `financial_pl`
+  half has not made the equivalent move yet and its temporary-location
+  reasoning is unchanged.
