@@ -20,6 +20,30 @@
 > (S_12_1, a per-account financial-statement-category marker) was
 > found. New open item: Q4.
 >
+> **2026-09-18 update — independent maintainer review (@pkarw, PR
+> `#6069`) verified and applied.** The review's own Validation Gate
+> cited head `6c56ccf28a` (2026-09-11), but the branch already carried
+> two more commits pushed 2026-09-12 -- four days before the review was
+> posted (2026-09-16) -- covering exactly the ground the review's Major
+> #2 asked for (the primary-source XSD pass above). Every finding was
+> re-checked against the current file content rather than accepted at
+> face value (per this project's citation-check discipline). Result:
+> both Blockers confirmed and fixed (tenant/organization scope
+> validation on `jpk-kr.generate`; an encryption contract for
+> `generatedXml`/`upoXml`/RPD inputs); Major #4 (whole-ledger scale)
+> and Major #5 (missing test plan) confirmed and fixed; Major #2's
+> XSD/scope sub-claim was already resolved by the 2026-09-12 commits
+> above, but its deadline sub-claim was real and unaddressed -- the
+> Ministry regulation effective 2026-02-20 extended JPK_KR_PD's
+> deadline to the end of the 7th month after fiscal year end, so the
+> "window already closed (March 2026)" framing below was itself wrong,
+> not just stale (see Problem Statement); Major #1 (placement) was
+> already flagged by this document's own banner, no text change
+> needed; Major #3 (filing status machine vs. `JpkVatFiling`'s real
+> persisted contract) could not be checked from this environment
+> (`official-modules` is unreachable, see Code analysis) and is left
+> open as Q5, not guessed at.
+>
 > **⚠ Temporary location.** This spec describes a `financial_pl` feature
 > (implemented in the separate `official-modules` repo), and by this
 > project's own convention it should eventually live there as `SPEC-010`,
@@ -65,8 +89,18 @@ dotycząca struktury JPK_KR_PD*, podatki.gov.pl, 26.08.2024, and
 `gov.pl/web/kas/elektroniczne-ksiegi-rachunkowe-w-podatku-pit-w-2026-r`):
 
 - **CIT** — large/multinational groups (>€50M prior-year revenue): fiscal
-  years ending after 31 Dec 2024, filed by end of March 2026 (**this
-  window has already closed as of this writing — see Risks**).
+  years ending after 31 Dec 2024. **Corrected 2026-09-18** (per
+  @pkarw's PR `#6069` review, verified against Deloitte Polska and
+  Sovos primary reporting, not taken at face value): the "end of
+  March 2026, already closed" deadline below was itself wrong, not
+  just stale — a regulation effective 2026-02-20 extended JPK_KR_PD's
+  deadline from the CIT-return filing date to **the end of the 7th
+  month following the end of the tax year**, which for this cohort
+  (fiscal years ending before 31 Dec 2025) lands at **end of July
+  2026** — a window that, depending on this document's publication
+  date relative to today, may still be open. Treat "already closed"
+  claims about any JPK_KR_PD cohort as needing a fresh check against
+  the current regulation, not this document's original dates.
   Entities already obligated to JPK_VAT: fiscal years starting after
   31 Dec 2025. Everyone else: fiscal years starting after 31 Dec 2026.
 - **PIT** (full accounting books): JPK_VAT-obligated taxpayers — fiscal
@@ -99,6 +133,21 @@ separately, see Architecture): a bulk, in-process read surface.
   encryption with an RSA-wrapped key against the MF public certificate,
   XAdES signing via `lib/xades.ts`, in-memory ZIP packaging, chunked PUT
   upload, status polling) — none of it is JPK_V7-specific.
+  **Flagged 2026-09-18, per @pkarw's PR `#6069` review Major #4,
+  confirmed real and not addressed anywhere in this document (grepped
+  for "scale"/"memory"/"streaming": zero other hits): "none of it is
+  JPK_V7-specific" is true of the *protocol*, but JPK_V7 assembles one
+  monthly VAT register in memory, and JPK_KR_PD assembles a full
+  annual general ledger — `Dziennik`/`KontoZapis` alone could be
+  orders of magnitude larger. `iterateJournalEntries`/
+  `iterateJournalEntryLines` are already `AsyncIterable` (streaming
+  reads, per `#6038`), but `build-jpk-kr-xml.ts`'s output and
+  `jpk-submission-client.ts`'s in-memory ZIP packaging are not
+  designed here to consume that stream without buffering the whole
+  document — this is a real, unresolved gap, not designed away in
+  this pass (see Open Questions, Q6), since a proper fix (streaming
+  XML serialization + streaming/chunked ZIP write) is real design
+  work this document should not improvise inline.**
 - XSD vendoring: `lib/jpk/schema/` ships the real MF schemas today
   (`JPK_V7M-3.xsd`, `JPK_V7K-3.xsd` + shared dictionaries); JPK_KR_PD
   vendors its own official XSD the same way.
@@ -253,6 +302,48 @@ project's `requires` mechanism (hard, declared dependency) is the correct
 tool here, not FK-id references or `tryResolve`, which this project
 reserves for genuinely optional peers (see the financial-module
 dependency-graph analysis this session produced).
+
+**`jpk-kr.generate`/`jpk-kr.submit` must validate the caller-supplied
+`tenantId`/`organizationId`, not merely accept them — added
+2026-09-18, per @pkarw's PR `#6069` review Blocker #1, confirmed real
+against this repo's own command layer (not `official-modules`, which
+is unreachable from this environment — but the pattern is real and
+load-bearing here regardless of which repo the command ends up in).**
+`packages/shared/src/lib/commands/scope.ts` exports
+`ensureTenantScope(ctx, tenantId)` / `ensureOrganizationScope(ctx,
+organizationId)`, already used this way in, among others,
+`packages/core/src/modules/customers/commands/{pipelines,comments}.ts`:
+the command schema still takes `tenantId`/`organizationId` in its
+payload (removing them isn't the fix — many command contexts, e.g.
+worker/system callers, have no other way to state scope), but the
+handler must call both scope guards against `ctx.auth`/
+`ctx.organizationScope` before using the caller-supplied values, and
+both throw `403 Forbidden` on mismatch. `commands/jpk-kr.ts` must do
+the same before resolving or creating a `JpkKrFiling` — this closes
+the gap the Edge Cases section below previously accepted as
+unmitigated caller responsibility.
+
+**`generatedXml`, `upoXml`, and the `JpkKrDeclarationInputs` RPD
+amount columns need an explicit encryption-at-rest contract — added
+2026-09-18, per @pkarw's PR `#6069` review Blocker #2.** This
+document cannot verify `JpkVatFiling`'s own encryption contract in
+`official-modules` (unreachable from this environment, see Code
+analysis below), so it does not assume the review's specific
+`defaultEncryptionMaps` citation without independent confirmation —
+but the underlying requirement is real and independently grounded in
+this repo's own precedent: `packages/core/src/modules/api_keys/data/
+entities.ts` stores `sessionSecretEncrypted` as a dedicated encrypted
+column, and `channel_discord`'s `IntegrationCredentials.credentials`
+blob is "encrypted at rest, scope `channel_discord`" via
+`@open-mercato/shared/lib/encryption/{find,entityFields}`. A full
+annual general ledger export and its UPO receipt are at least as
+sensitive as either precedent (the export *is* the taxpayer's
+complete books). `JpkKrFiling.generatedXml`/`.upoXml` and
+`JpkKrDeclarationInputs`'s amount columns should register through the
+same entity-fields encryption registry rather than being stored as
+plain `text`/`numeric` columns; the exact registration call is an
+implementation detail once `#6038` and this spec are both buildable,
+not designed further here.
 
 ### Code analysis (verified 2026-09-11, direct inspection of the real `open-mercato` checkout)
 
@@ -443,9 +534,9 @@ New entity, `JpkKrFiling`, mirroring `JpkVatFiling`'s shape:
 | `fiscalYear` | int | the reported year, not a period id — annual filing |
 | `celZlozenia` | enum | initial / korekta (correction), matching JPK_V7's own field name |
 | `status` | enum | `draft → generating → submitting → submitted → polling → accepted \| rejected` |
-| `generatedXml` | text/blob | |
+| `generatedXml` | text/blob, **encrypted at rest** (added 2026-09-18, see Architecture → Design decisions) | |
 | `submissionReference` | string | |
-| `upoXml` | text/blob | UPO (urzędowe poświadczenie odbioru) |
+| `upoXml` | text/blob, **encrypted at rest** (added 2026-09-18) | UPO (urzędowe poświadczenie odbioru) |
 | `submissionError` | text, nullable | |
 
 `JpkKrDeclarationInputs` (operator-entered `RPD` fields — corrected
@@ -521,7 +612,7 @@ separately.
 No new HTTP routes proposed. All generation/submission happens through
 commands (mirroring JPK_V7):
 
-- `jpk-kr.generate` — `{ tenantId, organizationId, fiscalYear, celZlozenia }` → resolves a `JpkKrFiling`, calls the builder chain, sets `status: generating → draft` (XML produced, not yet submitted).
+- `jpk-kr.generate` — `{ tenantId, organizationId, fiscalYear, celZlozenia }` → **validates `tenantId`/`organizationId` via `ensureTenantScope`/`ensureOrganizationScope` before anything else (added 2026-09-18, see Architecture → Design decisions)** → resolves a `JpkKrFiling`, calls the builder chain, sets `status: generating → draft` (XML produced, not yet submitted).
 - `jpk-kr.submit` — `{ filingId }` → `submitJpk` (reused unchanged) → `status: submitting → polling`.
 - `jpk-kr.poll-status` — background, reused unchanged from the JPK_V7 worker pattern.
 
@@ -549,8 +640,14 @@ backend exists. Left for a follow-up once Phase 1 (backend) is agreed.
   is built and a real correction scenario is in front of us.
 - **Wrong `tenantId`/`organizationId` passed to the bulk-read calls.**
   Inherited risk from `#6038` (explicit caller responsibility, no
-  framework guardrail) — this module's worker must get scoping right;
-  no additional mitigation proposed here beyond code review.
+  framework guardrail) at the `LedgerBulkReadService` layer itself —
+  that part is unchanged. **Corrected 2026-09-18:** the outer
+  `jpk-kr.generate`/`.submit` commands are not similarly unmitigated —
+  see Architecture → Design decisions for the `ensureTenantScope`/
+  `ensureOrganizationScope` guard now required there. The residual
+  risk is narrower than originally stated: a caller that passes
+  scope-check but a wrong *fiscal year/period* combination, not an
+  outright wrong tenant/org.
 
 ## 📝 Risks & Impact Review
 
@@ -625,6 +722,48 @@ backend exists. Left for a follow-up once Phase 1 (backend) is agreed.
 9. Update `2026-09-08-financial-module-knowledge-base.md`'s dependency
    graph to show `financial_pl → ledger`.
 
+## 📋 Testing Strategy
+
+**Added 2026-09-18, per @pkarw's PR `#6069` review Major #5 (missing
+integration test plan) — confirmed real: this document previously had
+no dedicated Testing Strategy section at all**, unlike sibling specs
+in this family (e.g. `2026-08-18-general-ledger-core-engine.md`).
+
+- **Unit.** `build-zois.ts` / `build-dziennik.ts` /
+  `build-konto-zapis.ts`, each independently testable against fixture
+  `LedgerBulkReadService` DTOs (already named in Implementation Plan
+  step 5) — including the two confirmed no-source gaps (`D_2`, `D_9`,
+  `Z_1`, `Z_2` from the Dziennik/KontoZapis field mapping above) so
+  the builder's handling of missing fields (synthesize `Z_1`, leave
+  `D_2`/`D_9`/`Z_2` as documented placeholders) is asserted, not left
+  implicit.
+- **Scope-violation test (new 2026-09-18).** `jpk-kr.generate`/
+  `.submit` reject a payload whose `tenantId`/`organizationId` does
+  not match the calling context's own scope with `403 Forbidden`,
+  mirroring the existing scope-guard tests for
+  `customers/commands/{pipelines,comments}.ts` — see Architecture →
+  Design decisions.
+- **Encryption round-trip test (new 2026-09-18).** A generated
+  `JpkKrFiling.generatedXml`/`.upoXml` round-trips through
+  encrypt/decrypt unchanged, and is not readable as plaintext from a
+  raw row read (e.g. a direct `em.getConnection().execute` query
+  bypassing the decryption helper) — see Architecture → Design
+  decisions.
+- **Integration.** End-to-end `generate → submit → poll` against a
+  golden fixture GL dataset seeded through `LedgerBulkReadService`'s
+  own fixtures once `#6038` ships; a correction-filing
+  (`celZlozenia: korekta`) smoke test once that flow is designed (see
+  Edge Cases).
+- **Compliance gate.** Once Implementation Plan step 2's raw-XSD
+  vendoring is done, validate a generated file against the real
+  `Schemat_JPK_KR_PD(1)_v1-0.xsd` in CI — the field-level pass done
+  2026-09-12 used documentation summaries, not the schema itself (see
+  Architecture → Primary-source XSD verification), so this gate is
+  the actual compliance check, not the summary pass.
+- **Not designed here (flagged, not solved):** a whole-annual-ledger
+  scale test — see the new Architecture note on assembly scale and
+  Open Questions, Q6.
+
 ## Open Questions / Assumptions To Confirm
 
 Carried over from the 2026-09-10 analysis, not treated as blockers to
@@ -676,6 +815,24 @@ final:
   (`K_1`-`K_6` vs `K_1`-`K_8`) and `S_12_1`'s full allowed-value list for
   the `ZOiS7` variant -- both need the raw XSD, not the secondary
   documentation this pass used.
+- **Q5 — New 2026-09-18, from PR `#6069`'s review (@pkarw, Major #3):**
+  is `JpkKrFiling`'s proposed `draft → generating → submitting →
+  submitted → polling → accepted | rejected` status machine actually
+  consistent with `JpkVatFiling`'s real, persisted status contract in
+  `official-modules`? The review claims the real contract is only
+  `draft | generated | submitted`. **Unverified, not guessed at:**
+  `official-modules` is unreachable from this environment (no network
+  path to `github.com`, confirmed again in Code analysis above), so
+  this document cannot confirm or refute the review's specific claim.
+  Needs a direct read of `JpkVatFiling`'s entity/migration in
+  `official-modules` before Phase 1 implementation starts.
+- **Q6 — New 2026-09-18, from PR `#6069`'s review (@pkarw, Major #4):**
+  whole-annual-ledger XML/ZIP assembly at scale (see Architecture,
+  above) — does JPK_V7's in-memory submission pipeline hold up for a
+  full annual ledger, or does `build-jpk-kr-xml.ts`/
+  `jpk-submission-client.ts` need a streaming rewrite? Flagged, not
+  designed here — real design work, not something to improvise inline
+  while fixing a review.
 
 ---
 
@@ -718,3 +875,21 @@ sources for structure orientation only, not relied on for field-level
 detail: poradnikprzedsiebiorcy.pl and akademialtca.pl. Both XSD-adjacent
 sources are documentation of the schema, not a byte-level read of the
 raw Schemat_JPK_KR_PD(1)_v1-0.xsd itself -- see Open Questions, Q4.
+
+2026-09-18 addition (PR `#6069` review verification): Deloitte Polska,
+"Przesunięcie terminów raportowania struktury JPK_KR_PD w 2026 r." and
+Sovos, "Poland: Clarification to JPK_KR_PD and JPK_ST_KR Brochures
+Published" -- both fetched directly, not recalled, to check @pkarw's
+review claim of a Ministry update effective 1 July 2026; confirmed real
+(a 2026-02-20 regulation extended the deadline to end of the 7th month
+after fiscal year end, i.e. end of July 2026 for the earliest cohort) --
+see Problem Statement. Direct inspection of this repo's own command and
+encryption layers (not `official-modules`, confirmed unreachable):
+`packages/shared/src/lib/commands/scope.ts`
+(`ensureTenantScope`/`ensureOrganizationScope`), their real call sites in
+`packages/core/src/modules/customers/commands/{pipelines,comments}.ts`,
+`packages/core/src/modules/api_keys/data/entities.ts`
+(`sessionSecretEncrypted`), and
+`packages/channel-discord/src/modules/channel_discord/lib/credentials.ts`
+-- grounding the scope-validation and encryption-at-rest design
+decisions added under Architecture, above.
