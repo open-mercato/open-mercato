@@ -2,7 +2,18 @@ jest.mock('@open-mercato/cache', () => ({
   runWithCacheTenant: async (_tenantId: string | null, fn: () => Promise<unknown>) => fn(),
 }), { virtual: true })
 
+// Default behavior matches production's fallback-translator shape for a key with no
+// dictionary entry (`dict[key] ?? fallback ?? key`) — shared has no domain dictionary to
+// consult, so every existing test observes the same pass-through it always has. Individual
+// tests override `mockTranslate` to prove `handleError` actually routes a CrudHttpError body
+// through the resolved `translate()` instead of forwarding it verbatim (#5727).
+const mockTranslate = jest.fn((key: string, fallback?: string) => fallback ?? key)
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ t: mockTranslate, translate: mockTranslate }),
+}))
+
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import {
   clearOptimisticLockReadersForTests,
@@ -1392,6 +1403,39 @@ describe('CRUD Factory', () => {
       error: 'Internal server error',
       message: 'Something went wrong. Please try again later.',
       requestId: expect.any(String),
+    })
+  })
+
+  // Issue #5727 — a command that raises CrudHttpError with a raw i18n key (rather than an
+  // already-translated message) must not leak that key verbatim; handleError() routes it
+  // through the resolved translate() before responding.
+  it('POST command route translates a raw i18n key on a CrudHttpError body instead of forwarding it verbatim', async () => {
+    mockTranslate.mockImplementationOnce((key: string, fallback?: string) =>
+      key === 'some_module.errors.lineLocked' ? 'This line is locked.' : (fallback ?? key),
+    )
+    commandBus.execute.mockRejectedValue(new CrudHttpError(400, { error: 'some_module.errors.lineLocked' }))
+
+    const res = await postInterceptorErrorRequest(interceptorErrorRoute())
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: 'This line is locked.' })
+    expect(mockTranslate).toHaveBeenCalledWith('some_module.errors.lineLocked', 'some_module.errors.lineLocked')
+  })
+
+  it('POST command route preserves other CrudHttpError body fields alongside the translated error', async () => {
+    mockTranslate.mockImplementationOnce((key: string, fallback?: string) =>
+      key === 'some_module.errors.conflict' ? 'A conflicting record already exists.' : (fallback ?? key),
+    )
+    commandBus.execute.mockRejectedValue(
+      new CrudHttpError(409, { error: 'some_module.errors.conflict', conflictingId: 'todo-9' }),
+    )
+
+    const res = await postInterceptorErrorRequest(interceptorErrorRoute())
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toEqual({
+      error: 'A conflicting record already exists.',
+      conflictingId: 'todo-9',
     })
   })
 
