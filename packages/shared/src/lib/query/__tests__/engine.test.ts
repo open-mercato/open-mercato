@@ -287,7 +287,13 @@ describe('BasicQueryEngine (Kysely)', () => {
     })
     expect(hasTenantFilter).toBe(true)
     const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'users')
-    const hasCfOrder = baseCall._ops.orderBys.some((o: any) => o[0] === 'cf_vip')
+    // The sort rides its own dedicated `__sort` alias, not the jsonb projection
+    // alias `cf_vip` — see the dedicated-alias test above (#5674).
+    const hasCfOrder = baseCall._ops.orderBys.some((o: any) => {
+      const expr = o[0]
+      return typeof expr?.toOperationNode === 'function'
+        && JSON.stringify(expr.toOperationNode()).includes('cf_vip__sort')
+    })
     expect(hasCfOrder).toBe(true)
     const hasExtJoin = baseCall._ops.joins.length > 0
     expect(hasExtJoin).toBe(true)
@@ -303,11 +309,45 @@ describe('BasicQueryEngine (Kysely)', () => {
       tenantId: 't1',
     })
     const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'users')
-    expect(baseCall._ops.orderBys).toContainEqual(['cf_vip', 'asc'])
+    // The sort rides its own dedicated scalar alias, never the jsonb projection
+    // alias — ordering by `to_jsonb(...)` compares arrays after every scalar
+    // string regardless of contents (#5674). Trailing entry is the stable `id`
+    // tiebreak appended when the sort didn't already end on `id`.
+    expect(baseCall._ops.orderBys).toHaveLength(2)
+    const [sortExpr] = baseCall._ops.orderBys[0]
+    expect(JSON.stringify(sortExpr.toOperationNode())).toContain('cf_vip__sort')
+    expect(baseCall._ops.orderBys[1]).toEqual(['users.id', 'asc'])
     // Ordering by an alias the query never selected is a Postgres 42703, so the
     // sort has to bring its own projection and joins along (#5521).
-    expect(selectAliases(baseCall)).toContain('cf_vip')
+    expect(selectAliases(baseCall)).toContain('cf_vip__sort')
     expect(baseCall._ops.joins.length).toBeGreaterThan(0)
+  })
+
+  test('a numeric-kind cf sort casts to numeric instead of ordering as text (#5674)', async () => {
+    const fakeDb = createFakeKysely({
+      custom_field_defs: [
+        { key: 'rank', entity_id: 'auth:user', is_active: true, config_json: '{}', kind: 'float' },
+      ],
+    })
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query('auth:user', {
+      fields: ['id', 'email'],
+      sort: [{ field: 'cf:rank', dir: SortDir.Asc }],
+      organizationId: '1',
+      tenantId: 't1',
+    })
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'users')
+    // The cast lives on the dedicated sort projection, not the ORDER BY clause,
+    // which just references that projection's alias by name.
+    const sortSelect = baseCall._ops.selects.find((s: any) => String(s?.alias ?? '') === 'cf_rank__sort')
+    expect(sortSelect).toBeTruthy()
+    const serialized = JSON.stringify(sortSelect.toOperationNode())
+    expect(serialized).toContain('::numeric')
+    expect(serialized).toContain('value_float')
+    expect(baseCall._ops.orderBys).toHaveLength(2)
+    const [orderExpr] = baseCall._ops.orderBys[0]
+    expect(JSON.stringify(orderExpr.toOperationNode())).toContain('NULLS LAST')
+    expect(baseCall._ops.orderBys[1]).toEqual(['users.id', 'asc'])
   })
 
   test('a cf sort that resolves to no definition is dropped, not ordered by', async () => {
@@ -322,8 +362,9 @@ describe('BasicQueryEngine (Kysely)', () => {
     const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'users')
     // Dropping an unresolvable sort is what the base-column branch already does;
     // the alternative here was an ORDER BY over a column that is never selected.
+    // No cf sort survived, so there is nothing to tiebreak either.
     expect(baseCall._ops.orderBys).toEqual([])
-    expect(selectAliases(baseCall)).not.toContain('cf_no_such_key')
+    expect(selectAliases(baseCall)).not.toContain('cf_no_such_key__sort')
   })
 
   test('customFieldSources join additional profiles for custom fields', async () => {
@@ -1041,7 +1082,12 @@ describe('BasicQueryEngine (Kysely)', () => {
     })
 
     const baseCall = fakeDb._calls.find((call: any) => call._ops.table === 'customer_entities')
-    expect(baseCall._ops.orderBys).toEqual([['customer_entities.display_name', 'asc']])
+    // A trailing `id` tiebreak is appended when the sort didn't already end on
+    // `id`, so ties/NULLs don't reorder arbitrarily across pages (#5674).
+    expect(baseCall._ops.orderBys).toEqual([
+      ['customer_entities.display_name', 'asc'],
+      ['customer_entities.id', 'asc'],
+    ])
     expect(baseCall._ops.limits).toBe(10)
     expect(baseCall._ops.offsets).toBe(10)
   })
