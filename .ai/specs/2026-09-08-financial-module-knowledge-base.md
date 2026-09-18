@@ -1622,3 +1622,19 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
 - **`official-modules` has its own, stricter spec process** (`AGENTS.md`, `.ai/skills/spec-writing/SKILL.md`, its checklist and compliance-review templates) that SPEC-010 had never been run against, having been drafted under `open-mercato`'s own `om-spec-writing` convention the whole time. Concrete gaps this surfaced, useful for any future spec destined for `official-modules`: command IDs must include the module prefix (`<moduleId>.<feature>.<action>`, e.g. `financial_pl.jpk.generate` — a prior SPEC-010 draft used `jpk-kr.generate` with no prefix); every mutating command needs an explicit Undo Contract (undoable vs. not, matching real code rather than assumed); table names need the `<module>_<entities>` snake-case-plural convention stated explicitly; a real `Final Compliance Report` with an honest compliance matrix (not rounded up) and a proper `Changelog` section are both required, separate from any banner-style dated notes.
 - **SPEC-010 moved**: `open-mercato#6069` closed; now `official-modules#54` (fork `mikoajp/official-modules`, branch `docs/spec-010-jpk-kr-pd-financial-pl` → `official-modules:develop`). Numbered `SPEC-010` provisionally — `develop` only has `SPEC-001`–`004` merged, and `SPEC-005`–`009` are each independently claimed by other, unrelated open PRs there already, so this project's own numbering isn't coordinated across contributors.
 - Module map (§1) updated to point at `official-modules#54` instead of the closed `open-mercato#6069`.
+- **Cross-spec consistency audit completed (2026-09-18)**, per this project's
+  standing five-step spec-writing process, Step 1/5, applied in reverse
+  after SPEC-010 moved: checked all other financial-family specs on this
+  account's `docs/*` branches for stale SPEC-010/JPK_KR_PD references.
+  9 branches were clean (`accounts-payable`, `cash-bank-management`,
+  `contractor-registry`, `default-chart-of-accounts`, `deferred-revenue`,
+  `general-ledger-account-balances`, `journal-entry-line-dimension`,
+  `multi-currency`, `posting-rules-engine`, `sales-invoice-gl-posting`).
+  4 branches had live references and got pointer-only, dated updates
+  (never rewriting historical Changelog entries): `spec-072-general-
+  ledger-core-engine` (#5663), `general-ledger-bulk-read-service` (#6038),
+  `annual-financial-statements` (#6188), `tax-management` (#6168). The
+  last two both cited SPEC-010's own "Temporary location" banner as
+  precedent for staging a `financial_pl`-side spec in this repo — both
+  banners now note that SPEC-010 itself has completed that move, while
+  making clear their own `financial_pl` halves have not.
