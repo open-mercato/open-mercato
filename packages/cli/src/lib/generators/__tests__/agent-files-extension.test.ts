@@ -474,4 +474,122 @@ describe('createAgentFilesExtension', () => {
     )
     expect(manifest).toContain('export const fileAgentDescriptors: FileAgentDescriptor[] = []')
   })
+
+  describe('standalone app layout', () => {
+    /**
+     * A scaffolded app has no `packages/` tree and no `docker/opencode/` before
+     * the first generate, so the legacy `findRepoRoot` walk-up could never
+     * resolve and the extension silently emitted nothing. With a resolver
+     * reporting `isMonorepo() === false` the artifacts land in the app instead.
+     */
+    function makeStandaloneFixture(): { appDir: string; appBase: string; pkgBase: string } {
+      const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-files-standalone-'))
+      const appBase = path.join(appDir, 'src', 'modules', 'agent_examples')
+      const pkgBase = path.join(
+        appDir,
+        'node_modules',
+        '@open-mercato',
+        'enterprise',
+        'dist',
+        'modules',
+        'agent_examples',
+      )
+      const agentDir = path.join(appBase, 'agents', 'deals_health_check')
+      fs.mkdirSync(agentDir, { recursive: true })
+      fs.writeFileSync(
+        path.join(agentDir, 'AGENT.md'),
+        [
+          '---',
+          'id: deals.health_check',
+          'label: Deal health check',
+          'description: Assess a deal.',
+          '---',
+          'You assess a deal.',
+        ].join('\n'),
+        'utf8',
+      )
+      fs.writeFileSync(
+        path.join(agentDir, 'OUTCOME.md'),
+        [
+          '---',
+          'kind: proposal',
+          '---',
+          '```json',
+          JSON.stringify({
+            type: 'object',
+            required: ['confidence'],
+            properties: { confidence: { type: 'number' } },
+          }),
+          '```',
+        ].join('\n'),
+        'utf8',
+      )
+      return { appDir, appBase, pkgBase }
+    }
+
+    function standaloneResolver(appDir: string) {
+      return {
+        isMonorepo: () => false,
+        getRootDir: () => appDir,
+        getAppDir: () => appDir,
+        getOutputDir: () => path.join(appDir, '.mercato', 'generated'),
+      }
+    }
+
+    let appDir = ''
+    afterEach(() => {
+      if (appDir) fs.rmSync(appDir, { recursive: true, force: true })
+      appDir = ''
+    })
+
+    it('writes the manifest to .mercato/generated and agents under the app docker/ dir', () => {
+      const fixture = makeStandaloneFixture()
+      appDir = fixture.appDir
+
+      const extension = createAgentFilesExtension(standaloneResolver(fixture.appDir))
+      extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase))
+      extension.generateOutput()
+
+      // The manifest lands in the generated output dir that
+      // `findGeneratedFile()` probes as `<cwd>/.mercato/generated/<file>`.
+      const manifestPath = path.join(
+        fixture.appDir,
+        '.mercato',
+        'generated',
+        'file-agents.generated.ts',
+      )
+      expect(fs.existsSync(manifestPath)).toBe(true)
+      expect(fs.readFileSync(manifestPath, 'utf8')).toContain('id: "deals.health_check"')
+
+      // It must NOT write into node_modules, which yarn install rewrites.
+      expect(
+        fs.existsSync(path.join(fixture.appDir, 'node_modules', '@open-mercato', 'enterprise', 'src')),
+      ).toBe(false)
+
+      const dockerFile = path.join(
+        fixture.appDir,
+        'docker',
+        'opencode',
+        'agents',
+        'deals_health_check.md',
+      )
+      expect(fs.existsSync(dockerFile)).toBe(true)
+      expect(fs.readFileSync(dockerFile, 'utf8')).toContain('mode: primary')
+    })
+
+    it('warns instead of silently dropping agents when no output root resolves', () => {
+      const fixture = makeStandaloneFixture()
+      appDir = fixture.appDir
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+      // No resolver AND no in-repo markers: the legacy walk-up returns null.
+      const extension = createAgentFilesExtension()
+      extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase))
+      const output = extension.generateOutput()
+
+      expect(output.size).toBe(0)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('Could not resolve an output root'))
+      warn.mockRestore()
+    })
+  })
 })
