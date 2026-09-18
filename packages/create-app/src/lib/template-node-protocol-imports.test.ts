@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import type { NextConfig } from 'next'
 
 import templateConfig from '../../template/next.config'
+
+type WebpackConfigFn = NonNullable<NextConfig['webpack']>
+type WebpackConfigContext = Parameters<WebpackConfigFn>[1]
 
 test('standalone template turbopack resolveAlias rewrites node: builtins used by transpiled packages', () => {
   const resolveAlias = templateConfig.turbopack?.resolveAlias
@@ -29,10 +33,8 @@ test('standalone template webpack config rewrites node: requests to bare specifi
   }
 
   const config = { plugins: [] as unknown[] }
-  const result = templateConfig.webpack!(config as any, {
-    isServer: true,
-    webpack: fakeWebpack as any,
-  } as any)
+  const context = { isServer: true, webpack: fakeWebpack } as unknown as WebpackConfigContext
+  const result = templateConfig.webpack!(config, context)
 
   assert.equal(result, config, 'expected webpack() to return the mutated config')
   assert.equal(pushedPlugins.length, 1, 'expected exactly one NormalModuleReplacementPlugin to be pushed')
@@ -57,7 +59,8 @@ test('standalone template webpack config does not touch the client build', () =>
   }
 
   const config = { plugins: [] as unknown[] }
-  templateConfig.webpack!(config as any, { isServer: false, webpack: fakeWebpack as any } as any)
+  const context = { isServer: false, webpack: fakeWebpack } as unknown as WebpackConfigContext
+  templateConfig.webpack!(config, context)
 
   assert.equal(pushedPlugins.length, 0, 'expected no plugin to be pushed for the client build')
 })
