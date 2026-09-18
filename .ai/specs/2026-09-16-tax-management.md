@@ -10,6 +10,12 @@
 > `tax_management` half is a genuine `open-mercato` core module and
 > will merge into this repo normally; the `financial_pl` half moves to
 > `official-modules` once written there for real.
+>
+> **Update (2026-09-18):** SPEC-010 has completed that move — it now
+> lives at `.ai/specs/SPEC-010-2026-09-11-jpk-kr-pd-financial-pl.md` in
+> `official-modules#54`, not at the path named above. This document's
+> own `financial_pl` half hasn't made the equivalent move yet; the
+> staging reasoning above is unchanged for it.
 
 ## TLDR
 
@@ -41,8 +47,9 @@ Engine cover:
 > podatek(-i)."
 
 Two of those six steps already have a home: "Wygenerowano raport
-podatkowy (JPK)" is JPK_KR_PD, already speced as SPEC-010
-(`2026-09-11-jpk-kr-pd-financial-pl.md`, depends on #6038). The
+podatkowy (JPK)" is JPK_KR_PD, already speced as SPEC-010 (now
+`official-modules#54`'s `.ai/specs/SPEC-010-2026-09-11-jpk-kr-pd-financial-pl.md`,
+depends on #6038). The
 remaining four — calculate the tax, post it as a journal entry,
 compute the payment account, produce something an accountant can
 actually pay — have no home. An earlier informal 6-topic list paired
@@ -537,3 +544,19 @@ applied:
    misread secondhand as "KIS provides the number."
 
 Not yet reviewed. No implementation exists yet.
+
+### 2026-09-18 (cont. — SPEC-010 moved to official-modules, references updated)
+
+- **Update, not a scope or design change.** SPEC-010
+  (`2026-09-11-jpk-kr-pd-financial-pl.md`), cited above as this
+  document's own precedent for temporary staging and as the source of
+  the JPK_KR_PD spec and the `requires: [...]` declared-dependency
+  pattern, has moved to `official-modules#54` following a maintainer-
+  review round and a code-verified compliance pass against that repo's
+  own AGENTS.md/spec-writing rules. Updated the banner and the JPK_KR_PD
+  citation to point at the new location; left the shorter "per SPEC-010"
+  references to its content (the `requires: ['ledger']` pattern, the
+  period-close trigger, JPK_KR_PD being already speced) unchanged, since
+  those describe what SPEC-010 says, not where it lives. This
+  document's own `financial_pl` half has not moved and its Phase 1/
+  Phase 2 scope and open questions are unaffected.
