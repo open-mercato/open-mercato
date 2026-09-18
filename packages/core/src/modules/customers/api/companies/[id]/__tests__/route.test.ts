@@ -26,6 +26,12 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn((request: Request) => mockGetAuthFromRequest(request)),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    translate: (_key: string, fallback: string) => fallback,
+  })),
+}))
+
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
 }))
@@ -144,6 +150,18 @@ describe('GET /api/customers/companies/[id] — company payload fields', () => {
     expect(response.status).toBe(200)
     expect(body.company.temperature).toBe('hot')
     expect(body.company.renewalQuarter).toBe('Q3')
+  })
+
+  it('returns a translated error for a malformed company id (regression: #6176)', async () => {
+    const { GET } = await import('../route')
+    const response = await GET(
+      new Request('http://localhost/api/customers/companies/not-a-uuid'),
+      { params: { id: 'not-a-uuid' } },
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(body.error).toBe('Invalid company id')
   })
 
   it('serializes null temperature and renewalQuarter when unset', async () => {

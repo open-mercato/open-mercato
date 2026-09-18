@@ -1065,6 +1065,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       const target = resolveInternalNavigationTarget(href)
       if (!target) return
       if (shouldBypassUnsavedChangesGuardRef.current?.(target)) return
+      if (anchor.hasAttribute('data-crud-form-cancel')) {
+        isDirtyRef.current = false
+        setHasUnsavedChanges(false)
+        clearDirtyState()
+        allowNextNavigation()
+        return
+      }
       const baselineSnapshot = dirtyBaselineSnapshotRef.current
       if (baselineSnapshot && createDirtySnapshot(valuesRef.current as Record<string, unknown>) === baselineSnapshot) {
         isDirtyRef.current = false

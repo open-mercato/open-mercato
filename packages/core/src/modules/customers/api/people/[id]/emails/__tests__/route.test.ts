@@ -23,6 +23,15 @@ describe('POST /api/customers/people/[id]/emails — validation only', () => {
     expect(res.status).toBe(400)
   })
 
+  it('returns a translated error for a malformed person id (regression: #6176)', async () => {
+    const res = await POST(
+      mockRequest({ userChannelId: VALID_CHANNEL_ID, to: ['x@y.io'], subject: 'hi', body: 'hello' }),
+      { params: Promise.resolve({ id: 'not-uuid' }) } as any,
+    )
+    const body = await res.json()
+    expect(body.error).toBe('Invalid person id')
+  })
+
   it('returns 401 when no auth (valid UUID personId)', async () => {
     const res = await POST(
       mockRequest({ userChannelId: VALID_CHANNEL_ID, to: ['x@y.io'], subject: 'hi', body: 'hello' }),
