@@ -23,6 +23,18 @@ export type SearchResultPresenter = {
   title: string
   subtitle?: string
   icon?: string
+  /**
+   * @deprecated No search UI renders this field, and none is planned — the Cmd+K dialog,
+   * the topbar inline results and `/backend/search` render only `title`, `subtitle` and `icon`.
+   * Slated for removal in 0.9.0.
+   *
+   * For an entity-type label, add a `search.entityType.<module>.<entity>` translation key
+   * instead: every search surface already renders one next to the result title, so a badge
+   * carrying the same word would render it twice. Declare that key in your own module's
+   * `i18n/*.json` — dictionaries are merged flat across modules, so a `search.*` key
+   * contributed by any module resolves normally. For per-record detail (a status, a
+   * counterparty, a date), put the value in `subtitle`, which is rendered.
+   */
   badge?: string
 }
 

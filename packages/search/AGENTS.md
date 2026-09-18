@@ -176,7 +176,6 @@ Use `buildSource` to generate text for embeddings. The returned text is converte
         title: ctx.record.name,
         subtitle: ctx.record.status,
         icon: 'lucide:file',
-        badge: 'Your Entity',
       },
       links: [
         { href: `/backend/your-module/${ctx.record.id}`, label: 'View', kind: 'primary' },
@@ -210,7 +209,6 @@ Presenter is resolved at **search time** using `formatResult`. When `formatResul
       title: ctx.record.display_name ?? ctx.record.name ?? 'Unknown',
       subtitle: ctx.record.email ?? ctx.record.status,
       icon: 'lucide:user',
-      badge: 'Customer',
     }
   },
 }
@@ -332,7 +330,14 @@ interface SearchResultPresenter {
   /** Icon identifier (e.g., 'lucide:user', 'user', 'building') */
   icon?: string
 
-  /** Badge/tag shown next to title (e.g., 'Customer', 'Deal') */
+  /**
+   * @deprecated Never rendered by any search UI; slated for removal in 0.9.0.
+   * Do not populate it. For an entity-type label add a
+   * `search.entityType.<module>.<entity>` key in your own module's `i18n/*.json`
+   * (dictionaries merge flat, so a `search.*` key resolves from any module), which
+   * all three surfaces do render; for per-record detail use `subtitle`.
+   * `VectorResultPresenter.badge` is deprecated on the same terms.
+   */
   badge?: string
 }
 ```

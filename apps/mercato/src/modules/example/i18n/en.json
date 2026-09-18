@@ -220,7 +220,6 @@
   "example.priority.normal": "Normal",
   "example.publicPage": "Public example page.",
   "example.salesTodos.tabLabel": "Todos (example)",
-  "example.search.todo.badge": "Todo",
   "example.search.todo.subtitle.done": "Completed",
   "example.search.todo.subtitle.open": "Open",
   "example.todos.bulk.markDone": "Mark selected todos done",
@@ -500,5 +499,6 @@
   "example.workPlan.nav.group": "Work plan",
   "integrations.marketplace.filters.category": "Category",
   "notifications.categories.demo": "Demo",
-  "notifications.categories.example": "Examples"
+  "notifications.categories.example": "Examples",
+  "search.entityType.example.todo": "Todo"
 }
