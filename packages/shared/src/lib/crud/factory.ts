@@ -10,6 +10,7 @@ import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@ope
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { SELECTED_ORGANIZATION_COOKIE } from '@open-mercato/shared/lib/scope/cookies'
 import {
   runMutationGuards,
   bridgeLegacyGuard,
@@ -559,13 +560,10 @@ function json(data: any, init?: ResponseInit) {
   })
 }
 
-// Name of the selected-organization cookie (mirrors the directory module's
-// OrganizationSwitcher, which writes `om_selected_org=...; path=/; samesite=lax`).
-// Kept as a local literal so shared has no import dependency on a domain package.
-const SELECTED_ORG_COOKIE = 'om_selected_org'
 // Set-Cookie value that expires the stale selection so the next request falls
-// back to the caller's home org. Attributes mirror how the switcher sets it.
-const CLEAR_SELECTED_ORG_COOKIE = `${SELECTED_ORG_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`
+// back to the caller's home org. Attributes mirror how the directory module's
+// OrganizationSwitcher sets it (`om_selected_org=...; path=/; samesite=lax`).
+const CLEAR_SELECTED_ORG_COOKIE = `${SELECTED_ORGANIZATION_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`
 
 function attachOperationHeader(res: Response, logEntry: any) {
   if (!res || !(res instanceof Response)) return res
