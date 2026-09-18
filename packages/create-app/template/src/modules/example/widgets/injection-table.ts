@@ -31,6 +31,14 @@ export const injectionTable: ModuleInjectionTable = {
     priority: 50,
   },
   'example:phase-c-handlers': 'example.injection.crud-validation',
+  // Client-side module-override probe (#5152 / #5844). The first widget is disabled
+  // from `src/modules.ts`, the second is not; TC-UMES-023 asserts the first stays
+  // absent and the second stays visible once the browser bootstrap has re-registered
+  // this registry.
+  'example:override-probe': [
+    { widgetId: 'example.injection.override-probe', priority: 10 },
+    { widgetId: 'example.injection.override-probe-control', priority: 20 },
+  ],
   // Selected-row bulk action on the module's own Todo table. The spot id is
   // `data-table:<tableId>:bulk-actions` where `<tableId>` is the host's
   // `extensionTableId`, which DataTable derives from `perspective.tableId`.

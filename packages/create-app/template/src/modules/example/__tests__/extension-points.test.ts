@@ -19,6 +19,7 @@ describe('example extension-points.ts', () => {
     expect(extensionPoints.moduleId).toBe('example')
     expect(Object.keys(extensionPoints.hosts).sort()).toEqual([
       'handlersForm',
+      'overrideProbe',
       'overrideShowcase',
       'todoForm',
       'todosTable',

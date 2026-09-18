@@ -38,6 +38,7 @@ const EXAMPLE_OWN_SPOT_IDS = [
   'crud-form:example.todo',
   'widget:example.injection.crud-validation:addon',
   'example:phase-c-handlers',
+  'example:override-probe',
   'menu:sidebar:main',
   'menu:topbar:profile-dropdown',
 ] as const

@@ -173,6 +173,10 @@ test('standalone integration activation preserves the app-level example override
     const source = fs.readFileSync(modulesPath, 'utf8')
     assert.match(source, /features: \{ 'example\.manage': null \}/)
     assert.match(source, /groupOrder: \['example\.nav\.group'\]/)
+    // The injection override is what TC-UMES-023 asserts in a scaffolded app; without
+    // it that spec would report a client-dispatch regression that is really a missing
+    // activation fixture.
+    assert.match(source, /injection: \{ 'example:override-probe:widget': null \}/)
     assert.match(source, /'GET \/api\/example\/override-probe'/)
     assert.match(source, /source: 'modules\.ts override'/)
   } finally {

@@ -7,10 +7,12 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import { extensionPoints } from '../../extension-points'
 
 type TodoListProbe = {
   _example?: {
@@ -347,6 +349,23 @@ export default function UmesExtensionsPage() {
           />
           <div data-testid="phase-g-result" className="rounded border border-border bg-muted/30 p-2 text-xs text-muted-foreground">
             submitResult={print(formSubmitResult)}
+          </div>
+        </div>
+
+        <div className="space-y-3 rounded border border-border p-4">
+          <div>
+            <h2 className="text-base font-semibold">{t('example.umes.extensions.phaseI.title', 'Phase I — Client-side module overrides')}</h2>
+            <p className="text-sm text-muted-foreground">
+              {t('example.umes.extensions.phaseI.description', 'Both widgets below sit on the `example:override-probe` spot. `src/modules.ts` disables the first one and leaves the second alone, so this pair shows whether a modules.ts override survives the browser bootstrap that re-registers the injection registry.')}
+            </p>
+          </div>
+          <div className={`grid gap-1 ${hintClassName}`}>
+            <div className="font-medium text-status-warning-text">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
+            <div>{t('example.umes.extensions.phaseI.hint1', '1. The control widget should be visible — it proves the spot itself resolved.')}</div>
+            <div>{t('example.umes.extensions.phaseI.hint2', '2. The disabled widget should never appear, including after hydration finishes.')}</div>
+          </div>
+          <div data-testid="phase-i-override-probe-spot" className="grid gap-2">
+            <InjectionSpot spotId={extensionPoints.hosts.overrideProbe.spotId} context={{}} />
           </div>
         </div>
 
