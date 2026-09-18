@@ -1372,12 +1372,16 @@ export function DataTable<T extends RowData>({
   const setViewBaseline = React.useCallback((settings: PerspectiveSettings) => {
     const initialized = viewBaselineInitializedRef.current
     viewBaselineInitializedRef.current = true
-    // The incoming settings win wherever they speak; the auto-hidden defaults only fill
-    // the gaps. This also covers the baseline's first seeding, which reads the settings
-    // of the render that scheduled the hide rather than the hidden result.
+    // Auto-hidden defaults win over `settings` for the keys they decided: this covers the
+    // baseline's first seeding, which closes over `currentViewSettings` from the render
+    // that *scheduled* the meta.hidden hide, not the render where it actually took effect
+    // — so `settings.columnVisibility` here is stale for exactly those keys. A real stored
+    // view never has a key in common with `autoHidden` (the meta.hidden pass skips every
+    // column `visibilityDecidedColumnIds` already seeded from that view), so this never
+    // overrides a genuine user/view decision.
     const autoHidden = autoHiddenVisibilityRef.current
     const next = Object.keys(autoHidden).length
-      ? { ...settings, columnVisibility: { ...autoHidden, ...(settings.columnVisibility ?? {}) } }
+      ? { ...settings, columnVisibility: { ...(settings.columnVisibility ?? {}), ...autoHidden } }
       : settings
     // Compared by value, not by identity: the callers hand over freshly
     // sanitized objects (a new one on every render), so storing them blindly

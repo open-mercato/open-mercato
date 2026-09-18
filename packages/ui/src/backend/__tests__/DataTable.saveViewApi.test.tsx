@@ -515,6 +515,32 @@ describe('DataTable public save-view API', () => {
     expect(apiRef.current!.getDirtyState().isDirty).toBe(false)
   })
 
+  it('stays clean on first mount of a table with a meta.hidden column and no stored view at all', async () => {
+    // The case neither test above can see: with no `initialSettings`, the baseline is not
+    // seeded from `useState`'s initializer — it is seeded later by the mount-time effect
+    // from `currentViewSettings`, which closes over the render that *scheduled* the
+    // meta.hidden hide, not the one where it took effect. `setViewBaseline` must let the
+    // auto-hidden default win over that stale snapshot, or the baseline records the column
+    // visible while the live state (correctly) goes hidden on the next render, reporting a
+    // change nobody made the moment the table mounts.
+    const apiRef = React.createRef<DataTableViewApi | null>() as React.MutableRefObject<DataTableViewApi | null>
+    const states: DataTableViewDirtyState[] = []
+    renderTable({
+      apiRef,
+      onDirty: (state) => { states.push(state) },
+      tableColumns: COLUMNS_WITH_DECLARED_DEFAULT,
+      showSaveViewButton: true,
+    })
+
+    await waitFor(() => expect(apiRef.current).not.toBeNull())
+    await waitFor(() => expect(apiRef.current!.getCurrentSettings().columnVisibility)
+      .toEqual({ name: true, id: true, cf_archived: false }))
+
+    await waitFor(() => expect(states.length).toBeGreaterThan(0))
+    expect(states.every((state) => !state.isDirty)).toBe(true)
+    expect(apiRef.current!.getDirtyState().isDirty).toBe(false)
+  })
+
   it('keeps a stored visibility decision for a column that has not registered yet', async () => {
     // Serializing from the live column set alone drops any stored key whose column is not
     // in the table — every `cf_*` decision, during the whole custom-field hydration window.
