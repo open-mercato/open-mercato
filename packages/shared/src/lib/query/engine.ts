@@ -30,9 +30,22 @@ import {
   type ResolvedCustomFieldDefinitions,
 } from '../crud/custom-field-definition-index'
 import { warnOnCiphertextLikeFallback } from './ciphertext-search-warning'
-import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from './encrypted-sort'
+import {
+  matchEncryptedSortFields,
+  resolveEncryptedFieldNames,
+  resolveEncryptedSortFields,
+  resolveEncryptedSortMaxRows,
+  sortRowsInMemory,
+} from './encrypted-sort'
 import { resolveListCountCap } from './count-cap'
 import { mapWithConcurrency } from './bounded-decrypt'
+import {
+  DECLINED_ENCRYPTED_SORT_LOG_MESSAGE,
+  DECRYPT_REFUSAL_LOG_MESSAGE,
+  DecryptRefusalTally,
+  resolveDecryptEnabled,
+  resolveDecryptScope,
+} from '../encryption/decryptScope'
 import { parseNumberWithDefault } from '../number'
 import { createLogger } from '../logger'
 
@@ -675,7 +688,10 @@ export class BasicQueryEngine implements QueryEngine {
     const fallbackOrgId =
       opts.organizationId
       ?? (Array.isArray(opts.organizationIds) && opts.organizationIds.length === 1 ? opts.organizationIds[0] : null)
-    const encryptionService = this.getEncryptionService()
+    // A query that declined decryption gets no decrypt service at all: no DEK lookup, and no
+    // plaintext-sort path either — there is no plaintext to sort by.
+    const decryptEnabled = resolveDecryptEnabled(opts)
+    const encryptionService = decryptEnabled ? this.getEncryptionService() : null
     const resolvedSorts: Sort[] = []
     for (const s of opts.sort || []) {
       if (s.field.startsWith('cf:')) {
@@ -685,14 +701,48 @@ export class BasicQueryEngine implements QueryEngine {
         if (column) resolvedSorts.push({ ...s, field: column })
       }
     }
-    const encryptedSortFields = await resolveEncryptedSortFields(
+    const plainSortFields = resolvedSorts
+      .filter((sort) => !sort.field.startsWith('cf:'))
+      .map((sort) => sort.field)
+    const encryptedFieldNames = await resolveEncryptedFieldNames(
       encryptionService,
       entity,
-      resolvedSorts.filter((sort) => !sort.field.startsWith('cf:')).map((sort) => sort.field),
       opts.tenantId ?? null,
       fallbackOrgId,
     )
+    const encryptedSortFields = matchEncryptedSortFields(encryptedFieldNames, plainSortFields)
     const requiresPlaintextSort = encryptedSortFields.size > 0
+    // Declining decryption also drops the plaintext-sort path, so an encrypted sort column silently
+    // becomes an ORDER BY over ciphertext. Say so once rather than returning a meaningless order.
+    if (!decryptEnabled && plainSortFields.length > 0) {
+      const declinedSortFields = await resolveEncryptedSortFields(
+        this.getEncryptionService(),
+        entity,
+        plainSortFields,
+        opts.tenantId ?? null,
+        fallbackOrgId,
+      )
+      if (declinedSortFields.size > 0) {
+        logger.warn(DECLINED_ENCRYPTED_SORT_LOG_MESSAGE, {
+          entity: String(entity),
+          sortFields: Array.from(declinedSortFields),
+        })
+      }
+    }
+
+    // The decrypt decision keys off the row's own tenant_id. A caller-supplied `fields` list would
+    // otherwise omit it, leaving `rowTenantId` null and making the tenant binding inert on exactly
+    // the routes that project narrowly. Force it into the projection and strip it back out of the
+    // response when the caller did not ask for it, so the guard engages without changing the shape.
+    const requestedFields = opts.fields && opts.fields.length ? opts.fields.map(String) : null
+    const injectsTenantIdForDecrypt =
+      encryptionService != null
+      && requestedFields != null
+      && !requestedFields.includes('tenant_id')
+      && !requestedFields.includes('tenantId')
+      // A `null` map is unknown, not empty: a decrypt attempt may still follow, so widen anyway.
+      && (encryptedFieldNames === null || encryptedFieldNames.length > 0)
+      && await this.columnExists(table, 'tenant_id')
 
     const tenantId = opts.tenantId
     const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9_]/g, '_')
@@ -828,6 +878,7 @@ export class BasicQueryEngine implements QueryEngine {
         if (requiresPlaintextSort) {
           for (const field of encryptedSortFields) cols.add(field)
         }
+        if (injectsTenantIdForDecrypt) cols.add('tenant_id')
         for (const c of cols) {
           // Qualify and alias to base names to avoid ambiguity
           q = q.select(sql.ref(qualify(c)).as(c))
@@ -1290,20 +1341,34 @@ export class BasicQueryEngine implements QueryEngine {
           ) => Promise<Record<string, unknown>>)
         | null
 
+    const refusalTally = new DecryptRefusalTally()
+
     const decryptRow = async (item: ResultRow): Promise<ResultRow> => {
       if (!decryptPayload) return item
+      const decision = resolveDecryptScope({
+        rowTenantId: (item?.tenant_id ?? item?.tenantId ?? null) as string | null,
+        rowOrganizationId: (item?.organization_id ?? item?.organizationId ?? null) as string | null,
+        callerTenantId: opts.tenantId ?? null,
+        callerOrganizationId: fallbackOrgId ?? null,
+      })
+      // Fail closed: the caller asserted a tenant and this row contradicts it, so decrypting
+      // would hand back a foreign tenant's plaintext under a foreign tenant's DEK.
+      if (!decision.decrypt) {
+        refusalTally.record(decision, item?.id == null ? null : String(item.id))
+        return item
+      }
       try {
-        const decrypted = await decryptPayload(
-          entity,
-          item,
-          (item?.tenant_id ?? item?.tenantId ?? opts.tenantId ?? null) as string | null,
-          (item?.organization_id ?? item?.organizationId ?? fallbackOrgId ?? null) as string | null,
-        )
+        const decrypted = await decryptPayload(entity, item, decision.tenantId, decision.organizationId)
         return { ...item, ...decrypted }
       } catch (err) {
         logger.error('Error decrypting entity payload', { err })
         return item
       }
+    }
+
+    const reportDecryptRefusals = () => {
+      if (refusalTally.refused === 0) return
+      logger.warn(DECRYPT_REFUSAL_LOG_MESSAGE, refusalTally.toLogContext(String(entity)))
     }
 
     const normalizeCfJsonAliases = (rows: ResultRow[]) => {
@@ -1386,6 +1451,13 @@ export class BasicQueryEngine implements QueryEngine {
       pagedItems = decryptPayload
         ? await mapWithConcurrency(items, DECRYPT_CONCURRENCY, decryptRow)
         : items
+    }
+
+    reportDecryptRefusals()
+
+    // The decrypt decision has been made, so the column the caller never asked for goes back out.
+    if (injectsTenantIdForDecrypt) {
+      for (const row of pagedItems) delete row.tenant_id
     }
 
     let queryResult: QueryResult<T> = { items: pagedItems as unknown as T[], page, pageSize, total }

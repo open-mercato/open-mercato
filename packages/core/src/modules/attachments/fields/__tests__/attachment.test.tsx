@@ -149,13 +149,14 @@ describe('AttachmentInput', () => {
     )
 
     expect(await screen.findByRole('button', { name: /replace/i })).toBeInTheDocument()
+    expect(view.getByText('original.pdf')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /delete original\.pdf/i }))
 
     await waitFor(() => expect(mockConfirm).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(apiCallMock).toHaveBeenCalledTimes(3))
     expect(apiCallMock.mock.calls[1]?.[0]).toBe('/api/attachments?id=att-1')
     expect(apiCallMock.mock.calls[1]?.[1]).toMatchObject({ method: 'DELETE' })
-    expect(view.queryByText('original.pdf')).not.toBeInTheDocument()
+    await waitFor(() => expect(view.queryByText('original.pdf')).not.toBeInTheDocument())
   })
 
   it('uploads a replacement before deleting the previous attachment', async () => {
