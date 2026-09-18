@@ -61,9 +61,15 @@ what it asked for, just never cross-referenced until now.
 ## Problem Statement
 
 - No entity, table, or command anywhere in `packages/core` represents
-  a ledger account, a chart of accounts, or a journal entry. Confirmed
-  by searching `packages/core/src` for `ledger`, `journal`, and
-  `accounting` — zero matches.
+  a ledger account, a chart of accounts, or a journal entry.
+  **Corrected 2026-09-18** (an independent review found this overstated):
+  searching `packages/core/src` for `ledger`, `journal`, and
+  `accounting` is not literally zero matches — `sales` has
+  `ORDER_PAYMENT_LEDGER_FIELDS` (a payment-ledger deprecation shim) and
+  `query_index` has `batch-write-accounting.test.ts` (an unrelated
+  write-accounting/bookkeeping metaphor for index writes) — but neither
+  is a chart of accounts, a journal entry, or double-entry bookkeeping;
+  the substantive point (no accounting ledger exists) still holds.
 - `sales` invoices are documents with amounts and statuses; they are
   not accounting entries and don't touch any notion of a chart of
   accounts.
@@ -322,10 +328,12 @@ różni się ona od daty dokonania operacji" qualifier. `documentType`/
 `documentNumber` stay nullable in this phase rather than required,
 because this engine's own Phase 1 has no document-producing caller
 (see User Stories) — the fields exist so `postJournalEntry`'s first
-real callers (Accounts Payable's `postVendorInvoice`, already posting
-today; the planned `sales-invoice-gl-posting` spec) populate them from
-day one instead of leaving a statutory gap for a downstream module to
-discover later. **Not the same field as `referenceType`/`referenceId`
+real callers (Accounts Payable's `postVendorInvoice` — spec'd in PR
+#5962, changes requested, not yet merged or running; and the planned
+`sales-invoice-gl-posting` spec) populate them from day one instead of
+leaving a statutory gap for a downstream module to discover later.
+**Corrected 2026-09-18**: an earlier draft described #5962 as "already
+posting today," describing an unmerged spec as running code. **Not the same field as `referenceType`/`referenceId`
 above.** Those answer "which record in this system caused this entry"
 (an internal FK, meaningful only inside this database); these answer
 "what source document does the Act require this entry to point at" (an
@@ -409,12 +417,15 @@ sposób ciągły"); a UUID satisfies neither — it isn't sequential, and
 offers no way to answer "which entry number is this." `sequenceNumber`
 (`bigint`, unique per `(tenant_id, organization_id)`) is allocated
 inside the same transaction as `postJournalEntry` via a per-organization
-counter row (`journal_entry_sequence`, one row per `(tenant_id,
-organization_id)`, incremented with an atomic
-`INSERT ... ON CONFLICT DO UPDATE ... RETURNING`), functionally
-equivalent to a Postgres `SEQUENCE` per organization without the
-operational overhead of provisioning one `SEQUENCE` object per
-organization as organizations are created. This also beats a native
+counter row (`JournalEntrySequence` entity, one row per `(tenant_id,
+organization_id)` — **corrected 2026-09-18**, modeled as an ORM entity
+rather than a hand-written table, see Entities — incremented with an
+atomic `INSERT ... ON CONFLICT DO UPDATE ... RETURNING`, the same
+allocation shape `sales/services/salesDocumentNumberGenerator.ts`
+already uses for `SalesDocumentSequence`), functionally equivalent to
+a Postgres `SEQUENCE` per organization without the operational
+overhead of provisioning one `SEQUENCE` object per organization as
+organizations are created. This also beats a native
 `SEQUENCE`/`nextval()` on correctness: `nextval()` doesn't roll back on
 transaction abort, so a failed post would still burn a number and
 leave a gap; the counter-row update, being an ordinary row in the same
@@ -512,6 +523,33 @@ period against further posting: a materially weaker MVP than what's
 already been reviewed and stakeholder-approved twice. The SPLIT
 finding is accurate as a scope-cohesion observation; it just doesn't
 outweigh shipping a complete accounting control in one reviewable unit.
+
+**The lock check and the `periodId` filter key on `operationDate`, not
+`postedAt` — corrected 2026-09-18, an independent review's M1
+finding.** An earlier draft checked and filtered on `postedAt` (when
+the entry was recorded) rather than `operationDate` (the business
+event date, added 2026-09-10 — see "`JournalEntry` gains four
+statutory entry-content fields" above). Art. 20 ust. 1 UoR assigns an
+entry to the reporting period the *event* occurred in, not the period
+it happened to be typed into the system: keying the lock on `postedAt`
+let an entry with `operationDate` in a closed year and `postedAt` =
+today pass the lock check and land in closed books — exactly the case
+the lock exists to prevent — while the lock could then only ever block
+posting into the *current* period, never a genuinely late-arriving one.
+Four follow-on gaps close with the same fix: (1) `postedAt` is
+server-set, never caller-supplied — it is a record of *when the system
+recorded this*, not a business input; (2) `postJournalEntry` rejects
+outright when no `FiscalPeriod` covers the entry's `operationDate` —
+silently allowing an uncovered date would let entries exist with no
+period to ever lock them; (3) `FiscalPeriod` rows for one organization
+must not overlap — enforced by an app-layer check in
+`createFiscalPeriod` (an exclusion constraint is Phase 2, see Out of
+scope) — otherwise "the covering period" for a date is ambiguous, and
+an unlocked period could shadow a locked one covering the same range;
+(4) a `REVERSAL` entry takes its own `operationDate` (see Commands,
+`reverseJournalEntry`), not the original's — a reversal exists to move
+a correction into an open period, so tying it to the original's
+(possibly closed) `operationDate` would defeat the mechanism.
 
 ### Alternatives considered
 
@@ -617,8 +655,11 @@ suite asserts against, not a workflow it walks through.
   the posting, per `(tenant_id, organization_id)`, and rolled back
   together with a failed post (see Design decisions).
 - A locked `FiscalPeriod` rejects a post before any write —
-  `postJournalEntry` checks `isLocked` ahead of every other side
-  effect, not after.
+  `postJournalEntry` checks the `FiscalPeriod` covering the entry's
+  `operationDate` (not `postedAt` — **corrected 2026-09-18**, see
+  Design decisions) for `isLocked` ahead of every other side effect,
+  not after, and rejects outright if no `FiscalPeriod` covers that
+  date at all.
 - A `REVERSAL` entry always references the original via
   `referenceType`/`referenceId`, and the original stays visible,
   unmodified, in every query — reversal, not undo.
@@ -682,6 +723,17 @@ suite asserts against, not a workflow it walks through.
   `organizationId`, `tenantId` (own scope columns, not just inherited
   via `journalEntryId` — see Design decisions). Same exemption as
   `JournalEntry`.
+- `JournalEntrySequence` — `tenantId`, `organizationId`, `nextValue`
+  (`bigint`, default `1`), primary key on `(tenantId, organizationId)`.
+  **Corrected 2026-09-18** (an independent review's m1 finding): an
+  earlier draft specified this counter as a hand-written `CREATE TABLE`
+  in the migration, outside the ORM. `sales.SalesDocumentSequence` and
+  `warranty_claims.WarrantyClaimSequence` are the identical
+  `(organization, tenant, kind) → current_value` counter shape,
+  modeled as ordinary MikroORM entities and allocated the same way
+  (see Design decisions) — there is no reason for this module's
+  counter to be the one exception. No `updatedAt`/`deletedAt` — a pure
+  counter, never soft-deleted or optimistically locked.
 
 ### Access Control (`acl.ts`)
 
@@ -746,9 +798,10 @@ tenant must explicitly trigger the import.
 
 ### Migration (`migrations/`)
 
-Standard MikroORM-generated tables for the entities above, plus a hand-
-written SQL block (consistent with how this repo already mixes
-generated and raw SQL in migrations) adding:
+Standard MikroORM-generated tables for the entities above — including
+`JournalEntrySequence` (**corrected 2026-09-18**: previously a
+hand-written `CREATE TABLE`, now ORM-generated like every other entity
+here, see Entities) — plus a hand-written SQL block adding:
 
 ```sql
 CREATE CONSTRAINT TRIGGER journal_entry_line_balanced
@@ -758,23 +811,25 @@ CREATE CONSTRAINT TRIGGER journal_entry_line_balanced
   EXECUTE PROCEDURE assert_journal_entry_balanced();
 ```
 
+**Corrected 2026-09-18** (an independent review's m1 finding): no
+migration anywhere in this repo today creates a Postgres function or a
+constraint trigger — this is a first for the codebase, not "consistent
+with how this repo already mixes generated and raw SQL in migrations"
+as an earlier draft claimed (raw SQL exists elsewhere for data
+statements, e.g. `salesDocumentNumberGenerator.ts`'s `ON CONFLICT`
+allocation, but never for DDL creating a function/trigger). Flagging
+this plainly rather than implying precedent that doesn't exist: a
+deferred-trigger failure surfaces at commit as a generic Postgres
+error, which `postJournalEntry` must catch and translate to a readable
+application error rather than letting a raw DB exception reach the
+caller.
+
 `assert_journal_entry_balanced()` raises if
 `SUM(debit) != SUM(credit)` for the affected `journal_entry_id` at
 commit time.
 
-The same migration adds a per-organization counter table backing
-`JournalEntry.sequenceNumber` (see Design decisions):
-
-```sql
-CREATE TABLE journal_entry_sequence (
-  tenant_id uuid NOT NULL,
-  organization_id uuid NOT NULL,
-  next_value bigint NOT NULL DEFAULT 1,
-  PRIMARY KEY (tenant_id, organization_id)
-);
-```
-
-`postJournalEntry` allocates the next value inside the posting
+`postJournalEntry` allocates the next `JournalEntrySequence` value
+inside the posting
 transaction via
 `INSERT INTO journal_entry_sequence (tenant_id, organization_id, next_value) VALUES ($1, $2, 2)
 ON CONFLICT (tenant_id, organization_id) DO UPDATE SET next_value = journal_entry_sequence.next_value + 1
@@ -783,8 +838,10 @@ RETURNING next_value - 1`, storing the result on
 `UNIQUE (tenant_id, organization_id, sequence_number)` constraint.
 
 Supporting indexes for the `journal-entries` list filters (see API
-Contracts): `(organization_id, posted_at)` on `journal_entry` backs the
-`periodId` date-range filter and default post-date ordering;
+Contracts): `(organization_id, operation_date)` on `journal_entry`
+backs the `periodId` date-range filter (**corrected 2026-09-18** — was
+keyed on `posted_at`, see Design decisions); `(organization_id,
+posted_at)` backs default post-date ordering;
 `(organization_id, account_id)` on `journal_entry_line` backs the
 `accountId` filter; `(organization_id, reference_type, reference_id)`
 on `journal_entry` backs the `referenceType`/`referenceId` pair.
@@ -792,29 +849,41 @@ on `journal_entry` backs the `referenceType`/`referenceId` pair.
 ### Commands (Command Pattern, `commands/`)
 
 - `postJournalEntry` — validates the `FiscalPeriod` covering
-  `postedAt` is not `isLocked` (rejects before any write), validates
-  debit/credit balance, requires `operationDate` (art. 23 ust. 2 — see
-  Design decisions; `documentType`/`documentNumber`/`documentDate` are
-  accepted but optional in this phase), atomically allocates the next
-  per-organization `sequenceNumber`, persists entry + lines in one
+  `operationDate` is not `isLocked` (rejects before any write;
+  **corrected 2026-09-18** — was keyed on `postedAt`, see Design
+  decisions), rejecting the post outright if no `FiscalPeriod` covers
+  `operationDate` at all; validates debit/credit balance; requires
+  `operationDate` (art. 23 ust. 2 — see Design decisions;
+  `documentType`/`documentNumber`/`documentDate` are accepted but
+  optional in this phase); server-sets `postedAt` to the current
+  timestamp — the caller never supplies it; atomically allocates the
+  next per-organization `sequenceNumber`, persists entry + lines in one
   transaction. Emits
-  `ledger.journal_entry.posted` (ephemeral) after commit — see Events
-  below; this is the only way other modules (e.g. Posting Rules
-  Engine) may react, per `packages/events/AGENTS.md`'s ban on direct
-  cross-module calls. Requires `ledger.entries.post`.
+  `ledger.journal_entry.posted` after commit (payload and subscriber
+  persistence — **corrected 2026-09-18**, see Events below); this is
+  the only way other modules (e.g. Posting Rules Engine) may react, per
+  `packages/events/AGENTS.md`'s ban on direct cross-module calls.
+  Requires `ledger.entries.post`.
 - `reverseJournalEntry` — posts a new `REVERSAL` entry with inverted
   lines, referencing the original; does not mutate the original.
   **Corrected 2026-09-14:** also emits `ledger.journal_entry.posted`
-  (ephemeral) after commit, exactly like `postJournalEntry`. An
-  earlier draft documented the event only on `postJournalEntry`, but
+  after commit, exactly like `postJournalEntry`. An earlier draft
+  documented the event only on `postJournalEntry`, but
   `2026-09-06-posting-rules-engine.md`'s own subscriber design
   ("Reversals are mirrored, not duplicated") already assumes a
   `REVERSAL` entry's lines arrive through this same event, to
   detect and mirror a storno of a zespół 4 posting. Without this
   emission that subscriber's contra-side branch is unreachable
-  dead code. Requires `ledger.entries.post`.
+  dead code. **Added 2026-09-18:** the `REVERSAL` entry carries its own
+  `operationDate` (the date the reversal itself is recorded), never
+  the original entry's `operationDate` — otherwise a reversal of a
+  closed-period entry could be keyed straight back into the locked
+  period it exists to get out of (see Design decisions). Requires
+  `ledger.entries.post`.
 - `createFiscalPeriod` — creates a period (`startDate`, `endDate`,
-  `isLocked: false`). Requires `ledger.periods.manage`.
+  `isLocked: false`); rejects if the given range overlaps any existing
+  `FiscalPeriod` for the same organization (**added 2026-09-18** — see
+  Design decisions, M1 fix). Requires `ledger.periods.manage`.
 - `lockFiscalPeriod` / `unlockFiscalPeriod` — toggles `isLocked`,
   enforces `enforceCommandOptimisticLock` against the caller's
   `x-om-ext-optimistic-lock-expected-updated-at` header. Requires
@@ -839,14 +908,37 @@ on `journal_entry` backs the `referenceType`/`referenceId` pair.
   command but is the same kind of committed `JournalEntry` and must
   fire the same event — a downstream subscriber otherwise cannot
   tell "nothing was reversed today" from "the event for a reversal
-  was silently never sent." Ephemeral (in-process, no retry) —
-  matches the "real-time UI updates" use case in
-  `packages/events/AGENTS.md`, not a durability guarantee. This
-  module has no subscribers of its own;
-  it exists so a downstream module (e.g. Posting Rules Engine) can
-  react without `ledger` importing or resolving that module — `ledger`
-  stays fully generic and has no knowledge of zespoły, konto 490, or
-  any jurisdiction-specific concept.
+  was silently never sent." **Corrected 2026-09-18** (an independent
+  review's M2 finding): persistence is a property the *subscriber*
+  declares (`metadata.persistent`), not the event — `packages/
+  events/AGENTS.md`'s Subscription Types make this explicit. This
+  document previously called the event itself "ephemeral... not a
+  durability guarantee," which is a category error: `ledger` only
+  declares the event; whether a given subscriber needs at-least-once
+  delivery is that subscriber's own choice. #6015 (Posting Rules
+  Engine)'s reversal-mirroring subscriber is a write-side, idempotent
+  consumer and so must subscribe with `persistent: true` — it inherits
+  no "lost on restart" risk from this event, provided it declares that
+  itself. This module has no subscribers of its own; it exists so a
+  downstream module (e.g. Posting Rules Engine) can react without
+  `ledger` importing or resolving that module — `ledger` stays fully
+  generic and has no knowledge of zespoły, konto 490, or any
+  jurisdiction-specific concept.
+
+  **Payload** (added 2026-09-18): `{ journalEntryId: string,
+  sequenceNumber: number, type: 'NORMAL' | 'OPENING' | 'CLOSING' |
+  'REVERSAL', operationDate: string, organizationId: string,
+  tenantId: string, referenceType: string | null, referenceId: string
+  | null, lines: { id: string, accountId: string, debit: string,
+  credit: string }[] }` — enough for an idempotent subscriber to act
+  without a second read back to `ledger` (`JournalEntryLine.debit`/
+  `credit` as numeric strings, matching the entity's own column type).
+  `createModuleEvents`'s required `entity`/`category` fields: `entity:
+  'journal_entry'`, `category: 'lifecycle'` (checked against the
+  category values other modules actually use — `crud` / `custom` /
+  `lifecycle` / `system` — `lifecycle` fits a `JournalEntry` moving to
+  its posted state better than `crud`, which this event isn't; there
+  is no `accounting`-specific category in this repo).
 
 ### Queries / API
 
@@ -860,10 +952,11 @@ on `journal_entry` backs the `referenceType`/`referenceId` pair.
   period, type, reference. `accountId` joins through
   `JournalEntryLine.accountId` (no such column on `JournalEntry`
   itself); `periodId` resolves the named `FiscalPeriod`'s
-  `startDate`/`endDate` and filters by `postedAt` within that range —
-  an application-layer range filter, not a stored FK (see API
-  Contracts, Data Models). Requires `ledger.entries.view`. See API
-  Contracts.
+  `startDate`/`endDate` and filters by `operationDate` within that
+  range — an application-layer range filter, not a stored FK
+  (**corrected 2026-09-18** — was `postedAt`, see Design decisions)
+  (see API Contracts, Data Models). Requires `ledger.entries.view`. See
+  API Contracts.
 - `api/accounts/route.ts`, `api/account-types/route.ts` — standard
   `makeCrudRoute` CRUD (list/create/update/soft-delete via
   `deletedAt`; delete blocked once an account/type has posted
@@ -909,8 +1002,9 @@ Standard `makeCrudRoute` paginated list.
   `JournalEntryLine.accountId` (a join through `journal_entry_line` —
   `JournalEntry` itself carries no `accountId` column; see Data
   Models). `periodId` is resolved server-side to the named
-  `FiscalPeriod`'s `startDate`/`endDate` and applied as a `postedAt`
-  range filter — `JournalEntry` has no `periodId` column or FK either
+  `FiscalPeriod`'s `startDate`/`endDate` and applied as an
+  `operationDate` range filter (**corrected 2026-09-18** — was
+  `postedAt`) — `JournalEntry` has no `periodId` column or FK either
   (see Data Models). Both are supported by indexes named in Migration.
 - **Response 200**: `{ items: JournalEntryDto[], total: number, page: number, pageSize: number }`
   where `JournalEntryDto` is `{ id, sequenceNumber, postedAt, operationDate, documentType, documentNumber, documentDate, description, type, currencyId, exchangeRate, referenceType, referenceId, lines: { id, accountId, debit, credit, amountCurrency }[] }`
@@ -980,7 +1074,10 @@ rows against accounts of that type before allowing the change.
 `accountGroupId` (nullable FK to `LedgerAccountGroup`) carries the
 same immutability guard, for the same reason (see Design decisions).
 `deletedAt` backs a soft delete via `makeCrudRoute`, blocked once the
-type has posted entries.
+type has posted entries, or once any `LedgerAccountType` names it as
+`parentAccountTypeId` (**added 2026-09-18** — m5: an earlier draft left
+this case unspecified; a soft-deleted parent would silently orphan its
+children's hierarchy).
 
 ### LedgerAccount
 
@@ -993,13 +1090,21 @@ immutable once the account has posted entries — enforced by
 `updateLedgerAccount`, the same class of guard as `normalBalance`/
 `accountGroupId` on `LedgerAccountType` (see Design decisions).
 `deletedAt` backs a soft delete via `makeCrudRoute`, blocked once the
-account has posted entries.
+account has posted entries, or once any `LedgerAccount` names it as
+`parentAccountId` (**added 2026-09-18** — m5, same reasoning as
+`LedgerAccountType` above).
 
 ### JournalEntry / JournalEntryLine
 
 A `JournalEntry` with zero or one line is invalid — every posted entry
-must have at least two lines and must balance. Enforced by the
-application layer and the database trigger described above.
+must have at least two lines and must balance. **Corrected 2026-09-18**
+(an independent review's m5 finding): the "at least two lines" half is
+application-layer only — `journal_entry_line_balanced` is a
+`FOR EACH ROW` trigger on `journal_entry_line`, so it never fires at
+all for a header inserted with zero lines, and a single-line insert
+only ever sees that one row's own debit/credit, not a count. Only the
+balance half (`SUM(debit) = SUM(credit)`) has a database backstop; the
+line-count minimum has none.
 `sequenceNumber` is unique per organization and gapless in posting order —
 allocated atomically as part of the same transaction that inserts the
 entry, so a failed post never consumes a number (see Design
@@ -1096,10 +1201,12 @@ Queries / API).
 | `lib/seeds.ts` | Create | `seedPolishAccountGroups(em, { tenantId, organizationId })` — seeds tenant/org-scoped `LedgerAccountGroup` rows for `jurisdiction: 'PL'` (zespoły 0–8), called from `setup.ts`'s `seedDefaults`; other jurisdictions added later as pure data |
 | `encryption.ts` | Create | `defaultEncryptionMaps` for `ledger:journal_entry_line.contractor_snapshot` (PII duplicated from Contractor Registry — see Design decisions) |
 | `migrations/MigrationXXXXXXXXXXXXXX.ts` | Create | Tables for the entities above plus the deferred balance-check constraint trigger and the per-organization `journal_entry_sequence` counter table |
+| `data/validators.ts` | Create | zod validators for `postJournalEntry`, `reverseJournalEntry`, `createFiscalPeriod`, `lockFiscalPeriod`/`unlockFiscalPeriod`, `createLedgerAccount`/`updateLedgerAccount`, `createLedgerAccountType`/`updateLedgerAccountType` command inputs (**added 2026-09-18** — m4: root `AGENTS.md` requires input validators live here, not inline in commands) |
+| `i18n/<locale>.json` (en/pl/es/de/ko, matching every other module) | Create | User-facing strings for the four backend pages below and any command-rejection messages surfaced to the UI — never hard-coded (**added 2026-09-18** — m4) |
 | `acl.ts` | Create | Six `ledger.*` features |
 | `setup.ts` | Create | `defaultRoleFeatures` for `admin`/`employee`; `seedDefaults` seeding `LedgerAccountGroup` (jurisdiction `'PL'`, hardcoded) into each organization |
 | `commands/postJournalEntry.ts` | Create | Validate the covering period is unlocked, validate and persist a balanced journal entry, atomically allocating the next per-organization `sequenceNumber` |
-| `events.ts` | Create | Declares `ledger.journal_entry.posted` (ephemeral), emitted by both `postJournalEntry` and `reverseJournalEntry` after commit (corrected 2026-09-14) |
+| `events.ts` | Create | Declares `ledger.journal_entry.posted` (payload + `entity`/`category` per Events, corrected 2026-09-18), emitted by both `postJournalEntry` and `reverseJournalEntry` after commit (corrected 2026-09-14) |
 | `commands/reverseJournalEntry.ts` | Create | Post a linked reversal without mutating the original; emits `ledger.journal_entry.posted` after commit (corrected 2026-09-14) |
 | `commands/fiscalPeriods.ts` | Create | `createFiscalPeriod`, `lockFiscalPeriod` / `unlockFiscalPeriod` with optimistic-lock enforcement |
 | `commands/ledgerAccounts.ts` | Create | `createLedgerAccount` / `updateLedgerAccount` with the `accountTypeId`-immutability guard |
@@ -1114,6 +1221,7 @@ Queries / API).
 | `backend/ledger/account-types/page.tsx` (+ create/[id]) | Create | `LedgerAccountType` list/create/edit UI |
 | `backend/ledger/fiscal-periods/page.tsx` (+ create) | Create | Period list with lock/unlock row action |
 | `backend/ledger/journal-entries/page.tsx` | Create | Read-only journal entry list |
+| `backend/ledger/{accounts,account-types,fiscal-periods,journal-entries}/page.meta.ts` | Create | Sidebar registration for each list page — `pageTitle`/`pageTitleKey`, `pageGroup: 'Accounting'`/`pageGroupKey`, `pageOrder`, `icon`, `requireFeatures: ['ledger.*']` per page, the same convention `resources/backend/resources/resource-types/page.meta.ts` already uses (**added 2026-09-18** — m4: no earlier draft registered these pages in any sidebar) |
 | `commands/__tests__/*` | Create | Regression coverage for all commands above |
 | `__integration__/*` | Create | Integration coverage for `journal-entries` list and `fiscal-periods` lock/unlock routes |
 
@@ -1123,9 +1231,14 @@ Queries / API).
   with all lines.
 - Attempt to post an unbalanced entry and assert both the application-
   layer validation and the database trigger reject it.
-- Attempt to post an entry whose `postedAt` falls in a locked fiscal
-  period and assert the command rejects it before any write; assert
-  the same entry posts successfully once the period is unlocked.
+- Attempt to post an entry whose `operationDate` falls in a locked
+  fiscal period and assert the command rejects it before any write
+  (**corrected 2026-09-18** — was `postedAt`); assert the same entry
+  posts successfully once the period is unlocked; assert an entry
+  whose `operationDate` is covered by no `FiscalPeriod` at all is
+  rejected too; assert a `REVERSAL` of an entry in a closed period
+  posts successfully when the reversal's own `operationDate` falls in
+  an open period (the original's `operationDate` is not reused).
 - Assert `createFiscalPeriod`/`lockFiscalPeriod`/`unlockFiscalPeriod`
   return 403 without `ledger.periods.manage` and succeed with it.
 - Reverse a posted entry and assert a new, linked `REVERSAL` entry is
@@ -1167,12 +1280,15 @@ Queries / API).
   with the current one.
 - Assert deleting a `LedgerAccount`/`LedgerAccountType` sets
   `deletedAt` (not a real row removal) and is rejected once the
-  account/type has posted entries; assert a soft-deleted account/type
-  is excluded from list results.
+  account/type has posted entries, or once another account/type names
+  it as `parentAccountId`/`parentAccountTypeId` (**added 2026-09-18**
+  — m5); assert a soft-deleted account/type is excluded from list
+  results.
 - Assert `GET /api/ledger/journal-entries?periodId=` returns only
-  entries whose `postedAt` falls within that `FiscalPeriod`'s
-  `startDate`/`endDate`, and `?accountId=` returns only entries with a
-  matching `JournalEntryLine.accountId`.
+  entries whose `operationDate` falls within that `FiscalPeriod`'s
+  `startDate`/`endDate` (**corrected 2026-09-18** — was `postedAt`),
+  and `?accountId=` returns only entries with a matching
+  `JournalEntryLine.accountId`.
 - Integration: `GET /api/ledger/journal-entries` returns filtered
   results and 403s without `ledger.entries.view`; the `fiscal-periods`
   lock/unlock routes return 200 / 409 (stale `updated_at`) / 403
@@ -1270,6 +1386,16 @@ deploy independently of any other module.
   side to compute from (Balance calculation, above), and return in a
   future phase; the `CLOSING`/`OPENING` types keep the door open for
   them without requiring either now.
+- **A database-level exclusion constraint preventing two `FiscalPeriod`
+  rows for the same organization from overlapping.** `createFiscalPeriod`
+  checks for an overlap in application code (**added 2026-09-18**, see
+  Design decisions — M1 fix); a `btree_gist` exclusion constraint would
+  give the same invariant a DB-level backstop, matching this engine's
+  own pattern for the balance invariant (app check + deferred DB
+  trigger). Deferred to a future phase: no other invariant in this
+  spec needs the `btree_gist` extension, and the app-layer check is
+  sufficient while `FiscalPeriod` rows are only ever created through
+  this module's own command.
 - **Subsidiary ledgers (księgi pomocnicze).** Per-counterparty
   (kontrahent) sub-ledgers tracking receivables/payables in natural
   and monetary units (art. 13 ust. 1 pkt 3, art. 16 Ustawy o
@@ -1347,8 +1473,9 @@ deploy independently of any other module.
   /api/ledger/journal-entries` is a paginated list, and #6013's
   balance/ZSiO routes answer one account or one period at a time.
   Nothing lets another backend module pull a full fiscal year's journal
-  in bulk, in-process, the way AP already consumes this engine's write
-  side through `commandBus`. A concrete consumer exists: a
+  in bulk, in-process, the way AP's planned `postVendorInvoice` (PR
+  #5962, not yet merged) is designed to consume this engine's write
+  side through `commandBus` once it ships. A concrete consumer exists: a
   Poland-jurisdiction JPK_KR_PD filing (electronic accounting books —
   see the 2026-09-10 `financial-pl`-side analysis) needs exactly
   this for its `Dziennik`/`KontoZapis` nodes, and can reuse #6013's
@@ -2138,3 +2265,77 @@ detail still waits on `#6038`, same as before this update.
   event. Updated Commands, Events, File Manifest, and Testing
   Strategy to state `reverseJournalEntry` also emits
   `ledger.journal_entry.posted` after commit.
+
+### 2026-09-18 (independent maintainer review — @matgren, PR #5663 — all findings applied)
+
+- **M1 — fiscal-period assignment was keyed on `postedAt`, not
+  `operationDate`.** Art. 20 ust. 1 UoR assigns an entry to the
+  reporting period the event occurred in, not the period it was typed
+  into the system. Fixed: `postJournalEntry`'s lock check and the
+  `periodId` list/API filter now key on `operationDate`; `postedAt` is
+  now explicitly server-set, never caller-supplied; `postJournalEntry`
+  now rejects a post whose `operationDate` is covered by no
+  `FiscalPeriod` at all; `createFiscalPeriod` now rejects an overlapping
+  range for the same organization (app-layer check, DB exclusion
+  constraint deferred — see Out of scope); `reverseJournalEntry` now
+  documented as giving the `REVERSAL` its own `operationDate`, never
+  the original's. Updated Commands, Queries/API, API Contracts, Data
+  Models (index note), Invariants, Testing Strategy, Design decisions
+  (new paragraph), and Out of scope.
+- **M2 — the `ledger.journal_entry.posted` event had no payload and
+  mischaracterized its own durability.** Persistence is a property the
+  *subscriber* declares (`metadata.persistent`, per `packages/events/
+  AGENTS.md`), not the event — calling the event "ephemeral... not a
+  durability guarantee" was a category error, and #6015's
+  reversal-mirroring subscriber (a write-side, idempotent consumer)
+  needs to know it must subscribe with `persistent: true`. Added the
+  payload shape (`journalEntryId`, `sequenceNumber`, `type`,
+  `operationDate`, `organizationId`, `tenantId`, `referenceType`/
+  `referenceId`, `lines[]`) and the `entity`/`category` fields
+  `createModuleEvents` requires (`entity: 'journal_entry'`, `category:
+  'lifecycle'` — checked against the real category values other
+  modules use, not invented). Updated Events and File Manifest.
+- **m1 — the sequence counter was hand-written SQL outside the ORM.**
+  `sales.SalesDocumentSequence` and `warranty_claims.WarrantyClaimSequence`
+  are the identical counter shape, modeled as ordinary entities and
+  allocated the same `ON CONFLICT` way. Modeled `JournalEntrySequence`
+  as an entity to match; the migration table is now ORM-generated, not
+  hand-written. Also corrected the overstated "consistent with how
+  this repo already mixes generated and raw SQL" claim — no migration
+  in this repo today creates a function or constraint trigger, this is
+  a first — and noted `postJournalEntry` must translate the trigger's
+  generic Postgres error into a readable application error. Updated
+  Entities, Design decisions, Migration.
+- **m2 — two stale "already implemented" claims.** "Zero matches" for
+  `ledger`/`journal`/`accounting` in `packages/core/src` was literally
+  false (two unrelated hits: `sales`'s payment-ledger deprecation shim,
+  `query_index`'s `batch-write-accounting.test.ts`) though the
+  substantive point holds; corrected to say so precisely rather than
+  claim zero. "Accounts Payable's `postVendorInvoice`, already posting
+  today" and "the way AP already consumes this engine's write side
+  through `commandBus`" both described PR #5962 (changes requested,
+  unmerged) as running code; corrected both to name it as a planned,
+  not-yet-merged consumer. Updated Problem Statement, Design decisions,
+  Out of scope.
+- **m3 — `.ai/specs/README.md`'s Pending Specifications table was
+  broken.** Two blank lines after this document's two rows ended the
+  table early, so the next row ("Deal Status `lost` Spelling") rendered
+  as plain text. Removed the blank lines.
+- **m4 — File Manifest omitted files this repo requires.** Added
+  `data/validators.ts` (root `AGENTS.md`: zod validators live there,
+  not inline in commands), `i18n/<locale>.json` for the four backend
+  pages (never hard-code user-facing strings), and `page.meta.ts` for
+  each backend page (sidebar registration — the same convention
+  `resources/backend/resources/resource-types/page.meta.ts` already
+  uses; no earlier draft registered these pages in any sidebar).
+- **m5 — unstated delete/structure edge cases.** Soft-deleting a
+  `LedgerAccountType`/`LedgerAccount` that still has children
+  (`parentAccountTypeId`/`parentAccountId` pointing at it) was
+  unspecified; now blocked, same as the posted-entries guard. Also
+  corrected an inaccurate claim: the "at least two lines" half of the
+  `JournalEntry` invariant is application-layer only —
+  `journal_entry_line_balanced` is a `FOR EACH ROW` trigger on
+  `journal_entry_line` and never fires at all for a header inserted
+  with zero lines, so only the balance half (`SUM(debit) =
+  SUM(credit)`) has a database backstop. Updated Data Models,
+  Testing Strategy.
