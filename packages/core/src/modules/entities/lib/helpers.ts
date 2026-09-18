@@ -164,7 +164,7 @@ export async function setRecordCustomFields(
         const cf = em.create(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey, createdAt: new Date() })
         clearValueColumns(cf)
         const stored = encrypted
-          ? await encryptCustomFieldValue(val, tenantId, getEncryptionService(), encryptionCache)
+          ? await encryptCustomFieldValue(val, tenantId, getEncryptionService(), encryptionCache, { entityId, fieldKey })
           : val
         switch (col) {
           case 'valueText': cf.valueText = stored == null ? null : String(stored); break
@@ -181,7 +181,7 @@ export async function setRecordCustomFields(
 
     const column: keyof CustomFieldValue = encrypted ? 'valueText' : def ? columnFromKind(def.kind) : columnFromJsValue(raw as Primitive)
     const storedValue = encrypted
-      ? await encryptCustomFieldValue(raw as Primitive, tenantId, getEncryptionService(), encryptionCache)
+      ? await encryptCustomFieldValue(raw as Primitive, tenantId, getEncryptionService(), encryptionCache, { entityId, fieldKey })
       : raw
 
     let cf = await em.findOne(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey })
