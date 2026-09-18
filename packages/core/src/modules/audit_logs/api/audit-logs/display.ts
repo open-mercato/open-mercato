@@ -1,7 +1,9 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
+import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
+import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 
 type IdBuckets = {
   userIds: Iterable<string>
@@ -24,7 +26,12 @@ function toUniqueArray(values: Iterable<string>): string[] {
   return Array.from(set)
 }
 
-export async function loadAuditLogDisplayMaps(em: EntityManager, ids: IdBuckets): Promise<DisplayMaps> {
+export async function loadAuditLogDisplayMaps(
+  em: EntityManager,
+  ids: IdBuckets,
+  options?: { translate?: TranslateWithFallbackFn },
+): Promise<DisplayMaps> {
+  const translate = options?.translate
   const userIds = toUniqueArray(ids.userIds)
   const tenantIds = toUniqueArray(ids.tenantIds)
   const organizationIds = toUniqueArray(ids.organizationIds)
@@ -52,12 +59,19 @@ export async function loadAuditLogDisplayMaps(em: EntityManager, ids: IdBuckets)
   // (the `api_key:` prefix is stripped at write time — see ActionLogService.sanitizeActor).
   // Resolve any actor id the User lookup missed against api_keys so callers never
   // fall back to rendering the raw UUID, including for keys that were later revoked.
+  // The api_keys module is optional (see module-decoupling.test.ts) — its entity
+  // metadata is only registered with the ORM when the module is enabled, so this
+  // lookup must be skipped rather than attempted when the module is disabled.
   const unresolvedUserIds = userIds.filter((id) => !usersMap[id])
-  if (unresolvedUserIds.length) {
-    const apiKeys = await em.find(ApiKey, { id: { $in: unresolvedUserIds as any } })
+  const entityIds = getEntityIds(false)
+  if (unresolvedUserIds.length && entityIds.api_keys?.api_key) {
+    const apiKeyFilter: FilterQuery<ApiKey> = { id: { $in: unresolvedUserIds } }
+    const apiKeys = await em.find(ApiKey, apiKeyFilter)
     for (const apiKey of apiKeys) {
       const id = String(apiKey.id)
-      const label = apiKey.deletedAt ? `API key: ${apiKey.name} (revoked)` : `API key: ${apiKey.name}`
+      const label = apiKey.deletedAt
+        ? translate?.('audit_logs.actor.api_key_revoked', 'API key: {name} (revoked)', { name: apiKey.name }) ?? `API key: ${apiKey.name} (revoked)`
+        : translate?.('audit_logs.actor.api_key', 'API key: {name}', { name: apiKey.name }) ?? `API key: ${apiKey.name}`
       usersMap[id] = label
     }
   }

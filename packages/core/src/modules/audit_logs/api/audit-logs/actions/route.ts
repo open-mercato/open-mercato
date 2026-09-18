@@ -11,6 +11,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { ACTION_LOG_FILTER_TYPES } from '@open-mercato/core/modules/audit_logs/lib/projections'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['audit_logs.view_self'] },
@@ -240,11 +241,12 @@ export async function GET(req: Request) {
     throw err
   }
 
+  const { translate } = await resolveTranslations()
   const displayMaps = await loadAuditLogDisplayMaps(em, {
     userIds: list.items.map((entry: any) => entry.actorUserId).filter((value: any): value is string => !!value),
     tenantIds: list.items.map((entry: any) => entry.tenantId).filter((value: any): value is string => !!value),
     organizationIds: list.items.map((entry: any) => entry.organizationId).filter((value: any): value is string => !!value),
-  })
+  }, { translate })
 
   const items = list.items.map((entry: any) => ({
     id: entry.id,
