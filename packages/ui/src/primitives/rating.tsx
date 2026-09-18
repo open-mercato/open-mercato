@@ -226,7 +226,7 @@ export const Rating = React.forwardRef<HTMLSpanElement, RatingProps>(
                 }
               }}
               className={cn(
-                'inline-flex items-center justify-center rounded-sm outline-none',
+                'inline-flex items-center justify-center rounded-sm outline-none cursor-pointer',
                 'focus-visible:shadow-focus',
                 'enabled:hover:scale-110 enabled:hover:transition-transform',
                 'disabled:cursor-not-allowed',

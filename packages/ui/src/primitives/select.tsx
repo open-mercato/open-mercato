@@ -7,7 +7,7 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@open-mercato/shared/lib/utils'
 
 const selectTriggerVariants = cva(
-  'inline-flex w-full items-center justify-between gap-2 rounded-md border border-input bg-background shadow-xs transition-colors outline-none placeholder:text-muted-foreground hover:bg-muted/40 focus:outline-none focus-visible:outline-none focus-visible:shadow-focus focus-visible:border-foreground disabled:cursor-not-allowed disabled:bg-bg-disabled disabled:border-border-disabled disabled:shadow-none disabled:hover:bg-bg-disabled disabled:[&_svg]:opacity-60 aria-[invalid=true]:border-destructive aria-[invalid=true]:focus-visible:border-destructive data-[placeholder]:text-muted-foreground [&>span]:line-clamp-1 [&_svg]:pointer-events-none [&_svg:not([class*=size-])]:size-4 [&_svg]:shrink-0',
+  'inline-flex w-full items-center justify-between gap-2 rounded-md border border-input bg-background shadow-xs cursor-pointer transition-colors outline-none placeholder:text-muted-foreground hover:bg-muted/40 focus:outline-none focus-visible:outline-none focus-visible:shadow-focus focus-visible:border-foreground disabled:cursor-not-allowed disabled:bg-bg-disabled disabled:border-border-disabled disabled:shadow-none disabled:hover:bg-bg-disabled disabled:[&_svg]:opacity-60 aria-[invalid=true]:border-destructive aria-[invalid=true]:focus-visible:border-destructive data-[placeholder]:text-muted-foreground [&>span]:line-clamp-1 [&_svg]:pointer-events-none [&_svg:not([class*=size-])]:size-4 [&_svg]:shrink-0',
   {
     variants: {
       size: {
@@ -167,7 +167,7 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      'relative flex w-full cursor-default select-none items-center gap-2 rounded-md p-2 text-sm outline-none transition-colors',
+      'relative flex w-full cursor-pointer select-none items-center gap-2 rounded-md p-2 text-sm outline-none transition-colors',
       'focus:bg-muted focus:text-foreground',
       'data-[state=checked]:bg-muted/70 data-[state=checked]:text-foreground',
       'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',

@@ -96,7 +96,7 @@ export function Tag({
             onRemove()
           }}
           className={cn(
-            'inline-flex shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/40 disabled:pointer-events-none disabled:opacity-60',
+            'inline-flex shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/40 cursor-pointer disabled:pointer-events-none disabled:opacity-60',
             shape === 'pill' ? 'size-3' : 'size-4',
           )}
           aria-label={removeAriaLabel}

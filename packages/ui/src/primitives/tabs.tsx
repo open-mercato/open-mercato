@@ -190,7 +190,7 @@ export function TabsTrigger({
             ? 'group relative inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground outline-none transition-colors hover:bg-accent-indigo/10 hover:text-accent-indigo'
             : 'group relative -mb-px inline-flex items-center gap-2 rounded-t-md border-b-2 border-transparent px-3 py-2 text-sm font-medium text-muted-foreground outline-none transition-colors hover:bg-accent-indigo/10 hover:text-accent-indigo',
           'focus-visible:shadow-focus',
-          'disabled:pointer-events-none disabled:opacity-50',
+          'cursor-pointer disabled:pointer-events-none disabled:opacity-50',
           isSelected
             ? orientation === 'vertical'
               ? 'bg-muted/40 text-foreground hover:bg-muted/40 hover:text-foreground'

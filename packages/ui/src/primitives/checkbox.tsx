@@ -6,7 +6,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@open-mercato/shared/lib/utils"
 
 const checkboxVariants = cva(
-  "peer shrink-0 rounded-[4px] border border-input bg-background shadow-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo/40 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-accent-indigo data-[state=checked]:text-accent-indigo-foreground data-[state=checked]:border-accent-indigo data-[state=indeterminate]:bg-accent-indigo data-[state=indeterminate]:text-accent-indigo-foreground data-[state=indeterminate]:border-accent-indigo hover:border-accent-indigo/60 transition-colors",
+  "peer shrink-0 rounded-[4px] border border-input bg-background shadow-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo/40 focus-visible:ring-offset-2 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-accent-indigo data-[state=checked]:text-accent-indigo-foreground data-[state=checked]:border-accent-indigo data-[state=indeterminate]:bg-accent-indigo data-[state=indeterminate]:text-accent-indigo-foreground data-[state=indeterminate]:border-accent-indigo hover:border-accent-indigo/60 transition-colors",
   {
     variants: {
       size: {

@@ -86,7 +86,7 @@ const itemVariants = cva(
   // shadow alone is hard to read). Unselected text is muted; hover
   // only nudges color (no bg change — keeps the track flat).
   'inline-flex items-center justify-center rounded-full font-medium ' +
-    'transition-all outline-none focus-visible:shadow-focus ' +
+    'cursor-pointer transition-all outline-none focus-visible:shadow-focus ' +
     'disabled:cursor-not-allowed disabled:opacity-50 ' +
     'data-[state=checked]:bg-background data-[state=checked]:text-foreground data-[state=checked]:font-semibold data-[state=checked]:shadow-sm ' +
     'data-[state=unchecked]:bg-transparent data-[state=unchecked]:text-muted-foreground data-[state=unchecked]:hover:text-foreground',

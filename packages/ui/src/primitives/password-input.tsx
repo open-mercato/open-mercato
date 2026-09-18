@@ -89,7 +89,7 @@ export const PasswordInput = React.forwardRef<HTMLInputElement, PasswordInputPro
             aria-label={revealed ? resolvedHideLabel : resolvedShowLabel}
             aria-pressed={revealed}
             disabled={disabled}
-            className="flex shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
           >
             {revealed ? (
               <EyeOff className="size-4" aria-hidden="true" />

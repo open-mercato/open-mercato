@@ -15,7 +15,7 @@ const navButtonClassName = cn(
   'border border-border bg-background text-muted-foreground transition-colors',
   'hover:bg-accent hover:text-accent-foreground hover:border-input',
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-  'disabled:opacity-30 disabled:pointer-events-none disabled:hover:bg-background',
+  'cursor-pointer disabled:opacity-30 disabled:pointer-events-none disabled:hover:bg-background',
 )
 
 function MonthNavButton({
@@ -86,7 +86,7 @@ function buildMonthCaption(
             aria-label={`${label} – open month and year navigation`}
             className={cn(
               'flex-1 flex items-center justify-center h-9 rounded-md bg-muted px-3 text-sm font-medium',
-              'transition-colors hover:bg-accent hover:text-accent-foreground',
+              'cursor-pointer transition-colors hover:bg-accent hover:text-accent-foreground',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
             )}
           >
@@ -154,7 +154,7 @@ function MonthGrid({
           aria-label={`${yearLabel} – back to day selection`}
           className={cn(
             'flex-1 flex items-center justify-center h-9 rounded-md bg-muted px-3 text-sm font-medium',
-            'transition-colors hover:bg-accent hover:text-accent-foreground',
+            'cursor-pointer transition-colors hover:bg-accent hover:text-accent-foreground',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
           )}
         >
@@ -182,7 +182,7 @@ function MonthGrid({
               aria-pressed={isSelected}
               onClick={() => onSelectMonth(new Date(year, monthIndex, 1))}
               className={cn(
-                'h-9 rounded-md text-sm font-normal transition-colors',
+                'h-9 rounded-md text-sm font-normal cursor-pointer transition-colors',
                 'inline-flex items-center justify-center',
                 'hover:bg-accent hover:text-accent-foreground',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
@@ -282,7 +282,7 @@ export function Calendar({
             day_button: cn(
               'h-9 w-9 p-0 font-normal aria-selected:opacity-100',
               'inline-flex items-center justify-center rounded-md text-sm',
-              'transition-colors focus:outline-none focus-visible:outline-none disabled:pointer-events-none',
+              'cursor-pointer transition-colors focus:outline-none focus-visible:outline-none disabled:pointer-events-none',
               // Focus indicator is a soft accent fill instead of a ring overlay — keyboard
               // users get a visible cue, but mouse-click focus does not leave a stuck ring
               // on top of the selected cell.
