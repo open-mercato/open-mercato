@@ -458,6 +458,7 @@
   "catalog.products.edit.metadata.title": "Metadata",
   "catalog.products.edit.metadata.valuePlaceholder": "Value",
   "catalog.products.edit.offers.deleteError": "Failed to remove sales channel offer.",
+  "catalog.products.edit.optionsBuilder.emptyWithVariants": "This product has variants without an option schema. Options are optional.",
   "catalog.products.edit.save": "Save changes",
   "catalog.products.edit.schemas.apply": "Apply",
   "catalog.products.edit.schemas.delete": "Delete schema",

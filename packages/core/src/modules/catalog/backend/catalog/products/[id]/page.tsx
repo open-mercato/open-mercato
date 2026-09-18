@@ -913,6 +913,7 @@ export default function EditCatalogProductPage({
             values={values as ProductFormValues}
             setValue={setValue}
             errors={errors}
+            variantCount={variants.length}
           />
         ),
       },
@@ -1574,6 +1575,10 @@ type ProductVariantsSectionProps = Omit<
 
 type ProductDimensionsSectionProps = ProductFormGroupProps;
 
+type ProductOptionsSectionProps = ProductFormGroupProps & {
+  variantCount?: number;
+};
+
 function ProductDetailsSection({
   values,
   setValue,
@@ -1869,7 +1874,11 @@ function ProductMetadataSection({ values, setValue }: ProductFormGroupProps) {
   );
 }
 
-function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
+function ProductOptionsSection({
+  values,
+  setValue,
+  variantCount = 0,
+}: ProductOptionsSectionProps) {
   const t = useT();
   const [schemaDialogOpen, setSchemaDialogOpen] = React.useState(false);
   const [schemaTemplates, setSchemaTemplates] = React.useState<
@@ -2132,10 +2141,15 @@ function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
         ))}
         {!values.options?.length ? (
           <p className="text-sm text-muted-foreground">
-            {t(
-              "catalog.products.create.optionsBuilder.empty",
-              "No options yet. Add your first option to generate variants.",
-            )}
+            {variantCount > 0
+              ? t(
+                  "catalog.products.edit.optionsBuilder.emptyWithVariants",
+                  "This product has variants without an option schema. Options are optional.",
+                )
+              : t(
+                  "catalog.products.create.optionsBuilder.empty",
+                  "No options yet. Add your first option to generate variants.",
+                )}
           </p>
         ) : null}
       </div>
