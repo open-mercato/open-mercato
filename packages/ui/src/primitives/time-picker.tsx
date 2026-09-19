@@ -1,6 +1,8 @@
 "use client"
 
 import * as React from 'react'
+import { isHour12 } from '@open-mercato/shared/lib/display/datetime'
+import { useDisplayProfile } from '../backend/markets/MarketProfileProvider'
 import { Check, ChevronLeft, ChevronRight, Clock, X } from 'lucide-react'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -912,7 +914,7 @@ export function TimePicker({
   startTime = '00:00',
   endTime = '23:30',
   intervalMinutes = 30,
-  format = '12h',
+  format: formatProp,
   slotRightText,
   slotLabel,
   maxHeight = 280,
@@ -934,6 +936,10 @@ export function TimePicker({
   'aria-label': ariaLabel,
 }: TimePickerProps) {
   const t = useT()
+  const displayProfile = useDisplayProfile()
+  // An explicit `format` prop is the caller's decision and outranks the market. Without either,
+  // this keeps its long-standing 12-hour default, so a tenant with no market is unchanged.
+  const format: TimeFormat = formatProp ?? (isHour12(displayProfile, 'h12') ? '12h' : '24h')
   const resolvedHeaderPlaceholder = headerPlaceholder ?? t('ui.timePicker.placeholder', 'Pick a time')
   const resolvedStatusLabel = statusLabel ?? t('ui.timePicker.statusLabel', 'Select status')
   const resolvedCancelLabel = cancelLabel ?? t('ui.timePicker.cancelButton', 'Cancel')

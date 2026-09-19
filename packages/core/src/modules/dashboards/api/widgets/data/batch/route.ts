@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { resolveDisplayProfileForScope } from '@open-mercato/core/modules/markets/lib/request-profile'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
@@ -111,6 +112,7 @@ export async function POST(req: Request) {
     analyticsRegistry,
     cache,
     resolveOptionalBaseCurrencyResolver(container),
+    await resolveDisplayProfileForScope(container, { tenantId, organizationId: organizationIds?.[0] ?? null }),
   )
 
   const rbacService = container.resolve<{

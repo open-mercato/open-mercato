@@ -94,6 +94,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'workflows', from: '@open-mercato/core' },
   { id: 'search', from: '@open-mercato/search' },
   { id: 'currencies', from: '@open-mercato/core' },
+  { id: 'markets', from: '@open-mercato/core' },
   { id: 'planner', from: '@open-mercato/core' },
   { id: 'resources', from: '@open-mercato/core' },
   { id: 'staff', from: '@open-mercato/core' },

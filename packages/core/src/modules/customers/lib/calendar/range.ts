@@ -7,11 +7,21 @@ import { endOfWeek } from 'date-fns/endOfWeek'
 import { startOfDay } from 'date-fns/startOfDay'
 import { startOfMonth } from 'date-fns/startOfMonth'
 import { startOfWeek } from 'date-fns/startOfWeek'
+import type { DisplayProfile } from '@open-mercato/shared/lib/display/profile'
+import { weekStartsOn } from '@open-mercato/shared/lib/display/datetime'
 import type { CalendarRange, CalendarView } from '../../components/calendar/types'
 
-const MONDAY_WEEK = { weekStartsOn: 1 as const }
-
-export function getVisibleRange(view: CalendarView, anchor: Date, agendaHorizonDays: number): CalendarRange {
+/**
+ * `profile` is optional and last, so every existing caller keeps compiling and keeps getting Monday
+ * weeks - today's behavior for an organization that never picked a market.
+ */
+export function getVisibleRange(
+  view: CalendarView,
+  anchor: Date,
+  agendaHorizonDays: number,
+  profile?: DisplayProfile | null,
+): CalendarRange {
+  const MONDAY_WEEK = { weekStartsOn: weekStartsOn(profile) } as const
   switch (view) {
     case 'day':
       return { from: startOfDay(anchor), to: endOfDay(anchor) }

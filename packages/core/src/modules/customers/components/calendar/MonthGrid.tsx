@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import { addDays } from 'date-fns/addDays'
 import { format } from 'date-fns/format'
 import { isSameMonth } from 'date-fns/isSameMonth'
@@ -30,7 +31,8 @@ function isWeekend(date: Date): boolean {
 }
 
 function buildWeeks(anchor: Date): Date[][] {
-  const range = getVisibleRange('month', anchor, 0)
+  const displayProfile = useDisplayProfile()
+  const range = getVisibleRange('month', anchor, 0, displayProfile)
   const weeks: Date[][] = []
   let cursor = range.from
   while (cursor.getTime() <= range.to.getTime()) {

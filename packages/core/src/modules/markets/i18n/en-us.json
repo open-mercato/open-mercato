@@ -1,0 +1,5 @@
+{
+  "markets.address.label.postalCode": "ZIP code",
+  "markets.address.label.region": "State",
+  "markets.tax.label.vat": "Sales tax"
+}

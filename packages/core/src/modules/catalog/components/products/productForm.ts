@@ -162,6 +162,8 @@ export type ProductFormValues = {
   cnCode: string;
   hsCode: string;
   taxClassificationCode: string;
+  taxCode: string;
+  isTaxable: boolean;
   gtuCodes: string[];
   ageMin: string;
   isExciseGood: boolean;
@@ -286,6 +288,8 @@ export const productFormSchema = z
     cnCode: z.string().trim().max(32).optional(),
     hsCode: z.string().trim().max(32).optional(),
     taxClassificationCode: z.string().trim().max(64).optional(),
+    taxCode: z.string().trim().max(64).optional(),
+    isTaxable: z.boolean().optional(),
     gtuCodes: z.array(z.string()).optional(),
     ageMin: optionalBoundedIntegerInput(0, 120),
     isExciseGood: z.boolean().optional(),
@@ -394,6 +398,8 @@ export const BASE_INITIAL_VALUES: ProductFormValues = {
   cnCode: "",
   hsCode: "",
   taxClassificationCode: "",
+  taxCode: "",
+  isTaxable: true,
   gtuCodes: [],
   ageMin: "",
   isExciseGood: false,
@@ -452,6 +458,8 @@ export const buildComplianceProductPayload = (
   cnCode: complianceTrimOrNull(values.cnCode),
   hsCode: complianceTrimOrNull(values.hsCode),
   taxClassificationCode: complianceTrimOrNull(values.taxClassificationCode),
+  taxCode: complianceTrimOrNull(values.taxCode),
+  isTaxable: values.isTaxable !== false,
   gtuCodes:
     Array.isArray(values.gtuCodes) && values.gtuCodes.length
       ? values.gtuCodes
@@ -485,6 +493,8 @@ export type ComplianceFormValues = Pick<
   | "cnCode"
   | "hsCode"
   | "taxClassificationCode"
+  | "taxCode"
+  | "isTaxable"
   | "gtuCodes"
   | "ageMin"
   | "isExciseGood"
@@ -536,6 +546,8 @@ export const complianceFormValuesFromApiRecord = (
     cnCode: str(pick("cn_code", "cnCode")),
     hsCode: str(pick("hs_code", "hsCode")),
     taxClassificationCode: str(pick("tax_classification_code", "taxClassificationCode")),
+    taxCode: str(pick("tax_code", "taxCode")),
+    isTaxable: boolWithDefault(pick("is_taxable", "isTaxable"), true),
     gtuCodes: stringArray(pick("gtu_codes", "gtuCodes")),
     ageMin: numStr(pick("age_min", "ageMin")),
     isExciseGood: boolWithDefault(pick("is_excise_good", "isExciseGood"), false),

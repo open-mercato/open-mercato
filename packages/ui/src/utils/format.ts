@@ -1,6 +1,12 @@
 /**
  * Format a monetary value with an optional ISO-4217 currency code.
  *
+ * @deprecated Use `formatMoney` from `@open-mercato/shared/lib/display/money` (re-exported from
+ * `@open-mercato/ui/backend/markets/display`). It takes the organization's market display profile,
+ * so separators, the currency display and the negative style follow the market rather than the UI
+ * language. This helper keeps working unchanged and is not scheduled for removal; see the
+ * deprecation protocol in BACKWARD_COMPATIBILITY.md.
+ *
  * Returns `null` for empty input, the original string for non-numeric input,
  * and falls back to a plain number format (optionally suffixed with the code)
  * when the currency code is missing or rejected by `Intl.NumberFormat`.

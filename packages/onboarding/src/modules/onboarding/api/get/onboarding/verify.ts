@@ -20,6 +20,7 @@ import {
 import { setupInitialTenant } from '@open-mercato/core/modules/auth/lib/setup-app'
 import { UserConsent } from '@open-mercato/core/modules/auth/data/entities'
 import { computeConsentIntegrityHash } from '@open-mercato/core/modules/auth/lib/consentIntegrity'
+import { ensureMarketDisplayProfile } from '@open-mercato/core/modules/markets/lib/seeds'
 import { resolveConsentClientIp } from '@open-mercato/onboarding/modules/onboarding/lib/consentClientIp'
 import { runBestEffortProvisioningStep } from '@open-mercato/onboarding/modules/onboarding/lib/provisioning'
 import { getModules } from '@open-mercato/shared/lib/modules/registry'
@@ -271,6 +272,22 @@ export async function GET(req: Request) {
             createdAt: now,
           })
         }),
+      )
+    }
+
+    // Write the market display profile the signup picked, if it picked one.
+    //
+    // Best-effort and skipped entirely when the step was skipped: absence of a profile row is the
+    // documented meaning of "no market chosen", and the organization then renders with the platform
+    // defaults. A failure here must not strand a provisioned workspace - the admin can still pick a
+    // market on the settings page.
+    if (request.marketCode) {
+      const marketEm = em.fork()
+      await runBestEffortProvisioningStep('market-display-profile', () =>
+        ensureMarketDisplayProfile(marketEm, {
+          tenantId: resolvedTenantId,
+          organizationId: resolvedOrganizationId,
+        }, request.marketCode!).then(() => undefined),
       )
     }
 

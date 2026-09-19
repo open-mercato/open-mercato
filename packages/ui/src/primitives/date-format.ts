@@ -1,6 +1,8 @@
 import { format as formatDateFns } from 'date-fns/format'
 import { parseISO } from 'date-fns/parseISO'
 import type { Locale } from 'date-fns/locale'
+import type { DisplayProfile } from '@open-mercato/shared/lib/display/profile'
+import { formatDate as formatMarketDate, formatDateTime as formatMarketDateTime } from '@open-mercato/shared/lib/display/datetime'
 
 type LocaleLike = Locale | string | null | undefined
 
@@ -144,21 +146,38 @@ function getFormatter(locale: string | undefined, style: keyof typeof DISPLAY_ST
   return created
 }
 
-/** Render a date for display, or `null` when there is nothing valid to show. */
-export function formatDisplayDate(value: string | Date | null | undefined, locale?: LocaleLike): string | null {
+/**
+ * Render a date for display, or `null` when there is nothing valid to show.
+ *
+ * `profile` is optional and trailing, so the existing callers compile and render unchanged. With a
+ * market it delegates to the shared helper, which applies the market's pattern and time zone; the
+ * env pin still wins over both, because an operator who set `NEXT_PUBLIC_OM_DATE_FORMAT` said how
+ * dates must look on their deployment.
+ */
+export function formatDisplayDate(
+  value: string | Date | null | undefined,
+  locale?: LocaleLike,
+  profile?: DisplayProfile | null,
+): string | null {
   const parsed = parseDisplayValue(value)
   if (!parsed) return null
   const pattern = resolveDisplayDateFormat()
   if (pattern) return formatWithPublicDateFormat(parsed, pattern)
+  if (profile) return formatMarketDate(value ?? null, profile, { locale: intlLocale(locale) })
   return getFormatter(intlLocale(locale), 'date').format(parsed)
 }
 
-/** Render a timestamp for display, or `null` when there is nothing valid to show. */
-export function formatDisplayDateTime(value: string | Date | null | undefined, locale?: LocaleLike): string | null {
+/** Render a timestamp for display, or `null` when there is nothing valid to show. See {@link formatDisplayDate}. */
+export function formatDisplayDateTime(
+  value: string | Date | null | undefined,
+  locale?: LocaleLike,
+  profile?: DisplayProfile | null,
+): string | null {
   const parsed = parseDisplayValue(value)
   if (!parsed) return null
   const pattern = resolveDisplayDateTimeFormat()
   if (pattern) return formatWithPublicDateFormat(parsed, pattern)
+  if (profile) return formatMarketDateTime(value ?? null, profile, { locale: intlLocale(locale) })
   return getFormatter(intlLocale(locale), 'datetime').format(parsed)
 }
 

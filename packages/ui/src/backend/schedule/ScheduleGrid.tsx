@@ -1,6 +1,10 @@
 "use client"
 
 import * as React from 'react'
+import type { DisplayProfile } from '@open-mercato/shared/lib/display/profile'
+import { withProfile } from '@open-mercato/shared/lib/display/profile'
+import { optionalHour12 } from '@open-mercato/shared/lib/display/datetime'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import type { ScheduleItem, ScheduleRange, ScheduleSlot } from './types'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Badge } from '../../primitives/badge'
@@ -39,9 +43,17 @@ function formatDayLabel(day: Date): string {
   return day.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
-function formatTimeRange(item: ScheduleItem, timezone?: string): string {
+function formatTimeRange(
+  item: ScheduleItem,
+  timezone?: string,
+  profile?: DisplayProfile | null,
+): string {
   const options: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' }
-  if (timezone) options.timeZone = timezone
+  // An explicit `timeZone` prop is the caller's own scheduling zone and outranks the market's.
+  const zone = timezone ?? withProfile(profile).timeZone ?? undefined
+  if (zone) options.timeZone = zone
+  const hour12 = optionalHour12(profile)
+  if (hour12 !== undefined) options.hour12 = hour12
   const startLabel = item.startsAt.toLocaleTimeString(undefined, options)
   const endLabel = item.endsAt.toLocaleTimeString(undefined, options)
   return `${startLabel}-${endLabel}`
@@ -72,6 +84,7 @@ export type ScheduleGridProps = {
 }
 
 export function ScheduleGrid({ items, range, timezone, onItemClick, onSlotClick, className }: ScheduleGridProps) {
+  const displayProfile = useDisplayProfile()
   const t = useT()
   const days = React.useMemo(() => eachDay(range.start, range.end), [range])
   const expandedItems = React.useMemo(() => expandRecurringItems(items, range), [items, range])
@@ -120,7 +133,7 @@ export function ScheduleGrid({ items, range, timezone, onItemClick, onSlotClick,
                         {statusLabel ? <Badge variant="secondary">{statusLabel}</Badge> : null}
                       </div>
                       <div className="flex items-center justify-between text-overline text-muted-foreground">
-                        <span>{formatTimeRange(item, timezone)}</span>
+                        <span>{formatTimeRange(item, timezone, displayProfile)}</span>
                         <span className="capitalize">{item.kind}</span>
                       </div>
                     </button>

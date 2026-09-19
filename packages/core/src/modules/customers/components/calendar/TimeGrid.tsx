@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { addDays } from 'date-fns/addDays'
 import { isSameDay } from 'date-fns/isSameDay'
@@ -168,6 +169,7 @@ export function TimeGrid({
 }: TimeGridProps) {
   const t = useT()
   const locale = useLocale()
+  const displayProfile = useDisplayProfile()
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const nowMs = Date.now()
   const today = startOfDay(new Date())
@@ -177,10 +179,10 @@ export function TimeGrid({
   const [drag, setDrag] = React.useState<DragState | null>(null)
 
   const dayStarts = React.useMemo(() => {
-    const rangeStart = getVisibleRange(days === 7 ? 'week' : 'day', new Date(anchorMs), 0).from
+    const rangeStart = getVisibleRange(days === 7 ? 'week' : 'day', new Date(anchorMs), 0, displayProfile).from
     const all = Array.from({ length: days }, (_, index) => addDays(rangeStart, index))
     return days === 7 ? applyWeekendVisibility(all, showWeekends, new Date(todayMs)) : all
-  }, [days, anchorMs, showWeekends, todayMs])
+  }, [days, anchorMs, showWeekends, todayMs, displayProfile])
 
   const dayColumns = React.useMemo(
     () => dayStarts.map((dayStart) => buildDayColumn(dayStart, items)),

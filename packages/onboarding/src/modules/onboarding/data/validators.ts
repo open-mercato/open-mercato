@@ -13,6 +13,7 @@ export const onboardingStartSchema = z.object({
   termsAccepted: z.literal(true),
   marketingConsent: z.boolean().optional().default(false),
   locale: z.string().min(2).max(10).optional(),
+  marketCode: z.enum(['us', 'eu']).optional(),
 }).superRefine((value, ctx) => {
   if (value.password !== value.confirmPassword) {
     ctx.addIssue({

@@ -41,6 +41,7 @@ export class OnboardingService {
       existing.lastName = input.lastName
       existing.organizationName = input.organizationName
       existing.locale = input.locale ?? existing.locale ?? 'en'
+      existing.marketCode = input.marketCode ?? existing.marketCode ?? null
       existing.termsAccepted = true
       existing.marketingConsent = input.marketingConsent ?? false
       existing.passwordHash = passwordHash
@@ -68,6 +69,7 @@ export class OnboardingService {
       lastName: input.lastName,
       organizationName: input.organizationName,
       locale: input.locale ?? 'en',
+      marketCode: input.marketCode ?? null,
       termsAccepted: true,
       marketingConsent: input.marketingConsent ?? false,
       passwordHash,

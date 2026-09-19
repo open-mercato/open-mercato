@@ -14,6 +14,8 @@ import { subMonths } from 'date-fns/subMonths'
 import { subQuarters } from 'date-fns/subQuarters'
 import { subWeeks } from 'date-fns/subWeeks'
 import { subYears } from 'date-fns/subYears'
+import type { DisplayProfile } from '@open-mercato/shared/lib/display/profile'
+import { weekStartsOn } from '@open-mercato/shared/lib/display/datetime'
 
 export type DateRangePreset =
   | 'today'
@@ -56,7 +58,19 @@ export const DATE_RANGE_OPTIONS: DateRangeOption[] = [
   { value: 'last_90_days', labelKey: 'dashboards.analytics.dateRange.last90Days' },
 ]
 
-export function resolveDateRange(preset: DateRangePreset, referenceDate: Date = new Date()): DateRange {
+/**
+ * The concrete dates a preset names.
+ *
+ * `profile` is the market display profile and is optional and last, so every existing caller keeps
+ * compiling and keeps getting Monday weeks - which is what an organization that never picked a
+ * market renders today.
+ */
+export function resolveDateRange(
+  preset: DateRangePreset,
+  referenceDate: Date = new Date(),
+  profile?: DisplayProfile | null,
+): DateRange {
+  const weekOptions = { weekStartsOn: weekStartsOn(profile) } as const
   const today = referenceDate
 
   switch (preset) {
@@ -69,11 +83,11 @@ export function resolveDateRange(preset: DateRangePreset, referenceDate: Date = 
     }
 
     case 'this_week':
-      return { start: startOfWeek(today, { weekStartsOn: 1 }), end: endOfWeek(today, { weekStartsOn: 1 }) }
+      return { start: startOfWeek(today, weekOptions), end: endOfWeek(today, weekOptions) }
 
     case 'last_week': {
       const lastWeek = subWeeks(today, 1)
-      return { start: startOfWeek(lastWeek, { weekStartsOn: 1 }), end: endOfWeek(lastWeek, { weekStartsOn: 1 }) }
+      return { start: startOfWeek(lastWeek, weekOptions), end: endOfWeek(lastWeek, weekOptions) }
     }
 
     case 'this_month':

@@ -116,6 +116,8 @@
     "@open-mercato/cache": "workspace:*",
     "@types/html-to-text": "^9.0.4",
     "@types/sanitize-html": "^2.16.1",
+    "date-fns": "4.4.0",
+    "date-fns-tz": "^3.2.0",
     "dotenv": "^17.4.2",
     "gpt-tokenizer": "^3.4.0",
     "html-to-text": "^10.0.0",

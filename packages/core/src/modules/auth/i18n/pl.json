@@ -203,6 +203,8 @@
   "auth.acl.features.integrations.credentials.manage": "Zarządzaj danymi dostępowymi integracji",
   "auth.acl.features.integrations.manage": "Zarządzaj konfiguracjami integracji",
   "auth.acl.features.integrations.view": "Wyświetl integracje i mapowania identyfikatorów zewnętrznych",
+  "auth.acl.features.markets.manage": "Zarzadzanie profilem wyswietlania rynku",
+  "auth.acl.features.markets.view": "Podglad profilu wyswietlania rynku",
   "auth.acl.features.messages.actions": "Wykonuj operacje na wiadomościach",
   "auth.acl.features.messages.attach": "Dołączaj rekordy do wiadomości",
   "auth.acl.features.messages.attach_files": "Dołączaj pliki do wiadomości",

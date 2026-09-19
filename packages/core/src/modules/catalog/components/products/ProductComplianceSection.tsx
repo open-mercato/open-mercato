@@ -125,6 +125,34 @@ export function ProductComplianceSection({
             />
           </div>
           <div className="space-y-2">
+            <Label htmlFor="catalog-product-compliance-tax-code">
+              {t("catalog.products.compliance.fields.taxCode", "Tax code")}
+            </Label>
+            <Input
+              id="catalog-product-compliance-tax-code"
+              value={values.taxCode ?? ""}
+              onChange={(event) => setValue("taxCode", event.target.value)}
+              {...describedByError("catalog-product-compliance-tax-code", errors.taxCode)}
+            />
+            <FieldError
+              id={fieldErrorId("catalog-product-compliance-tax-code")}
+              message={errors.taxCode}
+            />
+          </div>
+          <div className="space-y-2">
+            <label
+              className="flex items-center gap-2 text-sm"
+              htmlFor="catalog-product-compliance-is-taxable"
+            >
+              <Checkbox
+                id="catalog-product-compliance-is-taxable"
+                checked={values.isTaxable !== false}
+                onCheckedChange={(checked) => setValue("isTaxable", checked === true)}
+              />
+              {t("catalog.products.compliance.fields.isTaxable", "Taxable")}
+            </label>
+          </div>
+          <div className="space-y-2">
             <Label htmlFor="catalog-product-compliance-pkwiu">
               {t("catalog.products.compliance.fields.pkwiu", "PKWiU code")}
             </Label>

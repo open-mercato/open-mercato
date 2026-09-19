@@ -1,4 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { DisplayProfile } from '@open-mercato/shared/lib/display/profile'
+import { weekStartsOn } from '@open-mercato/shared/lib/display/datetime'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { createHash } from 'node:crypto'
 import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
@@ -231,6 +233,13 @@ export type WidgetDataServiceOptions = {
   registry: AnalyticsRegistry
   cache?: CacheStrategy
   baseCurrencyResolver?: BaseCurrencyResolver
+  /**
+   * The organization's market display profile, when one exists.
+   *
+   * Only the week start matters here: it decides where a `this_week` or `last_week` preset begins.
+   * Absent, presets keep starting on Monday, which is what every dashboard renders today.
+   */
+  displayProfile?: DisplayProfile | null
 }
 
 export class WidgetDataService {
@@ -240,6 +249,7 @@ export class WidgetDataService {
   private cache?: CacheStrategy
   private baseCurrencyResolver?: BaseCurrencyResolver
   private baseCurrencyPromise?: Promise<string | null>
+  private displayProfile?: DisplayProfile | null
 
   constructor(options: WidgetDataServiceOptions) {
     this.em = options.em
@@ -247,11 +257,14 @@ export class WidgetDataService {
     this.registry = options.registry
     this.cache = options.cache
     this.baseCurrencyResolver = options.baseCurrencyResolver
+    this.displayProfile = options.displayProfile ?? null
   }
 
   private buildCacheKey(request: WidgetDataRequest): string {
     const hash = createHash('sha256')
-    hash.update(JSON.stringify({ request, scope: this.scope }))
+    // The week start participates in the key: a market change moves what `this_week` means, and a
+    // key without it would serve the previous market's range from cache.
+    hash.update(JSON.stringify({ request, scope: this.scope, weekStart: weekStartsOn(this.displayProfile) }))
     return `widget-data:${hash.digest('hex').slice(0, 16)}`
   }
 
@@ -278,7 +291,7 @@ export class WidgetDataService {
     let comparisonRange: { start: Date; end: Date } | undefined
 
     if (request.dateRange) {
-      dateRangeResolved = resolveDateRange(request.dateRange.preset, now)
+      dateRangeResolved = resolveDateRange(request.dateRange.preset, now, this.displayProfile)
       if (request.comparison) {
         comparisonRange = getPreviousPeriod(dateRangeResolved, request.dateRange.preset)
       }
@@ -927,6 +940,7 @@ export function createWidgetDataService(
   registry: AnalyticsRegistry,
   cache?: CacheStrategy,
   baseCurrencyResolver?: BaseCurrencyResolver,
+  displayProfile?: DisplayProfile | null,
 ): WidgetDataService {
-  return new WidgetDataService({ em, scope, registry, cache, baseCurrencyResolver })
+  return new WidgetDataService({ em, scope, registry, cache, baseCurrencyResolver, displayProfile })
 }

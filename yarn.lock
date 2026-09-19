@@ -9245,6 +9245,8 @@ __metadata:
     "@types/html-to-text": "npm:^9.0.4"
     "@types/jest": "npm:^30.0.0"
     "@types/sanitize-html": "npm:^2.16.1"
+    date-fns: "npm:4.4.0"
+    date-fns-tz: "npm:^3.2.0"
     dotenv: "npm:^17.4.2"
     gpt-tokenizer: "npm:^3.4.0"
     html-to-text: "npm:^10.0.0"

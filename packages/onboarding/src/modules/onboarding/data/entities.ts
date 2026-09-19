@@ -40,6 +40,15 @@ export class OnboardingRequest {
   @Property({ name: 'marketing_consent', type: 'boolean', default: false, nullable: true })
   marketingConsent?: boolean | null = false
 
+  /**
+   * The market the signup chose, or null when the step was skipped.
+   *
+   * Nullable on purpose: skipping writes no profile row, and the organization then renders with the
+   * platform defaults (spec assumption A5).
+   */
+  @Property({ name: 'market_code', type: 'text', nullable: true })
+  marketCode?: string | null
+
   @Property({ name: 'password_hash', type: 'text', nullable: true })
   passwordHash?: string | null
 

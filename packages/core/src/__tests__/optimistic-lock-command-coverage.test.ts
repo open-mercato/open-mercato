@@ -55,6 +55,8 @@ const COMMAND_GUARD_ALLOWLIST: Record<string, string> = {
     'OSS-only — date-specific availability rule edit; OSS floor guards concurrent edits. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/currencies/api/fetch-configs/route.ts':
     'OSS-only — currency fetch-config admin settings added on develop; OSS floor guards concurrent admin edits. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/markets/commands/display-profile.ts':
+    'OSS-only - the market display profile is one admin-owned row per organization, not a collaborative merge-dialog target; the OSS `updated_at` floor guards the admin two-tab race and answers 409. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/feature_toggles/commands/global.ts':
     'OSS-only — global feature-toggle command (feature_toggles.global), instance-level admin config added on develop; OSS floor guards concurrent edits. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/planner/commands/availability-weekly.ts':

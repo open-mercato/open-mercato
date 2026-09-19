@@ -43,6 +43,7 @@ import { PerspectiveSidebar } from './PerspectiveSidebar'
 import { Popover, PopoverTrigger, PopoverContent } from '../primitives/popover'
 import { parseISO } from 'date-fns/parseISO'
 import { formatDisplayDateTime } from '../primitives/date-format'
+import { useDisplayProfile } from './markets/MarketProfileProvider'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { readVersionedPreference, writeVersionedPreference, clearVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
 import { useT, useLocale, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
@@ -1724,6 +1725,7 @@ export function DataTable<T extends RowData>({
   // Locale-aware for the same reason the detail fields are: with no env override a table cell and
   // the field beside it must not disagree about the convention. An env override still wins.
   const dateLocale = useLocale()
+  const displayProfile = useDisplayProfile()
 
   const tryParseDate = (v: unknown): Date | null => {
     if (v == null) return null
@@ -3755,7 +3757,7 @@ export function DataTable<T extends RowData>({
                       if (isDateCol) {
                         const raw = cell.getValue() as any
                         const d = tryParseDate(raw)
-                        content = d ? (formatDisplayDateTime(d, dateLocale) ?? raw) : (raw as any)
+                        content = d ? (formatDisplayDateTime(d, dateLocale, displayProfile) ?? raw) : (raw as any)
                       } else {
                         content = flexRender(cell.column.columnDef.cell, cell.getContext())
                       }
@@ -3778,7 +3780,7 @@ export function DataTable<T extends RowData>({
                         tooltipText = metaTooltipContent(row.original)
                       } else if (isDateCol && cellValue != null) {
                         const parsedDate = tryParseDate(cellValue)
-                        tooltipText = parsedDate ? (formatDisplayDateTime(parsedDate, dateLocale) ?? String(cellValue)) : String(cellValue)
+                        tooltipText = parsedDate ? (formatDisplayDateTime(parsedDate, dateLocale, displayProfile) ?? String(cellValue)) : String(cellValue)
                       } else {
                         tooltipText = cellValue != null ? String(cellValue) : undefined
                       }

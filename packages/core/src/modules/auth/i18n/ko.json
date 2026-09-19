@@ -203,6 +203,8 @@
   "auth.acl.features.integrations.credentials.manage": "Manage integration credentials",
   "auth.acl.features.integrations.manage": "Manage integration configurations",
   "auth.acl.features.integrations.view": "View integrations and external ID mappings",
+  "auth.acl.features.markets.manage": "마켓 표시 프로필 관리",
+  "auth.acl.features.markets.view": "마켓 표시 프로필 보기",
   "auth.acl.features.messages.actions": "Execute message actions",
   "auth.acl.features.messages.attach": "Attach records to messages",
   "auth.acl.features.messages.attach_files": "Attach files to messages",

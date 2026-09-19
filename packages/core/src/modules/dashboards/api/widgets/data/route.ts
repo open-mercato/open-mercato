@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { resolveDisplayProfileForScope } from '@open-mercato/core/modules/markets/lib/request-profile'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -130,6 +131,7 @@ export async function POST(req: Request) {
       analyticsRegistry,
       cache,
       resolveOptionalBaseCurrencyResolver(container),
+      await resolveDisplayProfileForScope(container, { tenantId, organizationId: organizationIds?.[0] ?? null }),
     )
     const result = await service.fetchWidgetData(requestData)
     return NextResponse.json(result)

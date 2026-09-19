@@ -7,6 +7,9 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Alert } from '@open-mercato/ui/primitives/alert'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import type { AddressFormatStrategy } from '../utils/addressFormat'
 
 const SAVE_CONTEXT_ID = 'customers-address-format-settings'
@@ -19,6 +22,7 @@ type Option = {
 
 export function AddressFormatSettings() {
   const t = useT()
+  const displayProfile = useDisplayProfile()
   const [format, setFormat] = React.useState<AddressFormatStrategy>('line_first')
   const [loading, setLoading] = React.useState(true)
   const [pending, setPending] = React.useState<AddressFormatStrategy | null>(null)
@@ -141,6 +145,30 @@ export function AddressFormatSettings() {
     },
     [format, retryLastMutation, runMutation, t]
   )
+
+  // Superseded, not removed: once this organization has picked a market, the address layout comes
+  // from the market display profile, and two controls for one decision would let them disagree. An
+  // organization that has NOT picked a market keeps the radio group exactly as it is today.
+  if (displayProfile) {
+    return (
+      <section className="space-y-4 rounded-lg border bg-background p-4">
+        <header className="space-y-1">
+          <h2 className="text-lg font-semibold">
+            {t('customers.config.addressFormat.title', 'Customer address format')}
+          </h2>
+        </header>
+        <Alert variant="info">
+          <div className="space-y-3">
+            <p className="font-medium">{t('markets.customers.addressFormat.movedTitle')}</p>
+            <p>{t('markets.customers.addressFormat.movedBody')}</p>
+            <Button asChild type="button" variant="outline">
+              <a href="/backend/settings/markets">{t('markets.customers.addressFormat.movedAction')}</a>
+            </Button>
+          </div>
+        </Alert>
+      </section>
+    )
+  }
 
   return (
     <section className="space-y-4 rounded-lg border bg-background p-4">

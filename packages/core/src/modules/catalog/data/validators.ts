@@ -233,6 +233,8 @@ const productBaseSchema = scoped.extend({
   cnCode: z.string().trim().min(1).max(32).nullable().optional(),
   hsCode: z.string().trim().min(1).max(32).nullable().optional(),
   taxClassificationCode: z.string().trim().min(1).max(64).nullable().optional(),
+  taxCode: z.string().trim().min(1).max(64).nullable().optional(),
+  isTaxable: z.boolean().optional(),
   gtuCodes: z
     .array(z.enum(CATALOG_GTU_CODES))
     .max(13)

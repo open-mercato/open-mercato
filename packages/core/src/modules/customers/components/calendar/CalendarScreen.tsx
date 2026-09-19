@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import dynamic from 'next/dynamic'
 import { addDays } from 'date-fns/addDays'
 import { isSameDay } from 'date-fns/isSameDay'
@@ -139,9 +140,10 @@ export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }
   const [hasLoadedOnce, setHasLoadedOnce] = React.useState(false)
   const { preferences, setPreferences, hydrated: preferencesHydrated, userId: currentUserId } = useCalendarPreferences()
 
+  const displayProfile = useDisplayProfile()
   const range = React.useMemo(
-    () => getVisibleRange(view, anchor, agendaHorizonDays),
-    [view, anchor, agendaHorizonDays],
+    () => getVisibleRange(view, anchor, agendaHorizonDays, displayProfile),
+    [view, anchor, agendaHorizonDays, displayProfile],
   )
   const { items, isLoading, error, truncated, typeLabels, typeColors, typeIcons, refetch } = useCalendarItems(range)
 

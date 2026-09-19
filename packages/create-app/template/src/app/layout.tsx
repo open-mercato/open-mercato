@@ -9,6 +9,7 @@ import { resolveForcedLocale } from '@open-mercato/shared/lib/i18n/locale'
 import { resolveDevRuntimeLayoutConfig } from '@open-mercato/shared/lib/dev-runtime/layout'
 import { DevRuntimeDiagnosticsBanner } from '@open-mercato/ui/backend/dev/DevRuntimeDiagnosticsBanner'
 import { DevRuntimeReporter } from '@open-mercato/ui/backend/dev/DevRuntimeReporter'
+import { resolveDisplayProfileForRequest } from '@open-mercato/core/modules/markets/lib/request-profile'
 
 export const metadata: Metadata = {
   title: 'Open Mercato',
@@ -32,6 +33,10 @@ export default async function RootLayout({
   const demoModeEnabled = process.env.DEMO_MODE !== 'false'
   const noticeBarsEnabled = process.env.OM_INTEGRATION_TEST !== 'true'
   const devRuntime = resolveDevRuntimeLayoutConfig(process.env)
+  // Resolved server-side for the same reason the locale is: the client provider can reach neither
+  // the container nor the request scope. `null` means no market was picked, and every display
+  // helper renders today's behavior for it.
+  const displayProfile = await resolveDisplayProfileForRequest()
   return (
     <html lang={locale} suppressHydrationWarning>
       <head>
@@ -41,7 +46,7 @@ export default async function RootLayout({
       </head>
       <body className="antialiased" suppressHydrationWarning data-gramm="false">
         <script id="om-theme-init" dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
-        <AppProviders locale={locale} dict={dict} localeLocked={localeLocked} supportedLocales={supportedLocales} demoModeEnabled={demoModeEnabled} noticeBarsEnabled={noticeBarsEnabled}>
+        <AppProviders locale={locale} dict={dict} localeLocked={localeLocked} supportedLocales={supportedLocales} demoModeEnabled={demoModeEnabled} noticeBarsEnabled={noticeBarsEnabled} displayProfile={displayProfile}>
           {devRuntime.enabled ? <DevRuntimeReporter /> : null}
           {devRuntime.bannerEnabled ? <DevRuntimeDiagnosticsBanner /> : null}
           {children}

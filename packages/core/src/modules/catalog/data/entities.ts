@@ -177,6 +177,22 @@ export class CatalogProduct {
   @Property({ name: 'tax_classification_code', type: 'text', nullable: true })
   taxClassificationCode?: string | null
 
+  /**
+   * The provider tax code (an Avalara or TaxJar code, say). Opaque here: this spec displays and
+   * stores it, and never computes a tax from it.
+   *
+   * Deliberately NOT merged with `tax_classification_code`, which is the Polish compliance field:
+   * the two are different facts and neither is derived from the other.
+   */
+  @Property({ name: 'tax_code', type: 'text', nullable: true })
+  taxCode?: string | null
+
+  // Optional in TypeScript so an existing `em.create` call site does not have to pass it: absent
+  // means the column default, which is `true`. Readers use `isTaxable !== false`, so an unflushed
+  // entity and a defaulted row agree.
+  @Property({ name: 'is_taxable', type: 'boolean', default: true })
+  isTaxable?: boolean
+
   @Property({ name: 'gtu_codes', type: 'text[]', nullable: true })
   gtuCodes?: string[] | null
 
@@ -588,6 +604,16 @@ export class CatalogProductVariant {
 
   @Property({ name: 'hs_code', type: 'text', nullable: true })
   hsCode?: string | null
+
+  /** Provider tax code, opaque here. A variant may override its product's code. */
+  @Property({ name: 'tax_code', type: 'text', nullable: true })
+  taxCode?: string | null
+
+  // Optional in TypeScript so an existing `em.create` call site does not have to pass it: absent
+  // means the column default, which is `true`. Readers use `isTaxable !== false`, so an unflushed
+  // entity and a defaulted row agree.
+  @Property({ name: 'is_taxable', type: 'boolean', default: true })
+  isTaxable?: boolean
 
   @Property({ type: 'text', nullable: true })
   statusEntryId?: string | null

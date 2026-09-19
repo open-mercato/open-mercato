@@ -39,6 +39,12 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [marketingConsent, setMarketingConsent] = useState(false)
+  // Defaulted from the browser locale, and freely changeable: a guess about where someone sells is
+  // a helpful starting point, never a decision made for them. '' means "decide later", which writes
+  // no profile row at all.
+  const [marketCode, setMarketCode] = useState<'us' | 'eu' | ''>(() => (
+    typeof navigator !== 'undefined' && navigator.language?.toLowerCase().endsWith('-us') ? 'us' : ''
+  ))
   const [emailSubmitted, setEmailSubmitted] = useState<string | null>(null)
   const passwordPolicy = getPasswordPolicy()
   const passwordRequirements = formatPasswordRequirements(passwordPolicy, translate, 'onboarding.password.requirements')
@@ -69,6 +75,7 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
       termsAccepted,
       marketingConsent,
       locale,
+      ...(marketCode ? { marketCode } : {}),
     }
 
     const parsed = onboardingStartSchema.safeParse(payload)
@@ -304,6 +311,24 @@ export default function OnboardingPageClient({ onboardingEnabled }: Props) {
               {fieldErrors.organizationName && (
                 <p id="organizationName-error" className="text-xs text-status-error-text">{fieldErrors.organizationName}</p>
               )}
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="marketCode">{translate('markets.onboarding.step.title', 'Where do you sell?')}</Label>
+              <select
+                id="marketCode"
+                name="marketCode"
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                value={marketCode}
+                disabled={disabled}
+                onChange={(event) => setMarketCode(event.target.value as 'us' | 'eu' | '')}
+              >
+                <option value="">{translate('markets.onboarding.step.skip', 'Decide later')}</option>
+                <option value="us">{translate('markets.template.us', 'United States')}</option>
+                <option value="eu">{translate('markets.template.eu', 'European Union')}</option>
+              </select>
+              <p className="text-xs text-muted-foreground">
+                {translate('markets.onboarding.step.description', 'This sets how dates, money, addresses and documents look. You can change it later in settings.')}
+              </p>
             </div>
             <div className="grid gap-1">
               <Label htmlFor="password">{translate('onboarding.form.password', 'Password')}</Label>
