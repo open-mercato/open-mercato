@@ -13,7 +13,7 @@ export const integration: IntegrationDefinition = {
   icon: 'mail',
   docsUrl: 'https://learn.microsoft.com/graph/api/resources/mail-api-overview',
   package: '@open-mercato/channel-ms365',
-  version: '0.7.0',
+  version: '0.8.0',
   author: 'Open Mercato Team',
   company: 'Open Mercato',
   license: 'MIT',
