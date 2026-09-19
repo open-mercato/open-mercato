@@ -163,15 +163,18 @@ export function normalizeActionLogToHistoryEntry(
     }
     // When both are null (e.g. Create return/shipment/payment with non-document snapshot), keep as action and use actionLabel
   }
-  const actorLabel = log.actorUserId
-    ? (displayUsers?.[log.actorUserId] ?? log.actorUserId)
-    : 'system'
+  // An actor id that never resolves (deleted user, revoked API key with no
+  // remaining record) must never surface as a raw UUID — treat it the same as
+  // "no actor" so the timeline falls back to the i18n'd "System" label.
+  const resolvedActorLabel = log.actorUserId ? displayUsers?.[log.actorUserId] : undefined
+  const actorId = resolvedActorLabel ? log.actorUserId : null
+  const actorLabel = resolvedActorLabel ?? 'system'
   return {
     id: log.id,
     occurredAt: log.createdAt.toISOString(),
     kind: entryKind,
     action,
-    actor: { id: log.actorUserId, label: actorLabel },
+    actor: { id: actorId, label: actorLabel },
     source: 'action_log',
     metadata,
   }

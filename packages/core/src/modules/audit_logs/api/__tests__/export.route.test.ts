@@ -113,6 +113,49 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
     expect(mockActionLogs.list).toHaveBeenCalledWith(expect.objectContaining({ tenantId: undefined }))
   })
 
+  it('renders active, revoked, unresolved and actorless rows without ever showing a raw id', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({
+      users: {
+        'active-key': 'API key: import',
+        'revoked-key': 'API key: legacy-import (revoked)',
+      },
+      tenants: {},
+      organizations: {},
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockActionLogs.list.mockResolvedValue({
+      items: [
+        { id: 'log-1', createdAt: new Date('2026-01-01T00:00:00.000Z'), actorUserId: 'active-key', actionLabel: 'Updated order', commandId: 'sales.orders.update' },
+        { id: 'log-2', createdAt: new Date('2026-01-02T00:00:00.000Z'), actorUserId: 'revoked-key', actionLabel: 'Updated order', commandId: 'sales.orders.update' },
+        { id: 'log-3', createdAt: new Date('2026-01-03T00:00:00.000Z'), actorUserId: 'ghost-user', actionLabel: 'Updated order', commandId: 'sales.orders.update' },
+        { id: 'log-4', createdAt: new Date('2026-01-04T00:00:00.000Z'), actorUserId: null, actionLabel: 'System cleanup', commandId: 'system.cleanup' },
+      ],
+      total: 4,
+      page: 1,
+      pageSize: 50,
+      totalPages: 1,
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions/export'))
+    expect(res.status).toBe(200)
+    const csv = await res.text()
+
+    expect(csv).toContain('API key: import')
+    expect(csv).toContain('API key: legacy-import (revoked)')
+    expect(csv).toContain('Unknown user')
+    expect(csv).toContain('System')
+    expect(csv).not.toContain('active-key')
+    expect(csv).not.toContain('revoked-key')
+    expect(csv).not.toContain('ghost-user')
+  })
+
   it('leaves a tenant-scoped caller tenant-filtered as before', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
