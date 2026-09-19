@@ -114,26 +114,61 @@ export type CatalogPricingResolver = (
 ) => PriceRow | null | undefined | Promise<PriceRow | null | undefined>
 
 type RegisteredResolver = {
+  id?: string
   resolver: CatalogPricingResolver
   priority: number
 }
 
-const pricingResolvers: RegisteredResolver[] = []
+type PricingRegistryState = {
+  resolvers: RegisteredResolver[]
+}
 
-function sortResolvers(): void {
-  pricingResolvers.sort((a, b) => b.priority - a.priority)
+// `globalThis`-keyed so the registry survives duplicated module instances
+// (a standalone app built from this monorepo, or any dev/build setup that
+// loads `catalog` through more than one chunk) — the same failure class
+// already fixed once for the ORM entity registry
+// (see `packages/shared/src/modules/integrations/types.ts` for the identical
+// pattern). A module-local array is invisible across instances: a resolver
+// registered from one instance would silently never run for resolution
+// happening in another.
+const GLOBAL_PRICING_REGISTRY_KEY = '__openMercatoCatalogPricingRegistry__' as const
+
+type GlobalPricingRegistry = typeof globalThis & {
+  [GLOBAL_PRICING_REGISTRY_KEY]?: PricingRegistryState
+}
+
+function getPricingRegistryState(): PricingRegistryState {
+  const globalRegistry = globalThis as GlobalPricingRegistry
+  if (!globalRegistry[GLOBAL_PRICING_REGISTRY_KEY]) {
+    globalRegistry[GLOBAL_PRICING_REGISTRY_KEY] = { resolvers: [] }
+  }
+  return globalRegistry[GLOBAL_PRICING_REGISTRY_KEY]
+}
+
+function sortResolvers(state: PricingRegistryState): void {
+  // `Array.prototype.sort` is stable (ES2019+): resolvers registered at the
+  // same priority keep their registration order. This is the documented,
+  // tested same-priority tie-break — see `catalog/AGENTS.md` § Price
+  // selection order and the registry test in `lib/__tests__/pricing.test.ts`.
+  state.resolvers.sort((a, b) => b.priority - a.priority)
 }
 
 export function registerCatalogPricingResolver(
   resolver: CatalogPricingResolver,
-  options?: { priority?: number }
+  options?: { priority?: number; id?: string }
 ): void {
-  pricingResolvers.push({ resolver, priority: options?.priority ?? 0 })
-  sortResolvers()
+  const state = getPricingRegistryState()
+  const id = options?.id
+  // Dedupe by id so a documented extension point stays HMR-safe for every
+  // future registrant, not just one caller: re-registering the same id is a
+  // no-op instead of appending a duplicate entry on every module reload.
+  if (id && state.resolvers.some((entry) => entry.id === id)) return
+  state.resolvers.push({ id, resolver, priority: options?.priority ?? 0 })
+  sortResolvers(state)
 }
 
 export function resetCatalogPricingResolvers(): void {
-  pricingResolvers.splice(0, pricingResolvers.length)
+  getPricingRegistryState().resolvers.splice(0)
 }
 
 export async function resolveCatalogPrice(
@@ -163,7 +198,7 @@ export async function resolveCatalogPrice(
     if (resolved !== undefined) return resolved
   }
 
-  for (const { resolver } of pricingResolvers) {
+  for (const { resolver } of getPricingRegistryState().resolvers) {
     const result = await resolver(workingRows, workingContext)
     if (result !== undefined) {
       resolved = result ?? null

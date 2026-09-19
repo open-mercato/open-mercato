@@ -9,6 +9,7 @@ import {
   type PriceRow,
   type PricingContext,
 } from '../pricing'
+import type * as PricingModule from '../pricing'
 
 describe('catalog pricing helpers', () => {
   const baseRow = (overrides: Partial<PriceRow> = {}): PriceRow => ({
@@ -207,5 +208,67 @@ describe('catalog pricing helpers', () => {
     const result = selectBestPrice([promo, tier], { ...ctx, quantity: 5 })
 
     expect(result?.id).toBe('promo')
+  })
+
+  it('shares resolver registrations across isolated module instances (globalThis scoping)', async () => {
+    // Simulates the standalone-app / multi-chunk failure mode: a resolver
+    // registered from one evaluation of `pricing.ts` must be visible to
+    // resolution running against a second, independent evaluation — proving
+    // the registry lives on `globalThis`, not in module-local state.
+    let firstModule: typeof PricingModule | undefined
+    let secondModule: typeof PricingModule | undefined
+
+    jest.isolateModules(() => {
+      firstModule = jest.requireActual<typeof PricingModule>('../pricing')
+    })
+    firstModule?.resetCatalogPricingResolvers()
+
+    const marker = baseRow({ id: 'from-first-instance' })
+    firstModule?.registerCatalogPricingResolver(async () => marker, {
+      priority: 5,
+      id: 'test-cross-instance-resolver',
+    })
+
+    jest.isolateModules(() => {
+      secondModule = jest.requireActual<typeof PricingModule>('../pricing')
+    })
+
+    const result = await secondModule?.resolveCatalogPrice([baseRow({ id: 'other' })], ctx)
+    expect(result?.id).toBe('from-first-instance')
+
+    firstModule?.resetCatalogPricingResolvers()
+  })
+
+  it('skips re-registration when the same resolver id is already present', async () => {
+    const first = jest.fn().mockResolvedValue(baseRow({ id: 'first' }))
+    const second = jest.fn().mockResolvedValue(baseRow({ id: 'second' }))
+
+    registerCatalogPricingResolver(first, { priority: 5, id: 'dedupe-test' })
+    registerCatalogPricingResolver(second, { priority: 5, id: 'dedupe-test' })
+
+    const result = await resolveCatalogPrice([baseRow({ id: 'fallback' })], ctx)
+
+    expect(first).toHaveBeenCalledTimes(1)
+    expect(second).not.toHaveBeenCalled()
+    expect(result?.id).toBe('first')
+  })
+
+  it('keeps stable registration order among resolvers at the same priority', async () => {
+    const calls: string[] = []
+    const resolverA = jest.fn().mockImplementation(async () => {
+      calls.push('a')
+      return undefined
+    })
+    const resolverB = jest.fn().mockImplementation(async () => {
+      calls.push('b')
+      return undefined
+    })
+
+    registerCatalogPricingResolver(resolverA, { priority: 5 })
+    registerCatalogPricingResolver(resolverB, { priority: 5 })
+
+    await resolveCatalogPrice([baseRow({ id: 'fallback' })], ctx)
+
+    expect(calls).toEqual(['a', 'b'])
   })
 })
