@@ -19,6 +19,7 @@ import {
   queueImportHistorySchema,
   CHANNEL_IMPORT_HISTORY_JOB_TYPE,
 } from '../queue-import-history'
+import { IMPORT_HISTORY_MAX_SINCE_DAYS_FALLBACK } from '../../lib/import-history-limits'
 
 const TENANT = '11111111-1111-4111-8111-111111111111'
 const ORG = '22222222-2222-4222-8222-222222222222'
@@ -72,9 +73,15 @@ describe('queueImportHistorySchema', () => {
     expect(parsed.contactEmails).toBeUndefined()
   })
 
-  it('clamps sinceDays to [1, 365]', () => {
+  it('clamps sinceDays to [1, the configured ceiling]', () => {
     expect(() => queueImportHistorySchema.parse({ channelId: CHANNEL, sinceDays: 0 })).toThrow()
-    expect(() => queueImportHistorySchema.parse({ channelId: CHANNEL, sinceDays: 366 })).toThrow()
+    expect(queueImportHistorySchema.parse({ channelId: CHANNEL, sinceDays: 366 }).sinceDays).toBe(366)
+    expect(() =>
+      queueImportHistorySchema.parse({
+        channelId: CHANNEL,
+        sinceDays: IMPORT_HISTORY_MAX_SINCE_DAYS_FALLBACK + 1,
+      }),
+    ).toThrow()
   })
 
   it('rejects non-email contact entries', () => {

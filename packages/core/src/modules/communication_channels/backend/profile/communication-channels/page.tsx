@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/communication_channels/extension-points'
+import { getImportHistoryLimits } from '@open-mercato/core/modules/communication_channels/lib/import-history-limits'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -575,6 +576,7 @@ type ImportHistoryDialogProps = {
 
 function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialogProps): React.JSX.Element {
   const t = useT()
+  const importLimits = React.useMemo(() => getImportHistoryLimits(), [])
   const [sinceDays, setSinceDays] = React.useState('30')
   const [contactEmails, setContactEmails] = React.useState('')
   const [maxMessages, setMaxMessages] = React.useState('500')
@@ -600,16 +602,18 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
     const sinceNum = Number.parseInt(sinceDays, 10)
     const maxNum = Number.parseInt(maxMessages, 10)
     const errors: Record<string, string> = {}
-    if (!Number.isFinite(sinceNum) || sinceNum < 1 || sinceNum > 365) {
+    if (!Number.isFinite(sinceNum) || sinceNum < 1 || sinceNum > importLimits.maxSinceDays) {
       errors.sinceDays = t(
         'communication_channels.profile.importHistory.errors.sinceDays',
-        'Choose a number between 1 and 365 days.',
+        'Choose a number between 1 and {max} days.',
+        { max: importLimits.maxSinceDays },
       )
     }
-    if (!Number.isFinite(maxNum) || maxNum < 1 || maxNum > 5000) {
+    if (!Number.isFinite(maxNum) || maxNum < 1 || maxNum > importLimits.maxMessages) {
       errors.maxMessages = t(
         'communication_channels.profile.importHistory.errors.maxMessages',
-        'Choose a number between 1 and 5000 messages.',
+        'Choose a number between 1 and {max} messages.',
+        { max: importLimits.maxMessages },
       )
     }
     const parsedEmails = contactEmails
@@ -687,7 +691,7 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
       'success',
     )
     onQueued()
-  }, [channel, sinceDays, maxMessages, contactEmails, submitting, t, onQueued, retryLastMutation, runMutation])
+  }, [channel, sinceDays, maxMessages, contactEmails, submitting, t, onQueued, retryLastMutation, runMutation, importLimits])
 
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent) => {
@@ -723,7 +727,7 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
               id="import-history-since"
               type="number"
               min={1}
-              max={365}
+              max={importLimits.maxSinceDays}
               value={sinceDays}
               onChange={(e) => setSinceDays(e.target.value)}
               aria-invalid={Boolean(fieldErrors.sinceDays)}
@@ -771,7 +775,7 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
               id="import-history-max"
               type="number"
               min={1}
-              max={5000}
+              max={importLimits.maxMessages}
               value={maxMessages}
               onChange={(e) => setMaxMessages(e.target.value)}
               aria-invalid={Boolean(fieldErrors.maxMessages)}
