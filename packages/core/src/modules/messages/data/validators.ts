@@ -126,6 +126,14 @@ const composeMessageBaseSchema = z.object({
   attachmentRecordId: z.string().min(1).max(255).optional(),
   actionData: messageActionDataSchema.optional(),
   sendViaEmail: z.boolean().optional().default(false),
+  /**
+   * Employee-owned communication channel to send this message through instead
+   * of the platform sender (#6258). The channel is never trusted from the body:
+   * the route hands it to the `communication_channels` send-as-user facade,
+   * which resolves it inside the caller's scope and refuses a channel the
+   * caller does not own. Absent means the platform sender.
+   */
+  senderChannelId: z.string().uuid().optional(),
   parentMessageId: z.string().uuid().optional(),
   isDraft: z.boolean().optional().default(false),
 })
@@ -234,6 +242,14 @@ export const updateDraftSchema = z.object({
   actionData: messageActionDataSchema.optional(),
   sendViaEmail: z.boolean().optional(),
   isDraft: z.literal(false).optional(),
+  /**
+   * Accepted so the field is never silently stripped by zod, then explicitly
+   * rejected in the route: sending an existing draft through a connected
+   * mailbox is not implemented — `sendAsUser` composes a fresh message rather
+   * than updating one, so the caller must be told rather than silently
+   * falling back to the platform sender (#6262 review finding).
+   */
+  senderChannelId: z.string().uuid().optional(),
 }).superRefine((value, ctx) => {
   if (value.recipients) {
     const duplicateRecipientIds = collectDuplicateRecipientIds(value.recipients)

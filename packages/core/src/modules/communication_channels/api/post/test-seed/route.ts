@@ -190,8 +190,21 @@ const emitInboundSchema = z.object({
   createThreadMapping: z.boolean().optional(),
 })
 
+/**
+ * Read-only: report the channel-side rows a platform message carries.
+ *
+ * The threading contract lives in rows no API exposes — an integration test
+ * asserting that a composer send really was routed through the hub can only
+ * observe them here.
+ */
+const inspectMessageLinksSchema = z.object({
+  action: z.literal('inspect-message-links'),
+  messageId: z.string().uuid(),
+})
+
 const bodySchema = z.discriminatedUnion('action', [
   connectChannelSchema,
+  inspectMessageLinksSchema,
   ingestInboundSchema,
   emitInboundSchema,
   seedSystemChannelSchema,
@@ -258,6 +271,41 @@ export async function POST(req: Request): Promise<Response> {
   // Defensive: make sure the stub adapter is registered for this process even if
   // a worker-only node skipped module di registration.
   ensureTestSeedAdapterRegistered()
+
+  if (body.action === 'inspect-message-links') {
+    const em = (container.resolve('em') as EntityManager).fork()
+    const links = await em.find(MessageChannelLink, {
+      messageId: body.messageId,
+      tenantId,
+      organizationId,
+    })
+    const conversationIds = links
+      .map((link) => link.externalConversationId)
+      .filter((id): id is string => Boolean(id))
+    const mappings = conversationIds.length
+      ? await em.find(ChannelThreadMapping, {
+          externalConversationId: { $in: conversationIds },
+          tenantId,
+          organizationId,
+        })
+      : []
+    return NextResponse.json({
+      links: links.map((link) => ({
+        id: link.id,
+        direction: link.direction,
+        providerKey: link.providerKey,
+        channelType: link.channelType,
+        deliveryStatus: link.deliveryStatus,
+        externalConversationId: link.externalConversationId,
+      })),
+      threadMappings: mappings.map((mapping) => ({
+        id: mapping.id,
+        messageThreadId: mapping.messageThreadId,
+        channelId: mapping.channelId,
+        externalConversationId: mapping.externalConversationId,
+      })),
+    })
+  }
 
   if (body.action === 'seed-system-channel') {
     const em = (container.resolve('em') as EntityManager).fork()

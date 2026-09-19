@@ -2,6 +2,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ChannelThreadMapping, CommunicationChannel, MessageChannelLink } from '../data/entities'
 import { Message } from '../../messages/data/entities'
+import {
+  EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
+  SEND_AS_USER_SOURCE_ENTITY_TYPE,
+} from '../../messages/lib/messageSourceEntityTypes'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
 import type { OutboundDeliveryPayload } from '../workers/outbound-delivery'
 
@@ -85,7 +89,7 @@ export default async function handler(
     dscope,
   )
   if (!message) return
-  if (message.sourceEntityType === 'communication_channels.send_as_user') {
+  if (message.sourceEntityType === SEND_AS_USER_SOURCE_ENTITY_TYPE) {
     return
   }
   // Inbound ingest path: when `ingest-inbound-message` composes a new platform
@@ -95,7 +99,7 @@ export default async function handler(
   // which fails because inbound MCLs carry recipient info in `channelPayload`,
   // not `channelMetadata`, and the failure marker then leaks back onto the
   // inbound link itself.
-  if (message.sourceEntityType === 'communication_channels.external_conversation') {
+  if (message.sourceEntityType === EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE) {
     return
   }
   if (!message.threadId) return // Internal-only; no channel routing.
