@@ -514,7 +514,12 @@ process.stdout.write(JSON.stringify(deepClone(doc), (_, v) =>
           ? args.path.split('/').slice(0, 2).join('/')
           : topLevel
         const pkgDir = path.join(rootDir, 'node_modules', pkgName)
-        if (fs.existsSync(pkgDir)) return { external: true }
+        if (fs.existsSync(pkgDir)) {
+          // JSON cannot stay external: esbuild emits a bare ESM import and Node
+          // then rejects it with ERR_IMPORT_ATTRIBUTE_MISSING. Bundle it instead.
+          if (args.path.endsWith('.json')) return undefined
+          return { external: true }
+        }
 
         // Package not installed — provide CJS stub (allows any named import)
         return { path: args.path, namespace: 'missing-pkg' }
