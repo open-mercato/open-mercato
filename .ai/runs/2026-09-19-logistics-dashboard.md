@@ -34,6 +34,8 @@ GitHub preflight: gh auth status reports invalid keyring, but direct current-use
 
 ## Progress
 
+PR: #6242
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Module and pages
@@ -43,8 +45,10 @@ GitHub preflight: gh auth status reports invalid keyring, but direct current-use
 
 ### Phase 2: Integration coverage and delivery
 
-- [ ] 2.1 Add integration coverage and deployment instructions.
+- [x] 2.1 Add integration coverage and deployment instructions.
 - [ ] 2.2 Run generators, validation and independent review; resolve findings.
 - [ ] 2.3 Publish the PR with UI evidence, labels and verification report.
 
 Validation so far: build:packages passed twice (38 tasks); generate passed and discovered all seven logistics routes, with unrelated OpenAPI static fallback warning. DS lint passed. Unit test command required explicit testMatch glob due Windows root path normalization; 48 tests passed. GraphQL viewer confirms waclawek identity; REST rate limit does not prevent PR operations.
+
+PR: https://github.com/open-mercato/open-mercato/pull/6242 (draft, fork waclawek/open-mercato). Upstream read-only permissions prevent assignment, labels and preview deployment; claim comment posted, no lock label acquired. Source review approved after adding inaccessible-org, existing-menu and no-logistics-API assertions. Added ACL default export required by generated runtime; full typecheck now passed (38 tasks). Integration suite has 24 scenarios; live execution pending. Full yarn test uses malformed Windows Jest root patterns in existing config and reports no tests for many packages; focused actual logistics Jest run remains 48 passed.
