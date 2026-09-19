@@ -37,6 +37,120 @@ function isRestrictedRoleAcl(acl: Pick<RoleAcl, 'organizationsJson'>): boolean {
     && !acl.organizationsJson.includes('__all__')
 }
 
+type FeatureOrganizationCandidate = {
+  id: string
+  ancestorIds?: readonly string[] | null
+}
+
+type FeatureOrganizationAccess = {
+  unrestricted: boolean
+  filterOrganizationIds: (organizations: readonly FeatureOrganizationCandidate[]) => string[]
+}
+
+function normalizeFeatureOrganizationCandidates(
+  organizations: readonly FeatureOrganizationCandidate[],
+): FeatureOrganizationCandidate[] {
+  const normalized = new Map<string, FeatureOrganizationCandidate>()
+  for (const organization of organizations) {
+    const id = typeof organization.id === 'string' ? organization.id.trim() : ''
+    if (!id || normalized.has(id)) continue
+    const ancestorIds = Array.isArray(organization.ancestorIds)
+      ? Array.from(new Set(organization.ancestorIds
+        .map((ancestorId) => typeof ancestorId === 'string' ? ancestorId.trim() : '')
+        .filter(Boolean)))
+      : []
+    normalized.set(id, { id, ancestorIds })
+  }
+  return Array.from(normalized.values())
+}
+
+function buildFeatureOrganizationScope(
+  organization: FeatureOrganizationCandidate,
+): ReadonlySet<string> {
+  return new Set([organization.id, ...(organization.ancestorIds ?? [])])
+}
+
+function roleAclProvidesGlobalFeatureScope(acl: Pick<RoleAcl, 'organizationsJson'>): boolean {
+  const organizations = Array.isArray(acl.organizationsJson) ? acl.organizationsJson : null
+  return !organizations || organizations.length === 0 || organizations.includes('__all__')
+}
+
+function roleAclProvidesGlobalVisibility(
+  acl: Pick<RoleAcl, 'organizationsJson'>,
+  emptyOrganizationsAreUnrestricted: boolean,
+): boolean {
+  const organizations = Array.isArray(acl.organizationsJson) ? acl.organizationsJson : null
+  if (!organizations || organizations.includes('__all__')) return true
+  return emptyOrganizationsAreUnrestricted && organizations.length === 0
+}
+
+function roleAclProvidesOrganizationVisibility(
+  acl: Pick<RoleAcl, 'organizationsJson'>,
+  organizationScope: ReadonlySet<string>,
+  emptyOrganizationsAreUnrestricted: boolean,
+): boolean {
+  const organizations = Array.isArray(acl.organizationsJson) ? acl.organizationsJson : null
+  if (!organizations || organizations.includes('__all__')) return true
+  if (organizations.length === 0) return emptyOrganizationsAreUnrestricted
+  return organizations.some((organizationId) => organizationScope.has(organizationId))
+}
+
+function roleAclsAuthorizeFeatures(
+  roleAcls: readonly RoleAcl[],
+  required: readonly string[],
+  organization: FeatureOrganizationCandidate,
+  emptyOrganizationsAreUnrestricted: boolean,
+): boolean {
+  const organizationScope = buildFeatureOrganizationScope(organization)
+  const grantedFeatures = new Set<string>()
+  let unrestricted = false
+  let scopeAllowed = false
+
+  for (const acl of roleAcls) {
+    if (roleAclProvidesOrganizationVisibility(acl, organizationScope, emptyOrganizationsAreUnrestricted)) {
+      scopeAllowed = true
+    }
+    if (!roleAclAllowsOrganization(acl, organizationScope)) continue
+    unrestricted = unrestricted || acl.isSuperAdmin === true
+    for (const feature of Array.isArray(acl.featuresJson) ? acl.featuresJson : []) {
+      grantedFeatures.add(feature)
+    }
+  }
+
+  return authorizeFeatures([...required], {
+    grantedFeatures: Array.from(grantedFeatures),
+    unrestricted,
+    scopeAllowed: scopeAllowed || unrestricted,
+  })
+}
+
+function roleAclsAuthorizeFeaturesGlobally(
+  roleAcls: readonly RoleAcl[],
+  required: readonly string[],
+  emptyOrganizationsAreUnrestricted: boolean,
+): boolean {
+  const grantedFeatures = new Set<string>()
+  let unrestricted = false
+  let scopeAllowed = false
+
+  for (const acl of roleAcls) {
+    if (roleAclProvidesGlobalVisibility(acl, emptyOrganizationsAreUnrestricted)) {
+      scopeAllowed = true
+    }
+    if (!roleAclProvidesGlobalFeatureScope(acl)) continue
+    unrestricted = unrestricted || acl.isSuperAdmin === true
+    for (const feature of Array.isArray(acl.featuresJson) ? acl.featuresJson : []) {
+      grantedFeatures.add(feature)
+    }
+  }
+
+  return authorizeFeatures([...required], {
+    grantedFeatures: Array.from(grantedFeatures),
+    unrestricted,
+    scopeAllowed: scopeAllowed || unrestricted,
+  })
+}
+
 export class RbacService {
   private cacheTtlMs: number = 5 * 60 * 1000 // 5 minutes default
   private cache: CacheStrategy | null = null
@@ -513,6 +627,125 @@ export class RbacService {
       unrestricted: acl.isSuperAdmin,
       scopeAllowed: organizationAllowed,
     })
+  }
+
+  async resolveFeatureOrganizationAccess(
+    userId: string,
+    required: readonly string[],
+    input: { tenantId: string | null },
+  ): Promise<FeatureOrganizationAccess> {
+    const allowAll = (organizations: readonly FeatureOrganizationCandidate[]) =>
+      normalizeFeatureOrganizationCandidates(organizations).map((organization) => organization.id)
+    const denyAll = () => []
+    if (!required.length) return { unrestricted: true, filterOrganizationIds: allowAll }
+    if (!input.tenantId) return { unrestricted: false, filterOrganizationIds: denyAll }
+    if (
+      !userId.startsWith('api_key:')
+      && await this.isGlobalSuperAdmin(userId)
+      && authorizeFeatures(required, { grantedFeatures: ['*'], unrestricted: true })
+    ) {
+      return { unrestricted: true, filterOrganizationIds: allowAll }
+    }
+
+    const em = this.em.fork()
+    if (userId.startsWith('api_key:')) {
+      const apiKeyId = userId.slice('api_key:'.length)
+      const key = await em.findOne(ApiKey, { id: apiKeyId, deletedAt: null })
+      if (
+        !key
+        || (key.expiresAt && key.expiresAt.getTime() < Date.now())
+        || (key.tenantId && key.tenantId !== input.tenantId)
+      ) {
+        return { unrestricted: false, filterOrganizationIds: denyAll }
+      }
+
+      const roleIds = Array.isArray(key.rolesJson) ? key.rolesJson.filter(Boolean) : []
+      if (!roleIds.length) return { unrestricted: false, filterOrganizationIds: denyAll }
+      const roleAcls = await em.find(RoleAcl, {
+        tenantId: input.tenantId,
+        role: { $in: roleIds },
+      })
+      const keyOrganizationId = typeof key.organizationId === 'string' && key.organizationId.trim().length > 0
+        ? key.organizationId.trim()
+        : null
+      const unrestricted = keyOrganizationId === null
+        && roleAclsAuthorizeFeaturesGlobally(roleAcls, required, true)
+      if (unrestricted) return { unrestricted: true, filterOrganizationIds: allowAll }
+
+      return {
+        unrestricted: false,
+        filterOrganizationIds: (candidates) => normalizeFeatureOrganizationCandidates(candidates)
+          .filter((organization) => (
+            (!keyOrganizationId || organization.id === keyOrganizationId)
+            && roleAclsAuthorizeFeatures(roleAcls, required, organization, true)
+          ))
+          .map((organization) => organization.id),
+      }
+    }
+
+    const user = await em.findOne(User, { id: userId })
+    if (!user) return { unrestricted: false, filterOrganizationIds: denyAll }
+
+    const userAcl = await em.findOne(UserAcl, { user: userId, tenantId: input.tenantId })
+    if (userAcl) {
+      const grantedFeatures = Array.isArray(userAcl.featuresJson) ? userAcl.featuresJson : []
+      const allowedOrganizations = Array.isArray(userAcl.organizationsJson)
+        ? userAcl.organizationsJson
+        : null
+      const hasGlobalScope = userAcl.isSuperAdmin === true
+        || allowedOrganizations === null
+        || allowedOrganizations.includes('__all__')
+      const unrestricted = authorizeFeatures([...required], {
+        grantedFeatures,
+        unrestricted: userAcl.isSuperAdmin === true,
+        scopeAllowed: hasGlobalScope,
+      })
+      if (unrestricted) return { unrestricted: true, filterOrganizationIds: allowAll }
+
+      return {
+        unrestricted: false,
+        filterOrganizationIds: (candidates) => normalizeFeatureOrganizationCandidates(candidates)
+          .filter((organization) => {
+            const scopeAllowed = userAcl.isSuperAdmin === true
+              || allowedOrganizations === null
+              || allowedOrganizations.includes('__all__')
+              || allowedOrganizations.includes(organization.id)
+            return authorizeFeatures([...required], {
+              grantedFeatures,
+              unrestricted: userAcl.isSuperAdmin === true,
+              scopeAllowed,
+            })
+          })
+          .map((organization) => organization.id),
+      }
+    }
+
+    const links = await findWithDecryption(
+      em,
+      UserRole,
+      { user: userId, role: { tenantId: input.tenantId } },
+      { populate: ['role'] },
+      { tenantId: input.tenantId, organizationId: null },
+    )
+    const roleIds = Array.from(new Set(links
+      .map((link) => link.role?.id)
+      .filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0)))
+    if (!roleIds.length) return { unrestricted: false, filterOrganizationIds: denyAll }
+
+    const roleAcls = await em.find(RoleAcl, {
+      tenantId: input.tenantId,
+      role: { $in: roleIds },
+    })
+    if (roleAclsAuthorizeFeaturesGlobally(roleAcls, required, false)) {
+      return { unrestricted: true, filterOrganizationIds: allowAll }
+    }
+
+    return {
+      unrestricted: false,
+      filterOrganizationIds: (candidates) => normalizeFeatureOrganizationCandidates(candidates)
+        .filter((organization) => roleAclsAuthorizeFeatures(roleAcls, required, organization, false))
+        .map((organization) => organization.id),
+    }
   }
 
   /**
