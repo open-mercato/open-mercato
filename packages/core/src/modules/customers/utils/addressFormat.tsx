@@ -1,4 +1,6 @@
 import * as React from 'react'
+import { addressDisplayProfile, formatAddress } from '@open-mercato/shared/lib/display/address'
+import type { DisplayProfile } from '@open-mercato/shared/lib/display/profile'
 import type { CustomerAddressFormat } from '../data/entities'
 
 export type AddressFormatStrategy = CustomerAddressFormat
@@ -62,17 +64,6 @@ function normalize(value: string | null | undefined): string | null {
   return trimmed.length ? trimmed : null
 }
 
-function mergeStreetLine(address: AddressValue): string | null {
-  const street = normalize(address.addressLine1)
-  const building = normalize(address.buildingNumber)
-  const flat = normalize(address.flatNumber)
-  if (!street && !building && !flat) return null
-  let line = street ?? ''
-  if (building) line = line ? `${line} ${building}` : building
-  if (flat) line = line ? `${line}/${flat}` : flat
-  return line.length ? line : null
-}
-
 export function formatAddressJson(address: AddressValue, format: AddressFormatStrategy): AddressJsonShape {
   return {
     format,
@@ -88,45 +79,31 @@ export function formatAddressJson(address: AddressValue, format: AddressFormatSt
   }
 }
 
-export function formatAddressLines(address: AddressValue, format: AddressFormatStrategy): string[] {
-  const json = formatAddressJson(address, format)
-  const lines: string[] = []
-
-  if (json.companyName) lines.push(json.companyName)
-
-  if (format === 'street_first') {
-    const streetLine = mergeStreetLine(address)
-    if (streetLine) lines.push(streetLine)
-    const supplemental = normalize(address.addressLine2)
-    if (supplemental) lines.push(supplemental)
-    const postalCity = [json.postalCode, json.city].filter(Boolean).join(' ')
-    if (postalCity.length) lines.push(postalCity)
-    if (json.region) lines.push(json.region)
-    if (json.country) lines.push(json.country)
-  } else {
-    if (json.addressLine1) {
-      const baseLine1 = json.addressLine1
-      const appended = mergeStreetLine(address)
-      if (!json.buildingNumber && !json.flatNumber) {
-        lines.push(baseLine1)
-      } else {
-        const composite = appended ?? baseLine1
-        lines.push(composite)
-      }
-    }
-    if (json.addressLine2) lines.push(json.addressLine2)
-    const postalCity = [json.postalCode, json.city].filter(Boolean).join(' ')
-    if (postalCity.length) lines.push(postalCity)
-    if (json.region) lines.push(json.region)
-    if (json.country) lines.push(json.country)
-  }
-
-  return lines
+/**
+ * The postal lines of an address, in the conventions of the organization's market.
+ *
+ * The line building itself lives in `@open-mercato/shared/lib/display/address`, so this copy and
+ * the `packages/ui` copy cannot drift in their postal rules while they remain two files (spec
+ * assumption A1). Without a profile the shared helper renders the frozen legacy defaults, which
+ * reproduce this function's previous output line for line.
+ */
+export function formatAddressLines(
+  address: AddressValue,
+  format: AddressFormatStrategy,
+  profile?: DisplayProfile | null,
+): string[] {
+  return formatAddress(address, addressDisplayProfile(format, profile)).lines
 }
 
-export function formatAddressString(address: AddressValue, format: AddressFormatStrategy, separator = ', '): string {
-  return formatAddressLines(address, format).filter(Boolean).join(separator)
+export function formatAddressString(
+  address: AddressValue,
+  format: AddressFormatStrategy,
+  separator = ', ',
+  profile?: DisplayProfile | null,
+): string {
+  return formatAddressLines(address, format, profile).filter(Boolean).join(separator)
 }
+
 
 /**
  * Which member of a label map names which scheme. Private, and deliberately not exhaustive: an
@@ -158,6 +135,8 @@ type AddressViewProps = {
   format: AddressFormatStrategy
   className?: string
   lineClassName?: string
+  /** The organization's market display profile; its layout wins over `format` when present. */
+  profile?: DisplayProfile | null
 }
 
 export function AddressView({
@@ -165,8 +144,9 @@ export function AddressView({
   format,
   className,
   lineClassName,
+  profile,
 }: AddressViewProps): React.ReactElement | null {
-  const lines = formatAddressLines(address, format)
+  const lines = formatAddressLines(address, format, profile)
   if (!lines.length) return null
   return (
     <div className={className}>

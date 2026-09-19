@@ -9,6 +9,7 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { E } from '#generated/entities.ids.generated'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import {
   buildCompanyPayload,
@@ -20,12 +21,13 @@ import {
 
 export default function CreateCompanyPage() {
   const t = useT()
+  const displayProfile = useDisplayProfile()
   const router = useRouter()
   const searchParams = useSearchParams()
   const { organizationId } = useOrganizationScopeDetail()
 
   const formSchema = React.useMemo(() => createCompanyFormSchema(), [])
-  const fields = React.useMemo(() => createCompanyFormFields(t), [t])
+  const fields = React.useMemo(() => createCompanyFormFields(t, { profile: displayProfile }), [t, displayProfile])
   const groups = React.useMemo(() => createCompanyFormGroups(t), [t])
   const returnTo = searchParams.get('returnTo')
 

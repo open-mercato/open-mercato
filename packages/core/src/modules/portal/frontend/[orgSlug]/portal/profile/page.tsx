@@ -3,6 +3,8 @@ import { useEffect, useMemo } from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/portal/extension-points'
 import { useRouter } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
+import { formatDateTime } from '@open-mercato/shared/lib/display/datetime'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
@@ -14,6 +16,7 @@ type Props = { params: { orgSlug: string } }
 
 export default function PortalProfilePage({ params }: Props) {
   const t = useT()
+  const displayProfile = useDisplayProfile()
   const router = useRouter()
   const { auth } = usePortalContext()
   const { user, roles, resolvedFeatures, isPortalAdmin, loading } = auth
@@ -37,9 +40,14 @@ export default function PortalProfilePage({ params }: Props) {
 
   const formatDate = (dateString: string | null) => {
     if (!dateString) return t('portal.dashboard.never', 'Never')
-    return new Date(dateString).toLocaleDateString(undefined, {
-      year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-    })
+    // The merchant's customer reads this page, so it follows the merchant's market rather than the
+    // visitor's browser: a US store shows 10/17/2026 3:45 PM to everyone who signs in.
+    return (
+      formatDateTime(dateString, displayProfile)
+      ?? new Date(dateString).toLocaleDateString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      })
+    )
   }
 
   return (

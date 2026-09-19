@@ -1,3 +1,6 @@
+import { paperSize } from '@open-mercato/shared/lib/display/paper'
+import type { DisplayProfile } from '@open-mercato/shared/lib/display/profile'
+
 const PDF_CSP = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'none'; frame-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'"
 
 function escapeHtml(value: string): string {
@@ -9,8 +12,17 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;')
 }
 
-export function buildDocumentPdfHtml(title: string, contentHtml: string): string {
+/**
+ * `profile` is optional and trailing, so every existing caller compiles and keeps producing A4.
+ * A US tenant's documents come out Letter, which is what their printers and filing cabinets take.
+ */
+export function buildDocumentPdfHtml(
+  title: string,
+  contentHtml: string,
+  profile?: DisplayProfile | null,
+): string {
   const safeTitle = escapeHtml(title)
+  const page = paperSize(profile)
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -18,7 +30,7 @@ export function buildDocumentPdfHtml(title: string, contentHtml: string): string
   <meta http-equiv="Content-Security-Policy" content="${PDF_CSP}">
   <title>${safeTitle}</title>
   <style>
-    @page { size: A4; margin: 22mm 20mm; }
+    @page { size: ${page.css}; margin: 22mm 20mm; }
     *, *::before, *::after { box-sizing: border-box; }
     html { color: #172033; background: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 11pt; line-height: 1.55; }
     body { margin: 0; overflow-wrap: anywhere; }

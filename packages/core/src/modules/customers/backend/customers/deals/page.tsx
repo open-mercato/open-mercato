@@ -35,6 +35,10 @@ import { DealsKpiStrip } from '../../../components/DealsKpiStrip'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDate as formatDisplayDate } from '@open-mercato/shared/lib/display/datetime'
+import { formatNumber } from '@open-mercato/shared/lib/display/money'
+import type { DisplayProfile } from '@open-mercato/shared/lib/display/profile'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   type CustomerDictionaryKind,
@@ -162,11 +166,13 @@ function extractIdsFromParams(params: URLSearchParams | null | undefined, key: s
   return normalizeIdCandidates(values)
 }
 
-function formatDateValue(value: string | null | undefined, fallback: string): string {
+function formatDateValue(
+  value: string | null | undefined,
+  fallback: string,
+  profile?: DisplayProfile | null,
+): string {
   if (!value) return fallback
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return fallback
-  return date.toLocaleDateString()
+  return formatDisplayDate(value, profile) ?? fallback
 }
 
 const STATUS_BADGE_VARIANTS: ReadonlySet<StatusBadgeVariant> = new Set([
@@ -186,15 +192,17 @@ function coerceStatusBadgeVariant(
   return 'neutral'
 }
 
-const groupedAmountFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 })
-
-function formatGroupedAmount(amount: number | null | undefined): string | null {
+function formatGroupedAmount(
+  amount: number | null | undefined,
+  profile?: DisplayProfile | null,
+): string | null {
   if (typeof amount !== 'number' || Number.isNaN(amount)) return null
-  return groupedAmountFormatter.format(amount)
+  return formatNumber(amount, profile, { maximumFractionDigits: 0 })
 }
 
 export default function CustomersDealsPage() {
   const t = useT()
+  const displayProfile = useDisplayProfile()
   const locale = useLocale()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const router = useRouter()
@@ -811,7 +819,7 @@ export default function CustomersDealsPage() {
           filterGroup: 'Deal',
         },
         cell: ({ row }) => {
-          const amount = formatGroupedAmount(row.original.valueAmount ?? null)
+          const amount = formatGroupedAmount(row.original.valueAmount ?? null, displayProfile)
           if (amount === null) return noValue
           const currency = row.original.valueCurrency
           return (
@@ -873,7 +881,7 @@ export default function CustomersDealsPage() {
           return (
             <div className="flex flex-col">
               <span className="text-foreground">
-                {formatDateValue(expectedCloseAt, t('customers.deals.list.noValue'))}
+                {formatDateValue(expectedCloseAt, t('customers.deals.list.noValue'), displayProfile)}
               </span>
               {subtitle}
             </div>
@@ -985,13 +993,13 @@ export default function CustomersDealsPage() {
         },
         cell: ({ row }) => (
           <span className="text-sm">
-            {formatDateValue(row.original.updatedAt ?? null, t('customers.deals.list.noValue'))}
+            {formatDateValue(row.original.updatedAt ?? null, t('customers.deals.list.noValue'), displayProfile)}
           </span>
         ),
       },
       ...customColumns,
     ]
-  }, [customFieldDefs, dictionaryMaps, dictionaryOptions, isDealOverdue, loadOwnerFilterOptions, locale, ownerNames, pipelineNames, resolvedOwnerFilterOptions, t])
+  }, [customFieldDefs, dictionaryMaps, dictionaryOptions, displayProfile, isDealOverdue, loadOwnerFilterOptions, locale, ownerNames, pipelineNames, resolvedOwnerFilterOptions, t])
 
   const { advancedFilterFields } = useAutoDiscoveredFields({ columns, customFieldDefs })
 

@@ -24,6 +24,8 @@ import { quoteSendSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { resolveStatusEntryIdByValue } from '../../../lib/statusHelpers'
 import { QuoteSentEmail } from '../../../emails/QuoteSentEmail'
+import { resolveDisplayProfileForScope } from '@open-mercato/core/modules/markets/lib/request-profile'
+import { buildQuoteDisplayViewModel } from '../../../lib/quoteDisplay'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
@@ -204,19 +206,43 @@ export async function POST(req: Request) {
     const url = appUrl ? `${appUrl.replace(/\/$/, '')}/quote/${rawAcceptanceToken}` : `/quote/${rawAcceptanceToken}`
 
     const locale = await detectLocale()
-    const validUntilFormatted = validUntil.toLocaleDateString(locale, {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
+    // The recipient is a customer, not a signed-in user, so the market is resolved here against the
+    // quote's own organization and the template is handed finished strings - see
+    // `sales/lib/quoteDisplay.ts`. An email client has no provider to read a profile from.
+    const displayProfile = await resolveDisplayProfileForScope(ctx.container, {
+      tenantId: quote.tenantId,
+      organizationId: quote.organizationId,
     })
+    const display = buildQuoteDisplayViewModel(
+      {
+        currencyCode: quote.currencyCode,
+        subtotalNetAmount: quote.subtotalNetAmount,
+        subtotalGrossAmount: quote.subtotalGrossAmount,
+        discountTotalAmount: quote.discountTotalAmount,
+        taxTotalAmount: quote.taxTotalAmount,
+        grandTotalNetAmount: quote.grandTotalNetAmount,
+        grandTotalGrossAmount: quote.grandTotalGrossAmount,
+        validUntil,
+        taxStatus: (quote as { taxStatus?: string | null }).taxStatus ?? null,
+      },
+      [],
+      displayProfile,
+      translate,
+      locale,
+    )
+    const validUntilFormatted = display.validUntil
+      ?? validUntil.toLocaleDateString(locale, { year: 'numeric', month: 'long', day: 'numeric' })
+    const totalFormatted = display.grandTotal
 
     const copy = {
       preview: translate('sales.quotes.email.preview', 'Quote {quoteNumber} is ready for review', { quoteNumber: quote.quoteNumber }),
       heading: translate('sales.quotes.email.heading', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber }),
-      total: translate('sales.quotes.email.total', 'Total: {amount} {currency}', {
-        amount: quote.grandTotalGrossAmount ?? quote.grandTotalNetAmount ?? '0',
-        currency: quote.currencyCode,
-      }),
+      total: totalFormatted
+        ? translate('sales.quotes.email.totalFormatted', 'Total: {amount}', { amount: totalFormatted })
+        : translate('sales.quotes.email.total', 'Total: {amount} {currency}', {
+            amount: quote.grandTotalGrossAmount ?? quote.grandTotalNetAmount ?? '0',
+            currency: quote.currencyCode,
+          }),
       validUntil: translate('sales.quotes.email.validUntil', 'Valid until: {date}', { date: validUntilFormatted }),
       cta: translate('sales.quotes.email.cta', 'View quote'),
       footer: translate('sales.quotes.email.footer', 'Open Mercato'),

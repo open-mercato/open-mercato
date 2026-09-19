@@ -10,6 +10,7 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { AddressView, formatAddressJson, formatAddressString, type AddressFormatStrategy } from '../utils/addressFormat'
 import { normalizeCoordinateInput, validateCoordinateInput } from '@open-mercato/shared/lib/location/coordinates'
 import AddressEditor from './AddressEditor'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import { useAddressTypes } from './detail/hooks/useAddressTypes'
 import {
   Dialog,
@@ -198,6 +199,7 @@ export function CustomerAddressTiles({
   const [fieldErrors, setFieldErrors] = React.useState<Partial<Record<DraftFieldKey, string>>>({})
   const [format, setFormat] = React.useState<AddressFormatStrategy>('line_first')
   const [formatLoading, setFormatLoading] = React.useState(false)
+  const displayProfile = useDisplayProfile()
   const { map: addressTypeMap } = useAddressTypes(t)
 
   const fieldLabels = React.useMemo(
@@ -579,7 +581,7 @@ export function CustomerAddressTiles({
               return renderFormTile(address.id)
             }
             const formattedJson = formatAddressJson(address, format)
-            const formattedString = formatAddressString(address, format)
+            const formattedString = formatAddressString(address, format, ', ', displayProfile)
 
             return (
               <div
@@ -637,7 +639,7 @@ export function CustomerAddressTiles({
                       {addressTypeMap.get(address.purpose) ?? address.purpose}
                     </p>
                   ) : null}
-                  <AddressView address={address} format={format} className="space-y-1" lineClassName="text-sm" />
+                  <AddressView address={address} format={format} profile={displayProfile} className="space-y-1" lineClassName="text-sm" />
                 </div>
               </div>
             )

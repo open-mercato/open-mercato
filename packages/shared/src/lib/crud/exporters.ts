@@ -1,3 +1,7 @@
+import { formatDate } from '../display/datetime'
+import { formatNumber } from '../display/money'
+import type { DisplayProfile } from '../display/profile'
+
 export type CrudExportFormat = 'csv' | 'json' | 'xml' | 'markdown'
 
 export type CrudExportColumn = {
@@ -32,6 +36,26 @@ function normalizeValue(value: unknown): string {
   return String(value)
 }
 
+/**
+ * The same value, rendered for a human to read in the market's conventions.
+ *
+ * Only CSV and Markdown use this. JSON and XML are integration formats whose consumers parse what
+ * they receive, so they keep ISO timestamps and raw numbers - reformatting those would break every
+ * downstream importer to make a spreadsheet look nicer.
+ *
+ * Without a profile this is `normalizeValue` unchanged, so a tenant that never picked a market
+ * exports byte-identically to before.
+ */
+function normalizeHumanValue(value: unknown, profile: DisplayProfile | null | undefined): string {
+  if (!profile) return normalizeValue(value)
+  if (value instanceof Date) return formatDate(value, profile) ?? normalizeValue(value)
+  if (typeof value === 'number') return formatNumber(value, profile) ?? normalizeValue(value)
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeHumanValue(entry, profile)).filter(Boolean).join(', ')
+  }
+  return normalizeValue(value)
+}
+
 function escapeCsv(value: string): string {
   if (/[",\n\r]/.test(value)) {
     return `"${value.replace(/"/g, '""')}"`
@@ -46,8 +70,12 @@ function neutralizeSpreadsheetFormula(value: string): string {
   return value
 }
 
-function normalizeCsvValue(value: unknown): string {
-  const normalized = normalizeValue(value)
+function normalizeCsvValue(value: unknown, profile?: DisplayProfile | null): string {
+  const normalized = normalizeHumanValue(value, profile)
+  // Numbers, bigints and booleans skip the formula guard whether or not a market formatted them.
+  // The guard defends against a TEXT cell that a spreadsheet would execute; a value that arrived as
+  // a number is not that, and prefixing it would corrupt every negative amount - a market's minus
+  // style starts with `-`, which the guard's own pattern matches.
   if (typeof value === 'number' || typeof value === 'bigint' || typeof value === 'boolean') {
     return normalized
   }
@@ -80,12 +108,12 @@ function escapeXmlValue(value: string): string {
     .replace(/'/g, '&apos;')
 }
 
-function serializeCsv(prepared: PreparedExport): SerializedExport {
+function serializeCsv(prepared: PreparedExport, profile?: DisplayProfile | null): SerializedExport {
   const headers = prepared.columns.map((col) => col.header)
   const lines = [headers.join(',')]
   for (const row of prepared.rows) {
     const values = prepared.columns.map((col) => {
-      const raw = normalizeCsvValue(row[col.field])
+      const raw = normalizeCsvValue(row[col.field], profile)
       return escapeCsv(raw)
     })
     lines.push(values.join(','))
@@ -132,12 +160,12 @@ function serializeXml(prepared: PreparedExport): SerializedExport {
   }
 }
 
-function serializeMarkdown(prepared: PreparedExport): SerializedExport {
+function serializeMarkdown(prepared: PreparedExport, profile?: DisplayProfile | null): SerializedExport {
   const headers = prepared.columns.map((col) => escapeMarkdown(col.header))
   const headerLine = `| ${headers.join(' | ')} |`
   const dividerLine = `| ${prepared.columns.map(() => '---').join(' | ')} |`
   const rows = prepared.rows.map((row) => {
-    const cells = prepared.columns.map((col) => escapeMarkdown(normalizeValue(row[col.field])))
+    const cells = prepared.columns.map((col) => escapeMarkdown(normalizeHumanValue(row[col.field], profile)))
     return `| ${cells.join(' | ')} |`
   })
   const body = [headerLine, dividerLine, ...rows].join('\n')
@@ -148,16 +176,24 @@ function serializeMarkdown(prepared: PreparedExport): SerializedExport {
   }
 }
 
-export function serializeExport(prepared: PreparedExport, format: CrudExportFormat): SerializedExport {
+/**
+ * `profile` is optional and trailing, so every existing caller compiles and exports unchanged.
+ * It reaches the human-readable formats only - see {@link normalizeHumanValue}.
+ */
+export function serializeExport(
+  prepared: PreparedExport,
+  format: CrudExportFormat,
+  profile?: DisplayProfile | null,
+): SerializedExport {
   switch (format) {
     case 'csv':
-      return serializeCsv(prepared)
+      return serializeCsv(prepared, profile)
     case 'json':
       return serializeJson(prepared)
     case 'xml':
       return serializeXml(prepared)
     case 'markdown':
-      return serializeMarkdown(prepared)
+      return serializeMarkdown(prepared, profile)
     default:
       return serializeJson(prepared)
   }

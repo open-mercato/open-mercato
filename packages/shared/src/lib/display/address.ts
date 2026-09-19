@@ -1,6 +1,6 @@
 import { testLinearRegex } from '../regex/linear'
 import { getSubdivisions, isValidSubdivision, type Subdivision } from '../location/subdivisions'
-import { withProfile, type AddressLayout, type DisplayProfile } from './profile'
+import { LEGACY_DISPLAY_DEFAULTS, withProfile, type AddressLayout, type DisplayProfile } from './profile'
 
 /**
  * The address shape the display layer reads.
@@ -59,6 +59,23 @@ function mergeStreetLine(address: DisplayAddressValue): string | null {
   if (building) line = line ? `${line} ${building}` : building
   if (flat) line = line ? `${line}/${flat}` : flat
   return line.length ? line : null
+}
+
+/**
+ * The profile an address surface should format with, given the per-organization address format
+ * setting it already reads today.
+ *
+ * A picked market wins over the legacy setting: Phase 1 turned the `customers` address format
+ * control into an info alert as soon as a profile row exists, so two sources of truth for the same
+ * decision cannot both be live. Without a profile the legacy setting is all there is, so it is
+ * folded into the frozen defaults and today's rendering is reproduced exactly.
+ */
+export function addressDisplayProfile(
+  fallbackLayout: AddressLayout,
+  profile?: DisplayProfile | null,
+): DisplayProfile {
+  if (profile) return profile
+  return { ...LEGACY_DISPLAY_DEFAULTS, addressLayout: fallbackLayout }
 }
 
 export function resolveAddressLayout(profile?: DisplayProfile | null): AddressLayoutDescriptor {

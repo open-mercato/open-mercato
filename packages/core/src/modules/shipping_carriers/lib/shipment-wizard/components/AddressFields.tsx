@@ -2,11 +2,22 @@
 
 import { Input } from '@open-mercato/ui/primitives/input'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
+import { resolveAddressLayout } from '@open-mercato/shared/lib/display/address'
+import { LEGACY_DISPLAY_DEFAULTS } from '@open-mercato/shared/lib/display/profile'
 import type { AddressFieldsProps } from '../types'
 
 export const AddressFields = (props: AddressFieldsProps) => {
   const { prefix, address, onChange, disabled } = props
   const t = useT()
+  const displayProfile = useDisplayProfile()
+  const descriptor = resolveAddressLayout(displayProfile)
+  // The market's own label when it renamed the field, and this form's label otherwise, so a
+  // merchant with no market keeps the exact wording they read today.
+  const postalCodeLabel =
+    descriptor.postalCodeLabelKey === LEGACY_DISPLAY_DEFAULTS.postalCodeLabelKey
+      ? t('shipping_carriers.create.field.postalCode', 'Postal code')
+      : t(descriptor.postalCodeLabelKey, t('shipping_carriers.create.field.postalCode', 'Postal code'))
 
   return (
     <div className="grid gap-3 sm:grid-cols-2">
@@ -45,7 +56,7 @@ export const AddressFields = (props: AddressFieldsProps) => {
       </div>
       <div>
         <label htmlFor={`${prefix}-postal`} className="mb-1 block text-xs font-medium text-muted-foreground">
-          {t('shipping_carriers.create.field.postalCode', 'Postal code')}
+          {postalCodeLabel}
         </label>
         <Input
           id={`${prefix}-postal`}
@@ -61,7 +72,7 @@ export const AddressFields = (props: AddressFieldsProps) => {
         <Input
           id={`${prefix}-country`}
           value={address.countryCode}
-          placeholder="PL"
+          placeholder={descriptor.defaultCountryCode ?? 'PL'}
           maxLength={3}
           onChange={(event) => onChange({ ...address, countryCode: event.target.value.toUpperCase() })}
           disabled={disabled}

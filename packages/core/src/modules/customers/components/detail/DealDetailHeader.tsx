@@ -4,6 +4,10 @@ import * as React from 'react'
 import { Building2, CalendarClock, Check, ChevronDown, FileText, Save, Trash2, Users, Workflow } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDate as formatDisplayDate } from '@open-mercato/shared/lib/display/datetime'
+import { formatMoney, formatNumber } from '@open-mercato/shared/lib/display/money'
+import type { DisplayProfile } from '@open-mercato/shared/lib/display/profile'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
@@ -47,23 +51,21 @@ type DealDetailHeaderProps = {
   isSaving: boolean
 }
 
-function formatCurrency(amount: string | null, currency: string | null): string | null {
+function formatCurrency(
+  amount: string | null,
+  currency: string | null,
+  profile?: DisplayProfile | null,
+): string | null {
   if (!amount) return null
   const parsed = Number(amount)
   if (!Number.isFinite(parsed)) return currency ? `${amount} ${currency}` : amount
-  if (!currency) return parsed.toLocaleString()
-  try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(parsed)
-  } catch {
-    return `${parsed.toLocaleString()} ${currency}`
-  }
+  if (!currency) return formatNumber(parsed, profile)
+  return formatMoney(parsed, currency, profile)
 }
 
-function formatDate(value: string | null): string | null {
+function formatDate(value: string | null, profile?: DisplayProfile | null): string | null {
   if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  return formatDisplayDate(value, profile)
 }
 
 type HeaderChipVariant = 'info' | 'warning' | 'success' | 'error' | 'neutral'
@@ -198,12 +200,16 @@ export function DealDetailHeader({
   isSaving,
 }: DealDetailHeaderProps) {
   const t = useT()
+  const displayProfile = useDisplayProfile()
   const amountLabel = React.useMemo(
-    () => formatCurrency(deal.valueAmount, deal.valueCurrency),
-    [deal.valueAmount, deal.valueCurrency],
+    () => formatCurrency(deal.valueAmount, deal.valueCurrency, displayProfile),
+    [deal.valueAmount, deal.valueCurrency, displayProfile],
   )
-  const createdAtLabel = React.useMemo(() => formatDate(deal.createdAt), [deal.createdAt])
-  const expectedCloseLabel = React.useMemo(() => formatDate(deal.expectedCloseAt), [deal.expectedCloseAt])
+  const createdAtLabel = React.useMemo(() => formatDate(deal.createdAt, displayProfile), [deal.createdAt, displayProfile])
+  const expectedCloseLabel = React.useMemo(
+    () => formatDate(deal.expectedCloseAt, displayProfile),
+    [deal.expectedCloseAt, displayProfile],
+  )
   const { data: statusDictionary } = useCustomerDictionary('deal-statuses', 0, deal.organizationId ?? null)
   const statusEntry = deal.status ? statusDictionary?.map?.[deal.status] : null
   const companyLabel = React.useMemo(() => {

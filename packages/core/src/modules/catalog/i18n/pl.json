@@ -185,6 +185,7 @@
   "catalog.priceKinds.table.promotionNo": "Nie",
   "catalog.priceKinds.table.promotionYes": "Tak",
   "catalog.priceKinds.table.title": "Tytuł",
+  "catalog.priceKinds.taxInclusiveWarning": "Ten rynek pokazuje jedną cenę i osobną pozycję podatku, ale {kinds} nadal przechowują ceny z podatkiem. Dokumenty pokazują dla nich kwotę netto; zmień je na ceny bez podatku, aby dane odpowiadały temu, co widać.",
   "catalog.priceKinds.title": "Rodzaje cen",
   "catalog.pricing.list.title": "Cenniki",
   "catalog.products.actions.create": "Utwórz",

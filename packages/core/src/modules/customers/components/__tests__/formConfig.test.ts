@@ -13,6 +13,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { EU_DISPLAY_TEMPLATE, US_DISPLAY_TEMPLATE } from '@open-mercato/shared/lib/display/templates'
 
 import {
   buildCompanyEditPayload,
@@ -349,6 +350,22 @@ describe('PhoneNumberField defaultCountryIso2 forwarding', () => {
 
     const html = renderToStaticMarkup(React.createElement(phoneField!.component as any, mockRenderProps))
     expect(html).toContain('+48')
+  })
+
+  it("takes the market's home country when a profile is passed", () => {
+    const fields = createPersonFormFields(t, { profile: EU_DISPLAY_TEMPLATE })
+    const phoneField = fields.find((f) => f.id === 'primaryPhone')
+
+    const html = renderToStaticMarkup(React.createElement(phoneField!.component as any, mockRenderProps))
+    expect(html).toContain('+48')
+  })
+
+  it('lets an explicit country win over the market', () => {
+    const fields = createPersonFormFields(t, { defaultCountryIso2: 'DE', profile: US_DISPLAY_TEMPLATE })
+    const phoneField = fields.find((f) => f.id === 'primaryPhone')
+
+    const html = renderToStaticMarkup(React.createElement(phoneField!.component as any, mockRenderProps))
+    expect(html).toContain('+49')
   })
 
   it('renders phone input with default +1 country code when options are omitted', () => {

@@ -22,8 +22,18 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@open-mercato/ui/primitives/dialog'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import { buildCountryOptions } from '@open-mercato/shared/lib/location/countries'
 import { buildHrefWithReturnTo } from '@open-mercato/shared/lib/navigation/returnTo'
+import {
+  addressDisplayProfile,
+  isValidPostalCode,
+  resolveAddressLayout,
+} from '@open-mercato/shared/lib/display/address'
+import { normalizePhoneInput } from '@open-mercato/shared/lib/display/phone'
+import { LEGACY_DISPLAY_DEFAULTS, type DisplayProfile } from '@open-mercato/shared/lib/display/profile'
+import { isValidSubdivision } from '@open-mercato/shared/lib/location/subdivisions'
 import { resolveTaxIdLabel, type AddressFormatStrategy } from '../utils/addressFormat'
 import { useAddressTypes } from './detail/hooks/useAddressTypes'
 
@@ -104,6 +114,11 @@ type AddressEditorProps = {
    * it carries a value and takes the same `disabled` as every neighbour.
    */
   showTaxIdField?: boolean
+  /**
+   * The organization's market display profile. Defaults to the one the provider resolved; pass it
+   * explicitly only to render a host that is not under `MarketProfileProvider`.
+   */
+  profile?: DisplayProfile | null
 }
 
 /**
@@ -128,7 +143,10 @@ export function AddressEditor({
   showCoordinateFields = false,
   showPhoneField = false,
   showTaxIdField = false,
+  profile,
 }: AddressEditorProps) {
+  const contextProfile = useDisplayProfile()
+  const activeProfile = profile !== undefined ? profile : contextProfile
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { options: addressTypes, loading: addressTypesLoading, error: addressTypeError, createType } = useAddressTypes(t)
@@ -178,6 +196,57 @@ export function AddressEditor({
     },
     [current, onChange],
   )
+
+  const descriptor = React.useMemo(
+    () => resolveAddressLayout(addressDisplayProfile(format, activeProfile)),
+    [format, activeProfile],
+  )
+
+  // A market with a home country should not make every merchant type it on every address. Seeded at
+  // most once per mounted country, so a host that ignores `onChange` cannot turn this into a loop.
+  const seededCountryRef = React.useRef<string | null>(null)
+  React.useEffect(() => {
+    const defaultCountry = descriptor.defaultCountryCode
+    if (disabled || !defaultCountry) return
+    if (current.country.trim().length) return
+    if (seededCountryRef.current === defaultCountry) return
+    seededCountryRef.current = defaultCountry
+    update('country', defaultCountry)
+  }, [current.country, descriptor.defaultCountryCode, disabled, update])
+
+  /**
+   * The market's label when it renamed the field, and this module's own label otherwise, so an
+   * organization that never picked a market keeps the exact strings it reads today.
+   */
+  const marketLabel = React.useCallback(
+    (profileKey: string, legacyKey: string, hostLabel: string) =>
+      (profileKey === legacyKey ? hostLabel : t(profileKey, hostLabel)),
+    [t],
+  )
+
+  const regionLabel = marketLabel(
+    descriptor.subdivisionLabelKey,
+    LEGACY_DISPLAY_DEFAULTS.subdivisionLabelKey,
+    t('customers.people.detail.addresses.fields.region', 'Region/state'),
+  )
+  const postalCodeLabel = marketLabel(
+    descriptor.postalCodeLabelKey,
+    LEGACY_DISPLAY_DEFAULTS.postalCodeLabelKey,
+    t('customers.people.detail.addresses.fields.postalCode', 'Postal code'),
+  )
+  const addressLine2Label = marketLabel(
+    descriptor.addressLine2LabelKey,
+    LEGACY_DISPLAY_DEFAULTS.addressLine2LabelKey,
+    t('customers.people.detail.addresses.fields.line2', 'Address line 2'),
+  )
+
+  const effectiveCountry = current.country.trim() || descriptor.defaultCountryCode
+  // Warnings, never errors: a display setting must not make data that predates it unsaveable.
+  const subdivisionWarning =
+    descriptor.subdivisions.length > 0
+    && current.region.trim().length > 0
+    && !isValidSubdivision(effectiveCountry, current.region)
+  const postalCodeWarning = !isValidPostalCode(current.postalCode, descriptor.postalCodePattern)
 
   const filteredCountryOptions = React.useMemo(() => {
     const query = countryQuery.trim().toLowerCase()
@@ -328,7 +397,7 @@ export function AddressEditor({
       />
       {showFormatHint ? (
         <p className="text-xs text-muted-foreground">
-          {format === 'street_first'
+          {descriptor.layout === 'street_first'
             ? t('customers.people.detail.addresses.streetFormatHint', 'Street-first layout is active.')
             : t('customers.people.detail.addresses.lineFormatHint', 'Address-line layout is active.')}
         </p>
@@ -337,7 +406,7 @@ export function AddressEditor({
         <Input
           className={inputClass('addressLine1')}
           placeholder={
-            format === 'street_first'
+            descriptor.layout === 'street_first'
               ? t('customers.people.detail.addresses.fields.street', 'Street')
               : t('customers.people.detail.addresses.fields.line1', 'Address line 1')
           }
@@ -347,7 +416,7 @@ export function AddressEditor({
           aria-invalid={errors.addressLine1 ? 'true' : undefined}
         />
         {errors.addressLine1 ? <p className="text-xs text-destructive sm:col-span-2">{errors.addressLine1}</p> : null}
-        {format === 'street_first' ? (
+        {descriptor.layout === 'street_first' && descriptor.showBuildingAndFlatNumber ? (
           <>
             <Input
               className={inputClass('buildingNumber')}
@@ -367,7 +436,11 @@ export function AddressEditor({
             />
             <Input
               className={inputClass('addressLine2')}
-              placeholder={t('customers.people.detail.addresses.fields.streetExtra', 'Address line 2')}
+              placeholder={marketLabel(
+                descriptor.addressLine2LabelKey,
+                LEGACY_DISPLAY_DEFAULTS.addressLine2LabelKey,
+                t('customers.people.detail.addresses.fields.streetExtra', 'Address line 2'),
+              )}
               value={current.addressLine2}
               onChange={(evt) => update('addressLine2', evt.target.value)}
               disabled={disabled}
@@ -379,7 +452,7 @@ export function AddressEditor({
           <>
             <Input
               className={inputClass('addressLine2')}
-              placeholder={t('customers.people.detail.addresses.fields.line2', 'Address line 2')}
+              placeholder={addressLine2Label}
               value={current.addressLine2}
               onChange={(evt) => update('addressLine2', evt.target.value)}
               disabled={disabled}
@@ -397,24 +470,57 @@ export function AddressEditor({
           aria-invalid={errors.city ? 'true' : undefined}
         />
         {errors.city ? <p className="text-xs text-destructive">{errors.city}</p> : null}
-        <Input
-          className={inputClass('region')}
-          placeholder={t('customers.people.detail.addresses.fields.region', 'Region/state')}
-          value={current.region}
-          onChange={(evt) => update('region', evt.target.value)}
-          disabled={disabled}
-          aria-invalid={errors.region ? 'true' : undefined}
-        />
+        {descriptor.subdivisions.length ? (
+          <Select
+            value={current.region || undefined}
+            onValueChange={(next) => update('region', next ?? '')}
+            disabled={disabled}
+          >
+            <SelectTrigger
+              className={errors.region ? 'border-destructive' : undefined}
+              aria-label={regionLabel}
+              aria-invalid={errors.region ? 'true' : undefined}
+            >
+              <SelectValue placeholder={regionLabel} />
+            </SelectTrigger>
+            <SelectContent>
+              {descriptor.subdivisions.map((entry) => (
+                <SelectItem key={entry.code} value={entry.code}>
+                  {entry.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <Input
+            className={inputClass('region')}
+            placeholder={regionLabel}
+            value={current.region}
+            onChange={(evt) => update('region', evt.target.value)}
+            disabled={disabled}
+            aria-invalid={errors.region ? 'true' : undefined}
+          />
+        )}
         {errors.region ? <p className="text-xs text-destructive">{errors.region}</p> : null}
+        {subdivisionWarning ? (
+          <StatusBadge variant="warning">
+            {t('markets.address.warning.subdivision', 'This state is not in the list for the selected country. The record still saves.')}
+          </StatusBadge>
+        ) : null}
         <Input
           className={inputClass('postalCode')}
-          placeholder={t('customers.people.detail.addresses.fields.postalCode', 'Postal code')}
+          placeholder={postalCodeLabel}
           value={current.postalCode}
           onChange={(evt) => update('postalCode', evt.target.value)}
           disabled={disabled}
           aria-invalid={errors.postalCode ? 'true' : undefined}
         />
         {errors.postalCode ? <p className="text-xs text-destructive">{errors.postalCode}</p> : null}
+        {postalCodeWarning ? (
+          <StatusBadge variant="warning">
+            {t('markets.address.warning.postalCode', 'This postal code does not match the market pattern. The record still saves.')}
+          </StatusBadge>
+        ) : null}
         <Dialog
           open={countryDialogOpen}
           onOpenChange={(open) => {
@@ -581,6 +687,13 @@ export function AddressEditor({
               inputMode="tel"
               value={current.phone ?? ''}
               onChange={(evt) => update('phone', evt.target.value)}
+              onBlur={(evt) => {
+                // `214-555-0100` is how a US merchant writes their own number; the stored contract
+                // stays E.164, so the market's dial code is prepended here rather than relaxed
+                // in the validator.
+                const normalized = normalizePhoneInput(evt.target.value, activeProfile)
+                if (normalized && normalized !== evt.target.value) update('phone', normalized)
+              }}
               disabled={disabled}
               aria-invalid={errors.phone ? 'true' : undefined}
             />

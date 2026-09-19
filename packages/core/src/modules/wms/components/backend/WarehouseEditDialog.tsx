@@ -10,6 +10,7 @@ import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import { E } from '#generated/entities.ids.generated'
 import { flashMutationError } from '../../lib/flashMutationError'
 import {
@@ -69,6 +70,7 @@ type WarehouseEditDialogProps = {
 export function WarehouseEditDialog({ open, onOpenChange, mode, row, onSaved }: WarehouseEditDialogProps) {
   const t = useT()
   const locale = useLocale()
+  const displayProfile = useDisplayProfile()
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({ contextId: 'wms-config-warehouses' })
   const [submitting, setSubmitting] = React.useState(false)
 
@@ -125,13 +127,15 @@ export function WarehouseEditDialog({ open, onOpenChange, mode, row, onSaved }: 
     return {
       name: '',
       code: '',
+      // A merchant who picked a market is almost always opening their next warehouse in it, and
+      // this form carries no other address field for the market to shape.
       city: '',
-      country: '',
-      timezone: '',
+      country: displayProfile?.defaultCountryCode ?? '',
+      timezone: displayProfile?.timeZone ?? '',
       isActive: true,
       isPrimary: false,
     }
-  }, [mode, row])
+  }, [displayProfile, mode, row])
 
   const handleSubmit = React.useCallback(async (values: WarehouseFormValues) => {
     setSubmitting(true)

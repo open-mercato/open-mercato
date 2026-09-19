@@ -3,6 +3,8 @@
 import * as React from 'react'
 import { flushSync } from 'react-dom'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
+import { showsSinglePricePlusTax } from '@open-mercato/shared/lib/display/price'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Input } from '@open-mercato/ui/primitives/input'
 import {
@@ -238,8 +240,13 @@ export function VariantDimensionsSection({ values, setValue, showHeading = true 
   const metadata = normalizeMetadata(values.metadata)
   const dimensionValues = normalizeDimensions(metadata)
   const weightValues = normalizeWeight(metadata)
-  const dimensionUnitPlaceholder = t('catalog.variants.form.dimensionUnitPlaceholder', 'cm')
-  const weightUnitPlaceholder = t('catalog.variants.form.weightUnitPlaceholder', 'kg')
+  const displayProfile = useDisplayProfile()
+  // A US merchant types inches and pounds, so the empty-field hint must not suggest cm and kg. The
+  // stored value is whatever they type - this is a placeholder, not a conversion.
+  const dimensionUnitPlaceholder =
+    displayProfile?.defaultLengthUnit ?? t('catalog.variants.form.dimensionUnitPlaceholder', 'cm')
+  const weightUnitPlaceholder =
+    displayProfile?.defaultWeightUnit ?? t('catalog.variants.form.weightUnitPlaceholder', 'kg')
 
   return (
     <div className="space-y-4">
@@ -326,6 +333,7 @@ export function VariantPricesSection({
   embedded = false,
 }: VariantPricesSectionProps) {
   const t = useT()
+  const singlePricePresentation = showsSinglePricePlusTax(useDisplayProfile())
   const pricesRef = React.useRef(values.prices)
 
   React.useEffect(() => {
@@ -432,7 +440,11 @@ export function VariantPricesSection({
                     <p className="text-sm font-semibold">{kind.title}</p>
                     <p className="text-xs text-muted-foreground">
                       {kind.currencyCode
-                        ? `${kind.currencyCode.toUpperCase()} • ${kind.displayMode === 'including-tax' ? t('catalog.priceKinds.form.displayMode.include', 'Including tax') : t('catalog.priceKinds.form.displayMode.exclude', 'Excluding tax')}`
+                        ? (singlePricePresentation
+                            // One price plus a separate tax line: the net/gross wording names a
+                            // distinction this market does not draw on a product form.
+                            ? kind.currencyCode.toUpperCase()
+                            : `${kind.currencyCode.toUpperCase()} • ${kind.displayMode === 'including-tax' ? t('catalog.priceKinds.form.displayMode.include', 'Including tax') : t('catalog.priceKinds.form.displayMode.exclude', 'Excluding tax')}`)
                         : t('catalog.variants.form.priceMissingCurrency', 'No currency configured')}
                     </p>
                   </div>

@@ -23,6 +23,9 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
+import { showsSinglePricePlusTax } from '@open-mercato/shared/lib/display/price'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
@@ -115,6 +118,7 @@ const normalizePriceKind = (input: PriceKindApiPayload | null | undefined): Pric
 
 export function PriceKindSettings() {
   const t = useT()
+  const singlePricePresentation = showsSinglePricePlusTax(useDisplayProfile())
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const scopeVersion = useOrganizationScopeVersion()
   const [items, setItems] = React.useState<PriceKind[]>([])
@@ -419,6 +423,14 @@ export function PriceKindSettings() {
     openDialog({ mode: 'edit', entry })
   }, [openDialog])
 
+  // A kind still marked `including-tax` under a market that prints tax separately is incoherent
+  // data, not a rendering bug: the document already shows the net amount for it. Nothing is
+  // rewritten automatically, because a stored display mode is the admin's own decision.
+  const taxInclusiveKinds = React.useMemo(
+    () => (singlePricePresentation ? items.filter((entry) => entry.displayMode === 'including-tax') : []),
+    [items, singlePricePresentation],
+  )
+
   return (
     <>
       <section className="border bg-card text-card-foreground shadow-sm">
@@ -428,6 +440,19 @@ export function PriceKindSettings() {
             {t('catalog.priceKinds.description', 'Configure reusable price kinds that control pricing columns and tax display.')}
           </p>
         </div>
+        {taxInclusiveKinds.length ? (
+          <div className="px-6 pt-4">
+            <Alert status="warning">
+              <AlertDescription>
+                {t(
+                  'catalog.priceKinds.taxInclusiveWarning',
+                  'This market shows one price plus a separate tax line, but {kinds} still store prices including tax. Documents display the net amount for them; switch them to excluding tax to make the stored data match what is shown.',
+                  { kinds: taxInclusiveKinds.map((entry) => entry.title || entry.code).join(', ') },
+                )}
+              </AlertDescription>
+            </Alert>
+          </div>
+        ) : null}
         <div className="px-2 py-4 sm:px-4">
           <DataTable<PriceKind>
             data={filteredItems}

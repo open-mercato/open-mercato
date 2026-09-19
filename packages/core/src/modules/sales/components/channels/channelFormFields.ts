@@ -3,6 +3,9 @@
 import * as React from 'react'
 import type { CrudField, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
+import { resolveAddressLayout } from '@open-mercato/shared/lib/display/address'
+import { LEGACY_DISPLAY_DEFAULTS } from '@open-mercato/shared/lib/display/profile'
 
 export type ChannelFormValues = {
   name: string
@@ -23,8 +26,24 @@ export type ChannelFormValues = {
   isActive?: boolean
 } & Record<string, unknown>
 
+/**
+ * The channel address is a postal address like any other, so it takes its region and postal-code
+ * wording - and the state list, when the market ships one - from the same descriptor the address
+ * editors read. Without a market the labels are the ones this form already showed.
+ */
+function useChannelAddressDescriptor() {
+  const profile = useDisplayProfile()
+  return React.useMemo(() => resolveAddressLayout(profile), [profile])
+}
+
 function useChannelFieldLabels() {
   const t = useT()
+  const descriptor = useChannelAddressDescriptor()
+  const marketLabel = React.useCallback(
+    (profileKey: string, legacyKey: string, hostLabel: string) =>
+      (profileKey === legacyKey ? hostLabel : t(profileKey, hostLabel)),
+    [t],
+  )
   return React.useMemo(() => ({
     name: t('sales.channels.form.name', 'Channel name'),
     code: t('sales.channels.form.code', 'Code'),
@@ -36,18 +55,31 @@ function useChannelFieldLabels() {
     addressLine1: t('sales.channels.form.address1', 'Address line 1'),
     addressLine2: t('sales.channels.form.address2', 'Address line 2'),
     city: t('sales.channels.form.city', 'City'),
-    region: t('sales.channels.form.region', 'State / region'),
-    postalCode: t('sales.channels.form.postalCode', 'Postal code'),
+    region: marketLabel(
+      descriptor.subdivisionLabelKey,
+      LEGACY_DISPLAY_DEFAULTS.subdivisionLabelKey,
+      t('sales.channels.form.region', 'State / region'),
+    ),
+    postalCode: marketLabel(
+      descriptor.postalCodeLabelKey,
+      LEGACY_DISPLAY_DEFAULTS.postalCodeLabelKey,
+      t('sales.channels.form.postalCode', 'Postal code'),
+    ),
     country: t('sales.channels.form.country', 'Country'),
     latitude: t('sales.channels.form.latitude', 'Latitude'),
     longitude: t('sales.channels.form.longitude', 'Longitude'),
     isActive: t('sales.channels.form.isActive', 'Active'),
-  }), [t])
+  }), [descriptor, marketLabel, t])
 }
 
 export function useChannelFields(): { fields: CrudField[]; groups: CrudFormGroup[] } {
   const t = useT()
   const labels = useChannelFieldLabels()
+  const descriptor = useChannelAddressDescriptor()
+  const subdivisionOptions = React.useMemo(
+    () => descriptor.subdivisions.map((entry) => ({ value: entry.code, label: entry.name })),
+    [descriptor],
+  )
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'name', label: labels.name, type: 'text', required: true },
     {
@@ -93,12 +125,20 @@ export function useChannelFields(): { fields: CrudField[]; groups: CrudFormGroup
       type: 'text',
       layout: 'half',
     },
-    {
-      id: 'region',
-      label: labels.region,
-      type: 'text',
-      layout: 'half',
-    },
+    subdivisionOptions.length
+      ? {
+          id: 'region',
+          label: labels.region,
+          type: 'select' as const,
+          layout: 'half' as const,
+          options: subdivisionOptions,
+        }
+      : {
+          id: 'region',
+          label: labels.region,
+          type: 'text' as const,
+          layout: 'half' as const,
+        },
     {
       id: 'postalCode',
       label: labels.postalCode,
@@ -110,7 +150,7 @@ export function useChannelFields(): { fields: CrudField[]; groups: CrudFormGroup
       label: labels.country,
       type: 'text',
       layout: 'half',
-      placeholder: 'US',
+      placeholder: descriptor.defaultCountryCode ?? 'US',
     },
     {
       id: 'latitude',
@@ -129,7 +169,7 @@ export function useChannelFields(): { fields: CrudField[]; groups: CrudFormGroup
       label: labels.isActive,
       type: 'checkbox',
     },
-  ], [labels])
+  ], [descriptor.defaultCountryCode, labels, subdivisionOptions])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {

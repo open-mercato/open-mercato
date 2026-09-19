@@ -7,6 +7,7 @@ import { isToday } from 'date-fns/isToday'
 import { isTomorrow } from 'date-fns/isTomorrow'
 import { startOfDay } from 'date-fns/startOfDay'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -45,6 +46,10 @@ function formatUrlHost(location: string): string {
   }
 }
 
+/**
+ * The day heading of an agenda group. A spelled-out weekday has no equivalent in the market's date
+ * pattern, so the market contributes the language rather than the shape here.
+ */
 function groupLabelOf(locale: string, date: Date): string {
   return date.toLocaleDateString(locale, { weekday: 'long', month: 'short', day: 'numeric' })
 }
@@ -114,6 +119,7 @@ function AgendaRow({
 }) {
   const t = useT()
   const locale = useLocale()
+  const displayProfile = useDisplayProfile()
   const canceled = item.status === 'canceled'
   const done = item.status === 'done'
   const title = eventDisplayTitle(item.title, t('customers.calendar.grid.untitled', 'Untitled'))
@@ -129,9 +135,11 @@ function AgendaRow({
     : item.locationKind === 'url' && item.location
       ? formatUrlHost(item.location)
       : item.location
-  const startLabel = item.allDay ? t('customers.calendar.grid.allDay', 'All day') : formatTimeLabel(locale, item.start)
-  const endLabel = item.allDay ? null : formatTimeLabel(locale, item.end)
-  const ariaTime = item.allDay ? startLabel : formatTimeRangeLabel(locale, item.start, item.end)
+  const startLabel = item.allDay
+    ? t('customers.calendar.grid.allDay', 'All day')
+    : formatTimeLabel(locale, item.start, displayProfile)
+  const endLabel = item.allDay ? null : formatTimeLabel(locale, item.end, displayProfile)
+  const ariaTime = item.allDay ? startLabel : formatTimeRangeLabel(locale, item.start, item.end, displayProfile)
   return (
     <Button
       type="button"

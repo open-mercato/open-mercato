@@ -12,6 +12,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { AttachmentsSection, ErrorMessage, LoadingMessage, RecordNotFoundState, type SectionAction } from '@open-mercato/ui/backend/detail'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -53,6 +54,7 @@ const logger = createLogger('customers')
 export default function CompanyDetailV2Page({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
+  const displayProfile = useDisplayProfile()
   const router = useRouter()
   const searchParams = useSearchParams()
   const pathname = usePathname()
@@ -90,7 +92,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   const formWrapperRef = React.useRef<HTMLDivElement>(null)
   const { organizationId } = useOrganizationScopeDetail()
   const formSchema = React.useMemo(() => createCompanyEditSchema(), [])
-  const formFields = React.useMemo(() => createCompanyEditFields(t), [t])
+  const formFields = React.useMemo(() => createCompanyEditFields(t, { profile: displayProfile }), [t, displayProfile])
   const formGroups = React.useMemo(() => createCompanyDaneFiremyGroups(t), [t])
   const initialValues = React.useMemo(
     () => (data ? mapCompanyOverviewToFormValues(data) : undefined),
@@ -103,7 +105,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     { id: 'businessProfile', icon: BarChart3, label: t('customers.companies.form.sections.businessProfile', 'Business profile') },
     { id: 'notes', icon: StickyNote, label: t('customers.companies.form.groups.notes', 'Notes') },
     { id: 'customFields', icon: Hash, label: t('customers.companies.form.groups.customAttributes', 'Custom attributes') },
-  ], [t])
+  ], [t, displayProfile])
   const [scheduleDialogOpen, setScheduleDialogOpen] = React.useState(false)
   const [scheduleEditData, setScheduleEditData] = React.useState<ScheduleActivityEditData | null>(null)
   const [activityRefreshKey, setActivityRefreshKey] = React.useState(0)

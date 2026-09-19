@@ -185,6 +185,7 @@
   "catalog.priceKinds.table.promotionNo": "No",
   "catalog.priceKinds.table.promotionYes": "Yes",
   "catalog.priceKinds.table.title": "Title",
+  "catalog.priceKinds.taxInclusiveWarning": "This market shows one price plus a separate tax line, but {kinds} still store prices including tax. Documents display the net amount for them; switch them to excluding tax to make the stored data match what is shown.",
   "catalog.priceKinds.title": "Price kinds",
   "catalog.pricing.list.title": "Price Lists",
   "catalog.products.actions.create": "Create",

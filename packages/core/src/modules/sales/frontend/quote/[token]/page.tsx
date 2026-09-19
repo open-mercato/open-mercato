@@ -11,7 +11,25 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
 
+type QuoteDisplay = {
+  singlePricePlusTax: boolean
+  validUntil: string | null
+  subtotal: string | null
+  discountTotal: string | null
+  taxTotal: string | null
+  grandTotal: string | null
+  taxLabel: string
+  taxNote: string | null
+  lines: Array<{ unitPrice: string | null; total: string | null }>
+}
+
 type PublicQuoteResponse = {
+  /**
+   * Preformatted by the server against the quote's OWN organization. A visitor on this page is not
+   * signed in, so the client cannot resolve the merchant's market itself - see
+   * `sales/lib/quoteDisplay.ts`. Optional so a page served against an older API still renders.
+   */
+  display?: QuoteDisplay | null
   quote: {
     quoteNumber: string
     currencyCode: string
@@ -139,7 +157,11 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold">{t('sales.quotes.public.pageTitle')} {data.quote.quoteNumber}</h1>
         <p className="text-sm text-muted-foreground">
-          {data.quote.validUntil ? t('sales.quotes.public.validUntil', { date: new Date(data.quote.validUntil).toLocaleDateString() }) : t('sales.quotes.public.noValidityDate')}
+          {data.quote.validUntil
+            ? t('sales.quotes.public.validUntil', {
+                date: data.display?.validUntil ?? new Date(data.quote.validUntil).toLocaleDateString(),
+              })
+            : t('sales.quotes.public.noValidityDate')}
         </p>
       </header>
 
@@ -153,7 +175,7 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
       <section className="rounded-lg border p-4 space-y-3">
         <h2 className="font-medium">{t('sales.quotes.public.items')}</h2>
         <div className="space-y-2">
-          {data.lines.map((line) => (
+          {data.lines.map((line, lineIndex) => (
             <div key={`${line.lineNumber ?? 'x'}-${line.name ?? ''}`} className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <p className="font-medium truncate">{line.name ?? t('sales.quotes.public.item')}</p>
@@ -182,7 +204,8 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
               </div>
               <div className="text-right text-sm">
                 <p>
-                  {line.totalGrossAmount} {line.currencyCode}
+                  {data.display?.lines[lineIndex]?.total
+                    ?? `${line.totalGrossAmount} ${line.currencyCode}`}
                 </p>
               </div>
             </div>
@@ -193,27 +216,36 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
       <section className="rounded-lg border p-4 space-y-2">
         <h2 className="font-medium">{t('sales.quotes.public.totals')}</h2>
         <div className="flex items-center justify-between text-sm">
-          <span>{t('sales.quotes.public.subtotalGross')}</span>
           <span>
-            {data.quote.subtotalGrossAmount} {data.quote.currencyCode}
+            {data.display?.singlePricePlusTax
+              ? t('sales.quotes.public.subtotal', 'Subtotal')
+              : t('sales.quotes.public.subtotalGross')}
+          </span>
+          <span>
+            {data.display?.subtotal ?? `${data.quote.subtotalGrossAmount} ${data.quote.currencyCode}`}
           </span>
         </div>
         <div className="flex items-center justify-between text-sm">
           <span>{t('sales.quotes.public.discount')}</span>
           <span>
-            {data.quote.discountTotalAmount} {data.quote.currencyCode}
+            {data.display?.discountTotal ?? `${data.quote.discountTotalAmount} ${data.quote.currencyCode}`}
           </span>
         </div>
-        <div className="flex items-center justify-between text-sm">
-          <span>{t('sales.quotes.public.tax')}</span>
+        <div className="flex items-start justify-between text-sm">
           <span>
-            {data.quote.taxTotalAmount} {data.quote.currencyCode}
+            {data.display?.taxLabel ?? t('sales.quotes.public.tax')}
+            {data.display?.taxNote ? (
+              <span className="mt-0.5 block text-xs text-muted-foreground">{data.display.taxNote}</span>
+            ) : null}
+          </span>
+          <span>
+            {data.display?.taxTotal ?? `${data.quote.taxTotalAmount} ${data.quote.currencyCode}`}
           </span>
         </div>
         <div className="flex items-center justify-between font-medium">
           <span>{t('sales.quotes.public.total')}</span>
           <span>
-            {data.quote.grandTotalGrossAmount} {data.quote.currencyCode}
+            {data.display?.grandTotal ?? `${data.quote.grandTotalGrossAmount} ${data.quote.currencyCode}`}
           </span>
         </div>
       </section>

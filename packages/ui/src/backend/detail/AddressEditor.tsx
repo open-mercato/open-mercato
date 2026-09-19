@@ -22,8 +22,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@open-mercato/ui/primitives/dialog'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { buildCountryOptions } from '@open-mercato/shared/lib/location/countries'
 import { buildHrefWithReturnTo } from '@open-mercato/shared/lib/navigation/returnTo'
+import {
+  addressDisplayProfile,
+  isValidPostalCode,
+  resolveAddressLayout,
+} from '@open-mercato/shared/lib/display/address'
+import { isValidSubdivision } from '@open-mercato/shared/lib/location/subdivisions'
+import { LEGACY_DISPLAY_DEFAULTS, type DisplayProfile } from '@open-mercato/shared/lib/display/profile'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { AddressFormatStrategy } from './addressFormat'
 
@@ -86,6 +94,11 @@ type AddressEditorProps<C = unknown> = {
   showCoordinateFields?: boolean
   addressTypesAdapter?: AddressTypesAdapter<C>
   addressTypesContext?: C
+  /**
+   * The organization's market display profile. Its layout, labels, subdivision list and postal-code
+   * pattern win over `format` when present; without it the editor renders exactly as before.
+   */
+  profile?: DisplayProfile | null
 }
 
 export function AddressEditor<C = unknown>({
@@ -101,6 +114,7 @@ export function AddressEditor<C = unknown>({
   showCoordinateFields = false,
   addressTypesAdapter,
   addressTypesContext,
+  profile,
 }: AddressEditorProps<C>) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -182,6 +196,60 @@ export function AddressEditor<C = unknown>({
     },
     [current, onChange],
   )
+
+  const descriptor = React.useMemo(
+    () => resolveAddressLayout(addressDisplayProfile(format, profile)),
+    [format, profile],
+  )
+
+  // A market with a home country should not make every merchant type it on every address. Seeded at
+  // most once per mounted country, so a host that ignores `onChange` cannot turn this into a loop.
+  const seededCountryRef = React.useRef<string | null>(null)
+  React.useEffect(() => {
+    const defaultCountry = descriptor.defaultCountryCode
+    if (disabled || !defaultCountry) return
+    if (current.country.trim().length) return
+    if (seededCountryRef.current === defaultCountry) return
+    seededCountryRef.current = defaultCountry
+    update('country', defaultCountry)
+  }, [current.country, descriptor.defaultCountryCode, disabled, update])
+
+  /**
+   * The market's label when it renamed the field, and the host's own label otherwise.
+   *
+   * The frozen defaults carry a neutral key for every market-agnostic field, and an organization
+   * that never picked a market must keep the exact strings it reads today - so an unchanged key
+   * means "nothing to say about this field", not "render the markets dictionary instead".
+   */
+  const marketLabel = React.useCallback(
+    (profileKey: string, legacyKey: string, hostLabel: string) =>
+      (profileKey === legacyKey ? hostLabel : t(profileKey, hostLabel)),
+    [t],
+  )
+
+  const regionLabel = marketLabel(
+    descriptor.subdivisionLabelKey,
+    LEGACY_DISPLAY_DEFAULTS.subdivisionLabelKey,
+    label('fields.region', 'Region'),
+  )
+  const postalCodeLabel = marketLabel(
+    descriptor.postalCodeLabelKey,
+    LEGACY_DISPLAY_DEFAULTS.postalCodeLabelKey,
+    label('fields.postalCode', 'Postal code'),
+  )
+  const addressLine2Label = marketLabel(
+    descriptor.addressLine2LabelKey,
+    LEGACY_DISPLAY_DEFAULTS.addressLine2LabelKey,
+    label('fields.line2', 'Address line 2'),
+  )
+
+  const effectiveCountry = current.country.trim() || descriptor.defaultCountryCode
+  // Warnings, never errors: a display setting must not make data that predates it unsaveable.
+  const subdivisionWarning =
+    descriptor.subdivisions.length > 0
+    && current.region.trim().length > 0
+    && !isValidSubdivision(effectiveCountry, current.region)
+  const postalCodeWarning = !isValidPostalCode(current.postalCode, descriptor.postalCodePattern)
 
   const filteredCountryOptions = React.useMemo(() => {
     const query = countryQuery.trim().toLowerCase()
@@ -341,7 +409,7 @@ export function AddressEditor<C = unknown>({
         aria-invalid={errors.companyName ? 'true' : undefined}
       />
 
-      {format === 'street_first' ? (
+      {descriptor.layout === 'street_first' ? (
         <div className="grid gap-2 sm:grid-cols-[1.5fr,0.7fr,0.7fr]">
           <Input
             className={inputClass('addressLine1')}
@@ -381,14 +449,14 @@ export function AddressEditor<C = unknown>({
 
       <Input
         className={inputClass('addressLine2')}
-        placeholder={label('fields.line2', 'Address line 2')}
+        placeholder={addressLine2Label}
         value={current.addressLine2}
         onChange={(evt) => update('addressLine2', evt.target.value)}
         disabled={disabled}
         aria-invalid={errors.addressLine2 ? 'true' : undefined}
       />
 
-      {format !== 'street_first' ? (
+      {descriptor.layout !== 'street_first' && descriptor.showBuildingAndFlatNumber ? (
         <div className="grid gap-2 sm:grid-cols-[1.5fr,0.7fr,0.7fr]">
           <Input
             className={inputClass('buildingNumber')}
@@ -418,19 +486,47 @@ export function AddressEditor<C = unknown>({
           disabled={disabled}
           aria-invalid={errors.city ? 'true' : undefined}
         />
-        <Input
-          className={inputClass('region')}
-          placeholder={label('fields.region', 'Region')}
-          value={current.region}
-          onChange={(evt) => update('region', evt.target.value)}
-          disabled={disabled}
-          aria-invalid={errors.region ? 'true' : undefined}
-        />
+        {descriptor.subdivisions.length ? (
+          <Select
+            value={current.region || undefined}
+            onValueChange={(next) => update('region', next ?? '')}
+            disabled={disabled}
+          >
+            <SelectTrigger
+              className={errors.region ? 'border-destructive' : undefined}
+              aria-invalid={errors.region ? 'true' : undefined}
+              aria-label={regionLabel}
+            >
+              <SelectValue placeholder={regionLabel} />
+            </SelectTrigger>
+            <SelectContent>
+              {descriptor.subdivisions.map((entry) => (
+                <SelectItem key={entry.code} value={entry.code}>
+                  {entry.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <Input
+            className={inputClass('region')}
+            placeholder={regionLabel}
+            value={current.region}
+            onChange={(evt) => update('region', evt.target.value)}
+            disabled={disabled}
+            aria-invalid={errors.region ? 'true' : undefined}
+          />
+        )}
       </div>
+      {subdivisionWarning ? (
+        <StatusBadge variant="warning">
+          {t('markets.address.warning.subdivision', 'This state is not in the list for the selected country. The record still saves.')}
+        </StatusBadge>
+      ) : null}
       <div className="grid gap-2 sm:grid-cols-2">
         <Input
           className={inputClass('postalCode')}
-          placeholder={label('fields.postalCode', 'Postal code')}
+          placeholder={postalCodeLabel}
           value={current.postalCode}
           onChange={(evt) => update('postalCode', evt.target.value)}
           disabled={disabled}
@@ -477,6 +573,11 @@ export function AddressEditor<C = unknown>({
           </DialogContent>
         </Dialog>
       </div>
+      {postalCodeWarning ? (
+        <StatusBadge variant="warning">
+          {t('markets.address.warning.postalCode', 'This postal code does not match the market pattern. The record still saves.')}
+        </StatusBadge>
+      ) : null}
 
       {showCoordinateFields ? (
         <>

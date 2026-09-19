@@ -17,6 +17,8 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
+import type { DisplayProfile } from '@open-mercato/shared/lib/display/profile'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modules/customers/components/AddressEditor'
 import {
@@ -189,7 +191,11 @@ function readStringField(item: Record<string, unknown>, keys: string[]): string 
   return null
 }
 
-function mapApiAddress(item: Record<string, unknown>, format: AddressFormatStrategy): AddressOption | null {
+function mapApiAddress(
+  item: Record<string, unknown>,
+  format: AddressFormatStrategy,
+  profile?: DisplayProfile | null,
+): AddressOption | null {
   const id = typeof item.id === 'string' ? item.id : null
   if (!id) return null
   const read = (keys: string[]) => readStringField(item, keys)
@@ -206,7 +212,7 @@ function mapApiAddress(item: Record<string, unknown>, format: AddressFormatStrat
   }
   const name = (read(['name']) ?? '').trim()
   const purpose = (read(['purpose']) ?? '').trim()
-  const summary = formatAddressString(value, format)
+  const summary = formatAddressString(value, format, ', ', profile)
   const label = name || summary || id
   return { id, label, summary, value, name: name || null, purpose: purpose || null }
 }
@@ -251,6 +257,7 @@ export function SalesDocumentAddressesSection({
   const [addressesLoading, setAddressesLoading] = React.useState(false)
   const [addressesError, setAddressesError] = React.useState<string | null>(null)
   const [addressFormat, setAddressFormat] = React.useState<AddressFormatStrategy>('line_first')
+  const displayProfile = useDisplayProfile()
   const [useCustomShipping, setUseCustomShipping] = React.useState<boolean>(
     !!shippingAddressSnapshot && !shippingAddressId
   )
@@ -336,7 +343,7 @@ export function SalesDocumentAddressesSection({
 
   const resolveAddressSummary = React.useCallback(
     (value: AddressValue) => {
-      const summary = formatAddressString(value, addressFormat)
+      const summary = formatAddressString(value, addressFormat, ', ', displayProfile)
       if (summary) return summary
       return (
         value.addressLine1 ??
@@ -563,7 +570,7 @@ export function SalesDocumentAddressesSection({
   React.useEffect(() => {
     setAddressOptions((prev) =>
       prev.map((entry) => {
-        const summary = formatAddressString(entry.value, addressFormat)
+        const summary = formatAddressString(entry.value, addressFormat, ', ', displayProfile)
         const label = (entry.name && entry.name.trim().length ? entry.name : '') || summary || entry.id
         return { ...entry, summary, label }
       })
@@ -1369,6 +1376,7 @@ export function SalesDocumentAddressesSection({
                     <AddressView
                       address={entry.value}
                       format={addressFormat}
+                      profile={displayProfile}
                       className="space-y-1 text-sm"
                       lineClassName="text-sm text-foreground"
                     />

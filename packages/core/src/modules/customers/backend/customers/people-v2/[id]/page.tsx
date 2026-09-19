@@ -19,6 +19,7 @@ import { E } from '#generated/entities.ids.generated'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { AttachmentsSection, ErrorMessage, LoadingMessage, RecordNotFoundState, type SectionAction } from '@open-mercato/ui/backend/detail'
@@ -60,6 +61,7 @@ const logger = createLogger('customers')
 export default function PersonDetailV2Page({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
+  const displayProfile = useDisplayProfile()
   const router = useRouter()
   const searchParams = useSearchParams()
   const pathname = usePathname()
@@ -71,7 +73,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
 
   const formSchema = React.useMemo(() => createPersonEditSchema(), [])
-  const fields = React.useMemo(() => createPersonEditFields(t), [t])
+  const fields = React.useMemo(() => createPersonEditFields(t, { profile: displayProfile }), [t, displayProfile])
 
   const [data, setData] = React.useState<PersonOverview | null>(null)
   // Mirror the latest `data` into a ref so save handlers always read the current
@@ -137,7 +139,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     { id: 'companyRole', icon: Building2, label: t('customers.people.form.groups.companyRole', 'Company & role') },
     { id: 'customFields', icon: Hash, label: t('customers.people.form.groups.customAttributes', 'Custom attributes') },
     { id: 'roles', icon: Users, label: t('customers.people.form.groups.roles', 'My roles') },
-  ], [t])
+  ], [t, displayProfile])
 
   // Data loading
   const initialLoadDoneRef = React.useRef(false)

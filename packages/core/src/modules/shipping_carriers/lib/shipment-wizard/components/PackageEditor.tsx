@@ -1,32 +1,86 @@
 "use client"
 
+import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
+import { convertUnit } from '@open-mercato/shared/lib/display/units'
+import { withProfile } from '@open-mercato/shared/lib/display/profile'
 import type { PackageDimension, PackageEditorProps } from '../types'
 
 const PACKAGE_FIELDS = ['weightKg', 'lengthCm', 'widthCm', 'heightCm'] as const
 
 const DEFAULT_PACKAGE: PackageDimension = { weightKg: 1, lengthCm: 20, widthCm: 15, heightCm: 10 }
 
+/**
+ * The stored unit of each field. `PackageDimension` is metric by contract - the carrier adapters
+ * receive kilograms and centimetres (spec decision D9) - so the market only ever changes what the
+ * merchant TYPES, never what is sent.
+ */
+const FIELD_BASE_UNIT: Record<keyof PackageDimension, string> = {
+  weightKg: 'kg',
+  lengthCm: 'cm',
+  widthCm: 'cm',
+  heightCm: 'cm',
+}
+
+const FIELD_DIMENSION: Record<keyof PackageDimension, 'mass' | 'length'> = {
+  weightKg: 'mass',
+  lengthCm: 'length',
+  widthCm: 'length',
+  heightCm: 'length',
+}
+
+function roundForInput(value: number): number {
+  return Math.round(value * 100) / 100
+}
+
 export const PackageEditor = (props: PackageEditorProps) => {
   const { packages, onChange, disabled } = props
   const t = useT()
+  const profile = withProfile(useDisplayProfile())
+
+  // One `convertUnit` call per field at the input boundary, and nowhere else: a US merchant reads
+  // and types pounds and inches while the payload stays kilograms and centimetres.
+  const displayUnit = React.useCallback(
+    (field: keyof PackageDimension) =>
+      (FIELD_DIMENSION[field] === 'mass' ? profile.defaultWeightUnit : profile.defaultLengthUnit),
+    [profile.defaultLengthUnit, profile.defaultWeightUnit],
+  )
+
+  const toDisplay = React.useCallback(
+    (field: keyof PackageDimension, stored: number): number => {
+      const converted = convertUnit(stored, FIELD_BASE_UNIT[field], displayUnit(field))
+      return converted === null ? stored : roundForInput(converted)
+    },
+    [displayUnit],
+  )
+
+  const toStored = React.useCallback(
+    (field: keyof PackageDimension, typed: number): number => {
+      const converted = convertUnit(typed, displayUnit(field), FIELD_BASE_UNIT[field])
+      return converted === null ? typed : converted
+    },
+    [displayUnit],
+  )
 
   const fieldLabel = (field: keyof PackageDimension) => {
+    const unit = displayUnit(field)
     const labels: Record<keyof PackageDimension, string> = {
-      weightKg: t('shipping_carriers.create.package.weightKg', 'Weight (kg)'),
-      lengthCm: t('shipping_carriers.create.package.lengthCm', 'Length (cm)'),
-      widthCm: t('shipping_carriers.create.package.widthCm', 'Width (cm)'),
-      heightCm: t('shipping_carriers.create.package.heightCm', 'Height (cm)'),
+      weightKg: t('shipping_carriers.create.package.weight', 'Weight ({unit})', { unit }),
+      lengthCm: t('shipping_carriers.create.package.length', 'Length ({unit})', { unit }),
+      widthCm: t('shipping_carriers.create.package.width', 'Width ({unit})', { unit }),
+      heightCm: t('shipping_carriers.create.package.height', 'Height ({unit})', { unit }),
     }
     return labels[field]
   }
 
   const updatePackage = (index: number, field: keyof PackageDimension, raw: string) => {
-    const value = parseFloat(raw)
+    const typed = parseFloat(raw)
+    const stored = Number.isNaN(typed) ? 0 : toStored(field, typed)
     onChange(packages.map((pkg, idx) =>
-      idx === index ? { ...pkg, [field]: Number.isNaN(value) ? 0 : value } : pkg,
+      idx === index ? { ...pkg, [field]: stored } : pkg,
     ))
   }
 
@@ -65,7 +119,7 @@ export const PackageEditor = (props: PackageEditorProps) => {
                   type="number"
                   min="0.01"
                   step="0.01"
-                  value={pkg[field]}
+                  value={toDisplay(field, pkg[field])}
                   onChange={(event) => updatePackage(index, field, event.target.value)}
                   disabled={disabled}
                 />

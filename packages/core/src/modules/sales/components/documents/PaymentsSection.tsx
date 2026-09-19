@@ -15,6 +15,9 @@ import { formatDisplayDate, formatDisplayDateTime, toUtcDateInputValue } from '@
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatMoney as formatMarketMoney } from '@open-mercato/shared/lib/display/money'
+import type { DisplayProfile } from '@open-mercato/shared/lib/display/profile'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 import { extensionPoints } from '@open-mercato/core/modules/sales/extension-points'
 import { PaymentDialog, type PaymentFormData, type PaymentTotals } from './PaymentDialog'
@@ -61,9 +64,15 @@ function normalizeNumber(value: unknown): number {
   return 0
 }
 
-function formatMoney(value: number, currency: string | null | undefined, locale?: string): string {
+function formatMoney(
+  value: number,
+  currency: string | null | undefined,
+  locale?: string,
+  profile?: DisplayProfile | null,
+): string {
   if (!currency || currency.trim().length !== 3) return value.toFixed(2)
   try {
+    if (profile) return formatMarketMoney(value, currency, profile, { locale }) ?? value.toFixed(2)
     return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
   } catch {
     return `${currency.toUpperCase()} ${value.toFixed(2)}`
@@ -82,6 +91,7 @@ export function SalesDocumentPaymentsSection({
 }: SalesDocumentPaymentsSectionProps) {
   const t = useT()
   const locale = useLocale()
+  const displayProfile = useDisplayProfile()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
   const resolvedOrganizationId = orgFromProps ?? organizationId ?? null
   const resolvedTenantId = tenantFromProps ?? tenantId ?? null
@@ -289,7 +299,7 @@ export function SalesDocumentPaymentsSection({
       {
         accessorKey: 'amount',
         header: t('sales.documents.payments.amount', 'Amount'),
-        cell: ({ row }) => formatMoney(row.original.amount, row.original.currencyCode ?? currencyCode, locale),
+        cell: ({ row }) => formatMoney(row.original.amount, row.original.currencyCode ?? currencyCode, locale, displayProfile),
       },
       {
         accessorKey: 'receivedAt',
@@ -298,14 +308,14 @@ export function SalesDocumentPaymentsSection({
         // `z.coerce.date()` and stored as UTC midnight, so its day must be read in UTC.
         // Reading it locally names the previous day west of UTC — and disagrees with the
         // Edit dialog, which seeds from `receivedAt.slice(0, 10)`, i.e. the UTC day.
-        cell: ({ row }) => formatDisplayDate(toUtcDateInputValue(row.original.receivedAt), locale) ?? '—',
+        cell: ({ row }) => formatDisplayDate(toUtcDateInputValue(row.original.receivedAt), locale, displayProfile) ?? '—',
       },
       {
         accessorKey: 'createdAt',
         header: t('sales.documents.payments.createdAt', 'Created'),
-        cell: ({ row }) => formatDisplayDateTime(row.original.createdAt, locale) ?? '—',
+        cell: ({ row }) => formatDisplayDateTime(row.original.createdAt, locale, displayProfile) ?? '—',
         meta: {
-          tooltipContent: (row: PaymentRow) => formatDisplayDateTime(row.createdAt, locale) ?? undefined,
+          tooltipContent: (row: PaymentRow) => formatDisplayDateTime(row.createdAt, locale, displayProfile) ?? undefined,
         },
       },
       {

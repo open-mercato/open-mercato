@@ -57,12 +57,15 @@ export type PdfAssetRequest = {
   abort: () => Promise<unknown>
 }
 
+/** The page sizes the PDF pipeline supports, mirroring `PaperSizeDescriptor['css']`. */
+export type PdfPaperFormat = 'A4' | 'Letter' | 'Legal'
+
 export type PdfPage = {
   setJavaScriptEnabled: (enabled: boolean) => Promise<unknown>
   setRequestInterception: (enabled: boolean) => Promise<unknown>
   on: (event: 'request', listener: (request: PdfAssetRequest) => void) => unknown
   setContent: (html: string, options: { waitUntil: 'load' }) => Promise<unknown>
-  createPDFStream: (options: { format: 'A4'; printBackground: true; preferCSSPageSize: true }) => Promise<ReadableStream<Uint8Array>>
+  createPDFStream: (options: { format: PdfPaperFormat; printBackground: true; preferCSSPageSize: true }) => Promise<ReadableStream<Uint8Array>>
   close: () => Promise<unknown>
 }
 
@@ -294,6 +297,12 @@ export function createPdfRenderer(
     html: string
     executablePath: string
     isAllowedRequest: (request: PdfAssetRequest) => boolean
+    /**
+     * The market's page size. `preferCSSPageSize` means the `@page` rule in the HTML wins anyway;
+     * this keeps puppeteer's own default from disagreeing with it, and is what a caller that
+     * builds its HTML elsewhere relies on. Defaults to A4, which is what every caller got before.
+     */
+    format?: PdfPaperFormat
   }): Promise<Uint8Array> => {
     const release = await semaphore.acquire()
     let browser: PdfBrowser | undefined
@@ -314,7 +323,7 @@ export function createPdfRenderer(
         })
         await page.setContent(input.html, { waitUntil: 'load' })
         const pdfStream = await page.createPDFStream({
-          format: 'A4',
+          format: input.format ?? 'A4',
           printBackground: true,
           preferCSSPageSize: true,
         })

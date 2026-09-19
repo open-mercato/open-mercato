@@ -32,6 +32,7 @@ import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
+import type { DisplayProfile } from '@open-mercato/shared/lib/display/profile'
 import type {
   CrudCustomFieldRenderProps,
   CrudField,
@@ -423,6 +424,22 @@ const companyDictionaryFieldDefinitions: DictionaryFieldDefinition[] = [
     layout: 'third',
   },
 ]
+
+/**
+ * Options every customer form factory accepts.
+ *
+ * `profile` supplies the market's home country to the phone field, so a US merchant's number picker
+ * opens on `+1` instead of on the browser's guess. An explicit `defaultCountryIso2` still wins,
+ * because a caller that already knows the country knows more than the organization-wide market does.
+ */
+export type CustomerFormFieldOptions = {
+  defaultCountryIso2?: string
+  profile?: DisplayProfile | null
+}
+
+function resolveDefaultCountryIso2(options?: CustomerFormFieldOptions): string | undefined {
+  return options?.defaultCountryIso2 ?? options?.profile?.defaultCountryCode ?? undefined
+}
 
 const createPrimaryPhoneField = (t: Translator, defaultCountryIso2?: string): CrudField => ({
   id: 'primaryPhone',
@@ -877,8 +894,8 @@ export const createDisplayNameSection = (t: Translator) =>
     )
   }
 
-export const createPersonFormFields = (t: Translator, options?: { defaultCountryIso2?: string }): CrudField[] => {
-  const defaultCountryIso2 = options?.defaultCountryIso2
+export const createPersonFormFields = (t: Translator, options?: CustomerFormFieldOptions): CrudField[] => {
+  const defaultCountryIso2 = resolveDefaultCountryIso2(options)
   const contactSection = createSectionHeadingField('__contactInformationSection', t('customers.people.form.sections.contactInformation'))
   const companySection = createSectionHeadingField('__companyInformationSection', t('customers.people.form.sections.companyInformation'))
   const dictionaryFields: CrudField[] = dictionaryFieldDefinitions.map((definition) => ({
@@ -1266,8 +1283,8 @@ export const createCompanyFormSchema = () =>
     })
     .passthrough()
 
-export const createCompanyFormFields = (t: Translator, options?: { defaultCountryIso2?: string }): CrudField[] => {
-  const defaultCountryIso2 = options?.defaultCountryIso2
+export const createCompanyFormFields = (t: Translator, options?: CustomerFormFieldOptions): CrudField[] => {
+  const defaultCountryIso2 = resolveDefaultCountryIso2(options)
   const dictionaryFields: CrudField[] = companyDictionaryFieldDefinitions.map((definition) => ({
     id: definition.id,
     label: t(definition.labelKey),
@@ -1734,7 +1751,7 @@ const buildIndustryLabels = (t: Translator): DictionarySelectLabels => ({
   manageTitle: t('customers.people.form.dictionary.manage'),
 })
 
-export const createCompanyEditFields = (t: Translator, options?: { defaultCountryIso2?: string }): CrudField[] => {
+export const createCompanyEditFields = (t: Translator, options?: CustomerFormFieldOptions): CrudField[] => {
   const baseFields = createCompanyFormFields(t, options)
   const industryLabels = buildIndustryLabels(t)
 
@@ -1759,7 +1776,7 @@ export const createCompanyEditFields = (t: Translator, options?: { defaultCountr
   })
 }
 
-export const createPersonEditFields = (t: Translator, options?: { defaultCountryIso2?: string }): CrudField[] => {
+export const createPersonEditFields = (t: Translator, options?: CustomerFormFieldOptions): CrudField[] => {
   const baseFields = createPersonFormFields(t, options)
   return [
     ...baseFields,

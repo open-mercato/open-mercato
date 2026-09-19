@@ -185,6 +185,7 @@
   "catalog.priceKinds.table.promotionNo": "No",
   "catalog.priceKinds.table.promotionYes": "Sí",
   "catalog.priceKinds.table.title": "Título",
+  "catalog.priceKinds.taxInclusiveWarning": "Este mercado muestra un precio mas una linea de impuestos separada, pero {kinds} siguen almacenando precios con impuestos incluidos. Los documentos muestran el importe neto; cambielos a precios sin impuestos para que los datos coincidan con lo que se muestra.",
   "catalog.priceKinds.title": "Tipos de precio",
   "catalog.pricing.list.title": "Listas de precios",
   "catalog.products.actions.create": "Crear",

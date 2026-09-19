@@ -1,5 +1,6 @@
 import { differenceInCalendarDays } from 'date-fns/differenceInCalendarDays'
 import { getFetchWindow, getVisibleRange, shiftAnchor } from '../range'
+import { EU_DISPLAY_TEMPLATE, US_DISPLAY_TEMPLATE } from '@open-mercato/shared/lib/display/templates'
 
 describe('getVisibleRange', () => {
   it('covers exactly the anchor day for the day view', () => {
@@ -140,5 +141,26 @@ describe('shiftAnchor', () => {
     const shifted = shiftAnchor('day', beforeDst, 1)
     expect(shifted.getDate()).toBe(29)
     expect(shifted.getHours()).toBe(12)
+  })
+})
+
+describe('market week start', () => {
+  const anchorWednesday = new Date(2026, 5, 17, 12, 0, 0)
+
+  it('starts the week on Sunday for the US market', () => {
+    const range = getVisibleRange('week', anchorWednesday, 7, US_DISPLAY_TEMPLATE)
+    expect(range.from.getDay()).toBe(0)
+    expect(range.to.getDay()).toBe(6)
+  })
+
+  it('keeps Monday weeks for the EU market and with no market at all', () => {
+    expect(getVisibleRange('week', anchorWednesday, 7, EU_DISPLAY_TEMPLATE).from.getDay()).toBe(1)
+    expect(getVisibleRange('week', anchorWednesday, 7).from.getDay()).toBe(1)
+    expect(getVisibleRange('week', anchorWednesday, 7, null).from.getDay()).toBe(1)
+  })
+
+  it('pads the month grid from the market week start', () => {
+    const range = getVisibleRange('month', new Date(2026, 5, 1), 0, US_DISPLAY_TEMPLATE)
+    expect(range.from.getDay()).toBe(0)
   })
 })

@@ -442,7 +442,13 @@ describe('sales components', () => {
       items: [{ id: 'tax-1', code: 'vat', label: 'VAT', rate: 23 }],
     })
     render(<TaxRatesSettings />)
-    await waitFor(() => expect(screen.getByText(/VAT/)).toBeInTheDocument())
+    // Counts the row the table received, like every sibling test here. The previous `/VAT/` matcher
+    // was really matching the section description ("Maintain VAT classes…"), not the row: the
+    // DataTable stub above renders `row.title ?? row.label ?? …`, and this component's row shape
+    // reaches it without either. The assertion survived the description losing the word VAT only
+    // because nobody had reason to look.
+    await waitFor(() => expect(screen.getByTestId('data-table-count-table')).toHaveTextContent('1'))
+    expect(screen.getByText('Tax rates')).toBeInTheDocument()
   })
 
   it('renders document number settings with server data', async () => {

@@ -185,6 +185,7 @@
   "catalog.priceKinds.table.promotionNo": "Nein",
   "catalog.priceKinds.table.promotionYes": "Ja",
   "catalog.priceKinds.table.title": "Titel",
+  "catalog.priceKinds.taxInclusiveWarning": "Dieser Markt zeigt einen Preis plus eine separate Steuerzeile, aber {kinds} speichern weiterhin Preise inklusive Steuer. Dokumente zeigen dafür den Nettobetrag; stellen Sie sie auf exklusive Steuer um, damit die gespeicherten Daten der Anzeige entsprechen.",
   "catalog.priceKinds.title": "Preisarten",
   "catalog.pricing.list.title": "Preislisten",
   "catalog.products.actions.create": "Erstellen",

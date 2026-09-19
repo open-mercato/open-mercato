@@ -10,6 +10,12 @@ export type DocumentTotalItem = {
   label: string
   amount: number | string | null | undefined
   emphasize?: boolean
+  /**
+   * A qualification the row's amount needs to be read correctly - the market's "tax will be
+   * calculated at order" note under an estimated tax line. Rendered under the label, never instead
+   * of it.
+   */
+  note?: string
 }
 
 type DocumentTotalsProps = {
@@ -69,7 +75,12 @@ export function DocumentTotals({ title, currency, items, className }: DocumentTo
               .filter((item) => !item.emphasize)
               .map((item) => (
                 <tr key={item.key} className="bg-background/80 transition-colors hover:bg-muted/30">
-                  <td className="px-4 py-3 font-medium text-foreground/90">{item.label}</td>
+                  <td className="px-4 py-3 font-medium text-foreground/90">
+                    {item.label}
+                    {item.note ? (
+                      <span className="mt-0.5 block text-xs font-normal text-muted-foreground">{item.note}</span>
+                    ) : null}
+                  </td>
                   <td className="px-4 py-3 text-right">
                     <PriceWithCurrency amount={item.amount} currency={currency} className="font-mono text-base" />
                   </td>
@@ -84,6 +95,11 @@ export function DocumentTotals({ title, currency, items, className }: DocumentTo
                   <tr key={item.key}>
                     <td className="px-4 py-3 font-semibold uppercase tracking-wide text-foreground">
                       {item.label}
+                      {item.note ? (
+                        <span className="mt-0.5 block text-xs font-normal normal-case tracking-normal text-muted-foreground">
+                          {item.note}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <PriceWithCurrency

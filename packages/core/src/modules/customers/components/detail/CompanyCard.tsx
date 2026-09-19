@@ -21,6 +21,10 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatTime } from '@open-mercato/shared/lib/display/datetime'
+import { formatMoney } from '@open-mercato/shared/lib/display/money'
+import type { DisplayProfile } from '@open-mercato/shared/lib/display/profile'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { renderDictionaryIcon } from '../../../dictionaries/components/dictionaryAppearance'
 import type { CustomerDictionaryDisplayEntry, CustomerDictionaryMap } from '../../lib/dictionaries'
@@ -86,13 +90,18 @@ function copyToClipboard(text: string, t: ReturnType<typeof useT>) {
     .catch((err) => logger.warn('clipboard write failed', { component: 'CompanyCard', err }))
 }
 
-function formatRelativeTime(isoDate: string, t: ReturnType<typeof useT>): string {
+function formatRelativeTime(
+  isoDate: string,
+  t: ReturnType<typeof useT>,
+  profile?: DisplayProfile | null,
+): string {
   const date = new Date(isoDate)
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
   if (diffDays === 0) {
-    return `${t('customers.companies.detail.relativeTime.today', 'today')}, ${date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
+    const time = formatTime(date, profile) ?? ''
+    return `${t('customers.companies.detail.relativeTime.today', 'today')}, ${time}`
   }
   if (diffDays === 1) return t('customers.companies.detail.relativeTime.oneDayAgo', '1 day ago')
   if (diffDays < 7) return t('customers.companies.detail.relativeTime.daysAgo', '{{days}} days ago', { days: diffDays })
@@ -100,19 +109,12 @@ function formatRelativeTime(isoDate: string, t: ReturnType<typeof useT>): string
   return t('customers.companies.detail.relativeTime.monthsAgo', '{{months}} mo. ago', { months: Math.floor(diffDays / 30) })
 }
 
-function formatCurrency(amount: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: 'currency',
-      currency,
-      maximumFractionDigits: 0,
-      notation: amount >= 1_000_000 ? 'compact' : 'standard',
-    }).format(amount)
-  } catch {
-    if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(2)} M ${currency}`
-    if (amount >= 1_000) return `${Math.round(amount / 1000)}k ${currency}`
-    return `${amount} ${currency}`
-  }
+function formatCurrency(amount: number, currency: string, profile?: DisplayProfile | null): string {
+  const rendered = formatMoney(amount, currency, profile, {
+    maximumFractionDigits: 0,
+    notation: amount >= 1_000_000 ? 'compact' : 'standard',
+  })
+  return rendered ?? `${amount} ${currency}`
 }
 
 function ColorBadge({
@@ -221,6 +223,7 @@ export function CompanyCard({
   unlinkDisabled,
 }: CompanyCardProps) {
   const t = useT()
+  const displayProfile = useDisplayProfile()
   const resolvedUnlinkLabel = unlinkLabel ?? t('customers.people.detail.companies.unlinkAction', 'Unlink')
 
   const hasBillingSection =
@@ -367,7 +370,7 @@ export function CompanyCard({
               {data.lastContactAt ? (
                 <>
                   <Clock className="size-3 shrink-0" />
-                  {formatRelativeTime(data.lastContactAt, t)}
+                  {formatRelativeTime(data.lastContactAt, t, displayProfile)}
                 </>
               ) : (
                 '—'
@@ -382,7 +385,7 @@ export function CompanyCard({
               {data.clv ? (
                 <>
                   <TrendingUp className="size-3 shrink-0" />
-                  {formatCurrency(data.clv.amount, data.clv.currency)}
+                  {formatCurrency(data.clv.amount, data.clv.currency, displayProfile)}
                 </>
               ) : (
                 '—'

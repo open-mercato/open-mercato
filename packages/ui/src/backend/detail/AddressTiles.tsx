@@ -9,6 +9,7 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { normalizeCoordinateInput, validateCoordinateInput } from '@open-mercato/shared/lib/location/coordinates'
 import { AddressView, type AddressFormatStrategy } from './addressFormat'
 import AddressEditor, { type AddressTypesAdapter } from './AddressEditor'
+import { useDisplayProfile } from '../markets/MarketProfileProvider'
 import {
   Dialog,
   DialogContent,
@@ -198,6 +199,7 @@ export function AddressTiles<C = unknown>({
   const [fieldErrors, setFieldErrors] = React.useState<Partial<Record<DraftFieldKey, string>>>({})
   const [format, setFormat] = React.useState<AddressFormatStrategy>('line_first')
   const [formatLoading, setFormatLoading] = React.useState(false)
+  const displayProfile = useDisplayProfile()
 
   const label = React.useCallback(
     (suffix: string, fallback?: string, params?: Record<string, string | number>) =>
@@ -471,6 +473,7 @@ export function AddressTiles<C = unknown>({
               }
             }}
             format={format}
+            profile={displayProfile}
             t={t}
             disabled={disableActions}
             errors={fieldErrors}
@@ -568,7 +571,7 @@ export function AddressTiles<C = unknown>({
                         {address.purpose}
                       </p>
                     ) : null}
-                    <AddressView address={address} format={format} className="text-sm text-foreground" />
+                    <AddressView address={address} format={format} profile={displayProfile} className="text-sm text-foreground" />
                   </div>
                   <div className="flex items-center gap-1 opacity-100 md:opacity-0 transition-opacity md:group-hover:opacity-100 focus-within:opacity-100">
                     <Button

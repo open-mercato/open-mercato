@@ -185,6 +185,7 @@
   "catalog.priceKinds.table.promotionNo": "아니요",
   "catalog.priceKinds.table.promotionYes": "예",
   "catalog.priceKinds.table.title": "제목",
+  "catalog.priceKinds.taxInclusiveWarning": "이 시장은 단일 가격과 별도의 세금 항목을 표시하지만 {kinds}은(는) 여전히 세금 포함 가격을 저장합니다. 문서에는 순액이 표시되므로, 저장된 데이터가 표시와 일치하도록 세금 미포함으로 변경하세요.",
   "catalog.priceKinds.title": "가격 종류",
   "catalog.pricing.list.title": "가격표",
   "catalog.products.actions.create": "생성",

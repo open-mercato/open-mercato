@@ -13,12 +13,19 @@ import {
   PopoverTrigger,
 } from '@open-mercato/ui/primitives/popover'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import { formatDateLabel, formatTimeRangeLabel } from '../../lib/calendar/format'
+import type { DisplayProfile } from '@open-mercato/shared/lib/display/profile'
 import type { CalendarItem, UpcomingCard, UpcomingCardsProps } from './types'
 
-function formatTimeRange(locale: string, item: CalendarItem, allDayLabel: string): string {
+function formatTimeRange(
+  locale: string,
+  item: CalendarItem,
+  allDayLabel: string,
+  profile?: DisplayProfile | null,
+): string {
   if (item.allDay) return allDayLabel
-  return formatTimeRangeLabel(locale, item.start, item.end)
+  return formatTimeRangeLabel(locale, item.start, item.end, profile)
 }
 
 function canJoin(item: CalendarItem): boolean {
@@ -38,6 +45,7 @@ function UpcomingCardStatus({
 }) {
   const t = useT()
   const locale = useLocale()
+  const displayProfile = useDisplayProfile()
   const { item, kind, conflictCount } = card
 
   if (kind === 'today') {
@@ -92,7 +100,7 @@ function UpcomingCardStatus({
           {t('customers.calendar.cards.cancelled', 'Cancelled')}
         </span>
         <span className="shrink-0 text-xs text-muted-foreground">
-          {formatDateLabel(locale, item.start)}
+          {formatDateLabel(locale, item.start, displayProfile)}
         </span>
       </div>
     )
@@ -108,7 +116,7 @@ function UpcomingCardStatus({
           : t('customers.calendar.cards.daysLater', '{days} days later', { days: daysLater })}
       </span>
       <span className="shrink-0 text-xs text-muted-foreground">
-        {formatDateLabel(locale, item.start)}
+        {formatDateLabel(locale, item.start, displayProfile)}
       </span>
     </div>
   )
@@ -125,6 +133,7 @@ function UpcomingCardItem({
 }: { card: UpcomingCard } & CardCallbacks) {
   const t = useT()
   const locale = useLocale()
+  const displayProfile = useDisplayProfile()
   const { item } = card
 
   return (

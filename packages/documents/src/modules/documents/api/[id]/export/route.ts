@@ -19,6 +19,8 @@ import {
   renderPdfWithChromium,
 } from '../../../lib/pdfRenderer'
 import { buildDocumentPdfHtml } from '../../../lib/pdfHtml'
+import { resolveMarketDisplayProfile } from '../../../lib/marketProfile'
+import { paperSize } from '@open-mercato/shared/lib/display/paper'
 import {
   assertDocumentContentResourceLimits,
   DOCUMENTS_MAX_CONTENT_HTML_BYTES,
@@ -441,12 +443,17 @@ async function handleExport(
       throw new CrudHttpError(503, { error: 'documents.export.runtimeUnavailable' })
     }
 
-    const pdfHtml = buildDocumentPdfHtml(doc.title, sanitizePdfExportContent(contentHtml))
+    const displayProfile = await resolveMarketDisplayProfile(ctx.container, {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    })
+    const pdfHtml = buildDocumentPdfHtml(doc.title, sanitizePdfExportContent(contentHtml), displayProfile)
     let pdf: Uint8Array
     try {
       pdf = await renderPdfWithChromium({
         html: pdfHtml,
         executablePath,
+        format: paperSize(displayProfile).css,
         isAllowedRequest: (interceptedRequest) => isAllowedPdfAssetRequest({
           url: interceptedRequest.url(),
           resourceType: interceptedRequest.resourceType(),

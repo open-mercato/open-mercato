@@ -4,6 +4,9 @@ import * as React from 'react'
 import { RefreshCw } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
+import type { DisplayProfile } from '@open-mercato/shared/lib/display/profile'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
@@ -57,11 +60,15 @@ type TaxBreakdownSectionProps = {
   className?: string
 }
 
-function formatTimestamp(value: string | null | undefined, locale: string): string | null {
+function formatTimestamp(
+  value: string | null | undefined,
+  locale: string,
+  profile?: DisplayProfile | null,
+): string | null {
   if (!value) return null
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return null
-  return parsed.toLocaleString(locale)
+  return formatDisplayDateTime(parsed, locale, profile) ?? parsed.toLocaleString(locale)
 }
 
 /**
@@ -92,7 +99,8 @@ export function TaxBreakdownSection({
   const failure = taxInfo?.failure ?? null
 
   const locale = typeof navigator !== 'undefined' ? navigator.language : 'en'
-  const calculatedAtLabel = formatTimestamp(calculatedAt, locale)
+  const displayProfile = useDisplayProfile()
+  const calculatedAtLabel = formatTimestamp(calculatedAt, locale, displayProfile)
 
   if (!status && !providerKey && !taxInfo) {
     return (

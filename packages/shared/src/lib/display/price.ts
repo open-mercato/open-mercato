@@ -16,14 +16,12 @@ export function showsSinglePricePlusTax(profile?: DisplayProfile | null): boolea
  * change. An unmapped key is returned untouched, so a caller can pass any label safely.
  */
 const NEUTRAL_PRICE_LABEL_KEYS: Record<string, string> = {
-  'sales.documents.lineItems.unitPriceNet': 'sales.documents.lineItems.unitPrice',
-  'sales.documents.lineItems.unitPriceGross': 'sales.documents.lineItems.unitPrice',
-  'sales.documents.lineItems.totalNet': 'sales.documents.lineItems.total',
-  'sales.documents.lineItems.totalGross': 'sales.documents.lineItems.total',
-  'sales.documents.totals.subtotalNet': 'sales.documents.totals.subtotal',
-  'sales.documents.totals.subtotalGross': 'sales.documents.totals.subtotal',
-  'sales.documents.totals.totalNet': 'sales.documents.totals.total',
-  'sales.documents.totals.totalGross': 'sales.documents.totals.total',
+  'sales.documents.detail.totals.subtotalNet': 'sales.documents.detail.totals.subtotal',
+  'sales.documents.detail.totals.subtotalGross': 'sales.documents.detail.totals.subtotal',
+  'sales.documents.detail.totals.shippingNet': 'sales.documents.detail.totals.shipping',
+  'sales.documents.detail.totals.shippingGross': 'sales.documents.detail.totals.shipping',
+  'sales.documents.detail.totals.grandTotalNet': 'sales.documents.detail.totals.grandTotal',
+  'sales.documents.detail.totals.grandTotalGross': 'sales.documents.detail.totals.grandTotal',
   'catalog.products.price.net': 'catalog.products.price.label',
   'catalog.products.price.gross': 'catalog.products.price.label',
 }

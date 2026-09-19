@@ -74,7 +74,7 @@ export function TaxRatesSettings() {
 
   const translations = React.useMemo(() => ({
     title: t('sales.config.taxRates.title', 'Tax rates'),
-    description: t('sales.config.taxRates.description', 'Maintain VAT classes applied to catalog pricing.'),
+    description: t('sales.config.taxRates.description', 'Maintain the tax rates applied to catalog pricing.'),
     actions: {
       add: t('sales.config.taxRates.actions.add', 'Add tax rate'),
       edit: t('sales.config.taxRates.actions.edit', 'Edit'),

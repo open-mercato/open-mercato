@@ -7,6 +7,7 @@ import { format } from 'date-fns/format'
 import { isSameMonth } from 'date-fns/isSameMonth'
 import { isToday } from 'date-fns/isToday'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { displayLocale, type DisplayProfile } from '@open-mercato/shared/lib/display/profile'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { getVisibleRange } from '../../lib/calendar/range'
@@ -21,8 +22,25 @@ function dayKeyOf(date: Date): string {
   return format(date, 'yyyy-MM-dd')
 }
 
+/**
+ * The accessible label of a day cell: the weekday spelled out, then the full date.
+ *
+ * Stays a direct `toLocaleDateString` for the same reason `weekdayLabel` does - the display helpers
+ * render whole dates in the market's pattern, and a pattern has no room for a spelled-out weekday.
+ * What the market contributes here is the language the day and month are named in.
+ */
 function fullDateLabel(locale: string, date: Date): string {
   return date.toLocaleDateString(locale, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+}
+
+/**
+ * The weekday header of a column, in the market's language.
+ *
+ * `Intl` has no "weekday only" style, so this stays a direct `toLocaleDateString` call with the
+ * locale the profile resolved - the display helpers deliberately expose whole dates, not fragments.
+ */
+function weekdayLabel(date: Date, locale: string): string {
+  return date.toLocaleDateString(locale, { weekday: 'short' }).toLocaleUpperCase(locale)
 }
 
 function isWeekend(date: Date): boolean {
@@ -30,9 +48,8 @@ function isWeekend(date: Date): boolean {
   return weekday === 0 || weekday === 6
 }
 
-function buildWeeks(anchor: Date): Date[][] {
-  const displayProfile = useDisplayProfile()
-  const range = getVisibleRange('month', anchor, 0, displayProfile)
+function buildWeeks(anchor: Date, profile: DisplayProfile | null): Date[][] {
+  const range = getVisibleRange('month', anchor, 0, profile)
   const weeks: Date[][] = []
   let cursor = range.from
   while (cursor.getTime() <= range.to.getTime()) {
@@ -61,9 +78,10 @@ function groupItemsByDay(items: CalendarItem[]): Map<string, CalendarItem[]> {
 function MonthPill({ item, onItemClick }: { item: CalendarItem; onItemClick: (item: CalendarItem) => void }) {
   const t = useT()
   const locale = useLocale()
+  const displayProfile = useDisplayProfile()
   const canceled = item.status === 'canceled'
   const title = eventDisplayTitle(item.title, t('customers.calendar.grid.untitled', 'Untitled'))
-  const timeLabel = item.allDay ? '' : ` · ${formatTimeRangeLabel(locale, item.start, item.end)}`
+  const timeLabel = item.allDay ? '' : ` · ${formatTimeRangeLabel(locale, item.start, item.end, displayProfile)}`
   const tintStyle = item.color
     ? { backgroundColor: `${item.color}${SOFT_TINT_ALPHA}`, color: item.color }
     : undefined
@@ -116,11 +134,12 @@ function MonthDayCell({
 }) {
   const t = useT()
   const locale = useLocale()
+  const displayProfile = useDisplayProfile()
   const inMonth = isSameMonth(day, anchor)
   const today = isToday(day)
   const visibleItems = items.slice(0, MAX_PILLS_PER_DAY)
   const hiddenCount = items.length - visibleItems.length
-  const dayLabel = fullDateLabel(locale, day)
+  const dayLabel = fullDateLabel(displayLocale(displayProfile, locale) ?? locale, day)
   return (
     <div
       className={cn(
@@ -188,13 +207,14 @@ function MonthDayCell({
 export function MonthGrid({ anchor, items, onItemClick, onDayOpen }: MonthGridProps) {
   const t = useT()
   const locale = useLocale()
-  const weeks = React.useMemo(() => buildWeeks(anchor), [anchor])
+  const displayProfile = useDisplayProfile()
+  const weeks = React.useMemo(() => buildWeeks(anchor, displayProfile), [anchor, displayProfile])
   const itemsByDay = React.useMemo(() => groupItemsByDay(items), [items])
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-background">
       <div className="flex h-9 w-full shrink-0 border-b border-border">
         {weeks[0]?.map((day) => {
-          const label = day.toLocaleDateString(locale, { weekday: 'short' }).toLocaleUpperCase(locale)
+          const label = weekdayLabel(day, displayLocale(displayProfile, locale) ?? locale)
           return (
             <div
               key={dayKeyOf(day)}

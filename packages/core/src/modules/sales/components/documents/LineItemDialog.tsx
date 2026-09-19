@@ -47,6 +47,7 @@ import {
 } from "@open-mercato/core/modules/dictionaries/components/dictionaryAppearance";
 import { E } from "#generated/entities.ids.generated";
 import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider';
 import { useOrganizationScopeDetail } from "@open-mercato/shared/lib/frontend/useOrganizationScope";
 import { formatMoney, normalizeNumber } from "./lineItemUtils";
 import type { SalesLineRecord } from "./lineItemTypes";
@@ -491,6 +492,7 @@ export function LineItemDialog({
 }: SalesLineDialogProps) {
   const t = useT();
   const locale = useLocale();
+  const displayProfile = useDisplayProfile();
   // These fields are hand-rolled text inputs, so the raw string a user typed reaches the
   // submit handler. It carries the separator the surrounding UI displays, which follows the
   // application locale — `110,70` under Polish (issue #5552). A blank field keeps its old
@@ -1070,10 +1072,10 @@ export function LineItemDialog({
               displayMode === "including-tax" &&
               amountGross !== null &&
               currency
-                ? formatMoney(amountGross, currency, locale)
+                ? formatMoney(amountGross, currency, locale, displayProfile)
                 : null,
               displayMode === "excluding-tax" && amountNet !== null && currency
-                ? formatMoney(amountNet, currency, locale)
+                ? formatMoney(amountNet, currency, locale, displayProfile)
                 : null,
               displayMode
                 ? displayMode === "including-tax"
@@ -1089,9 +1091,9 @@ export function LineItemDialog({
               labelParts.length > 0
                 ? labelParts.join(" • ")
                 : amountGross !== null && currency
-                  ? formatMoney(amountGross, currency, locale)
+                  ? formatMoney(amountGross, currency, locale, displayProfile)
                   : amountNet !== null && currency
-                    ? formatMoney(amountNet, currency, locale)
+                    ? formatMoney(amountNet, currency, locale, displayProfile)
                     : id;
             return {
               id,
@@ -2103,7 +2105,7 @@ export function LineItemDialog({
                       ? t("sales.documents.items.priceNet", "Net")
                       : t("sales.documents.items.priceGross", "Gross");
                   const lockedAmountLabel = Number.isFinite(lockedAmount)
-                    ? `${formatMoney(lockedAmount, lockedCurrency, locale)} — ${lockedModeLabel}`
+                    ? `${formatMoney(lockedAmount, lockedCurrency, locale, displayProfile)} — ${lockedModeLabel}`
                     : lockedModeLabel;
                   const lockedPriceDetail =
                     selectedPrice?.priceKindTitle ??
@@ -2304,11 +2306,11 @@ export function LineItemDialog({
                       "sales.documents.items.priceBasisTemplate",
                       "Catalog price basis: {{baseAmount}} / {{baseUnit}}. Converted for {{unit}}: {{baseAmount}} × {{factor}} = {{convertedAmount}}.",
                       {
-                        baseAmount: formatMoney(selectedBaseAmount as number, selectedCurrency, locale),
+                        baseAmount: formatMoney(selectedBaseAmount as number, selectedCurrency, locale, displayProfile),
                         baseUnit: baseUnitCode,
                         unit: quantityUnitCode,
                         factor: unitFactor,
-                        convertedAmount: formatMoney(convertedAmount, selectedCurrency, locale),
+                        convertedAmount: formatMoney(convertedAmount, selectedCurrency, locale, displayProfile),
                       },
                     )}
                   </p>

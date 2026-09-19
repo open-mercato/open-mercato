@@ -1,5 +1,8 @@
 "use client"
 
+import { formatMoney as formatMarketMoney } from '@open-mercato/shared/lib/display/money'
+import type { DisplayProfile } from '@open-mercato/shared/lib/display/profile'
+
 export function normalizeNumber(value: unknown, fallback = 0): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string' && value.trim().length) {
@@ -13,9 +16,20 @@ export function normalizeNumber(value: unknown, fallback = 0): number {
  * Pass `locale` to format in the application locale (`useLocale()` in client components).
  * Omitting it keeps the runtime default, which varies per machine and is therefore not
  * assertable in tests.
+ *
+ * `profile` is optional and trailing, so every existing caller compiles and renders unchanged. With
+ * a market it takes the market's separators, currency display and negative style. The
+ * currency-less branch stays a bare `toFixed(2)`: the caller that hits it has no currency to name,
+ * and the market's own currency is not a safe guess about someone else's amount.
  */
-export function formatMoney(value: number, currency: string | null | undefined, locale?: string): string {
+export function formatMoney(
+  value: number,
+  currency: string | null | undefined,
+  locale?: string,
+  profile?: DisplayProfile | null,
+): string {
   if (!currency) return value.toFixed(2)
+  if (profile) return formatMarketMoney(value, currency, profile, { locale }) ?? value.toFixed(2)
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
 }
 

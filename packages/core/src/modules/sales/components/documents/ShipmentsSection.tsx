@@ -12,6 +12,8 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
+import type { DisplayProfile } from '@open-mercato/shared/lib/display/profile'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   emitSalesDocumentTotalsRefresh,
@@ -45,7 +47,10 @@ type SalesShipmentsSectionProps = {
 // One date formatter for this page rather than three with incompatible semantics.
 export { formatDisplayDate }
 
-const formatShipmentAddress = (metadata?: Record<string, unknown> | null): string | null => {
+const formatShipmentAddress = (
+  metadata?: Record<string, unknown> | null,
+  profile?: DisplayProfile | null,
+): string | null => {
   if (!metadata || typeof metadata !== 'object') return null
   const snapshot = (metadata as any)[ADDRESS_SNAPSHOT_KEY]
   if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null
@@ -64,7 +69,7 @@ const formatShipmentAddress = (metadata?: Record<string, unknown> | null): strin
     country: read('country'),
     companyName: read('companyName') ?? read('company_name'),
   }
-  const summary = formatAddressString(addressValue, ADDRESS_FORMAT)
+  const summary = formatAddressString(addressValue, ADDRESS_FORMAT, ', ', profile)
   return summary && summary.trim().length ? summary : null
 }
 
@@ -121,6 +126,7 @@ export function SalesShipmentsSection({
 }: SalesShipmentsSectionProps) {
   const t = useT()
   const locale = useLocale()
+  const displayProfile = useDisplayProfile()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const resolvedOrganizationId = organizationIdProp ?? organizationId ?? null
@@ -488,9 +494,9 @@ export function SalesShipmentsSection({
             // by `z.coerce.date()` and stored as UTC midnight, and the dialog seeds itself back from
             // `.slice(0, 10)` — the UTC day. Reading them locally names the previous day west of UTC
             // and disagrees with that dialog on the same row.
-            const shippedAt = formatDisplayDate(toUtcDateInputValue(shipment.shippedAt), locale)
-            const deliveredAt = formatDisplayDate(toUtcDateInputValue(shipment.deliveredAt), locale)
-            const addressSummary = formatShipmentAddress(shipment.metadata)
+            const shippedAt = formatDisplayDate(toUtcDateInputValue(shipment.shippedAt), locale, displayProfile)
+            const deliveredAt = formatDisplayDate(toUtcDateInputValue(shipment.deliveredAt), locale, displayProfile)
+            const addressSummary = formatShipmentAddress(shipment.metadata, displayProfile)
             const statusLabel =
               shipment.statusLabel ??
               shipment.status ??

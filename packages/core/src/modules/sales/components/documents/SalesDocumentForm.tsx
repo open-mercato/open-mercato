@@ -29,6 +29,8 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
+import type { DisplayProfile } from '@open-mercato/shared/lib/display/profile'
 import { E } from '#generated/entities.ids.generated'
 import {
   DictionaryEntrySelect,
@@ -797,6 +799,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
   const [addressesLoading, setAddressesLoading] = React.useState(false)
   const [addressesError, setAddressesError] = React.useState<string | null>(null)
   const [addressFormat, setAddressFormat] = React.useState<AddressFormatStrategy>('line_first')
+  const displayProfile = useDisplayProfile()
   const [defaultCurrency, setDefaultCurrency] = React.useState<string>('USD')
   const addressRequestRef = React.useRef(0)
   const addressAbortRef = React.useRef<AbortController | null>(null)
@@ -988,7 +991,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
             companyName: typeof item.company_name === 'string' ? item.company_name : null,
           }
           const name = typeof item.name === 'string' ? item.name.trim() : ''
-          const summary = formatAddressString(value, addressFormat)
+          const summary = formatAddressString(value, addressFormat, ', ', displayProfile)
           const label = name || summary || id
           const isPrimary = item.is_primary === true
           acc.push({ id, label, summary, value, name: name || null, isPrimary })
@@ -1056,7 +1059,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
   React.useEffect(() => {
     setAddressOptions((prev) =>
       prev.map((entry) => {
-        const summary = formatAddressString(entry.value, addressFormat)
+        const summary = formatAddressString(entry.value, addressFormat, ', ', displayProfile)
         const label = (entry.name && entry.name.trim().length ? entry.name : '') || summary || entry.id
         return { ...entry, summary, label }
       }),

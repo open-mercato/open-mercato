@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createRequestContainer } from "@open-mercato/shared/lib/di/container";
-import { resolveTranslations } from "@open-mercato/shared/lib/i18n/server";
+import { resolveTranslations, detectLocale } from "@open-mercato/shared/lib/i18n/server";
 import { isCrudHttpError, notFound } from "@open-mercato/shared/lib/crud/errors";
 import type { OpenApiRouteDoc } from "@open-mercato/shared/lib/openapi";
 import type { EntityManager } from "@mikro-orm/postgresql";
@@ -14,6 +14,8 @@ import {
 } from "../../../../data/entities";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
 import { getAuthFromRequest } from "@open-mercato/shared/lib/auth/server";
+import { resolveDisplayProfileForScope } from "@open-mercato/core/modules/markets/lib/request-profile";
+import { buildQuoteDisplayViewModel } from "../../../../lib/quoteDisplay";
 import { isForeignTenantActor } from "../../../../lib/publicQuoteTenantScope";
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -66,7 +68,40 @@ export async function GET(req: Request, ctx: { params: { token: string } }) {
       ),
     ]);
 
+    // An anonymous visitor has no market of their own, so the page cannot resolve one client side.
+    // The merchant's market is resolved here, against the quote's own organization, and the
+    // formatted strings travel with the payload.
+    const displayProfile = await resolveDisplayProfileForScope(container, {
+      tenantId: quote.tenantId,
+      organizationId: quote.organizationId,
+    });
+    const locale = await detectLocale();
+    const display = buildQuoteDisplayViewModel(
+      {
+        currencyCode: quote.currencyCode,
+        subtotalNetAmount: quote.subtotalNetAmount,
+        subtotalGrossAmount: quote.subtotalGrossAmount,
+        discountTotalAmount: quote.discountTotalAmount,
+        taxTotalAmount: quote.taxTotalAmount,
+        grandTotalNetAmount: quote.grandTotalNetAmount,
+        grandTotalGrossAmount: quote.grandTotalGrossAmount,
+        validUntil: quote.validUntil ?? null,
+        taxStatus: (quote as { taxStatus?: string | null }).taxStatus ?? null,
+      },
+      lines.map((line) => ({
+        currencyCode: line.currencyCode,
+        unitPriceNet: line.unitPriceNet,
+        unitPriceGross: line.unitPriceGross,
+        totalNetAmount: line.totalNetAmount,
+        totalGrossAmount: line.totalGrossAmount,
+      })),
+      displayProfile,
+      translate,
+      locale,
+    );
+
     return NextResponse.json({
+      display,
       quote: {
         quoteNumber: quote.quoteNumber,
         currencyCode: quote.currencyCode,
@@ -147,7 +182,20 @@ export async function GET(req: Request, ctx: { params: { token: string } }) {
   }
 }
 
+const quoteDisplaySchema = z.object({
+  singlePricePlusTax: z.boolean(),
+  validUntil: z.string().nullable(),
+  subtotal: z.string().nullable(),
+  discountTotal: z.string().nullable(),
+  taxTotal: z.string().nullable(),
+  grandTotal: z.string().nullable(),
+  taxLabel: z.string(),
+  taxNote: z.string().nullable(),
+  lines: z.array(z.object({ unitPrice: z.string().nullable(), total: z.string().nullable() })),
+});
+
 const publicQuoteResponseSchema = z.object({
+  display: quoteDisplaySchema,
   quote: z.object({
     quoteNumber: z.string(),
     currencyCode: z.string(),

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { AwilixContainer } from 'awilix'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveExportDisplayProfile } from '@open-mercato/shared/lib/crud/exportProfile'
 import { buildScopedWhere } from '@open-mercato/shared/lib/api/crud'
 import { getAuthFromCookies, getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { QueryEngine, Where, Sort, Page, QueryCustomFieldSource, QueryJoinEdge } from '@open-mercato/shared/lib/query/types'
@@ -2001,7 +2002,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             : prepareExportData(exportItems, opts.list, validated as any, ctx)
           const fallbackBase = `${opts.events?.entity || resourceKind || 'list'}${exportFullRequested ? '_full' : ''}`
           const filename = finalizeExportFilename(opts.list, requestedExport, fallbackBase)
-          const serialized = serializeExport(prepared, requestedExport)
+          const exportDisplayProfile = await resolveExportDisplayProfile(ctx.container, {
+            tenantId: ctx.auth?.tenantId ?? null,
+            organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+          })
+          const serialized = serializeExport(prepared, requestedExport, exportDisplayProfile)
           const exportPayload = { items: exportItems, total, page: 1, pageSize: exportItems.length, totalPages: 1, ...(res.meta ? { meta: res.meta } : {}) }
           await opts.hooks?.afterList?.(exportPayload, { ...ctx, query: validated as any })
           profiler.mark('after_list_hook')
@@ -2204,7 +2209,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           : prepareExportData(exportItems, opts.list, validated as any, ctx)
         const fallbackBase = `${opts.events?.entity || resourceKind || 'list'}${exportFullRequested ? '_full' : ''}`
         const filename = finalizeExportFilename(opts.list, requestedExport, fallbackBase)
-        const serialized = serializeExport(prepared, requestedExport)
+        const exportDisplayProfile = await resolveExportDisplayProfile(ctx.container, {
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+        })
+        const serialized = serializeExport(prepared, requestedExport, exportDisplayProfile)
         await opts.hooks?.afterList?.({ items: exportItems, total: exportItems.length, page: 1, pageSize: exportItems.length, totalPages: 1 }, { ...ctx, query: validated as any })
         profiler.mark('after_list_hook')
         const response = new Response(serialized.body, {

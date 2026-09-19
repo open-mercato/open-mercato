@@ -1,3 +1,5 @@
+import { formatAddressLines as uiFormatAddressLines } from '@open-mercato/ui/backend/detail/addressFormat'
+import { US_DISPLAY_TEMPLATE } from '@open-mercato/shared/lib/display/templates'
 import {
   formatAddressJson,
   formatAddressLines,
@@ -132,4 +134,38 @@ describe('customers utils - address formatting', () => {
     })
   })
 
+})
+
+describe('market display profile', () => {
+  const texasAddress = {
+    companyName: 'Ridgeview Collision',
+    addressLine1: '1200 Industrial Blvd',
+    addressLine2: 'Suite 4',
+    city: 'Plano',
+    region: 'TX',
+    postalCode: '75074-2210',
+    country: 'US',
+  }
+
+  it('renders the US layout when the organization picked that market', () => {
+    expect(formatAddressLines(texasAddress, 'line_first', US_DISPLAY_TEMPLATE)).toEqual([
+      'Ridgeview Collision',
+      '1200 Industrial Blvd',
+      'Suite 4',
+      'PLANO TX 75074-2210',
+    ])
+  })
+
+  it('agrees line for line with the packages/ui twin', () => {
+    expect(formatAddressLines(texasAddress, 'line_first', US_DISPLAY_TEMPLATE))
+      .toEqual(uiFormatAddressLines(texasAddress, 'line_first', US_DISPLAY_TEMPLATE))
+    expect(formatAddressLines(texasAddress, 'street_first'))
+      .toEqual(uiFormatAddressLines(texasAddress, 'street_first'))
+  })
+
+  it('leaves an organization with no market exactly where it was', () => {
+    expect(formatAddressString(texasAddress, 'line_first')).toBe(
+      'Ridgeview Collision, 1200 Industrial Blvd, Suite 4, 75074-2210 Plano, TX, US',
+    )
+  })
 })

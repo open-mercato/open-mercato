@@ -17,6 +17,8 @@ import {
   normalizeDictionaryEntries,
 } from "@open-mercato/core/modules/dictionaries/components/dictionaryAppearance";
 import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider';
+import { showsSinglePricePlusTax } from '@open-mercato/shared/lib/display/price';
 import { useOrganizationScopeDetail } from "@open-mercato/shared/lib/frontend/useOrganizationScope";
 import { useConfirmDialog } from "@open-mercato/ui/backend/confirm-dialog";
 import { emitSalesDocumentTotalsRefresh } from "@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents";
@@ -159,6 +161,10 @@ export function SalesDocumentItemsSection({
 }: SalesDocumentItemsSectionProps) {
   const t = useT();
   const locale = useLocale();
+  const displayProfile = useDisplayProfile();
+  // A market that shows one price plus a separate tax line must not also print a gross amount on
+  // the same row: the two together double count the tax.
+  const singlePricePresentation = showsSinglePricePlusTax(displayProfile);
   const { organizationId, tenantId } = useOrganizationScopeDetail();
   const { confirm, ConfirmDialogElement } = useConfirmDialog();
   const resolvedOrganizationId = orgFromProps ?? organizationId ?? null;
@@ -824,24 +830,36 @@ export function SalesDocumentItemsSection({
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex flex-col gap-0.5">
-                        <span className="font-mono text-sm">
-                          {formatMoney(
-                            item.unitPriceGross,
-                            item.currencyCode ?? currencyCode ?? undefined,
-                            locale,
-                          )}{" "}
-                          <span className="text-xs text-muted-foreground">
-                            {t("sales.documents.items.table.gross", "gross")}
+                        {singlePricePresentation ? (
+                          <span className="font-mono text-sm">
+                            {formatMoney(
+                              item.unitPriceNet,
+                              item.currencyCode ?? currencyCode ?? undefined,
+                              locale, displayProfile,
+                            )}
                           </span>
-                        </span>
-                        <span className="font-mono text-xs text-muted-foreground">
-                          {formatMoney(
-                            item.unitPriceNet,
-                            item.currencyCode ?? currencyCode ?? undefined,
-                            locale,
-                          )}{" "}
-                          {t("sales.documents.items.table.net", "net")}
-                        </span>
+                        ) : (
+                          <>
+                            <span className="font-mono text-sm">
+                              {formatMoney(
+                                item.unitPriceGross,
+                                item.currencyCode ?? currencyCode ?? undefined,
+                                locale, displayProfile,
+                              )}{" "}
+                              <span className="text-xs text-muted-foreground">
+                                {t("sales.documents.items.table.gross", "gross")}
+                              </span>
+                            </span>
+                            <span className="font-mono text-xs text-muted-foreground">
+                              {formatMoney(
+                                item.unitPriceNet,
+                                item.currencyCode ?? currencyCode ?? undefined,
+                                locale, displayProfile,
+                              )}{" "}
+                              {t("sales.documents.items.table.net", "net")}
+                            </span>
+                          </>
+                        )}
                         {unitPriceReference ? (
                           <span className="text-xs text-muted-foreground">
                             {t(
@@ -853,7 +871,7 @@ export function SalesDocumentItemsSection({
                                   item.currencyCode ??
                                     currencyCode ??
                                     undefined,
-                                  locale,
+                                  locale, displayProfile,
                                 ),
                                 unit: unitPriceReference.referenceUnitCode,
                               },
@@ -877,7 +895,7 @@ export function SalesDocumentItemsSection({
                                       item.currencyCode ??
                                         currencyCode ??
                                         undefined,
-                                      locale,
+                                      locale, displayProfile,
                                     ),
                                   },
                                 )}
@@ -904,24 +922,36 @@ export function SalesDocumentItemsSection({
                     ) : null}
                     <td className="px-3 py-3 font-semibold">
                       <div className="flex flex-col gap-0.5">
-                        <span>
-                          {formatMoney(
-                            item.totalGross,
-                            item.currencyCode ?? currencyCode ?? undefined,
-                            locale,
-                          )}{" "}
-                          <span className="text-xs font-normal text-muted-foreground">
-                            {t("sales.documents.items.table.gross", "gross")}
+                        {singlePricePresentation ? (
+                          <span>
+                            {formatMoney(
+                              item.totalNet,
+                              item.currencyCode ?? currencyCode ?? undefined,
+                              locale, displayProfile,
+                            )}
                           </span>
-                        </span>
-                        <span className="text-xs font-medium text-muted-foreground">
-                          {formatMoney(
-                            item.totalNet,
-                            item.currencyCode ?? currencyCode ?? undefined,
-                            locale,
-                          )}{" "}
-                          {t("sales.documents.items.table.net", "net")}
-                        </span>
+                        ) : (
+                          <>
+                            <span>
+                              {formatMoney(
+                                item.totalGross,
+                                item.currencyCode ?? currencyCode ?? undefined,
+                                locale, displayProfile,
+                              )}{" "}
+                              <span className="text-xs font-normal text-muted-foreground">
+                                {t("sales.documents.items.table.gross", "gross")}
+                              </span>
+                            </span>
+                            <span className="text-xs font-medium text-muted-foreground">
+                              {formatMoney(
+                                item.totalNet,
+                                item.currencyCode ?? currencyCode ?? undefined,
+                                locale, displayProfile,
+                              )}{" "}
+                              {t("sales.documents.items.table.net", "net")}
+                            </span>
+                          </>
+                        )}
                       </div>
                     </td>
                     {injectedColumns.map((col) => {

@@ -17,6 +17,10 @@ import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/c
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
+import { formatMoney as formatMarketMoney, formatNumber } from '@open-mercato/shared/lib/display/money'
+import type { DisplayProfile } from '@open-mercato/shared/lib/display/profile'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { E } from '#generated/entities.ids.generated'
 import {
@@ -135,9 +139,19 @@ function toNumber(value: unknown): number | null {
   return null
 }
 
-function formatCurrency(amount: number | null | undefined, currency: string | null | undefined, fallback = '—') {
+function formatCurrency(
+  amount: number | null | undefined,
+  currency: string | null | undefined,
+  fallback = '—',
+  profile?: DisplayProfile | null,
+) {
   if (amount == null || Number.isNaN(amount)) return fallback
   try {
+    if (profile) {
+      return (currency && currency.trim().length
+        ? formatMarketMoney(amount, currency, profile)
+        : formatNumber(amount, profile, { maximumFractionDigits: 2 })) ?? String(amount)
+    }
     if (currency && currency.trim().length) {
       const formatter = new Intl.NumberFormat(undefined, { style: 'currency', currency })
       return formatter.format(amount)
@@ -166,6 +180,7 @@ function normalizeNumberInput(value: unknown): number | null {
 
 export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
   const t = useT()
+  const displayProfile = useDisplayProfile()
   const { enabled: channelsEnabled } = useSalesChannelsEnabled()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
@@ -736,7 +751,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       accessorKey: 'totalNet',
       header: t('sales.documents.list.table.totalNet', 'Total (net)'),
       cell: ({ row }) => (
-        <span className="text-sm">{formatCurrency(row.original.totalNet ?? null, row.original.currency)}</span>
+        <span className="text-sm">{formatCurrency(row.original.totalNet ?? null, row.original.currency, '—', displayProfile)}</span>
       ),
     },
     {
@@ -744,7 +759,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       accessorKey: 'totalGross',
       header: t('sales.documents.list.table.totalGross', 'Total (gross)'),
       cell: ({ row }) => (
-        <span className="text-sm">{formatCurrency(row.original.totalGross ?? null, row.original.currency)}</span>
+        <span className="text-sm">{formatCurrency(row.original.totalGross ?? null, row.original.currency, '—', displayProfile)}</span>
       ),
     },
     {
@@ -753,10 +768,10 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       header: t('sales.documents.list.table.date', 'Date'),
       cell: ({ row }) =>
         row.original.date
-          ? <span className="text-xs text-muted-foreground">{new Date(row.original.date).toLocaleString()}</span>
+          ? <span className="text-xs text-muted-foreground">{formatDisplayDateTime(row.original.date, undefined, displayProfile) ?? '—'}</span>
           : <span className="text-xs text-muted-foreground">—</span>,
     },
-  ], [channelsEnabled, kind, statusMap, t])
+  ], [channelsEnabled, displayProfile, kind, statusMap, t])
 
   const emptyLabel = kind === 'order'
     ? t('sales.documents.list.table.emptyOrders', 'No orders yet.')

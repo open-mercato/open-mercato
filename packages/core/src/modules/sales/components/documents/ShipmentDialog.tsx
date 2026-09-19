@@ -21,6 +21,8 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { E } from '#generated/entities.ids.generated'
 import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
+import type { DisplayProfile } from '@open-mercato/shared/lib/display/profile'
 import { formatMoney, normalizeNumber } from './lineItemUtils'
 import type { OrderLine, ShipmentRow } from './shipmentTypes'
 import { formatAddressString, type AddressFormatStrategy, type AddressValue } from '@open-mercato/core/modules/customers/utils/addressFormat'
@@ -218,11 +220,12 @@ const fallbackAddressId = (id?: string): string => id ?? 'address'
 const buildAddressOption = (
   snapshot?: NormalizedAddressSnapshot | Record<string, unknown> | null,
   opts?: { id?: string; label?: string },
+  profile?: DisplayProfile | null,
 ): ShipmentAddressOption | null => {
   const normalized = normalizeAddressSnapshot(snapshot)
   if (!normalized) return null
   const value = mapSnapshotToAddressValue(normalized)
-  const summary = formatAddressString(value, ADDRESS_FORMAT)
+  const summary = formatAddressString(value, ADDRESS_FORMAT, ', ', profile)
   const label: string =
     (opts?.label ?? normalized.name ?? normalized.purpose ?? summary ?? normalized.companyName) ??
     fallbackAddressId(opts?.id)
@@ -291,6 +294,7 @@ export function ShipmentDialog({
 }: ShipmentDialogProps) {
   const t = useT()
   const locale = useLocale()
+  const displayProfile = useDisplayProfile()
   const [formResetKey, setFormResetKey] = React.useState(0)
   const [shippingMethods, setShippingMethods] = React.useState<ShippingMethodOption[]>([])
   const [shippingMethodLoading, setShippingMethodLoading] = React.useState(false)
@@ -337,8 +341,8 @@ export function ShipmentDialog({
       buildAddressOption(normalizedShippingAddressSnapshot ?? null, {
         id: 'shipping-address',
         label: t('sales.documents.shipments.shippingAddressLabel', 'Shipping address'),
-      }),
-    [normalizedShippingAddressSnapshot, t],
+      }, displayProfile),
+    [displayProfile, normalizedShippingAddressSnapshot, t],
   )
 
   const shipmentAddressOption = React.useMemo(
@@ -346,8 +350,8 @@ export function ShipmentDialog({
       buildAddressOption(shipmentAddressSnapshot ?? null, {
         id: 'shipment-address',
         label: t('sales.documents.shipments.shipmentAddressLabel', 'Shipment address'),
-      }),
-    [shipmentAddressSnapshot, t],
+      }, displayProfile),
+    [displayProfile, shipmentAddressSnapshot, t],
   )
 
   const computedBaseAddressOptions = React.useMemo(
@@ -473,9 +477,9 @@ export function ShipmentDialog({
         readStringField(item, ['id']) ??
         readStringField(item, ['customer_address_id', 'customerAddressId']) ??
         undefined
-      return buildAddressOption(snapshot, { id, label })
+      return buildAddressOption(snapshot, { id, label }, displayProfile)
     },
-    [t],
+    [displayProfile, t],
   )
 
   const mergeAddressOptions = React.useCallback(
@@ -541,14 +545,14 @@ export function ShipmentDialog({
       if (option.avgPrice !== null) {
         parts.push(
           t('sales.documents.shipments.shippingMethodAvg', 'Avg {{price}}', {
-            price: formatMoney(option.avgPrice, currency ?? null, locale),
+            price: formatMoney(option.avgPrice, currency ?? null, locale, displayProfile),
           }),
         )
       }
       if (option.minPrice !== null) {
         parts.push(
           t('sales.documents.shipments.shippingMethodMin', 'Min {{price}}', {
-            price: formatMoney(option.minPrice, currency ?? null, locale),
+            price: formatMoney(option.minPrice, currency ?? null, locale, displayProfile),
           }),
         )
       }

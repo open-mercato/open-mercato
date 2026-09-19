@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Building2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -50,6 +51,7 @@ export function CreatePersonDialog({
   onPersonCreated,
 }: CreatePersonDialogProps) {
   const t = useT()
+  const displayProfile = useDisplayProfile()
   const { organizationId } = useOrganizationScopeDetail()
   const [formInstanceKey, setFormInstanceKey] = React.useState(0)
 
@@ -62,7 +64,7 @@ export function CreatePersonDialog({
   const formSchema = React.useMemo(() => createPersonFormSchema(), [])
 
   const fields = React.useMemo<CrudField[]>(() => {
-    return createPersonFormFields(t)
+    return createPersonFormFields(t, { profile: displayProfile })
       .filter((field) => field.id !== 'addresses')
       .map((field) => {
         if (field.id !== 'companyEntityId') {
@@ -90,7 +92,7 @@ export function CreatePersonDialog({
           ),
         } satisfies CrudField
       })
-  }, [companyName, t])
+  }, [companyName, displayProfile, t])
 
   const groups = React.useMemo(
     () => createPersonFormGroups(t).filter((group) => group.id !== 'addresses'),

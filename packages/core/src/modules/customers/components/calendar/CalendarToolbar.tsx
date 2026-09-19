@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import { formatDateRangeLabel } from '../../lib/calendar/format'
 import type {
   CalendarFiltersValue,
@@ -51,6 +52,7 @@ export function CalendarToolbar(props: CalendarToolbarProps) {
   } = props
   const t = useT()
   const locale = useLocale()
+  const displayProfile = useDisplayProfile()
   const [rangeOpen, setRangeOpen] = React.useState(false)
   const [filtersOpen, setFiltersOpen] = React.useState(false)
   const [pendingFilters, setPendingFilters] = React.useState<CalendarFiltersValue>(filters)
@@ -125,7 +127,7 @@ export function CalendarToolbar(props: CalendarToolbarProps) {
                 className="min-w-0 text-muted-foreground sm:-ml-px sm:rounded-l-none"
               >
                 <CalendarRange aria-hidden="true" />
-                <span className="truncate">{formatDateRangeLabel(locale, range.from, range.to)}</span>
+                <span className="truncate">{formatDateRangeLabel(locale, range.from, range.to, displayProfile)}</span>
               </Button>
             </PopoverTrigger>
             <PopoverContent align="start" className="w-auto min-w-0 p-2">

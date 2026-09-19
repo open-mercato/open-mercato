@@ -8,6 +8,7 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import { LineItemDialog } from './LineItemDialog'
 import type { SalesLineRecord } from './lineItemTypes'
 import { formatMoney, normalizeNumber } from './lineItemUtils'
@@ -105,6 +106,7 @@ export function SalesOrderDraftLines({
 }: SalesOrderDraftLinesProps) {
   const t = useT()
   const locale = useLocale()
+  const displayProfile = useDisplayProfile()
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editing, setEditing] = React.useState<SalesOrderLineDraft | null>(null)
 
@@ -124,12 +126,12 @@ export function SalesOrderDraftLines({
     {
       id: 'unitPrice',
       header: t('sales.documents.items.table.unit', 'Unit price'),
-      cell: ({ row }) => formatMoney(row.original.record.unitPriceGross, row.original.record.currencyCode ?? currencyCode ?? undefined, locale),
+      cell: ({ row }) => formatMoney(row.original.record.unitPriceGross, row.original.record.currencyCode ?? currencyCode ?? undefined, locale, displayProfile),
     },
     {
       id: 'total',
       header: t('sales.documents.items.table.total', 'Total'),
-      cell: ({ row }) => formatMoney(row.original.record.totalGross, row.original.record.currencyCode ?? currencyCode ?? undefined, locale),
+      cell: ({ row }) => formatMoney(row.original.record.totalGross, row.original.record.currencyCode ?? currencyCode ?? undefined, locale, displayProfile),
     },
   ], [currencyCode, locale, t])
 

@@ -14,6 +14,7 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import {
   emitSalesDocumentTotalsRefresh,
   subscribeSalesDocumentTotalsRefresh,
@@ -48,6 +49,7 @@ export { formatDisplayDate }
 export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }: SalesReturnsSectionProps) {
   const t = useT()
   const locale = useLocale()
+  const displayProfile = useDisplayProfile()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [returns, setReturns] = React.useState<ReturnRow[]>([])
@@ -330,10 +332,10 @@ export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }
                     `z.coerce.date()` and returned via `.toISOString()`, and that dialog seeds itself
                     back from the UTC day — unconditionally, however the row was written. Matching the
                     dialog is the invariant, so the row cannot contradict itself west of UTC. */}
-                {formatDisplayDate(toUtcDateInputValue(ret.returnedAt), locale) ?? t('sales.returns.notSet', 'Not set')}
+                {formatDisplayDate(toUtcDateInputValue(ret.returnedAt), locale, displayProfile) ?? t('sales.returns.notSet', 'Not set')}
               </div>
               <div className="whitespace-nowrap text-right text-sm font-medium">
-                {formatMoney(ret.total, currencyCode ?? null, locale)}
+                {formatMoney(ret.total, currencyCode ?? null, locale, displayProfile)}
               </div>
               <div className="flex justify-end">
                 <RowActions

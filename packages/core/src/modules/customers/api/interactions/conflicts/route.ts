@@ -8,6 +8,8 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { formatTime } from '@open-mercato/shared/lib/display/datetime'
+import { resolveDisplayProfileForScope } from '@open-mercato/core/modules/markets/lib/request-profile'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CustomerInteraction } from '../../../data/entities'
 import { TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus'
@@ -176,6 +178,17 @@ export async function GET(req: Request) {
       titleById.set((record as any).id, ((record as any).title ?? null) as string | null)
     }
 
+    // The conflict times are rendered on the server and shown verbatim, so they have to be in the
+    // organization's market conventions - the hardcoded `en-US` 24-hour form below showed a US
+    // merchant `15:45` for a quarter to four.
+    const displayProfile = await resolveDisplayProfileForScope(container, {
+      tenantId: auth.tenantId ?? null,
+      organizationId: organizationIds.length === 1 ? organizationIds[0] : (auth.orgId ?? null),
+    })
+    const conflictTime = (value: Date): string =>
+      formatTime(value, displayProfile)
+      ?? value.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
+
     const conflicts = rows.map((row) => {
       const start = new Date(row.scheduled_at)
       const durationMin = row.duration_minutes ?? 30
@@ -183,8 +196,8 @@ export async function GET(req: Request) {
       return {
         id: row.id,
         title: titleById.has(row.id) ? titleById.get(row.id) ?? null : null,
-        startTime: start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
-        endTime: end.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+        startTime: conflictTime(start),
+        endTime: conflictTime(end),
         type: row.interaction_type,
       }
     })

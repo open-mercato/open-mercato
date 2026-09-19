@@ -8,6 +8,7 @@ import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '#generated/entities.ids.generated'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import {
@@ -20,12 +21,13 @@ import {
 
 export default function CreatePersonPage() {
   const t = useT()
+  const displayProfile = useDisplayProfile()
   const router = useRouter()
   const searchParams = useSearchParams()
   const { organizationId } = useOrganizationScopeDetail()
 
   const formSchema = React.useMemo(() => createPersonFormSchema(), [])
-  const fields = React.useMemo(() => createPersonFormFields(t), [t])
+  const fields = React.useMemo(() => createPersonFormFields(t, { profile: displayProfile }), [t, displayProfile])
   const groups = React.useMemo(() => createPersonFormGroups(t), [t])
   const returnTo = searchParams.get('returnTo')
   const companyParam = searchParams.get('companyId')

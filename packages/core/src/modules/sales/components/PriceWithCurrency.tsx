@@ -2,6 +2,9 @@
 
 import * as React from 'react'
 import { useOptionalLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatMoney as formatMarketMoney } from '@open-mercato/shared/lib/display/money'
+import type { DisplayProfile } from '@open-mercato/shared/lib/display/profile'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import { cn } from '@open-mercato/shared/lib/utils'
 
 /**
@@ -13,11 +16,19 @@ export function formatPriceWithCurrency(
   amount: number | string | null | undefined,
   currency: string | null | undefined,
   fallback = '—',
-  locale?: string
+  locale?: string,
+  profile?: DisplayProfile | null,
 ): string {
   if (amount === null || amount === undefined) return fallback
   const parsed = typeof amount === 'string' ? Number(amount) : amount
   if (Number.isNaN(parsed)) return fallback
+  if (profile) {
+    return formatMarketMoney(parsed, currency, profile, {
+      locale,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }) ?? fallback
+  }
   if (currency) {
     try {
       return new Intl.NumberFormat(locale, {
@@ -46,9 +57,12 @@ export function PriceWithCurrency({ amount, currency, fallback = '—', classNam
   // `I18nProvider` would narrow its mounting contract. Without a provider it falls back to the
   // runtime default, which is exactly the behaviour it had before.
   const locale = useOptionalLocale()
+  // `useDisplayProfile` reads a context whose default is `null`, so this keeps the same
+  // provider-optional mounting contract `useOptionalLocale` was chosen for.
+  const displayProfile = useDisplayProfile()
   const label = React.useMemo(
-    () => formatPriceWithCurrency(amount, currency, fallback, locale),
-    [amount, currency, fallback, locale]
+    () => formatPriceWithCurrency(amount, currency, fallback, locale, displayProfile),
+    [amount, currency, displayProfile, fallback, locale]
   )
   return <span className={cn('font-mono text-sm text-foreground', className)}>{label}</span>
 }

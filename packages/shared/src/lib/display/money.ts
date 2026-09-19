@@ -5,6 +5,12 @@ export type FormatMoneyOptions = {
   locale?: string | null
   minimumFractionDigits?: number
   maximumFractionDigits?: number
+  /**
+   * `compact` renders `1.2M` instead of `1,200,000`, for a KPI tile with no room for the full
+   * number. The market's separators still apply, so a compact amount reads the same way a full one
+   * does.
+   */
+  notation?: 'standard' | 'compact'
 }
 
 function toNumeric(value: string | number | null | undefined): number | null {
@@ -66,6 +72,7 @@ export function formatMoney(
   const fractionOptions: Intl.NumberFormatOptions = {}
   if (options?.minimumFractionDigits !== undefined) fractionOptions.minimumFractionDigits = options.minimumFractionDigits
   if (options?.maximumFractionDigits !== undefined) fractionOptions.maximumFractionDigits = options.maximumFractionDigits
+  if (options?.notation !== undefined) fractionOptions.notation = options.notation
 
   let body: string
   let appendCode = false
@@ -110,6 +117,7 @@ export function formatNumber(
   const fractionOptions: Intl.NumberFormatOptions = {}
   if (options?.minimumFractionDigits !== undefined) fractionOptions.minimumFractionDigits = options.minimumFractionDigits
   if (options?.maximumFractionDigits !== undefined) fractionOptions.maximumFractionDigits = options.maximumFractionDigits
+  if (options?.notation !== undefined) fractionOptions.notation = options.notation
 
   const negative = numeric < 0
   const useParentheses = negative && resolved.negativeStyle === 'parentheses'

@@ -19,6 +19,9 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDate as formatDisplayDate } from '@open-mercato/shared/lib/display/datetime'
+import type { DisplayProfile } from '@open-mercato/shared/lib/display/profile'
+import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterOption } from '@open-mercato/ui/backend/FilterOverlay'
 import type { FilterFieldDef, FilterOption as AdvancedFilterOption } from '@open-mercato/shared/lib/query/advanced-filter'
@@ -124,11 +127,13 @@ type CompaniesResponse = {
 type DictionaryKindKey = CustomerDictionaryKind
 type DictionaryMap = CustomerDictionaryMap
 
-function formatDate(value: string | null | undefined, fallback: string): string {
+function formatDate(
+  value: string | null | undefined,
+  fallback: string,
+  profile?: DisplayProfile | null,
+): string {
   if (!value) return fallback
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return fallback
-  return date.toLocaleDateString()
+  return formatDisplayDate(value, profile) ?? fallback
 }
 
 function mapApiItem(item: Record<string, unknown>): CompanyRow | null {
@@ -247,6 +252,7 @@ export default function CustomersCompaniesPage() {
   const scopeVersion = useOrganizationScopeVersion()
   const queryClient = useQueryClient()
   const t = useT()
+  const displayProfile = useDisplayProfile()
   const router = useRouter()
   const handlePageSizeChange = React.useCallback((newSize: number) => {
     setPageSize(newSize)
@@ -691,7 +697,7 @@ export default function CustomersCompaniesPage() {
                   </span>
                 ) : null}
                 <div className="flex flex-col">
-                  <span>{formatDate(row.original.nextInteractionAt, t('customers.companies.list.noValue'))}</span>
+                  <span>{formatDate(row.original.nextInteractionAt, t('customers.companies.list.noValue'), displayProfile)}</span>
                   {row.original.nextInteractionName ? (
                     <span className="text-xs text-muted-foreground">{row.original.nextInteractionName}</span>
                   ) : null}
@@ -840,7 +846,7 @@ export default function CustomersCompaniesPage() {
       }))
 
     return [...baseColumns, ...customColumns]
-  }, [customFieldDefs, dictionaryMaps, dictionaryOptions, loadOwnerFilterOptions, resolvedOwnerFilterOptions, t])
+  }, [customFieldDefs, dictionaryMaps, dictionaryOptions, displayProfile, loadOwnerFilterOptions, resolvedOwnerFilterOptions, t])
 
   const { advancedFilterFields } = useAutoDiscoveredFields({ columns, customFieldDefs })
 

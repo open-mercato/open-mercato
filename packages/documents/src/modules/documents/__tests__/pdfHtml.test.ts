@@ -1,4 +1,5 @@
 import { buildDocumentPdfHtml } from '../lib/pdfHtml'
+import { EU_DISPLAY_TEMPLATE, US_DISPLAY_TEMPLATE } from '@open-mercato/shared/lib/display/templates'
 
 describe('document PDF HTML', () => {
   it('renders an escaped visible title and inert A4 print shell', () => {
@@ -21,5 +22,22 @@ describe('document PDF HTML', () => {
     expect(html).toContain('strong > code:only-child > span:only-child')
     expect(html).toContain('img { display: block; max-width: 100%;')
     expect(html).toContain('<main class="document-content"><table>')
+  })
+})
+
+describe('market paper size', () => {
+  it('keeps A4 when no market was picked', () => {
+    expect(buildDocumentPdfHtml('Proposal', '<p>Body</p>')).toContain('@page { size: A4;')
+    expect(buildDocumentPdfHtml('Proposal', '<p>Body</p>', null)).toContain('@page { size: A4;')
+  })
+
+  it('prints Letter for a US market', () => {
+    const html = buildDocumentPdfHtml('Proposal', '<p>Body</p>', US_DISPLAY_TEMPLATE)
+    expect(html).toContain('@page { size: Letter;')
+    expect(html).not.toContain('size: A4')
+  })
+
+  it('prints A4 for a European market', () => {
+    expect(buildDocumentPdfHtml('Proposal', '<p>Body</p>', EU_DISPLAY_TEMPLATE)).toContain('@page { size: A4;')
   })
 })

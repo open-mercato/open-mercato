@@ -1,4 +1,5 @@
 import { formatDateLabel, formatDateRangeLabel, formatTimeLabel, formatTimeRangeLabel } from '../format'
+import { EU_DISPLAY_TEMPLATE, US_DISPLAY_TEMPLATE } from '@open-mercato/shared/lib/display/templates'
 
 const JUN_15 = new Date(2026, 5, 15)
 const JUN_21 = new Date(2026, 5, 21)
@@ -94,5 +95,35 @@ describe('formatTimeRangeLabel', () => {
 
     expect(label).toBe('2:00 – 3:00 PM')
     expect(label).not.toMatch(HYDRATION_UNSTABLE_SPACING)
+  })
+})
+
+describe('market display profile', () => {
+  // The runner is pinned to America/New_York, so `AT_14` is the instant 2026-06-28T18:00Z: 1:00 PM
+  // in Chicago and 20:00 in Warsaw. Asserting the shifted value is the point - the market decides
+  // the zone as well as the clock, and a conflict list that ignored the zone would name the wrong
+  // hour.
+  it('renders a 12-hour clock in the market zone even under a Polish UI locale', () => {
+    expect(formatTimeLabel('pl', AT_14, US_DISPLAY_TEMPLATE)).toBe('1:00 PM')
+    expect(formatTimeRangeLabel('pl', AT_14, AT_15, US_DISPLAY_TEMPLATE)).toMatch(/PM/)
+  })
+
+  it('keeps the 24-hour clock for the EU market', () => {
+    expect(formatTimeLabel('en', AT_14, EU_DISPLAY_TEMPLATE)).toBe('20:00')
+  })
+
+  it('leaves the hour cycle to the UI locale when no market is picked', () => {
+    expect(formatTimeLabel('pl', AT_14)).toBe('14:00')
+    expect(formatTimeLabel('en', AT_14)).toBe('2:00 PM')
+  })
+
+  it('never emits a hydration-unstable space', () => {
+    expect(formatTimeLabel('pl', AT_15, US_DISPLAY_TEMPLATE)).not.toMatch(HYDRATION_UNSTABLE_SPACING)
+    expect(formatTimeRangeLabel('pl', AT_14, AT_15, US_DISPLAY_TEMPLATE)).not.toMatch(HYDRATION_UNSTABLE_SPACING)
+  })
+
+  it('names the month in the market language on a date label', () => {
+    expect(formatDateLabel('pl', JUN_28, US_DISPLAY_TEMPLATE)).toContain('Jun')
+    expect(formatDateRangeLabel('pl', JUN_15, JUN_21, US_DISPLAY_TEMPLATE)).toContain('Jun')
   })
 })
