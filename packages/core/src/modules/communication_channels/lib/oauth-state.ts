@@ -16,6 +16,9 @@ import crypto from 'node:crypto'
  *   - 5-minute TTL — short window to bound replay surface.
  *   - Payload binds the initiating `userId` so the callback rejects state cookies
  *     used by a different session.
+ *   - Single-use consume-on-read via a short-TTL cache marker keyed by `state`
+ *     (see {@link consumeOAuthStateOnce}) so a captured cookie cannot re-drive
+ *     the callback within the TTL.
  *
  * The output is a base64url string that we set on an HttpOnly + SameSite=Lax cookie.
  * Forgery requires the encryption key (KMS-managed in production).
@@ -33,6 +36,10 @@ export const COMMUNICATION_CHANNELS_OAUTH_STATE_COOKIE_NAME =
 
 export const DEFAULT_OAUTH_RETURN_URL = '/backend/profile/communication-channels'
 
+/** Cache tag for OAuth-state consume markers (invalidation / diagnostics). */
+export const COMMUNICATION_CHANNELS_OAUTH_STATE_CACHE_TAG =
+  'communication_channels:oauth-state'
+
 /** Errors thrown by the helpers. Stable for tests + route mapping. */
 export class OAuthStateError extends Error {
   override name = 'OAuthStateError'
@@ -43,7 +50,8 @@ export class OAuthStateError extends Error {
       | 'invalid_cookie'
       | 'expired'
       | 'user_mismatch'
-      | 'decrypt_failed',
+      | 'decrypt_failed'
+      | 'replay',
   ) {
     super(message)
   }
@@ -73,6 +81,20 @@ export interface OAuthStatePayload {
   expiresAt: number
   /** Provider-specific extras (PKCE code_verifier, scopes, login_hint, …). */
   extra?: Record<string, unknown>
+}
+
+/**
+ * Minimal cache surface used by {@link consumeOAuthStateOnce}. Matches the
+ * `has` / `set` subset of `@open-mercato/cache`'s `CacheStrategy` so callers
+ * can pass `container.resolve('cache')` directly.
+ */
+export type OAuthStateConsumeStore = {
+  has(key: string): Promise<boolean>
+  set(
+    key: string,
+    value: unknown,
+    options?: { ttl?: number; tags?: string[] },
+  ): Promise<void>
 }
 
 export function isSafeOAuthReturnUrl(value: string | null | undefined): value is string {
@@ -121,6 +143,18 @@ function getSecret(): string {
   return fallback
 }
 
+function timingSafeStringEqual(a: string, b: string): boolean {
+  const left = Buffer.from(a)
+  const right = Buffer.from(b)
+  if (left.length !== right.length) return false
+  return crypto.timingSafeEqual(left, right)
+}
+
+/** Cache key for a consumed OAuth `state` nonce. Exported for tests. */
+export function oauthStateConsumedCacheKey(state: string): string {
+  return `communication_channels:oauth-state:used:${state}`
+}
+
 /** Encrypt + sign a state payload. Output is a base64url string suitable for a cookie. */
 export function encryptOAuthState(payload: OAuthStatePayload): string {
   const key = deriveKey(getSecret())
@@ -166,6 +200,9 @@ export function decryptOAuthState(cookie: string): OAuthStatePayload | null {
  * Throws an {@link OAuthStateError} with a stable `code` field on any check
  * failure so route handlers can map to consistent HTTP responses + redirect
  * flash codes.
+ *
+ * Crypto + binding checks only — callers MUST also call
+ * {@link consumeOAuthStateOnce} so the state cannot be replayed within the TTL.
  */
 export function verifyOAuthState(input: {
   cookie: string | null | undefined
@@ -185,16 +222,44 @@ export function verifyOAuthState(input: {
   if (payload.expiresAt < now) {
     throw new OAuthStateError('State cookie expired', 'expired')
   }
-  if (payload.userId !== input.expectedUserId) {
+  if (!timingSafeStringEqual(payload.userId, input.expectedUserId)) {
     throw new OAuthStateError('State cookie userId mismatch', 'user_mismatch')
   }
-  if (input.expectedProviderKey && payload.providerKey !== input.expectedProviderKey) {
+  if (
+    input.expectedProviderKey
+    && !timingSafeStringEqual(payload.providerKey, input.expectedProviderKey)
+  ) {
     throw new OAuthStateError('State cookie providerKey mismatch', 'invalid_cookie')
   }
-  if (input.expectedState && payload.state !== input.expectedState) {
+  if (input.expectedState && !timingSafeStringEqual(payload.state, input.expectedState)) {
     throw new OAuthStateError('State cookie state nonce mismatch', 'invalid_cookie')
   }
   return payload
+}
+
+/**
+ * Mark a verified OAuth `state` as consumed in a short-TTL store.
+ *
+ * First successful call records a used-marker until `expiresAt` (or 1s minimum).
+ * A second call with the same `state` throws {@link OAuthStateError} `replay`.
+ *
+ * Call immediately after {@link verifyOAuthState} on the callback path so a
+ * captured valid cookie cannot re-drive the flow within the cookie TTL.
+ */
+export async function consumeOAuthStateOnce(
+  store: OAuthStateConsumeStore,
+  payload: Pick<OAuthStatePayload, 'state' | 'expiresAt'>,
+  now: number = Date.now(),
+): Promise<void> {
+  const key = oauthStateConsumedCacheKey(payload.state)
+  if (await store.has(key)) {
+    throw new OAuthStateError('State cookie already used', 'replay')
+  }
+  const ttl = Math.max(payload.expiresAt - now, 1_000)
+  await store.set(key, 1, {
+    ttl,
+    tags: [COMMUNICATION_CHANNELS_OAUTH_STATE_CACHE_TAG],
+  })
 }
 
 /**
