@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   COUNTRY_PRIORITY,
   ISO_COUNTRIES,
@@ -7,6 +9,15 @@ import {
 } from '../countries'
 
 describe('ISO_COUNTRIES', () => {
+  it('does not import language-subtag-registry at runtime (Node ESM / production)', () => {
+    const source = readFileSync(join(__dirname, '../countries.ts'), 'utf8')
+    expect(source).not.toMatch(/language-subtag-registry/)
+    const generated = readFileSync(join(__dirname, '../countries.generated.ts'), 'utf8')
+    expect(generated).toMatch(/AUTO-GENERATED/)
+    expect(generated).toMatch(/code: "PL"/)
+    expect(generated).toMatch(/code: "DE"/)
+  })
+
   it('includes Kosovo, which the language-subtag registry does not list', () => {
     const kosovo = ISO_COUNTRIES.filter((entry) => entry.code === 'XK')
     expect(kosovo).toEqual([{ code: 'XK', name: 'Kosovo' }])
