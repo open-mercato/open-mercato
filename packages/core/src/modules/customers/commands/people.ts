@@ -153,6 +153,9 @@ type PersonSnapshot = {
     nextInteractionIcon: string | null
     nextInteractionColor: string | null
     isActive: boolean
+    isTaxExempt: boolean
+    taxExemptionCode: string | null
+    taxExemptionCertificate: string | null
   }
   profile: {
     id: string
@@ -292,6 +295,9 @@ function serializePersonSnapshot(
       nextInteractionIcon: entity.nextInteractionIcon ?? null,
       nextInteractionColor: entity.nextInteractionColor ?? null,
       isActive: entity.isActive,
+      isTaxExempt: entity.isTaxExempt,
+      taxExemptionCode: entity.taxExemptionCode ?? null,
+      taxExemptionCertificate: entity.taxExemptionCertificate ?? null,
     },
     profile: {
       id: profile.id,
@@ -547,6 +553,9 @@ type PersonGraphValues = {
   nextInteractionIcon: string | null
   nextInteractionColor: string | null
   isActive: boolean
+  isTaxExempt: boolean
+  taxExemptionCode: string | null
+  taxExemptionCertificate: string | null
   firstName: string | null
   lastName: string | null
   preferredName: string | null
@@ -586,6 +595,9 @@ function buildPersonGraph(
     nextInteractionIcon: values.nextInteractionIcon,
     nextInteractionColor: values.nextInteractionColor,
     isActive: values.isActive,
+    isTaxExempt: values.isTaxExempt,
+    taxExemptionCode: values.taxExemptionCode,
+    taxExemptionCertificate: values.taxExemptionCertificate,
   })
   const profile = em.create(CustomerPersonProfile, {
     ...(values.profileId ? { id: values.profileId } : {}),
@@ -667,6 +679,9 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
           nextInteractionIcon,
           nextInteractionColor,
           isActive: parsed.isActive ?? true,
+          isTaxExempt: parsed.isTaxExempt ?? false,
+          taxExemptionCode: normalizeOptionalString(parsed.taxExemptionCode),
+          taxExemptionCertificate: normalizeOptionalString(parsed.taxExemptionCertificate),
           firstName,
           lastName,
           preferredName,
@@ -832,6 +847,9 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
             nextInteractionIcon: after.entity.nextInteractionIcon,
             nextInteractionColor: after.entity.nextInteractionColor,
             isActive: after.entity.isActive,
+            isTaxExempt: after.entity.isTaxExempt ?? false,
+            taxExemptionCode: after.entity.taxExemptionCode ?? null,
+            taxExemptionCertificate: after.entity.taxExemptionCertificate ?? null,
             firstName: after.profile.firstName,
             lastName: after.profile.lastName,
             preferredName: after.profile.preferredName,
@@ -878,6 +896,9 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
           survivingEntity.nextInteractionIcon = after.entity.nextInteractionIcon
           survivingEntity.nextInteractionColor = after.entity.nextInteractionColor
           survivingEntity.isActive = after.entity.isActive
+          survivingEntity.isTaxExempt = after.entity.isTaxExempt ?? false
+          survivingEntity.taxExemptionCode = after.entity.taxExemptionCode ?? null
+          survivingEntity.taxExemptionCertificate = after.entity.taxExemptionCertificate ?? null
           profile.firstName = after.profile.firstName
           profile.lastName = after.profile.lastName
           profile.preferredName = after.profile.preferredName
@@ -970,6 +991,9 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
           record.source = normalizeOptionalString(parsed.source)
         }
         if (parsed.isActive !== undefined) record.isActive = parsed.isActive
+        if (parsed.isTaxExempt !== undefined) record.isTaxExempt = parsed.isTaxExempt
+        if (parsed.taxExemptionCode !== undefined) record.taxExemptionCode = normalizeOptionalString(parsed.taxExemptionCode)
+        if (parsed.taxExemptionCertificate !== undefined) record.taxExemptionCertificate = normalizeOptionalString(parsed.taxExemptionCertificate)
         if (parsed.nextInteraction) {
           record.nextInteractionAt = parsed.nextInteraction.at
           record.nextInteractionName = parsed.nextInteraction.name.trim()
@@ -1132,6 +1156,9 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
             nextInteractionIcon: before.entity.nextInteractionIcon,
             nextInteractionColor: before.entity.nextInteractionColor,
             isActive: before.entity.isActive,
+            isTaxExempt: before.entity.isTaxExempt ?? false,
+            taxExemptionCode: before.entity.taxExemptionCode ?? null,
+            taxExemptionCertificate: before.entity.taxExemptionCertificate ?? null,
           })
           em.persist(newEntity)
           newProfile = em.create(CustomerPersonProfile, {
@@ -1171,6 +1198,9 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
           entity.nextInteractionIcon = before.entity.nextInteractionIcon
           entity.nextInteractionColor = before.entity.nextInteractionColor
           entity.isActive = before.entity.isActive
+          entity.isTaxExempt = before.entity.isTaxExempt ?? false
+          entity.taxExemptionCode = before.entity.taxExemptionCode ?? null
+          entity.taxExemptionCertificate = before.entity.taxExemptionCertificate ?? null
         },
         async () => {
           const profile = await findOneWithDecryption(
@@ -1418,6 +1448,9 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           nextInteractionIcon: before.entity.nextInteractionIcon,
           nextInteractionColor: before.entity.nextInteractionColor,
           isActive: before.entity.isActive,
+          isTaxExempt: before.entity.isTaxExempt ?? false,
+          taxExemptionCode: before.entity.taxExemptionCode ?? null,
+          taxExemptionCertificate: before.entity.taxExemptionCertificate ?? null,
         })
         em.persist(entity)
       }
@@ -1436,6 +1469,9 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       entity.nextInteractionIcon = before.entity.nextInteractionIcon
       entity.nextInteractionColor = before.entity.nextInteractionColor
       entity.isActive = before.entity.isActive
+      entity.isTaxExempt = before.entity.isTaxExempt ?? false
+      entity.taxExemptionCode = before.entity.taxExemptionCode ?? null
+      entity.taxExemptionCertificate = before.entity.taxExemptionCertificate ?? null
       entity.deletedAt = null
 
       let profile = await findOneWithDecryption(

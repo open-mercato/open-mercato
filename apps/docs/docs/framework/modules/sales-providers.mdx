@@ -1,8 +1,10 @@
 ---
-title: Shipping & Payment Providers
+title: Shipping, Payment & Tax Providers
 ---
 
-The sales module now discovers shipping and payment providers so modules can plug in custom pricing and checkout flows without forking core logic.
+The sales module discovers shipping, payment and tax providers so modules can plug in custom pricing, checkout and tax logic without forking core logic.
+
+Shipping and payment providers are selected **per method row** and contribute *adjustments*. Tax providers are selected **per organization** and rewrite the tax on every line — see [Tax providers](#tax-providers) below and the dedicated [Building a tax provider](./building-tax-provider) guide.
 
 ## Register a provider
 
@@ -115,3 +117,37 @@ The sales settings page (`/backend/config/sales`) now includes **Shipping Method
 - Provider selection controls validation via the provider `settings.schema`, keeping saved rows aligned with the hooks that consume them.
 
 These settings drive the provider calculations during quote/order creation and updates, ensuring shipping costs and payment fees stay in sync with the configured provider rules.
+
+
+## Tax providers
+
+A tax provider is the third stage of the same totals calculator that runs the shipping and payment stages, so it sees the shipping surcharge those stages just appended — which matters because shipping is taxable in most US states.
+
+```ts
+import { registerTaxProvider } from '@open-mercato/core/modules/sales/lib/providers'
+
+registerTaxProvider({
+  key: 'your-engine',
+  label: 'Your Engine',
+  integrationId: 'tax_your_engine',   // optional; where credentials live
+  settings: { /* non-secret options only */ },
+  async calculate({ request, settings, credentials, signal }) {
+    // `request` is the whole document: addresses, customer, lines, charges.
+    return { status: 'calculated', lines: [...], totals: { ... } }
+  },
+})
+```
+
+Key differences from the shipping and payment slots:
+
+| | Shipping / payment | Tax |
+|---|---|---|
+| Selected on | the method row | the organization (`Sales → Configuration → Tax provider`) |
+| Contributes | adjustments | per-line and per-charge tax amounts |
+| Secret settings fields | allowed (stored on the method row) | **rejected** — secrets go to the integrations module |
+| On failure | the stage is skipped | falls back to table rates, records why, never fails the write |
+| Persisted | in the adjustment rows | five provenance columns plus a `tax_info` document |
+
+The built-in `table-rates` provider is an exact identity over the calculation engine, so an organization that selects nothing keeps every amount it had before this slot existed.
+
+The full contract — request and result shapes, failure codes, reconciliation, credentials, exemption — is in [Building a tax provider](./building-tax-provider).

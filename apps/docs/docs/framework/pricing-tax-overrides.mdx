@@ -3,6 +3,13 @@ title: Pricing and tax overrides
 description: Customize price selection and tax math by subscribing to events or swapping DI services.
 ---
 
+:::note Unit amounts vs. whole documents
+Everything on this page overrides how **one amount** is turned into its net/gross pair. It cannot see the addresses, the customer or the sibling lines, so it cannot implement a jurisdiction-aware engine.
+
+For that, register a **document level tax provider**: see [Building a tax provider](./modules/building-tax-provider) and [Shipping, payment & tax providers](./modules/sales-providers). A provider receives the whole document and is selected per organization.
+:::
+
+
 The catalog and sales modules expose overridable services so you can plug in regional tax engines, bespoke price selection, or special document totals without forking core code.
 
 ## Pipelines you can extend

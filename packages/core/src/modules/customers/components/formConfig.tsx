@@ -87,6 +87,9 @@ export type PersonFormValues = {
   lifecycleStage?: string
   source?: string
   description?: string
+  isTaxExempt?: boolean
+  taxExemptionCode?: string
+  taxExemptionCertificate?: string
   addresses?: CustomerAddressValue[]
 } & Record<string, unknown>
 
@@ -97,6 +100,9 @@ export type CompanyFormValues = {
   status?: string
   lifecycleStage?: string
   source?: string
+  isTaxExempt?: boolean
+  taxExemptionCode?: string
+  taxExemptionCertificate?: string
   legalName?: string
   brandName?: string
   domain?: string
@@ -931,6 +937,27 @@ export const createPersonFormFields = (t: Translator, options?: { defaultCountry
         />
       ),
     },
+    // Tax exemption facts a document level tax engine reads through the
+    // customer snapshot. Spec: .ai/specs/2026-09-19-pluggable-tax-providers.md.
+    createSectionHeadingField('__taxExemptionSection', t('customers.form.sections.taxExemption', 'Tax exemption')),
+    {
+      id: 'isTaxExempt',
+      label: t('customers.form.isTaxExempt', 'Tax exempt'),
+      type: 'checkbox',
+      layout: 'third',
+    },
+    {
+      id: 'taxExemptionCode',
+      label: t('customers.form.taxExemptionCode', 'Exemption code'),
+      type: 'text',
+      layout: 'third',
+    },
+    {
+      id: 'taxExemptionCertificate',
+      label: t('customers.form.taxExemptionCertificate', 'Exemption certificate'),
+      type: 'text',
+      layout: 'third',
+    },
     contactSection,
     createPrimaryEmailField(t),
     createPrimaryPhoneField(t, defaultCountryIso2),
@@ -1061,6 +1088,10 @@ export const createPersonFormGroups = (t: Translator): CrudFormGroup[] => [
       'status',
       'lifecycleStage',
       'source',
+      '__taxExemptionSection',
+      'isTaxExempt',
+      'taxExemptionCode',
+      'taxExemptionCertificate',
     ],
   },
   {
@@ -1121,6 +1152,13 @@ export function buildPersonPayload(
         : undefined,
   )
   assign('description', typeof values.description === 'string' ? values.description : undefined)
+
+  assign('taxExemptionCode', typeof values.taxExemptionCode === 'string' ? values.taxExemptionCode : undefined)
+  assign(
+    'taxExemptionCertificate',
+    typeof values.taxExemptionCertificate === 'string' ? values.taxExemptionCertificate : undefined,
+  )
+  if (typeof values.isTaxExempt === 'boolean') payload.isTaxExempt = values.isTaxExempt
 
   const customFields = collectCustomFieldValues(values, {
     transform: (value) => normalizeCustomFieldSubmitValue(value),
@@ -1251,6 +1289,27 @@ export const createCompanyFormFields = (t: Translator, options?: { defaultCountr
       label: t('customers.companies.form.displayName.label', 'Display name'),
       type: 'text',
       required: true,
+    },
+    // Tax exemption facts a document level tax engine reads through the
+    // customer snapshot. Spec: .ai/specs/2026-09-19-pluggable-tax-providers.md.
+    createSectionHeadingField('__taxExemptionSection', t('customers.form.sections.taxExemption', 'Tax exemption')),
+    {
+      id: 'isTaxExempt',
+      label: t('customers.form.isTaxExempt', 'Tax exempt'),
+      type: 'checkbox',
+      layout: 'third',
+    },
+    {
+      id: 'taxExemptionCode',
+      label: t('customers.form.taxExemptionCode', 'Exemption code'),
+      type: 'text',
+      layout: 'third',
+    },
+    {
+      id: 'taxExemptionCertificate',
+      label: t('customers.form.taxExemptionCertificate', 'Exemption certificate'),
+      type: 'text',
+      layout: 'third',
     },
     {
       id: 'primaryEmail',
@@ -1417,7 +1476,18 @@ export const createCompanyFormGroups = (t: Translator): CrudFormGroup[] => [
     id: 'details',
     title: t('customers.companies.form.groups.details'),
     column: 1,
-    fields: ['displayName', 'primaryEmail', 'primaryPhone', 'status', 'lifecycleStage', 'source'],
+    fields: [
+      'displayName',
+      'primaryEmail',
+      'primaryPhone',
+      'status',
+      'lifecycleStage',
+      'source',
+      '__taxExemptionSection',
+      'isTaxExempt',
+      'taxExemptionCode',
+      'taxExemptionCertificate',
+    ],
   },
   {
     id: 'profile',
@@ -1485,6 +1555,13 @@ export function buildCompanyPayload(
     }
     payload.annualRevenue = normalized
   }
+
+  assign('taxExemptionCode', typeof values.taxExemptionCode === 'string' ? values.taxExemptionCode : undefined)
+  assign(
+    'taxExemptionCertificate',
+    typeof values.taxExemptionCertificate === 'string' ? values.taxExemptionCertificate : undefined,
+  )
+  if (typeof values.isTaxExempt === 'boolean') payload.isTaxExempt = values.isTaxExempt
 
   const customFields = collectCustomFieldValues(values, {
     transform: (value) => normalizeCustomFieldSubmitValue(value),

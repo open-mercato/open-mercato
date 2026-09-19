@@ -407,6 +407,7 @@ const sidebars: SidebarsConfig = {
             "framework/modules/payment-gateways",
             "framework/modules/shipping-carriers",
             "framework/modules/building-gateway-provider",
+            "framework/modules/building-tax-provider",
             "framework/modules/communication-channels",
             "framework/modules/building-communication-channel-provider",
           ],

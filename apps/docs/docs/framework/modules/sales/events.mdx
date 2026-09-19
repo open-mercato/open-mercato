@@ -72,6 +72,11 @@ These events fire during internal calculation pipelines. They are excluded from 
 | `sales.shipping.adjustments.apply.after` | After shipping adjustments are applied |
 | `sales.payment.adjustments.apply.before` | Before payment adjustments are applied |
 | `sales.payment.adjustments.apply.after` | After payment adjustments are applied |
+| `sales.tax.adjustments.apply.before` | Before the tax provider stage runs (rewrite the request) |
+| `sales.tax.adjustments.apply.after` | After the tax provider stage runs |
+| `sales.tax.calculation.failed` | A tax calculation fell back to the default provider. Triggerable — route it to a workflow or a notification. Payload: `documentKind`, `documentId`, `providerKey`, `code`, `message` plus the scope ids. |
+
+`sales.document.totals.calculated`, `sales.order.confirmed` and `sales.order.cancelled` additionally carry an optional `tax` block (`providerKey`, `status`, `transactionRef`, `calculatedAt`), so a consumer can react to a fallback without reading the document back. It is `null` for a calculation that ran no tax stage.
 
 ## See also
 

@@ -22,7 +22,7 @@ function toNumber(value: unknown, fallback = 0): number {
   return fallback
 }
 
-function round(value: number): number {
+export function round(value: number): number {
   return Math.round((value + Number.EPSILON) * 1e4) / 1e4
 }
 

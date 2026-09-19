@@ -95,6 +95,7 @@ import {
   type OrderAdjustmentCreateInput,
   type InvoiceCreateInput,
   type CreditMemoCreateInput,
+  recalculateDocumentTaxSchema,
 } from "../data/validators";
 import {
   ensureOrganizationScope,
@@ -122,7 +123,12 @@ import type { TaxCalculationService } from "../services/taxCalculationService";
 import type {
   PaymentMethodContext,
   ShippingMethodContext,
+  TaxCalculationStatus,
+  TaxDocumentContext,
 } from "../lib/providers";
+import type { TaxInfo } from "../lib/providers/taxInfo";
+import { parseTaxInfo } from "../lib/providers/taxInfo";
+import { resolveTaxDocumentContext } from "../lib/providers/taxContext";
 import {
   type SalesLineSnapshot,
   type SalesLineUomSnapshot,
@@ -244,7 +250,11 @@ type QuoteGraphSnapshot = {
     validFrom: string | null;
     validUntil: string | null;
     comments: string | null;
+    taxStrategyKey: string | null;
     taxInfo: Record<string, unknown> | null;
+    taxStatus: string | null;
+    taxCalculatedAt: string | null;
+    taxTransactionRef: string | null;
     shippingMethodId: string | null;
     shippingMethodCode: string | null;
     deliveryWindowId: string | null;
@@ -350,6 +360,9 @@ type OrderGraphSnapshot = {
     taxStrategyKey: string | null;
     discountStrategyKey: string | null;
     taxInfo: Record<string, unknown> | null;
+    taxStatus: string | null;
+    taxCalculatedAt: string | null;
+    taxTransactionRef: string | null;
     shippingMethodId: string | null;
     shippingMethodCode: string | null;
     deliveryWindowId: string | null;
@@ -737,10 +750,16 @@ async function resolveCustomerSnapshot(
   customerContactId?: string | null,
 ): Promise<Record<string, unknown> | null> {
   if (!customerEntityId) return null;
-  const customer = await em.findOne(
+  // Decrypting read: `customer_entities` declares encrypted fields, and this
+  // snapshot is itself encrypted at rest (sales/encryption.ts). A plain
+  // `em.findOne` here would write ciphertext INTO an encrypted column — double
+  // encryption — and hand the tax provider an unreadable exemption certificate.
+  const customer = await findOneWithDecryption(
+    em,
     CustomerEntity,
     { id: customerEntityId, organizationId, tenantId },
     { populate: ["personProfile", "companyProfile"] },
+    { tenantId, organizationId },
   );
   if (!customer) return null;
 
@@ -759,6 +778,14 @@ async function resolveCustomerSnapshot(
       displayName: customer.displayName,
       primaryEmail: customer.primaryEmail ?? null,
       primaryPhone: customer.primaryPhone ?? null,
+      // Read by the tax stage through TaxCustomer.exemption. The snapshot is
+      // already encrypted at rest (sales/encryption.ts), so carrying the
+      // certificate number here adds no new plaintext surface.
+      taxExemption: {
+        isExempt: customer.isTaxExempt ?? false,
+        code: customer.taxExemptionCode ?? null,
+        certificateNumber: customer.taxExemptionCertificate ?? null,
+      },
       personProfile: customer.personProfile
         ? {
             id: customer.personProfile.id,
@@ -935,6 +962,21 @@ function isCancelledOrderStatus(status: string | null): boolean {
   return status === "canceled" || status === "cancelled";
 }
 
+/**
+ * The same provenance summary `taxEventBlock` derives from a fresh calculation,
+ * read back from the stored columns for an event that fires on a status
+ * transition rather than on a recalculation.
+ */
+function storedTaxEventBlock(order: SalesOrder): TaxEventBlock | null {
+  if (!order.taxStrategyKey && !order.taxStatus) return null;
+  return {
+    providerKey: order.taxStrategyKey ?? "",
+    status: (order.taxStatus ?? "fallback") as TaxCalculationStatus,
+    transactionRef: order.taxTransactionRef ?? null,
+    calculatedAt: order.taxCalculatedAt ? order.taxCalculatedAt.toISOString() : "",
+  };
+}
+
 async function emitOrderLifecycleEvent(input: {
   eventId: "sales.order.confirmed" | "sales.order.cancelled";
   order: SalesOrder;
@@ -948,6 +990,10 @@ async function emitOrderLifecycleEvent(input: {
     status: normalizeStatusValue(input.order.status),
     tenantId: input.order.tenantId,
     organizationId: input.order.organizationId,
+    // Lets a package that prefers its own subscriber decide whether to commit
+    // or void a provider transaction without reading the order back. Null on an
+    // order written before this spec, or one whose writes never recalculated.
+    tax: storedTaxEventBlock(input.order),
   });
 }
 
@@ -1698,7 +1744,11 @@ async function loadQuoteSnapshot(
       validFrom: quote.validFrom ? quote.validFrom.toISOString() : null,
       validUntil: quote.validUntil ? quote.validUntil.toISOString() : null,
       comments: quote.comments ?? null,
+      taxStrategyKey: quote.taxStrategyKey ?? null,
       taxInfo: quote.taxInfo ? cloneJson(quote.taxInfo) : null,
+      taxStatus: quote.taxStatus ?? null,
+      taxCalculatedAt: quote.taxCalculatedAt ? quote.taxCalculatedAt.toISOString() : null,
+      taxTransactionRef: quote.taxTransactionRef ?? null,
       shippingMethodId: quote.shippingMethodId ?? null,
       shippingMethodCode: quote.shippingMethodCode ?? null,
       deliveryWindowId: quote.deliveryWindowId ?? null,
@@ -1988,6 +2038,9 @@ async function loadOrderSnapshot(
       taxStrategyKey: order.taxStrategyKey ?? null,
       discountStrategyKey: order.discountStrategyKey ?? null,
       taxInfo: order.taxInfo ? cloneJson(order.taxInfo) : null,
+      taxStatus: order.taxStatus ?? null,
+      taxCalculatedAt: order.taxCalculatedAt ? order.taxCalculatedAt.toISOString() : null,
+      taxTransactionRef: order.taxTransactionRef ?? null,
       shippingMethodId: order.shippingMethodId ?? null,
       shippingMethodCode: order.shippingMethodCode ?? null,
       deliveryWindowId: order.deliveryWindowId ?? null,
@@ -2959,21 +3012,98 @@ function buildCalculationContext(params: {
   paymentMethodId?: string | null;
   shippingMethodCode?: string | null;
   paymentMethodCode?: string | null;
+  /**
+   * Required on purpose: a recalculation site that forgets the tax block would
+   * silently skip the tax stage and store no provenance, so the omission is a
+   * type error rather than a missing column at runtime.
+   */
+  tax: TaxDocumentContext;
 }) {
   return {
     tenantId: params.tenantId,
     organizationId: params.organizationId,
     currencyCode: params.currencyCode,
-    metadata: buildProviderContext({
-      shippingSnapshot: params.shippingSnapshot,
-      paymentSnapshot: params.paymentSnapshot,
-      shippingMethodId: params.shippingMethodId,
-      paymentMethodId: params.paymentMethodId,
-      shippingMethodCode: params.shippingMethodCode,
-      paymentMethodCode: params.paymentMethodCode,
-      currencyCode: params.currencyCode,
-    }),
+    metadata: {
+      ...buildProviderContext({
+        shippingSnapshot: params.shippingSnapshot,
+        paymentSnapshot: params.paymentSnapshot,
+        shippingMethodId: params.shippingMethodId,
+        paymentMethodId: params.paymentMethodId,
+        shippingMethodCode: params.shippingMethodCode,
+        paymentMethodCode: params.paymentMethodCode,
+        currencyCode: params.currencyCode,
+      }),
+      tax: params.tax,
+    },
   };
+}
+
+/**
+ * Everything a recalculation site holds: a persisted quote or order, its line
+ * snapshots, and the entity manager. Every one of the eighteen sites builds its
+ * context through here, so the tax context is assembled exactly once per
+ * recalculation and always before the write transaction opens.
+ */
+type TaxDocumentSource = {
+  id?: string | null;
+  organizationId: string;
+  tenantId: string;
+  currencyCode: string;
+  channelId?: string | null;
+  customerSnapshot?: Record<string, unknown> | null;
+  billingAddressSnapshot?: Record<string, unknown> | null;
+  shippingAddressSnapshot?: Record<string, unknown> | null;
+  shippingMethodSnapshot?: Record<string, unknown> | null;
+  paymentMethodSnapshot?: Record<string, unknown> | null;
+  shippingMethodId?: string | null;
+  paymentMethodId?: string | null;
+  shippingMethodCode?: string | null;
+  paymentMethodCode?: string | null;
+  orderNumber?: string | null;
+  quoteNumber?: string | null;
+  placedAt?: Date | null;
+  validFrom?: Date | null;
+  createdAt?: Date | null;
+};
+
+async function resolveDocumentCalculationContext(params: {
+  em: EntityManager;
+  documentKind: SalesDocumentKind;
+  document: TaxDocumentSource;
+  lines: SalesLineSnapshot[];
+  container?: { resolve: (key: string) => unknown } | null;
+}) {
+  const { document } = params;
+  const tax = await resolveTaxDocumentContext({
+    em: params.em,
+    container: params.container ?? null,
+    organizationId: document.organizationId,
+    tenantId: document.tenantId,
+    documentKind: params.documentKind,
+    documentId: document.id ?? null,
+    documentNumber: document.orderNumber ?? document.quoteNumber ?? null,
+    documentDate: document.placedAt ?? document.validFrom ?? document.createdAt ?? null,
+    channelId: document.channelId ?? null,
+    customerSnapshot: document.customerSnapshot ?? null,
+    billingAddressSnapshot: document.billingAddressSnapshot ?? null,
+    shippingAddressSnapshot: document.shippingAddressSnapshot ?? null,
+    lines: params.lines.map((line) => ({
+      productId: line.productId ?? null,
+      productVariantId: line.productVariantId ?? null,
+    })),
+  });
+  return buildCalculationContext({
+    tenantId: document.tenantId,
+    organizationId: document.organizationId,
+    currencyCode: document.currencyCode,
+    shippingSnapshot: document.shippingMethodSnapshot ?? null,
+    paymentSnapshot: document.paymentMethodSnapshot ?? null,
+    shippingMethodId: document.shippingMethodId ?? null,
+    paymentMethodId: document.paymentMethodId ?? null,
+    shippingMethodCode: document.shippingMethodCode ?? null,
+    paymentMethodCode: document.paymentMethodCode ?? null,
+    tax,
+  });
 }
 
 function mapOrderAdjustmentToDraft(
@@ -3016,6 +3146,32 @@ function mapQuoteAdjustmentToDraft(
   };
 }
 
+/**
+ * The provenance summary a consumer of `sales.document.totals.calculated`
+ * needs without having to read the document back. It is `null` for a
+ * calculation that ran no tax stage, which is what a third party caller of
+ * `calculateDocumentTotals` produces.
+ */
+type TaxEventBlock = {
+  providerKey: string;
+  status: TaxCalculationStatus;
+  transactionRef: string | null;
+  calculatedAt: string;
+};
+
+function taxEventBlock(
+  calculation: SalesDocumentCalculationResult,
+): TaxEventBlock | null {
+  const info = (calculation.metadata ?? {}).tax as TaxInfo | undefined;
+  if (!info) return null;
+  return {
+    providerKey: info.providerKey,
+    status: info.status,
+    transactionRef: info.transaction.reference,
+    calculatedAt: info.calculatedAt,
+  };
+}
+
 async function emitTotalsCalculated(
   eventBus: EventBus | null | undefined,
   payload: {
@@ -3026,6 +3182,7 @@ async function emitTotalsCalculated(
     customerId?: string | null;
     totals: SalesDocumentCalculationResult["totals"];
     lineCount: number;
+    tax?: TaxEventBlock | null;
   },
 ): Promise<void> {
   if (!eventBus) return;
@@ -3631,6 +3788,100 @@ async function replaceOrderAdjustments(
   });
 }
 
+/**
+ * The five columns every recalculating write owns. They are written in the same
+ * `withAtomicFlush` phase as the totals, so a document can never hold amounts
+ * from one calculation and provenance from another.
+ *
+ * A calculation that ran no tax stage leaves them alone rather than clearing
+ * them: that is what a third party caller of `calculateDocumentTotals` produces,
+ * and wiping a previous provider's result would be a silent data loss.
+ */
+function applyTaxColumns(
+  document: SalesOrder | SalesQuote | SalesInvoice | SalesCreditMemo,
+  calculation: SalesDocumentCalculationResult,
+): void {
+  const info = (calculation.metadata ?? {}).tax as TaxInfo | undefined;
+  if (!info) return;
+  document.taxStrategyKey = info.providerKey;
+  document.taxInfo = info as unknown as Record<string, unknown>;
+  document.taxStatus = info.status;
+  document.taxCalculatedAt = new Date(info.calculatedAt);
+  document.taxTransactionRef = info.transaction.reference;
+}
+
+type InheritedTaxColumns = {
+  taxStrategyKey: string | null;
+  taxInfo: Record<string, unknown> | null;
+  taxStatus: string | null;
+  taxCalculatedAt: Date | null;
+  taxTransactionRef: string | null;
+};
+
+const EMPTY_TAX_COLUMNS: InheritedTaxColumns = {
+  taxStrategyKey: null,
+  taxInfo: null,
+  taxStatus: null,
+  taxCalculatedAt: null,
+  taxTransactionRef: null,
+};
+
+/**
+ * Invoices and credit memos take caller-supplied totals — they never
+ * recalculate — so their tax provenance comes from the document they were
+ * raised from. A caller mirroring an externally taxed document supplies the
+ * columns itself and no source is consulted; with a source present the caller's
+ * values are ignored, because an invoice claiming a different provider than the
+ * order it bills is not a state the system should be able to reach.
+ */
+function resolveInheritedTaxColumns(params: {
+  source: SalesOrder | SalesInvoice | null | undefined;
+  sourceNumber: string | null;
+  supplied: {
+    taxStrategyKey?: string | null;
+    taxInfo?: Record<string, unknown> | null;
+    taxStatus?: string | null;
+    taxCalculatedAt?: Date | null;
+    taxTransactionRef?: string | null;
+  };
+}): InheritedTaxColumns {
+  const { source, supplied } = params;
+  if (!source) {
+    return {
+      taxStrategyKey: supplied.taxStrategyKey ?? null,
+      taxInfo: supplied.taxInfo ? cloneJson(supplied.taxInfo) : null,
+      taxStatus: supplied.taxStatus ?? null,
+      taxCalculatedAt: supplied.taxCalculatedAt ?? null,
+      taxTransactionRef: supplied.taxTransactionRef ?? null,
+    };
+  }
+  if (!source.taxInfo && !source.taxStrategyKey) return EMPTY_TAX_COLUMNS;
+
+  const inherited = source.taxInfo ? cloneJson(source.taxInfo) : null;
+  const parsed = inherited ? parseTaxInfo(inherited) : null;
+  const taxInfo = parsed
+    ? ({
+        ...parsed,
+        messages: [
+          ...parsed.messages,
+          {
+            level: 'info' as const,
+            code: 'inherited',
+            text: `Inherited from ${params.sourceNumber ?? 'the source document'}`,
+          },
+        ],
+      } as unknown as Record<string, unknown>)
+    : inherited;
+
+  return {
+    taxStrategyKey: source.taxStrategyKey ?? null,
+    taxInfo,
+    taxStatus: source.taxStatus ?? null,
+    taxCalculatedAt: source.taxCalculatedAt ?? null,
+    taxTransactionRef: source.taxTransactionRef ?? null,
+  };
+}
+
 function applyQuoteTotals(
   quote: SalesQuote,
   totals: SalesDocumentCalculationResult["totals"],
@@ -3949,7 +4200,11 @@ function applyQuoteSnapshot(
   quote.validFrom = snapshot.validFrom ? new Date(snapshot.validFrom) : null;
   quote.validUntil = snapshot.validUntil ? new Date(snapshot.validUntil) : null;
   quote.comments = snapshot.comments ?? null;
+  quote.taxStrategyKey = snapshot.taxStrategyKey ?? null;
   quote.taxInfo = snapshot.taxInfo ? cloneJson(snapshot.taxInfo) : null;
+  quote.taxStatus = snapshot.taxStatus ?? null;
+  quote.taxCalculatedAt = snapshot.taxCalculatedAt ? new Date(snapshot.taxCalculatedAt) : null;
+  quote.taxTransactionRef = snapshot.taxTransactionRef ?? null;
   quote.shippingMethodId = snapshot.shippingMethodId ?? null;
   quote.shippingMethodCode = snapshot.shippingMethodCode ?? null;
   quote.deliveryWindowId = snapshot.deliveryWindowId ?? null;
@@ -4011,6 +4266,9 @@ function applyOrderSnapshot(
   order.taxStrategyKey = snapshot.taxStrategyKey ?? null;
   order.discountStrategyKey = snapshot.discountStrategyKey ?? null;
   order.taxInfo = snapshot.taxInfo ? cloneJson(snapshot.taxInfo) : null;
+  order.taxStatus = snapshot.taxStatus ?? null;
+  order.taxCalculatedAt = snapshot.taxCalculatedAt ? new Date(snapshot.taxCalculatedAt) : null;
+  order.taxTransactionRef = snapshot.taxTransactionRef ?? null;
   order.shippingMethodId = snapshot.shippingMethodId ?? null;
   order.shippingMethodCode = snapshot.shippingMethodCode ?? null;
   order.deliveryWindowId = snapshot.deliveryWindowId ?? null;
@@ -4097,9 +4355,15 @@ async function restoreQuoteGraph(
         ? new Date(snapshot.quote.validUntil)
         : null,
       comments: snapshot.quote.comments ?? null,
+      taxStrategyKey: snapshot.quote.taxStrategyKey ?? null,
       taxInfo: snapshot.quote.taxInfo
         ? cloneJson(snapshot.quote.taxInfo)
         : null,
+      taxStatus: snapshot.quote.taxStatus ?? null,
+      taxCalculatedAt: snapshot.quote.taxCalculatedAt
+        ? new Date(snapshot.quote.taxCalculatedAt)
+        : null,
+      taxTransactionRef: snapshot.quote.taxTransactionRef ?? null,
       shippingMethodId: snapshot.quote.shippingMethodId ?? null,
       shippingMethodCode: snapshot.quote.shippingMethodCode ?? null,
       deliveryWindowId: snapshot.quote.deliveryWindowId ?? null,
@@ -4415,6 +4679,11 @@ async function restoreOrderGraph(
       taxInfo: snapshot.order.taxInfo
         ? cloneJson(snapshot.order.taxInfo)
         : null,
+      taxStatus: snapshot.order.taxStatus ?? null,
+      taxCalculatedAt: snapshot.order.taxCalculatedAt
+        ? new Date(snapshot.order.taxCalculatedAt)
+        : null,
+      taxTransactionRef: snapshot.order.taxTransactionRef ?? null,
       shippingMethodId: snapshot.order.shippingMethodId ?? null,
       shippingMethodCode: snapshot.order.shippingMethodCode ?? null,
       deliveryWindowId: snapshot.order.deliveryWindowId ?? null,
@@ -4918,16 +5187,12 @@ const createQuoteCommand: CommandHandler<
 
     const salesCalculationService =
       ctx.container.resolve<SalesCalculationService>("salesCalculationService");
-    const calculationContext = buildCalculationContext({
-      tenantId: quote.tenantId,
-      organizationId: quote.organizationId,
-      currencyCode: quote.currencyCode,
-      shippingSnapshot: quote.shippingMethodSnapshot,
-      paymentSnapshot: quote.paymentMethodSnapshot,
-      shippingMethodId: quote.shippingMethodId ?? null,
-      paymentMethodId: quote.paymentMethodId ?? null,
-      shippingMethodCode: quote.shippingMethodCode ?? null,
-      paymentMethodCode: quote.paymentMethodCode ?? null,
+    const calculationContext = await resolveDocumentCalculationContext({
+      em,
+      container: ctx.container,
+      documentKind: "quote",
+      document: quote,
+      lines: lineSnapshots,
     });
     const calculation = await salesCalculationService.calculateDocumentTotals({
       documentKind: "quote",
@@ -4958,6 +5223,7 @@ const createQuoteCommand: CommandHandler<
             adjustmentInputs,
           );
           applyQuoteTotals(quote, calculation.totals, calculation.lines.length);
+          applyTaxColumns(quote, calculation);
           await emitTotalsCalculated(eventBus, {
             documentKind: "quote",
             documentId: quote.id,
@@ -4966,6 +5232,7 @@ const createQuoteCommand: CommandHandler<
             customerId: quote.customerEntityId ?? null,
             totals: calculation.totals,
             lineCount: calculation.lines.length,
+            tax: taxEventBlock(calculation),
           });
           await syncSalesDocumentTags(em, {
             documentId: quote.id,
@@ -5336,16 +5603,12 @@ const updateQuoteCommand: CommandHandler<
               ctx.container.resolve<SalesCalculationService>(
                 "salesCalculationService",
               );
-            const calculationContext = buildCalculationContext({
-              tenantId: quote.tenantId,
-              organizationId: quote.organizationId,
-              currencyCode: quote.currencyCode,
-              shippingSnapshot: quote.shippingMethodSnapshot,
-              paymentSnapshot: quote.paymentMethodSnapshot,
-              shippingMethodId: quote.shippingMethodId ?? null,
-              paymentMethodId: quote.paymentMethodId ?? null,
-              shippingMethodCode: quote.shippingMethodCode ?? null,
-              paymentMethodCode: quote.paymentMethodCode ?? null,
+            const calculationContext = await resolveDocumentCalculationContext({
+              em,
+      container: ctx.container,
+              documentKind: "quote",
+              document: quote,
+              lines: calcLines,
             });
             const calculation =
               await salesCalculationService.calculateDocumentTotals({
@@ -5378,6 +5641,7 @@ const updateQuoteCommand: CommandHandler<
               adjustmentInputs,
             );
             applyQuoteTotals(quote, calculation.totals, calculation.lines.length);
+            applyTaxColumns(quote, calculation);
             let eventBus: EventBus | null = null;
             try {
               eventBus = ctx.container.resolve("eventBus") as EventBus;
@@ -5392,6 +5656,7 @@ const updateQuoteCommand: CommandHandler<
               customerId: quote.customerEntityId ?? null,
               totals: calculation.totals,
               lineCount: calculation.lines.length,
+              tax: taxEventBlock(calculation),
             });
           }
           quote.updatedAt = new Date();
@@ -5602,16 +5867,12 @@ const updateOrderCommand: CommandHandler<
               ctx.container.resolve<SalesCalculationService>(
                 "salesCalculationService",
               );
-            const calculationContext = buildCalculationContext({
-              tenantId: order.tenantId,
-              organizationId: order.organizationId,
-              currencyCode: order.currencyCode,
-              shippingSnapshot: order.shippingMethodSnapshot,
-              paymentSnapshot: order.paymentMethodSnapshot,
-              shippingMethodId: order.shippingMethodId ?? null,
-              paymentMethodId: order.paymentMethodId ?? null,
-              shippingMethodCode: order.shippingMethodCode ?? null,
-              paymentMethodCode: order.paymentMethodCode ?? null,
+            const calculationContext = await resolveDocumentCalculationContext({
+              em,
+      container: ctx.container,
+              documentKind: "order",
+              document: order,
+              lines: calcLines,
             });
             const calculation =
               await salesCalculationService.calculateDocumentTotals({
@@ -5645,6 +5906,7 @@ const updateOrderCommand: CommandHandler<
               adjustmentInputs,
             );
             applyOrderTotals(order, calculation.totals, calculation.lines.length);
+            applyTaxColumns(order, calculation);
             let eventBus: EventBus | null = null;
             try {
               eventBus = ctx.container.resolve("eventBus") as EventBus;
@@ -5659,6 +5921,7 @@ const updateOrderCommand: CommandHandler<
               customerId: order.customerEntityId ?? null,
               totals: calculation.totals,
               lineCount: calculation.lines.length,
+              tax: taxEventBlock(calculation),
             });
           }
           statusChangeNote = await appendOrderStatusChangeNote({
@@ -5992,16 +6255,12 @@ const createOrderCommand: CommandHandler<
 
     const salesCalculationService =
       ctx.container.resolve<SalesCalculationService>("salesCalculationService");
-    const calculationContext = buildCalculationContext({
-      tenantId: order.tenantId,
-      organizationId: order.organizationId,
-      currencyCode: order.currencyCode,
-      shippingSnapshot: order.shippingMethodSnapshot,
-      paymentSnapshot: order.paymentMethodSnapshot,
-      shippingMethodId: order.shippingMethodId ?? null,
-      paymentMethodId: order.paymentMethodId ?? null,
-      shippingMethodCode: order.shippingMethodCode ?? null,
-      paymentMethodCode: order.paymentMethodCode ?? null,
+    const calculationContext = await resolveDocumentCalculationContext({
+      em,
+      container: ctx.container,
+      documentKind: "order",
+      document: order,
+      lines: lineSnapshots,
     });
     const calculation = await salesCalculationService.calculateDocumentTotals({
       documentKind: "order",
@@ -6033,6 +6292,7 @@ const createOrderCommand: CommandHandler<
             adjustmentInputs,
           );
           applyOrderTotals(order, calculation.totals, calculation.lines.length);
+          applyTaxColumns(order, calculation);
           await emitTotalsCalculated(eventBus, {
             documentKind: "order",
             documentId: order.id,
@@ -6041,6 +6301,7 @@ const createOrderCommand: CommandHandler<
             customerId: order.customerEntityId ?? null,
             totals: calculation.totals,
             lineCount: calculation.lines.length,
+            tax: taxEventBlock(calculation),
           });
           await syncSalesDocumentTags(em, {
             documentId: order.id,
@@ -6509,11 +6770,20 @@ const convertQuoteToOrderCommand: CommandHandler<
           : null,
         currencyCode: snapshot.quote.currencyCode,
         exchangeRate: null,
-        taxStrategyKey: null,
+        // The converted order inherits the quote's whole tax result, not just
+        // its document. Resetting the provider key here would leave an order
+        // holding a tax_info the key no longer names; the order recalculates on
+        // its next write anyway, which overwrites all five together.
+        taxStrategyKey: snapshot.quote.taxStrategyKey ?? null,
         discountStrategyKey: null,
         taxInfo: snapshot.quote.taxInfo
           ? cloneJson(snapshot.quote.taxInfo)
           : null,
+        taxStatus: snapshot.quote.taxStatus ?? null,
+        taxCalculatedAt: snapshot.quote.taxCalculatedAt
+          ? new Date(snapshot.quote.taxCalculatedAt)
+          : null,
+        taxTransactionRef: snapshot.quote.taxTransactionRef ?? null,
         shippingMethodId: snapshot.quote.shippingMethodId ?? null,
         shippingMethodCode: snapshot.quote.shippingMethodCode ?? null,
         deliveryWindowId: snapshot.quote.deliveryWindowId ?? null,
@@ -7346,16 +7616,12 @@ const orderLineUpsertCommand: CommandHandler<
     const adjustmentDrafts = adjustments.map(mapOrderAdjustmentToDraft);
     const salesCalculationService =
       ctx.container.resolve<SalesCalculationService>("salesCalculationService");
-    const calculationContext = buildCalculationContext({
-      tenantId: order.tenantId,
-      organizationId: order.organizationId,
-      currencyCode: order.currencyCode,
-      shippingSnapshot: order.shippingMethodSnapshot,
-      paymentSnapshot: order.paymentMethodSnapshot,
-      shippingMethodId: order.shippingMethodId ?? null,
-      paymentMethodId: order.paymentMethodId ?? null,
-      shippingMethodCode: order.shippingMethodCode ?? null,
-      paymentMethodCode: order.paymentMethodCode ?? null,
+    const calculationContext = await resolveDocumentCalculationContext({
+      em,
+      container: ctx.container,
+      documentKind: "order",
+      document: order,
+      lines: calcLines,
     });
     const calculation = await salesCalculationService.calculateDocumentTotals({
       documentKind: "order",
@@ -7384,6 +7650,7 @@ const orderLineUpsertCommand: CommandHandler<
             existingLines,
           });
           applyOrderTotals(order, calculation.totals, calculation.lines.length);
+          applyTaxColumns(order, calculation);
           await emitTotalsCalculated(eventBus, {
             documentKind: "order",
             documentId: order.id,
@@ -7392,6 +7659,7 @@ const orderLineUpsertCommand: CommandHandler<
             customerId: order.customerEntityId ?? null,
             totals: calculation.totals,
             lineCount: calculation.lines.length,
+            tax: taxEventBlock(calculation),
           });
         },
       ],
@@ -7528,16 +7796,12 @@ const orderLineDeleteCommand: CommandHandler<
     const adjustmentDrafts = adjustments.map(mapOrderAdjustmentToDraft);
     const salesCalculationService =
       ctx.container.resolve<SalesCalculationService>("salesCalculationService");
-    const calculationContext = buildCalculationContext({
-      tenantId: order.tenantId,
-      organizationId: order.organizationId,
-      currencyCode: order.currencyCode,
-      shippingSnapshot: order.shippingMethodSnapshot,
-      paymentSnapshot: order.paymentMethodSnapshot,
-      shippingMethodId: order.shippingMethodId ?? null,
-      paymentMethodId: order.paymentMethodId ?? null,
-      shippingMethodCode: order.shippingMethodCode ?? null,
-      paymentMethodCode: order.paymentMethodCode ?? null,
+    const calculationContext = await resolveDocumentCalculationContext({
+      em,
+      container: ctx.container,
+      documentKind: "order",
+      document: order,
+      lines: calcLines,
     });
     const calculation = await salesCalculationService.calculateDocumentTotals({
       documentKind: "order",
@@ -7566,6 +7830,7 @@ const orderLineDeleteCommand: CommandHandler<
             existingLines,
           });
           applyOrderTotals(order, calculation.totals, calculation.lines.length);
+          applyTaxColumns(order, calculation);
           await emitTotalsCalculated(eventBus, {
             documentKind: "order",
             documentId: order.id,
@@ -7574,6 +7839,7 @@ const orderLineDeleteCommand: CommandHandler<
             customerId: order.customerEntityId ?? null,
             totals: calculation.totals,
             lineCount: calculation.lines.length,
+            tax: taxEventBlock(calculation),
           });
         },
       ],
@@ -7844,16 +8110,12 @@ const quoteLineUpsertCommand: CommandHandler<
     const adjustmentDrafts = adjustments.map(mapQuoteAdjustmentToDraft);
     const salesCalculationService =
       ctx.container.resolve<SalesCalculationService>("salesCalculationService");
-    const calculationContext = buildCalculationContext({
-      tenantId: quote.tenantId,
-      organizationId: quote.organizationId,
-      currencyCode: quote.currencyCode,
-      shippingSnapshot: quote.shippingMethodSnapshot,
-      paymentSnapshot: quote.paymentMethodSnapshot,
-      shippingMethodId: quote.shippingMethodId ?? null,
-      paymentMethodId: quote.paymentMethodId ?? null,
-      shippingMethodCode: quote.shippingMethodCode ?? null,
-      paymentMethodCode: quote.paymentMethodCode ?? null,
+    const calculationContext = await resolveDocumentCalculationContext({
+      em,
+      container: ctx.container,
+      documentKind: "quote",
+      document: quote,
+      lines: calcLines,
     });
     const calculation = await salesCalculationService.calculateDocumentTotals({
       documentKind: "quote",
@@ -7881,6 +8143,7 @@ const quoteLineUpsertCommand: CommandHandler<
             existingLines,
           });
           applyQuoteTotals(quote, calculation.totals, calculation.lines.length);
+          applyTaxColumns(quote, calculation);
           await emitTotalsCalculated(eventBus, {
             documentKind: "quote",
             documentId: quote.id,
@@ -7889,6 +8152,7 @@ const quoteLineUpsertCommand: CommandHandler<
             customerId: quote.customerEntityId ?? null,
             totals: calculation.totals,
             lineCount: calculation.lines.length,
+            tax: taxEventBlock(calculation),
           });
         },
       ],
@@ -7998,16 +8262,12 @@ const quoteLineDeleteCommand: CommandHandler<
     const adjustmentDrafts = adjustments.map(mapQuoteAdjustmentToDraft);
     const salesCalculationService =
       ctx.container.resolve<SalesCalculationService>("salesCalculationService");
-    const calculationContext = buildCalculationContext({
-      tenantId: quote.tenantId,
-      organizationId: quote.organizationId,
-      currencyCode: quote.currencyCode,
-      shippingSnapshot: quote.shippingMethodSnapshot,
-      paymentSnapshot: quote.paymentMethodSnapshot,
-      shippingMethodId: quote.shippingMethodId ?? null,
-      paymentMethodId: quote.paymentMethodId ?? null,
-      shippingMethodCode: quote.shippingMethodCode ?? null,
-      paymentMethodCode: quote.paymentMethodCode ?? null,
+    const calculationContext = await resolveDocumentCalculationContext({
+      em,
+      container: ctx.container,
+      documentKind: "quote",
+      document: quote,
+      lines: calcLines,
     });
     const calculation = await salesCalculationService.calculateDocumentTotals({
       documentKind: "quote",
@@ -8035,6 +8295,7 @@ const quoteLineDeleteCommand: CommandHandler<
             existingLines,
           });
           applyQuoteTotals(quote, calculation.totals, calculation.lines.length);
+          applyTaxColumns(quote, calculation);
           await emitTotalsCalculated(eventBus, {
             documentKind: "quote",
             documentId: quote.id,
@@ -8043,6 +8304,7 @@ const quoteLineDeleteCommand: CommandHandler<
             customerId: quote.customerEntityId ?? null,
             totals: calculation.totals,
             lineCount: calculation.lines.length,
+            tax: taxEventBlock(calculation),
           });
         },
       ],
@@ -8221,16 +8483,12 @@ const orderAdjustmentUpsertCommand: CommandHandler<
     );
     const salesCalculationService =
       ctx.container.resolve<SalesCalculationService>("salesCalculationService");
-    const calculationContext = buildCalculationContext({
-      tenantId: order.tenantId,
-      organizationId: order.organizationId,
-      currencyCode: order.currencyCode,
-      shippingSnapshot: order.shippingMethodSnapshot,
-      paymentSnapshot: order.paymentMethodSnapshot,
-      shippingMethodId: order.shippingMethodId ?? null,
-      paymentMethodId: order.paymentMethodId ?? null,
-      shippingMethodCode: order.shippingMethodCode ?? null,
-      paymentMethodCode: order.paymentMethodCode ?? null,
+    const calculationContext = await resolveDocumentCalculationContext({
+      em,
+      container: ctx.container,
+      documentKind: "order",
+      document: order,
+      lines: calcLines,
     });
     const effectiveAdjustment = nextAdjustments.find(
       (adj) => adj.id === adjustmentId,
@@ -8328,6 +8586,7 @@ const orderAdjustmentUpsertCommand: CommandHandler<
         async () => {
           await replaceOrderAdjustments(em, order, calculation, adjustmentInputs);
           applyOrderTotals(order, calculation.totals, calculation.lines.length);
+          applyTaxColumns(order, calculation);
           order.updatedAt = new Date();
           await emitTotalsCalculated(eventBus, {
             documentKind: "order",
@@ -8337,6 +8596,7 @@ const orderAdjustmentUpsertCommand: CommandHandler<
             customerId: order.customerEntityId ?? null,
             totals: calculation.totals,
             lineCount: calculation.lines.length,
+            tax: taxEventBlock(calculation),
           });
         },
       ],
@@ -8444,16 +8704,12 @@ const orderAdjustmentDeleteCommand: CommandHandler<
     const adjustmentDrafts = filtered.map(mapOrderAdjustmentToDraft);
     const salesCalculationService =
       ctx.container.resolve<SalesCalculationService>("salesCalculationService");
-    const calculationContext = buildCalculationContext({
-      tenantId: order.tenantId,
-      organizationId: order.organizationId,
-      currencyCode: order.currencyCode,
-      shippingSnapshot: order.shippingMethodSnapshot,
-      paymentSnapshot: order.paymentMethodSnapshot,
-      shippingMethodId: order.shippingMethodId ?? null,
-      paymentMethodId: order.paymentMethodId ?? null,
-      shippingMethodCode: order.shippingMethodCode ?? null,
-      paymentMethodCode: order.paymentMethodCode ?? null,
+    const calculationContext = await resolveDocumentCalculationContext({
+      em,
+      container: ctx.container,
+      documentKind: "order",
+      document: order,
+      lines: calcLines,
     });
     const calculation = await salesCalculationService.calculateDocumentTotals({
       documentKind: "order",
@@ -8493,6 +8749,7 @@ const orderAdjustmentDeleteCommand: CommandHandler<
         async () => {
           await replaceOrderAdjustments(em, order, calculation, adjustmentInputs);
           applyOrderTotals(order, calculation.totals, calculation.lines.length);
+          applyTaxColumns(order, calculation);
           order.updatedAt = new Date();
           await emitTotalsCalculated(eventBus, {
             documentKind: "order",
@@ -8502,6 +8759,7 @@ const orderAdjustmentDeleteCommand: CommandHandler<
             customerId: order.customerEntityId ?? null,
             totals: calculation.totals,
             lineCount: calculation.lines.length,
+            tax: taxEventBlock(calculation),
           });
         },
       ],
@@ -8680,16 +8938,12 @@ const quoteAdjustmentUpsertCommand: CommandHandler<
     );
     const salesCalculationService =
       ctx.container.resolve<SalesCalculationService>("salesCalculationService");
-    const calculationContext = buildCalculationContext({
-      tenantId: quote.tenantId,
-      organizationId: quote.organizationId,
-      currencyCode: quote.currencyCode,
-      shippingSnapshot: quote.shippingMethodSnapshot,
-      paymentSnapshot: quote.paymentMethodSnapshot,
-      shippingMethodId: quote.shippingMethodId ?? null,
-      paymentMethodId: quote.paymentMethodId ?? null,
-      shippingMethodCode: quote.shippingMethodCode ?? null,
-      paymentMethodCode: quote.paymentMethodCode ?? null,
+    const calculationContext = await resolveDocumentCalculationContext({
+      em,
+      container: ctx.container,
+      documentKind: "quote",
+      document: quote,
+      lines: calcLines,
     });
     const effectiveAdjustment = nextAdjustments.find(
       (adj) => adj.id === adjustmentId,
@@ -8785,6 +9039,7 @@ const quoteAdjustmentUpsertCommand: CommandHandler<
         async () => {
           await replaceQuoteAdjustments(em, quote, calculation, adjustmentInputs);
           applyQuoteTotals(quote, calculation.totals, calculation.lines.length);
+          applyTaxColumns(quote, calculation);
           quote.updatedAt = new Date();
           await emitTotalsCalculated(eventBus, {
             documentKind: "quote",
@@ -8794,6 +9049,7 @@ const quoteAdjustmentUpsertCommand: CommandHandler<
             customerId: quote.customerEntityId ?? null,
             totals: calculation.totals,
             lineCount: calculation.lines.length,
+            tax: taxEventBlock(calculation),
           });
         },
       ],
@@ -8901,16 +9157,12 @@ const quoteAdjustmentDeleteCommand: CommandHandler<
     const adjustmentDrafts = filtered.map(mapQuoteAdjustmentToDraft);
     const salesCalculationService =
       ctx.container.resolve<SalesCalculationService>("salesCalculationService");
-    const calculationContext = buildCalculationContext({
-      tenantId: quote.tenantId,
-      organizationId: quote.organizationId,
-      currencyCode: quote.currencyCode,
-      shippingSnapshot: quote.shippingMethodSnapshot,
-      paymentSnapshot: quote.paymentMethodSnapshot,
-      shippingMethodId: quote.shippingMethodId ?? null,
-      paymentMethodId: quote.paymentMethodId ?? null,
-      shippingMethodCode: quote.shippingMethodCode ?? null,
-      paymentMethodCode: quote.paymentMethodCode ?? null,
+    const calculationContext = await resolveDocumentCalculationContext({
+      em,
+      container: ctx.container,
+      documentKind: "quote",
+      document: quote,
+      lines: calcLines,
     });
     const calculation = await salesCalculationService.calculateDocumentTotals({
       documentKind: "quote",
@@ -8949,6 +9201,7 @@ const quoteAdjustmentDeleteCommand: CommandHandler<
         async () => {
           await replaceQuoteAdjustments(em, quote, calculation, adjustmentInputs);
           applyQuoteTotals(quote, calculation.totals, calculation.lines.length);
+          applyTaxColumns(quote, calculation);
           quote.updatedAt = new Date();
           await emitTotalsCalculated(eventBus, {
             documentKind: "quote",
@@ -8958,6 +9211,7 @@ const quoteAdjustmentDeleteCommand: CommandHandler<
             customerId: quote.customerEntityId ?? null,
             totals: calculation.totals,
             lineCount: calculation.lines.length,
+            tax: taxEventBlock(calculation),
           });
         },
       ],
@@ -9052,8 +9306,9 @@ const createInvoiceCommand: CommandHandler<
     );
 
     // Validate orderId belongs to same org/tenant
+    let sourceOrder: SalesOrder | null = null;
     if (parsed.orderId) {
-      const orderExists = await findOneWithDecryption(
+      sourceOrder = await findOneWithDecryption(
         em,
         SalesOrder,
         {
@@ -9068,10 +9323,15 @@ const createInvoiceCommand: CommandHandler<
           organizationId: parsed.organizationId,
         },
       );
-      if (!orderExists) {
+      if (!sourceOrder) {
         throw new CrudHttpError(400, { error: "Referenced order not found in current scope." });
       }
     }
+    const inheritedTax = resolveInheritedTaxColumns({
+      source: sourceOrder,
+      sourceNumber: sourceOrder?.orderNumber ?? null,
+      supplied: parsed,
+    });
 
     const invoiceId = randomUUID();
     const invoice = em.create(SalesInvoice, {
@@ -9093,6 +9353,7 @@ const createInvoiceCommand: CommandHandler<
       grandTotalGrossAmount: toNumericString(parsed.grandTotalGrossAmount ?? 0),
       paidTotalAmount: toNumericString(parsed.paidTotalAmount ?? 0),
       outstandingAmount: toNumericString(parsed.outstandingAmount ?? 0),
+      ...inheritedTax,
       metadata: parsed.metadata ?? null,
       customFieldSetId: parsed.customFieldSetId ?? null,
       createdAt: new Date(),
@@ -9624,6 +9885,7 @@ const createCreditMemoCommand: CommandHandler<
     );
 
     // Validate orderId belongs to same org/tenant
+    let sourceOrder: SalesOrder | null = null;
     if (parsed.orderId) {
       const orderExists = await findOneWithDecryption(
         em,
@@ -9643,20 +9905,28 @@ const createCreditMemoCommand: CommandHandler<
       if (!orderExists) {
         throw new CrudHttpError(400, { error: "Referenced order not found in current scope." });
       }
+      sourceOrder = orderExists;
     }
 
     // Validate invoiceId belongs to same org/tenant
+    let sourceInvoice: SalesInvoice | null = null;
     if (parsed.invoiceId) {
-      const invoiceExists = await em.findOne(SalesInvoice, {
+      sourceInvoice = await em.findOne(SalesInvoice, {
         id: parsed.invoiceId,
         organizationId: parsed.organizationId,
         tenantId: parsed.tenantId,
         deletedAt: null,
       });
-      if (!invoiceExists) {
+      if (!sourceInvoice) {
         throw new CrudHttpError(400, { error: "Referenced invoice not found in current scope." });
       }
     }
+    // The invoice wins when both are given: it is the document the memo credits.
+    const inheritedTax = resolveInheritedTaxColumns({
+      source: sourceInvoice ?? sourceOrder,
+      sourceNumber: sourceInvoice?.invoiceNumber ?? sourceOrder?.orderNumber ?? null,
+      supplied: parsed,
+    });
 
     const creditMemoId = randomUUID();
     const creditMemo = em.create(SalesCreditMemo, {
@@ -9676,6 +9946,7 @@ const createCreditMemoCommand: CommandHandler<
       taxTotalAmount: toNumericString(parsed.taxTotalAmount ?? 0),
       grandTotalNetAmount: toNumericString(parsed.grandTotalNetAmount ?? 0),
       grandTotalGrossAmount: toNumericString(parsed.grandTotalGrossAmount ?? 0),
+      ...inheritedTax,
       metadata: parsed.metadata ?? null,
       customFieldSetId: parsed.customFieldSetId ?? null,
       createdAt: new Date(),
@@ -10118,6 +10389,210 @@ const deleteCreditMemoCommand: CommandHandler<
   },
 };
 
+/**
+ * Re-runs the tax stage on a document that already exists, without touching any
+ * line or header field. It is the action behind the "Recalculate" button the
+ * detail page shows on a fallback: a provider outage should not become a
+ * mispriced invoice, and the merchant should be able to retry once the vendor is
+ * back without editing the document.
+ *
+ * Status guards that forbid edits do not apply, because nothing a guard protects
+ * changes — only the tax amounts and the five provenance columns.
+ */
+const recalculateDocumentTaxCommand: CommandHandler<
+  { body?: Record<string, unknown>; query?: Record<string, unknown> },
+  { documentId: string; documentKind: SalesDocumentKind; taxStatus: string | null; taxCalculatedAt: string | null }
+> = {
+  id: "sales.documents.recalculate_tax",
+  async prepare(input, ctx) {
+    const raw = (input?.body as Record<string, unknown> | undefined) ?? {};
+    const documentId = typeof raw.documentId === "string" ? raw.documentId : null;
+    const documentKind = typeof raw.documentKind === "string" ? raw.documentKind : null;
+    if (!documentId || (documentKind !== "order" && documentKind !== "quote")) return {};
+    const em = ctx.container.resolve("em") as EntityManager;
+    if (documentKind === "order") {
+      const snapshot = await loadOrderSnapshot(em, documentId);
+      if (snapshot) ensureOrderScope(ctx, snapshot.order.organizationId, snapshot.order.tenantId);
+      return snapshot ? { before: snapshot } : {};
+    }
+    const snapshot = await loadQuoteSnapshot(em, documentId);
+    if (snapshot) ensureQuoteScope(ctx, snapshot.quote.organizationId, snapshot.quote.tenantId);
+    return snapshot ? { before: snapshot } : {};
+  },
+  async execute(input, ctx) {
+    const parsed = recalculateDocumentTaxSchema.parse(
+      (input?.body as Record<string, unknown> | undefined) ?? {},
+    );
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    const salesCalculationService =
+      ctx.container.resolve<SalesCalculationService>("salesCalculationService");
+    let eventBus: EventBus | null = null;
+    try {
+      eventBus = ctx.container.resolve("eventBus") as EventBus;
+    } catch {
+      eventBus = null;
+    }
+
+    if (parsed.documentKind === "order") {
+      const order = await findOneWithDecryption(em, SalesOrder, {
+        id: parsed.documentId,
+        deletedAt: null,
+      });
+      if (!order) throw notFound("Sales order not found");
+      ensureOrderScope(ctx, order.organizationId, order.tenantId);
+      await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
+
+      const [existingLines, existingAdjustments] = await Promise.all([
+        em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),
+        em.find(SalesOrderAdjustment, { order }, { orderBy: { position: "asc" } }),
+      ]);
+      const calcLines = existingLines
+        .map(mapOrderLineEntityToSnapshot)
+        .map((line, index) => createLineSnapshotFromInput(line, line.lineNumber ?? index + 1));
+      const adjustmentDrafts = existingAdjustments.map(mapOrderAdjustmentToDraft);
+      const calculationContext = await resolveDocumentCalculationContext({
+        em,
+      container: ctx.container,
+        documentKind: "order",
+        document: order,
+        lines: calcLines,
+      });
+      const calculation = await salesCalculationService.calculateDocumentTotals({
+        documentKind: "order",
+        lines: calcLines,
+        adjustments: adjustmentDrafts,
+        context: calculationContext,
+        existingTotals: resolveExistingPaymentTotals(order),
+      });
+      await withAtomicFlush(
+        em,
+        [
+          async () => {
+            applyOrderTotals(order, calculation.totals, calculation.lines.length);
+            applyTaxColumns(order, calculation);
+            order.updatedAt = new Date();
+            await emitTotalsCalculated(eventBus, {
+              documentKind: "order",
+              documentId: order.id,
+              organizationId: order.organizationId,
+              tenantId: order.tenantId,
+              customerId: order.customerEntityId ?? null,
+              totals: calculation.totals,
+              lineCount: calculation.lines.length,
+              tax: taxEventBlock(calculation),
+            });
+          },
+        ],
+        { transaction: true },
+      );
+      return {
+        documentId: order.id,
+        documentKind: "order" as const,
+        taxStatus: order.taxStatus ?? null,
+        taxCalculatedAt: order.taxCalculatedAt ? order.taxCalculatedAt.toISOString() : null,
+      };
+    }
+
+    const quote = await findOneWithDecryption(em, SalesQuote, {
+      id: parsed.documentId,
+      deletedAt: null,
+    });
+    if (!quote) throw notFound("Sales quote not found");
+    ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
+    await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
+
+    const [existingLines, existingAdjustments] = await Promise.all([
+      em.find(SalesQuoteLine, { quote }, { orderBy: { lineNumber: "asc" } }),
+      em.find(SalesQuoteAdjustment, { quote }, { orderBy: { position: "asc" } }),
+    ]);
+    const calcLines = existingLines
+      .map(mapQuoteLineEntityToSnapshot)
+      .map((line, index) => createLineSnapshotFromInput(line, line.lineNumber ?? index + 1));
+    const adjustmentDrafts = existingAdjustments.map(mapQuoteAdjustmentToDraft);
+    const calculationContext = await resolveDocumentCalculationContext({
+      em,
+      container: ctx.container,
+      documentKind: "quote",
+      document: quote,
+      lines: calcLines,
+    });
+    const calculation = await salesCalculationService.calculateDocumentTotals({
+      documentKind: "quote",
+      lines: calcLines,
+      adjustments: adjustmentDrafts,
+      context: calculationContext,
+    });
+    await withAtomicFlush(
+      em,
+      [
+        async () => {
+          applyQuoteTotals(quote, calculation.totals, calculation.lines.length);
+          applyTaxColumns(quote, calculation);
+          quote.updatedAt = new Date();
+          await emitTotalsCalculated(eventBus, {
+            documentKind: "quote",
+            documentId: quote.id,
+            organizationId: quote.organizationId,
+            tenantId: quote.tenantId,
+            customerId: quote.customerEntityId ?? null,
+            totals: calculation.totals,
+            lineCount: calculation.lines.length,
+            tax: taxEventBlock(calculation),
+          });
+        },
+      ],
+      { transaction: true },
+    );
+    return {
+      documentId: quote.id,
+      documentKind: "quote" as const,
+      taxStatus: quote.taxStatus ?? null,
+      taxCalculatedAt: quote.taxCalculatedAt ? quote.taxCalculatedAt.toISOString() : null,
+    };
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    return result.documentKind === "order"
+      ? loadOrderSnapshot(em, result.documentId)
+      : loadQuoteSnapshot(em, result.documentId);
+  },
+  buildLog: async ({ snapshots, result }) => {
+    const after = snapshots.after as OrderGraphSnapshot | QuoteGraphSnapshot | undefined;
+    if (!after) return null;
+    const header = "order" in after ? after.order : after.quote;
+    const { translate } = await resolveTranslations();
+    return {
+      actionLabel: translate("sales.audit.documents.recalculateTax", "Recalculate document tax"),
+      resourceKind: result.documentKind === "order" ? "sales.order" : "sales.quote",
+      resourceId: result.documentId,
+      tenantId: header.tenantId,
+      organizationId: header.organizationId,
+      snapshotBefore: (snapshots.before as OrderGraphSnapshot | QuoteGraphSnapshot | undefined) ?? null,
+      snapshotAfter: after,
+      payload: {
+        undo: { before: snapshots.before, after: snapshots.after },
+      },
+    };
+  },
+  // Undo restores the stored graph. It never calls a provider: the previous tax
+  // result is already in the snapshot, and re-running the vendor would be a
+  // second billable call that could return a third answer.
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<{ before?: OrderGraphSnapshot | QuoteGraphSnapshot | null }>(logEntry);
+    const before = payload?.before;
+    if (!before) return;
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    if ("order" in before) {
+      ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId);
+      await restoreOrderGraph(em, before);
+    } else {
+      ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId);
+      await restoreQuoteGraph(em, before.quote);
+    }
+    await em.flush();
+  },
+};
+
 registerCommand(updateQuoteCommand);
 registerCommand(createQuoteCommand);
 registerCommand(deleteQuoteCommand);
@@ -10139,3 +10614,4 @@ registerCommand(deleteInvoiceCommand);
 registerCommand(createCreditMemoCommand);
 registerCommand(updateCreditMemoCommand);
 registerCommand(deleteCreditMemoCommand);
+registerCommand(recalculateDocumentTaxCommand);

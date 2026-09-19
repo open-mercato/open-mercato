@@ -1,0 +1,145 @@
+---
+title: Building a Tax Provider
+description: Ship a jurisdiction-aware tax engine as its own package, without touching core.
+---
+
+A **tax provider** calculates tax for a whole sales document. It is selected per organization, runs once per document recalculation, and receives everything the document knows — both addresses, the customer and their exemption facts, every line with its product tax facts, and the order-level charges including shipping.
+
+This is the slot a real engine (Avalara AvaTax, Vertex, TaxJar, a national e-invoicing service) plugs into. Contrast it with the `taxCalculationService` DI token, which derives one amount's missing net/gross side and has no document context at all.
+
+:::info Core ships no vendor code
+Everything a provider package needs is exported from `@open-mercato/core/modules/sales/lib/providers` and `@open-mercato/shared/modules/integrations/types`. A provider package touches no core file.
+:::
+
+## Package shape
+
+```
+packages/tax-avalara/                       @open-mercato/tax-avalara, module id tax_avalara
+├── package.json                            peer: @open-mercato/core, @open-mercato/shared
+└── src/modules/tax_avalara/
+    ├── index.ts                            metadata; `import './provider'` registers at module load
+    ├── integration.ts                      IntegrationDefinition — credentials + health check
+    ├── provider.ts                         registerTaxProvider({ … })
+    ├── di.ts                               registers the health-check service
+    ├── setup.ts                            env preconfiguration, defaultRoleFeatures
+    ├── lib/
+    │   ├── client.ts                       builds the vendor client from credentials + settings
+    │   ├── mapRequest.ts                   TaxCalculationRequest → vendor model
+    │   └── mapResult.ts                    vendor response → TaxProviderCalculateResult
+    ├── i18n/en.json
+    └── __tests__/                          mapping golden tests against recorded payloads
+```
+
+## Registering
+
+```ts
+// src/modules/tax_avalara/provider.ts
+import { z } from 'zod'
+import { registerTaxProvider } from '@open-mercato/core/modules/sales/lib/providers'
+
+registerTaxProvider({
+  key: 'avalara',
+  label: 'Avalara AvaTax',
+  description: 'Jurisdiction-accurate US sales tax.',
+  // Names the IntegrationDefinition whose credentials core resolves for you.
+  integrationId: 'tax_avalara',
+  capabilities: { commit: true, adjust: true, void: true },
+  settings: {
+    // NON-SECRET options only — see the warning below.
+    fields: [
+      { key: 'defaultTaxCode', label: 'Default tax code', type: 'text' },
+      { key: 'validateAddresses', label: 'Validate addresses', type: 'boolean' },
+    ],
+    schema: z.object({
+      defaultTaxCode: z.string().optional(),
+      validateAddresses: z.boolean().default(false),
+    }),
+  },
+  async calculate({ request, settings, credentials, signal }) {
+    const client = buildClient(credentials, settings)
+    const vendorResult = await client.createTransaction(mapRequest(request, settings), { signal })
+    return mapResult(vendorResult, request)
+  },
+})
+```
+
+Registration is idempotent: registering the same `key` twice replaces the earlier one, so a module reload is safe. `registerTaxProvider` returns an unregister function.
+
+:::warning Never declare a `secret` settings field
+`registerTaxProvider` **strips** any `settings.fields` entry whose `type` is `'secret'` and logs a warning, and the settings route rejects a write to such a key. Provider settings are stored in clear on the organization's settings row. Secrets belong to the integrations module, which encrypts them at rest and masks them in the admin UI.
+:::
+
+## Credentials
+
+Declare an `IntegrationDefinition` and point the provider at it with `integrationId`:
+
+```ts
+// src/modules/tax_avalara/integration.ts
+import type { IntegrationDefinition } from '@open-mercato/shared/modules/integrations/types'
+
+export const integration: IntegrationDefinition = {
+  id: 'tax_avalara',
+  title: 'Avalara AvaTax',
+  category: 'tax',
+  hub: 'tax_providers',
+  providerKey: 'avalara',
+  credentials: {
+    fields: [
+      { key: 'environment', label: 'Environment', type: 'select', required: true,
+        options: [{ value: 'sandbox', label: 'Sandbox' }, { value: 'production', label: 'Production' }] },
+      { key: 'accountId', label: 'Account id', type: 'text', required: true },
+      { key: 'licenseKey', label: 'License key', type: 'secret', required: true },
+      { key: 'companyCode', label: 'Company code', type: 'text', required: true },
+    ],
+  },
+  healthCheck: { service: 'taxAvalaraHealthCheck' },
+}
+```
+
+Core then:
+
+- Skips the provider entirely while the integration is disabled, recording `integration_disabled`.
+- Resolves the decrypted credentials and passes them to `calculate` — **lazily**, only if the provider is actually about to run, and through a closure that never appears in a serialized context, an event payload, a stored document or a log line.
+
+## The contract
+
+`calculate` receives `{ request, settings, credentials, context, signal }`.
+
+`request` (`TaxCalculationRequest`) carries `documentKind`, `documentId`, `documentNumber`, `documentDate`, `intent`, `currencyCode`, the scope ids, `channelId`, `customer`, `addresses.{shipFrom,shipTo,billTo}`, `lines`, `charges`, `totals` and a free `metadata` bag.
+
+Each `TaxRequestLine` carries the identity and quantity you expect, plus the product tax facts (`sku`, `taxRateId`, `taxClassificationCode`, `hsCode`) and **the amounts the engine already computed**: `amountNet`, `amountGross` and `taxAmount`. Ignore `taxAmount` if you compute your own; the built-in `table-rates` provider returns it verbatim, which is what makes it an exact identity over the engine.
+
+Return a `TaxProviderCalculateResult`:
+
+```ts
+{
+  status: 'calculated' | 'exempt' | 'unsupported',
+  lines: [{ lineId, taxAmount, taxableAmount, exemptAmount, rate, details: [...] }],
+  charges?: [{ chargeId, taxAmount, taxableAmount, rate, details: [...] }],
+  totals: { taxTotal, taxableTotal, exemptTotal },
+  breakdown?: TaxJurisdictionAmount[],
+  transaction?: { reference, state, externalUrl? },
+  messages?: [{ level, code, text }],
+  metadata?: Record<string, unknown>,
+}
+```
+
+Rules worth knowing:
+
+- Returning `null`, or `status: 'unsupported'`, **declines** the document. Core falls back to table rates and records `unsupported`. Declining is an expected outcome, not an error.
+- Throwing, timing out, or returning a shape the contract does not describe all fall back too, recorded as `provider_error`, `timeout` and `invalid_result`. **A provider can never fail a document write.**
+- Honour the `signal`. Core aborts it at the organization's configured timeout (1000–30000 ms) and stops waiting; a provider that ignores it just wastes its own work.
+- Core reconciles your `totals.taxTotal` against the sum of your lines and charges. A divergence beyond half a hundredth of a minor unit is applied to the largest taxable line and recorded, so the stored header total always equals what its lines add up to.
+- `metadata` is stored verbatim in `tax_info`. **Do not put secrets or personal data in it** — that column carries no address or customer identity by construction, which is what keeps it out of the encryption maps.
+
+## Exemption
+
+When a customer is marked exempt, `request.customer.exemption` carries `{ isExempt, code, certificateNumber }`. A provider that honours it should return `status: 'exempt'` with zero `taxAmount` and `exemptAmount` equal to the taxable amount — that is what lets an accountant see what was **not** charged, rather than seeing a zero with no explanation.
+
+## Lifecycle (not yet wired)
+
+`TaxProvider` also types optional `commit`, `adjust` and `void` methods and a `capabilities` block. Declare them now if your engine needs to record transactions: the contract is fixed, so a package written today needs no change when core starts calling them. Core does **not** invoke them yet.
+
+## Testing your package
+
+Write golden mapping tests against recorded vendor payloads — `mapRequest` and `mapResult` are pure functions, so they need no network. For end-to-end behaviour, register your provider in a test, select it, and assert the document's `taxStatus`, `taxTotalAmount` and `taxInfo.breakdown`, mirroring `TC-SALES-TAX-002` in core.

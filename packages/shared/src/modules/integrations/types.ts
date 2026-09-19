@@ -20,6 +20,7 @@ export type IntegrationScope = {
 export type IntegrationCategory =
   | 'payment'
   | 'shipping'
+  | 'tax'
   | 'data_sync'
   | 'communication'
   | 'webhook'
@@ -29,6 +30,7 @@ export type IntegrationCategory =
 export type IntegrationHubId =
   | 'payment_gateways'
   | 'shipping_carriers'
+  | 'tax_providers'
   | 'data_sync'
   | 'communication_channels'
   | 'webhook_endpoints'

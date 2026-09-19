@@ -74,7 +74,67 @@ eventBus?.on('sales.tax.calculate.after', ({ result, setResult }) => {
 })
 ```
 
-Because this is a DI service, you can also replace it entirely by registering your own implementation in a module `di.ts` (e.g., plug in a headless tax SaaS) as long as you keep the same `TaxCalculationService` interface.
+Because this is a DI service, you can also replace it entirely by registering your own implementation in a module `di.ts` as long as you keep the same `TaxCalculationService` interface.
+
+:::note Replacing this service covers **unit amounts only**
+`TaxCalculationService` receives one amount and one tax rate. It has no address, no customer and no sibling lines, so it cannot implement a jurisdiction-aware engine. For that, use the **document level tax provider** described in the next section — that is the slot an engine such as Avalara plugs into.
+:::
+
+## Document level tax providers
+
+A tax provider is selected **per organization** and calculates tax for a whole sales document at once. Unlike the unit-amount service above, it receives everything the document knows: the ship-from, ship-to and bill-to addresses, the customer and their exemption facts, every line with its product tax facts, and the order-level charges including shipping.
+
+### Choosing a provider
+
+Open **Sales → Configuration → Tax provider**. The select lists every registered provider; the built-in choices are:
+
+| Provider | What it does |
+|---|---|
+| **Table rates** (default) | Applies the tax rate stored on each line, exactly as the calculation engine already did. Selecting nothing is the same as selecting this. |
+| **Fixed rate** | Applies one rate to the whole document, with an optional second jurisdiction. Useful for a single-state seller, and it is the provider the acceptance tests use. |
+
+Below the select you configure the provider's own options, the **ship-from address** an engine needs to determine origin-based tax, and a **timeout** (1000–30000 ms) that bounds how long a provider may delay a document write.
+
+:::info Nothing changes until you choose
+`table-rates` is an exact identity over the existing calculation engine. An organization that never opens this page keeps every amount it has today, to the cent.
+:::
+
+### What gets recorded
+
+Every recalculating write stores five columns on the document (order, quote, invoice, credit memo), and the document detail page renders them under **Tax**:
+
+| Field | Meaning |
+|---|---|
+| Provider | Which provider produced the amounts |
+| Status | `calculated`, `exempt`, `fallback` (an estimate) or `external` |
+| Calculated at | When the stored result was produced |
+| Transaction reference | The provider's own transaction id, for reconciliation |
+| Breakdown | Tax per jurisdiction, and per line |
+
+Invoices and credit memos do not recalculate — they **inherit** all five from the order or invoice they were raised from, with a message naming the source.
+
+### When a provider fails
+
+A provider outage never fails a write and never produces a silent zero. Core keeps the table-rate amounts, marks the document `fallback`, records why, and emits `sales.tax.calculation.failed` so you can route it into a workflow or a notification.
+
+| What happened | Recorded code |
+|---|---|
+| The provider threw | `provider_error` |
+| It did not answer inside the timeout | `timeout` |
+| It returned something the contract does not describe | `invalid_result` |
+| It declined the document ("not my jurisdiction") | `unsupported` |
+| Its integration is disabled, or has no credentials | `integration_disabled` / `credentials_missing` |
+| The package providing it is no longer installed | `provider_missing` |
+
+The document detail page shows a banner with the reason and a **Recalculate** button. Recalculating re-runs the provider without changing any line or header field, so it works even on a document whose status normally forbids edits.
+
+### Customer tax exemption
+
+A customer (person or company) can be marked **Tax exempt** with a reason code and a certificate number, under **Tax exemption** on their edit form. Those facts travel into the document's customer snapshot and reach the provider, which can then zero the tax and mark the document `exempt` — distinct from a coincidental zero, and with the exempt total recorded so an accountant can see what was not charged. The certificate number is encrypted at rest.
+
+### Credentials
+
+A provider that talks to a vendor declares an **integration**. Its credentials live in the integrations module, which encrypts them at rest and masks them in the admin UI — never in the tax provider settings above, which are for non-secret options only. The settings page links to the integration when the selected provider declares one.
 
 ## Price display modes
 

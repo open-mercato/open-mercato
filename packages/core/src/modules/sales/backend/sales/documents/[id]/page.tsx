@@ -52,6 +52,10 @@ import type { AdjustmentRowData } from '@open-mercato/core/modules/sales/compone
 import { SalesShipmentsSection } from '@open-mercato/core/modules/sales/components/documents/ShipmentsSection'
 import { SalesReturnsSection } from '@open-mercato/core/modules/sales/components/documents/ReturnsSection'
 import { DocumentTotals } from '@open-mercato/core/modules/sales/components/documents/DocumentTotals'
+import {
+  TaxBreakdownSection,
+  type TaxInfoView,
+} from '@open-mercato/core/modules/sales/components/documents/TaxBreakdownSection'
 import { E } from '#generated/entities.ids.generated'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
@@ -891,6 +895,11 @@ type DocumentRecord = {
   subtotalGrossAmount?: number | null
   discountTotalAmount?: number | null
   taxTotalAmount?: number | null
+  taxStrategyKey?: string | null
+  taxStatus?: string | null
+  taxCalculatedAt?: string | null
+  taxTransactionRef?: string | null
+  taxInfo?: TaxInfoView | null
   shippingNetAmount?: number | null
   shippingGrossAmount?: number | null
   surchargeTotalAmount?: number | null
@@ -1993,6 +2002,40 @@ export default function SalesDocumentDetailPage({
     },
     [detailInjectionContext, runMutation],
   )
+
+  /**
+   * Re-runs the tax provider for this document. It changes no line or header
+   * field, so it is offered even when the document's status forbids edits — a
+   * provider outage should not leave a merchant with an estimate they cannot
+   * clear.
+   */
+  const handleRecalculateTax = React.useCallback(async () => {
+    if (!record?.id || recalculatingTax) return
+    if (kind !== 'order' && kind !== 'quote') return
+    setRecalculatingTax(true)
+    try {
+      await runMutationWithContext(async () => {
+        await apiCallOrThrow('/api/sales/documents/recalculate-tax', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ documentId: record.id, documentKind: kind }),
+        })
+      })
+      const refreshed = await fetchDocumentByKind(record.id, kind)
+      if (refreshed) setRecord(refreshed)
+      emitSalesDocumentTotalsRefresh({ documentId: record.id, kind })
+      flash(t('sales.documents.detail.tax.recalculated', 'Tax recalculated.'), 'success')
+    } catch (err) {
+      if (surfaceRecordConflict(err, t)) return
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : t('sales.documents.detail.tax.recalculateError', 'Failed to recalculate tax.')
+      flash(message, 'error')
+    } finally {
+      setRecalculatingTax(false)
+    }
+  }, [fetchDocumentByKind, kind, recalculatingTax, record?.id, runMutationWithContext, t])
   // Publish page-load record context to the AppShell-owned `backend:record:current`
   // mount so record_locks gets presence + the action-log base (updatedAt/data) for
   // this order/quote. Sub-resource sections inherit this context — no second mount.
@@ -2522,6 +2565,8 @@ export default function SalesDocumentDetailPage({
     },
     [upsertStatusOptions]
   )
+
+  const [recalculatingTax, setRecalculatingTax] = React.useState(false)
 
   const fetchDocumentByKind = React.useCallback(
     async (documentId: string, candidateKind: 'order' | 'quote') => {
@@ -4891,6 +4936,17 @@ export default function SalesDocumentDetailPage({
           title={t('sales.documents.detail.totals.title', 'Totals')}
           currency={record.currencyCode ?? null}
           items={totalsItems}
+        />
+
+        <TaxBreakdownSection
+          taxStatus={record.taxStatus ?? null}
+          taxStrategyKey={record.taxStrategyKey ?? null}
+          taxCalculatedAt={record.taxCalculatedAt ?? null}
+          taxTransactionRef={record.taxTransactionRef ?? null}
+          taxInfo={record.taxInfo ?? null}
+          currency={record.currencyCode ?? null}
+          onRecalculate={handleRecalculateTax}
+          recalculating={recalculatingTax}
         />
 
         <div className="space-y-4" ref={detailSectionRef}>

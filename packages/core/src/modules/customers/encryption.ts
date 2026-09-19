@@ -19,6 +19,8 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
   {
     entityId: 'customers:customer_entity',
     fields: [
+      // A certificate number identifies a specific person or business.
+      { field: 'tax_exemption_certificate' },
       { field: 'display_name' },
       { field: 'primary_email' },
       { field: 'primary_phone' },

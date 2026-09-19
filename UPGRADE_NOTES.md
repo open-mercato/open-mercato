@@ -24,6 +24,27 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### Sales tax providers: `taxStrategyKey` and `taxInfo` on orders and quotes are now core-owned
+
+Tax calculation is now a **provider slot** selected per organization. **No action is required for
+an existing deployment**: every organization starts on the built-in `table-rates` provider, which
+is an exact identity over the calculation engine's own per-line math, so no stored amount moves.
+
+**Action for callers that write `taxStrategyKey` or `taxInfo`** on `POST|PUT /api/sales/orders` or
+`/api/sales/quotes`: stop. Core now owns those two columns and overwrites them on any write that
+recalculates. They are still accepted, so nothing breaks loudly — the value is simply replaced.
+No caller in this repository sets them.
+
+If you are mirroring a document whose tax was calculated elsewhere, use
+`totals_mode = 'external'` (spec `2026-09-07-sales-external-amounts-mode`); the tax stage no-ops and
+records `tax_status = 'external'`.
+
+**Action for module authors registering a tax engine:** see
+[Building a tax provider](apps/docs/docs/framework/modules/building-tax-provider.mdx). Overriding the
+`taxCalculationService` DI token still works and is still supported, but it only ever covered
+**unit amounts** — it has no address, customer or sibling-line context.
+
+
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 
 `Locale` in `@open-mercato/shared/lib/i18n/config` used to be a closed union literal. It is now

@@ -96,7 +96,13 @@ function buildCtx() {
     resolve: (name: string) => {
       if (name === 'em') {
         return {
+          // The tax provider selection is read from sales_settings on the same
+          // EntityManager; no row means the built in table-rates provider.
+          findOne: async () => null,
+          find: async () => [],
           fork: () => ({
+            findOne: async () => null,
+            find: async () => [],
             transactional: async (cb: (tx: any) => Promise<any>) => cb(buildTx()),
           }),
         }

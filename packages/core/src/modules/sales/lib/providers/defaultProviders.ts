@@ -3,6 +3,7 @@ import {
   registerPaymentProvider,
   registerShippingProvider,
 } from './registry'
+import { registerDefaultTaxProviders } from './taxProviders'
 import type {
   PaymentProvider,
   ProviderAdjustmentResult,
@@ -301,6 +302,7 @@ export function registerDefaultSalesProviders() {
   initialized = true
   paymentProviders.forEach((provider) => registerPaymentProvider(provider))
   shippingProviders.forEach((provider) => registerShippingProvider(provider))
+  registerDefaultTaxProviders()
 }
 
 export function registerStripeProvider() {

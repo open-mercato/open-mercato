@@ -17,6 +17,8 @@ import { cloneJson, deriveLineNetFromGross, ensureOrganizationScope, ensureSameS
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { SalesOrder, SalesOrderAdjustment, SalesOrderLine, SalesReturn, SalesReturnLine } from '../data/entities'
 import { mapOrderLineEntityToSnapshot } from '../lib/lineSnapshots'
+import { resolveTaxDocumentContext } from '../lib/providers/taxContext'
+import type { TaxInfo } from '../lib/providers/taxInfo'
 import { loadShippedQuantityByLine } from '../lib/shipments/snapshots'
 import { computeAvailableReturnQuantity } from '../lib/returnQuantity'
 import {
@@ -118,6 +120,20 @@ function resolveExistingPaymentTotals(order: SalesOrder): { paidTotalAmount: num
   }
 }
 
+/**
+ * Mirrors `applyTaxColumns` in `commands/documents.ts`: a return recalculates
+ * the order, so it owns the order's tax provenance for that calculation too.
+ */
+function applyTaxColumns(order: SalesOrder, calculation: SalesDocumentCalculationResult): void {
+  const info = (calculation.metadata ?? {}).tax as TaxInfo | undefined
+  if (!info) return
+  order.taxStrategyKey = info.providerKey
+  order.taxInfo = info as unknown as Record<string, unknown>
+  order.taxStatus = info.status
+  order.taxCalculatedAt = new Date(info.calculatedAt)
+  order.taxTransactionRef = info.transaction.reference
+}
+
 function applyOrderTotals(order: SalesOrder, totals: SalesDocumentCalculationResult['totals'], lineCount: number): void {
   order.subtotalNetAmount = toNumericString(totals.subtotalNetAmount) ?? '0'
   order.subtotalGrossAmount = toNumericString(totals.subtotalGrossAmount) ?? '0'
@@ -153,7 +169,36 @@ function mapOrderAdjustmentToDraft(adjustment: SalesOrderAdjustment): SalesAdjus
   }
 }
 
-function buildCalculationContext(order: SalesOrder) {
+/**
+ * Two of the four return recalculations run inside an open transaction, so the
+ * tax context assembly here must stay query free on the default path. It is:
+ * `resolveTaxDocumentContext` reads the catalog only for a provider that
+ * actually consumes product facts, and the built in default does not.
+ */
+async function buildCalculationContext(
+  em: EntityManager,
+  order: SalesOrder,
+  lines: SalesLineSnapshot[],
+  container?: { resolve: (key: string) => unknown } | null,
+) {
+  const tax = await resolveTaxDocumentContext({
+    em,
+    container: container ?? null,
+    organizationId: order.organizationId,
+    tenantId: order.tenantId,
+    documentKind: 'order',
+    documentId: order.id,
+    documentNumber: order.orderNumber,
+    documentDate: order.placedAt ?? order.createdAt ?? null,
+    channelId: order.channelId ?? null,
+    customerSnapshot: order.customerSnapshot ?? null,
+    billingAddressSnapshot: order.billingAddressSnapshot ?? null,
+    shippingAddressSnapshot: order.shippingAddressSnapshot ?? null,
+    lines: lines.map((line) => ({
+      productId: line.productId ?? null,
+      productVariantId: line.productVariantId ?? null,
+    })),
+  })
   return {
     tenantId: order.tenantId,
     organizationId: order.organizationId,
@@ -163,6 +208,7 @@ function buildCalculationContext(order: SalesOrder) {
         ? cloneJson(order.shippingMethodSnapshot as Record<string, unknown>)
         : null,
       paymentMethod: order.paymentMethodSnapshot ? cloneJson(order.paymentMethodSnapshot as Record<string, unknown>) : null,
+      tax,
     },
   }
 }
@@ -204,7 +250,7 @@ export async function recalculateOrderTotalsForDisplay(
     documentKind: 'order',
     lines: lineSnapshots,
     adjustments: adjustmentDrafts,
-    context: buildCalculationContext(order),
+    context: await buildCalculationContext(em, order, lineSnapshots, container),
     existingTotals: resolveExistingPaymentTotals(order),
   })
   return calculation.totals
@@ -315,6 +361,7 @@ async function reverseReturnEffects(
   em: EntityManager,
   salesCalculationService: SalesCalculationService,
   snapshot: ReturnSnapshot,
+  container?: { resolve: (key: string) => unknown } | null,
 ): Promise<void> {
   const order = await findOneWithDecryption(
     em,
@@ -389,10 +436,11 @@ async function reverseReturnEffects(
           documentKind: 'order',
           lines: lineSnapshots,
           adjustments: adjustmentDrafts,
-          context: buildCalculationContext(order),
+          context: await buildCalculationContext(em, order, lineSnapshots, container),
           existingTotals: resolveExistingPaymentTotals(order),
         })
         applyOrderTotals(order, calculation.totals, calculation.lines.length)
+        applyTaxColumns(order, calculation)
         order.updatedAt = new Date()
         em.persist(order)
       },
@@ -412,6 +460,7 @@ async function restoreReturnEffects(
   em: EntityManager,
   salesCalculationService: SalesCalculationService,
   snapshot: ReturnSnapshot,
+  container?: { resolve: (key: string) => unknown } | null,
 ): Promise<SalesReturnLine[]> {
   const returnId = snapshot.id
   const createdLines: SalesReturnLine[] = []
@@ -539,10 +588,11 @@ async function restoreReturnEffects(
           documentKind: 'order',
           lines: lineSnapshots,
           adjustments: adjustmentDrafts,
-          context: buildCalculationContext(order),
+          context: await buildCalculationContext(em, order, lineSnapshots, container),
           existingTotals: resolveExistingPaymentTotals(order),
         })
         applyOrderTotals(order, calculation.totals, calculation.lines.length)
+        applyTaxColumns(order, calculation)
         order.updatedAt = new Date()
         em.persist(order)
       },
@@ -725,10 +775,11 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
         documentKind: 'order',
         lines: lineSnapshots,
         adjustments: adjustmentDrafts,
-        context: buildCalculationContext(order),
+        context: await buildCalculationContext(em, order, lineSnapshots, ctx.container),
         existingTotals: resolveExistingPaymentTotals(order),
       })
       applyOrderTotals(order, calculation.totals, calculation.lines.length)
+      applyTaxColumns(order, calculation)
       order.updatedAt = new Date()
       tx.persist(order)
 
@@ -793,7 +844,7 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
-    await reverseReturnEffects(em, salesCalculationService, after)
+    await reverseReturnEffects(em, salesCalculationService, after, ctx.container)
     await invalidateOrderCache(ctx.container, {
       id: after.orderId,
       organizationId: after.organizationId,
@@ -808,7 +859,7 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
 
-    const createdLines = await restoreReturnEffects(em, salesCalculationService, after)
+    const createdLines = await restoreReturnEffects(em, salesCalculationService, after, ctx.container)
 
     const header = await findOneWithDecryption(
       em,
@@ -1024,7 +1075,7 @@ const deleteReturnCommand: CommandHandler<ReturnDeleteInput, { returnId: string 
     // Lock on the return's own version, captured before any mutation.
     await enforceSalesDocumentOptimisticLock(ctx, header, SALES_RESOURCE_KIND_RETURN)
 
-    await reverseReturnEffects(em, salesCalculationService, snapshot)
+    await reverseReturnEffects(em, salesCalculationService, snapshot, ctx.container)
     await invalidateOrderCache(ctx.container, {
       id: snapshot.orderId,
       organizationId: snapshot.organizationId,
@@ -1082,7 +1133,7 @@ const deleteReturnCommand: CommandHandler<ReturnDeleteInput, { returnId: string 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
 
-    const createdLines = await restoreReturnEffects(em, salesCalculationService, before)
+    const createdLines = await restoreReturnEffects(em, salesCalculationService, before, ctx.container)
 
     const header = await findOneWithDecryption(
       em,

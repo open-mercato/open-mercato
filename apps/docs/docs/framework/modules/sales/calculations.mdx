@@ -114,3 +114,25 @@ export function register(container: AwilixContainer) {
 ```
 
 Use these hooks to implement per-item tweaks (line events) or whole-document overrides (document events) without changing the built-in sales commands.
+
+## The tax stage
+
+After the shipping and payment stages, the same provider totals calculator runs a **tax stage**. It is skipped entirely unless the calculation context carries a `metadata.tax` block, which the sales command layer assembles — so a third-party caller of `calculateDocumentTotals` gets exactly the figures it always did.
+
+When it runs, the stage:
+
+1. Resolves the organization's selected provider (`table-rates` when nothing is selected).
+2. Builds an immutable `TaxCalculationRequest` from `working.lines` and `working.adjustments` — so the shipping surcharge the shipping stage just appended is a charge the provider can tax.
+3. Calls `provider.calculate` under a bounded timeout, aborting the provider's `signal` when it elapses.
+4. Validates the result, reconciles the provider's document total against the sum of its lines, writes the per-line `taxAmount` and per-charge tax portion, and rebuilds the document result.
+5. Places the persisted `TaxInfo` document in `working.metadata.tax`.
+
+The provider call happens **before** the command opens its write transaction, so no Postgres transaction is held during a vendor network call and a timeout can never abort the write.
+
+Failure is never fatal: a throw, a timeout, an invalid result, a decline, a disabled integration or a missing provider all keep the engine's own figures, mark the document `fallback`, and record the reason. See [Building a tax provider](/framework/modules/building-tax-provider).
+
+Two events bracket the stage:
+
+- `sales.tax.adjustments.apply.before` — `{ documentKind, providerKey, document, request, setRequest(next) }`. Rewrite the request before the provider sees it.
+- `sales.tax.adjustments.apply.after` — `{ documentKind, providerKey, status, document, tax, setDocument(next) }`.
+

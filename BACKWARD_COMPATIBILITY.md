@@ -454,3 +454,37 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 **Operator note — terminal queue failures.** Not a contract break, but visible in an alert rule: on the **local** strategy a job's final attempt previously emitted both `queue.job_failed` and `queue.job_exhausted`; it now emits only `queue.job_exhausted`, matching the `async` strategy. An alert thresholding on `queue.job_failed` alone stops seeing terminal failures — page on `queue.job_exhausted`.
 
 **Volume note for operators.** Reported error *volume* rises where errors were previously only recorded: an integration that writes 115 error rows now also reports 115 errors, grouped by `error.code` at the backend. This is deliberate — see the spec's §S3 — and the controls are the collector's filtering/sampling and the backend's own quotas, not a framework switch.
+
+## Pluggable Tax Providers (2026-09-19)
+
+Spec: [`.ai/specs/2026-09-19-pluggable-tax-providers.md`](.ai/specs/2026-09-19-pluggable-tax-providers.md).
+
+Tax calculation became a provider slot in `packages/core/src/modules/sales/lib/providers/`,
+selected per organization. Everything is additive except one documented semantics change.
+
+| Surface | Change | Classification |
+|---|---|---|
+| Type interfaces | New exported types: `TaxProvider`, `TaxProviderCalculateInput`, `TaxProviderCalculateResult`, `TaxCalculationRequest`, `TaxCustomer`, `TaxAddress`, `TaxRequestLine`, `TaxRequestCharge`, `TaxJurisdictionAmount`, `TaxInfo`, `TaxTransactionState`, `TaxTransactionLifecycleInput`, `TaxDocumentContext`, `TaxProviderCapabilities`, `TaxProviderSelection`, `TaxProductFacts`. The private `ProviderKind` union gained `'tax'`. `SalesCalculationContext` is unchanged — the tax block is an optional `metadata` entry. | ✓ ADDITIVE |
+| Function signatures | New `registerTaxProvider`, `getTaxProvider`, `listTaxProviders`, `runTaxStage`, `buildTaxCalculationRequest`, `resolveTaxDocumentContext`. `normalizeProviderSettings` accepts `'tax'` (widened union). `round` is newly exported from `sales/lib/calculations`. | ✓ ADDITIVE |
+| `TaxCalculationService` | Unchanged. The `taxCalculationService` DI token and `DefaultTaxCalculationService` are unchanged. It remains the **unit amount** seam. | ✓ No change |
+| `salesCalculationService` / `calculateDocumentTotals` | Signatures unchanged. A caller that passes no `metadata.tax` gets byte-identical results and runs no tax stage. | ✓ No change |
+| Event IDs | New: `sales.tax.adjustments.apply.before`, `sales.tax.adjustments.apply.after`, `sales.tax.calculation.failed`. Optional `tax` block added to `sales.document.totals.calculated`, `sales.order.confirmed`, `sales.order.cancelled`. | ✓ ADDITIVE |
+| Command IDs | New: `sales.settings.save_tax_provider`, `sales.documents.recalculate_tax`. | ✓ ADDITIVE |
+| DI names | None added; none changed. | ✓ No change |
+| Database schema | Nullable columns on `sales_orders`, `sales_quotes`, `sales_invoices`, `sales_credit_memos` and `sales_settings`; one partial index per document table; `customer_entities` gains two nullable columns and one boolean defaulting to `false`. No backfill; re-runnable; deployable without downtime. | ✓ ADDITIVE |
+| API routes | New: `GET /api/sales/tax-providers`, `GET\|PUT /api/sales/settings/tax-provider`, `POST /api/sales/documents/recalculate-tax`. New optional response fields on the document, invoice, credit memo, people and companies routes. New optional request fields on invoices, credit memos, people and companies. | ✓ ADDITIVE |
+| **API request semantics** | `taxStrategyKey` and `taxInfo` on order and quote writes are **replaced by the calculation result** whenever that write recalculates. No caller in this repository sets them (searched `packages/`, `apps/`). | ⚠ **Value semantics change on two accepted fields** |
+| ACL feature IDs | None added. Reuses `sales.settings.view`, `sales.settings.manage`, `sales.orders.manage`, `sales.quotes.manage`. | ✓ No change |
+| Integration types | `IntegrationHubId` gains `'tax_providers'`; `IntegrationCategory` gains `'tax'`. Both are open unions that already accepted any string. | ✓ ADDITIVE |
+| Generated files | `yarn generate` picks up the new events, routes and components; no manual edit. | ✓ No change |
+
+**Rollback.** Setting `sales_settings.tax_provider_key` back to `NULL` returns an organization to
+table rates on its next recalculation. The added columns can stay (soft deprecation rule).
+Removing a provider package degrades its documents to `fallback` with `provider_missing` rather
+than erroring.
+
+**One behaviour worth knowing.** `resolveCustomerSnapshot` in `sales/commands/documents.ts` now reads
+the customer with `findOneWithDecryption` instead of `em.findOne`. `customer_entities` declares
+encrypted fields, so the previous plain read wrote ciphertext into the already-encrypted
+`customer_snapshot` column. New snapshots carry plaintext, as the design always intended.
+

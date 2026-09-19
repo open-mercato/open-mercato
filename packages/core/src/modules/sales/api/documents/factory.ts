@@ -413,6 +413,11 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
     'subtotal_net_amount',
     'subtotal_gross_amount',
     'tax_total_amount',
+    'tax_strategy_key',
+    'tax_info',
+    'tax_status',
+    'tax_calculated_at',
+    'tax_transaction_ref',
     'discount_total_amount',
     'grand_total_net_amount',
     'grand_total_gross_amount',
@@ -445,6 +450,10 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
   // blobs over the wire for nothing (#2233). `customer_snapshot` is intentionally
   // kept because the grid derives the customer name/email column from it.
   const detailOnlyProjectionFields = new Set([
+    // Per line and per jurisdiction detail that only the detail page renders.
+    // The four scalar tax columns stay in the grid projection so a list can be
+    // filtered or coloured by status without a second fetch.
+    'tax_info',
     'billing_address_snapshot',
     'shipping_address_snapshot',
     'shipping_method_snapshot',
@@ -528,6 +537,13 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
           subtotalGrossAmount: toNumber(item.subtotal_gross_amount),
           discountTotalAmount: toNumber(item.discount_total_amount),
           taxTotalAmount: toNumber(item.tax_total_amount),
+          taxStrategyKey: item.tax_strategy_key ?? null,
+          taxStatus: item.tax_status ?? null,
+          taxCalculatedAt: item.tax_calculated_at ?? null,
+          taxTransactionRef: item.tax_transaction_ref ?? null,
+          // Serialized as null rather than omitted on the grid path, so the
+          // response key and its OpenAPI schema stay stable either way.
+          taxInfo: normalizeJsonRecord(item.tax_info),
           shippingNetAmount: toNumber(item.shipping_net_amount),
           shippingGrossAmount: toNumber(item.shipping_gross_amount),
           surchargeTotalAmount: toNumber(item.surcharge_total_amount),
@@ -658,6 +674,11 @@ export function buildDocumentOpenApi(binding: DocumentBinding) {
     subtotalGrossAmount: z.number().nullable().optional(),
     discountTotalAmount: z.number().nullable().optional(),
     taxTotalAmount: z.number().nullable().optional(),
+    taxStrategyKey: z.string().nullable().optional(),
+    taxStatus: z.string().nullable().optional(),
+    taxCalculatedAt: z.string().nullable().optional(),
+    taxTransactionRef: z.string().nullable().optional(),
+    taxInfo: z.record(z.string(), z.unknown()).nullable().optional(),
     shippingNetAmount: z.number().nullable().optional(),
     shippingGrossAmount: z.number().nullable().optional(),
     surchargeTotalAmount: z.number().nullable().optional(),

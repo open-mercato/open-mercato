@@ -103,6 +103,11 @@ const baseEntitySchema = {
   temperature: z.string().trim().max(100).optional(),
   renewalQuarter: z.string().trim().max(100).optional(),
   isActive: z.boolean().optional(),
+  // Tax exemption facts a document level tax engine reads through the customer
+  // snapshot. Nullable so a blanked value on edit clears the column. See #3050.
+  isTaxExempt: z.boolean().optional(),
+  taxExemptionCode: clearableStringSchema(120),
+  taxExemptionCertificate: clearableStringSchema(191),
   nextInteraction: nextInteractionSchema.nullable().optional(),
   tags: z.array(uuid()).optional(),
 }

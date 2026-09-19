@@ -105,6 +105,41 @@ export const salesEditingSettingsSchema = scoped.extend({
 
 export type SalesEditingSettingsInput = z.infer<typeof salesEditingSettingsSchema>
 
+/**
+ * An AddressValue-shaped ship from address. Kept loose on purpose: the fields
+ * a tax engine needs vary by jurisdiction, and a stricter shape here would
+ * reject a perfectly usable address for a country the validator did not
+ * anticipate.
+ */
+export const shipFromAddressSchema = z.object({
+  addressLine1: z.string().trim().max(500).nullable().optional(),
+  addressLine2: z.string().trim().max(500).nullable().optional(),
+  buildingNumber: z.string().trim().max(60).nullable().optional(),
+  flatNumber: z.string().trim().max(60).nullable().optional(),
+  city: z.string().trim().max(191).nullable().optional(),
+  region: z.string().trim().max(191).nullable().optional(),
+  postalCode: z.string().trim().max(60).nullable().optional(),
+  country: z.string().trim().max(60).nullable().optional(),
+})
+
+export const TAX_PROVIDER_TIMEOUT_MIN_MS = 1000
+export const TAX_PROVIDER_TIMEOUT_MAX_MS = 30_000
+
+export const salesTaxProviderSettingsSchema = scoped.extend({
+  providerKey: z.string().trim().min(1).max(120),
+  providerSettings: jsonRecord.nullable().optional(),
+  shipFromAddress: shipFromAddressSchema.nullable().optional(),
+  timeoutMs: z.coerce
+    .number()
+    .int()
+    .min(TAX_PROVIDER_TIMEOUT_MIN_MS)
+    .max(TAX_PROVIDER_TIMEOUT_MAX_MS)
+    .nullable()
+    .optional(),
+})
+
+export type SalesTaxProviderSettingsInput = z.infer<typeof salesTaxProviderSettingsSchema>
+
 export const channelCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
   code: channelCodeSchema,
@@ -899,6 +934,16 @@ export const returnDeleteSchema = scoped.extend({
   orderId: uuid(),
 })
 
+/**
+ * Recalculates the tax on an existing order or quote without touching any line
+ * or header field. Invoices and credit memos inherit their tax from the
+ * document they were raised from, so they are not recalculable.
+ */
+export const recalculateDocumentTaxSchema = z.object({
+  documentId: uuid(),
+  documentKind: z.enum(['order', 'quote']),
+})
+
 export const invoiceCreateSchema = scoped.extend({
   orderId: uuid().optional(),
   invoiceNumber: z.string().trim().min(1).max(191).optional(),
@@ -943,6 +988,14 @@ export const invoiceCreateSchema = scoped.extend({
   grandTotalGrossAmount: decimal({ min: 0 }).optional(),
   paidTotalAmount: decimal({ min: 0 }).optional(),
   outstandingAmount: decimal().optional(),
+  // Accepted only when no source document is given: a caller mirroring an
+  // externally taxed document. With an orderId (or invoiceId) present the
+  // result is inherited from the source and these are ignored.
+  taxStrategyKey: z.string().trim().max(120).optional(),
+  taxInfo: jsonRecord.optional(),
+  taxStatus: z.enum(['calculated', 'exempt', 'fallback', 'external']).optional(),
+  taxCalculatedAt: z.coerce.date().optional(),
+  taxTransactionRef: z.string().trim().max(191).optional(),
 })
 
 export const invoiceUpdateSchema = z
@@ -990,6 +1043,14 @@ export const creditMemoCreateSchema = scoped.extend({
   taxTotalAmount: decimal({ min: 0 }).optional(),
   grandTotalNetAmount: decimal({ min: 0 }).optional(),
   grandTotalGrossAmount: decimal({ min: 0 }).optional(),
+  // Accepted only when no source document is given: a caller mirroring an
+  // externally taxed document. With an orderId (or invoiceId) present the
+  // result is inherited from the source and these are ignored.
+  taxStrategyKey: z.string().trim().max(120).optional(),
+  taxInfo: jsonRecord.optional(),
+  taxStatus: z.enum(['calculated', 'exempt', 'fallback', 'external']).optional(),
+  taxCalculatedAt: z.coerce.date().optional(),
+  taxTransactionRef: z.string().trim().max(191).optional(),
 })
 
 export const creditMemoUpdateSchema = z

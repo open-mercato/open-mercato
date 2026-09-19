@@ -210,6 +210,9 @@ type CompanySnapshot = {
     nextInteractionIcon: string | null
     nextInteractionColor: string | null
     isActive: boolean
+    isTaxExempt: boolean
+    taxExemptionCode: string | null
+    taxExemptionCertificate: string | null
   }
   profile: {
     id: string
@@ -308,6 +311,9 @@ async function loadCompanySnapshot(em: EntityManager, id: string): Promise<Compa
       nextInteractionIcon: entity.nextInteractionIcon ?? null,
       nextInteractionColor: entity.nextInteractionColor ?? null,
       isActive: entity.isActive,
+      isTaxExempt: entity.isTaxExempt,
+      taxExemptionCode: entity.taxExemptionCode ?? null,
+      taxExemptionCertificate: entity.taxExemptionCertificate ?? null,
     },
     profile: {
       id: profile.id,
@@ -504,6 +510,9 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       nextInteractionIcon,
       nextInteractionColor,
       isActive: parsed.isActive ?? true,
+      isTaxExempt: parsed.isTaxExempt ?? false,
+      taxExemptionCode: normalizeOptionalString(parsed.taxExemptionCode),
+      taxExemptionCertificate: normalizeOptionalString(parsed.taxExemptionCertificate),
       temperature: parsed.temperature ?? null,
       renewalQuarter: parsed.renewalQuarter ?? null,
     })
@@ -638,6 +647,9 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
         nextInteractionIcon: after.entity.nextInteractionIcon,
         nextInteractionColor: after.entity.nextInteractionColor,
         isActive: after.entity.isActive,
+        isTaxExempt: after.entity.isTaxExempt ?? false,
+        taxExemptionCode: after.entity.taxExemptionCode ?? null,
+        taxExemptionCertificate: after.entity.taxExemptionCertificate ?? null,
       })
       em.persist(entity)
     }
@@ -659,6 +671,9 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
     entity.nextInteractionIcon = after.entity.nextInteractionIcon
     entity.nextInteractionColor = after.entity.nextInteractionColor
     entity.isActive = after.entity.isActive
+    entity.isTaxExempt = after.entity.isTaxExempt ?? false
+    entity.taxExemptionCode = after.entity.taxExemptionCode ?? null
+    entity.taxExemptionCertificate = after.entity.taxExemptionCertificate ?? null
 
     const restoredEntity = entity
     let profile = await findOneWithDecryption(
@@ -751,6 +766,9 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
         if (parsed.lifecycleStage !== undefined) record.lifecycleStage = parsed.lifecycleStage ?? null
         if (parsed.source !== undefined) record.source = parsed.source ?? null
         if (parsed.isActive !== undefined) record.isActive = parsed.isActive
+        if (parsed.isTaxExempt !== undefined) record.isTaxExempt = parsed.isTaxExempt
+        if (parsed.taxExemptionCode !== undefined) record.taxExemptionCode = normalizeOptionalString(parsed.taxExemptionCode)
+        if (parsed.taxExemptionCertificate !== undefined) record.taxExemptionCertificate = normalizeOptionalString(parsed.taxExemptionCertificate)
         if (parsed.temperature !== undefined) record.temperature = parsed.temperature ?? null
         if (parsed.renewalQuarter !== undefined) record.renewalQuarter = parsed.renewalQuarter ?? null
 
@@ -858,6 +876,9 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
         nextInteractionIcon: before.entity.nextInteractionIcon,
         nextInteractionColor: before.entity.nextInteractionColor,
         isActive: before.entity.isActive,
+        isTaxExempt: before.entity.isTaxExempt ?? false,
+        taxExemptionCode: before.entity.taxExemptionCode ?? null,
+        taxExemptionCertificate: before.entity.taxExemptionCertificate ?? null,
       })
       em.persist(entity)
     } else {
@@ -877,6 +898,9 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
       entity.nextInteractionIcon = before.entity.nextInteractionIcon
       entity.nextInteractionColor = before.entity.nextInteractionColor
       entity.isActive = before.entity.isActive
+      entity.isTaxExempt = before.entity.isTaxExempt ?? false
+      entity.taxExemptionCode = before.entity.taxExemptionCode ?? null
+      entity.taxExemptionCertificate = before.entity.taxExemptionCertificate ?? null
     }
     await em.flush()
 
@@ -1189,6 +1213,9 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
           nextInteractionIcon: before.entity.nextInteractionIcon,
           nextInteractionColor: before.entity.nextInteractionColor,
           isActive: before.entity.isActive,
+          isTaxExempt: before.entity.isTaxExempt ?? false,
+          taxExemptionCode: before.entity.taxExemptionCode ?? null,
+          taxExemptionCertificate: before.entity.taxExemptionCertificate ?? null,
         })
         em.persist(entity)
       }
@@ -1209,6 +1236,9 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
       entity.nextInteractionIcon = before.entity.nextInteractionIcon
       entity.nextInteractionColor = before.entity.nextInteractionColor
       entity.isActive = before.entity.isActive
+      entity.isTaxExempt = before.entity.isTaxExempt ?? false
+      entity.taxExemptionCode = before.entity.taxExemptionCode ?? null
+      entity.taxExemptionCertificate = before.entity.taxExemptionCertificate ?? null
       entity.deletedAt = null
 
       let profile = await em.findOne(CustomerCompanyProfile, { entity })

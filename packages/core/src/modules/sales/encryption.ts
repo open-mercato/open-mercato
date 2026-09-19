@@ -52,6 +52,12 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
     ],
   },
   {
+    // The ship from address is a real postal address, so it is encrypted at rest
+    // like every other address this module stores.
+    entityId: 'sales:sales_settings',
+    fields: [{ field: 'ship_from_address' }],
+  },
+  {
     entityId: 'sales:sales_note',
     fields: [{ field: 'body' }],
   },

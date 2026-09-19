@@ -12,7 +12,7 @@ The sales module registers the following services into the DI container. Resolve
 | Service key | Description |
 |---|---|
 | `salesCalculationService` | Runs the full document and line calculation pipeline. Always use this instead of inline price math. |
-| `taxCalculationService` | Handles tax calculation for sales documents. |
+| `taxCalculationService` | Derives a **single amount's** missing net/gross side from a tax rate. It sees one amount and no document context, so it cannot implement a jurisdiction-aware engine — for that, register a [tax provider](/framework/modules/building-tax-provider). |
 | `salesDocumentNumberGenerator` | Generates sequential document numbers for orders, quotes, invoices, etc. |
 
 ## Usage
@@ -30,4 +30,5 @@ const calcService = container.resolve('salesCalculationService')
 ## See also
 
 - [Sales calculations](/framework/modules/sales/calculations)
+- [Building a tax provider](/framework/modules/building-tax-provider)
 - [Container & DI](/framework/ioc/container)

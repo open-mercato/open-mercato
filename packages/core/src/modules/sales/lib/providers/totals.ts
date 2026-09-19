@@ -5,12 +5,14 @@ import {
   getShippingProvider,
   normalizeProviderSettings,
 } from './registry'
+import { runTaxStage } from './taxStage'
 import type {
   PaymentMethodContext,
   ProviderAdjustment,
   ProviderAdjustmentResult,
   ShippingMethodContext,
   ShippingMetrics,
+  TaxDocumentContext,
 } from './types'
 
 const SHIPPING_PREFIX = 'shipping-provider:'
@@ -365,6 +367,23 @@ export function ensureProviderTotalsCalculator() {
           }
         }
       }
+    }
+
+    // Third stage: tax. It runs last so the provider sees the shipping and
+    // payment charges the two stages above just appended — shipping surcharges
+    // are taxable in most US states. A caller that builds no tax context (a
+    // third party calling calculateDocumentTotals directly, the seed scripts)
+    // skips it entirely and gets exactly the figures it got before.
+    const taxContext = (metadata.tax ?? null) as TaxDocumentContext | null
+    if (taxContext) {
+      const outcome = await runTaxStage({
+        documentKind,
+        context,
+        tax: taxContext,
+        document: working,
+        eventBus,
+      })
+      if (outcome) working = outcome.document
     }
 
     return working

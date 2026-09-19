@@ -63,6 +63,11 @@ const crud = makeCrudRoute({
       'subtotal_net_amount',
       'subtotal_gross_amount',
       'tax_total_amount',
+      'tax_strategy_key',
+      'tax_info',
+      'tax_status',
+      'tax_calculated_at',
+      'tax_transaction_ref',
       'grand_total_net_amount',
       'grand_total_gross_amount',
       'metadata',
@@ -141,6 +146,11 @@ const creditMemoItemSchema = z.object({
   grandTotalGrossAmount: z.string().optional(),
   grandTotalNetAmount: z.string().optional(),
   taxTotalAmount: z.string().optional(),
+  taxStrategyKey: z.string().nullable().optional(),
+  taxStatus: z.string().nullable().optional(),
+  taxCalculatedAt: z.string().nullable().optional(),
+  taxTransactionRef: z.string().nullable().optional(),
+  taxInfo: z.record(z.string(), z.unknown()).nullable().optional(),
 })
 
 export const openApi = createSalesCrudOpenApi({

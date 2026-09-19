@@ -28,7 +28,7 @@ export type CustomerAddressFormat = 'line_first' | 'street_first'
     `create index "idx_ce_tenant_person_id" on "customer_entities" ("tenant_id", "id") where deleted_at is null and kind = 'person'`,
 })
 export class CustomerEntity {
-  [OptionalProps]?: 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'isActive' | 'isTaxExempt' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -86,6 +86,21 @@ export class CustomerEntity {
 
   @Property({ name: 'next_interaction_color', type: 'text', nullable: true })
   nextInteractionColor?: string | null
+
+  /** Tax exemption facts a document level tax engine needs. */
+  @Property({ name: 'is_tax_exempt', type: 'boolean', default: false })
+  isTaxExempt: boolean = false
+
+  /** The entity use or reason code the engine expects (for example RESALE). */
+  @Property({ name: 'tax_exemption_code', type: 'text', nullable: true })
+  taxExemptionCode?: string | null
+
+  /**
+   * Encrypted at rest: a certificate number identifies a specific person or
+   * business, so it is declared in the module's encryption map.
+   */
+  @Property({ name: 'tax_exemption_certificate', type: 'text', nullable: true })
+  taxExemptionCertificate?: string | null
 
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true

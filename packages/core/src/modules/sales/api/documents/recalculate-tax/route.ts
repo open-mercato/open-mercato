@@ -1,0 +1,234 @@
+import { NextResponse } from 'next/server'
+import { z } from 'zod'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  bridgeLegacyGuard,
+  runMutationGuards,
+  type MutationGuard,
+  type MutationGuardInput,
+} from '@open-mercato/shared/lib/crud/mutation-guard-registry'
+import { withScopedPayload } from '../../utils'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+
+const logger = createLogger('sales')
+
+const recalculateSchema = z.object({
+  documentId: z.string().uuid(),
+  documentKind: z.enum(['order', 'quote']),
+})
+
+// Both features are required because one route serves both kinds and the body
+// picks which. Narrowing per kind would let a caller with only one of them
+// recalculate the other by flipping documentKind.
+export const metadata = {
+  POST: { requireAuth: true, requireFeatures: ['sales.orders.manage', 'sales.quotes.manage'] },
+}
+
+type RequestContext = {
+  ctx: CommandRuntimeContext
+}
+
+function resolveUserFeatures(auth: unknown): string[] {
+  const features = (auth as { features?: unknown })?.features
+  if (!Array.isArray(features)) return []
+  return features.filter((value): value is string => typeof value === 'string')
+}
+
+async function runGuards(
+  ctx: CommandRuntimeContext,
+  input: MutationGuardInput,
+): Promise<{
+  ok: boolean
+  errorBody?: Record<string, unknown>
+  errorStatus?: number
+  afterSuccessCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }>
+}> {
+  const legacyGuard = bridgeLegacyGuard(ctx.container)
+  if (!legacyGuard) {
+    return { ok: true, afterSuccessCallbacks: [] }
+  }
+  return runMutationGuards([legacyGuard], input, {
+    userFeatures: resolveUserFeatures(ctx.auth),
+  })
+}
+
+async function runGuardAfterSuccessCallbacks(
+  callbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }>,
+  input: {
+    tenantId: string
+    organizationId: string | null
+    userId: string
+    resourceKind: string
+    resourceId: string
+    operation: 'create' | 'update' | 'delete'
+    requestMethod: string
+    requestHeaders: Headers
+  },
+): Promise<void> {
+  for (const callback of callbacks) {
+    if (!callback.guard.afterSuccess) continue
+    await callback.guard.afterSuccess({
+      ...input,
+      metadata: callback.metadata ?? null,
+    })
+  }
+}
+
+async function resolveRequestContext(req: Request): Promise<RequestContext> {
+  const container = await createRequestContainer()
+  const auth = await getAuthFromRequest(req)
+  const { translate } = await resolveTranslations()
+
+  if (!auth || !auth.tenantId) {
+    throw new CrudHttpError(401, { error: translate('sales.documents.errors.unauthorized', 'Unauthorized') })
+  }
+
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const organizationId = scope?.selectedId ?? auth.orgId ?? null
+  if (!organizationId) {
+    throw new CrudHttpError(400, {
+      error: translate('sales.documents.errors.organization_required', 'Organization context is required'),
+    })
+  }
+
+  const ctx: CommandRuntimeContext = {
+    container,
+    auth,
+    organizationScope: scope,
+    selectedOrganizationId: organizationId,
+    organizationIds: scope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
+    request: req,
+  }
+
+  return { ctx }
+}
+
+/**
+ * Re-runs the tax stage on an order or a quote. Nothing else about the document
+ * changes, so this is the action a merchant uses to clear a `fallback` once the
+ * provider is back, without editing the document.
+ */
+export async function POST(req: Request) {
+  try {
+    const { ctx } = await resolveRequestContext(req)
+    const { translate } = await resolveTranslations()
+    const payload = await req.json().catch(() => ({}))
+    const scoped = withScopedPayload(payload ?? {}, ctx, translate)
+    const input = recalculateSchema.parse(scoped)
+    const resourceKind = input.documentKind === 'order' ? 'sales.order' : 'sales.quote'
+    const guardResult = await runGuards(ctx, {
+      tenantId: ctx.auth?.tenantId ?? '',
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      userId: ctx.auth?.sub ?? '',
+      resourceKind,
+      resourceId: input.documentId,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+    })
+    if (!guardResult.ok) {
+      return NextResponse.json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, { status: guardResult.errorStatus ?? 422 })
+    }
+
+    const commandBus = ctx.container.resolve('commandBus') as CommandBus
+    const { result, logEntry } = await commandBus.execute<
+      { documentId: string; documentKind: 'order' | 'quote' },
+      { documentId: string; documentKind: 'order' | 'quote'; taxStatus: string | null; taxCalculatedAt: string | null }
+    >('sales.documents.recalculate_tax', { input, ctx })
+
+    const jsonResponse = NextResponse.json({
+      documentId: result?.documentId ?? input.documentId,
+      documentKind: result?.documentKind ?? input.documentKind,
+      taxStatus: result?.taxStatus ?? null,
+      taxCalculatedAt: result?.taxCalculatedAt ?? null,
+    })
+
+    if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
+      jsonResponse.headers.set(
+        'x-om-operation',
+        serializeOperationMetadata({
+          id: logEntry.id,
+          undoToken: logEntry.undoToken,
+          commandId: logEntry.commandId,
+          actionLabel: logEntry.actionLabel ?? null,
+          resourceKind: logEntry.resourceKind ?? resourceKind,
+          resourceId: logEntry.resourceId ?? input.documentId,
+          executedAt: logEntry.createdAt instanceof Date
+            ? logEntry.createdAt.toISOString()
+            : typeof logEntry.createdAt === 'string'
+              ? logEntry.createdAt
+              : new Date().toISOString(),
+        })
+      )
+    }
+
+    if (guardResult.afterSuccessCallbacks.length) {
+      await runGuardAfterSuccessCallbacks(guardResult.afterSuccessCallbacks, {
+        tenantId: ctx.auth?.tenantId ?? '',
+        organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+        userId: ctx.auth?.sub ?? '',
+        resourceKind,
+        resourceId: input.documentId,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+      })
+    }
+
+    return jsonResponse
+  } catch (err) {
+    if (isCrudHttpError(err)) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
+    const { translate } = await resolveTranslations()
+    logger.error('sales.documents.recalculate_tax failed', { err })
+    return NextResponse.json(
+      { error: translate('sales.documents.detail.tax.recalculateError', 'Failed to recalculate tax.') },
+      { status: 400 }
+    )
+  }
+}
+
+const recalculateResponseSchema = z.object({
+  documentId: z.string().uuid(),
+  documentKind: z.enum(['order', 'quote']),
+  taxStatus: z.string().nullable(),
+  taxCalculatedAt: z.string().nullable(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Sales',
+  summary: 'Recalculate document tax',
+  methods: {
+    POST: {
+      summary: 'Recalculate tax',
+      description:
+        'Re-runs the selected tax provider for an order or quote without changing any line or header field. Invoices and credit memos inherit their tax from the document they were raised from and are not recalculable.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: recalculateSchema,
+      },
+      responses: [
+        { status: 200, description: 'Recalculation succeeded', schema: recalculateResponseSchema },
+        { status: 400, description: 'Invalid payload or unsupported document kind', schema: z.object({ error: z.string() }) },
+        { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
+        { status: 403, description: 'Forbidden', schema: z.object({ error: z.string() }) },
+        { status: 404, description: 'Document not found in scope', schema: z.object({ error: z.string() }) },
+        { status: 409, description: 'Conflict detected', schema: z.object({ error: z.string(), code: z.string().optional() }) },
+        { status: 423, description: 'Record locked', schema: z.object({ error: z.string(), code: z.string().optional() }) },
+      ],
+    },
+  },
+}

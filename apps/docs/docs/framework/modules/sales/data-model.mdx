@@ -47,6 +47,24 @@ All sales entities support custom fields via the [Custom Entities & Fields](/fra
 |---|---|---|
 | `sales.sales_note` | Sales Note | Internal or customer-facing note attached to a sales document. |
 
+## Tax provenance columns
+
+`sales_orders`, `sales_quotes`, `sales_invoices` and `sales_credit_memos` each carry five columns recording where their tax came from. All are nullable with no backfill: a row written before this feature reports no provenance rather than a wrong one.
+
+| Column | Meaning |
+|---|---|
+| `tax_strategy_key` | The provider that produced the stored amounts |
+| `tax_info` | The versioned `TaxInfo` document: per line and per jurisdiction detail, messages, failure record |
+| `tax_status` | `calculated`, `exempt`, `fallback` or `external` |
+| `tax_calculated_at` | When the stored result was produced |
+| `tax_transaction_ref` | The provider's transaction reference, indexed partially for lifecycle lookups |
+
+`sales_settings` carries the per-organization selection: `tax_provider_key` (NULL means the built-in `table-rates`), `tax_provider_settings`, `tax_provider_timeout_ms` and `ship_from_address` (encrypted).
+
+`customer_entities` carries the exemption facts a provider reads: `is_tax_exempt`, `tax_exemption_code` and `tax_exemption_certificate` (encrypted).
+
+`tax_info` deliberately contains **no address and no customer identity** — only amounts, rates, jurisdictions, references and messages. That is what keeps it out of the encryption maps.
+
 ## See also
 
 - [Custom entities overview](/framework/custom-entities/overview)

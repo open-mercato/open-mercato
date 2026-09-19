@@ -105,6 +105,9 @@ const crud = makeCrudRoute({
       'owner_user_id',
       'primary_email',
       'primary_phone',
+      'is_tax_exempt',
+      'tax_exemption_code',
+      'tax_exemption_certificate',
       'status',
       'lifecycle_stage',
       'source',
@@ -484,6 +487,12 @@ const crud = makeCrudRoute({
         if (!profile) return item
         return {
           ...record,
+          // The company's own decrypted exemption facts, which live on the
+          // shared entity row rather than on the profile.
+          is_tax_exempt: profile.entity?.isTaxExempt ?? record.is_tax_exempt ?? false,
+          tax_exemption_code: profile.entity?.taxExemptionCode ?? record.tax_exemption_code ?? null,
+          tax_exemption_certificate:
+            profile.entity?.taxExemptionCertificate ?? record.tax_exemption_certificate ?? null,
           legal_name: profile.legalName ?? null,
           brand_name: profile.brandName ?? null,
           domain: profile.domain ?? null,
@@ -509,6 +518,9 @@ const companyListItemSchema = z.object({
   owner_user_id: z.string().uuid().nullable().optional(),
   primary_email: z.string().nullable().optional(),
   primary_phone: z.string().nullable().optional(),
+  is_tax_exempt: z.boolean().nullable().optional(),
+  tax_exemption_code: z.string().nullable().optional(),
+  tax_exemption_certificate: z.string().nullable().optional(),
   status: z.string().nullable().optional(),
   lifecycle_stage: z.string().nullable().optional(),
   source: z.string().nullable().optional(),

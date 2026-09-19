@@ -302,6 +302,26 @@ describe('buildDocumentCrudOptions', () => {
       }
     })
 
+    it('keeps the four scalar tax columns in grid listings but drops tax_info', () => {
+      const gridFields = resolveFields({})
+      // A list can be filtered or coloured by tax status without a second
+      // fetch; the per line and per jurisdiction detail stays off the grid.
+      for (const column of [
+        'tax_strategy_key',
+        'tax_status',
+        'tax_calculated_at',
+        'tax_transaction_ref',
+      ]) {
+        expect(gridFields).toContain(column)
+      }
+      expect(gridFields).not.toContain('tax_info')
+    })
+
+    it('returns tax_info for a single-document fetch', () => {
+      const detailFields = resolveFields({ id: '11111111-1111-1111-1111-111111111111' })
+      expect(detailFields).toContain('tax_info')
+    })
+
     it('keeps customer_snapshot in grid listings (grid renders customer name/email)', () => {
       const gridFields = resolveFields({})
       expect(gridFields).toContain('customer_snapshot')

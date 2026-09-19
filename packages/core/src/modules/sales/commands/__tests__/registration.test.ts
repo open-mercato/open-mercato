@@ -42,6 +42,7 @@ describe('sales command registration', () => {
       path: '../documentAddresses',
       expected: [
         'sales.settings.save',
+        'sales.settings.save_tax_provider',
         'sales.document-addresses.create',
         'sales.document-addresses.update',
         'sales.document-addresses.delete',
@@ -58,6 +59,7 @@ describe('sales command registration', () => {
         'sales.payments.update',
         'sales.payments.delete',
         'sales.settings.save',
+        'sales.settings.save_tax_provider',
         'sales.quotes.update',
         'sales.quotes.create',
         'sales.quotes.delete',
@@ -79,6 +81,7 @@ describe('sales command registration', () => {
         'sales.credit_memos.create',
         'sales.credit_memos.update',
         'sales.credit_memos.delete',
+        'sales.documents.recalculate_tax',
       ],
     },
     {
@@ -125,7 +128,7 @@ describe('sales command registration', () => {
     {
       label: '../settings',
       path: '../settings',
-      expected: ['sales.settings.save'],
+      expected: ['sales.settings.save', 'sales.settings.save_tax_provider'],
     },
     {
       label: '../tags',
