@@ -21,7 +21,7 @@ Source spec: `.ai/specs/2026-08-21-pricing-engine.md`
 | 2 | 2.2 | Additive `PricingContext` fields (`currencyCode`, `customerGroupIds`) + `matchesContext` extension | inline | done | a2495ecaf |
 | 2 | 2.3 | Docs correction: `sales/AGENTS.md` overclaim, spec ACL/updated_at/harness corrections, `UPGRADE_NOTES.md` entry | dispatch:cheap | done | e6786a9b3 |
 | 2 | 2.4 | Add `buildPriceRowFilter(ctx)` row-narrowing predicate | inline | done | c999f2146 |
-| 2 | 2.5 | Soundness test for `buildPriceRowFilter` + full-vs-narrowed `selectBestPrice` equivalence test | inline | todo | — |
+| 2 | 2.5 | Soundness test for `buildPriceRowFilter` + full-vs-narrowed `selectBestPrice` equivalence test | inline | done | pending |
 
 ## Goal
 
