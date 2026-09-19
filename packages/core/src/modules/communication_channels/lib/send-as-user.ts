@@ -30,7 +30,7 @@ export type SendAsUserInput = {
   cc?: string[]
   bcc?: string[]
   subject: string
-  body: { plain?: string; html?: string }
+  body: { plain?: string; html?: string; bodyFormat?: 'text' | 'markdown' }
   inReplyTo?: string
   references?: string[]
   /**
@@ -136,7 +136,7 @@ export async function sendAsUser(
     recipients: [],
     subject: input.subject,
     body: messageBody,
-    bodyFormat: 'text' as const,
+    bodyFormat: input.body.bodyFormat === 'markdown' ? ('markdown' as const) : ('text' as const),
     priority: 'normal' as const,
     sendViaEmail: false,
     parentMessageId: input.parentMessageId,

@@ -130,6 +130,7 @@
   "messages.errors.noRecipients": "Please add at least one recipient.",
   "messages.errors.noSubject": "Please enter a subject.",
   "messages.errors.sendFailed": "Failed to send message.",
+  "messages.errors.senderDraftSendUnsupported": "Sending a saved draft through a connected mailbox is not supported yet.",
   "messages.errors.senderPayloadUnsupported": "Sending from your own mailbox does not support attachments or linked records yet.",
   "messages.errors.senderRequiresExternalRecipient": "A sender mailbox can only be used for a message addressed to an external recipient.",
   "messages.errors.senderUnavailable": "Sending from your own mailbox is not available.",

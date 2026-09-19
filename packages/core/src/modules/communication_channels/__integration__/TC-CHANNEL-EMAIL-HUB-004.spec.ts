@@ -1,7 +1,13 @@
 import { expect, test } from '@playwright/test'
-import { getAuthToken } from '@open-mercato/core/helpers/integration/authFixtures'
+import {
+  createRoleFixture,
+  createUserFixture,
+  deleteRoleIfExists,
+  deleteUserIfExists,
+  getAuthToken,
+} from '@open-mercato/core/helpers/integration/authFixtures'
 import { apiRequest } from '@open-mercato/core/helpers/integration/api'
-import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   deleteChannelIfExists,
   inspectMessageChannelLinks,
@@ -101,7 +107,7 @@ test.describe('TC-CHANNEL-EMAIL-HUB-004: compose from a connected mailbox', () =
     expect(inspected.links, 'no channel link should be written for a platform send').toEqual([])
   })
 
-  test('a mailbox the caller does not own is refused, not silently ignored', async ({ request }) => {
+  test('a mailbox nobody has connected is refused as not found', async ({ request }) => {
     const stamp = Date.now()
     const token = await getAuthToken(request)
     const seedingAvailable = await isChannelSeedingAvailable(request, token)
@@ -120,11 +126,82 @@ test.describe('TC-CHANNEL-EMAIL-HUB-004: compose from a connected mailbox', () =
       },
     })
 
-    expect([403, 404, 422]).toContain(response.status())
+    expect(response.status(), 'a nonexistent channel id is a 404, not a silent success').toBe(404)
     const body = await readJsonSafe<{ fieldErrors?: Record<string, string> }>(response)
     expect(
       body?.fieldErrors?.senderChannelId,
       'the failure should land on the composer sender field',
     ).toBeTruthy()
+  })
+
+  test('a mailbox connected by a different employee is refused, not silently ignored', async ({ request }) => {
+    const stamp = Date.now()
+    let adminToken: string | null = null
+    let ownerToken: string | null = null
+    let ownerUserId: string | null = null
+    let roleId: string | null = null
+    let channelId: string | null = null
+
+    try {
+      adminToken = await getAuthToken(request)
+      const seedingAvailable = await isChannelSeedingAvailable(request, adminToken)
+      test.skip(!seedingAvailable, 'OM_ENABLE_TEST_CHANNEL_SEEDING is not enabled.')
+
+      const scope = getTokenScope(adminToken)
+
+      const roleName = `qa_channel_hub_004_owner_${stamp}`
+      roleId = await createRoleFixture(request, adminToken, {
+        name: roleName,
+        tenantId: scope.tenantId,
+      })
+      const aclResp = await apiRequest(request, 'PUT', '/api/auth/roles/acl', {
+        token: adminToken,
+        data: {
+          roleId,
+          features: ['communication_channels.connect_user_channel'],
+        },
+      })
+      expect(aclResp.ok(), 'PUT /api/auth/roles/acl (channel owner) should succeed').toBeTruthy()
+
+      const ownerEmail = `qa-channel-hub-004-owner-${stamp}@example.com`
+      const ownerPassword = 'Valid1!Pass'
+      ownerUserId = await createUserFixture(request, adminToken, {
+        email: ownerEmail,
+        password: ownerPassword,
+        organizationId: scope.organizationId,
+        roles: [roleName],
+        name: 'QA Channel Hub 004 Owner',
+      })
+      ownerToken = await getAuthToken(request, ownerEmail, ownerPassword)
+
+      channelId = await seedConnectedChannel(request, ownerToken, {
+        displayName: `Someone else's mailbox ${stamp}`,
+        externalIdentifier: `channel-owner-${stamp}@example.com`,
+      })
+
+      const response = await apiRequest(request, 'POST', '/api/messages', {
+        token: adminToken,
+        data: {
+          type: 'default',
+          visibility: 'public',
+          externalEmail: `client-${stamp}@example.com`,
+          subject: `Borrowed mailbox ${stamp}`,
+          body: 'Should not be sent.',
+          bodyFormat: 'text',
+          senderChannelId: channelId,
+        },
+      })
+
+      expect(response.status(), 'sending through a channel owned by someone else is a 403').toBe(403)
+      const body = await readJsonSafe<{ fieldErrors?: Record<string, string> }>(response)
+      expect(
+        body?.fieldErrors?.senderChannelId,
+        'the failure should land on the composer sender field',
+      ).toBeTruthy()
+    } finally {
+      await deleteChannelIfExists(request, ownerToken, channelId)
+      await deleteUserIfExists(request, adminToken, ownerUserId)
+      await deleteRoleIfExists(request, adminToken, roleId)
+    }
   })
 })

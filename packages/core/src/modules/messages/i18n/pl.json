@@ -130,6 +130,7 @@
   "messages.errors.noRecipients": "Dodaj przynajmniej jednego odbiorcę.",
   "messages.errors.noSubject": "Wpisz temat.",
   "messages.errors.sendFailed": "Nie udało się wysłać wiadomości.",
+  "messages.errors.senderDraftSendUnsupported": "Wysyłka zapisanego szkicu przez połączoną skrzynkę nie jest jeszcze obsługiwana.",
   "messages.errors.senderPayloadUnsupported": "Wysyłka z własnej skrzynki nie obsługuje jeszcze załączników ani powiązanych rekordów.",
   "messages.errors.senderRequiresExternalRecipient": "Skrzynki nadawcy można użyć tylko w wiadomości do odbiorcy zewnętrznego.",
   "messages.errors.senderUnavailable": "Wysyłka z własnej skrzynki jest niedostępna.",

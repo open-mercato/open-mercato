@@ -39,7 +39,7 @@ type SendAsUserService = (
     userChannelId: string
     to: string[]
     subject: string
-    body: { plain?: string; html?: string }
+    body: { plain?: string; html?: string; bodyFormat?: 'text' | 'markdown' }
     parentMessageId?: string
     channelMetadata?: Record<string, unknown>
   },
@@ -82,14 +82,18 @@ export function requiresSenderDelegation(input: ComposeSenderRequest): boolean {
  * A markdown compose is rendered to HTML with the same renderer the platform
  * email path uses, and the markdown source rides along as the plain-text
  * alternative. Passing markdown through as `plain` alone would deliver the raw
- * markup — asterisks and pipes — to the client.
+ * markup — asterisks and pipes — to the client. `bodyFormat` rides along
+ * unchanged so the hub persists the in-app copy with the same format the
+ * platform path would have used, instead of always storing it as `'text'`
+ * (which would render the raw markdown source in the sender's own Sent view).
  */
 export async function buildSenderBody(
   body: string,
   bodyFormat: string | undefined,
-): Promise<{ plain?: string; html?: string }> {
-  if (bodyFormat !== 'markdown' || !body.trim()) return { plain: body }
-  return { plain: body, html: await renderMarkdownEmailBody(body) }
+): Promise<{ plain?: string; html?: string; bodyFormat?: 'text' | 'markdown' }> {
+  const format = bodyFormat === 'markdown' ? 'markdown' as const : 'text' as const
+  if (format !== 'markdown' || !body.trim()) return { plain: body, bodyFormat: format }
+  return { plain: body, html: await renderMarkdownEmailBody(body), bodyFormat: format }
 }
 
 /**

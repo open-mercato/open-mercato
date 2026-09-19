@@ -125,7 +125,7 @@ Contract surfaces touched, classified per `BACKWARD_COMPATIBILITY.md`:
 | DI keys | none added; `communicationChannelsSendAsUser` consumed as-is | unchanged |
 | Event ids, widget spot ids, ACL features, DB schema, CLI, notification ids | none | unchanged |
 
-No deprecation protocol applies: nothing is removed, renamed or narrowed. No `UPGRADE_NOTES.md` entry is required. The messages module keeps working with `communication_channels` disabled — verified by `packages/core/src/__tests__/module-decoupling.test.ts` and by the unit test asserting the route's behaviour when the facade cannot be resolved.
+No deprecation protocol applies: nothing is removed, renamed or narrowed. No `UPGRADE_NOTES.md` entry is required. The messages module keeps working with `communication_channels` disabled — verified by the `composeSenderDelegation.test.ts` unit test asserting the route's behaviour when the facade cannot be resolved.
 
 ## Risks & Impact Review
 

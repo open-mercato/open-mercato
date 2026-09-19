@@ -242,6 +242,14 @@ export const updateDraftSchema = z.object({
   actionData: messageActionDataSchema.optional(),
   sendViaEmail: z.boolean().optional(),
   isDraft: z.literal(false).optional(),
+  /**
+   * Accepted so the field is never silently stripped by zod, then explicitly
+   * rejected in the route: sending an existing draft through a connected
+   * mailbox is not implemented — `sendAsUser` composes a fresh message rather
+   * than updating one, so the caller must be told rather than silently
+   * falling back to the platform sender (#6262 review finding).
+   */
+  senderChannelId: z.string().uuid().optional(),
 }).superRefine((value, ctx) => {
   if (value.recipients) {
     const duplicateRecipientIds = collectDuplicateRecipientIds(value.recipients)

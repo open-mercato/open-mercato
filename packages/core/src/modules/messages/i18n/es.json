@@ -130,6 +130,7 @@
   "messages.errors.noRecipients": "Añade al menos un destinatario.",
   "messages.errors.noSubject": "Introduce un asunto.",
   "messages.errors.sendFailed": "No se pudo enviar el mensaje.",
+  "messages.errors.senderDraftSendUnsupported": "Enviar un borrador guardado desde un buzón conectado todavía no es compatible.",
   "messages.errors.senderPayloadUnsupported": "El envío desde tu propio buzón todavía no admite adjuntos ni registros vinculados.",
   "messages.errors.senderRequiresExternalRecipient": "Un buzón de remitente solo puede usarse en un mensaje dirigido a un destinatario externo.",
   "messages.errors.senderUnavailable": "El envío desde tu propio buzón no está disponible.",

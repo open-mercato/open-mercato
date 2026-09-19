@@ -56,20 +56,27 @@ describe('buildSenderBody', () => {
   })
 
   it('leaves a text body as plain text only', async () => {
-    await expect(buildSenderBody('Plain words', 'text')).resolves.toEqual({ plain: 'Plain words' })
+    await expect(buildSenderBody('Plain words', 'text')).resolves.toEqual({
+      plain: 'Plain words',
+      bodyFormat: 'text',
+    })
     expect(renderMarkdownEmailBody).not.toHaveBeenCalled()
   })
 
-  it('keeps the markdown source as the plain alternative beside rendered html', async () => {
+  it('keeps the markdown source as the plain alternative beside rendered html, tagged as markdown', async () => {
     const body = await buildSenderBody('# Heading', 'markdown')
 
     expect(renderMarkdownEmailBody).toHaveBeenCalledWith('# Heading')
     expect(body.plain).toBe('# Heading')
     expect(body.html).toBe('<rendered># Heading</rendered>')
+    expect(body.bodyFormat).toBe('markdown')
   })
 
   it('does not render an empty markdown body', async () => {
-    await expect(buildSenderBody('   ', 'markdown')).resolves.toEqual({ plain: '   ' })
+    await expect(buildSenderBody('   ', 'markdown')).resolves.toEqual({
+      plain: '   ',
+      bodyFormat: 'markdown',
+    })
     expect(renderMarkdownEmailBody).not.toHaveBeenCalled()
   })
 })
@@ -108,7 +115,7 @@ describe('delegateComposeToSender', () => {
         userChannelId: CHANNEL_ID,
         to: ['client@example.com'],
         subject: 'Quote',
-        body: { plain: 'Here it is' },
+        body: { plain: 'Here it is', bodyFormat: 'text' },
       }),
     )
   })
@@ -128,9 +135,14 @@ describe('delegateComposeToSender', () => {
       bodyFormat: 'markdown',
     })
 
-    const sentBody = sendAsUser.mock.calls[0][2].body as { plain?: string; html?: string }
+    const sentBody = sendAsUser.mock.calls[0][2].body as {
+      plain?: string
+      html?: string
+      bodyFormat?: string
+    }
     expect(sentBody.plain).toBe('**bold** and a [link](https://example.com)')
     expect(sentBody.html).toBe('<rendered>**bold** and a [link](https://example.com)</rendered>')
+    expect(sentBody.bodyFormat).toBe('markdown')
   })
 
   it('surfaces the facade 422 field errors on the composer sender field', async () => {
