@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mockup: Market display settings</title>
+<style>
+  :root {
+    --bg: #f8fafc; --panel: #ffffff; --border: #e2e8f0; --ink: #0f172a;
+    --muted: #64748b; --accent: #4f46e5; --accent-soft: #eef2ff;
+    --warn-bg: #fffbeb; --warn-border: #fde68a; --warn-ink: #92400e;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  .shell { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+  .side { background: var(--panel); border-right: 1px solid var(--border); padding: 16px 12px; }
+  .side h4 { margin: 0 0 8px; font-size: 11px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--muted); }
+  .side a { display: block; padding: 6px 10px; border-radius: 6px; color: var(--ink);
+    text-decoration: none; font-size: 13px; }
+  .side a.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .main { padding: 24px 28px; }
+  h1 { margin: 0 0 4px; font-size: 20px; }
+  .sub { margin: 0 0 20px; color: var(--muted); font-size: 13px; }
+  .cols { display: grid; grid-template-columns: 1fr 320px; gap: 24px; align-items: start; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 18px; margin-bottom: 16px; }
+  .card h3 { margin: 0 0 14px; font-size: 13px; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .fld { border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px;
+    background: #fff; font-size: 13px; }
+  .fld.sel::after { content: " \25BE"; color: var(--muted); float: right; }
+  .tpl { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; }
+  .chip { border: 1px solid var(--border); border-radius: 999px; padding: 5px 14px;
+    font-size: 13px; background: #fff; }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .preview { position: sticky; top: 24px; }
+  .prow { display: flex; justify-content: space-between; gap: 12px;
+    padding: 7px 0; border-bottom: 1px dashed var(--border); font-size: 13px; }
+  .prow:last-child { border-bottom: 0; }
+  .prow span:first-child { color: var(--muted); }
+  .prow span:last-child { font-weight: 600; text-align: right; }
+  .note { background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--warn-ink);
+    border-radius: 8px; padding: 10px 12px; font-size: 12px; margin-bottom: 16px; }
+  .bar { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+  .btn { border-radius: 6px; padding: 8px 16px; font-size: 13px; border: 1px solid var(--border);
+    background: #fff; }
+  .btn.p { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .flag { display: inline-block; font-size: 11px; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; margin-left: 6px; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="side">
+    <h4>Settings</h4>
+    <a href="#">General</a>
+    <a href="#">Users and roles</a>
+    <a href="#">Localization</a>
+    <a class="on" href="#">Market display</a>
+    <a href="#">Currencies</a>
+    <a href="#">Tax rates</a>
+    <a href="#">Documents</a>
+  </nav>
+  <main class="main">
+    <h1>Market display</h1>
+    <p class="sub">How this organization renders dates, amounts, addresses, units and documents.
+      Stored data never changes; only its presentation does.</p>
+
+    <div class="tpl">
+      <strong style="font-size:13px">Market template</strong>
+      <span class="chip on">United States</span>
+      <span class="chip">European Union</span>
+      <span style="font-size:12px;color:var(--muted)">Fills every field below. You can change any of them afterwards.</span>
+    </div>
+
+    <div class="cols">
+      <div>
+        <div class="card">
+          <h3>Language and currency</h3>
+          <div class="grid">
+            <div><label>Language tag</label><div class="fld sel">en-US</div></div>
+            <div><label>Currency</label><div class="fld sel">USD</div></div>
+            <div><label>Currency display</label><div class="fld sel">Symbol ($1,234.56)</div></div>
+            <div><label>Negative amounts</label><div class="fld sel">Minus sign</div></div>
+            <div><label>Decimal separator</label><div class="fld">.</div></div>
+            <div><label>Thousands separator</label><div class="fld">,</div></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Dates and times</h3>
+          <div class="grid">
+            <div><label>Date format</label><div class="fld">MM/dd/yyyy</div></div>
+            <div><label>Date and time format</label><div class="fld">MM/dd/yyyy h:mm a</div></div>
+            <div><label>Time format</label><div class="fld">h:mm a</div></div>
+            <div><label>Hour cycle</label><div class="fld sel">12 hour (3:45 PM)</div></div>
+            <div><label>First day of week</label><div class="fld sel">Sunday</div></div>
+            <div><label>Time zone</label><div class="fld sel">America/Chicago</div></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Addresses</h3>
+          <div class="grid">
+            <div><label>Address layout</label><div class="fld sel">United States</div></div>
+            <div><label>Default country</label><div class="fld sel">United States (US)</div></div>
+            <div><label>Subdivision</label><div class="fld sel">Required, from the state list</div></div>
+            <div><label>Postal code pattern</label><div class="fld">^\d{5}(-\d{4})?$</div></div>
+            <div><label>Phone display</label><div class="fld">(###) ###-####</div></div>
+            <div><label>Default dial code</label><div class="fld">+1</div></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Units and documents</h3>
+          <div class="grid">
+            <div><label>Measurement system</label><div class="fld sel">US customary</div></div>
+            <div><label>Default weight unit</label><div class="fld sel">lb</div></div>
+            <div><label>Default length unit</label><div class="fld sel">in</div></div>
+            <div><label>Length display</label><div class="fld sel">Feet and inches</div></div>
+            <div><label>Paper size</label><div class="fld sel">Letter</div></div>
+            <div><label>Price presentation</label><div class="fld sel">Single price plus tax</div></div>
+          </div>
+          <div class="note" style="margin:14px 0 0">
+            Single price plus tax hides the gross column on every document and shows a separate
+            tax line. Amounts already stored on issued documents are not recalculated.
+          </div>
+        </div>
+
+        <div class="bar">
+          <button class="btn">Cancel</button>
+          <button class="btn p">Save</button>
+        </div>
+      </div>
+
+      <aside class="preview">
+        <div class="card">
+          <h3>Live preview <span class="flag">updates as you type</span></h3>
+          <div class="prow"><span>Date</span><span>09/18/2026</span></div>
+          <div class="prow"><span>Date and time</span><span>09/18/2026 3:45 PM</span></div>
+          <div class="prow"><span>Amount</span><span>$48,250.00</span></div>
+          <div class="prow"><span>Negative amount</span><span>-$1,204.50</span></div>
+          <div class="prow"><span>Phone</span><span>(214) 555-0100</span></div>
+          <div class="prow"><span>Length</span><span>27 ft 6 in</span></div>
+          <div class="prow"><span>Weight</span><span>1,240 lb</span></div>
+          <div class="prow"><span>Week starts</span><span>Sunday</span></div>
+          <div class="prow" style="align-items:flex-start">
+            <span>Address</span>
+            <span style="font-weight:600;line-height:1.45">Ridgeview Collision<br>
+              1200 Industrial Blvd<br>Suite 4<br>PLANO TX 75074-2210</span>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+</body>
+</html>
