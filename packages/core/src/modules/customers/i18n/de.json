@@ -30,6 +30,7 @@
   "customers.activities.errors.dateRequired": "Datum ist erforderlich",
   "customers.activities.errors.participantEmailInvalid": "Geben Sie eine gültige E-Mail-Adresse für einen Gastteilnehmer ein (z. B. gast@example.org)",
   "customers.activities.errors.participantIdentityRequired": "Ein Teilnehmer benötigt entweder einen Benutzerdatensatz oder eine E-Mail-Adresse",
+  "customers.activities.errors.phoneConflict": "Geben Sie in phoneNumber und customValues.callPhoneNumber dieselbe Telefonnummer an.",
   "customers.activities.errors.phoneInvalid": "Geben Sie eine gültige Telefonnummer mit Ländervorwahl ein (z. B. +49 30 1234567)",
   "customers.activities.errors.phoneRequired": "Telefonnummer ist für Anrufaktivitäten erforderlich",
   "customers.activities.errors.timeRequired": "Uhrzeit ist erforderlich",

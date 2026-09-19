@@ -1,8 +1,42 @@
 import { z, type ZodTypeAny } from 'zod'
 import type { OpenApiResponseDoc, OpenApiRouteDoc } from './types'
 
-export const defaultCreateResponseSchema = z.object({ id: z.string().uuid().nullable() })
-export const defaultOkResponseSchema = z.object({ ok: z.literal(true) })
+/**
+ * Keys a write endpoint was asked to set and did not.
+ *
+ * Present on create and update responses whenever the request carried something the
+ * endpoint will not write, so a caller can assert on the response instead of reading
+ * the record back. Absent when there is nothing to report.
+ */
+export const ignoredFieldsResponseSchema = z
+  .array(
+    z.object({
+      key: z.string(),
+      reason: z.enum(['unknown', 'immutable', 'misspelled']),
+    })
+  )
+  .optional()
+
+/** The 400 the write guard answers with. Named fields say which keys were at fault. */
+export const writeGuardErrorResponse: OpenApiResponseDoc = {
+  status: 400,
+  description:
+    'A field was sent twice with different values, cannot be changed after creation, or is not writable on this endpoint.',
+  schema: z.object({
+    error: z.string(),
+    fields: z.array(z.string()).optional(),
+    details: z.string().optional(),
+  }),
+}
+
+export const defaultCreateResponseSchema = z.object({
+  id: z.string().uuid().nullable(),
+  ignoredFields: ignoredFieldsResponseSchema,
+})
+export const defaultOkResponseSchema = z.object({
+  ok: z.literal(true),
+  ignoredFields: ignoredFieldsResponseSchema,
+})
 
 export type PagedListResponseOptions = {
   paginationMetaOptional?: boolean
@@ -27,6 +61,9 @@ type CrudMethodConfig = {
   schema: ZodTypeAny
   description?: string
   responseSchema?: ZodTypeAny
+  // Route-supplied error responses, merged with the write guard's 400. Delete
+  // already had this; create and update need it for the same reason.
+  errors?: OpenApiResponseDoc[]
 }
 
 type CrudCreateConfig = CrudMethodConfig & {
@@ -161,6 +198,7 @@ export function createCrudOpenApiFactory(config: CrudOpenApiFactoryConfig) {
             schema: create.responseSchema ?? fallbackCreateResponseSchema,
           },
         ],
+        errors: [...(create.errors ?? []), writeGuardErrorResponse],
       }
     }
 
@@ -190,6 +228,7 @@ export function createCrudOpenApiFactory(config: CrudOpenApiFactoryConfig) {
             schema: update.responseSchema ?? fallbackOkResponseSchema,
           },
         ],
+        errors: [...(update.errors ?? []), writeGuardErrorResponse],
       }
     }
 

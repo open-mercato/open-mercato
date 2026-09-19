@@ -30,6 +30,7 @@
   "customers.activities.errors.dateRequired": "Data jest wymagana",
   "customers.activities.errors.participantEmailInvalid": "Wprowadź prawidłowy adres e-mail uczestnika zewnętrznego (np. gosc@example.org)",
   "customers.activities.errors.participantIdentityRequired": "Uczestnik wymaga rekordu użytkownika lub adresu e-mail",
+  "customers.activities.errors.phoneConflict": "Podaj ten sam numer telefonu w phoneNumber i customValues.callPhoneNumber.",
   "customers.activities.errors.phoneInvalid": "Wprowadź prawidłowy numer telefonu z numerem kierunkowym kraju (np. +48 123 456 789)",
   "customers.activities.errors.phoneRequired": "Numer telefonu jest wymagany dla aktywności typu Połączenie",
   "customers.activities.errors.timeRequired": "Godzina jest wymagana",
