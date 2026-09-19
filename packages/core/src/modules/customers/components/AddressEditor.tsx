@@ -33,7 +33,7 @@ import {
 } from '@open-mercato/shared/lib/display/address'
 import { normalizePhoneInput } from '@open-mercato/shared/lib/display/phone'
 import { LEGACY_DISPLAY_DEFAULTS, type DisplayProfile } from '@open-mercato/shared/lib/display/profile'
-import { isValidSubdivision } from '@open-mercato/shared/lib/location/subdivisions'
+import { findSubdivision } from '@open-mercato/shared/lib/location/subdivisions'
 import { resolveTaxIdLabel, type AddressFormatStrategy } from '../utils/addressFormat'
 import { useAddressTypes } from './detail/hooks/useAddressTypes'
 
@@ -197,9 +197,18 @@ export function AddressEditor({
     [current, onChange],
   )
 
-  const descriptor = React.useMemo(
-    () => resolveAddressLayout(addressDisplayProfile(format, activeProfile)),
+  const displayProfile = React.useMemo(
+    () => addressDisplayProfile(format, activeProfile),
     [format, activeProfile],
+  )
+
+  // The state list follows the address, not the organization: the country selected in this form wins,
+  // and the market's home country is only the fallback for a country field nobody has filled yet.
+  const effectiveCountry = current.country.trim() || displayProfile.defaultCountryCode
+
+  const descriptor = React.useMemo(
+    () => resolveAddressLayout(displayProfile, { country: effectiveCountry }),
+    [displayProfile, effectiveCountry],
   )
 
   // A market with a home country should not make every merchant type it on every address. Seeded at
@@ -240,12 +249,12 @@ export function AddressEditor({
     t('customers.people.detail.addresses.fields.line2', 'Address line 2'),
   )
 
-  const effectiveCountry = current.country.trim() || descriptor.defaultCountryCode
   // Warnings, never errors: a display setting must not make data that predates it unsaveable.
+  const selectedSubdivision = findSubdivision(effectiveCountry, current.region)
   const subdivisionWarning =
     descriptor.subdivisions.length > 0
     && current.region.trim().length > 0
-    && !isValidSubdivision(effectiveCountry, current.region)
+    && !selectedSubdivision
   const postalCodeWarning = !isValidPostalCode(current.postalCode, descriptor.postalCodePattern)
 
   const filteredCountryOptions = React.useMemo(() => {
@@ -472,7 +481,9 @@ export function AddressEditor({
         {errors.city ? <p className="text-xs text-destructive">{errors.city}</p> : null}
         {descriptor.subdivisions.length ? (
           <Select
-            value={current.region || undefined}
+            // A record holding a legacy full name preselects its state without the value being
+            // rewritten; anything the table does not know leaves the placeholder showing.
+            value={selectedSubdivision?.code ?? undefined}
             onValueChange={(next) => update('region', next ?? '')}
             disabled={disabled}
           >

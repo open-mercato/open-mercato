@@ -91,6 +91,39 @@ export function isValidSubdivision(countryCode: string | null | undefined, code:
   return getSubdivisions(countryCode).some((subdivision) => subdivision.code === normalizedCode)
 }
 
+/**
+ * The rows an address picker offers: states and districts, in table order.
+ *
+ * Territories keep their place in the table and stay valid, they are just not offered in a picker:
+ * a five-entry list of places with their own postal conventions is noise above a state dropdown,
+ * while an existing record holding `PR` must keep validating. `isValidSubdivision` is therefore
+ * deliberately NOT filtered the same way.
+ */
+export function getSelectableSubdivisions(countryCode: string | null | undefined): readonly Subdivision[] {
+  const all = getSubdivisions(countryCode)
+  if (!all.length) return EMPTY
+  return all.filter((subdivision) => subdivision.type !== 'territory')
+}
+
+/**
+ * The subdivision a stored `region` value denotes, matched by code or by name, case-insensitively
+ * and trimmed. `null` when the country has no list or the value matches nothing.
+ *
+ * Name matching is what lets a record written before the picker existed (`Texas`, `texas`) preselect
+ * its state without the value being rewritten on open.
+ */
+export function findSubdivision(
+  countryCode: string | null | undefined,
+  value: string | null | undefined,
+): Subdivision | null {
+  const normalizedValue = typeof value === 'string' ? value.trim().toUpperCase() : ''
+  if (!normalizedValue) return null
+  const candidates = getSubdivisions(countryCode)
+  return candidates.find((subdivision) => subdivision.code === normalizedValue)
+    ?? candidates.find((subdivision) => subdivision.name.toUpperCase() === normalizedValue)
+    ?? null
+}
+
 export function hasSubdivisions(countryCode: string | null | undefined): boolean {
   return getSubdivisions(countryCode).length > 0
 }

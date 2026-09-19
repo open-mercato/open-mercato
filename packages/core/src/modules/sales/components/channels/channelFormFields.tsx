@@ -1,10 +1,19 @@
 "use client"
 
 import * as React from 'react'
-import type { CrudField, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import type { CrudCustomFieldRenderProps, CrudField, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useDisplayProfile } from '@open-mercato/ui/backend/markets/MarketProfileProvider'
+import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { resolveAddressLayout } from '@open-mercato/shared/lib/display/address'
+import { findSubdivision } from '@open-mercato/shared/lib/location/subdivisions'
 import { LEGACY_DISPLAY_DEFAULTS } from '@open-mercato/shared/lib/display/profile'
 
 export type ChannelFormValues = {
@@ -28,12 +37,71 @@ export type ChannelFormValues = {
 
 /**
  * The channel address is a postal address like any other, so it takes its region and postal-code
- * wording - and the state list, when the market ships one - from the same descriptor the address
- * editors read. Without a market the labels are the ones this form already showed.
+ * wording - and the state list for the country it currently holds - from the same descriptor the
+ * address editors read. Without a market the labels are the ones this form already showed.
+ *
+ * `country` is what makes the list follow the address rather than the organization. The label hooks
+ * call this without one, because the wording is a market convention and not a property of the
+ * country typed into the form.
  */
-function useChannelAddressDescriptor() {
+function useChannelAddressDescriptor(country?: string | null) {
   const profile = useDisplayProfile()
-  return React.useMemo(() => resolveAddressLayout(profile), [profile])
+  return React.useMemo(() => resolveAddressLayout(profile, { country }), [country, profile])
+}
+
+/**
+ * The channel form's region control, as a CrudForm `custom` field.
+ *
+ * `fields` is memoized once per render of `useChannelFields` and cannot change a field's `type` on a
+ * sibling's value, so a `select`-or-`text` branch decided at hook time could never react to the
+ * country. A `custom` field receives the live form values and re-renders with them, which is the
+ * sanctioned CrudForm mechanism for a field that depends on a sibling.
+ */
+export function ChannelRegionField({ id, value, error, disabled, values, setValue }: CrudCustomFieldRenderProps) {
+  const labels = useChannelFieldLabels()
+  const country = typeof values?.country === 'string' ? values.country : null
+  const descriptor = useChannelAddressDescriptor(country)
+  const current = typeof value === 'string' ? value : ''
+  const selected = findSubdivision(country, current)
+
+  if (!descriptor.subdivisions.length) {
+    return (
+      <Input
+        id={id}
+        value={current}
+        onChange={(evt) => setValue(evt.target.value)}
+        disabled={disabled}
+        aria-label={labels.region}
+        aria-invalid={error ? 'true' : undefined}
+      />
+    )
+  }
+
+  return (
+    <Select
+      // A channel saved before the picker existed can hold the full state name; it preselects its
+      // state without the stored value being rewritten.
+      value={selected?.code ?? undefined}
+      onValueChange={(next) => setValue(next ?? '')}
+      disabled={disabled}
+    >
+      <SelectTrigger
+        id={id}
+        className={error ? 'border-destructive' : undefined}
+        aria-label={labels.region}
+        aria-invalid={error ? 'true' : undefined}
+      >
+        <SelectValue placeholder={labels.region} />
+      </SelectTrigger>
+      <SelectContent>
+        {descriptor.subdivisions.map((entry) => (
+          <SelectItem key={entry.code} value={entry.code}>
+            {entry.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
 }
 
 function useChannelFieldLabels() {
@@ -76,10 +144,6 @@ export function useChannelFields(): { fields: CrudField[]; groups: CrudFormGroup
   const t = useT()
   const labels = useChannelFieldLabels()
   const descriptor = useChannelAddressDescriptor()
-  const subdivisionOptions = React.useMemo(
-    () => descriptor.subdivisions.map((entry) => ({ value: entry.code, label: entry.name })),
-    [descriptor],
-  )
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'name', label: labels.name, type: 'text', required: true },
     {
@@ -125,20 +189,15 @@ export function useChannelFields(): { fields: CrudField[]; groups: CrudFormGroup
       type: 'text',
       layout: 'half',
     },
-    subdivisionOptions.length
-      ? {
-          id: 'region',
-          label: labels.region,
-          type: 'select' as const,
-          layout: 'half' as const,
-          options: subdivisionOptions,
-        }
-      : {
-          id: 'region',
-          label: labels.region,
-          type: 'text' as const,
-          layout: 'half' as const,
-        },
+    {
+      // `id`, `label` and `layout` are unchanged, so the address group definition and any injected
+      // widget targeting `region` are unaffected by the switch to a custom control.
+      id: 'region',
+      label: labels.region,
+      type: 'custom',
+      layout: 'half',
+      component: (props: CrudCustomFieldRenderProps) => <ChannelRegionField {...props} />,
+    },
     {
       id: 'postalCode',
       label: labels.postalCode,
@@ -169,7 +228,7 @@ export function useChannelFields(): { fields: CrudField[]; groups: CrudFormGroup
       label: labels.isActive,
       type: 'checkbox',
     },
-  ], [descriptor.defaultCountryCode, labels, subdivisionOptions])
+  ], [descriptor.defaultCountryCode, labels])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {

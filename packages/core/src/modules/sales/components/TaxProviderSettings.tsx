@@ -18,6 +18,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { findSubdivision, getSelectableSubdivisions } from '@open-mercato/shared/lib/location/subdivisions'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { renderProviderFieldInput } from './ProviderFieldInput'
 import type { ProviderSettingField } from '../lib/providers'
@@ -102,6 +103,12 @@ export function TaxProviderSettings({ taxRatesSlot }: { taxRatesSlot?: React.Rea
   const [providerSettings, setProviderSettings] = React.useState<Record<string, unknown>>({})
   const [shipFromAddress, setShipFromAddress] = React.useState<ShipFromAddress>({})
   const [timeoutMs, setTimeoutMs] = React.useState<number | ''>('')
+
+  // The picker follows the ship-from country, like every other address form. No profile lookup is
+  // needed here: which subdivisions a country has is a fact about the country, not about the market.
+  const shipFromCountry = typeof shipFromAddress.country === 'string' ? shipFromAddress.country : null
+  const shipFromSubdivisions = getSelectableSubdivisions(shipFromCountry)
+  const shipFromSubdivision = findSubdivision(shipFromCountry, shipFromAddress.region)
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
@@ -352,14 +359,41 @@ export function TaxProviderSettings({ taxRatesSlot }: { taxRatesSlot?: React.Rea
                 {SHIP_FROM_FIELDS.map((field) => (
                   <div key={field} className="space-y-1">
                     <Label htmlFor={`ship-from-${field}`}>{translations.shipFromFields[field]}</Label>
-                    <Input
-                      id={`ship-from-${field}`}
-                      value={typeof shipFromAddress[field] === 'string' ? (shipFromAddress[field] as string) : ''}
-                      onChange={(evt) =>
-                        setShipFromAddress((prev) => ({ ...prev, [field]: evt.target.value }))
-                      }
-                      disabled={busy}
-                    />
+                    {field === 'region' && shipFromSubdivisions.length ? (
+                      <Select
+                        // The ship-from state is exactly what a tax provider keys on, so it gets the
+                        // same picker as every other address form. A value saved before the picker
+                        // existed preselects its state and is not rewritten until the user picks.
+                        value={shipFromSubdivision?.code ?? undefined}
+                        onValueChange={(next) =>
+                          setShipFromAddress((prev) => ({ ...prev, region: next ?? '' }))
+                        }
+                        disabled={busy}
+                      >
+                        <SelectTrigger
+                          id="ship-from-region"
+                          aria-label={translations.shipFromFields.region}
+                        >
+                          <SelectValue placeholder={translations.shipFromFields.region} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {shipFromSubdivisions.map((entry) => (
+                            <SelectItem key={entry.code} value={entry.code}>
+                              {entry.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        id={`ship-from-${field}`}
+                        value={typeof shipFromAddress[field] === 'string' ? (shipFromAddress[field] as string) : ''}
+                        onChange={(evt) =>
+                          setShipFromAddress((prev) => ({ ...prev, [field]: evt.target.value }))
+                        }
+                        disabled={busy}
+                      />
+                    )}
                   </div>
                 ))}
               </div>

@@ -2,9 +2,15 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { TaxProviderSettings } from '../TaxProviderSettings'
 import SalesConfigurationPage from '../../backend/config/sales/page'
+
+if (typeof window !== 'undefined') {
+  if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = () => false
+  if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => undefined
+  if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => undefined
+}
 
 /**
  * The tax section of the sales configuration page is a single decision: which
@@ -124,6 +130,74 @@ describe('TaxProviderSettings', () => {
     expect(screen.getByLabelText('Company code')).toBeInTheDocument()
     expect(screen.getByLabelText('Address line 1')).toBeInTheDocument()
     expect(screen.getByLabelText('Timeout (ms)')).toBeInTheDocument()
+  })
+})
+
+/**
+ * The ship-from state is the field a tax provider keys on, so it gets the same picker as every other
+ * address form: a dropdown when the ship-from country has a subdivision list, free text otherwise.
+ */
+describe('TaxProviderSettings - the ship-from region follows the ship-from country', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  const withShipFrom = (address: Record<string, string>) =>
+    respondWith({
+      providers: [DEFAULT_PROVIDER, EXTERNAL_PROVIDER],
+      providerKey: 'avalara',
+      shipFromAddress: { addressLine1: 'Main Street 1', city: 'Plano', postalCode: '75074', ...address },
+    })
+
+  async function renderWithShipFrom(address: Record<string, string>) {
+    withShipFrom(address)
+    renderSettings()
+    await waitFor(() => expect(screen.getByTestId('sales-tax-provider-settings')).toBeInTheDocument())
+  }
+
+  it('offers the 50 states plus DC when the ship-from country is the United States', async () => {
+    await renderWithShipFrom({ country: 'US', region: '' })
+
+    const trigger = screen.getByRole('combobox', { name: 'Region' })
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false })
+    fireEvent.click(trigger)
+
+    expect(screen.getAllByRole('option')).toHaveLength(51)
+    expect(screen.getByRole('option', { name: 'Texas' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Puerto Rico' })).toBeNull()
+  })
+
+  it('keeps the free-text input for a country with no subdivision list', async () => {
+    await renderWithShipFrom({ country: 'PL', region: 'Mazowieckie' })
+
+    expect(screen.queryByRole('combobox', { name: 'Region' })).toBeNull()
+    expect(screen.getByLabelText('Region')).toHaveValue('Mazowieckie')
+  })
+
+  it('preselects the state a legacy full name denotes', async () => {
+    await renderWithShipFrom({ country: 'US', region: 'Texas' })
+
+    expect(screen.getByRole('combobox', { name: 'Region' })).toHaveTextContent('Texas')
+  })
+
+  it('saves the two-letter code the picker produced', async () => {
+    await renderWithShipFrom({ country: 'US', region: '' })
+
+    const trigger = screen.getByRole('combobox', { name: 'Region' })
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false })
+    fireEvent.click(trigger)
+    const option = screen.getByRole('option', { name: 'Texas' })
+    fireEvent.pointerDown(option)
+    fireEvent.click(option)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+
+    await waitFor(() => {
+      const put = apiCallMock.mock.calls.find(([, init]) => (init as { method?: string })?.method === 'PUT')
+      expect(put).toBeDefined()
+      const body = JSON.parse((put![1] as { body: string }).body)
+      expect(body.shipFromAddress.region).toBe('TX')
+    })
   })
 })
 

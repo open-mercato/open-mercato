@@ -156,13 +156,31 @@ describe('address', () => {
     const descriptor = resolveAddressLayout(US_DISPLAY_TEMPLATE)
     expect(descriptor.layout).toBe('us')
     expect(descriptor.showBuildingAndFlatNumber).toBe(false)
-    expect(descriptor.subdivisions.length).toBe(56)
+    // The picker offers the 50 states plus DC; the five territories stay valid but unlisted.
+    expect(descriptor.subdivisions.length).toBe(51)
     expect(descriptor.postalCodeLabelKey).toBe('markets.address.label.zipCode')
 
     const legacy = resolveAddressLayout(null)
     expect(legacy.layout).toBe('line_first')
     expect(legacy.showBuildingAndFlatNumber).toBe(true)
     expect(legacy.subdivisions).toEqual([])
+  })
+
+  it('lists the subdivisions of the address country, not the market home country', () => {
+    // The case the brief describes: a merchant with no market entering a US address.
+    const noProfile = resolveAddressLayout(null, { country: 'US' })
+    expect(noProfile.subdivisions.length).toBe(51)
+    expect(noProfile.layout).toBe('line_first')
+
+    // The inverse defect: a US-market merchant entering a Canadian address.
+    const canadianUnderUs = resolveAddressLayout(US_DISPLAY_TEMPLATE, { country: 'CA' })
+    expect(canadianUnderUs.subdivisions).toEqual([])
+    expect(canadianUnderUs.postalCodeLabelKey).toBe('markets.address.label.zipCode')
+
+    // A blank or absent country falls back to today's profile-keyed rule.
+    expect(resolveAddressLayout(US_DISPLAY_TEMPLATE, { country: '  ' }).subdivisions.length).toBe(51)
+    expect(resolveAddressLayout(US_DISPLAY_TEMPLATE, { country: null }).subdivisions.length).toBe(51)
+    expect(resolveAddressLayout(EU_DISPLAY_TEMPLATE, {}).subdivisions).toEqual([])
   })
 
   it('validates ZIP and state without ever hard-failing an empty value', () => {
@@ -183,6 +201,17 @@ describe('address', () => {
       'invalid_postal_code',
     ])
     expect(validateAddressForProfile(legacyRow, null)).toEqual([])
+  })
+
+  it('accepts a legacy full state name and still flags a value that denotes no state', () => {
+    // A five-year-old row holding `Texas` must not start warning now that the picker exists.
+    expect(validateAddressForProfile({ ...texas, region: 'Texas' }, US_DISPLAY_TEMPLATE)).toEqual([])
+    expect(validateAddressForProfile({ ...texas, region: 'texas' }, US_DISPLAY_TEMPLATE)).toEqual([])
+    // A territory code is data the table knows, so it raises nothing either.
+    expect(validateAddressForProfile({ ...texas, region: 'PR' }, US_DISPLAY_TEMPLATE)).toEqual([])
+    expect(validateAddressForProfile({ ...texas, region: 'Mazowieckie' }, US_DISPLAY_TEMPLATE)).toEqual([
+      'invalid_subdivision',
+    ])
   })
 })
 

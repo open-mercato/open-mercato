@@ -1,5 +1,5 @@
 import { testLinearRegex } from '../regex/linear'
-import { getSubdivisions, isValidSubdivision, type Subdivision } from '../location/subdivisions'
+import { findSubdivision, getSelectableSubdivisions, type Subdivision } from '../location/subdivisions'
 import { LEGACY_DISPLAY_DEFAULTS, withProfile, type AddressLayout, type DisplayProfile } from './profile'
 
 /**
@@ -33,7 +33,12 @@ export type AddressLayoutDescriptor = {
   postalCodeLabelKey: string
   subdivisionLabelKey: string
   addressLine2LabelKey: string
-  /** Render `region` as a select over these when non-empty, otherwise as a text input. */
+  /**
+   * Render `region` as a select over these when non-empty, otherwise as a text input.
+   *
+   * These are the subdivisions of the address's own country when the caller supplied one, and of
+   * the profile's home country otherwise.
+   */
   subdivisions: readonly Subdivision[]
   subdivisionRequired: boolean
   postalCodePattern: string | null
@@ -78,10 +83,32 @@ export function addressDisplayProfile(
   return { ...LEGACY_DISPLAY_DEFAULTS, addressLayout: fallbackLayout }
 }
 
-export function resolveAddressLayout(profile?: DisplayProfile | null): AddressLayoutDescriptor {
+export type AddressLayoutOptions = {
+  /** The address's own country. When set, `subdivisions` lists this country, not the profile's home country. */
+  country?: string | null
+}
+
+/**
+ * What an address form should render, for a market and for the country the form currently holds.
+ *
+ * The subdivision list follows the address, not the organization: a Polish merchant entering an Ohio
+ * address needs the Ohio dropdown, and a Texan merchant entering an Ontario address must not be
+ * offered US states. Everything else in the descriptor stays a market decision - the label wording,
+ * whether a subdivision is required, the postal-code pattern and the default country.
+ *
+ * `options` is optional so the callers that render or validate without a form (the market profile
+ * preview, `formatAddress`) keep today's profile-keyed behavior.
+ */
+export function resolveAddressLayout(
+  profile?: DisplayProfile | null,
+  options?: AddressLayoutOptions,
+): AddressLayoutDescriptor {
   const resolved = withProfile(profile)
   const countryCode = resolved.defaultCountryCode
-  const subdivisions = resolved.subdivisionRequired ? getSubdivisions(countryCode) : []
+  const addressCountry = normalize(options?.country)
+  const subdivisions = addressCountry
+    ? getSelectableSubdivisions(addressCountry)
+    : (resolved.subdivisionRequired ? getSelectableSubdivisions(countryCode) : [])
   return {
     layout: resolved.addressLayout,
     postalCodeLabelKey: resolved.postalCodeLabelKey,
@@ -127,7 +154,9 @@ export function validateAddressForProfile(
   const region = normalize(address.region)
   const country = normalize(address.country) ?? descriptor.defaultCountryCode
 
-  if (descriptor.subdivisionRequired && region && !isValidSubdivision(country, region)) {
+  // Matched through `findSubdivision`, so a record written before the picker existed and holding
+  // `Texas` rather than `TX` is recognized instead of being flagged (spec invariant 3).
+  if (descriptor.subdivisionRequired && region && !findSubdivision(country, region)) {
     issues.push('invalid_subdivision')
   }
   if (!isValidPostalCode(address.postalCode, descriptor.postalCodePattern)) {
