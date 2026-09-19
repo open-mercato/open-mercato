@@ -13,27 +13,12 @@ import { Tag } from '@open-mercato/ui/primitives/tag'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useBatchLabels } from './useBatchLabels'
+import { normalizePriceRecord, type NormalizedPriceRecord } from './normalizePriceRecord'
 
-type PriceRow = {
-  id: string
-  productId: string | null
-  variantId: string | null
-  currencyCode: string
-  kind: string
-  minQuantity: number
-  maxQuantity: number | null
-  unitPriceNet: string | null
-  unitPriceGross: string | null
-  channelId: string | null
-  customerId: string | null
-  customerGroupId: string | null
-  startsAt: string | null
-  endsAt: string | null
-  updatedAt?: string | null
-}
+type PriceRow = NormalizedPriceRecord
 
 type PricesResponse = {
   items: PriceRow[]
@@ -56,10 +41,10 @@ const KIND_TAG_VARIANT: Record<string, 'brand' | 'warning' | 'info' | 'neutral'>
 function formatAmount(row: PriceRow): string {
   const amount = row.unitPriceNet ?? row.unitPriceGross
   if (amount == null) return '—'
-  return `${amount} ${row.currencyCode}`
+  return row.currencyCode ? `${amount} ${row.currencyCode}` : amount
 }
 
-function formatQuantityRange(row: PriceRow, t: (key: string, fallback?: string, vars?: Record<string, unknown>) => string): string {
+function formatQuantityRange(row: PriceRow, t: TranslateFn): string {
   if (row.maxQuantity != null) {
     return `${row.minQuantity}–${row.maxQuantity}`
   }
@@ -110,17 +95,26 @@ export default function PricesDataTable({ productId }: { productId?: string } = 
   const { data, isLoading } = useQuery<PricesResponse>({
     queryKey: ['catalog-prices', queryParams, scopeVersion],
     queryFn: async () => {
-      const payload = await readApiResultOrThrow<PricesResponse>(
+      const payload = await readApiResultOrThrow<{
+        items?: Array<Record<string, unknown>>
+        total?: number
+        page?: number
+        pageSize?: number
+        totalPages?: number
+        totalIsCapped?: boolean
+      }>(
         `/api/catalog/prices?${queryParams}`,
         undefined,
         { errorMessage: t('catalog.prices.list.error.load', 'Failed to load price rules') },
       )
+      const rawItems = Array.isArray(payload.items) ? payload.items : []
       return {
-        items: Array.isArray(payload.items) ? payload.items : [],
+        items: rawItems.map(normalizePriceRecord),
         total: typeof payload.total === 'number' ? payload.total : 0,
         page: typeof payload.page === 'number' ? payload.page : 1,
         pageSize: typeof payload.pageSize === 'number' ? payload.pageSize : PAGE_SIZE,
         totalPages: typeof payload.totalPages === 'number' ? payload.totalPages : 1,
+        totalIsCapped: payload.totalIsCapped === true,
       }
     },
   })

@@ -10,32 +10,10 @@ import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/deta
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
 import { usePriceFormFields, type PriceFormValues } from '../../../../../components/prices/priceFormFields'
-
-type PriceRecord = {
-  id: string
-  productId: string | null
-  variantId: string | null
-  priceKindId: string | null
-  currencyCode: string | null
-  unitPriceNet: string | null
-  unitPriceGross: string | null
-  taxRate: string | null
-  minQuantity: number | null
-  maxQuantity: number | null
-  startsAt: string | null
-  endsAt: string | null
-  customerId: string | null
-  customerGroupId: string | null
-  channelId: string | null
-  offerId: string | null
-  userId: string | null
-  userGroupId: string | null
-  updatedAt?: string | null
-  updated_at?: string | null
-}
+import { normalizePriceRecord } from '../../../../../components/prices/normalizePriceRecord'
 
 type PriceListResponse = {
-  items?: PriceRecord[]
+  items?: Array<Record<string, unknown>>
 }
 
 function toDateInputValue(value: string | null | undefined): string {
@@ -105,12 +83,13 @@ export default function EditCatalogPricePage({ params }: { params?: { id?: strin
           }
           throw new Error(t('catalog.prices.form.errors.load', 'Failed to load price rule'))
         }
-        const record = Array.isArray(result?.items) ? result.items[0] : null
-        if (!record) {
+        const raw = Array.isArray(result?.items) ? result.items[0] : null
+        if (!raw) {
           if (!cancelled) setIsNotFound(true)
           return
         }
         if (cancelled) return
+        const record = normalizePriceRecord(raw)
         setInitialValues({
           id: record.id,
           productId: record.productId ?? '',
@@ -130,7 +109,7 @@ export default function EditCatalogPricePage({ params }: { params?: { id?: strin
           offerId: record.offerId ?? '',
           userId: record.userId ?? '',
           userGroupId: record.userGroupId ?? '',
-          updatedAt: record.updatedAt ?? record.updated_at ?? null,
+          updatedAt: record.updatedAt ?? null,
         })
       } catch (err) {
         if (!cancelled) {
