@@ -6,8 +6,7 @@ Use the sales module for orders, quotes, invoices, shipments, and payments. This
 
 1. **MUST use `salesCalculationService` from DI** for document math.
 2. **MUST follow document flow**: Quote → Order → Invoice — no skipping steps
-3. **MUST use `selectBestPrice`** from catalog pricing helpers.
-4. **MUST scope all documents to a channel** — channel selection affects pricing, numbering, and visibility
+3. **MUST scope all documents to a channel** — channel selection affects pricing, numbering, and visibility
 
 ## Ask First
 
@@ -51,7 +50,7 @@ const calcService = container.resolve('salesCalculationService')
 
 - Dispatches `sales.line.calculate.*` / `sales.document.calculate.*` events
 - Register line/totals calculators or override via DI
-- For catalog pricing: use `selectBestPrice`, `resolvePriceVariantId` from catalog module
+- **Current state (not yet wired):** no production code path in this module calls `catalog`'s `selectBestPrice`/`resolvePriceVariantId`/`catalogPricingService` today — sales line pricing is entered/edited directly on the line, not resolved from `CatalogProductPrice`. An earlier revision of this file stated the opposite as an already-enforced `MUST` rule; that was aspirational, not descriptive. Wiring sales to the catalog pricing engine is tracked separately (`2026-08-14-cart-module.md`, a future `sales`-specific spec) and is out of scope for `.ai/specs/2026-08-21-pricing-engine.md`. If/when that wiring lands, route it through `catalogPricingService` per `catalog/AGENTS.md` — never reimplement pricing inline in `sales`.
 
 ## Data Model Constraints
 
