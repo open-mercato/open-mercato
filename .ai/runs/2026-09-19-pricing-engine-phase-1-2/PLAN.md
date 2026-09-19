@@ -11,8 +11,8 @@ Source spec: `.ai/specs/2026-08-21-pricing-engine.md`
 | 1 | 1.1 | Add cross-field validation to price validators (maxQuantity≥minQuantity, endsAt>startsAt) | inline | done | 79660556f |
 | 1 | 1.2 | Add `catalog.prices.*` i18n keys to all locale files | dispatch:cheap | done | c59dd2cdd |
 | 1 | 1.3 | Build shared price-rule scope selector components | inline | done | a663dd0bd |
-| 1 | 1.4 | Build the price rules list page (`DataTable`) | inline | done | pending |
-| 1 | 1.5 | Build the price rule create page (`CrudForm`) | inline | todo | — |
+| 1 | 1.4 | Build the price rules list page (`DataTable`) | inline | done | cac8105f4 |
+| 1 | 1.5 | Build the price rule create page (`CrudForm`) | inline | done | pending |
 | 1 | 1.6 | Build the price rule edit page (`CrudForm`, optimistic lock, delete+undo) | inline | todo | — |
 | 1 | 1.7 | Integration test: create a customer-group + quantity-tier price via the admin UI | inline | todo | — |
 | 2 | 2.1 | Harden `pricingResolvers` registry: `globalThis`-keyed store + `id`/dedupe + stable same-priority order test | inline | todo | — |
