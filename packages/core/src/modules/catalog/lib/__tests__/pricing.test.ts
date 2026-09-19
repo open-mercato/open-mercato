@@ -253,6 +253,40 @@ describe('catalog pricing helpers', () => {
     expect(result?.id).toBe('first')
   })
 
+  it('filters by currencyCode only when the context specifies one', () => {
+    const usdRow = baseRow({ id: 'usd', currencyCode: 'USD' })
+    const eurRow = baseRow({ id: 'eur', currencyCode: 'EUR' })
+
+    // Omitted currencyCode: unchanged legacy behavior — both rows match, no filtering.
+    const noFilter = selectBestPrice([usdRow, eurRow], ctx)
+    expect(noFilter).not.toBeNull()
+
+    // Explicit currencyCode: only the matching row is a candidate.
+    const eurOnly = selectBestPrice([usdRow, eurRow], { ...ctx, currencyCode: 'EUR' })
+    expect(eurOnly?.id).toBe('eur')
+
+    // No row in the requested currency: no match, not a silent cross-currency pick.
+    const noMatch = selectBestPrice([usdRow], { ...ctx, currencyCode: 'EUR' })
+    expect(noMatch).toBeNull()
+  })
+
+  it('matches customerGroupIds as set membership, with legacy customerGroupId still supported', () => {
+    const groupRow = baseRow({ id: 'group-scoped', customerGroupId: 'group-b' })
+
+    // New shape: set membership.
+    expect(selectBestPrice([groupRow], { ...ctx, customerGroupIds: ['group-a', 'group-b'] })?.id).toBe('group-scoped')
+    expect(selectBestPrice([groupRow], { ...ctx, customerGroupIds: ['group-a'] })).toBeNull()
+
+    // Legacy shape: exact match, read as a one-element set when customerGroupIds is absent.
+    expect(selectBestPrice([groupRow], { ...ctx, customerGroupId: 'group-b' })?.id).toBe('group-scoped')
+    expect(selectBestPrice([groupRow], { ...ctx, customerGroupId: 'group-a' })).toBeNull()
+
+    // customerGroupIds takes precedence over the legacy field when both are present.
+    expect(
+      selectBestPrice([groupRow], { ...ctx, customerGroupId: 'group-a', customerGroupIds: ['group-b'] })?.id,
+    ).toBe('group-scoped')
+  })
+
   it('keeps stable registration order among resolvers at the same priority', async () => {
     const calls: string[] = []
     const resolverA = jest.fn().mockImplementation(async () => {

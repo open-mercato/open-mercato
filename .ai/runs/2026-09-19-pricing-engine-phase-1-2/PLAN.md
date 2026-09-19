@@ -17,8 +17,8 @@ Source spec: `.ai/specs/2026-08-21-pricing-engine.md`
 | 1 | 1.6-fix | Fix snake_case `/api/catalog/prices` response parsing in the list/edit pages | inline | done | 5175cc610 |
 | 1 | 1.6-fix2 | Resolve pasted record ids via `ids=` narrowing in the scope selectors (search-only lookup missed exact ids) | inline | done | d69919035 |
 | 1 | 1.7 | Integration test: create a customer-group + quantity-tier price via the admin UI | inline | done | 154325875 |
-| 2 | 2.1 | Harden `pricingResolvers` registry: `globalThis`-keyed store + `id`/dedupe + stable same-priority order test | inline | done | pending |
-| 2 | 2.2 | Additive `PricingContext` fields (`currencyCode`, `customerGroupIds`) + `matchesContext` extension | inline | todo | — |
+| 2 | 2.1 | Harden `pricingResolvers` registry: `globalThis`-keyed store + `id`/dedupe + stable same-priority order test | inline | done | e44baebf8 |
+| 2 | 2.2 | Additive `PricingContext` fields (`currencyCode`, `customerGroupIds`) + `matchesContext` extension | inline | done | pending |
 | 2 | 2.3 | Docs correction: `sales/AGENTS.md` overclaim, spec ACL/updated_at/harness corrections, `UPGRADE_NOTES.md` entry | dispatch:cheap | todo | — |
 | 2 | 2.4 | Add `buildPriceRowFilter(ctx)` row-narrowing predicate | inline | todo | — |
 | 2 | 2.5 | Soundness test for `buildPriceRowFilter` + full-vs-narrowed `selectBestPrice` equivalence test | inline | todo | — |

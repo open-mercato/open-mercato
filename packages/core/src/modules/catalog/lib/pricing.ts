@@ -13,7 +13,12 @@ export type PricingContext = {
   userId?: string | null
   userGroupId?: string | null
   customerId?: string | null
+  /** @deprecated use `customerGroupIds` — kept for backward compatibility, read as a one-element set when `customerGroupIds` is absent. */
   customerGroupId?: string | null
+  /** Set membership: a row's `customerGroupId` matches when it appears in this list. Falls back to `customerGroupId` (above) when omitted. */
+  customerGroupIds?: string[]
+  /** When set, only rows in this currency match. Omitted (the default): no currency filtering, unchanged legacy behavior. */
+  currencyCode?: string | null
   quantity: number
   date: Date
 }
@@ -63,7 +68,11 @@ function matchesContext(row: PriceRow, ctx: PricingContext): boolean {
   if (row.userId && ctx.userId !== row.userId) return false
   if (row.userGroupId && ctx.userGroupId !== row.userGroupId) return false
   if (row.customerId && ctx.customerId !== row.customerId) return false
-  if (row.customerGroupId && ctx.customerGroupId !== row.customerGroupId) return false
+  if (row.customerGroupId) {
+    const candidateGroupIds = ctx.customerGroupIds ?? (ctx.customerGroupId ? [ctx.customerGroupId] : [])
+    if (!candidateGroupIds.includes(row.customerGroupId)) return false
+  }
+  if (ctx.currencyCode && row.currencyCode !== ctx.currencyCode) return false
   if (ctx.offerId && resolvePriceOfferId(row) && resolvePriceOfferId(row) !== ctx.offerId) return false
   return true
 }
