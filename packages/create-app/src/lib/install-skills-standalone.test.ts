@@ -61,6 +61,15 @@ function removeFixture(root: string): void {
   fs.rmSync(root, { recursive: true, force: true })
 }
 
+function assertSkillLink(linkPath: string, relativeTarget: string): void {
+  const actualTarget = fs.readlinkSync(linkPath)
+  if (process.platform === 'win32') {
+    assert.equal(path.resolve(path.dirname(linkPath), actualTarget), path.resolve(path.dirname(linkPath), relativeTarget))
+  } else {
+    assert.equal(actualTarget, relativeTarget)
+  }
+}
+
 function setExternalHash(root: string, hash: string): void {
   const manifestPath = path.join(root, '.ai', 'skills', 'tiers.json')
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as {
@@ -107,8 +116,8 @@ test('standalone installer needs only Node and creates the canonical plus Claude
   try {
     const result = run(root, '--no-external')
     assert.equal(result.status, 0, result.stderr)
-    assert.equal(fs.readlinkSync(path.join(root, '.agents', 'skills', 'om-alpha')), '../../.ai/skills/om-alpha')
-    assert.equal(fs.readlinkSync(path.join(root, '.claude', 'skills', 'om-alpha')), '../../.agents/skills/om-alpha')
+    assertSkillLink(path.join(root, '.agents', 'skills', 'om-alpha'), '../../.ai/skills/om-alpha')
+    assertSkillLink(path.join(root, '.claude', 'skills', 'om-alpha'), '../../.agents/skills/om-alpha')
     assert.equal(fs.existsSync(path.join(root, '.codex', 'skills')), false)
     assert.equal(fs.existsSync(path.join(root, '.cursor', 'skills')), false)
     assert.equal(fs.existsSync(path.join(root, '.agents', 'skills', 'om-code-review')), false)
@@ -126,7 +135,7 @@ test('standalone installer runs when invoked through a symlinked app path', { sk
     fs.symlinkSync(root, aliasRoot, 'dir')
     const result = run(aliasRoot, '--no-external')
     assert.equal(result.status, 0, result.stderr)
-    assert.equal(fs.readlinkSync(path.join(root, '.agents', 'skills', 'om-alpha')), '../../.ai/skills/om-alpha')
+    assertSkillLink(path.join(root, '.agents', 'skills', 'om-alpha'), '../../.ai/skills/om-alpha')
     assert.match(result.stdout, /^Installed 1 local skills/m)
   } finally {
     removeFixture(aliasParent)
@@ -673,7 +682,7 @@ test('verified regular external skills reinstall idempotently with matching owne
     assert.equal(downloadCount, 2)
     assert.equal(installer.hashSkillDirectory(installed), pinnedHash)
     assert.equal(fs.lstatSync(installed).isSymbolicLink(), false)
-    assert.equal(fs.readlinkSync(path.join(root, '.claude', 'skills', 'om-code-review')), '../../.agents/skills/om-code-review')
+    assertSkillLink(path.join(root, '.claude', 'skills', 'om-code-review'), '../../.agents/skills/om-code-review')
     const ledger = JSON.parse(fs.readFileSync(path.join(root, '.agents', 'skills', '.om-external-ownership.json'), 'utf8')) as {
       skills: Record<string, string>
     }

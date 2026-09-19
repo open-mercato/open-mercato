@@ -38,6 +38,8 @@ export function resolveYarnInvocation({
     return { command: execPath, prefixArgs: [npmExecPath] }
   }
   if (platform !== 'win32') return { command: 'yarn', prefixArgs: [] }
+  const corepackEntry = join(dirname(execPath), 'node_modules', 'corepack', 'dist', 'yarn.js')
+  if (existsSync(corepackEntry)) return { command: execPath, prefixArgs: [corepackEntry] }
   return null
 }
 

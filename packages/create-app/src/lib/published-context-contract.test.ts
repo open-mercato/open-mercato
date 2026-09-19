@@ -1,3 +1,4 @@
+import { resolveNodeBundledCli } from '../../../../scripts/lib/spawn-cli.mjs'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
@@ -19,7 +20,9 @@ function packedFiles(packageDir: string): string[] {
   const memoized = packedFilesByDirectory.get(packageDir)
   if (memoized) return memoized
 
-  const result = spawnSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
+  const invocation = resolveNodeBundledCli('npm')
+  assert.ok(invocation, 'Node must provide the npm CLI')
+  const result = spawnSync(invocation.command, [...invocation.prefixArgs, 'pack', '--dry-run', '--json', '--ignore-scripts'], {
     cwd: packageDir,
     encoding: 'utf8',
     maxBuffer: 20 * 1024 * 1024,

@@ -1,3 +1,4 @@
+import { resolveYarnInvocation } from '../../../../scripts/lib/spawn-cli.mjs'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -36,7 +37,14 @@ test('custom registry config is accepted by the scaffolded Yarn version', () => 
   try {
     writeFileSync(join(root, 'package.json'), `${JSON.stringify({ name: 'registry-config-fixture', packageManager: templatePackageManager }, null, 2)}\n`)
     writeFileSync(join(root, '.yarnrc.yml'), `nodeLinker: node-modules\n${buildRegistryConfig('http://localhost:4874')}\n`)
-    const output = execFileSync(process.platform === 'win32' ? 'yarn.cmd' : 'yarn', ['config', 'get', 'npmScopes', '--json'], {
+    const invocation = resolveYarnInvocation()
+    assert.ok(invocation, 'Run this test through Yarn so its pinned CLI is available')
+    const version = execFileSync(invocation.command, [...invocation.prefixArgs, '--version'], {
+      cwd: root,
+      encoding: 'utf8',
+    }).trim()
+    assert.equal('yarn@' + version, templatePackageManager.split('+')[0])
+    const output = execFileSync(invocation.command, [...invocation.prefixArgs, 'config', 'get', 'npmScopes', '--json'], {
       cwd: root,
       encoding: 'utf8',
     })

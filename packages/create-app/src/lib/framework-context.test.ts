@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -123,7 +123,7 @@ test('resolves a declared installed module and materializes its exact source and
   }
   assert.equal(parsed.package.name, '@open-mercato/core')
   assert.equal(parsed.package.version, '0.6.6')
-  assert.match(parsed.sourceRoot, /src\/modules\/customers$/)
+  assert.match(parsed.sourceRoot.split(sep).join('/'), /src\/modules\/customers$/)
   assert.deepEqual(
     parsed.instructions.filter((entry) => entry.path).map((entry) => entry.kind),
     ['standalone-root', 'upstream-bc', 'package', 'module-1', 'upstream-root'],

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'node:child_process'
+import { resolveNodeBundledCli } from '../../../scripts/lib/spawn-cli.mjs'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -226,7 +227,9 @@ export function packedFilesOf(repoRootPath, workspaceDir) {
   if (packedFileCache.has(workspaceDir)) return packedFileCache.get(workspaceDir)
   let files = null
   try {
-    const raw = execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
+    const invocation = resolveNodeBundledCli('npm')
+    if (!invocation) return null
+    const raw = execFileSync(invocation.command, [...invocation.prefixArgs, 'pack', '--dry-run', '--json', '--ignore-scripts'], {
       cwd: path.join(repoRootPath, workspaceDir),
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],

@@ -1,3 +1,4 @@
+import { resolveNodeBundledCli } from '../../../../scripts/lib/spawn-cli.mjs'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -260,10 +261,16 @@ test('every source-required record resolves to a file a generated app really con
       assert.ok(installed.packageName?.startsWith('@open-mercato/'))
       const workspaceDir = path.join(repoRoot, 'packages', installed.packageName.slice('@open-mercato/'.length))
       assert.ok(fs.statSync(path.join(workspaceDir, installed.packageRelativePath)).isFile())
+      const invocation = resolveNodeBundledCli('npm')
+      assert.ok(invocation, 'Node must provide the npm CLI')
       const packed = JSON.parse(execFileSync(
-        'npm',
-        ['pack', '--dry-run', '--json', '--ignore-scripts'],
-        { cwd: workspaceDir, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+        invocation.command,
+        [...invocation.prefixArgs, 'pack', '--dry-run', '--json', '--ignore-scripts'],
+        {
+          cwd: workspaceDir,
+          encoding: 'utf8',
+          maxBuffer: 64 * 1024 * 1024,
+        },
       )) as Array<{ files: Array<{ path: string }> }>
       assert.ok(
         packed[0].files.some((entry) => entry.path === installed.packageRelativePath),

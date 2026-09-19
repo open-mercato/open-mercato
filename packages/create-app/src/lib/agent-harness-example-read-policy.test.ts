@@ -1,3 +1,4 @@
+import { resolveNodeBundledCli } from '../../../../scripts/lib/spawn-cli.mjs'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -2231,10 +2232,16 @@ test('family 12: the shipped inventory carries an installed-package reference th
   // The record is only honest if the workspace package genuinely publishes that exact path. The
   // canonical spec deferred this whole family claiming no gate could verify a packed artifact;
   // `npm pack --dry-run --json` is that gate, and it is what the link validator runs.
+  const invocation = resolveNodeBundledCli('npm')
+  assert.ok(invocation, 'Node must provide the npm CLI')
   const packed = JSON.parse(spawnSync(
-    'npm',
-    ['pack', '--dry-run', '--json', '--ignore-scripts'],
-    { cwd: fileURLToPath(new URL('../../../ui/', import.meta.url)), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+    invocation.command,
+    [...invocation.prefixArgs, 'pack', '--dry-run', '--json', '--ignore-scripts'],
+    {
+      cwd: fileURLToPath(new URL('../../../ui/', import.meta.url)),
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+    },
   ).stdout) as Array<{ files: Array<{ path: string }> }>
   assert.ok(
     packed[0].files.some((entry) => entry.path === 'src/backend/DataTable.tsx'),

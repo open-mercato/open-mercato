@@ -55,6 +55,19 @@ describe('spawn-cli', () => {
     }
   })
 
+  it('resolves the Corepack JS entry when Windows Yarn supplies a temporary shim', () => {
+    const rootDir = mkdtempSync(join(tmpdir(), 'om-yarn-corepack-'))
+    tempRoots.push(rootDir)
+    const corepackDir = join(rootDir, 'node_modules', 'corepack', 'dist')
+    mkdirSync(corepackDir, { recursive: true })
+    const corepackEntry = join(corepackDir, 'yarn.js')
+    writeFileSync(corepackEntry, '')
+    const execPath = join(rootDir, 'node.exe')
+    assert.deepEqual(
+      resolveYarnInvocation({ env: { npm_execpath: join(rootDir, 'yarn') }, platform: 'win32', execPath }),
+      { command: execPath, prefixArgs: [corepackEntry] },
+    )
+  })
   it('prefers the yarn JS bundle from npm_execpath and rejects .cmd shims', () => {
     const rootDir = mkdtempSync(join(tmpdir(), 'om-yarn-'))
     tempRoots.push(rootDir)
@@ -63,7 +76,7 @@ describe('spawn-cli', () => {
     const resolved = resolveYarnInvocation({ env: { npm_execpath: yarnBundle } })
     assert.deepEqual(resolved, { command: process.execPath, prefixArgs: [yarnBundle] })
 
-    const cmdShim = resolveYarnInvocation({ env: { npm_execpath: join(rootDir, 'yarn.cmd') }, platform: 'win32' })
+    const cmdShim = resolveYarnInvocation({ env: { npm_execpath: join(rootDir, 'yarn.cmd') }, platform: 'win32', execPath: join(rootDir, 'node.exe') })
     assert.equal(cmdShim, null, 'a .cmd npm_execpath must never be spawned on win32')
   })
 })
