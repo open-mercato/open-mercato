@@ -1,4 +1,5 @@
 import type { EventBus } from '@open-mercato/events'
+import type { FilterQuery } from '@mikro-orm/postgresql'
 import type {
   CatalogOffer,
   CatalogPriceKind,
@@ -75,6 +76,55 @@ function matchesContext(row: PriceRow, ctx: PricingContext): boolean {
   if (ctx.currencyCode && row.currencyCode !== ctx.currencyCode) return false
   if (ctx.offerId && resolvePriceOfferId(row) && resolvePriceOfferId(row) !== ctx.offerId) return false
   return true
+}
+
+/**
+ * The narrowing half of `matchesContext` expressed as a MikroORM filter, for
+ * callers that fetch `CatalogProductPrice` rows by product/variant today and
+ * would otherwise load every contracted customer's rows just to discard
+ * almost all of them (per-customer pricing at scale — see
+ * `.ai/specs/2026-08-21-pricing-engine.md` § Row narrowing).
+ *
+ * Covers only the dimensions that are plain column comparisons: customer,
+ * customer-group, user, user-group, channel, currency. Quantity bounds,
+ * validity windows, and offer-derived channel resolution stay in
+ * `matchesContext` — they are cheap over an already-narrowed set and are not
+ * expressible as one column predicate (offer's own `channelId` lives on a
+ * different table).
+ *
+ * **Invariant (one-directional, this is the whole point of the helper):**
+ * `matchesContext(row, ctx)` implies this filter admits `row`. The filter
+ * MAY admit rows `matchesContext` later rejects (a slightly wide fetch) —
+ * it MUST NEVER exclude a row `matchesContext` would have accepted, because
+ * that is a silently wrong price with no error anywhere. Verified by the
+ * property-based test in `lib/__tests__/buildPriceRowFilter.property.test.ts`.
+ */
+export function buildPriceRowFilter(ctx: PricingContext): FilterQuery<CatalogProductPrice> {
+  const customerGroupIds = ctx.customerGroupIds ?? (ctx.customerGroupId ? [ctx.customerGroupId] : [])
+
+  const clauses: FilterQuery<CatalogProductPrice>[] = [
+    ctx.customerId
+      ? { $or: [{ customerId: null }, { customerId: ctx.customerId }] }
+      : { customerId: null },
+    customerGroupIds.length
+      ? { $or: [{ customerGroupId: null }, { customerGroupId: { $in: customerGroupIds } }] }
+      : { customerGroupId: null },
+    ctx.userId
+      ? { $or: [{ userId: null }, { userId: ctx.userId }] }
+      : { userId: null },
+    ctx.userGroupId
+      ? { $or: [{ userGroupId: null }, { userGroupId: ctx.userGroupId }] }
+      : { userGroupId: null },
+    ctx.channelId
+      ? { $or: [{ channelId: null }, { channelId: ctx.channelId }] }
+      : { channelId: null },
+  ]
+
+  if (ctx.currencyCode) {
+    clauses.push({ currencyCode: ctx.currencyCode })
+  }
+
+  return { $and: clauses } as FilterQuery<CatalogProductPrice>
 }
 
 function scorePrice(row: PriceRow): number {

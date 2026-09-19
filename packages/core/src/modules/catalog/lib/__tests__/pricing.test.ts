@@ -6,6 +6,7 @@ import {
   registerCatalogPricingResolver,
   resetCatalogPricingResolvers,
   resolveCatalogPrice,
+  buildPriceRowFilter,
   type PriceRow,
   type PricingContext,
 } from '../pricing'
@@ -285,6 +286,43 @@ describe('catalog pricing helpers', () => {
     expect(
       selectBestPrice([groupRow], { ...ctx, customerGroupId: 'group-a', customerGroupIds: ['group-b'] })?.id,
     ).toBe('group-scoped')
+  })
+
+  it('buildPriceRowFilter narrows to unscoped-or-null rows when the context has no scope', () => {
+    const filter = buildPriceRowFilter({ quantity: 1, date: new Date() }) as any
+    expect(filter.$and).toEqual([
+      { customerId: null },
+      { customerGroupId: null },
+      { userId: null },
+      { userGroupId: null },
+      { channelId: null },
+    ])
+  })
+
+  it('buildPriceRowFilter admits null-or-matching rows for a scoped context', () => {
+    const filter = buildPriceRowFilter({
+      quantity: 1,
+      date: new Date(),
+      customerId: 'cust-1',
+      customerGroupIds: ['group-a', 'group-b'],
+      channelId: 'chan-1',
+      currencyCode: 'USD',
+    }) as any
+    expect(filter.$and).toEqual([
+      { $or: [{ customerId: null }, { customerId: 'cust-1' }] },
+      { $or: [{ customerGroupId: null }, { customerGroupId: { $in: ['group-a', 'group-b'] } }] },
+      { userId: null },
+      { userGroupId: null },
+      { $or: [{ channelId: null }, { channelId: 'chan-1' }] },
+      { currencyCode: 'USD' },
+    ])
+  })
+
+  it('buildPriceRowFilter reads the legacy customerGroupId as a one-element set', () => {
+    const filter = buildPriceRowFilter({ quantity: 1, date: new Date(), customerGroupId: 'group-a' }) as any
+    expect(filter.$and).toContainEqual({
+      $or: [{ customerGroupId: null }, { customerGroupId: { $in: ['group-a'] } }],
+    })
   })
 
   it('keeps stable registration order among resolvers at the same priority', async () => {
