@@ -417,6 +417,14 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   customFieldsManageMode?: 'inline' | 'page'
   // Optional injection spot ID for widget injection
   injectionSpotId?: string
+  /**
+   * One prior injection spot ID whose header, body (stack/group), and field
+   * (`:fields`) widgets are dual-published alongside `injectionSpotId` — a
+   * compatibility bridge for a host that changed its declared spot id, so a
+   * widget still targeting the old id keeps rendering. See
+   * BACKWARD_COMPATIBILITY.md §6 for the deprecation protocol this supports.
+   */
+  legacyInjectionSpotId?: string
   replacementHandle?: string
   // Enable collapsible group headers with localStorage persistence.
   // Pass `true` to enable with auto-generated pageType, or `{ pageType }` for explicit key.
@@ -460,6 +468,16 @@ export type CrudFormGroup = {
   kind?: 'customFields'
   // When true, render component output inline without wrapping group chrome
   bare?: boolean
+}
+
+// Appends `legacy` entries not already present in `primary` (by `keyOf`), so a
+// `legacyInjectionSpotId` bridge never renders the same widget twice when it is
+// registered on both the primary and the legacy spot.
+function mergeByKey<T>(primary: T[], legacy: T[], keyOf: (item: T) => string): T[] {
+  if (!legacy.length) return primary
+  const seen = new Set(primary.map(keyOf))
+  const extra = legacy.filter((item) => !seen.has(keyOf(item)))
+  return extra.length ? [...primary, ...extra] : primary
 }
 
 function readByDotPath(source: Record<string, unknown> | undefined, path: string): unknown {
@@ -761,6 +779,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   customFieldsetBindings,
   customFieldsManageMode = 'inline',
   injectionSpotId,
+  legacyInjectionSpotId,
   replacementHandle,
   collapsibleGroups,
   sortableGroups,
@@ -867,7 +886,10 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const headerInjectionSpotId = resolvedInjectionSpotId
     ? extensionSpotChildId(resolvedInjectionSpotId, 'header')
     : undefined
-  
+  const legacyHeaderInjectionSpotId = legacyInjectionSpotId
+    ? extensionSpotChildId(legacyInjectionSpotId, 'header')
+    : undefined
+
   const recordId = React.useMemo(() => {
     const raw = values.id
     if (typeof raw === 'string') return raw
@@ -1144,16 +1166,33 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
   }, [allowNextNavigation, clearDirtyState, confirmUnsavedChanges, embedded, hasUnsavedChanges, router, trackDirtyWhenEmbedded])
 
-  const { widgets: injectionWidgets } = useInjectionWidgets(resolvedInjectionSpotId, {
+  const { widgets: primaryInjectionWidgets } = useInjectionWidgets(resolvedInjectionSpotId, {
     context: injectionContext,
     triggerOnLoad: true,
   })
-  const { widgets: injectedFieldWidgets } = useInjectionDataWidgets(
+  const { widgets: legacyInjectionWidgets } = useInjectionWidgets(legacyInjectionSpotId, {
+    context: injectionContext,
+    triggerOnLoad: true,
+  })
+  const injectionWidgets = React.useMemo(
+    () => mergeByKey(primaryInjectionWidgets, legacyInjectionWidgets, (w) => w.widgetId),
+    [primaryInjectionWidgets, legacyInjectionWidgets],
+  )
+  const { widgets: primaryFieldWidgets } = useInjectionDataWidgets(
     resolvedInjectionSpotId
       ? extensionSpotChildId(resolvedInjectionSpotId, 'fields')
       : '__disabled__:fields'
   )
-  
+  const { widgets: legacyFieldWidgets } = useInjectionDataWidgets(
+    legacyInjectionSpotId
+      ? extensionSpotChildId(legacyInjectionSpotId, 'fields')
+      : '__disabled__:fields'
+  )
+  const injectedFieldWidgets = React.useMemo(
+    () => mergeByKey(primaryFieldWidgets, legacyFieldWidgets, (w) => w.metadata.id),
+    [primaryFieldWidgets, legacyFieldWidgets],
+  )
+
   const { triggerEvent: triggerInjectionEvent } = useInjectionSpotEvents(resolvedInjectionSpotId ?? '', injectionWidgets)
   const extendedInjectionEventsEnabled = CRUDFORM_EXTENDED_EVENTS_ENABLED && Boolean(resolvedInjectionSpotId)
 
@@ -1524,14 +1563,27 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       autoCheckAcl={versionHistory?.autoCheckAcl}
     />
   )
-  const headerInjectionAction = headerInjectionSpotId ? (
-    <InjectionSpot
-      spotId={headerInjectionSpotId}
-      context={injectionContext}
-      data={values}
-      onDataChange={(newData) => setValues(newData as CrudFormValues<TValues>)}
-      disabled={pending}
-    />
+  const headerInjectionAction = (headerInjectionSpotId || legacyHeaderInjectionSpotId) ? (
+    <>
+      {headerInjectionSpotId ? (
+        <InjectionSpot
+          spotId={headerInjectionSpotId}
+          context={injectionContext}
+          data={values}
+          onDataChange={(newData) => setValues(newData as CrudFormValues<TValues>)}
+          disabled={pending}
+        />
+      ) : null}
+      {legacyHeaderInjectionSpotId ? (
+        <InjectionSpot
+          spotId={legacyHeaderInjectionSpotId}
+          context={injectionContext}
+          data={values}
+          onDataChange={(newData) => setValues(newData as CrudFormValues<TValues>)}
+          disabled={pending}
+        />
+      ) : null}
+    </>
   ) : null
   const headerExtraActions = versionHistoryEnabled || headerInjectionAction || extraActions ? (
     <>
