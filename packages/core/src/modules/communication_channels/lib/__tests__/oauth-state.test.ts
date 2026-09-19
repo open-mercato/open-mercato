@@ -1,14 +1,17 @@
 import {
   COMMUNICATION_CHANNELS_OAUTH_STATE_COOKIE_NAME,
   COMMUNICATION_CHANNELS_OAUTH_STATE_TTL_MS,
+  consumeOAuthStateOnce,
   createOAuthState,
   decryptOAuthState,
   DEFAULT_OAUTH_RETURN_URL,
   encryptOAuthState,
   isSafeOAuthReturnUrl,
   normalizeOAuthReturnUrl,
+  oauthStateConsumedCacheKey,
   OAuthStateError,
   verifyOAuthState,
+  type OAuthStateConsumeStore,
 } from '../oauth-state'
 
 const SECRET = 'test-secret-for-oauth-state-cookie-' + Math.random().toString(36).slice(2)
@@ -141,6 +144,77 @@ describe('verifyOAuthState', () => {
       expect(err).toBeInstanceOf(OAuthStateError)
       expect((err as OAuthStateError).code).toBe('invalid_cookie')
     }
+  })
+})
+
+describe('consumeOAuthStateOnce', () => {
+  function createMemoryStore(): OAuthStateConsumeStore & {
+    entries: Map<string, { value: unknown; expiresAt: number | null }>
+  } {
+    const entries = new Map<string, { value: unknown; expiresAt: number | null }>()
+    return {
+      entries,
+      async has(key: string) {
+        const entry = entries.get(key)
+        if (!entry) return false
+        if (entry.expiresAt !== null && entry.expiresAt <= Date.now()) {
+          entries.delete(key)
+          return false
+        }
+        return true
+      },
+      async set(key: string, value: unknown, options?: { ttl?: number }) {
+        entries.set(key, {
+          value,
+          expiresAt: options?.ttl ? Date.now() + options.ttl : null,
+        })
+      },
+    }
+  }
+
+  it('allows the first consume and rejects a replay of the same state', async () => {
+    const store = createMemoryStore()
+    const payload = {
+      state: 'replay-state-' + Math.random().toString(36).slice(2),
+      expiresAt: Date.now() + 60_000,
+    }
+
+    await consumeOAuthStateOnce(store, payload)
+    expect(await store.has(oauthStateConsumedCacheKey(payload.state))).toBe(true)
+
+    await expect(consumeOAuthStateOnce(store, payload)).rejects.toMatchObject({
+      name: 'OAuthStateError',
+      code: 'replay',
+    })
+  })
+
+  it('stores the used-marker with a TTL bounded by expiresAt', async () => {
+    const store = createMemoryStore()
+    const now = Date.now()
+    const payload = { state: 'ttl-state', expiresAt: now + 12_000 }
+
+    await consumeOAuthStateOnce(store, payload, now)
+
+    const entry = store.entries.get(oauthStateConsumedCacheKey(payload.state))
+    expect(entry).toBeDefined()
+    expect(entry!.expiresAt).toBeGreaterThanOrEqual(now + 12_000 - 50)
+    expect(entry!.expiresAt).toBeLessThanOrEqual(now + 12_000 + 50)
+  })
+
+  it('verify alone still succeeds on replay — consume is what enforces single-use', () => {
+    // Regression guard for #3836: crypto verify is intentionally TTL-only;
+    // single-use is the consume step's job (callback must call both).
+    const cookie = encryptOAuthState({
+      state: 's',
+      nonce: 'n',
+      userId: 'u1',
+      tenantId: 't1',
+      providerKey: 'gmail',
+      expiresAt: Date.now() + 60_000,
+    })
+    const first = verifyOAuthState({ cookie, expectedUserId: 'u1', expectedState: 's' })
+    const second = verifyOAuthState({ cookie, expectedUserId: 'u1', expectedState: 's' })
+    expect(first.state).toBe(second.state)
   })
 })
 
