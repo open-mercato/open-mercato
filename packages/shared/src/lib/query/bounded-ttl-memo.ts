@@ -9,7 +9,7 @@ export type BoundedTtlMemo<V> = {
 
 export type BoundedTtlMemoOptions = {
   ttlEnv: string
-  maxEntriesEnv: string
+  maxEntriesEnv?: string
   defaultTtlMs: number
   defaultMaxEntries: number
 }
@@ -23,7 +23,10 @@ export function createBoundedTtlMemo<V>(options: BoundedTtlMemoOptions): Bounded
   const store = new Map<string, { value: V; expiresAt: number }>()
 
   const resolveTtlMs = (): number => parseNumberWithDefault(process.env[options.ttlEnv], options.defaultTtlMs, { integer: true, min: 0 })
-  const resolveMaxEntries = (): number => parseNumberWithDefault(process.env[options.maxEntriesEnv], options.defaultMaxEntries, { integer: true, min: 1 })
+  const resolveMaxEntries = (): number =>
+    options.maxEntriesEnv
+      ? parseNumberWithDefault(process.env[options.maxEntriesEnv], options.defaultMaxEntries, { integer: true, min: 1 })
+      : options.defaultMaxEntries
 
   return {
     get(key) {

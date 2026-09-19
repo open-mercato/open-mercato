@@ -43,7 +43,6 @@ export function __resetUndeclaredEventWarningsForTests(): void {
 /** Only `true` is cached: a cached `false` would keep this failing after a migration creates the table. */
 const tableExistsCache = createBoundedTtlMemo<true>({
   ttlEnv: 'OM_DATA_ENGINE_TABLE_EXISTS_CACHE_MS',
-  maxEntriesEnv: 'OM_DATA_ENGINE_TABLE_EXISTS_CACHE_MAX_ENTRIES',
   defaultTtlMs: 3_600_000,
   defaultMaxEntries: 1_000,
 })
@@ -51,11 +50,6 @@ const tableExistsCache = createBoundedTtlMemo<true>({
 /** Test-only: the module-scoped memo would otherwise leak state across specs. */
 export function clearDataEngineTableExistsCache(): void {
   tableExistsCache.clear()
-}
-
-/** Test-only: entry count of the table-existence memo, for the cap regression test. */
-export function dataEngineTableExistsCacheSize(): number {
-  return tableExistsCache.size()
 }
 
 const COVERAGE_REFRESH_INTERVAL_MS = 5 * 60 * 1000
