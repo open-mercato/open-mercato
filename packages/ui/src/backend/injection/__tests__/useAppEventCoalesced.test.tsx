@@ -130,6 +130,25 @@ describe('useAppEventCoalesced', () => {
     expect(invalidateQueries).not.toHaveBeenCalled()
   })
 
+  it('fires immediately for a fresh event shortly after a multi-event burst settles', () => {
+    renderHook(() => useAppEventCoalesced('messages.message.*', invalidateMessageList, []))
+
+    dispatchMessageEvents(2)
+    expect(invalidateQueries).toHaveBeenCalledTimes(1)
+
+    act(() => {
+      jest.advanceTimersByTime(DEFAULT_APP_EVENT_COALESCE_WINDOW_MS)
+    })
+    expect(invalidateQueries).toHaveBeenCalledTimes(2)
+
+    act(() => {
+      jest.advanceTimersByTime(100)
+    })
+    dispatchMessageEvents(1)
+
+    expect(invalidateQueries).toHaveBeenCalledTimes(3)
+  })
+
   it('honours a custom window', () => {
     renderHook(() =>
       useAppEventCoalesced('messages.message.*', invalidateMessageList, [], { windowMs: 200 }),
