@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
@@ -425,7 +426,10 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const auth = await getAuthFromRequest(_req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const parse = paramsSchema.safeParse({ id: ctx.params?.id })
-  if (!parse.success) return NextResponse.json({ error: 'Invalid company id' }, { status: 400 })
+  if (!parse.success) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ error: translate('customers.errors.invalid_company_id', 'Invalid company id') }, { status: 400 })
+  }
 
   const includeTokens = parseIncludeParams(_req)
   const includeActivities = includeTokens.has('activities')

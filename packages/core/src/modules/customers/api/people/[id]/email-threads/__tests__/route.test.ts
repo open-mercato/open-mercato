@@ -89,4 +89,12 @@ describe('person email-threads — organization scoping', () => {
     expect(response.status).toBe(404)
     expect(buildPersonEmailThreads).not.toHaveBeenCalled()
   })
+
+  it('returns a translated error for a malformed person id (regression: #6176)', async () => {
+    const response = await GET(request(), { params: { id: 'not-uuid' } })
+    const body = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(body.error).toBe('Invalid person id')
+  })
 })
