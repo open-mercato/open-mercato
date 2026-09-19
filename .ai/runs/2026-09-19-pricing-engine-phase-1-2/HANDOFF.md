@@ -1,27 +1,29 @@
 # Handoff — 2026-09-19-pricing-engine-phase-1-2
 
-**Last updated:** 2026-09-19T12:45:00Z
-**Branch:** cez/d58af91f (cezar-assigned; pushed to `fork` remote, PR opened fork→origin/develop)
-**PR:** not yet opened
-**Current phase/step:** Phase 1, Step 1.1 (about to start)
-**Last commit:** (run-folder commit pending)
+**Last updated:** 2026-09-19T16:25:00Z
+**Branch:** cez/d58af91f (pushed to `fork` remote; PR opened fork→origin/develop)
+**PR:** https://github.com/open-mercato/open-mercato/pull/6268 (draft, `in-progress` label held by this run)
+**Current phase/step:** Phase 2, Step 2.1 (about to start)
+**Last commit:** see `PLAN.md` Tasks table — every Phase 1 row is `done`
 
 ## What just happened
-- Research completed: read `catalog/lib/pricing.ts`, `CatalogProductPrice` entity, `api/prices/route.ts`, `commands/prices.ts`, validators, i18n structure, ACL, existing admin-UI precedents (`categories/`), `ComboboxInput`, `ChannelSelectInput`, the `globalThis` registry pattern (`packages/shared/src/modules/integrations/types.ts` — approach B), its regression-test precedent (`packages/shared/src/modules/integrations/__tests__/types.test.ts` — `jest.isolateModules` + `globalThis`), `FilterQuery` idiom (`catalog/api/offers/route.ts`), `UPGRADE_NOTES.md` format, and confirmed the only production caller of `resolveCatalogPrice` is `catalogPricingService`.
-- Found and recorded 3 factual corrections in the spec (ACL feature name, `updated_at` already exists, property-based-test harness doesn't exist) — see PLAN.md "Corrections found during research."
-- PLAN.md drafted with 12 Steps (7 Phase 1, 5 Phase 2).
+- Phase 1 complete: cross-field validators, i18n, shared scope selectors (ComboboxInput-based, with an `ids=`-exact-match fix for pasted ids), list/create/edit admin pages, and `TC-CAT-PRICES-001.spec.ts` (browser-driven integration test).
+- Found and fixed a real bug mid-implementation: `/api/catalog/prices` responses are snake_case (verified against `__integration__/TC-CAT-CRUDFORM-002.spec.ts`), not camelCase as first assumed — added `normalizePriceRecord()` and fixed the list/edit pages (Step 1.6-fix).
+- Checkpoint 1 done: replaced the dev symlinks with a real `yarn install`, ran `build:packages`/`generate`/`typecheck`/`i18n:check-sync`/`i18n:check-usage` and the full `catalog` jest suite (702/702 passing, 0 regressions). See `checkpoint-1-checks.md`.
+- Integration/browser verification of `TC-CAT-PRICES-001` deliberately deferred to the final gate (reason recorded in `checkpoint-1-checks.md`) rather than standing up a disposable DB twice.
 
 ## Next concrete action
-- Commit the run folder, push to `fork` remote, open the draft PR (fork:cez/d58af91f → origin:develop), claim it (assignee + `in-progress` label + claim comment), then start Step 1.1 (cross-field validation on `priceCreateSchema`/`priceUpdateSchema`).
+- Start Phase 2, Step 2.1: `globalThis`-scope the `pricingResolvers` registry in `catalog/lib/pricing.ts` (mirror `packages/shared/src/modules/integrations/types.ts`'s pattern — approach B, a `{ integrations, bundles }`-shaped `getState()`), add `id`/dedupe to `registerCatalogPricingResolver`, and a regression test modeled on `packages/shared/src/modules/integrations/__tests__/types.test.ts` (`jest.isolateModules` + `globalThis`) proving visibility across two simulated module instances. Also document + test the same-priority resolver tie-break (stable registration order).
 
 ## Blockers / open questions
-- None currently. Noted deviation (documented in PLAN.md Non-goals): hand-rolled property test instead of adding `fast-check` as a new devDependency, since that harness belongs to a different, unimplemented sibling spec.
+- None. Deferred (not blocked): full browser/integration suite run, to the final gate.
 
 ## Environment caveats
-- Dev runtime runnable: unknown — not yet started; will check before Phase 1's UI checkpoint.
-- Browser / UI checks: planned via Playwright at Step 1.7 and the final gate.
-- Database/migration state: clean; this run makes **no schema changes** (Phase 2b/index migration explicitly out of scope).
+- Dev runtime runnable: **yes, but not yet stood up** — `yarn install` is real now (no symlinks); a disposable Postgres DB + `mercato init` + dev server still needs to be provisioned at the final gate to run `yarn test:integration` / `TC-CAT-PRICES-001` for real. Local Postgres is available (`psql -l` shows several `om_qa_*` databases from other runs); `.ai/qa/AGENTS.md`'s Docker-based `test:integration:ephemeral` path is NOT usable here (no container runtime on this machine) — use the manual disposable-DB path it documents as the alternative.
+- Browser / UI checks: deferred to final gate, see above.
+- Database/migration state: clean; this run makes **no schema changes** (Phase 2b/index migration explicitly out of scope, confirmed again in Phase 2 planning).
 
 ## Worktree
 - Path: /Users/bernard/workspace/open-mercato/.ai/cezar/worktrees/d58af91f-381a-4f31-9ed5-416013c71710
-- Created this run: no (reusing the cezar-provided worktree, per skill rule "reuse the current linked worktree when already inside one")
+- Created this run: no (reusing the cezar-provided worktree)
+- `node_modules`/`packages/core/generated`: real (installed/generated), not symlinked, as of this checkpoint.

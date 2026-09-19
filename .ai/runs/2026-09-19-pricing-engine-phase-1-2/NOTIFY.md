@@ -12,3 +12,9 @@
 - Fresh session re-entered PR #6268 (own lock, re-claimed idempotently). A prior interruption had left an uncommitted "cezar autosave" commit on the branch containing Step 1.3's real work (`PriceScopeSelectors.tsx`) plus an accidentally-tracked `packages/core/generated` symlink (a local dev-testing symlink to the main checkout's generated dir, absolute-path, environment-specific — must never be committed).
 - Fixed: `git rm --cached` the symlink, squashed the autosave into a clean `feat(catalog): add price-rule scope selector components` commit (Step 1.3), verified the file typechecks cleanly in isolation (pre-existing unrelated tsc errors exist repo-wide under the symlinked `node_modules` — noted as a final-gate caveat: the final validation gate needs a real `yarn install`, not the dev symlink).
 - Resuming from Step 1.4 (price rules list page).
+
+## 2026-09-19T16:20:00Z — checkpoint 1 (Phase 1 complete)
+- Landed Steps 1.4–1.7 plus two mid-flight bug fixes (1.6-fix: snake_case API response parsing; 1.6-fix2: `ids=` exact-id lookup for pasted record ids in the ComboboxInput selectors).
+- Replaced dev symlinks with a real `yarn install`; ran the full targeted-validation set (build:packages, generate, typecheck, i18n:check-sync/usage, full `catalog` jest suite — 702/702 passing). See `checkpoint-1-checks.md`.
+- Deliberately deferred the browser/integration-suite run (`TC-CAT-PRICES-001`) to the final gate rather than bootstrapping a disposable DB twice — reason recorded in `checkpoint-1-checks.md`.
+- Starting Phase 2 (resolver-registry hardening) next.
