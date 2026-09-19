@@ -8,7 +8,7 @@ Source spec: `.ai/specs/2026-08-21-pricing-engine.md`
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Add cross-field validation to price validators (maxQuantity≥minQuantity, endsAt>startsAt) | inline | todo | — |
+| 1 | 1.1 | Add cross-field validation to price validators (maxQuantity≥minQuantity, endsAt>startsAt) | inline | done | 79660556f |
 | 1 | 1.2 | Add `catalog.prices.*` i18n keys to all locale files | dispatch:cheap | todo | — |
 | 1 | 1.3 | Build shared price-rule scope selector components | inline | todo | — |
 | 1 | 1.4 | Build the price rules list page (`DataTable`) | inline | todo | — |
