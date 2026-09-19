@@ -1,4 +1,4 @@
-import { getForeignKeyViolationConstraint, isForeignKeyViolation, isTransientDbError, isUniqueViolation } from '../pg-errors'
+import { getForeignKeyViolationConstraint, isForeignKeyViolation, isTransientDbError, isUniqueViolation, readPgSqlState } from '../pg-errors'
 
 describe('isTransientDbError', () => {
   it('is true for the max_connections SQLSTATE', () => {
@@ -102,5 +102,29 @@ describe('getForeignKeyViolationConstraint', () => {
     expect(getForeignKeyViolationConstraint({ code: '23503' })).toBeNull()
     expect(getForeignKeyViolationConstraint(new Error('something unrelated broke'))).toBeNull()
     expect(getForeignKeyViolationConstraint(null)).toBeNull()
+  })
+})
+
+describe('readPgSqlState', () => {
+  it('reads a 5-character SQLSTATE off the top-level error', () => {
+    expect(readPgSqlState({ code: '42P01' })).toBe('42P01')
+  })
+
+  it('reads a SQLSTATE from a nested cause', () => {
+    expect(readPgSqlState({ message: 'wrapped', cause: { code: '23505' } })).toBe('23505')
+  })
+
+  it('is null for a Node system error code, which is not a 5-character SQLSTATE', () => {
+    expect(readPgSqlState({ code: 'ECONNREFUSED' })).toBeNull()
+  })
+
+  it('is null for a Node internal error code', () => {
+    expect(readPgSqlState({ code: 'ERR_INVALID_ARG_TYPE' })).toBeNull()
+  })
+
+  it('is null for non-DB and empty errors', () => {
+    expect(readPgSqlState(new Error('something unrelated broke'))).toBeNull()
+    expect(readPgSqlState(null)).toBeNull()
+    expect(readPgSqlState(undefined)).toBeNull()
   })
 })

@@ -69,6 +69,27 @@ export function getForeignKeyViolationConstraint(err: unknown): string | null {
 }
 
 /**
+ * A Postgres SQLSTATE is always exactly 5 characters from `[0-9A-Z]`. Node
+ * system errors (`ECONNREFUSED`), Node internal errors (`ERR_INVALID_ARG_TYPE`),
+ * and app errors that happen to set a string `code` would otherwise be
+ * misread as a SQLSTATE, since they also populate a `code` field.
+ */
+const SQLSTATE_PATTERN = /^[0-9A-Z]{5}$/
+
+/**
+ * The Postgres SQLSTATE behind an error, read from the pg `code` field on any
+ * layer of the driver-error wrapper chain (see `pgErrorCandidates`). Returns
+ * `null` when no layer carries a `code` matching the SQLSTATE shape, which
+ * also covers non-Postgres errors whose `code` is a Node error code.
+ */
+export function readPgSqlState(err: unknown): string | null {
+  for (const candidate of pgErrorCandidates(err)) {
+    if (typeof candidate.code === 'string' && SQLSTATE_PATTERN.test(candidate.code)) return candidate.code
+  }
+  return null
+}
+
+/**
  * Postgres SQLSTATEs for transient connection / availability failures — the
  * database (or its connection pool) is temporarily unreachable and the request
  * can succeed on retry. Deliberately scoped to connection/availability codes;
