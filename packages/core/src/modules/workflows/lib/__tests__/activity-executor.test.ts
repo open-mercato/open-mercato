@@ -185,6 +185,7 @@ describe('Activity Executor (Unit Tests)', () => {
         template: 'welcome',
         templateData: { name: 'John' },
         body: undefined,
+        signal: undefined,
       })
     })
 
@@ -348,6 +349,7 @@ describe('Activity Executor (Unit Tests)', () => {
         {
           organizationId: testOrgId,
           tenantId: testTenantId,
+          signal: undefined,
         },
       )
     })
@@ -393,6 +395,7 @@ describe('Activity Executor (Unit Tests)', () => {
           {
             organizationId: testOrgId,
             tenantId: testTenantId,
+            signal: undefined,
           },
         )
       } finally {
@@ -1887,7 +1890,8 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(mockContainer.resolve).toHaveBeenCalledWith('workflowFunction:calculateOrderTotal')
       expect(mockFunction).toHaveBeenCalledWith(
         { orderId: 'order-123', includeShipping: true },
-        mockContext
+        mockContext,
+        undefined
       )
     })
 
@@ -2132,6 +2136,183 @@ describe('Activity Executor (Unit Tests)', () => {
           process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = originalAllowPrivate
         }
       }
+    })
+
+    test('should abort SEND_EMAIL when its timeout elapses (#5148)', async () => {
+      let completed = false
+      let capturedSignal: AbortSignal | undefined
+      const mockEmailService = {
+        send: jest.fn().mockImplementation((opts: { signal?: AbortSignal }) => {
+          capturedSignal = opts.signal
+          return new Promise((_resolve, reject) => {
+            opts.signal?.addEventListener('abort', () => {
+              reject(new DOMException('The operation was aborted', 'AbortError'))
+            })
+            setTimeout(() => {
+              completed = true
+              _resolve({ messageId: 'late' })
+            }, 500)
+          })
+        }),
+      }
+      mockContainer.resolve.mockReturnValue(mockEmailService)
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        {
+          activityId: 'activity-timeout-email',
+          activityName: 'Slow email',
+          activityType: 'SEND_EMAIL',
+          config: { to: 'user@example.com', subject: 'Hello' },
+          timeoutMs: 20,
+        },
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toMatch(/timeout after 20ms|aborted/i)
+      expect(capturedSignal?.aborted).toBe(true)
+      await new Promise((resolve) => setTimeout(resolve, 40))
+      expect(completed).toBe(false)
+    })
+
+    test('should abort EMIT_EVENT when its timeout elapses (#5148)', async () => {
+      let completed = false
+      let capturedSignal: AbortSignal | undefined
+      const mockEventBus = {
+        emitEvent: jest.fn().mockImplementation(
+          (_name: string, _payload: unknown, options?: { signal?: AbortSignal }) =>
+            new Promise((_resolve, reject) => {
+              capturedSignal = options?.signal
+              options?.signal?.addEventListener('abort', () => {
+                reject(new DOMException('The operation was aborted', 'AbortError'))
+              })
+              setTimeout(() => {
+                completed = true
+                _resolve(undefined)
+              }, 500)
+            })
+        ),
+      }
+      mockContainer.resolve.mockReturnValue(mockEventBus)
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        {
+          activityId: 'activity-timeout-emit',
+          activityName: 'Slow emit',
+          activityType: 'EMIT_EVENT',
+          config: { eventName: 'customers.person.created', payload: {} },
+          timeoutMs: 20,
+        },
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toMatch(/timeout after 20ms|aborted/i)
+      expect(capturedSignal?.aborted).toBe(true)
+      await new Promise((resolve) => setTimeout(resolve, 40))
+      expect(completed).toBe(false)
+    })
+
+    test('should abort UPDATE_ENTITY when its timeout elapses (#5148)', async () => {
+      let completed = false
+      let capturedSignal: AbortSignal | undefined
+      const mockCommandBus = {
+        execute: jest.fn().mockImplementation(
+          (_commandId: string, input: { signal?: AbortSignal }) =>
+            new Promise((_resolve, reject) => {
+              capturedSignal = input.signal
+              input.signal?.addEventListener('abort', () => {
+                reject(new DOMException('The operation was aborted', 'AbortError'))
+              })
+              setTimeout(() => {
+                completed = true
+                _resolve({ result: { ok: true }, logEntry: { id: 'log-1' } })
+              }, 500)
+            })
+        ),
+      }
+      const mockRbacService = {
+        userHasAllFeatures: jest.fn().mockResolvedValue(true),
+      }
+
+      registerWorkflowSafeCommands([
+        {
+          commandId: 'sales.orders.update',
+          requiredFeatures: ['sales.orders.manage'],
+          defaultEnabled: true,
+        },
+      ])
+
+      mockContainer.resolve.mockImplementation((name: string) => {
+        if (name === 'rbacService') return mockRbacService as any
+        if (name === 'commandBus') return mockCommandBus as any
+        throw new Error(`Unexpected service: ${name}`)
+      })
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        {
+          activityId: 'activity-timeout-update',
+          activityName: 'Slow update',
+          activityType: 'UPDATE_ENTITY',
+          config: {
+            commandId: 'sales.orders.update',
+            input: { id: 'order-123', statusEntryId: 'status-confirmed-id' },
+          },
+          timeoutMs: 20,
+        },
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toMatch(/timeout after 20ms|aborted/i)
+      expect(capturedSignal?.aborted).toBe(true)
+      await new Promise((resolve) => setTimeout(resolve, 40))
+      expect(completed).toBe(false)
+    })
+
+    test('should abort EXECUTE_FUNCTION when its timeout elapses (#5148)', async () => {
+      let completed = false
+      let capturedSignal: AbortSignal | undefined
+      const mockFunction = jest.fn().mockImplementation(
+        (_args: unknown, _ctx: unknown, signal?: AbortSignal) =>
+          new Promise((_resolve, reject) => {
+            capturedSignal = signal
+            signal?.addEventListener('abort', () => {
+              reject(new DOMException('The operation was aborted', 'AbortError'))
+            })
+            setTimeout(() => {
+              completed = true
+              _resolve({ ok: true })
+            }, 500)
+          })
+      )
+      mockContainer.resolve.mockReturnValue(mockFunction)
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        {
+          activityId: 'activity-timeout-fn',
+          activityName: 'Slow function',
+          activityType: 'EXECUTE_FUNCTION',
+          config: { functionName: 'slowCooperative', args: {} },
+          timeoutMs: 20,
+        },
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toMatch(/timeout after 20ms|aborted/i)
+      expect(capturedSignal?.aborted).toBe(true)
+      expect(mockFunction).toHaveBeenCalledWith({}, expect.anything(), expect.any(AbortSignal))
+      await new Promise((resolve) => setTimeout(resolve, 40))
+      expect(completed).toBe(false)
     })
   })
 

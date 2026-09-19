@@ -233,7 +233,8 @@ export function registerBuiltinActivityTypes(): void {
       { id: 'template', component: 'text' },
       { id: 'body', component: 'textarea' },
     ],
-    execute: async (config, ctx, deps) => (await loadExecutor()).executeSendEmail(config, ctx, deps.container),
+    execute: async (config, ctx, deps) =>
+      (await loadExecutor()).executeSendEmail(config, ctx, deps.container, deps.signal),
     async: { capable: true },
     mock: (config) => {
       const record = asConfigRecord(config)
@@ -250,7 +251,8 @@ export function registerBuiltinActivityTypes(): void {
       { id: 'eventName', component: 'eventName', required: true },
       { id: 'payload', component: 'json' },
     ],
-    execute: async (config, ctx, deps) => (await loadExecutor()).executeEmitEvent(config, ctx, deps.container),
+    execute: async (config, ctx, deps) =>
+      (await loadExecutor()).executeEmitEvent(config, ctx, deps.container, deps.signal),
     async: { capable: true },
     mock: (config) => {
       const record = asConfigRecord(config)
@@ -273,7 +275,8 @@ export function registerBuiltinActivityTypes(): void {
       { id: 'input', component: 'json', required: true },
       { id: 'statusDictionary', component: 'text' },
     ],
-    execute: async (config, ctx, deps) => (await loadExecutor()).executeUpdateEntity(deps.em, config, ctx, deps.container),
+    execute: async (config, ctx, deps) =>
+      (await loadExecutor()).executeUpdateEntity(deps.em, config, ctx, deps.container, deps.signal),
     async: { capable: true },
     outputContract: resolveCommandOutputContract,
     mock: (config) => {
@@ -320,7 +323,8 @@ export function registerBuiltinActivityTypes(): void {
       },
       { id: 'args', component: 'json' },
     ],
-    execute: async (config, ctx, deps) => (await loadExecutor()).executeFunction(config, ctx, deps.container),
+    execute: async (config, ctx, deps) =>
+      (await loadExecutor()).executeFunction(config, ctx, deps.container, deps.signal),
     async: { capable: true },
     mock: 'refuse',
   })

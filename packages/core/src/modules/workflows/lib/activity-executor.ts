@@ -858,17 +858,22 @@ async function executeActivityByType(
  * Sends via the DI-registered emailService when available; without one it
  * reports an honest stub result ({ sent: false, simulated: true, reason: 'no-email-service' }).
  * A real send() failure propagates so the activity retry loop handles it.
+ * When a timeout AbortSignal is provided it is forwarded on the send payload and
+ * the await is raced against abort (#5148).
  */
 export async function executeSendEmail(
   config: any,
   context: ActivityContext,
-  container: AwilixContainer
+  container: AwilixContainer,
+  signal?: AbortSignal
 ): Promise<any> {
   const { to, subject, template, templateData, body } = config
 
   if (!to || !subject) {
     throw new Error('SEND_EMAIL requires "to" and "subject" fields')
   }
+
+  throwIfAborted(signal)
 
   logger.info('Send email activity invoked', { component: 'SEND_EMAIL', subject })
 
@@ -880,13 +885,20 @@ export async function executeSendEmail(
   }
 
   if (emailService && typeof emailService.send === 'function') {
-    await emailService.send({
-      to,
-      subject,
-      template,
-      templateData,
-      body,
-    })
+    await raceAbortable(
+      Promise.resolve(
+        emailService.send({
+          to,
+          subject,
+          template,
+          templateData,
+          body,
+          signal,
+        })
+      ),
+      signal
+    )
+    throwIfAborted(signal)
     return { sent: true, to, subject, via: 'emailService' }
   }
 
@@ -897,12 +909,16 @@ export async function executeSendEmail(
 /**
  * EMIT_EVENT activity handler
  *
- * Publishes a domain event to the event bus
+ * Publishes a domain event to the event bus.
+ * Honours an activity-timeout AbortSignal by refusing to emit after abort and
+ * racing the emit await (#5148). An emit that has already begun cannot be
+ * rolled back — same contract as UPDATE_ENTITY.
  */
 export async function executeEmitEvent(
   config: any,
   context: ActivityContext,
-  container: AwilixContainer
+  container: AwilixContainer,
+  signal?: AbortSignal
 ): Promise<any> {
   const { eventName, payload } = config
 
@@ -929,6 +945,8 @@ export async function executeEmitEvent(
     )
   }
 
+  throwIfAborted(signal)
+
   // Get event bus from container
   const eventBus = container.resolve<{ emitEvent: (event: string, payload: unknown, options?: unknown) => Promise<unknown> | unknown }>('eventBus')
 
@@ -947,10 +965,17 @@ export async function executeEmitEvent(
     },
   }
 
-  await eventBus.emitEvent(eventName, enrichedPayload, {
-    tenantId: context.workflowInstance.tenantId,
-    organizationId: context.workflowInstance.organizationId,
-  })
+  await raceAbortable(
+    Promise.resolve(
+      eventBus.emitEvent(eventName, enrichedPayload, {
+        tenantId: context.workflowInstance.tenantId,
+        organizationId: context.workflowInstance.organizationId,
+        signal,
+      })
+    ),
+    signal
+  )
+  throwIfAborted(signal)
 
   return { emitted: true, eventName, payload: enrichedPayload }
 }
@@ -1007,7 +1032,8 @@ export async function executeUpdateEntity(
   em: EntityManager,
   config: any,
   context: ActivityContext,
-  container: AwilixContainer
+  container: AwilixContainer,
+  signal?: AbortSignal
 ): Promise<any> {
   const { commandId, input, statusDictionary } = config
 
@@ -1028,6 +1054,7 @@ export async function executeUpdateEntity(
     container,
     context.workflowInstance.tenantId,
   )
+  throwIfAborted(signal)
   if (!isWorkflowCommandEnabled(workflowSafeCommand, commandPolicy)) {
     throw new Error('UPDATE_ENTITY command is not enabled for this tenant')
   }
@@ -1048,6 +1075,7 @@ export async function executeUpdateEntity(
     context.workflowInstance.tenantId,
     context.workflowInstance.organizationId
   )
+  throwIfAborted(signal)
   if (!authorized) {
     throw new Error('UPDATE_ENTITY command is not authorized')
   }
@@ -1079,6 +1107,7 @@ export async function executeUpdateEntity(
       context.workflowInstance.tenantId,
       context.workflowInstance.organizationId
     )
+    throwIfAborted(signal)
     if (statusEntryId) {
       finalInput.statusEntryId = statusEntryId
     }
@@ -1101,11 +1130,20 @@ export async function executeUpdateEntity(
       : null,
   }
 
-  // Execute the command
-  const { result, logEntry } = await commandBus.execute(commandId, {
-    input: finalInput,
-    ctx,
-  })
+  // Execute the command. A timeout AbortSignal refuses a start and races the
+  // await (#5148); a write that has already begun cannot be rolled back.
+  throwIfAborted(signal)
+  const { result, logEntry } = await raceAbortable(
+    Promise.resolve(
+      commandBus.execute(commandId, {
+        input: finalInput,
+        ctx,
+        signal,
+      })
+    ),
+    signal
+  )
+  throwIfAborted(signal)
 
   return {
     executed: true,
@@ -1260,18 +1298,23 @@ export async function executeCallWebhook(
 /**
  * EXECUTE_FUNCTION activity handler
  *
- * Calls a registered function from DI container
+ * Calls a registered function from DI container.
+ * Forwards the activity-timeout AbortSignal as the third argument so registered
+ * functions can cancel cooperative work (#5148).
  */
 export async function executeFunction(
   config: any,
   context: ActivityContext,
-  container: AwilixContainer
+  container: AwilixContainer,
+  signal?: AbortSignal
 ): Promise<any> {
   const { functionName, args = {} } = config
 
   if (!functionName) {
     throw new Error('EXECUTE_FUNCTION requires "functionName" field')
   }
+
+  throwIfAborted(signal)
 
   // Look up function in container
   const fnKey = `workflowFunction:${functionName}`
@@ -1283,8 +1326,13 @@ export async function executeFunction(
       throw new Error(`Registered workflow function "${functionName}" is not a function`)
     }
 
-    // Call function with args and context
-    const result = await fn(args, context)
+    // Call function with args, context, and optional abort signal (additive —
+    // existing two-arg functions ignore the third parameter).
+    const result = await raceAbortable(
+      Promise.resolve(fn(args, context, signal)),
+      signal
+    )
+    throwIfAborted(signal)
 
     return { executed: true, functionName, result }
   } catch (error) {
@@ -2137,10 +2185,11 @@ function sleep(ms: number): Promise<void> {
 /**
  * Execute a promise with timeout
  *
- * Only CALL_API and CALL_WEBHOOK honour the abort signal today — they forward
- * it to `fetch`. SEND_EMAIL, EMIT_EVENT, UPDATE_ENTITY and EXECUTE_FUNCTION
- * still run to completion after the timeout has been recorded. Tracked in
- * #5148.
+ * AbortController.signal is threaded into every activity handler. CALL_API /
+ * CALL_WEBHOOK forward it to `fetch`. SEND_EMAIL, EMIT_EVENT, UPDATE_ENTITY and
+ * EXECUTE_FUNCTION check it before side effects, race their awaits against it,
+ * and forward it to callees that can honour it (#5148 / #4918). A command-bus
+ * write or event emit that has already begun cannot be rolled back.
  */
 async function executeWithTimeout<T>(
   executor: (signal: AbortSignal) => Promise<T>,
@@ -2161,6 +2210,51 @@ async function executeWithTimeout<T>(
   } finally {
     clearTimeout(timeoutId!)
   }
+}
+
+function createActivityAbortError(signal?: AbortSignal): Error {
+  if (signal?.reason instanceof Error) return signal.reason
+  try {
+    return new DOMException('The operation was aborted', 'AbortError')
+  } catch {
+    const error = new Error('The operation was aborted')
+    error.name = 'AbortError'
+    return error
+  }
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw createActivityAbortError(signal)
+  }
+}
+
+/**
+ * Reject when `signal` aborts while `promise` is still pending. Does not cancel
+ * an underlying effect that cannot honour AbortSignal — callers must pass the
+ * signal into that effect when it can.
+ */
+function raceAbortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise
+  if (signal.aborted) {
+    return Promise.reject(createActivityAbortError(signal))
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      reject(createActivityAbortError(signal))
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(value)
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(error)
+      }
+    )
+  })
 }
 
 bindActivityExecutor({
