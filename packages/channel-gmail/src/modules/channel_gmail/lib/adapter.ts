@@ -53,10 +53,6 @@ import {
 import { normalizeInboundGmailMessage } from './normalize-inbound'
 import { emailResolveContact } from '@open-mercato/core/modules/communication_channels/lib/email-contact'
 import { encodeCursor } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
-import { createLogger } from '@open-mercato/shared/lib/logger'
-
-const logger = createLogger('channel_gmail')
-
 /**
  * Gmail `ChannelAdapter`. OAuth2-based, polling-driven (`realtimePush: false`).
  *
@@ -216,10 +212,8 @@ class GmailChannelAdapter implements ChannelAdapter {
     if (!current.refreshToken) {
       throw new Error('requires_reauth')
     }
-    // Spec A: prefer the new `input.oauthClient` slot (resolved by the hub from
-    // the `channel_gmail` integration's tenant-scoped client credentials). Fall
-    // back to the deprecated `credentials._client` path for one minor release so
-    // existing test fixtures keep working.
+    // Spec A: OAuth client config comes only from `input.oauthClient` (resolved
+    // by the hub from the `channel_gmail` integration's tenant-scoped row).
     const clientFromState = resolveGmailOAuthClient(input)
     const token = await getGoogleOAuthClient().refreshToken({
       clientId: clientFromState.clientId,
@@ -675,47 +669,34 @@ function parseClientCredentialsOrThrow(value: unknown): GmailClientCredentials {
   return parsed.data
 }
 
-let warnedLegacyClientPath = false
-
 /**
- * Resolve the OAuth client config for a Gmail refresh, preferring the new
- * `RefreshCredentialsInput.oauthClient` field (Spec A,
+ * Resolve the OAuth client config for a Gmail refresh from
+ * `RefreshCredentialsInput.oauthClient` (Spec A,
  * .ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md).
  *
- * Falls back to the deprecated `credentials._client` read path for one
- * minor release so existing tests keep working. The legacy path emits a
- * one-time deprecation warning per process so production logs stay quiet.
+ * Client-app config must come from this trusted hub-supplied slot only —
+ * never from a per-user credentials blob.
  */
 function resolveGmailOAuthClient(input: RefreshCredentialsInput): GmailClientCredentials {
-  if (input.oauthClient) {
-    const client = input.oauthClient
-    if (!client.clientId) {
-      throw new Error('[internal] Invalid Gmail OAuth client credentials: OAuth Client ID required')
-    }
-    if (!client.clientSecret) {
-      throw new Error('[internal] Invalid Gmail OAuth client credentials: clientSecret required')
-    }
-    return {
-      clientId: client.clientId,
-      clientSecret: client.clientSecret,
-      // `GmailClientCredentials.scopes` is the wire format the legacy
-      // `credentials._client` blob carried — comma/space-separated string.
-      // Spec A's `OAuthClientConfig.scopes` is the canonical `string[]`.
-      // `parseScopes` accepts either separator, so join with a single space.
-      ...(client.scopes !== undefined ? { scopes: client.scopes.join(' ') } : {}),
-    }
-  }
-  // Legacy path — DEPRECATED. Remove in the next minor release.
-  if (!warnedLegacyClientPath) {
-    warnedLegacyClientPath = true
-    logger.warn(
-      'reading OAuth client config from credentials._client is deprecated;' +
-        ' pass via RefreshCredentialsInput.oauthClient instead (Spec A)',
+  if (!input.oauthClient) {
+    throw new Error(
+      '[internal] Invalid Gmail OAuth client credentials: oauthClient is required on RefreshCredentialsInput',
     )
   }
-  return parseClientCredentialsOrThrow(
-    (input.credentials as unknown as { _client?: unknown })._client ?? input.credentials,
-  )
+  const client = input.oauthClient
+  if (!client.clientId) {
+    throw new Error('[internal] Invalid Gmail OAuth client credentials: OAuth Client ID required')
+  }
+  if (!client.clientSecret) {
+    throw new Error('[internal] Invalid Gmail OAuth client credentials: clientSecret required')
+  }
+  return {
+    clientId: client.clientId,
+    clientSecret: client.clientSecret,
+    // Spec A's `OAuthClientConfig.scopes` is `string[]`; `GmailClientCredentials.scopes`
+    // is a comma/space-separated string. `parseScopes` accepts either separator.
+    ...(client.scopes !== undefined ? { scopes: client.scopes.join(' ') } : {}),
+  }
 }
 
 function pickRawMimeBuffer(payload: { rawBase64Url?: unknown; rawBody?: unknown }): Buffer {

@@ -26,6 +26,21 @@ most of the patterns listed below in a user's codebase.
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).
 
+### Gmail adapter no longer reads OAuth client config from `credentials._client`
+
+`GmailChannelAdapter.refreshCredentials` previously fell back to
+`credentials._client` (with a one-time deprecation warning) when
+`RefreshCredentialsInput.oauthClient` was absent. That legacy path is **removed**.
+
+**Action:** any custom caller or test fixture that refreshed Gmail tokens without
+`oauthClient` must pass `oauthClient: { clientId, clientSecret, scopes? }` —
+the same shape the `communication_channels` hub already supplies from the
+tenant-scoped `oauth_gmail` integration credentials. A missing `oauthClient`
+now throws; a smuggled `_client` key on the per-user credentials blob is ignored.
+
+See #3828 and
+[`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) (`RefreshCredentialsInput`).
+
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 
 `Locale` in `@open-mercato/shared/lib/i18n/config` used to be a closed union literal. It is now
