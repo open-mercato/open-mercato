@@ -126,6 +126,14 @@ const composeMessageBaseSchema = z.object({
   attachmentRecordId: z.string().min(1).max(255).optional(),
   actionData: messageActionDataSchema.optional(),
   sendViaEmail: z.boolean().optional().default(false),
+  /**
+   * Employee-owned communication channel to send this message through instead
+   * of the platform sender (#6258). The channel is never trusted from the body:
+   * the route hands it to the `communication_channels` send-as-user facade,
+   * which resolves it inside the caller's scope and refuses a channel the
+   * caller does not own. Absent means the platform sender.
+   */
+  senderChannelId: z.string().uuid().optional(),
   parentMessageId: z.string().uuid().optional(),
   isDraft: z.boolean().optional().default(false),
 })
