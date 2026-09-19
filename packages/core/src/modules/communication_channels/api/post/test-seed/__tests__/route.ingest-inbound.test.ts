@@ -161,14 +161,42 @@ describe('POST /api/communication_channels/test-seed — ingest-inbound (#4975)'
     })
   })
 
-  it('refuses to ingest against a channel connected with the email-shaped stub', async () => {
-    // Ingest does not verify that providerKey matches the channel it names, so
-    // accepting an email-flavored channel here would silently stamp the wrong
-    // provider onto the link — and normalizeInbound would throw anyway.
+  it('ingests against the email-shaped stub as an email channel, forwarding the subject (#6089)', async () => {
     mockFindOneWithDecryption.mockResolvedValue({
       id: CHANNEL_ID,
       userId: CALLER_USER,
       providerKey: '__test_seed__',
+      channelType: 'email',
+      externalIdentifier: 'seed@test-seed.local',
+    })
+
+    const response = await POST(
+      ingestRequest({
+        senderIdentifier: 'inbound-sender@example.test',
+        senderDisplayName: 'Inbound Sender',
+        subject: 'Inbound subject',
+      }),
+    )
+
+    expect(response.status).toBe(201)
+    // The channel's own provider key and type, so the hub applies the email
+    // identity contract (mandatory externalEmail derived from the sender).
+    const ingestInput = mockCommandExecute.mock.calls[0][1].input
+    expect(ingestInput.channelType).toBe('email')
+    expect(ingestInput.providerKey).toBe('__test_seed__')
+    const rawFrame = mockNormalizeInbound.mock.calls[0][0].raw
+    expect(rawFrame.senderIdentifier).toBe('inbound-sender@example.test')
+    expect(rawFrame.subject).toBe('Inbound subject')
+  })
+
+  it('refuses to ingest against a channel connected through a non-stub provider', async () => {
+    // Ingest does not verify that providerKey matches the channel it names, so
+    // accepting an arbitrary channel here would run a real provider adapter
+    // and silently stamp its provider onto the link.
+    mockFindOneWithDecryption.mockResolvedValue({
+      id: CHANNEL_ID,
+      userId: CALLER_USER,
+      providerKey: 'imap',
       channelType: 'email',
       externalIdentifier: 'seed@test-seed.local',
     })

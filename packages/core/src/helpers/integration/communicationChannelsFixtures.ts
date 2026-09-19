@@ -325,6 +325,61 @@ export async function ingestInboundChatMessage(
   };
 }
 
+/**
+ * Ingest an inbound EMAIL through the REAL `ingest_inbound_message` command on a
+ * channel connected with the default `email` flavor. The stub adapter turns the
+ * frame into an email-shaped inbound message whose sender is `senderAddress`, so
+ * the hub derives `externalEmail` from it and composes the platform message via
+ * `messages.messages.compose` exactly as a real IMAP/Gmail/Graph adapter would.
+ *
+ * Use this — not {@link seedInboundMessage}, which bypasses compose — for any
+ * assertion about what the hub does with an inbound email after ingest (for
+ * example that it is NOT echoed back to its sender, #6089).
+ */
+export async function ingestInboundEmailMessage(
+  request: APIRequestContext,
+  token: string,
+  input: {
+    channelId: string;
+    senderAddress: string;
+    senderDisplayName?: string;
+    subject?: string;
+    body?: string;
+    externalMessageId: string;
+    externalConversationId: string;
+  },
+): Promise<{
+  status: string;
+  messageId: string | null;
+  conversationId: string | null;
+  channelLinkId: string | null;
+  channelType: string | null;
+}> {
+  const { senderAddress, ...rest } = input;
+  const response = await apiRequest(request, 'POST', TEST_SEED_PATH, {
+    token,
+    data: { action: 'ingest-inbound', senderIdentifier: senderAddress, ...rest },
+  });
+  expect(
+    response.status(),
+    'POST /api/communication_channels/test-seed (ingest-inbound, email) should return 201',
+  ).toBe(201);
+  const body = await readJsonSafe<{
+    status?: string;
+    messageId?: string | null;
+    conversationId?: string | null;
+    channelLinkId?: string | null;
+    channelType?: string | null;
+  }>(response);
+  return {
+    status: body?.status ?? 'unknown',
+    messageId: body?.messageId ?? null,
+    conversationId: body?.conversationId ?? null,
+    channelLinkId: body?.channelLinkId ?? null,
+    channelType: body?.channelType ?? null,
+  };
+}
+
 export async function deleteChannelIfExists(
   request: APIRequestContext,
   token: string | null,
