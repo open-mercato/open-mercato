@@ -368,7 +368,10 @@ export interface ApplyPushNotificationInput {
 export interface ImportHistoryInput {
   credentials: Record<string, unknown>
   scope: TenantScope
-  /** Look back at most this many days. Clamped 1..365 by the hub. */
+  /**
+   * Look back at most this many days. The hub accepts 1..`OM_IMPORT_HISTORY_MAX_SINCE_DAYS`
+   * (default ceiling 3650, i.e. ten years) and defaults to 30 when omitted.
+   */
   sinceDays: number
   /**
    * Optional sender-filter hint. Adapters SHOULD use it for server-side
@@ -376,7 +379,10 @@ export interface ImportHistoryInput {
    * import scans the entire `SINCE` window.
    */
   contactEmails?: string[]
-  /** Total cap across all pages. Hub default 1000. Adapter MUST respect. */
+  /**
+   * Total cap across all pages. Hub default 1000, accepted up to
+   * `OM_IMPORT_HISTORY_MAX_MESSAGES` (default ceiling 50000). Adapter MUST respect.
+   */
   maxMessages?: number
   /** Opaque resumption cursor returned by the previous page. */
   cursor?: string
