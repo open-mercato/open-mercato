@@ -470,8 +470,14 @@ export async function POST(req: Request) {
         sourceHint.data,
       )
     : undefined
-  const { sourceChannelType: _clientSuppliedChannelType, ...clientBody } =
-    (body ?? {}) as Record<string, unknown>
+  // `sentAt` is likewise server-only (#6095): channel ingest stamps the
+  // provider's receive time through the command, but a request body must not
+  // be able to backdate a message.
+  const {
+    sourceChannelType: _clientSuppliedChannelType,
+    sentAt: _clientSuppliedSentAt,
+    ...clientBody
+  } = (body ?? {}) as Record<string, unknown>
   const input = composeMessageSchema.parse({
     ...clientBody,
     ...(sourceChannelType ? { sourceChannelType } : {}),

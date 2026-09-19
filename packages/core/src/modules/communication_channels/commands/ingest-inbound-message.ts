@@ -403,6 +403,12 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       // when the matcher returned null (no token / JWZ / subject hit).
       parentMessageId: threadMatch?.messageThreadId ?? mapping?.messageThreadId,
       isDraft: false,
+      // #6095: the platform message is dated when the provider received the
+      // mail, not when this worker ran. Otherwise a history import lands every
+      // message on the import minute and the inbox (sorted on `sent_at`) shows
+      // a 90-day mailbox as one block in import order. Adapters without a
+      // timestamp fall through to compose's own `new Date()`.
+      sentAt: m.timestamp ?? undefined,
       // Stable dedup key so a retried ingest (after a transient failure between
       // compose and the ExternalMessage anchor insert) reuses the message
       // composed by the first attempt instead of duplicating it. Mirrors the
@@ -561,6 +567,16 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
         providerKey: input.providerKey,
         channelType: input.channelType,
         direction: 'inbound',
+        // #6095: subscribers that date their own rows from this message (the
+        // customers timeline) need the provider's receive time, not the moment
+        // this worker ran. Carried here so no consumer has to read the
+        // ExternalMessage row across the module boundary. ISO string because a
+        // persistent event is serialized onto the queue; null when the adapter
+        // supplied no timestamp, which leaves the consumer's own fallback.
+        providerTimestamp:
+          externalMessage.providerTimestamp instanceof Date
+            ? externalMessage.providerTimestamp.toISOString()
+            : null,
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
       },
