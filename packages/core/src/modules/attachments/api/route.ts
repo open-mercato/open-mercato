@@ -46,6 +46,9 @@ import {
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { AttachmentQuotaService } from '../lib/quota-service'
+import { resolveAttachmentsUploadRateLimitConfig } from '../lib/ocrLimits'
+import { checkRateLimit, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_ERROR_KEY } from '@open-mercato/shared/lib/ratelimit/helpers'
+import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 
 const logger = createLogger('attachments')
 
@@ -281,6 +284,25 @@ export async function POST(req: Request) {
   }
   const tenantId = auth.tenantId
 
+  const container = await createRequestContainer()
+  try {
+    const rateLimiterService = container.resolve('rateLimiterService') as RateLimiterService | null
+    if (rateLimiterService) {
+      const principal = typeof auth.sub === 'string' && auth.sub.length > 0
+        ? auth.sub
+        : (typeof auth.userId === 'string' && auth.userId.length > 0 ? auth.userId : 'anonymous')
+      const rateLimitResponse = await checkRateLimit(
+        rateLimiterService,
+        resolveAttachmentsUploadRateLimitConfig(),
+        `${tenantId}:${principal}`,
+        t(RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK),
+      )
+      if (rateLimitResponse) return rateLimitResponse
+    }
+  } catch {
+    // rateLimiterService may be absent in minimal containers; fail open on resolve miss.
+  }
+
   const contentType = req.headers.get('content-type') || ''
   if (!contentType.toLowerCase().includes('multipart/form-data')) {
     return NextResponse.json({ error: 'Expected multipart/form-data' }, { status: 400 })
@@ -317,7 +339,6 @@ export async function POST(req: Request) {
   const tags = parseFormTags(form.get('tags'))
   const assignmentsFromForm = parseFormAssignments(form.get('assignments'))
 
-  const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const dataEngine = container.resolve('dataEngine')
   let attachmentQuotaService: AttachmentQuotaService | null = null

@@ -199,6 +199,27 @@ describe('extractAttachmentContent', () => {
     expect(getMammothMock().extractRawText).not.toHaveBeenCalled()
   })
 
+  it('caps PDF page iteration at OM_OCR_MAX_PAGES', async () => {
+    process.env.OM_OCR_MAX_PAGES = '2'
+    const mockPage = {
+      getTextContent: jest.fn().mockResolvedValue({ items: [{ str: 'page' }] }),
+      cleanup: jest.fn(),
+    }
+    const getPage = jest.fn().mockResolvedValue(mockPage)
+    getPdfMock().getDocument.mockReturnValue({
+      promise: Promise.resolve({ numPages: 9, getPage }),
+      destroy: jest.fn().mockResolvedValue(undefined),
+    })
+
+    const filePath = await writeTempFile('long.pdf', '%PDF-1.4 placeholder')
+    const { extractAttachmentContent } = await import('../textExtraction')
+    await extractAttachmentContent({ filePath, mimeType: 'application/pdf' })
+    expect(getPage).toHaveBeenCalledTimes(2)
+    expect(getPage).toHaveBeenCalledWith(1)
+    expect(getPage).toHaveBeenCalledWith(2)
+    delete process.env.OM_OCR_MAX_PAGES
+  })
+
   it('returns null when PDF pdfjs extraction fails — does not propagate', async () => {
     // Create a lazily-rejected promise to avoid an unhandled-rejection warning
     // before the implementation's try/catch can attach its handler.
