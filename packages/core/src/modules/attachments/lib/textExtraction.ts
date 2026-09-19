@@ -1,6 +1,7 @@
 import fs from 'fs/promises'
 import path from 'path'
 import { createRequire } from 'module'
+import { resolveMaxOcrPages, resolvePdfPageIterationLimit } from './ocrLimits'
 
 // NOTE: child_process is intentionally NOT imported here.
 // This module MUST NOT shell out to any external binary for content extraction.
@@ -68,8 +69,9 @@ async function extractPdfText(filePath: string): Promise<string | null> {
     })
     const pdfDocument = await loadingTask.promise
     const textParts: string[] = []
+    const pageLimit = resolvePdfPageIterationLimit(pdfDocument.numPages, resolveMaxOcrPages())
     try {
-      for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
+      for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
         const page = await pdfDocument.getPage(pageNumber)
         try {
           const textContent = await page.getTextContent()

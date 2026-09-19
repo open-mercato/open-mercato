@@ -3,6 +3,7 @@ import { Attachment, AttachmentPartition } from '../data/entities'
 import { OcrService } from './ocrService'
 import type { StorageDriver } from './drivers/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveOcrMaxConcurrency } from './ocrLimits'
 
 const logger = createLogger('attachments').child({ component: 'ocr' })
 
@@ -13,6 +14,37 @@ export type OcrRequestedEvent = {
   partitionCode: string
   organizationId: string | null
   tenantId: string | null
+}
+
+let activeOcrJobs = 0
+const ocrWaitQueue: Array<() => void> = []
+
+/** Test-only: reset in-process OCR concurrency bookkeeping. */
+export function resetOcrConcurrencyStateForTests(): void {
+  activeOcrJobs = 0
+  ocrWaitQueue.length = 0
+}
+
+/** Test-only: inspect in-process OCR concurrency counters. */
+export function getOcrConcurrencyStateForTests(): { active: number; waiting: number } {
+  return { active: activeOcrJobs, waiting: ocrWaitQueue.length }
+}
+
+export async function withOcrConcurrencySlot<T>(run: () => Promise<T>): Promise<T> {
+  const maxConcurrency = resolveOcrMaxConcurrency()
+  if (activeOcrJobs >= maxConcurrency) {
+    await new Promise<void>((resolve) => {
+      ocrWaitQueue.push(resolve)
+    })
+  }
+  activeOcrJobs += 1
+  try {
+    return await run()
+  } finally {
+    activeOcrJobs -= 1
+    const next = ocrWaitQueue.shift()
+    if (next) next()
+  }
 }
 
 export async function processAttachmentOcr(
@@ -98,7 +130,7 @@ export async function requestOcrProcessing(
   const workerEm = em.fork()
 
   setImmediate(() => {
-    processAttachmentOcr(workerEm, payload, driver).catch((error) => {
+    withOcrConcurrencySlot(() => processAttachmentOcr(workerEm, payload, driver)).catch((error) => {
       logger.error('Background processing error', { err: error })
     })
   })
