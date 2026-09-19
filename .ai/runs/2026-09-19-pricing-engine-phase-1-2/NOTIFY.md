@@ -18,3 +18,13 @@
 - Replaced dev symlinks with a real `yarn install`; ran the full targeted-validation set (build:packages, generate, typecheck, i18n:check-sync/usage, full `catalog` jest suite — 702/702 passing). See `checkpoint-1-checks.md`.
 - Deliberately deferred the browser/integration-suite run (`TC-CAT-PRICES-001`) to the final gate rather than bootstrapping a disposable DB twice — reason recorded in `checkpoint-1-checks.md`.
 - Starting Phase 2 (resolver-registry hardening) next.
+
+## 2026-09-19T19:30:00Z — final gate complete, every Tasks row done
+- Landed Steps 2.1–2.5 (resolver globalThis registry, additive PricingContext fields, docs corrections, buildPriceRowFilter, property-based soundness test).
+- Final gate: full `validation.commands` sequence green (build:packages ×2, generate, i18n:check-sync/usage, typecheck, full unit suites for shared/core/cli — ~21,900 tests, build:app).
+- Stood up a real disposable-DB dev server (`om_qa_6268`) and ran the full `catalog` integration suite against it twice. Found and fixed 3 real issues along the way: a `module-facts` fixture needing the new DataTable host id, a missing sort comparator, a missing `optimistic-lock-exempt` marker, and — the substantive one — `TC-CAT-032` needed updating because Step 1.1's cross-field validation intentionally closed the exact gap that test used to document.
+- Found and **fixed 3 Playwright-authoring issues** in `TC-CAT-PRICES-001` itself (portaled popover locator scope, label-vs-value suggestion filtering, price-kind search behavior) — all test-file-only.
+- Found and **documented (not fixed, out of scope)** a real pre-existing bug: `/api/catalog/price-kinds`'s search only matches a title/code *prefix* despite building a both-sides ILIKE filter.
+- `TC-CAT-PRICES-001` passes end to end. `TC-CAT-011`'s one remaining failure reproduced as a pre-existing concurrent-test-fixture isolation gap (passes standalone, confirmed). A later serialized full-suite run showed 17 unrelated WMS/category/EUDR failures caused by dev-server resource exhaustion after ~2 hours of continuous heavy use (confirmed via the app's own `data-health="degraded"` diagnostics banner intercepting clicks) — not a code regression.
+- Full trail: `final-gate-checks.md`.
+- PR stays a **draft** per the user's explicit instruction, even though `Status: complete`.
