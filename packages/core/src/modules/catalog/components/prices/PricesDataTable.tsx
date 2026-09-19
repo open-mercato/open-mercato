@@ -159,6 +159,7 @@ export default function PricesDataTable({ productId }: { productId?: string } = 
     })
     if (!confirmed) return
     try {
+      // optimistic-lock-exempt: delete-only mutation — no field-level lost-update
       await apiCallOrThrow(
         `/api/catalog/prices?id=${encodeURIComponent(row.id)}`,
         { method: 'DELETE' },

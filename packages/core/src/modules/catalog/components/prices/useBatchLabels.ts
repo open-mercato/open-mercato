@@ -17,7 +17,10 @@ export function useBatchLabels(
 ): LabelMap {
   const [labels, setLabels] = React.useState<LabelMap>({})
   const key = React.useMemo(
-    () => Array.from(new Set(ids.filter((id): id is string => typeof id === 'string' && id.length > 0))).sort().join(','),
+    () =>
+      Array.from(new Set(ids.filter((id): id is string => typeof id === 'string' && id.length > 0)))
+        .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+        .join(','),
     [ids],
   )
 
