@@ -67,6 +67,8 @@ function toRequest(result: SalesDocumentCalculationResult): TaxCalculationReques
     taxRateId: null,
     taxRate: entry.line.taxRate ?? null,
     taxClassificationCode: null,
+    taxCode: null,
+    isTaxable: true,
     hsCode: null,
     shipTo: null,
     metadata: {},

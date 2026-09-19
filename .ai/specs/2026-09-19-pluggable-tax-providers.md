@@ -242,7 +242,9 @@ The private `ProviderKind` union (`registry.ts:4`, today `'shipping' | 'payment'
 | `taxIncluded` | `boolean` | `metadata.priceMode === 'gross'` (`commands/documents.ts:7209`) |
 | `taxRateId` | `string \| null` | `catalog_snapshot.taxRateId`, else variant `tax_rate_id`, else product `tax_rate_id` |
 | `taxRate` | `number \| null` | snapshot `taxRate` (the table rate the engine used) |
-| `taxClassificationCode` | `string \| null` | `catalog_snapshot.taxClassificationCode`, else `catalog_products.tax_classification_code` |
+| `taxClassificationCode` | `string \| null` | `catalog_snapshot.taxClassificationCode`, else `catalog_products.tax_classification_code` (the Polish compliance code) |
+| `taxCode` | `string \| null` | `catalog_snapshot.taxCode`, else variant `tax_code`, else product `tax_code`; the provider tax code, such as an Avalara tax code |
+| `isTaxable` | `boolean` | `catalog_snapshot.isTaxable`, else variant `is_taxable`, else product `is_taxable`, else `true`; `false` means the catalog marks the product as not taxable |
 | `hsCode` | `string \| null` | `catalog_snapshot.hsCode`, else `catalog_products.hs_code` |
 | `shipTo` | `TaxAddress \| null` | `null` in this spec (per line addresses are reserved; `metadata` carries them until a core feature needs them) |
 | `metadata` | `Record<string, unknown>` | `line.metadata` |
@@ -276,7 +278,7 @@ type TaxDocumentContext = {
   document: { kind; id; number; date; channelId; intent }
   customer: TaxCustomer | null
   addresses: { shipFrom: TaxAddress | null; shipTo: TaxAddress | null; billTo: TaxAddress | null }
-  productFacts: Record<string, { sku; taxRateId; taxClassificationCode; hsCode }>   // by productId and by variantId
+  productFacts: Record<string, TaxProductFacts>   // by productId and by variantId
   selection: { providerKey: string; settings: Record<string, unknown>; integrationId: string | null; integrationEnabled: boolean }
   resolveCredentials: () => Promise<Record<string, unknown>>   // closure; not enumerable in JSON
   timeoutMs: number
@@ -285,7 +287,24 @@ type TaxDocumentContext = {
 }
 ```
 
+**`TaxProductFacts`** is the per product block those two catalog reads produce, keyed by both product id and variant id:
+
+```ts
+type TaxProductFacts = {
+  sku: string | null
+  taxRateId: string | null
+  taxClassificationCode: string | null   // the Polish compliance code
+  taxCode: string | null                 // the provider tax code, such as an Avalara tax code
+  isTaxable: boolean                     // false only when the catalog says so
+  hsCode: string | null
+}
+```
+
+A variant value wins over its parent product's, for every field the variant carries; `taxClassificationCode` has no variant column, so the product always owns it. `isTaxable` distinguishes "the catalog said `false`" from "the catalog said nothing": only an explicit value overrides, so a variant that says nothing inherits its product's flag and a product that says nothing is taxable. That matches the column default on `catalog_products.is_taxable` and `catalog_product_variants.is_taxable`, which is `true`.
+
 Queries per calculation: one `sales_settings` point read (cached, see Configuration), at most one `catalog_products` and one `catalog_product_variants` batched `id IN (...)` read for lines whose `catalog_snapshot` lacks the facts, and one credentials read only when the selected provider has an `integrationId` and `calculate` is actually invoked (the closure is lazy). All reads filter by `organization_id` and `tenant_id`.
+
+Whether the two catalog reads happen at all is the provider's call: `TaxProvider.needsProductFacts` declares it. `true` loads them, `false` keeps the document on the cheap path, and an undeclared provider gets them, which is how the contract behaved before providers could say. The built in `table-rates` provider declares `false` because every figure it returns is one the engine already computed, so a document that never selects a provider still adds no catalog query to any write.
 
 `buildCalculationContext` gains a required `tax: TaxDocumentContext` parameter and places it under `context.metadata.tax`; the four `returns.ts` sites build their context through the same helper. A unit test asserts that every `calculateDocumentTotals(` call in `commands/` passes a context whose metadata carries `tax` (a source scan, like the existing `registration.test.ts` style checks).
 
@@ -865,6 +884,8 @@ None. One item requires a human decision (the ⚠ row) but does not violate a ru
 ## Changelog
 
 ### 2026-09-19
+- `TaxProductFacts` and `TaxRequestLine` gained `taxCode` (the provider tax code the catalog carries, such as an Avalara tax code) and `isTaxable` (`false` only when the catalog says so), filled from `catalog_products.tax_code` / `is_taxable` and their variant counterparts, variant value first. Additive only; no amount a provider returns changes, and no migration is needed because the catalog columns already exist.
+- `TaxProvider.needsProductFacts` now decides whether the two batched catalog reads happen. `table-rates` declares `false`, so the default path stays query free; a provider that declares nothing keeps the previous behavior.
 - Initial specification, written autonomously by `om-auto-write-spec` from the owner brief; all Open Questions resolved with autonomous defaults (one flagged ⚠ NEEDS HUMAN CONFIRMATION).
 - 2026-09-19: owner confirmed Q7 (core owns `tax_strategy_key` and `tax_info`); Phase 5 (commit, adjust, void lifecycle) deferred to the roadmap; MVP = Phases 1 to 4 and 6.
 

@@ -164,6 +164,9 @@ export function buildTaxCalculationRequest(params: {
       taxRateId: facts?.taxRateId ?? null,
       taxRate: line.taxRate ?? null,
       taxClassificationCode: facts?.taxClassificationCode ?? null,
+      taxCode: facts?.taxCode ?? null,
+      // Absent facts mean the cheap path, not an untaxable product.
+      isTaxable: facts?.isTaxable ?? true,
       hsCode: facts?.hsCode ?? null,
       // Per line destinations are reserved; they travel in metadata until a
       // core feature needs them.

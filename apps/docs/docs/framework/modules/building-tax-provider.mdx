@@ -107,7 +107,31 @@ Core then:
 
 `request` (`TaxCalculationRequest`) carries `documentKind`, `documentId`, `documentNumber`, `documentDate`, `intent`, `currencyCode`, the scope ids, `channelId`, `customer`, `addresses.{shipFrom,shipTo,billTo}`, `lines`, `charges`, `totals` and a free `metadata` bag.
 
-Each `TaxRequestLine` carries the identity and quantity you expect, plus the product tax facts (`sku`, `taxRateId`, `taxClassificationCode`, `hsCode`) and **the amounts the engine already computed**: `amountNet`, `amountGross` and `taxAmount`. Ignore `taxAmount` if you compute your own; the built-in `table-rates` provider returns it verbatim, which is what makes it an exact identity over the engine.
+Each `TaxRequestLine` carries the identity and quantity you expect, plus the product tax facts (`sku`, `taxRateId`, `taxClassificationCode`, `taxCode`, `isTaxable`, `hsCode`) and **the amounts the engine already computed**: `amountNet`, `amountGross` and `taxAmount`. Ignore `taxAmount` if you compute your own; the built-in `table-rates` provider returns it verbatim, which is what makes it an exact identity over the engine.
+
+Two of those facts are the ones an external engine usually wants:
+
+- **`taxCode`** (`string | null`) is the provider tax code the catalog carries on the product or variant, an Avalara tax code for example. It is **not** `taxClassificationCode`, which is the Polish compliance classification and a different fact entirely. Pass `taxCode` straight through to your engine's own item code field.
+- **`isTaxable`** (`boolean`) is `false` only when the catalog marks the product or variant as not taxable, and `true` otherwise. Honour it before you call out: a line that is not taxable should come back with `taxAmount: 0`, and counting its `amountNet` as `exemptAmount` is usually the right reporting choice.
+
+Both follow the same precedence: the variant's value wins, then the parent product's, then the default (`null` for `taxCode`, `true` for `isTaxable`). A variant that stores nothing inherits its product; only an explicit value overrides.
+
+## Asking for the product facts
+
+Filling those facts costs at most two batched catalog queries per document, so core only runs them for providers that say they need them:
+
+```ts
+export const avalaraTaxProvider: TaxProvider = {
+  key: 'avalara',
+  label: 'Avalara AvaTax',
+  needsProductFacts: true,
+  calculate: async ({ request, credentials, signal }) => { /* ... */ },
+}
+```
+
+- **`needsProductFacts: true`**: core reads the catalog facts before every calculation. Declare it if you read `sku`, `taxRateId`, `taxClassificationCode`, `taxCode`, `isTaxable` or `hsCode`.
+- **`needsProductFacts: false`**: core skips the reads and those six fields arrive as their defaults. The built-in `table-rates` provider declares this, which is why an organization that never selects a provider adds no catalog query to any document write.
+- **Undeclared**: core reads the facts, the behaviour every provider had before the flag existed. Nothing breaks if you leave it out; declaring it just makes the cost explicit.
 
 Return a `TaxProviderCalculateResult`:
 

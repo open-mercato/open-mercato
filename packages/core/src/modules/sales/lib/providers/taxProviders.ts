@@ -286,6 +286,9 @@ export const tableRatesTaxProvider: TaxProvider = {
   label: 'Table rates',
   description:
     'Applies the tax rate stored on each line, exactly as the calculation engine does. Selected when no other provider is.',
+  // Every figure it returns is one the engine already computed, so the catalog
+  // read the other providers need would buy this one nothing.
+  needsProductFacts: false,
   calculate: ({ request }) => calculateTableRates(request),
 }
 

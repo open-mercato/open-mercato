@@ -49,9 +49,11 @@ export type ResolveTaxDocumentContextParams = {
   totalsMode?: 'computed' | 'external'
   metadata?: Record<string, unknown> | null
   /**
-   * Whether to read the catalog tax facts. Defaults to false for the built in
-   * `table-rates` provider, which works purely off the figures the engine
-   * already computed — so the common path adds no query to any document write.
+   * Overrides whether to read the catalog tax facts. Left unset, the selected
+   * provider decides through `TaxProvider.needsProductFacts`; the built in
+   * `table-rates` provider declares `false` because it works purely off the
+   * figures the engine already computed, so the common path adds no query to
+   * any document write.
    */
   loadProductFacts?: boolean
   /** Used to reach the cache, the integration state and the credentials service. */
@@ -83,6 +85,19 @@ function asNumber(value: unknown): number | null {
 
 function asBoolean(value: unknown): boolean {
   return value === true || value === 'true' || value === 1 || value === '1'
+}
+
+/**
+ * Distinguishes "the catalog said false" from "the catalog said nothing", which
+ * is what lets a variant fall through to its parent product instead of
+ * overriding it with a default. An unflushed entity carries `undefined` for a
+ * column with a database default, so only an explicit value counts.
+ */
+function asOptionalBoolean(value: unknown): boolean | null {
+  if (typeof value === 'boolean') return value
+  if (value === 'true' || value === 1 || value === '1') return true
+  if (value === 'false' || value === 0 || value === '0') return false
+  return null
 }
 
 export function resolveTaxDocumentIntent(documentKind: SalesDocumentKind): TaxDocumentIntent {
@@ -161,8 +176,12 @@ function factsFromCatalogSnapshot(snapshot: unknown): TaxProductFacts | null {
     record.taxClassificationCode ?? record.tax_classification_code
   )
   const hsCode = asString(record.hsCode ?? record.hs_code)
-  if (!sku && !taxRateId && !taxClassificationCode && !hsCode) return null
-  return { sku, taxRateId, taxClassificationCode, hsCode }
+  const taxCode = asString(record.taxCode ?? record.tax_code)
+  const isTaxable = asOptionalBoolean(record.isTaxable ?? record.is_taxable)
+  if (!sku && !taxRateId && !taxClassificationCode && !hsCode && !taxCode && isTaxable === null) {
+    return null
+  }
+  return { sku, taxRateId, taxClassificationCode, taxCode, isTaxable: isTaxable ?? true, hsCode }
 }
 
 /**
@@ -204,6 +223,8 @@ async function loadProductFacts(
         sku: asString(product.sku),
         taxRateId: asString(product.taxRateId),
         taxClassificationCode: asString(product.taxClassificationCode),
+        taxCode: asString(product.taxCode),
+        isTaxable: asOptionalBoolean(product.isTaxable) ?? true,
         hsCode: asString(product.hsCode),
       }
     }
@@ -223,6 +244,8 @@ async function loadProductFacts(
         taxRateId: asString(variant.taxRateId) ?? productFacts?.taxRateId ?? null,
         // Variants carry no classification code of their own; the product owns it.
         taxClassificationCode: productFacts?.taxClassificationCode ?? null,
+        taxCode: asString(variant.taxCode) ?? productFacts?.taxCode ?? null,
+        isTaxable: asOptionalBoolean(variant.isTaxable) ?? productFacts?.isTaxable ?? true,
         hsCode: asString(variant.hsCode) ?? productFacts?.hsCode ?? null,
       }
     }
@@ -279,7 +302,12 @@ async function resolveSelection(params: {
   container?: Container | null
   tenantId: string
   organizationId: string
-}): Promise<{ selection: TaxProviderSelection; shipFrom: TaxAddress | null; timeoutMs: number }> {
+}): Promise<{
+  selection: TaxProviderSelection
+  shipFrom: TaxAddress | null
+  timeoutMs: number
+  needsProductFacts: boolean | null
+}> {
   const row = await readTaxProviderSelection({
     em: params.em,
     container: params.container,
@@ -324,6 +352,7 @@ async function resolveSelection(params: {
     },
     shipFrom: toTaxAddress(row.shipFromAddress),
     timeoutMs: row.timeoutMs === null ? resolveDefaultTaxProviderTimeout() : clampTaxProviderTimeout(row.timeoutMs),
+    needsProductFacts: provider?.needsProductFacts ?? null,
   }
 }
 
@@ -372,14 +401,18 @@ export async function resolveTaxDocumentContext(
   params: ResolveTaxDocumentContextParams
 ): Promise<TaxDocumentContext> {
   const lines = params.lines ?? []
-  const { selection, shipFrom, timeoutMs } = await resolveSelection({
+  const { selection, shipFrom, timeoutMs, needsProductFacts } = await resolveSelection({
     em: params.em,
     container: params.container,
     tenantId: params.tenantId,
     organizationId: params.organizationId,
   })
+  // An explicit caller override wins, then the provider's own declaration, then
+  // the pre-declaration rule: every provider but the built in default gets them.
   const wantsProductFacts =
-    params.loadProductFacts ?? selection.providerKey !== DEFAULT_TAX_PROVIDER_KEY
+    params.loadProductFacts ??
+    needsProductFacts ??
+    selection.providerKey !== DEFAULT_TAX_PROVIDER_KEY
   const productFacts = wantsProductFacts
     ? await loadProductFacts(params.em, params.organizationId, params.tenantId, lines)
     : {}

@@ -8,6 +8,9 @@ import {
   toTaxAddress,
   toTaxCustomer,
 } from '../providers/taxContext'
+import { registerTaxProvider } from '../providers/registry'
+import { tableRatesTaxProvider } from '../providers/taxProviders'
+import type { TaxProvider } from '../providers/types'
 
 type FindCall = { entity: unknown; where: Record<string, unknown> }
 
@@ -32,6 +35,17 @@ function makeEm(rows: { products?: unknown[]; variants?: unknown[]; settings?: u
 }
 
 const scope = { organizationId: 'org-1', tenantId: 'tenant-1' }
+
+let unregister: Array<() => void> = []
+
+afterEach(() => {
+  unregister.forEach((fn) => fn())
+  unregister = []
+})
+
+function withProvider(provider: TaxProvider) {
+  unregister.push(registerTaxProvider(provider))
+}
 
 describe('resolveTaxDocumentIntent', () => {
   it('treats quotes and orders as estimates and invoices and credit memos as records', () => {
@@ -178,6 +192,8 @@ describe('resolveTaxDocumentContext', () => {
       sku: 'SKU-1',
       taxRateId: 'rate-1',
       taxClassificationCode: 'P0000000',
+      taxCode: null,
+      isTaxable: true,
       hsCode: '1234.56',
     })
   })
@@ -205,6 +221,8 @@ describe('resolveTaxDocumentContext', () => {
       sku: 'SNAPSHOT-SKU',
       taxRateId: 'snapshot-rate',
       taxClassificationCode: 'SNAP',
+      taxCode: null,
+      isTaxable: true,
       hsCode: '9999.99',
     })
   })
@@ -240,8 +258,141 @@ describe('resolveTaxDocumentContext', () => {
       sku: 'VAR-SKU',
       taxRateId: 'rate-1',
       taxClassificationCode: 'P0000000',
+      taxCode: null,
+      isTaxable: true,
       hsCode: '1111.11',
     })
+  })
+
+  it('prefers the variant tax code and taxable flag over the parent product', async () => {
+    const em = makeEm({
+      products: [{ id: 'prod-1', taxCode: 'PC040100', isTaxable: true }],
+      variants: [{ id: 'var-1', product: { id: 'prod-1' }, taxCode: 'PC030000', isTaxable: false }],
+    })
+    const context = await resolveTaxDocumentContext({
+      em,
+      ...baseParams,
+      loadProductFacts: true,
+      lines: [{ productId: 'prod-1', productVariantId: 'var-1' }],
+    })
+    expect(context.productFacts['var-1']).toMatchObject({ taxCode: 'PC030000', isTaxable: false })
+    expect(context.productFacts['prod-1']).toMatchObject({ taxCode: 'PC040100', isTaxable: true })
+  })
+
+  it('falls back to the parent product for a tax code and a taxable flag the variant omits', async () => {
+    const em = makeEm({
+      products: [{ id: 'prod-1', taxCode: 'PC040100', isTaxable: false }],
+      variants: [{ id: 'var-1', product: { id: 'prod-1' }, taxCode: null, isTaxable: undefined }],
+    })
+    const context = await resolveTaxDocumentContext({
+      em,
+      ...baseParams,
+      loadProductFacts: true,
+      lines: [{ productId: 'prod-1', productVariantId: 'var-1' }],
+    })
+    expect(context.productFacts['var-1']).toMatchObject({ taxCode: 'PC040100', isTaxable: false })
+  })
+
+  it('defaults to no tax code and a taxable product when neither row says anything', async () => {
+    const em = makeEm({
+      products: [{ id: 'prod-1', sku: 'SKU-1', taxCode: null, isTaxable: undefined }],
+      variants: [{ id: 'var-1', product: { id: 'prod-1' }, sku: 'VAR-SKU' }],
+    })
+    const context = await resolveTaxDocumentContext({
+      em,
+      ...baseParams,
+      loadProductFacts: true,
+      lines: [{ productId: 'prod-1', productVariantId: 'var-1' }],
+    })
+    expect(context.productFacts['prod-1']).toMatchObject({ taxCode: null, isTaxable: true })
+    expect(context.productFacts['var-1']).toMatchObject({ taxCode: null, isTaxable: true })
+  })
+
+  it('takes the tax code and the taxable flag from the line catalog snapshot', async () => {
+    const em = makeEm()
+    const context = await resolveTaxDocumentContext({
+      em,
+      ...baseParams,
+      loadProductFacts: true,
+      lines: [
+        { productId: 'prod-1', catalogSnapshot: { tax_code: 'PC050000', is_taxable: false } },
+      ],
+    })
+    expect(em.calls).toHaveLength(0)
+    expect(context.productFacts['prod-1']).toMatchObject({
+      taxCode: 'PC050000',
+      isTaxable: false,
+    })
+  })
+
+  it('reads the catalog facts when the selected provider declares it needs them', async () => {
+    withProvider({
+      key: 'facts-hungry',
+      label: 'Facts hungry',
+      needsProductFacts: true,
+      calculate: () => null,
+    })
+    const em = makeEm({
+      products: [{ id: 'prod-1', sku: 'SKU-1', taxCode: 'PC040100' }],
+      settings: { taxProviderKey: 'facts-hungry' },
+    })
+    const context = await resolveTaxDocumentContext({
+      em,
+      ...baseParams,
+      lines: [{ productId: 'prod-1' }],
+    })
+    expect(em.calls).toHaveLength(1)
+    expect(context.productFacts['prod-1']).toMatchObject({ taxCode: 'PC040100' })
+  })
+
+  it('skips the catalog read when the selected provider declares it does not need the facts', async () => {
+    withProvider({
+      key: 'facts-free',
+      label: 'Facts free',
+      needsProductFacts: false,
+      calculate: () => null,
+    })
+    const em = makeEm({
+      products: [{ id: 'prod-1', sku: 'SKU-1' }],
+      settings: { taxProviderKey: 'facts-free' },
+    })
+    const context = await resolveTaxDocumentContext({
+      em,
+      ...baseParams,
+      lines: [{ productId: 'prod-1' }],
+    })
+    expect(em.calls).toHaveLength(0)
+    expect(context.productFacts).toEqual({})
+  })
+
+  it('keeps the built in default provider on the cheap path through its own declaration', async () => {
+    withProvider(tableRatesTaxProvider)
+    const em = makeEm({
+      products: [{ id: 'prod-1', sku: 'SKU-1' }],
+      settings: { taxProviderKey: DEFAULT_TAX_PROVIDER_KEY },
+    })
+    const context = await resolveTaxDocumentContext({
+      em,
+      ...baseParams,
+      lines: [{ productId: 'prod-1' }],
+    })
+    expect(em.calls).toHaveLength(0)
+    expect(context.productFacts).toEqual({})
+  })
+
+  it('reads the catalog facts for a provider that declares nothing either way', async () => {
+    withProvider({ key: 'undeclared', label: 'Undeclared', calculate: () => null })
+    const em = makeEm({
+      products: [{ id: 'prod-1', sku: 'SKU-1' }],
+      settings: { taxProviderKey: 'undeclared' },
+    })
+    const context = await resolveTaxDocumentContext({
+      em,
+      ...baseParams,
+      lines: [{ productId: 'prod-1' }],
+    })
+    expect(em.calls).toHaveLength(1)
+    expect(context.productFacts['prod-1']).toMatchObject({ sku: 'SKU-1' })
   })
 
   it('reads no catalog fact for the built in default provider, which never uses them', async () => {

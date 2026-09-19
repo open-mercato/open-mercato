@@ -192,6 +192,10 @@ export type TaxRequestLine = {
   taxRateId: string | null
   taxRate: number | null
   taxClassificationCode: string | null
+  /** The provider tax code the catalog carries, such as an Avalara tax code. */
+  taxCode: string | null
+  /** `false` when the catalog marks the product as not taxable; `true` by default. */
+  isTaxable: boolean
   hsCode: string | null
   /** Reserved for per line destinations; always `null` in this version. */
   shipTo: TaxAddress | null
@@ -357,6 +361,14 @@ export type TaxProvider = {
   settings?: ProviderSettingsDefinition
   /** `IntegrationDefinition.id` whose credentials core resolves for this provider. */
   integrationId?: string
+  /**
+   * Whether core reads the catalog tax facts (`TaxProductFacts`) before the
+   * calculation. Declaring `true` buys at most two batched catalog queries per
+   * document; declaring `false` keeps the document on the cheap path. Left
+   * undeclared, core loads them for every provider except the built in default,
+   * which is how the contract behaved before providers could say.
+   */
+  needsProductFacts?: boolean
   capabilities?: TaxProviderCapabilities
   /** Returning `null` declines the document; core falls back to the default provider. */
   calculate: (
@@ -404,9 +416,20 @@ export type TaxDocumentContext = {
   metadata: Record<string, unknown>
 }
 
+/**
+ * The catalog tax facts a line does not carry itself, read once per document
+ * and keyed by both product id and variant id. A variant value wins over the
+ * parent product's; `isTaxable` is `true` unless the catalog says otherwise,
+ * which is the column default on both tables.
+ */
 export type TaxProductFacts = {
   sku: string | null
   taxRateId: string | null
+  /** The Polish compliance classification (`catalog_products.tax_classification_code`). */
   taxClassificationCode: string | null
+  /** The provider tax code (`tax_code`), such as an Avalara tax code. */
+  taxCode: string | null
+  /** `false` when the catalog marks the product or variant as not taxable. */
+  isTaxable: boolean
   hsCode: string | null
 }
