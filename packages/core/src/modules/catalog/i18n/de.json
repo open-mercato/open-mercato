@@ -458,6 +458,7 @@
   "catalog.products.edit.metadata.title": "Metadaten",
   "catalog.products.edit.metadata.valuePlaceholder": "Wert",
   "catalog.products.edit.offers.deleteError": "Vertriebskanal-Angebot konnte nicht entfernt werden.",
+  "catalog.products.edit.optionsBuilder.emptyWithVariants": "Dieses Produkt hat Varianten ohne Optionsschema. Optionen sind nicht erforderlich.",
   "catalog.products.edit.save": "Änderungen speichern",
   "catalog.products.edit.schemas.apply": "Anwenden",
   "catalog.products.edit.schemas.delete": "Schema löschen",

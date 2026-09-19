@@ -458,6 +458,7 @@
   "catalog.products.edit.metadata.title": "메타데이터",
   "catalog.products.edit.metadata.valuePlaceholder": "값",
   "catalog.products.edit.offers.deleteError": "판매 채널 오퍼 제거에 실패했습니다.",
+  "catalog.products.edit.optionsBuilder.emptyWithVariants": "이 상품에는 옵션 스키마 없이 변형이 있습니다. 옵션은 선택 사항입니다.",
   "catalog.products.edit.save": "변경 사항 저장",
   "catalog.products.edit.schemas.apply": "적용",
   "catalog.products.edit.schemas.delete": "스키마 삭제",
