@@ -1,12 +1,19 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resetServerLoggerCache } from '@open-mercato/shared/lib/logger'
+import { installNextSubpathResolveHook } from './lib/next-subpath-resolve-hook'
 /**
  * Ensure app bootstrap is called before creating DI container.
  * Uses the shared generated-bootstrap loader so the command works both from
  * the monorepo app and from standalone apps installed through npm packages.
  */
 async function ensureBootstrap(): Promise<void> {
+  // These commands run outside Next.js, but the API route modules the
+  // operation runner imports on a tool call say `from 'next/server'`, which
+  // plain Node cannot resolve (#6238 / #6118). Install the retry-with-`.js`
+  // hook before anything below can pull a route module in.
+  installNextSubpathResolveHook()
+
   // First check if DI is already available
   try {
     const { getDiRegistrars } = await import('@open-mercato/shared/lib/di/container')

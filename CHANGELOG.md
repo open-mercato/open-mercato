@@ -261,6 +261,9 @@ Platform plumbing rounds out the release: `entry.overrides` in `src/modules.ts` 
 - @zielivia
 ---
 
+## 🐛 Fixes
+- 🐛 Make plain-Node ESM imports valid for standalone MCP route loading and POSIX migration reindex. MCP commands install a `node:module` resolve hook that retries `next/<subpath>.js` when bare `next/<subpath>` fails; the CLI migration loader converts filesystem paths to `file:` URLs on every platform so cwd-relative `node_modules/.../Migration.js` paths are no longer treated as bare package names. (#6238, also #6118) *(@Sawarz)*
+
 # 0.7.0 (2026-08-26)
 
 ## Highlights
