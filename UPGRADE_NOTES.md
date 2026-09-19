@@ -478,6 +478,19 @@ Two additional heal paths are available if you need them:
 
 Note: only calls ingested **after** the maps exist are encrypted. Rows written by a build that ran without them stay plaintext until they are re-ingested (a pull is idempotent, so re-pulling the affected range rewrites them) or handled with the `entities rotate-encryption` / `decrypt-database` tooling.
 
+### `communication_channels` now requires `progress` to be enabled (#6094)
+
+`communication_channels`'s import-history worker and its queue command (`workers/channel-import-history.ts`, `commands/queue-import-history.ts`) resolve `progressService` from the DI container, which is registered only by the `progress` module. An app that enabled `communication_channels` without `progress` previously got no build-time warning: the queue command still returned a job id and a `200`, and the worker then failed on every retry with `AwilixResolutionError: Could not resolve 'progressService'`, with no error surfaced to the user and no `progress_jobs` row to inspect.
+
+`communication_channels`'s `ModuleInfo` now declares `requires: ['progress']`, so the existing generator-enforced dependency check (already used by `sales`, `wms`, `push_notifications`, and `api_keys`) now covers it too. If your `src/modules.ts` enables `communication_channels` without `progress`, `yarn generate` now fails fast instead of shipping the silent worker failure:
+
+```
+Module dependency check failed:
+- Module "communication_channels" requires: progress
+```
+
+**Action for module authors:** add `{ id: 'progress', from: '@open-mercato/core' }` to `src/modules.ts` before `communication_channels`, then re-run `yarn generate`. Both `apps/mercato/src/modules.ts` and the `create-app` template already enable `progress`, so this repo's own apps and freshly scaffolded apps are unaffected.
+
 ## 0.6.7 → 0.7.0 (2026-08-26)
 
 ### `PUT /api/auth/users/acl` merges omitted fields instead of clearing them (#5493)
