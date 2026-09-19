@@ -2010,39 +2010,6 @@ export default function SalesDocumentDetailPage({
     [detailInjectionContext, runMutation],
   )
 
-  /**
-   * Re-runs the tax provider for this document. It changes no line or header
-   * field, so it is offered even when the document's status forbids edits — a
-   * provider outage should not leave a merchant with an estimate they cannot
-   * clear.
-   */
-  const handleRecalculateTax = React.useCallback(async () => {
-    if (!record?.id || recalculatingTax) return
-    if (kind !== 'order' && kind !== 'quote') return
-    setRecalculatingTax(true)
-    try {
-      await runMutationWithContext(async () => {
-        await apiCallOrThrow('/api/sales/documents/recalculate-tax', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ documentId: record.id, documentKind: kind }),
-        })
-      })
-      const refreshed = await fetchDocumentByKind(record.id, kind)
-      if (refreshed) setRecord(refreshed)
-      emitSalesDocumentTotalsRefresh({ documentId: record.id, kind })
-      flash(t('sales.documents.detail.tax.recalculated', 'Tax recalculated.'), 'success')
-    } catch (err) {
-      if (surfaceRecordConflict(err, t)) return
-      const message =
-        err instanceof Error && err.message
-          ? err.message
-          : t('sales.documents.detail.tax.recalculateError', 'Failed to recalculate tax.')
-      flash(message, 'error')
-    } finally {
-      setRecalculatingTax(false)
-    }
-  }, [fetchDocumentByKind, kind, recalculatingTax, record?.id, runMutationWithContext, t])
   // Publish page-load record context to the AppShell-owned `backend:record:current`
   // mount so record_locks gets presence + the action-log base (updatedAt/data) for
   // this order/quote. Sub-resource sections inherit this context — no second mount.
@@ -2581,6 +2548,44 @@ export default function SalesDocumentDetailPage({
     },
     [loadErrorMessage]
   )
+
+  /**
+   * Re-runs the tax provider for this document. It changes no line or header
+   * field, so it is offered even when the document's status forbids edits — a
+   * provider outage should not leave a merchant with an estimate they cannot
+   * clear.
+   *
+   * Declared after `recalculatingTax` and `fetchDocumentByKind` because the
+   * dependency array below reads both at render time; hoisting it above either
+   * declaration throws a temporal-dead-zone ReferenceError on every render.
+   */
+  const handleRecalculateTax = React.useCallback(async () => {
+    if (!record?.id || recalculatingTax) return
+    if (kind !== 'order' && kind !== 'quote') return
+    setRecalculatingTax(true)
+    try {
+      await runMutationWithContext(async () => {
+        await apiCallOrThrow('/api/sales/documents/recalculate-tax', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ documentId: record.id, documentKind: kind }),
+        })
+      })
+      const refreshed = await fetchDocumentByKind(record.id, kind)
+      if (refreshed) setRecord(refreshed)
+      emitSalesDocumentTotalsRefresh({ documentId: record.id, kind })
+      flash(t('sales.documents.detail.tax.recalculated', 'Tax recalculated.'), 'success')
+    } catch (err) {
+      if (surfaceRecordConflict(err, t)) return
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : t('sales.documents.detail.tax.recalculateError', 'Failed to recalculate tax.')
+      flash(message, 'error')
+    } finally {
+      setRecalculatingTax(false)
+    }
+  }, [fetchDocumentByKind, kind, recalculatingTax, record?.id, runMutationWithContext, t])
 
   React.useEffect(() => {
     let cancelled = false
