@@ -1,0 +1,23 @@
+{
+  "auth.acl.features.logistics.view": "물류 조회",
+  "auth.acl.modules.logistics": "물류",
+  "logistics.back": "배차 대시보드로 돌아가기",
+  "logistics.dashboard.description": "물류 대시보드는 향후 확장을 위해 준비되었습니다. 섹션을 선택하여 용도를 확인하세요.",
+  "logistics.dashboard.title": "배차 대시보드",
+  "logistics.fleet.description": "차량 및 운전자 정보 관리 기능은 예정되어 있으며 아직 사용할 수 없습니다.",
+  "logistics.fleet.title": "차량 / 운전자",
+  "logistics.map.description": "차량 위치 지도는 위치 정보 연동이 활성화된 후 사용할 수 있습니다.",
+  "logistics.map.title": "차량 위치 지도",
+  "logistics.nav.group": "물류",
+  "logistics.planned.description": "이 섹션은 향후 확장을 위해 준비되었습니다. 운영 기능은 아직 사용할 수 없습니다.",
+  "logistics.planned.title": "예정된 기능",
+  "logistics.proposalsDisruptions.description": "제안 및 운행 차질 관리 기능은 예정되어 있으며 아직 사용할 수 없습니다.",
+  "logistics.proposalsDisruptions.title": "제안 및 운행 차질",
+  "logistics.sections.title": "물류 섹션",
+  "logistics.statistics.description": "통계는 운영 데이터가 도입된 후 사용할 수 있습니다.",
+  "logistics.statistics.title": "통계",
+  "logistics.transportJobs.description": "운송 의뢰 관리 기능은 예정되어 있으며 아직 사용할 수 없습니다.",
+  "logistics.transportJobs.title": "운송 의뢰",
+  "logistics.trips.description": "운행 및 경로 생성 기능은 아직 사용할 수 없습니다.",
+  "logistics.trips.title": "운행 및 경로"
+}

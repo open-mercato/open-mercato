@@ -137,7 +137,10 @@ export default [
     },
   },
   {
-    files: ['apps/mercato/src/modules/logistics/**/*.{ts,tsx}'],
+    files: [
+      'apps/mercato/src/modules/logistics/**/*.{ts,tsx}',
+      'packages/create-app/template/src/modules/logistics/**/*.{ts,tsx}',
+    ],
     ignores: ['**/__tests__/**', '**/__integration__/**', '**/*.generated.*'],
     linterOptions,
     languageOptions,

@@ -1,0 +1,23 @@
+{
+  "auth.acl.features.logistics.view": "Przeglądanie Logistyki",
+  "auth.acl.modules.logistics": "Logistyka",
+  "logistics.back": "Powrót do pulpitu dyspozytora",
+  "logistics.dashboard.description": "Panel Logistyki jest przygotowany do rozbudowy. Wybierz sekcję, aby zobaczyć jej przeznaczenie.",
+  "logistics.dashboard.title": "Pulpit dyspozytora",
+  "logistics.fleet.description": "Kartoteki pojazdów i kierowców są planowane i nie są jeszcze dostępne.",
+  "logistics.fleet.title": "Pojazdy / kierowcy",
+  "logistics.map.description": "Mapa floty będzie dostępna po uruchomieniu integracji lokalizacji.",
+  "logistics.map.title": "Mapa floty",
+  "logistics.nav.group": "Logistyka",
+  "logistics.planned.description": "Ta sekcja jest przygotowana do dalszej rozbudowy. Funkcje operacyjne nie są jeszcze dostępne.",
+  "logistics.planned.title": "Funkcja planowana",
+  "logistics.proposalsDisruptions.description": "Obsługa propozycji i zakłóceń jest planowana i nie jest jeszcze dostępna.",
+  "logistics.proposalsDisruptions.title": "Propozycje i zakłócenia",
+  "logistics.sections.title": "Sekcje Logistyki",
+  "logistics.statistics.description": "Statystyki będą dostępne po wdrożeniu danych operacyjnych.",
+  "logistics.statistics.title": "Statystyki",
+  "logistics.transportJobs.description": "Obsługa zleceń transportowych jest planowana i nie jest jeszcze dostępna.",
+  "logistics.transportJobs.title": "Zlecenia transportowe",
+  "logistics.trips.description": "Tworzenie przejazdów i tras nie jest jeszcze dostępne.",
+  "logistics.trips.title": "Przejazdy i trasy"
+}
