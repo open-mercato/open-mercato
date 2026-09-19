@@ -8,4 +8,3 @@ export const metadata = {
   pageOrder: 50,
   icon: 'map',
 }
-

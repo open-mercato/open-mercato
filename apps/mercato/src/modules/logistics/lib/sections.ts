@@ -8,4 +8,3 @@ export const logisticsSections = [
 ] as const
 
 export type LogisticsSectionId = 'dashboard' | typeof logisticsSections[number]['id']
-

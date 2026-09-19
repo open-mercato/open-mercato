@@ -8,4 +8,3 @@ export const metadata = {
   pageOrder: 70,
   icon: 'lightbulb',
 }
-

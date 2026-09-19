@@ -8,4 +8,3 @@ export const metadata = {
   pageOrder: 10,
   icon: 'layout-dashboard',
 }
-

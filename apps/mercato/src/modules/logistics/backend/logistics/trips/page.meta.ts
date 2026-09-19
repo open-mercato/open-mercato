@@ -8,4 +8,3 @@ export const metadata = {
   pageOrder: 40,
   icon: 'route',
 }
-

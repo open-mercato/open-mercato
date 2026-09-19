@@ -7,4 +7,3 @@ export const metadata: ModuleInfo = {
   description: 'Dispatcher navigation foundation.',
   license: 'MIT',
 }
-

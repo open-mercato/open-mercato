@@ -38,11 +38,13 @@ GitHub preflight: gh auth status reports invalid keyring, but direct current-use
 
 ### Phase 1: Module and pages
 
-- [ ] 1.1 Add module metadata, feature, setup and seven guarded page metadata files.
-- [ ] 1.2 Build translated pages, activate the module, enforce DS rules and add unit coverage.
+- [x] 1.1 Add module metadata, feature, setup and seven guarded page metadata files. — db7d52547
+- [x] 1.2 Build translated pages, activate the module, enforce DS rules and add unit coverage. — db7d52547
 
 ### Phase 2: Integration coverage and delivery
 
 - [ ] 2.1 Add integration coverage and deployment instructions.
 - [ ] 2.2 Run generators, validation and independent review; resolve findings.
 - [ ] 2.3 Publish the PR with UI evidence, labels and verification report.
+
+Validation so far: build:packages passed twice (38 tasks); generate passed and discovered all seven logistics routes, with unrelated OpenAPI static fallback warning. DS lint passed. Unit test command required explicit testMatch glob due Windows root path normalization; 48 tests passed. GraphQL viewer confirms waclawek identity; REST rate limit does not prevent PR operations.

@@ -8,4 +8,3 @@ export const metadata = {
   pageOrder: 60,
   icon: 'chart-no-axes-combined',
 }
-

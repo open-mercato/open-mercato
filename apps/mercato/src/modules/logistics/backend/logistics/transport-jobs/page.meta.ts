@@ -8,4 +8,3 @@ export const metadata = {
   pageOrder: 20,
   icon: 'clipboard-list',
 }
-
