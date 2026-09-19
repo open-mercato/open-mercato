@@ -9351,6 +9351,7 @@ __metadata:
     gpt-tokenizer: "npm:^3.4.0"
     html-to-text: "npm:^10.0.0"
     jest: "npm:^30.4.2"
+    "language-subtag-registry": "npm:^0.3.20"
     pino: "npm:^10.3.1"
     rate-limiter-flexible: "npm:^11.2.0"
     re2js: "npm:2.8.6"
