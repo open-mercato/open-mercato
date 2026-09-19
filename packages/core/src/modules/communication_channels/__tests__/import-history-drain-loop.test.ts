@@ -179,4 +179,24 @@ describe('channel-import-history drain loop', () => {
     expect(progress.completed).toBe(true)
     expect(progress.failures).toEqual([])
   })
+
+  it('completes cleanly when the sweep genuinely finishes on an empty final page', async () => {
+    let pageCount = 0
+    const progress: ProgressStub = { completed: false, failures: [] }
+    const ctx = buildContext(async () => {
+      pageCount += 1
+      if (pageCount === 1) {
+        return { messages: [message(pageCount)], nextCursor: 'cursor-1', hasMore: true }
+      }
+      // The last page is empty and hasMore is false — a real end-of-sweep,
+      // not a stuck adapter. This must not trip the empty-page guard.
+      return { messages: [], hasMore: false }
+    }, progress)
+
+    await handleImportHistory(buildJob(50000), ctx)
+
+    expect(pageCount).toBe(2)
+    expect(progress.completed).toBe(true)
+    expect(progress.failures).toEqual([])
+  })
 })

@@ -145,6 +145,26 @@ export async function queueImportHistory(params: {
     )
   }
 
+  // The schema above validated against the deployment-wide ceiling; some
+  // providers (IMAP) have a lower ceiling of their own (see
+  // `import-history-limits.ts`). Reject rather than silently truncate — the
+  // adapter itself has no way to report back "I clamped your request".
+  const providerLimits = getImportHistoryLimits(channel.providerKey)
+  if (input.sinceDays > providerLimits.maxSinceDays) {
+    throw createCrudFormError(
+      'sinceDays exceeds the limit for this provider',
+      { sinceDays: `Provider "${channel.providerKey}" supports at most ${providerLimits.maxSinceDays} days` },
+      { status: 400 },
+    )
+  }
+  if (input.maxMessages > providerLimits.maxMessages) {
+    throw createCrudFormError(
+      'maxMessages exceeds the limit for this provider',
+      { maxMessages: `Provider "${channel.providerKey}" supports at most ${providerLimits.maxMessages} messages` },
+      { status: 400 },
+    )
+  }
+
   const progressService = container.resolve('progressService') as ProgressService
   const progressContext: ProgressServiceContext = {
     tenantId: scope.tenantId,

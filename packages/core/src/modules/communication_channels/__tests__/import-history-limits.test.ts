@@ -88,6 +88,21 @@ describe('import history limits', () => {
     process.env.OM_IMPORT_HISTORY_MAX_SINCE_DAYS = 'not-a-number'
     expect(getImportHistoryLimits().maxSinceDays).toBe(3650)
   })
+
+  it('caps the IMAP provider below the deployment-wide ceiling', () => {
+    expect(getImportHistoryLimits('imap')).toMatchObject({ maxSinceDays: 365, maxMessages: 5000 })
+  })
+
+  it('never lets an env override raise the IMAP ceiling past its own cap', () => {
+    process.env.OM_IMPORT_HISTORY_MAX_SINCE_DAYS = '7300'
+    process.env.OM_IMPORT_HISTORY_MAX_MESSAGES = '120000'
+    expect(getImportHistoryLimits('imap')).toMatchObject({ maxSinceDays: 365, maxMessages: 5000 })
+  })
+
+  it('leaves an unknown or unspecified provider at the deployment-wide ceiling', () => {
+    expect(getImportHistoryLimits('gmail')).toMatchObject({ maxSinceDays: 3650, maxMessages: 50000 })
+    expect(getImportHistoryLimits('unknown-provider')).toMatchObject({ maxSinceDays: 3650, maxMessages: 50000 })
+  })
 })
 
 describe('resolveImportHistoryPageBudget', () => {

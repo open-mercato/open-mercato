@@ -134,6 +134,36 @@ describe('queueImportHistory', () => {
     ).rejects.toMatchObject({ status: 400 })
   })
 
+  it('returns 400 when an IMAP channel is asked for more sinceDays than the provider ceiling', async () => {
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(buildConnectedChannel())
+    ;(getChannelAdapterRegistry as jest.Mock).mockReturnValue({
+      get: () => ({ providerKey: 'imap', importHistory: jest.fn() }),
+    })
+    const { container } = buildContainer({})
+    await expect(
+      queueImportHistory({
+        container,
+        scope: { tenantId: TENANT, organizationId: ORG, userId: USER },
+        input: { channelId: CHANNEL, sinceDays: 3650, maxMessages: 100 },
+      }),
+    ).rejects.toMatchObject({ status: 400 })
+  })
+
+  it('returns 400 when an IMAP channel is asked for more maxMessages than the provider ceiling', async () => {
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(buildConnectedChannel())
+    ;(getChannelAdapterRegistry as jest.Mock).mockReturnValue({
+      get: () => ({ providerKey: 'imap', importHistory: jest.fn() }),
+    })
+    const { container } = buildContainer({})
+    await expect(
+      queueImportHistory({
+        container,
+        scope: { tenantId: TENANT, organizationId: ORG, userId: USER },
+        input: { channelId: CHANNEL, sinceDays: 30, maxMessages: 50000 },
+      }),
+    ).rejects.toMatchObject({ status: 400 })
+  })
+
   it('returns 429 envelope when another import is in flight for the same channel', async () => {
     ;(findOneWithDecryption as jest.Mock).mockResolvedValue(buildConnectedChannel())
     ;(getChannelAdapterRegistry as jest.Mock).mockReturnValue({

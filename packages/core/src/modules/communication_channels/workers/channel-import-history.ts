@@ -192,7 +192,7 @@ export default async function handle(
         break
       }
 
-      if (page.messages.length === 0) {
+      if (page.messages.length === 0 && page.hasMore) {
         consecutiveEmptyPages += 1
         if (consecutiveEmptyPages >= IMPORT_HISTORY_MAX_EMPTY_PAGES) {
           truncationReason = `adapter returned no messages on ${consecutiveEmptyPages} consecutive pages`

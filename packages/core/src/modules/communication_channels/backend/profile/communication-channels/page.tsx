@@ -576,7 +576,7 @@ type ImportHistoryDialogProps = {
 
 function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialogProps): React.JSX.Element {
   const t = useT()
-  const importLimits = React.useMemo(() => getImportHistoryLimits(), [])
+  const importLimits = React.useMemo(() => getImportHistoryLimits(channel?.providerKey), [channel?.providerKey])
   const [sinceDays, setSinceDays] = React.useState('30')
   const [contactEmails, setContactEmails] = React.useState('')
   const [maxMessages, setMaxMessages] = React.useState('500')

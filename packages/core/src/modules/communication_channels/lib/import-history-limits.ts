@@ -63,12 +63,34 @@ export function getImportHistoryMaxMessages(): number {
   )
 }
 
-export function getImportHistoryLimits(): ImportHistoryLimits {
+/**
+ * Per-provider ceilings, lower than the deployment-wide ceiling above.
+ *
+ * The IMAP adapter's cursor embeds the *entire* remaining UID list discovered
+ * by `SEARCH` (unlike Gmail's opaque `nextPageToken` cursor), so a wide ceiling
+ * there means a multi-megabyte cursor round-tripping through the worker on
+ * every page. Until that adapter gets a paging cursor of its own, its ceiling
+ * stays at the pre-widening values so the dialog, the hub's validation, and the
+ * adapter's own clamp (`packages/channel-imap/.../adapter.ts`) agree — a
+ * request above this is rejected rather than silently truncated.
+ */
+const PROVIDER_MAX_SINCE_DAYS: Record<string, number> = {
+  imap: 365,
+}
+const PROVIDER_MAX_MESSAGES: Record<string, number> = {
+  imap: 5000,
+}
+
+export function getImportHistoryLimits(providerKey?: string): ImportHistoryLimits {
+  const maxSinceDays = getImportHistoryMaxSinceDays()
+  const maxMessages = getImportHistoryMaxMessages()
+  const providerMaxSinceDays = providerKey ? PROVIDER_MAX_SINCE_DAYS[providerKey] : undefined
+  const providerMaxMessages = providerKey ? PROVIDER_MAX_MESSAGES[providerKey] : undefined
   return {
     defaultSinceDays: IMPORT_HISTORY_DEFAULT_SINCE_DAYS,
     defaultMaxMessages: IMPORT_HISTORY_DEFAULT_MAX_MESSAGES,
-    maxSinceDays: getImportHistoryMaxSinceDays(),
-    maxMessages: getImportHistoryMaxMessages(),
+    maxSinceDays: providerMaxSinceDays !== undefined ? Math.min(maxSinceDays, providerMaxSinceDays) : maxSinceDays,
+    maxMessages: providerMaxMessages !== undefined ? Math.min(maxMessages, providerMaxMessages) : maxMessages,
   }
 }
 

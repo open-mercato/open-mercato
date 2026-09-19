@@ -55,6 +55,12 @@ import {
 import { normalizeInboundGmailMessage } from './normalize-inbound'
 import { emailResolveContact } from '@open-mercato/core/modules/communication_channels/lib/email-contact'
 import { decodeCursor, encodeCursor } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
+import {
+  IMPORT_HISTORY_DEFAULT_SINCE_DAYS,
+  IMPORT_HISTORY_DEFAULT_MAX_MESSAGES,
+  getImportHistoryMaxSinceDays,
+  getImportHistoryMaxMessages,
+} from '@open-mercato/core/modules/communication_channels/lib/import-history-limits'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('channel_gmail')
@@ -774,11 +780,9 @@ class GmailChannelAdapter implements ChannelAdapter {
 
 const GMAIL_IMPORT_CURSOR_VERSION = 1
 const IMPORT_SINCE_DAYS_MIN = 1
-const IMPORT_SINCE_DAYS_MAX = 3650
-const IMPORT_SINCE_DAYS_DEFAULT = 30
+const IMPORT_SINCE_DAYS_DEFAULT = IMPORT_HISTORY_DEFAULT_SINCE_DAYS
 const IMPORT_MAX_MESSAGES_MIN = 1
-const IMPORT_MAX_MESSAGES_MAX = 50_000
-const IMPORT_MAX_MESSAGES_DEFAULT = 1000
+const IMPORT_MAX_MESSAGES_DEFAULT = IMPORT_HISTORY_DEFAULT_MAX_MESSAGES
 const IMPORT_PAGE_SIZE_DEFAULT = 100
 /** `users.messages.list` rejects `maxResults` above 500. */
 const IMPORT_PAGE_SIZE_MAX = 500
@@ -804,12 +808,12 @@ interface GmailImportCursor {
 
 function clampImportSinceDays(value: number): number {
   const raw = Number.isFinite(value) ? Math.trunc(value) : IMPORT_SINCE_DAYS_DEFAULT
-  return Math.max(IMPORT_SINCE_DAYS_MIN, Math.min(IMPORT_SINCE_DAYS_MAX, raw))
+  return Math.max(IMPORT_SINCE_DAYS_MIN, Math.min(getImportHistoryMaxSinceDays(), raw))
 }
 
 function clampImportMaxMessages(value: number | undefined): number {
   const raw = Number.isFinite(value) ? Math.trunc(value as number) : IMPORT_MAX_MESSAGES_DEFAULT
-  return Math.max(IMPORT_MAX_MESSAGES_MIN, Math.min(IMPORT_MAX_MESSAGES_MAX, raw))
+  return Math.max(IMPORT_MAX_MESSAGES_MIN, Math.min(getImportHistoryMaxMessages(), raw))
 }
 
 function resolveEnvInt(name: string, fallback: number, max: number): number {
