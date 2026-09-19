@@ -50,6 +50,31 @@ function isJsonColumnProperty(prop: unknown): boolean {
   return typeof customTypeName === 'string' && customTypeName.toLowerCase().includes('json')
 }
 
+// Encryption is configured on but the service reports disabled — the KMS is
+// unreachable, so this write lands as plaintext. Throttle the warning so a long
+// outage does not flood the log while still leaving an ongoing signal that the
+// fail-open window is open (#5948).
+const ENCRYPTION_PAUSED_WARN_INTERVAL_MS = 60_000
+let lastEncryptionPausedWarnAt = 0
+
+function warnEncryptionPaused(entity: string | undefined): void {
+  const now = Date.now()
+  if (lastEncryptionPausedWarnAt && now - lastEncryptionPausedWarnAt < ENCRYPTION_PAUSED_WARN_INTERVAL_MS) return
+  lastEncryptionPausedWarnAt = now
+  try {
+    logger.warn(
+      'Tenant data encryption is enabled but the KMS is unavailable - entity writes persist as plaintext until it recovers',
+      { entity },
+    )
+  } catch {
+    // ignore
+  }
+}
+
+export function resetEncryptionPausedWarnThrottle(): void {
+  lastEncryptionPausedWarnAt = 0
+}
+
 const registeredEventManagers = new WeakSet<object>()
 
 const subscribersByService = new WeakMap<TenantDataEncryptionService, TenantEncryptionSubscriber>()
@@ -206,8 +231,10 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     em?: { getMetadata?: () => any; getComparator?: () => any },
     changeSet?: { payload?: Record<string, unknown> },
   ) {
-    if (!isTenantDataEncryptionEnabled() || !this.service.isEnabled()) {
+    const encryptionConfigured = isTenantDataEncryptionEnabled()
+    if (!encryptionConfigured || !this.service.isEnabled()) {
       debug('⚪️ subscriber.skip', { reason: 'disabled', entity: meta?.className || meta?.name })
+      if (encryptionConfigured) warnEncryptionPaused(meta?.className || meta?.name)
       return
     }
     const resolvedMeta = this.resolveMeta(meta, target, em)

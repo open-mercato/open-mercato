@@ -423,6 +423,28 @@ function logDerivedKeyFallbackBanner(opts: DerivedSecret): void {
   })
 }
 
+/**
+ * What the runtime should do about tenant data encryption right now.
+ *
+ * `isHealthy()` alone cannot answer this: {@link NoopKmsService} reports healthy precisely when
+ * encryption is switched OFF, so `enabled && healthy` collapses correctly but a bare
+ * `if (!kms.isHealthy())` guard reads the two opposite situations as the same one. They call for
+ * opposite handling, so name them:
+ *
+ * - `disabled`    — the operator set `TENANT_DATA_ENCRYPTION=no`. Plaintext is the intended
+ *                   outcome; degrade to it rather than failing.
+ * - `active`      — encryption is on and a DEK is reachable. Encrypt.
+ * - `unavailable` — encryption is on but no DEK is reachable (Vault down, no fallback secret).
+ *                   Data that is meant to be ciphertext MUST NOT be written as plaintext; callers
+ *                   holding secrets fail closed here (spec 2026-05-29, security finding #7).
+ */
+export type TenantDataEncryptionMode = 'disabled' | 'active' | 'unavailable'
+
+export function resolveEncryptionMode(kms: Pick<KmsService, 'isHealthy'>): TenantDataEncryptionMode {
+  if (!isTenantDataEncryptionEnabled()) return 'disabled'
+  return kms.isHealthy() ? 'active' : 'unavailable'
+}
+
 export function createKmsService(): KmsService {
   if (!isTenantDataEncryptionEnabled()) return new NoopKmsService()
   const primary = new HashicorpVaultKmsService()
