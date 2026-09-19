@@ -1139,6 +1139,13 @@ gate.
 
 ## Changelog
 
+### 2026-09-19
+
+- The address editors' subdivision list is re-keyed from the profile's home country to the address's own country, and
+  the sales channel and tax provider ship-from forms are wired to it, by
+  [`2026-09-19-us-state-dropdown-in-address-forms.md`](2026-09-19-us-state-dropdown-in-address-forms.md). Invariants 2
+  and 5 here are unchanged; `resolveAddressLayout` gains an optional trailing `options` argument.
+
 ### 2026-09-18
 
 - Initial specification, written autonomously by `om-auto-write-spec` from
