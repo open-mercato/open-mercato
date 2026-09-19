@@ -1,4 +1,5 @@
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
+import { CHANNEL_THREAD_FALLBACK_FEATURE } from './channelThreadAccess'
 
 export function hasOrganizationAccess(
   scopeOrganizationId: string | null,
@@ -46,6 +47,33 @@ export async function parseRequestBodySafe(req: Request): Promise<unknown> {
     return JSON.parse(text)
   } catch {
     return {}
+  }
+}
+
+/**
+ * Whether the caller may fall back to the channels hub's access rule on a
+ * channel-linked thread (#5535).
+ *
+ * Resolved through RBAC, never through `ctx.auth.features`: the session JWT
+ * carries no `features` claim, so reading it here would deny every caller —
+ * a tenant admin included — and re-close the very journey #5535 opened. RBAC is
+ * also what makes the check wildcard-aware. Fails closed, like the sibling
+ * feature checks in this file.
+ */
+export async function canUseChannelThreadFallback(
+  ctx: Awaited<ReturnType<typeof resolveRequestContext>>['ctx'],
+  scope: MessageScope,
+): Promise<boolean> {
+  if (!scope.userId || !scope.tenantId) return false
+  try {
+    const rbac = ctx.container.resolve('rbacService') as RbacService | undefined
+    if (typeof rbac?.userHasAllFeatures !== 'function') return false
+    return await rbac.userHasAllFeatures(scope.userId, [CHANNEL_THREAD_FALLBACK_FEATURE], {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
+  } catch {
+    return false
   }
 }
 

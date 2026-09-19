@@ -18,6 +18,7 @@ import {
   MessageChannelLink,
 } from '../data/entities'
 import { normalizedInboundMessageSchema } from '../data/validators'
+import { buildInboundIdempotencyKey } from '../lib/inbound-message-origin'
 import { resolveCommunicationChannelsSystemUserId } from '../lib/system-user'
 import { isUniqueViolation } from '../lib/pg-errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -408,7 +409,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       // composed by the first attempt instead of duplicating it. Mirrors the
       // (channel, externalMessageId) ExternalMessage anchor's natural key.
       idempotencyKey: m.externalMessageId
-        ? `cc:${input.channelId}:${m.externalMessageId}`
+        ? buildInboundIdempotencyKey(input.channelId, m.externalMessageId)
         : undefined,
       tenantId: input.scope.tenantId,
       organizationId: input.scope.organizationId,
