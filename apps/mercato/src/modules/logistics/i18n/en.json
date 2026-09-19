@@ -1,0 +1,23 @@
+{
+  "logistics.nav.group": "Logistics",
+  "auth.acl.modules.logistics": "Logistics",
+  "auth.acl.features.logistics.view": "View logistics",
+  "logistics.planned.title": "Planned feature",
+  "logistics.planned.description": "This section is prepared for future development. Operational features are not yet available.",
+  "logistics.back": "Back to dispatcher dashboard",
+  "logistics.sections.title": "Logistics sections",
+  "logistics.dashboard.title": "Dispatcher dashboard",
+  "logistics.dashboard.description": "The Logistics dashboard is ready for future development. Choose a section to learn what it will offer.",
+  "logistics.transportJobs.title": "Transport jobs",
+  "logistics.transportJobs.description": "Transport job management is planned and is not yet available.",
+  "logistics.fleet.title": "Vehicles / drivers",
+  "logistics.fleet.description": "Vehicle and driver records are planned and are not yet available.",
+  "logistics.trips.title": "Trips and routes",
+  "logistics.trips.description": "Creating trips and routes is not yet available.",
+  "logistics.map.title": "Fleet map",
+  "logistics.map.description": "The fleet map will be available once location integration is enabled.",
+  "logistics.statistics.title": "Statistics",
+  "logistics.statistics.description": "Statistics will be available once operational data is implemented.",
+  "logistics.proposalsDisruptions.title": "Proposals and disruptions",
+  "logistics.proposalsDisruptions.description": "Proposal and disruption management is planned and is not yet available."
+}

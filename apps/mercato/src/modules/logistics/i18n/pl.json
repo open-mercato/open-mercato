@@ -1,0 +1,23 @@
+{
+  "logistics.nav.group": "Logistyka",
+  "auth.acl.modules.logistics": "Logistyka",
+  "auth.acl.features.logistics.view": "Przeglądanie Logistyki",
+  "logistics.planned.title": "Funkcja planowana",
+  "logistics.planned.description": "Ta sekcja jest przygotowana do dalszej rozbudowy. Funkcje operacyjne nie są jeszcze dostępne.",
+  "logistics.back": "Powrót do pulpitu dyspozytora",
+  "logistics.sections.title": "Sekcje Logistyki",
+  "logistics.dashboard.title": "Pulpit dyspozytora",
+  "logistics.dashboard.description": "Panel Logistyki jest przygotowany do rozbudowy. Wybierz sekcję, aby zobaczyć jej przeznaczenie.",
+  "logistics.transportJobs.title": "Zlecenia transportowe",
+  "logistics.transportJobs.description": "Obsługa zleceń transportowych jest planowana i nie jest jeszcze dostępna.",
+  "logistics.fleet.title": "Pojazdy / kierowcy",
+  "logistics.fleet.description": "Kartoteki pojazdów i kierowców są planowane i nie są jeszcze dostępne.",
+  "logistics.trips.title": "Przejazdy i trasy",
+  "logistics.trips.description": "Tworzenie przejazdów i tras nie jest jeszcze dostępne.",
+  "logistics.map.title": "Mapa floty",
+  "logistics.map.description": "Mapa floty będzie dostępna po uruchomieniu integracji lokalizacji.",
+  "logistics.statistics.title": "Statystyki",
+  "logistics.statistics.description": "Statystyki będą dostępne po wdrożeniu danych operacyjnych.",
+  "logistics.proposalsDisruptions.title": "Propozycje i zakłócenia",
+  "logistics.proposalsDisruptions.description": "Obsługa propozycji i zakłóceń jest planowana i nie jest jeszcze dostępna."
+}

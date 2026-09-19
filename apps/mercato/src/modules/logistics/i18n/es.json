@@ -1,0 +1,23 @@
+{
+  "logistics.nav.group": "Logística",
+  "auth.acl.modules.logistics": "Logística",
+  "auth.acl.features.logistics.view": "Ver logística",
+  "logistics.planned.title": "Función prevista",
+  "logistics.planned.description": "Esta sección está preparada para futuras ampliaciones. Las funciones operativas aún no están disponibles.",
+  "logistics.back": "Volver al panel de despacho",
+  "logistics.sections.title": "Secciones de logística",
+  "logistics.dashboard.title": "Panel de despacho",
+  "logistics.dashboard.description": "El panel de Logística está preparado para futuras ampliaciones. Seleccione una sección para conocer su propósito.",
+  "logistics.transportJobs.title": "Órdenes de transporte",
+  "logistics.transportJobs.description": "La gestión de órdenes de transporte está prevista y aún no está disponible.",
+  "logistics.fleet.title": "Vehículos / conductores",
+  "logistics.fleet.description": "Los registros de vehículos y conductores están previstos y aún no están disponibles.",
+  "logistics.trips.title": "Viajes y rutas",
+  "logistics.trips.description": "La creación de viajes y rutas aún no está disponible.",
+  "logistics.map.title": "Mapa de la flota",
+  "logistics.map.description": "El mapa de la flota estará disponible cuando se active la integración de ubicación.",
+  "logistics.statistics.title": "Estadísticas",
+  "logistics.statistics.description": "Las estadísticas estarán disponibles cuando se incorporen los datos operativos.",
+  "logistics.proposalsDisruptions.title": "Propuestas e incidencias",
+  "logistics.proposalsDisruptions.description": "La gestión de propuestas e incidencias está prevista y aún no está disponible."
+}

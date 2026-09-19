@@ -69,6 +69,7 @@ export const moduleOverrideExamples: ModuleOverrides = {
 }
 
 export const enabledModules: ModuleEntry[] = [
+  { id: 'logistics', from: '@app' },
   { id: 'dashboards', from: '@open-mercato/core' },
   { id: 'auth', from: '@open-mercato/core' },
   { id: 'directory', from: '@open-mercato/core' },
