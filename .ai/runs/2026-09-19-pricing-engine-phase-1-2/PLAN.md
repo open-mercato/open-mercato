@@ -15,6 +15,7 @@ Source spec: `.ai/specs/2026-08-21-pricing-engine.md`
 | 1 | 1.5 | Build the price rule create page (`CrudForm`) | inline | done | f68b7a16f |
 | 1 | 1.6 | Build the price rule edit page (`CrudForm`, optimistic lock, delete+undo) | inline | done | 07eb2893d |
 | 1 | 1.6-fix | Fix snake_case `/api/catalog/prices` response parsing in the list/edit pages | inline | done | 5175cc610 |
+| 1 | 1.6-fix2 | Resolve pasted record ids via `ids=` narrowing in the scope selectors (search-only lookup missed exact ids) | inline | done | pending |
 | 1 | 1.7 | Integration test: create a customer-group + quantity-tier price via the admin UI | inline | todo | — |
 | 2 | 2.1 | Harden `pricingResolvers` registry: `globalThis`-keyed store + `id`/dedupe + stable same-priority order test | inline | todo | — |
 | 2 | 2.2 | Additive `PricingContext` fields (`currencyCode`, `customerGroupIds`) + `matchesContext` extension | inline | todo | — |

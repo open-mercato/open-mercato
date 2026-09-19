@@ -48,6 +48,20 @@ async function resolveOne(
   return options[0]?.label ?? id
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * A typed query that is itself a record id (a pasted UUID) is searched via
+ * the generic `ids=` narrowing instead of the entity's free-text `search=`
+ * filter — free-text search matches title/name/sku columns, never the id
+ * column, so pasting an exact id would otherwise return zero suggestions.
+ */
+function buildLookupParams(query: string | undefined, pageSize: string): Record<string, string> {
+  const trimmed = (query ?? '').trim()
+  if (UUID_PATTERN.test(trimmed)) return { ids: trimmed, pageSize: '1' }
+  return { search: trimmed, pageSize }
+}
+
 export function PriceProductSelect({
   value,
   onChange,
@@ -73,7 +87,7 @@ export function PriceProductSelect({
       allowCustomValues={false}
       clearable
       placeholder={t('catalog.prices.select.product.placeholder', 'Search products…')}
-      loadSuggestions={(query) => loadOptions('/api/catalog/products', { search: query ?? '', pageSize: '10' }, mapItem)}
+      loadSuggestions={(query) => loadOptions('/api/catalog/products', buildLookupParams(query, '10'), mapItem)}
       resolveLabel={(id) => resolveOne('/api/catalog/products', 'id', id, mapItem)}
     />
   )
@@ -112,7 +126,7 @@ export function PriceVariantSelect({
       loadSuggestions={(query) =>
         disabled
           ? Promise.resolve([])
-          : loadOptions('/api/catalog/variants', { productId, search: query ?? '', pageSize: '10' }, mapItem)
+          : loadOptions('/api/catalog/variants', { ...buildLookupParams(query, '10'), productId }, mapItem)
       }
       resolveLabel={(id) => resolveOne('/api/catalog/variants', 'id', id, mapItem)}
     />
@@ -141,7 +155,7 @@ export function PriceCustomerSelect({
       allowCustomValues={false}
       clearable
       placeholder={t('catalog.prices.select.customer.placeholder', 'Search customers…')}
-      loadSuggestions={(query) => loadOptions('/api/customers/people', { search: query ?? '', pageSize: '10' }, mapItem)}
+      loadSuggestions={(query) => loadOptions('/api/customers/people', buildLookupParams(query, '10'), mapItem)}
       resolveLabel={(id) => resolveOne('/api/customers/people', 'id', id, mapItem)}
     />
   )
@@ -169,7 +183,7 @@ export function PriceChannelSelect({
       allowCustomValues={false}
       clearable
       placeholder={t('catalog.prices.select.channel.placeholder', 'Select a channel…')}
-      loadSuggestions={(query) => loadOptions('/api/sales/channels', { search: query ?? '', pageSize: '50' }, mapItem)}
+      loadSuggestions={(query) => loadOptions('/api/sales/channels', buildLookupParams(query, '50'), mapItem)}
       resolveLabel={(id) => resolveOne('/api/sales/channels', 'id', id, mapItem)}
     />
   )
@@ -196,7 +210,7 @@ export function PricePriceKindSelect({
       onChange={onChange}
       allowCustomValues={false}
       placeholder={t('catalog.prices.select.priceKind.placeholder', 'Select a price kind…')}
-      loadSuggestions={(query) => loadOptions('/api/catalog/price-kinds', { search: query ?? '', pageSize: '20' }, mapItem)}
+      loadSuggestions={(query) => loadOptions('/api/catalog/price-kinds', buildLookupParams(query, '20'), mapItem)}
       resolveLabel={(id) => resolveOne('/api/catalog/price-kinds', 'id', id, mapItem)}
     />
   )
