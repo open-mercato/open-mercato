@@ -7,6 +7,7 @@ import type { ProgressJobDto, UseProgressPollResult } from './useProgressPoll'
 import { applyLocalProgressUpdate, isLocalProgressJob } from './useProgressPoll'
 
 const SSE_PROGRESS_SYNC_INTERVAL = 5000
+const SSE_PROGRESS_IDLE_RECONCILE_INTERVAL = 30000
 
 function isVisibleProgressJob(job: ProgressJobDto): boolean {
   return job.meta?.hiddenFromTopBar !== true
@@ -69,10 +70,25 @@ export function useProgressSse(): UseProgressPollResult {
     void fetchJobs()
   }, [fetchJobs])
 
+  // The cross-process bridge (packages/events/src/bridge.ts) delivers
+  // broadcast events over Postgres LISTEN/NOTIFY, which has no replay: a
+  // notify published during a listener reconnect window is lost for good.
+  // Poll fast while a job is active, and fall back to a slow reconciliation
+  // poll while idle so a missed `progress.job.created` still surfaces.
+  // See `.ai/lessons/worker-emitted-progress-needs-polling-fallback-even.md`.
+  const hasActiveJobs = activeJobs.length > 0
+
   React.useEffect(() => {
-    let interval: ReturnType<typeof setInterval> | null = setInterval(() => {
-      void fetchJobs()
-    }, SSE_PROGRESS_SYNC_INTERVAL)
+    let interval: ReturnType<typeof setInterval> | null = null
+
+    const startInterval = () => {
+      if (interval) clearInterval(interval)
+      interval = setInterval(() => {
+        void fetchJobs()
+      }, hasActiveJobs ? SSE_PROGRESS_SYNC_INTERVAL : SSE_PROGRESS_IDLE_RECONCILE_INTERVAL)
+    }
+
+    startInterval()
 
     const onVisibilityChange = () => {
       if (document.hidden) {
@@ -82,10 +98,7 @@ export function useProgressSse(): UseProgressPollResult {
         }
       } else {
         void fetchJobs()
-        if (interval) clearInterval(interval)
-        interval = setInterval(() => {
-          void fetchJobs()
-        }, SSE_PROGRESS_SYNC_INTERVAL)
+        startInterval()
       }
     }
 
@@ -94,7 +107,7 @@ export function useProgressSse(): UseProgressPollResult {
       if (interval) clearInterval(interval)
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
-  }, [fetchJobs])
+  }, [fetchJobs, hasActiveJobs])
 
   React.useEffect(() => {
     return subscribeProgressUpdate((detail) => {

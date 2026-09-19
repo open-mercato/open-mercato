@@ -60,6 +60,93 @@ describe('useProgressSse', () => {
     mockAppEventHandlers.clear()
   })
 
+  // Prior behavior (fixed): idle pages polled /api/progress/active every 5s
+  // regardless of whether any job was active. A characterization run against
+  // that code (1 mount fetch + 12 polls over 60s = 13 calls) confirmed the
+  // defect before this fix landed. The fix degrades the idle cadence to 30s
+  // (a reconciliation backstop for a dropped cross-process notify) rather
+  // than stopping outright, since the Postgres LISTEN/NOTIFY bridge has no
+  // replay for a listener that was mid-reconnect when a job was created.
+  it('idle with no active jobs: degrades to the 30s reconciliation cadence', async () => {
+    jest.useFakeTimers()
+    mockApiCall.mockResolvedValue(mockProgressResponse([]))
+
+    renderHook(() => useProgressSse())
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(mockApiCall).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      jest.advanceTimersByTime(60000)
+      await Promise.resolve()
+    })
+
+    // 1 mount fetch + 2 polls at 30s over 60s = 3.
+    expect(mockApiCall).toHaveBeenCalledTimes(3)
+  })
+
+  it('while a job is active: keeps polling at the 5s cadence', async () => {
+    jest.useFakeTimers()
+    mockApiCall.mockResolvedValue(mockProgressResponse([runningJob]))
+
+    renderHook(() => useProgressSse())
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(mockApiCall).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      jest.advanceTimersByTime(60000)
+      await Promise.resolve()
+    })
+
+    // 1 mount fetch + 12 polls at 5s over 60s = 13.
+    expect(mockApiCall).toHaveBeenCalledTimes(13)
+  })
+
+  it('a progress.job.created event while idle triggers exactly one fetch', async () => {
+    mockApiCall.mockResolvedValue(mockProgressResponse([]))
+    renderHook(() => useProgressSse())
+
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(1))
+
+    act(() => {
+      for (const handler of mockAppEventHandlers.get('progress.job.created') ?? []) {
+        handler({})
+      }
+    })
+
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(2))
+  })
+
+  it('unmounting mid-interval stops further fetches', async () => {
+    jest.useFakeTimers()
+    mockApiCall.mockResolvedValue(mockProgressResponse([runningJob]))
+
+    const { result, unmount } = renderHook(() => useProgressSse())
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    await waitFor(() => expect(result.current.activeJobs).toHaveLength(1))
+
+    const callsBeforeUnmount = mockApiCall.mock.calls.length
+    unmount()
+
+    await act(async () => {
+      jest.advanceTimersByTime(60000)
+      await Promise.resolve()
+    })
+
+    expect(mockApiCall).toHaveBeenCalledTimes(callsBeforeUnmount)
+  })
+
   it('removes a job from activeJobs when an SSE update carries a terminal status', async () => {
     mockApiCall.mockResolvedValue(mockProgressResponse([runningJob]))
     const { result } = renderHook(() => useProgressSse())
