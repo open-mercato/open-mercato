@@ -65,7 +65,6 @@ export function useAppEventCoalesced(
       if (!pending) return
       const payload = pending
       pending = null
-      windowTimer = setTimeout(closeWindow, windowMs)
       handlerRef.current(payload)
     }
 
