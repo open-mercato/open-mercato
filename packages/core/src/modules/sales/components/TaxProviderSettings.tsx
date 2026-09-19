@@ -28,19 +28,15 @@ const SAVE_CONTEXT_ID = 'sales-tax-provider-settings'
 const DEFAULT_PROVIDER_KEY = 'table-rates'
 
 /**
- * The built in providers are defined in core, so their label and description
- * are plain English on the provider object. They are translated here; an
- * external package is not in this map and keeps its own label, which it ships
- * with its own locale files.
+ * The built in provider is defined in core, so its label and description are
+ * plain English on the provider object. They are translated here; an external
+ * package is not in this map and keeps its own label, which it ships with its
+ * own locale files.
  */
 const BUILT_IN_PROVIDER_I18N: Record<string, { label: string; description: string }> = {
-  'table-rates': {
+  [DEFAULT_PROVIDER_KEY]: {
     label: 'sales.providers.tax.tableRates.label',
     description: 'sales.providers.tax.tableRates.description',
-  },
-  'fixed-rate': {
-    label: 'sales.providers.tax.fixedRate.label',
-    description: 'sales.providers.tax.fixedRate.description',
   },
 }
 
@@ -80,14 +76,23 @@ const SHIP_FROM_FIELDS: Array<keyof ShipFromAddress> = [
 ]
 
 /**
- * Per organization tax provider selection.
+ * Per organization tax provider selection, and the host of whichever tax
+ * section the selection implies.
+ *
+ * The provider picker only earns its place when there is something to pick: an
+ * instance with no external tax provider package installed registers the
+ * default alone, and then this renders `taxRatesSlot` and nothing else, so the
+ * page reads exactly as it did before the provider slot existed. Selecting the
+ * default keeps the tax rates table; selecting an external provider replaces it
+ * with that provider's own options, the ship from address and the timeout —
+ * none of which the default has any use for.
  *
  * Only non secret options are edited here. A provider that needs credentials
  * declares an integration, and this section links to it rather than collecting
  * the secret itself — the integrations module is the only place that encrypts
  * at rest and masks in the admin UI.
  */
-export function TaxProviderSettings() {
+export function TaxProviderSettings({ taxRatesSlot }: { taxRatesSlot?: React.ReactNode } = {}) {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
   const [loading, setLoading] = React.useState(false)
@@ -112,7 +117,7 @@ export function TaxProviderSettings() {
       title: t('sales.config.taxProvider.title', 'Tax provider'),
       description: t(
         'sales.config.taxProvider.description',
-        'Choose which engine calculates tax on this organization’s documents. Table rates is the built in default.'
+        'Choose which engine calculates tax on this organization’s documents.'
       ),
       providerLabel: t('sales.config.taxProvider.providerLabel', 'Provider'),
       providerSettings: t('sales.config.taxProvider.providerSettings', 'Provider options'),
@@ -198,6 +203,14 @@ export function TaxProviderSettings() {
     [providerKey, providers]
   )
 
+  // `GET /api/sales/tax-providers` returning the default alone is the wire
+  // signal for "no external tax provider package is installed here".
+  const hasExternalProvider = React.useMemo(
+    () => providers.some((provider) => provider.key !== DEFAULT_PROVIDER_KEY),
+    [providers]
+  )
+  const usesDefaultProvider = providerKey === DEFAULT_PROVIDER_KEY
+
   // Switching provider clears the previous provider's options: they are keyed by
   // the old provider's schema and would fail its validation.
   const handleProviderChange = React.useCallback((nextKey: string) => {
@@ -262,118 +275,129 @@ export function TaxProviderSettings() {
 
   const busy = loading || saving
 
+  // Nothing to choose between: the picker would be a select with one option, so
+  // the page shows the tax rates table alone, as it did before this slot.
+  if (!hasExternalProvider) return <>{taxRatesSlot ?? null}</>
+
   return (
-    <section className="space-y-4" data-testid="sales-tax-provider-settings">
-      <div className="space-y-1">
-        <h3 className="text-sm font-semibold">{translations.title}</h3>
-        <p className="text-xs text-muted-foreground">{translations.description}</p>
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="sales-tax-provider-key">{translations.providerLabel}</Label>
-        <Select value={providerKey} onValueChange={handleProviderChange} disabled={busy}>
-          <SelectTrigger id="sales-tax-provider-key">
-            <SelectValue placeholder={translations.providerLabel} />
-          </SelectTrigger>
-          <SelectContent>
-            {providers.map((provider) => (
-              <SelectItem key={provider.key} value={provider.key}>
-                {providerLabel(provider)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {selectedProvider && providerDescription(selectedProvider) ? (
-          <p className="text-xs text-muted-foreground">{providerDescription(selectedProvider)}</p>
-        ) : null}
-      </div>
-
-      {selectedProvider?.integrationId ? (
-        <Alert status="information">
-          <AlertDescription>
-            <div className="space-y-1">
-              <p>{translations.integrationNotice}</p>
-              <a
-                className="text-primary underline-offset-2 hover:underline"
-                href={`/backend/integrations/${selectedProvider.integrationId}`}
-              >
-                {translations.integrationLink}
-              </a>
-            </div>
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      {selectedProvider?.fields?.length ? (
-        <div className="space-y-3 rounded-none border bg-card/30 p-4">
-          <p className="text-sm font-medium">{translations.providerSettings}</p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {selectedProvider.fields.map((field) => (
-              <div key={field.key} className="space-y-1">
-                <Label htmlFor={field.key}>{field.label}</Label>
-                {renderProviderFieldInput({
-                  field,
-                  value: providerSettings[field.key],
-                  onChange: (next) =>
-                    setProviderSettings((prev) => ({ ...prev, [field.key]: next })),
-                })}
-                {field.description ? (
-                  <p className="text-xs text-muted-foreground">{field.description}</p>
-                ) : null}
-              </div>
-            ))}
-          </div>
+    <>
+      <section className="space-y-4" data-testid="sales-tax-provider-settings">
+        <div className="space-y-1">
+          <h3 className="text-sm font-semibold">{translations.title}</h3>
+          <p className="text-xs text-muted-foreground">{translations.description}</p>
         </div>
-      ) : null}
 
-      <div className="space-y-3 rounded-none border bg-card/30 p-4">
-        <p className="text-sm font-medium">{translations.shipFrom}</p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {SHIP_FROM_FIELDS.map((field) => (
-            <div key={field} className="space-y-1">
-              <Label htmlFor={`ship-from-${field}`}>{translations.shipFromFields[field]}</Label>
+        <div className="space-y-2">
+          <Label htmlFor="sales-tax-provider-key">{translations.providerLabel}</Label>
+          <Select value={providerKey} onValueChange={handleProviderChange} disabled={busy}>
+            <SelectTrigger id="sales-tax-provider-key">
+              <SelectValue placeholder={translations.providerLabel} />
+            </SelectTrigger>
+            <SelectContent>
+              {providers.map((provider) => (
+                <SelectItem key={provider.key} value={provider.key}>
+                  {providerLabel(provider)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {selectedProvider && providerDescription(selectedProvider) ? (
+            <p className="text-xs text-muted-foreground">{providerDescription(selectedProvider)}</p>
+          ) : null}
+        </div>
+
+        {usesDefaultProvider ? null : (
+          <>
+            {selectedProvider?.integrationId ? (
+              <Alert status="information">
+                <AlertDescription>
+                  <div className="space-y-1">
+                    <p>{translations.integrationNotice}</p>
+                    <a
+                      className="text-primary underline-offset-2 hover:underline"
+                      href={`/backend/integrations/${selectedProvider.integrationId}`}
+                    >
+                      {translations.integrationLink}
+                    </a>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            ) : null}
+
+            {selectedProvider?.fields?.length ? (
+              <div className="space-y-3 rounded-none border bg-card/30 p-4">
+                <p className="text-sm font-medium">{translations.providerSettings}</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {selectedProvider.fields.map((field) => (
+                    <div key={field.key} className="space-y-1">
+                      <Label htmlFor={field.key}>{field.label}</Label>
+                      {renderProviderFieldInput({
+                        field,
+                        value: providerSettings[field.key],
+                        onChange: (next) =>
+                          setProviderSettings((prev) => ({ ...prev, [field.key]: next })),
+                      })}
+                      {field.description ? (
+                        <p className="text-xs text-muted-foreground">{field.description}</p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="space-y-3 rounded-none border bg-card/30 p-4">
+              <p className="text-sm font-medium">{translations.shipFrom}</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {SHIP_FROM_FIELDS.map((field) => (
+                  <div key={field} className="space-y-1">
+                    <Label htmlFor={`ship-from-${field}`}>{translations.shipFromFields[field]}</Label>
+                    <Input
+                      id={`ship-from-${field}`}
+                      value={typeof shipFromAddress[field] === 'string' ? (shipFromAddress[field] as string) : ''}
+                      onChange={(evt) =>
+                        setShipFromAddress((prev) => ({ ...prev, [field]: evt.target.value }))
+                      }
+                      disabled={busy}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="sales-tax-provider-timeout">{translations.timeoutMs}</Label>
               <Input
-                id={`ship-from-${field}`}
-                value={typeof shipFromAddress[field] === 'string' ? (shipFromAddress[field] as string) : ''}
-                onChange={(evt) =>
-                  setShipFromAddress((prev) => ({ ...prev, [field]: evt.target.value }))
-                }
+                id="sales-tax-provider-timeout"
+                type="number"
+                min={1000}
+                max={30000}
+                value={timeoutMs === '' ? '' : String(timeoutMs)}
+                onChange={(evt) => setTimeoutMs(evt.target.value === '' ? '' : Number(evt.target.value))}
                 disabled={busy}
               />
             </div>
-          ))}
+          </>
+        )}
+
+        <div className="flex items-center gap-2">
+          <Button type="button" onClick={() => void handleSubmit()} disabled={busy}>
+            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+            {translations.actions.save}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void loadSettings()}
+            disabled={busy}
+            aria-label={translations.actions.refresh}
+          >
+            <RefreshCw className={loading ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} aria-hidden="true" />
+            {translations.actions.refresh}
+          </Button>
         </div>
-      </div>
-
-      <div className="space-y-1">
-        <Label htmlFor="sales-tax-provider-timeout">{translations.timeoutMs}</Label>
-        <Input
-          id="sales-tax-provider-timeout"
-          type="number"
-          min={1000}
-          max={30000}
-          value={timeoutMs === '' ? '' : String(timeoutMs)}
-          onChange={(evt) => setTimeoutMs(evt.target.value === '' ? '' : Number(evt.target.value))}
-          disabled={busy}
-        />
-      </div>
-
-      <div className="flex items-center gap-2">
-        <Button type="button" onClick={() => void handleSubmit()} disabled={busy}>
-          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
-          {translations.actions.save}
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => void loadSettings()}
-          disabled={busy}
-          aria-label={translations.actions.refresh}
-        >
-          <RefreshCw className={loading ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} aria-hidden="true" />
-          {translations.actions.refresh}
-        </Button>
-      </div>
-    </section>
+      </section>
+      {usesDefaultProvider ? taxRatesSlot ?? null : null}
+    </>
   )
 }

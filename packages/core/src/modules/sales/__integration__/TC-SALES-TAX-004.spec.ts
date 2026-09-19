@@ -20,7 +20,7 @@ import {
  * change any other organization's amounts. This spec proves the two halves that
  * can be proven deterministically against one instance:
  *
- *  1. A document written while `fixed-rate` is selected takes its rate.
+ *  1. A document written while `integration-test-rate` is selected takes its rate.
  *  2. Restoring the default immediately returns the next document to the
  *     engine's own table rate math — the same figures TC-SALES-TAX-001 pins.
  *
@@ -42,7 +42,7 @@ test.describe('TC-SALES-TAX-004: the selection is scoped, not global', () => {
       expect(before.providerKey).toBe('table-rates')
 
       await setTaxProvider(request, token, {
-        providerKey: 'fixed-rate',
+        providerKey: 'integration-test-rate',
         providerSettings: { rate: 5, jurisdictionName: 'State' },
       })
 
@@ -55,7 +55,7 @@ test.describe('TC-SALES-TAX-004: the selection is scoped, not global', () => {
         taxRate: 20,
       })
       const selectedOrder = await readDocument(request, token, '/api/sales/orders', selectedOrderId)
-      expect(selectedOrder.taxStrategyKey).toBe('fixed-rate')
+      expect(selectedOrder.taxStrategyKey).toBe('integration-test-rate')
       expect(numeric(selectedOrder.taxTotalAmount)).toBeCloseTo(5, 4)
 
       // Restoring the default must take effect on the very next document.

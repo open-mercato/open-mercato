@@ -4,6 +4,14 @@ Status: proposed (design only; implementation ships on its own PR).
 Scope: `packages/core/src/modules/sales/{lib/providers/*,lib/calculations.ts,lib/types.ts,commands/documents.ts,commands/returns.ts,commands/settings.ts,data/entities.ts,data/validators.ts,api/*,components/*,events.ts,i18n/*}`, `packages/core/src/modules/customers/{data/entities.ts,data/validators.ts,encryption.ts}`, `packages/shared/src/modules/integrations/types.ts`, `apps/docs/docs/**`.
 Verified against: `systevio/open-mercato` branch `develop` at `e4ab32cac` (2026-09-19). The brief cited line numbers at `78df61346`; `git diff --stat 78df61346 origin/develop -- . ':!.ai/briefs'` is empty, so every cited line below is unchanged and was re-read at `e4ab32cac`. Symbols and command ids beside each line are the durable identifiers.
 
+## Amendment — 2026-09-19, tax provider selection UI
+
+Applies to the built-in provider list only; the contract, the calculation stage, the settings API and the schema below are unchanged.
+
+- The second built-in provider `fixed-rate` is **removed from the product**. Every reference to it below (the "one built in second provider" decision, the Phase 1 and Phase 4 implementation notes, the i18n key list, the acceptance table) is historical. Its implementation survives as `lib/providers/integrationTestTaxProvider.ts` under the key `integration-test-rate`, registered only when `OM_INTEGRATION_TEST` is set, so the acceptance specs keep a second provider to select while no instance lists one.
+- `table-rates` keeps its key and its `NULL`-means-default semantics but is presented as **Default (Tax rates)**, described as using the rates from the Tax rates section. The `sales.providers.tax.fixedRate.*` keys are gone.
+- The configuration page shows the **Tax provider** picker only when a provider other than the default is registered, and the ship-from address and timeout only when an external provider is selected. The default provider hosts the **Tax rates** table in that slot instead.
+
 ## TLDR
 
 **Key Points:**

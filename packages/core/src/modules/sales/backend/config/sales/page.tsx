@@ -35,8 +35,12 @@ export default async function SalesConfigurationPage({
         <AdjustmentKindSettings />
         <ShippingMethodsSettings />
         <PaymentMethodsSettings />
-        <TaxRatesSettings />
-        <TaxProviderSettings />
+        {/*
+          The tax provider owns the tax slot: it renders the picker above the
+          tax section and decides which tax section belongs there — the rates
+          table for the default provider, the provider's own options otherwise.
+        */}
+        <TaxProviderSettings taxRatesSlot={<TaxRatesSettings />} />
         <OrderEditingSettings />
         <DocumentNumberSettings />
       </PageBody>

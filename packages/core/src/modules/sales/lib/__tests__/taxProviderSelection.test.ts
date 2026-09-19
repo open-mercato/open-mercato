@@ -77,7 +77,7 @@ describe('tax provider selection cache key', () => {
 describe('readTaxProviderSelection', () => {
   it('reads the row and caches it with both scope ids in the key', async () => {
     const em = makeEm({
-      taxProviderKey: 'fixed-rate',
+      taxProviderKey: 'external-tax',
       taxProviderSettings: { rate: 5 },
       taxProviderTimeoutMs: 2000,
       shipFromAddress: { city: 'Austin' },
@@ -86,7 +86,7 @@ describe('readTaxProviderSelection', () => {
     const row = await readTaxProviderSelection({ em, container: containerWith(cache), ...scope })
 
     expect(row).toEqual({
-      providerKey: 'fixed-rate',
+      providerKey: 'external-tax',
       providerSettings: { rate: 5 },
       timeoutMs: 2000,
       shipFromAddress: { city: 'Austin' },
@@ -100,7 +100,7 @@ describe('readTaxProviderSelection', () => {
   })
 
   it('serves a second read from the cache without touching the database', async () => {
-    const em = makeEm({ taxProviderKey: 'fixed-rate' })
+    const em = makeEm({ taxProviderKey: 'external-tax' })
     const cache = makeCache()
     await readTaxProviderSelection({ em, container: containerWith(cache), ...scope })
     await readTaxProviderSelection({ em, container: containerWith(cache), ...scope })
@@ -119,30 +119,30 @@ describe('readTaxProviderSelection', () => {
   })
 
   it('falls through to the row when no cache is registered', async () => {
-    const em = makeEm({ taxProviderKey: 'fixed-rate' })
+    const em = makeEm({ taxProviderKey: 'external-tax' })
     const row = await readTaxProviderSelection({ em, container: { resolve: () => undefined }, ...scope })
-    expect(row.providerKey).toBe('fixed-rate')
+    expect(row.providerKey).toBe('external-tax')
     expect(em.calls).toHaveLength(1)
   })
 
   it('falls through to the row when the cache read throws', async () => {
-    const em = makeEm({ taxProviderKey: 'fixed-rate' })
+    const em = makeEm({ taxProviderKey: 'external-tax' })
     const cache = makeCache()
     cache.get.mockRejectedValueOnce(new Error('cache down'))
     // A tax calculation must never fail because a cache is unavailable.
     const row = await readTaxProviderSelection({ em, container: containerWith(cache), ...scope })
-    expect(row.providerKey).toBe('fixed-rate')
+    expect(row.providerKey).toBe('external-tax')
   })
 
   it('falls through to the row when resolving the cache throws', async () => {
-    const em = makeEm({ taxProviderKey: 'fixed-rate' })
+    const em = makeEm({ taxProviderKey: 'external-tax' })
     const container = {
       resolve: () => {
         throw new Error('not registered')
       },
     }
     const row = await readTaxProviderSelection({ em, container, ...scope })
-    expect(row.providerKey).toBe('fixed-rate')
+    expect(row.providerKey).toBe('external-tax')
   })
 })
 

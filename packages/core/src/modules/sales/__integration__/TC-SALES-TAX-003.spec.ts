@@ -34,7 +34,7 @@ test.describe('TC-SALES-TAX-003: a provider failure degrades to an estimate, nev
 
     try {
       await setTaxProvider(request, token, {
-        providerKey: 'fixed-rate',
+        providerKey: 'integration-test-rate',
         providerSettings: { rate: 5, simulateFailure: 'throw' },
       })
 
@@ -56,7 +56,7 @@ test.describe('TC-SALES-TAX-003: a provider failure degrades to an estimate, nev
 
       // 2. A timeout produces the same fallback with its own code.
       await setTaxProvider(request, token, {
-        providerKey: 'fixed-rate',
+        providerKey: 'integration-test-rate',
         providerSettings: { rate: 5, simulateFailure: 'timeout' },
         timeoutMs: 1000,
       })
@@ -75,7 +75,7 @@ test.describe('TC-SALES-TAX-003: a provider failure degrades to an estimate, nev
       // 3. Clearing the simulated failure and recalculating recovers, without
       //    touching a single line or header field.
       await setTaxProvider(request, token, {
-        providerKey: 'fixed-rate',
+        providerKey: 'integration-test-rate',
         providerSettings: { rate: 5, simulateFailure: 'none' },
       })
       const recalcOk = await apiRequest(request, 'POST', '/api/sales/documents/recalculate-tax', {

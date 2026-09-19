@@ -142,12 +142,12 @@ Key differences from the shipping and payment slots:
 
 | | Shipping / payment | Tax |
 |---|---|---|
-| Selected on | the method row | the organization (`Sales → Configuration → Tax provider`) |
+| Selected on | the method row | the organization (`Sales → Configuration → Tax provider`, shown only once a second provider is registered) |
 | Contributes | adjustments | per-line and per-charge tax amounts |
 | Secret settings fields | allowed (stored on the method row) | **rejected** — secrets go to the integrations module |
 | On failure | the stage is skipped | falls back to table rates, records why, never fails the write |
 | Persisted | in the adjustment rows | five provenance columns plus a `tax_info` document |
 
-The built-in `table-rates` provider is an exact identity over the calculation engine, so an organization that selects nothing keeps every amount it had before this slot existed.
+`table-rates` — presented as **Default (Tax rates)** — is the only tax provider the platform registers, and it is an exact identity over the calculation engine, so an organization that selects nothing keeps every amount it had before this slot existed. Registering a second provider is what turns the picker on.
 
 The full contract — request and result shapes, failure codes, reconciliation, credentials, exemption — is in [Building a tax provider](./building-tax-provider).

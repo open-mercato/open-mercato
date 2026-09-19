@@ -64,9 +64,9 @@ test.describe('TC-SALES-TAX-006: an exempt customer is charged no tax, and the d
       expect(customers[0].tax_exemption_code).toBe('RESALE')
       expect(customers[0].tax_exemption_certificate).toBe('CERT-TC006')
 
-      // fixed-rate at 5% would otherwise charge tax; the exemption must win.
+      // The provider at 5% would otherwise charge tax; the exemption must win.
       await setTaxProvider(request, token, {
-        providerKey: 'fixed-rate',
+        providerKey: 'integration-test-rate',
         providerSettings: { rate: 5, jurisdictionName: 'State' },
       })
 

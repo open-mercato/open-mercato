@@ -86,17 +86,18 @@ A tax provider is selected **per organization** and calculates tax for a whole s
 
 ### Choosing a provider
 
-Open **Sales → Configuration → Tax provider**. The select lists every registered provider; the built-in choices are:
+Open **Sales → Configuration**. The only provider the platform ships is the built-in default:
 
 | Provider | What it does |
 |---|---|
-| **Table rates** (default) | Applies the tax rate stored on each line, exactly as the calculation engine already did. Selecting nothing is the same as selecting this. |
-| **Fixed rate** | Applies one rate to the whole document, with an optional second jurisdiction. Useful for a single-state seller, and it is the provider the acceptance tests use. |
+| **Default (Tax rates)** | Uses the tax rates configured in the **Tax rates** section, exactly as the calculation engine already did. Selecting nothing is the same as selecting this. |
 
-Below the select you configure the provider's own options, the **ship-from address** an engine needs to determine origin-based tax, and a **timeout** (1000–30000 ms) that bounds how long a provider may delay a document write.
+Install a tax provider package — Avalara, for example — and a **Tax provider** section appears above the tax section with a select listing the default alongside it. Until then there is nothing to choose between, so the page shows the **Tax rates** table alone.
+
+Selecting an external provider replaces the **Tax rates** table with that provider's own section: its options, the **ship-from address** an engine needs to determine origin-based tax, and a **timeout** (1000–30000 ms) that bounds how long a provider may delay a document write. The default provider needs none of those — it reads the rates you already maintain — so they are not shown for it.
 
 :::info Nothing changes until you choose
-`table-rates` is an exact identity over the existing calculation engine. An organization that never opens this page keeps every amount it has today, to the cent.
+The default provider is an exact identity over the existing calculation engine. An organization that never opens this page keeps every amount it has today, to the cent.
 :::
 
 ### What gets recorded

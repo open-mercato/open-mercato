@@ -20,6 +20,7 @@ const mockLogger = jest.requireMock('@open-mercato/shared/lib/logger').createLog
 
 import { calculateDocumentTotals } from '../calculations'
 import { ensureProviderTotalsCalculator } from '../providers/totals'
+import { integrationTestTaxProvider } from '../providers/integrationTestTaxProvider'
 import { registerDefaultTaxProviders } from '../providers/taxProviders'
 import { registerTaxProvider } from '../providers/registry'
 import { DEFAULT_TAX_PROVIDER_KEY } from '../providers/taxContext'
@@ -392,6 +393,9 @@ describe('tax stage', () => {
   })
 
   it('records an exempt result with its zeroed amounts', async () => {
+    // A provider that honors the exemption itself, registered by this test: the
+    // product registers the default provider alone.
+    unregister.push(registerTaxProvider(integrationTestTaxProvider))
     const result = await calculate({
       tax: makeTaxContext({
         customer: {
@@ -404,7 +408,7 @@ describe('tax stage', () => {
           exemption: { isExempt: true, code: 'RESALE', certificateNumber: 'CERT-1' },
         },
         selection: {
-          providerKey: 'fixed-rate',
+          providerKey: integrationTestTaxProvider.key,
           settings: { rate: 5 },
           integrationId: null,
           integrationEnabled: true,

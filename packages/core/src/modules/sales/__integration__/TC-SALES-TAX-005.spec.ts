@@ -27,8 +27,12 @@ test.describe('TC-SALES-TAX-005: the settings surface never carries a secret', (
       // 1. The provider catalog exposes field definitions only.
       const catalog = await readJson(request, token, '/api/sales/tax-providers')
       const items = Array.isArray(catalog.items) ? (catalog.items as Array<Record<string, unknown>>) : []
-      expect(items.length, 'at least the two built in providers must be registered').toBeGreaterThanOrEqual(2)
-      expect(items.map((item) => item.key)).toEqual(expect.arrayContaining(['table-rates', 'fixed-rate']))
+      // The default provider is the only one the product registers; the
+      // integration runner adds the test provider these specs select.
+      expect(items.length, 'the default and the integration test provider must be registered').toBeGreaterThanOrEqual(2)
+      expect(items.map((item) => item.key)).toEqual(
+        expect.arrayContaining(['table-rates', 'integration-test-rate'])
+      )
 
       for (const item of items) {
         const fields = Array.isArray(item.fields) ? (item.fields as Array<Record<string, unknown>>) : []
@@ -59,14 +63,14 @@ test.describe('TC-SALES-TAX-005: the settings surface never carries a secret', (
       // 4. A timeout outside the documented bounds is refused, so a provider
       //    cannot be configured to hold a write open indefinitely.
       const badTimeout = await putTaxProviderRaw(request, token, {
-        providerKey: 'fixed-rate',
+        providerKey: 'integration-test-rate',
         timeoutMs: 999_999,
       })
       expect(badTimeout.status).toBe(400)
 
       // 5. Whatever a caller sends, nothing secret-shaped ends up readable.
       await putTaxProviderRaw(request, token, {
-        providerKey: 'fixed-rate',
+        providerKey: 'integration-test-rate',
         providerSettings: { rate: 5, licenseKey: SECRET_SHAPED },
       })
       const afterAttempt = await getTaxProviderSelection(request, token)

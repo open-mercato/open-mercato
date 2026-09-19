@@ -37,7 +37,6 @@ export type TaxInfoView = {
 /** Mirrors the settings section: built in provider keys get a translated name. */
 const BUILT_IN_PROVIDER_LABELS: Record<string, string> = {
   'table-rates': 'sales.providers.tax.tableRates.label',
-  'fixed-rate': 'sales.providers.tax.fixedRate.label',
 }
 
 const statusVariants: Record<string, StatusBadgeVariant> = {

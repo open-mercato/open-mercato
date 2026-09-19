@@ -18,7 +18,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 }))
 
 const calculatedInfo: TaxInfoView = {
-  providerKey: 'fixed-rate',
+  providerKey: 'external-tax',
   status: 'calculated',
   calculatedAt: '2026-09-19T10:00:00.000Z',
   breakdown: [
@@ -58,14 +58,14 @@ describe('TaxBreakdownSection', () => {
     render(
       <TaxBreakdownSection
         taxStatus="calculated"
-        taxStrategyKey="fixed-rate"
+        taxStrategyKey="external-tax"
         taxCalculatedAt="2026-09-19T10:00:00.000Z"
         taxInfo={calculatedInfo}
         currency="USD"
       />
     )
     expect(screen.getByText('Calculated')).toBeInTheDocument()
-    expect(screen.getByText(/fixed-rate/)).toBeInTheDocument()
+    expect(screen.getByText(/external-tax/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Recalculate tax/ })).not.toBeInTheDocument()
   })
 

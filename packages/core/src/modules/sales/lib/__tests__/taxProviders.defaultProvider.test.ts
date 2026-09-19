@@ -15,10 +15,8 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
 })
 
 import { calculateDocumentTotals } from '../calculations'
-import {
-  fixedRateTaxProvider,
-  tableRatesTaxProvider,
-} from '../providers/taxProviders'
+import { integrationTestTaxProvider } from '../providers/integrationTestTaxProvider'
+import { tableRatesTaxProvider } from '../providers/taxProviders'
 import type {
   SalesAdjustmentDraft,
   SalesDocumentCalculationResult,
@@ -244,8 +242,8 @@ describe('table-rates tax provider', () => {
   })
 })
 
-describe('fixed-rate tax provider', () => {
-  async function runFixedRate(
+describe('integration test tax provider', () => {
+  async function runIntegrationTestRate(
     settings: Record<string, unknown>,
     request?: Partial<TaxCalculationRequest>
   ): Promise<TaxProviderCalculateResult> {
@@ -255,7 +253,7 @@ describe('fixed-rate tax provider', () => {
       adjustments: [],
       context: { ...baseContext, metadata: {} },
     })
-    return (await fixedRateTaxProvider.calculate({
+    return (await integrationTestTaxProvider.calculate({
       request: { ...toRequest(engine), ...request },
       settings,
       credentials: {},
@@ -265,7 +263,7 @@ describe('fixed-rate tax provider', () => {
   }
 
   it('produces a two jurisdiction breakdown', async () => {
-    const result = await runFixedRate({
+    const result = await runIntegrationTestRate({
       rate: 5,
       jurisdictionName: 'State',
       secondaryRate: 2,
@@ -280,13 +278,13 @@ describe('fixed-rate tax provider', () => {
   })
 
   it('applies only the primary rate when no secondary is configured', async () => {
-    const result = await runFixedRate({ rate: 8.25, jurisdictionName: 'State' })
+    const result = await runIntegrationTestRate({ rate: 8.25, jurisdictionName: 'State' })
     expect(result.lines[0].taxAmount).toBeCloseTo(8.25, 4)
     expect(result.lines[0].details).toHaveLength(1)
   })
 
   it('throws when simulateFailure is throw', async () => {
-    await expect(runFixedRate({ rate: 5, simulateFailure: 'throw' })).rejects.toThrow(
+    await expect(runIntegrationTestRate({ rate: 5, simulateFailure: 'throw' })).rejects.toThrow(
       'simulated failure'
     )
   })
@@ -299,7 +297,7 @@ describe('fixed-rate tax provider', () => {
       adjustments: [],
       context: { ...baseContext, metadata: {} },
     })
-    const pending = fixedRateTaxProvider.calculate({
+    const pending = integrationTestTaxProvider.calculate({
       request: toRequest(engine),
       settings: { rate: 5, simulateFailure: 'timeout' },
       credentials: {},
@@ -317,7 +315,7 @@ describe('fixed-rate tax provider', () => {
   })
 
   it('charges nothing for an exempt customer', async () => {
-    const result = await runFixedRate(
+    const result = await runIntegrationTestRate(
       { rate: 5, secondaryRate: 2 },
       {
         customer: {
@@ -338,7 +336,7 @@ describe('fixed-rate tax provider', () => {
   })
 
   it('falls back to its defaults for unparseable settings rather than failing', async () => {
-    const result = await runFixedRate({ rate: 'not a number' })
+    const result = await runIntegrationTestRate({ rate: 'not a number' })
     expect(result.status).toBe('calculated')
     expect(result.totals.taxTotal).toBe(0)
   })

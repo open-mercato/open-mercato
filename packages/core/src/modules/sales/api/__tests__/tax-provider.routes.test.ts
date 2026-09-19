@@ -25,7 +25,7 @@ describe('salesTaxProviderSettingsSchema', () => {
   it('accepts a selection with options, a ship from address and a timeout', () => {
     const parsed = salesTaxProviderSettingsSchema.safeParse({
       ...scope,
-      providerKey: 'fixed-rate',
+      providerKey: 'external-tax',
       providerSettings: { rate: 5, jurisdictionName: 'State' },
       shipFromAddress: { addressLine1: 'One Market St', city: 'San Francisco', country: 'US' },
       timeoutMs: 5000,
@@ -42,19 +42,19 @@ describe('salesTaxProviderSettingsSchema', () => {
 
   it('bounds the timeout so a provider cannot hold a write open indefinitely', () => {
     expect(
-      salesTaxProviderSettingsSchema.safeParse({ ...scope, providerKey: 'fixed-rate', timeoutMs: 1 })
+      salesTaxProviderSettingsSchema.safeParse({ ...scope, providerKey: 'external-tax', timeoutMs: 1 })
         .success
     ).toBe(false)
     expect(
       salesTaxProviderSettingsSchema.safeParse({
         ...scope,
-        providerKey: 'fixed-rate',
+        providerKey: 'external-tax',
         timeoutMs: TAX_PROVIDER_TIMEOUT_MAX_MS + 1,
       }).success
     ).toBe(false)
     for (const value of [TAX_PROVIDER_TIMEOUT_MIN_MS, TAX_PROVIDER_TIMEOUT_MAX_MS]) {
       expect(
-        salesTaxProviderSettingsSchema.safeParse({ ...scope, providerKey: 'fixed-rate', timeoutMs: value })
+        salesTaxProviderSettingsSchema.safeParse({ ...scope, providerKey: 'external-tax', timeoutMs: value })
           .success
       ).toBe(true)
     }

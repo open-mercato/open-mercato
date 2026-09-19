@@ -125,7 +125,7 @@ describe('tax provider credential hygiene', () => {
   it('never fetches credentials for a provider that declares no integration', async () => {
     const resolve = jest.fn(async () => ({ licenseKey: SECRET }))
     const tax = await resolveTaxDocumentContext({
-      em: makeEm({ taxProviderKey: 'fixed-rate' } as Partial<SalesSettings>),
+      em: makeEm({ taxProviderKey: 'external-tax' } as Partial<SalesSettings>),
       container: makeContainer({ integrationCredentialsService: { resolve } }),
       ...scope,
       documentKind: 'order',
@@ -141,7 +141,7 @@ describe('tax provider credential hygiene', () => {
 
   it('keeps the secret out of a serialized calculation context', async () => {
     const tax = await resolveTaxDocumentContext({
-      em: makeEm({ taxProviderKey: 'fixed-rate' } as Partial<SalesSettings>),
+      em: makeEm({ taxProviderKey: 'external-tax' } as Partial<SalesSettings>),
       container: makeContainer(),
       ...scope,
       documentKind: 'order',
@@ -307,7 +307,7 @@ describe('the organization selection drives the context', () => {
   it('carries the organization settings, timeout and ship from address', async () => {
     const tax = await resolveTaxDocumentContext({
       em: makeEm({
-        taxProviderKey: 'fixed-rate',
+        taxProviderKey: 'external-tax',
         taxProviderSettings: { rate: 5 },
         taxProviderTimeoutMs: 2500,
         shipFromAddress: { addressLine1: 'One Market St', city: 'San Francisco', country: 'US' },
@@ -316,7 +316,7 @@ describe('the organization selection drives the context', () => {
       ...scope,
       documentKind: 'order',
     })
-    expect(tax.selection.providerKey).toBe('fixed-rate')
+    expect(tax.selection.providerKey).toBe('external-tax')
     expect(tax.selection.settings).toEqual({ rate: 5 })
     expect(tax.timeoutMs).toBe(2500)
     expect(tax.addresses.shipFrom?.city).toBe('San Francisco')
@@ -324,7 +324,7 @@ describe('the organization selection drives the context', () => {
 
   it('clamps a stored timeout that is out of bounds', async () => {
     const tax = await resolveTaxDocumentContext({
-      em: makeEm({ taxProviderKey: 'fixed-rate', taxProviderTimeoutMs: 999999 } as Partial<SalesSettings>),
+      em: makeEm({ taxProviderKey: 'external-tax', taxProviderTimeoutMs: 999999 } as Partial<SalesSettings>),
       container: makeContainer(),
       ...scope,
       documentKind: 'order',

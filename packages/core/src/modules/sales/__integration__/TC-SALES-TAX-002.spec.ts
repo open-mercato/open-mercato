@@ -17,7 +17,7 @@ import {
  * TC-SALES-TAX-002 — Acceptance 2 of .ai/specs/2026-09-19-pluggable-tax-providers.md.
  *
  * A selected provider replaces the engine's table rate math entirely. With
- * `fixed-rate` at 5% state plus 2% city, every line is taxed at 7% regardless of
+ * `integration-test-rate` at 5% state plus 2% city, every line is taxed at 7% regardless of
  * the rate stored on it, and the document level breakdown holds exactly the two
  * jurisdictions the provider reported.
  *
@@ -25,7 +25,7 @@ import {
  * leaving it set would silently change the next spec's expectations.
  */
 test.describe('TC-SALES-TAX-002: a selected provider replaces the table rate math', () => {
-  test('fixed-rate taxes every line at its own rates and reports two jurisdictions', async ({ request }) => {
+  test('integration-test-rate taxes every line at its own rates and reports two jurisdictions', async ({ request }) => {
     test.slow()
 
     const token = await getAuthToken(request, 'admin')
@@ -33,7 +33,7 @@ test.describe('TC-SALES-TAX-002: a selected provider replaces the table rate mat
 
     try {
       await setTaxProvider(request, token, {
-        providerKey: 'fixed-rate',
+        providerKey: 'integration-test-rate',
         providerSettings: {
           rate: 5,
           jurisdictionName: 'State',
@@ -54,7 +54,7 @@ test.describe('TC-SALES-TAX-002: a selected provider replaces the table rate mat
 
       const order = await readDocument(request, token, '/api/sales/orders', orderId)
 
-      expect(order.taxStrategyKey).toBe('fixed-rate')
+      expect(order.taxStrategyKey).toBe('integration-test-rate')
       expect(order.taxStatus).toBe('calculated')
       // 7% of 100, not the 20% the line carries.
       expect(numeric(order.taxTotalAmount)).toBeCloseTo(7, 4)

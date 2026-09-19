@@ -1,8 +1,10 @@
 import { z } from 'zod'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import {
   registerPaymentProvider,
   registerShippingProvider,
 } from './registry'
+import { registerIntegrationTestTaxProvider } from './integrationTestTaxProvider'
 import { registerDefaultTaxProviders } from './taxProviders'
 import type {
   PaymentProvider,
@@ -303,6 +305,13 @@ export function registerDefaultSalesProviders() {
   paymentProviders.forEach((provider) => registerPaymentProvider(provider))
   shippingProviders.forEach((provider) => registerShippingProvider(provider))
   registerDefaultTaxProviders()
+  // The acceptance suite needs a second tax provider to select, and it runs
+  // against a server it cannot register one in. Outside the integration runner
+  // the default provider is the only one registered, which is what keeps the
+  // provider picker off the configuration page for a stock install.
+  if (parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false)) {
+    registerIntegrationTestTaxProvider()
+  }
 }
 
 export function registerStripeProvider() {

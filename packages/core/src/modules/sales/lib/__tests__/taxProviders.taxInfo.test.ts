@@ -175,13 +175,13 @@ describe('buildTaxInfo', () => {
       calculatedAt: '2026-09-19T10:00:00.000Z',
     })
     const info = buildTaxInfo({
-      providerKey: 'fixed-rate',
+      providerKey: 'external-tax',
       status: 'calculated',
       intent: 'estimate',
       result,
       chargeKinds: { 'adj-1': 'shipping' },
     })
-    expect(info.providerKey).toBe('fixed-rate')
+    expect(info.providerKey).toBe('external-tax')
     expect(info.calculatedAt).toBe('2026-09-19T10:00:00.000Z')
     expect(info.charges).toEqual([
       expect.objectContaining({ chargeId: 'adj-1', kind: 'shipping', taxAmount: 0.73 }),
@@ -199,7 +199,7 @@ describe('buildTaxInfo', () => {
       totals: { taxTotal: 1, taxableTotal: 10, exemptTotal: 0 },
     })
     const info = buildTaxInfo({
-      providerKey: 'fixed-rate',
+      providerKey: 'external-tax',
       status: 'calculated',
       intent: 'estimate',
       result,
@@ -239,7 +239,7 @@ describe('buildTaxInfo', () => {
       messages: [{ level: 'info', code: 'from_provider', text: 'provider note' }],
     })
     const info = buildTaxInfo({
-      providerKey: 'fixed-rate',
+      providerKey: 'external-tax',
       status: 'calculated',
       intent: 'estimate',
       result,
