@@ -93,26 +93,23 @@ function toPriceRow(raw: Record<string, unknown>): PriceRow {
   } as unknown as PriceRow;
 }
 
-/** Paste a known record id into a ComboboxInput field and click the single
- * resolved option — relies on the ids= exact-match narrowing the selector
- * components use for a UUID-shaped query. */
-async function pickComboboxById(page: Page, fieldId: string, id: string): Promise<void> {
-  const field = page.locator(`[data-crud-field-id="${fieldId}"]`);
-  const input = field.getByRole('combobox');
-  await input.click();
-  await input.fill(id);
-  await field.getByRole('option').first().click();
-}
-
-/** Type free text into a ComboboxInput field and click the option matching
- * `optionName` (used for the currency picker, which searches by code/name,
- * not by id). */
+/** Type a search term into a ComboboxInput field and click the rendered
+ * option matching `optionName`. Every fixture in this suite is named with
+ * its unique stamp, so searching by stamp always yields exactly one visible,
+ * clickable suggestion — deterministic, and exercises the same search+click
+ * path a real operator uses (unlike pasting a raw id: the component's
+ * suggestion list is filtered against the option's *label*, so a pasted id
+ * never renders as a visible match to click, even once fetched by exact-id
+ * lookup — a real but separate finding, not exercised by this test). */
 async function pickComboboxByText(page: Page, fieldId: string, query: string, optionName: string | RegExp): Promise<void> {
   const field = page.locator(`[data-crud-field-id="${fieldId}"]`);
   const input = field.getByRole('combobox');
   await input.click();
   await input.fill(query);
-  await field.getByRole('option', { name: optionName }).first().click();
+  // The suggestion popover is portaled out of the field's DOM subtree (DS
+  // `Popover`, so it escapes clipping scroll ancestors) — the option is a
+  // page-level element, not a descendant of `field`.
+  await page.getByRole('option', { name: optionName }).first().click();
 }
 
 async function fillText(page: Page, fieldId: string, value: string): Promise<void> {
@@ -121,8 +118,16 @@ async function fillText(page: Page, fieldId: string, value: string): Promise<voi
 
 test.describe('TC-CAT-PRICES-001: customer-group + quantity-tier price via the admin UI', () => {
   test('the created row outranks a plain price for a matching context', async ({ page, request }) => {
+    // The admin default (20s) is tight for a dev-mode route Next.js has not
+    // compiled yet, on top of five sequential combobox round-trips.
+    test.setTimeout(90_000);
     const token = await getAuthToken(request, 'admin');
     const stamp = uniqueStamp();
+    // Search terms use only the numeric prefix: the full stamp contains an
+    // underscore, and word-tokenized search matches a query as a prefix of a
+    // single token — a query spanning the underscore boundary matches
+    // nothing even though it is a real substring of the title.
+    const searchStamp = stamp.split('_')[0];
     const customerGroupId = randomUUID();
 
     let productId: string | null = null;
@@ -157,8 +162,15 @@ test.describe('TC-CAT-PRICES-001: customer-group + quantity-tier price via the a
       await login(page, 'admin');
       await page.goto('/backend/catalog/prices/create');
 
-      await pickComboboxById(page, 'productId', productId);
-      await pickComboboxById(page, 'priceKindId', priceKindId);
+      await pickComboboxByText(page, 'productId', searchStamp, new RegExp(`QA Price Rule Product ${stamp}`));
+      // Unlike products' search (token-based, matches a mid-string segment),
+      // /api/catalog/price-kinds' search only matches a query that is a
+      // *prefix* of the title/code despite building a %term% ILIKE filter —
+      // a pre-existing behavior in that route, not something this change
+      // touches. Search by the fixture's real title prefix instead of the
+      // stamp; the exact-stamp regex below still targets the right option
+      // among any same-prefix matches.
+      await pickComboboxByText(page, 'priceKindId', 'QA', new RegExp(`QA Price Rule Kind ${stamp}`));
       await pickComboboxByText(page, 'currencyCode', currencyCode, new RegExp(`^${currencyCode}`));
       await fillText(page, 'unitPriceNet', '15');
       await fillText(page, 'minQuantity', '10');

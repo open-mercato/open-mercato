@@ -24,6 +24,7 @@ Source spec: `.ai/specs/2026-08-21-pricing-engine.md`
 | 2 | 2.5 | Soundness test for `buildPriceRowFilter` + full-vs-narrowed `selectBestPrice` equivalence test | inline | done | 8b899ff75 |
 | 2 | 2.5-gate-fix | Final gate: update the `module-facts` fixture test for the new `catalog.prices.list` DataTable host | inline | done | 5b5c04e2e |
 | 2 | 2.5-gate-fix2 | Final gate: explicit sort comparator + optimistic-lock-exempt marker for delete-only mutation | inline | done | 70970188e |
+| 2 | 2.5-gate-fix3 | Final gate: fix `TC-CAT-PRICES-001` combobox-picker locators (portaled popover, price-kind search prefix-only) | inline | done | pending |
 
 ## Goal
 
