@@ -8,6 +8,14 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { createWebhookDelivery } from '../lib/delivery'
 import { enqueueWebhookDelivery } from '../lib/queue'
 import { isWebhookIntegrationEnabled } from '../lib/integration-state'
+import {
+  getCachedActiveWebhooks,
+  getWebhookSubscriptionCacheTtlMs,
+  invalidateWebhookSubscriptionCache,
+  resolveWebhookSubscriptionCache,
+  setCachedActiveWebhooks,
+  type CachedActiveWebhook,
+} from '../lib/subscription-cache'
 
 const logger = createLogger('webhooks')
 
@@ -40,6 +48,21 @@ export default async function handler(
 ) {
   const eventId = ctx.eventId ?? ctx.eventName ?? (payload.eventId as string) ?? (payload.type as string)
   if (!eventId) return
+
+  const resolve = ('resolve' in ctx && typeof ctx.resolve === 'function')
+    ? ctx.resolve
+    : ('container' in ctx && ctx.container && typeof ctx.container.resolve === 'function')
+      ? ctx.container.resolve.bind(ctx.container)
+      : null
+
+  if (eventId.startsWith('webhooks.webhook.')) {
+    const changedTenantId = payload.tenantId as string | undefined
+    if (resolve && changedTenantId) {
+      await invalidateWebhookSubscriptionCache(resolveWebhookSubscriptionCache(resolve), changedTenantId)
+    }
+    return
+  }
+
   if (shouldSkipOutboundDispatch(eventId)) return
 
   const tenantId = payload.tenantId as string | undefined
@@ -49,16 +72,25 @@ export default async function handler(
   if (eventId.startsWith('webhooks.')) return
   if (eventId.startsWith('query_index.')) return
 
-
-  const resolve = ('resolve' in ctx && typeof ctx.resolve === 'function')
-    ? ctx.resolve
-    : ('container' in ctx && ctx.container && typeof ctx.container.resolve === 'function')
-      ? ctx.container.resolve.bind(ctx.container)
-      : null
-
   if (!resolve) return
 
   const em = (resolve('em') as EntityManager).fork()
+
+  const cacheTtlMs = getWebhookSubscriptionCacheTtlMs()
+  const subscriptionCache = cacheTtlMs > 0 ? resolveWebhookSubscriptionCache(resolve) : null
+  const cachedActiveWebhooks = subscriptionCache
+    ? await getCachedActiveWebhooks(subscriptionCache, tenantId, organizationId ?? null)
+    : null
+
+  let matchingIds: string[] | null = null
+
+  if (cachedActiveWebhooks) {
+    matchingIds = cachedActiveWebhooks
+      .filter((entry) => matchAnyWebhookEventPattern(eventId, entry.subscribedEvents))
+      .map((entry) => entry.id)
+
+    if (!matchingIds.length) return
+  }
 
   const webhooks = await findWithDecryption(
     em,
@@ -68,10 +100,21 @@ export default async function handler(
       deletedAt: null,
       tenantId,
       ...(organizationId ? { organizationId } : {}),
+      ...(matchingIds ? { id: { $in: matchingIds } } : {}),
     },
     {},
     { tenantId, organizationId: organizationId ?? null },
   )
+
+  if (!matchingIds && subscriptionCache) {
+    const cacheable: CachedActiveWebhook[] = webhooks.map((webhook) => ({
+      id: webhook.id,
+      tenantId: webhook.tenantId,
+      organizationId: webhook.organizationId ?? null,
+      subscribedEvents: webhook.subscribedEvents,
+    }))
+    await setCachedActiveWebhooks(subscriptionCache, tenantId, organizationId ?? null, cacheable, cacheTtlMs)
+  }
 
   if (!webhooks.length) return
 
