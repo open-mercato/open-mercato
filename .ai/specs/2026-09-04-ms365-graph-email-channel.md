@@ -704,6 +704,20 @@ None block implementation; defaults apply unless the maintainer objects in revie
 - Integration specs 002/003 run in a per-test organization/user sandbox and never touch the
   shared organization's credentials.
 
+### 2026-09-19 — First upstream CI run: harness catalog coverage, OAuth state key, 0.8.0 (PR #5898)
+
+- Rebased onto `develop` after the 0.8.0 release bump; package and integration manifest are now
+  `0.8.0` to match the monorepo version.
+- `create-app` harness (new on develop): every module the standalone template enables must have
+  its generated fact-sheet required by an evaluation case. `OMH-039` (mailbox provider routing)
+  now requires `.ai/guides/modules/channel_ms365/index.md` and names `channel_ms365` as installed
+  precedent next to Gmail/IMAP; the integrations guide and provider-families reference follow.
+- `TC-CHANNEL-MS365-003` is the first spec to drive a happy-path `/oauth/<provider>/initiate`.
+  The ephemeral runner starts the app under `NODE_ENV=production`, where the hub fails closed
+  without `OM_HUB_OAUTH_STATE_KEY` / `KMS_MASTER_KEY` (no `JWT_SECRET` fallback), so the route
+  returned 500 in CI only. The ephemeral app-server env now carries a test-only default for
+  `OM_HUB_OAUTH_STATE_KEY`, next to the other production-mode test secrets.
+
 ### 2026-09-14 — Rebase onto develop + jest mailparser warm-up (PR #5898)
 
 - Rebased onto `develop` after the `phone_calls` / `tillio` DS-lint blocks and a new spec index
