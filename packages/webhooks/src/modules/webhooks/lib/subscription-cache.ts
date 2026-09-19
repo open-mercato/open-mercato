@@ -26,6 +26,10 @@ export function isWebhookSubscriptionCache(value: unknown): value is WebhookSubs
   )
 }
 
+export type WebhookCacheDependencyResolver =
+  | ((token: string) => unknown)
+  | { resolve: (token: string) => unknown }
+
 export function resolveWebhookSubscriptionCache(resolve: (token: string) => unknown): WebhookSubscriptionCache | null {
   try {
     const cache = resolve('cache')
@@ -33,6 +37,12 @@ export function resolveWebhookSubscriptionCache(resolve: (token: string) => unkn
   } catch {
     return null
   }
+}
+
+function toResolveFunction(source: WebhookCacheDependencyResolver | null | undefined): ((token: string) => unknown) | null {
+  if (typeof source === 'function') return source
+  if (source && typeof source.resolve === 'function') return source.resolve.bind(source)
+  return null
 }
 
 export function getWebhookSubscriptionCacheTtlMs(): number {
@@ -111,4 +121,15 @@ export async function invalidateWebhookSubscriptionCache(
   } catch (error) {
     logger.warn('Failed to invalidate webhook subscription cache', { err: error })
   }
+}
+
+export async function invalidateWebhookSubscriptionCacheFor(
+  source: WebhookCacheDependencyResolver | null | undefined,
+  tenantId: string | null | undefined,
+): Promise<void> {
+  const normalizedTenantId = tenantId?.trim()
+  if (!normalizedTenantId) return
+  const resolve = toResolveFunction(source)
+  if (!resolve) return
+  await invalidateWebhookSubscriptionCache(resolveWebhookSubscriptionCache(resolve), normalizedTenantId)
 }

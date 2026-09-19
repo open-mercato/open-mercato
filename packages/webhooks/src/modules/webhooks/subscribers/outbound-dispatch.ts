@@ -11,7 +11,7 @@ import { isWebhookIntegrationEnabled } from '../lib/integration-state'
 import {
   getCachedActiveWebhooks,
   getWebhookSubscriptionCacheTtlMs,
-  invalidateWebhookSubscriptionCache,
+  invalidateWebhookSubscriptionCacheFor,
   resolveWebhookSubscriptionCache,
   setCachedActiveWebhooks,
   type CachedActiveWebhook,
@@ -58,7 +58,7 @@ export default async function handler(
   if (eventId.startsWith('webhooks.webhook.')) {
     const changedTenantId = payload.tenantId as string | undefined
     if (resolve && changedTenantId) {
-      await invalidateWebhookSubscriptionCache(resolveWebhookSubscriptionCache(resolve), changedTenantId)
+      await invalidateWebhookSubscriptionCacheFor(resolve, changedTenantId)
     }
     return
   }
@@ -73,8 +73,6 @@ export default async function handler(
   if (eventId.startsWith('query_index.')) return
 
   if (!resolve) return
-
-  const em = (resolve('em') as EntityManager).fork()
 
   const cacheTtlMs = getWebhookSubscriptionCacheTtlMs()
   const subscriptionCache = cacheTtlMs > 0 ? resolveWebhookSubscriptionCache(resolve) : null
@@ -91,6 +89,8 @@ export default async function handler(
 
     if (!matchingIds.length) return
   }
+
+  const em = (resolve('em') as EntityManager).fork()
 
   const webhooks = await findWithDecryption(
     em,

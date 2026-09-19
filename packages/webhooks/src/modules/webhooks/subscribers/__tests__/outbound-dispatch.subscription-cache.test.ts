@@ -48,17 +48,15 @@ function createForkableEntityManager(): EntityManager {
 }
 
 function createContext(em: EntityManager, cache?: CacheStrategy | null, eventName = 'catalog.product.deleted') {
-  return {
-    eventName,
-    resolve: <T,>(name: string): T => {
-      if (name === 'em') return em as T
-      if (name === 'cache') {
-        if (cache === null) throw new Error('cache unavailable')
-        return cache as T
-      }
-      throw new Error(`Unexpected dependency: ${name}`)
-    },
-  }
+  const resolve = jest.fn(<T,>(name: string): T => {
+    if (name === 'em') return em as T
+    if (name === 'cache') {
+      if (cache === null) throw new Error('cache unavailable')
+      return cache as T
+    }
+    throw new Error(`Unexpected dependency: ${name}`)
+  })
+  return { eventName, resolve }
 }
 
 describe('webhooks outbound dispatch subscriber - subscription cache', () => {
@@ -77,6 +75,43 @@ describe('webhooks outbound dispatch subscriber - subscription cache', () => {
     await handler(payload, createContext(em, cache))
 
     expect(findWithDecryption).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not resolve or fork an entity manager on the cached zero-webhook path', async () => {
+    const em = createForkableEntityManager()
+    const cache = createCacheService({ strategy: 'memory' })
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+
+    const payload = { id: 'p1', tenantId: 'tenant-1', organizationId: 'org-1' }
+    await handler(payload, createContext(em, cache))
+    expect(em.fork).toHaveBeenCalledTimes(1)
+
+    const secondContext = createContext(em, cache)
+    await handler(payload, secondContext)
+
+    expect(em.fork).toHaveBeenCalledTimes(1)
+    expect(secondContext.resolve).not.toHaveBeenCalledWith('em')
+  })
+
+  it('does not resolve or fork an entity manager when the cached list has no matching pattern', async () => {
+    const em = createForkableEntityManager()
+    const cache = createCacheService({ strategy: 'memory' })
+
+    ;(findWithDecryption as jest.Mock).mockResolvedValueOnce([
+      { id: 'webhook-1', tenantId: 'tenant-1', organizationId: 'org-1', subscribedEvents: ['catalog.product.created'] },
+    ])
+
+    await handler(
+      { id: 'p1', tenantId: 'tenant-1', organizationId: 'org-1' },
+      createContext(em, cache, 'catalog.product.created'),
+    )
+    expect(em.fork).toHaveBeenCalledTimes(1)
+
+    const secondContext = createContext(em, cache, 'catalog.product.deleted')
+    await handler({ id: 'p2', tenantId: 'tenant-1', organizationId: 'org-1' }, secondContext)
+
+    expect(em.fork).toHaveBeenCalledTimes(1)
+    expect(secondContext.resolve).not.toHaveBeenCalledWith('em')
   })
 
   it('does not hit the database for a cached non-matching subscribedEvents pattern', async () => {
