@@ -1429,6 +1429,7 @@
   "customers.deals.list.close.overdue": "기한 초과",
   "customers.deals.list.close.won": "성사",
   "customers.deals.list.columns.companies": "회사",
+  "customers.deals.list.columns.createdAt": "생성일",
   "customers.deals.list.columns.expectedClose": "예상 마감일",
   "customers.deals.list.columns.owner": "담당자",
   "customers.deals.list.columns.people": "연락처",

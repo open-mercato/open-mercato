@@ -1429,6 +1429,7 @@
   "customers.deals.list.close.overdue": "Überfällig",
   "customers.deals.list.close.won": "Gewonnen",
   "customers.deals.list.columns.companies": "Unternehmen",
+  "customers.deals.list.columns.createdAt": "Erstellt",
   "customers.deals.list.columns.expectedClose": "Voraussichtlicher Abschluss",
   "customers.deals.list.columns.owner": "Verantwortlich",
   "customers.deals.list.columns.people": "Personen",
