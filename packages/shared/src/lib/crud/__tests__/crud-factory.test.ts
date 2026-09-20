@@ -23,6 +23,7 @@ import {
   type TelemetryRuntime,
 } from '@open-mercato/shared/lib/telemetry/runtime'
 import { z } from 'zod'
+import { NotFoundError as MikroOrmNotFoundError, ValidationError as MikroOrmValidationError } from '@mikro-orm/core'
 
 // Keep the real custom-field helpers but spy on the definition loader so we can
 // assert the factory skips the second DB round-trip when the query engine has
@@ -956,6 +957,35 @@ describe('CRUD Factory', () => {
     expect(typeof body.requestId).toBe('string')
     expect(JSON.stringify(body)).not.toContain('42P01')
     expect(JSON.stringify(body)).not.toContain('missing_table')
+  })
+
+  it('returns PERSISTENCE_ERROR for a MikroORM ValidationError with no Postgres SQLSTATE', async () => {
+    setRecordCustomFields.mockImplementationOnce(async () => {
+      throw new MikroOrmValidationError('entity failed validation')
+    })
+    const res = await route.POST(new Request('http://x/api/example/todos', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Invalid entity', is_done: true, cf_priority: 3 }),
+      headers: { 'content-type': 'application/json' },
+    }))
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.code).toBe('PERSISTENCE_ERROR')
+    expect(typeof body.requestId).toBe('string')
+  })
+
+  it('returns PERSISTENCE_ERROR for a MikroORM NotFoundError with no Postgres SQLSTATE', async () => {
+    setRecordCustomFields.mockImplementationOnce(async () => {
+      throw new MikroOrmNotFoundError('entity not found')
+    })
+    const res = await route.POST(new Request('http://x/api/example/todos', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Missing entity', is_done: true, cf_priority: 3 }),
+      headers: { 'content-type': 'application/json' },
+    }))
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.code).toBe('PERSISTENCE_ERROR')
   })
 
   it('does not misclassify a Node system error code as a database error', async () => {

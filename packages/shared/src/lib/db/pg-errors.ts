@@ -69,12 +69,14 @@ export function getForeignKeyViolationConstraint(err: unknown): string | null {
 }
 
 /**
- * A Postgres SQLSTATE is always exactly 5 characters from `[0-9A-Z]`. Node
- * system errors (`ECONNREFUSED`), Node internal errors (`ERR_INVALID_ARG_TYPE`),
- * and app errors that happen to set a string `code` would otherwise be
- * misread as a SQLSTATE, since they also populate a `code` field.
+ * A Postgres SQLSTATE is always exactly 5 characters from `[0-9A-Z]`, and every
+ * class in the standard SQLSTATE table carries at least one digit. Node system
+ * errors (`ECONNREFUSED`), Node internal errors (`ERR_INVALID_ARG_TYPE`), and the
+ * five-letter Node errno codes (`EPIPE`, `EPERM`, `EBUSY`) would otherwise be
+ * misread as a SQLSTATE, since they also populate a string `code` field; the
+ * digit requirement rules those out without excluding any real SQLSTATE.
  */
-const SQLSTATE_PATTERN = /^[0-9A-Z]{5}$/
+const SQLSTATE_PATTERN = /^(?=.*[0-9])[0-9A-Z]{5}$/
 
 /**
  * The Postgres SQLSTATE behind an error, read from the pg `code` field on any

@@ -122,6 +122,12 @@ describe('readPgSqlState', () => {
     expect(readPgSqlState({ code: 'ERR_INVALID_ARG_TYPE' })).toBeNull()
   })
 
+  it('is null for five-letter Node errno codes, which are not a 5-character SQLSTATE', () => {
+    expect(readPgSqlState({ code: 'EPIPE' })).toBeNull()
+    expect(readPgSqlState({ code: 'EPERM' })).toBeNull()
+    expect(readPgSqlState({ code: 'EBUSY' })).toBeNull()
+  })
+
   it('is null for non-DB and empty errors', () => {
     expect(readPgSqlState(new Error('something unrelated broke'))).toBeNull()
     expect(readPgSqlState(null)).toBeNull()
