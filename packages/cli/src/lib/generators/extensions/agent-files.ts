@@ -5,6 +5,18 @@ import type { GeneratorExtension, ModuleScanContext } from '../extension'
 import { resolveStandaloneSourceMirrorBase } from '../scanner'
 
 /**
+ * The slice of `PackageResolver` this extension needs. Kept structural (rather
+ * than importing the full interface) so the extension stays testable with a
+ * literal and carries no dependency on the resolver module.
+ */
+export type AgentFilesResolver = {
+  isMonorepo(): boolean
+  getRootDir(): string
+  getAppDir(): string
+  getOutputDir(): string
+}
+
+/**
  * Generator extension for the `agents/<id>/` file-defined-agent convention
  * (AGENT.md + OUTCOME.md). For every enabled module it scans the module's
  * `agents/` tree, validates each agent dir, and emits two artifacts as a
@@ -839,6 +851,62 @@ function findRepoRoot(start: string): string | null {
   return null
 }
 
+/**
+ * Where this extension's three artifacts land. The two layouts differ because a
+ * standalone app has no `packages/` tree to host the manifest: the enterprise
+ * module lives under `node_modules/`, which `yarn install` rewrites.
+ *
+ * | Artifact  | Monorepo                                                   | Standalone                                |
+ * |-----------|------------------------------------------------------------|-------------------------------------------|
+ * | manifest  | `packages/enterprise/src/modules/agent_orchestrator/generated/` | `<app>/.mercato/generated/`            |
+ * | agents/   | `<repo>/docker/opencode/agents/`                            | `<app>/docker/opencode/agents/`           |
+ * | skills/   | `<repo>/docker/opencode/skills/`                            | `<app>/docker/opencode/skills/`           |
+ *
+ * The standalone manifest sits in the generated output dir that
+ * `findGeneratedFile()` already probes (`generated-registry-loader.ts` resolves
+ * `<cwd>/.mercato/generated/<file>` for exactly this case), so the runtime
+ * loader reaches it with no new resolution logic. It is regenerated on every
+ * `yarn generate`, which both `scripts/dev.mjs` setup and
+ * `docker/scripts/init-or-migrate.sh` run before the app boots.
+ */
+type AgentFilesTargets = {
+  manifestPath: string
+  dockerAgentsDir: string
+  dockerSkillsDir: string
+}
+
+function resolveAgentFilesTargets(
+  resolver: AgentFilesResolver | undefined,
+  fallbackRepoRoot: string | null,
+): AgentFilesTargets | null {
+  if (resolver && !resolver.isMonorepo()) {
+    const appDir = resolver.getAppDir()
+    return {
+      manifestPath: path.join(resolver.getOutputDir(), 'file-agents.generated.ts'),
+      dockerAgentsDir: path.join(appDir, 'docker', 'opencode', 'agents'),
+      dockerSkillsDir: path.join(appDir, 'docker', 'opencode', 'skills'),
+    }
+  }
+  // Monorepo. Prefer the resolver's root, falling back to the walk-up probe so
+  // unit tests that construct the extension without a resolver keep working.
+  const repoRoot = resolver?.getRootDir() ?? fallbackRepoRoot
+  if (!repoRoot) return null
+  return {
+    manifestPath: path.join(
+      repoRoot,
+      'packages',
+      'enterprise',
+      'src',
+      'modules',
+      'agent_orchestrator',
+      'generated',
+      'file-agents.generated.ts',
+    ),
+    dockerAgentsDir: path.join(repoRoot, 'docker', 'opencode', 'agents'),
+    dockerSkillsDir: path.join(repoRoot, 'docker', 'opencode', 'skills'),
+  }
+}
+
 function listAgentDirs(agentsBase: string): string[] {
   if (!fs.existsSync(agentsBase)) return []
   return fs
@@ -1125,7 +1193,7 @@ export const fileAgentDescriptors: FileAgentDescriptor[] = [${
 `
 }
 
-export function createAgentFilesExtension(): GeneratorExtension {
+export function createAgentFilesExtension(resolver?: AgentFilesResolver): GeneratorExtension {
   const discovered: DiscoveredAgent[] = []
   const seenIds = new Set<string>()
   let repoRoot: string | null = null
@@ -1238,9 +1306,22 @@ export function createAgentFilesExtension(): GeneratorExtension {
     generateOutput() {
       const sorted = [...discovered].sort((a, b) => a.id.localeCompare(b.id))
 
-      if (!repoRoot) {
-        // No module roots resolved to a repo (e.g. an isolated unit test). Skip
+      const targets = resolveAgentFilesTargets(resolver, repoRoot)
+
+      if (!targets) {
+        // No layout resolved (e.g. an isolated unit test constructing the
+        // extension without a resolver and without in-repo module roots). Skip
         // the fs side effect; the empty-Map return keeps the contract intact.
+        // Stay silent only when there is nothing to emit — otherwise the run
+        // would drop real agents without saying so (the pre-2026-09 behaviour).
+        if (sawOrchestratorModule || sorted.length > 0) {
+          console.warn(
+            '[agent-files] Could not resolve an output root, so the file-agent manifest and ' +
+              'docker/opencode/{agents,skills} were NOT written. ' +
+              `Discovered ${sorted.length} file agent(s). ` +
+              'In a standalone app this means the generator ran without a package resolver.',
+          )
+        }
         return new Map<string, string>()
       }
 
@@ -1253,20 +1334,10 @@ export function createAgentFilesExtension(): GeneratorExtension {
         return new Map<string, string>()
       }
 
-      const manifestPath = path.join(
-        repoRoot,
-        'packages',
-        'enterprise',
-        'src',
-        'modules',
-        'agent_orchestrator',
-        'generated',
-        'file-agents.generated.ts',
-      )
+      const { manifestPath, dockerAgentsDir, dockerSkillsDir } = targets
       fs.mkdirSync(path.dirname(manifestPath), { recursive: true })
       fs.writeFileSync(manifestPath, renderManifest(sorted), 'utf8')
 
-      const dockerAgentsDir = path.join(repoRoot, 'docker', 'opencode', 'agents')
       fs.mkdirSync(dockerAgentsDir, { recursive: true })
       const desiredFiles = new Map<string, string>()
       for (const agent of sorted) {
@@ -1292,7 +1363,6 @@ export function createAgentFilesExtension(): GeneratorExtension {
       // remove stale skill dirs not in the current desired set. Sub-agents
       // (Phase 4) may carry their own skills too, so flatten them in.
       const allAgents = sorted.flatMap((agent) => [agent, ...agent.subAgentsContent])
-      const dockerSkillsDir = path.join(repoRoot, 'docker', 'opencode', 'skills')
       // The synthetic `__agent_tools__` skill only carries an agent's local
       // `tools/*.ts` sources (run via `run_skill_script`); it has no instructions
       // and MUST NOT be emitted as a native OpenCode skill (OpenCode requires a
