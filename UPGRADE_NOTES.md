@@ -22,9 +22,7 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## 0.7.0 → 0.8.0 (2026-09-17)
-
-Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).
+## 0.8.0 → 0.8.1 (unreleased)
 
 ### Gmail adapter no longer reads OAuth client config from `credentials._client`
 
@@ -35,11 +33,17 @@ Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0
 **Action:** any custom caller or test fixture that refreshed Gmail tokens without
 `oauthClient` must pass `oauthClient: { clientId, clientSecret, scopes? }` —
 the same shape the `communication_channels` hub already supplies from the
-tenant-scoped `oauth_gmail` integration credentials. A missing `oauthClient`
+tenant-scoped `channel_gmail` integration credentials. A missing `oauthClient`
 now throws; a smuggled `_client` key on the per-user credentials blob is ignored.
 
 See #3828 and
 [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) (`RefreshCredentialsInput`).
+
+---
+
+## 0.7.0 → 0.8.0 (2026-09-17)
+
+Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).
 
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 

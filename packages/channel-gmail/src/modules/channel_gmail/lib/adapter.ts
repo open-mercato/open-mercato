@@ -53,6 +53,7 @@ import {
 import { normalizeInboundGmailMessage } from './normalize-inbound'
 import { emailResolveContact } from '@open-mercato/core/modules/communication_channels/lib/email-contact'
 import { encodeCursor } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
+
 /**
  * Gmail `ChannelAdapter`. OAuth2-based, polling-driven (`realtimePush: false`).
  *
