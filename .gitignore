@@ -197,3 +197,7 @@ starters/company/certs/
 # clean-tree guard refuse the next run.
 .stryker-tmp/
 **/reports/mutation/
+
+# Local Storybook build and generated previews
+packages/ui/storybook-static/
+packages/ui/.storybook/generated/
