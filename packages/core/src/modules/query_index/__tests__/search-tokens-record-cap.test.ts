@@ -106,7 +106,7 @@ describe('buildSearchTokenRows limits', () => {
     expect(new Set(rows.map((row) => row.field))).toEqual(new Set(['title']))
   })
 
-  test('starves l10n fields before search_text, matching buildIndexDoc\'s incremental key order', () => {
+  test('starves search_text before l10n fields, matching buildIndexDoc\'s incremental key order', () => {
     // buildIndexDoc (lib/indexer.ts) inserts `l10n:{locale}:{field}` keys between the `cf:*`
     // keys and `search_text` — a different order than buildIndexDocument's, which has no l10n
     // keys at all. Pinned here as plain keys because buildIndexDoc itself needs a live DB read.

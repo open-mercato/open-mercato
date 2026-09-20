@@ -351,11 +351,13 @@ The `OM_SEARCH_*` flags below are **token/Postgres-only** — they tune the `sea
 The per-record budget is spent field by field in the order the indexed document's keys iterate in,
 and the record stops tokenizing at the first field that exhausts it. On a record that fits under the
 limit this is invisible; on one that exceeds it, *which* fields stay searchable follows that key
-order — and the two write paths order it differently. The batch reindex path (`buildIndexDocument`)
-writes base columns, then `cf:*` keys, then the aggregate `search_text` field last. The incremental
-single-record write path (`buildIndexDoc`) additionally inserts `l10n:{locale}:{field}` translation
-keys between the `cf:*` keys and `search_text`, so a translated record over budget starves those
-translation fields before `search_text`. Each path is self-consistent because it always tokenizes the
+order, starving from the end of it first — and the two write paths order it differently. The batch
+reindex path (`buildIndexDocument`) writes base columns, then `cf:*` keys, then the aggregate
+`search_text` field last, so `search_text` starves first. The incremental single-record write path
+(`buildIndexDoc`) additionally inserts `l10n:{locale}:{field}` translation keys between the `cf:*`
+keys and `search_text`, so those translation keys consume budget the batch path would have spent on
+`search_text`: on a translated record over budget, `search_text` starves even sooner, and the
+translation fields starve next, before any `cf:*` key or base column. Each path is self-consistent because it always tokenizes the
 in-memory document it is about to write. Code that recomputes a record's expected tokens must not
 read the document back out of the `entity_indexes.doc` `jsonb` column first — Postgres stores `jsonb`
 keys in a canonical order (by key length, then byte order) rather than insertion order, so the same

@@ -178,9 +178,12 @@ function shouldIndexField(
  * differently: `buildIndexDocument` (`lib/document.ts`, the batch reindex path) appends `cf:*` keys
  * after the base columns and the aggregate `search_text` field last. `buildIndexDoc` (`lib/indexer.ts`,
  * the incremental single-record write path — `upsertIndexRow` → `reindexSearchTokensForRecord`) adds
- * `l10n:{locale}:{field}` translation keys between the `cf:*` keys and `search_text`, so a translated
- * record over budget starves those translation fields before `search_text`, and the two paths can
- * keep different fields searchable for an otherwise equivalent record.
+ * `l10n:{locale}:{field}` translation keys between the `cf:*` keys and `search_text`. The budget is
+ * spent front-to-back, so the fields nearest the end of that order are starved first: `search_text`
+ * is last on both paths and starves first either way, but starves sooner on the incremental path,
+ * because the `l10n:*` keys ahead of it there consume budget the batch path would have spent on it.
+ * Those translation fields starve next, before any `cf:*` key or base column. The two paths can
+ * therefore keep different fields searchable for an otherwise equivalent record.
  *
  * Every write path tokenizes an in-memory document it is about to write — `TokenSearchStrategy.index`
  * writes only `search_tokens` rows and never touches `entity_indexes.doc` — which keeps each path
