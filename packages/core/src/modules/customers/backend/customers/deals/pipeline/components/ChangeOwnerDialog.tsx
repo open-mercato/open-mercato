@@ -141,7 +141,7 @@ export function ChangeOwnerDialog({
                   <Button
                     variant="ghost"
                     size="default"
-                    key={member.teamMemberId}
+                    key={member.teamMemberId ?? member.userId}
                     type="button"
                     onClick={() => setSelectedUserId(member.userId)}
                     // Overrides on the Button base class:

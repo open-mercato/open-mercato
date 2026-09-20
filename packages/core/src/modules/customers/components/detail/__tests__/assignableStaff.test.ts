@@ -17,6 +17,12 @@ function httpError(status: number): Error & { status: number } {
   return error
 }
 
+function abortError(): Error {
+  const error = new Error('The operation was aborted.') as Error & { name: string }
+  error.name = 'AbortError'
+  return error
+}
+
 describe('fetchAssignableStaffMembersPage', () => {
   beforeEach(() => {
     readApiResultOrThrowMock.mockReset()
@@ -66,14 +72,16 @@ describe('fetchAssignableStaffMembersPage', () => {
           { id: 'user-sales', email: 'sales@example.com' },
         ],
         total: 2,
-        page: 1,
-        pageSize: 100,
       },
       response: {} as Response,
       cacheStatus: null,
     })
 
-    const result = await fetchAssignableStaffMembersPage('', { page: 1, pageSize: 100 })
+    const result = await fetchAssignableStaffMembersPage('', {
+      page: 1,
+      pageSize: 100,
+      activeOrgId: 'org-1',
+    })
 
     expect(apiCallMock).toHaveBeenCalledWith(
       expect.stringMatching(/^\/api\/auth\/users\?/),
@@ -89,14 +97,14 @@ describe('fetchAssignableStaffMembersPage', () => {
 
     expect(result.items).toEqual([
       {
-        teamMemberId: 'user-admin',
+        teamMemberId: null,
         userId: 'user-admin',
         displayName: 'Admin User',
         email: 'admin@example.com',
         teamName: null,
       },
       {
-        teamMemberId: 'user-sales',
+        teamMemberId: null,
         userId: 'user-sales',
         displayName: 'sales@example.com',
         email: 'sales@example.com',
@@ -107,7 +115,24 @@ describe('fetchAssignableStaffMembersPage', () => {
     expect(result.total).toBe(2)
   })
 
-  it('returns an empty page when staff is missing and auth users lookup fails', async () => {
+  it('does not set scopeToActiveOrganization when activeOrgId is absent', async () => {
+    readApiResultOrThrowMock.mockRejectedValueOnce(httpError(404))
+    apiCallMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      result: { items: [], total: 0 },
+      response: {} as Response,
+      cacheStatus: null,
+    })
+
+    // No activeOrgId passed — a tenant-level session should not scope to null org.
+    await fetchAssignableStaffMembersPage('', { page: 1, pageSize: 24 })
+
+    const requestedUrl = String(apiCallMock.mock.calls[0]?.[0] ?? '')
+    expect(requestedUrl).not.toContain('scopeToActiveOrganization')
+  })
+
+  it('returns an empty page when staff is missing and auth users returns 403', async () => {
     readApiResultOrThrowMock.mockRejectedValueOnce(httpError(404))
     apiCallMock.mockResolvedValueOnce({
       ok: false,
@@ -122,7 +147,31 @@ describe('fetchAssignableStaffMembersPage', () => {
     expect(result).toEqual({ items: [], servedCount: 0, total: 0, page: 1, pageSize: 100 })
   })
 
-  it('propagates non-404 failures (e.g. forbidden, server error)', async () => {
+  it('propagates 5xx from the auth users fallback — operator must not get silent empty pickers', async () => {
+    readApiResultOrThrowMock.mockRejectedValueOnce(httpError(404))
+    apiCallMock.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      result: null,
+      response: {} as Response,
+      cacheStatus: null,
+    })
+
+    await expect(fetchAssignableStaffMembersPage('', { page: 1, pageSize: 100 })).rejects.toMatchObject({
+      status: 500,
+    })
+  })
+
+  it('rethrows AbortError from the auth users fallback — cancellation is not an empty roster', async () => {
+    readApiResultOrThrowMock.mockRejectedValueOnce(httpError(404))
+    apiCallMock.mockRejectedValueOnce(abortError())
+
+    await expect(fetchAssignableStaffMembersPage('', { page: 1, pageSize: 100 })).rejects.toMatchObject({
+      name: 'AbortError',
+    })
+  })
+
+  it('propagates non-404 failures from the staff endpoint (e.g. forbidden, server error)', async () => {
     readApiResultOrThrowMock.mockRejectedValueOnce(httpError(403))
     await expect(fetchAssignableStaffMembersPage('', { pageSize: 100 })).rejects.toMatchObject({ status: 403 })
 
@@ -150,8 +199,6 @@ describe('fetchAssignableStaffMembers', () => {
       result: {
         items: [{ id: 'user-1', name: 'Pat', email: 'pat@example.com' }],
         total: 1,
-        page: 1,
-        pageSize: 100,
       },
       response: {} as Response,
       cacheStatus: null,
@@ -161,7 +208,7 @@ describe('fetchAssignableStaffMembers', () => {
 
     expect(items).toEqual([
       {
-        teamMemberId: 'user-1',
+        teamMemberId: null,
         userId: 'user-1',
         displayName: 'Pat',
         email: 'pat@example.com',
