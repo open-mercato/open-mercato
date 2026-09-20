@@ -224,6 +224,40 @@ describe('webhooks outbound dispatch subscriber - subscription cache', () => {
     )
   })
 
+  it('never reads or writes the cache when OM_WEBHOOKS_SUBSCRIPTION_CACHE_TTL_MS=0', async () => {
+    process.env.OM_WEBHOOKS_SUBSCRIPTION_CACHE_TTL_MS = '0'
+
+    const em = createForkableEntityManager()
+    const cache = createCacheService({ strategy: 'memory' })
+    const getSpy = jest.spyOn(cache, 'get')
+    const setSpy = jest.spyOn(cache, 'set')
+
+    const fullWebhook = {
+      id: 'webhook-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      subscribedEvents: ['catalog.product.deleted'],
+    }
+
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([fullWebhook])
+    ;(isWebhookIntegrationEnabled as jest.Mock).mockResolvedValue(true)
+    ;(createWebhookDelivery as jest.Mock).mockResolvedValue({ id: 'delivery-1', tenantId: 'tenant-1', organizationId: 'org-1' })
+    ;(enqueueWebhookDelivery as jest.Mock).mockResolvedValue('job-1')
+
+    await handler(
+      { id: 'p1', tenantId: 'tenant-1', organizationId: 'org-1' },
+      createContext(em, cache, 'catalog.product.deleted'),
+    )
+    await handler(
+      { id: 'p2', tenantId: 'tenant-1', organizationId: 'org-1' },
+      createContext(em, cache, 'catalog.product.deleted'),
+    )
+
+    expect(getSpy).not.toHaveBeenCalled()
+    expect(setSpy).not.toHaveBeenCalled()
+    expect(findWithDecryption).toHaveBeenCalledTimes(2)
+  })
+
   it('falls back to the uncached query and still dispatches when the cache is unavailable', async () => {
     const em = createForkableEntityManager()
 
