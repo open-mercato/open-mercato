@@ -166,6 +166,41 @@ describe('useProgressSse', () => {
     }))
   })
 
+  it('stays paused in a backgrounded tab across a hasActiveJobs transition', async () => {
+    jest.useFakeTimers()
+    mockApiCall.mockResolvedValue(mockProgressResponse([runningJob]))
+
+    const { result } = renderHook(() => useProgressSse())
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(result.current.activeJobs).toHaveLength(1))
+
+    Object.defineProperty(document, 'hidden', { value: true, configurable: true })
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+
+    const callsWhileHidden = mockApiCall.mock.calls.length
+
+    act(() => {
+      for (const handler of mockAppEventHandlers.get('progress.job.updated') ?? []) {
+        handler({ payload: { ...completedJob, jobId: completedJob.id } })
+      }
+    })
+    expect(result.current.activeJobs).toHaveLength(0)
+
+    await act(async () => {
+      jest.advanceTimersByTime(60000)
+      await Promise.resolve()
+    })
+
+    expect(mockApiCall).toHaveBeenCalledTimes(callsWhileHidden)
+
+    Object.defineProperty(document, 'hidden', { value: false, configurable: true })
+  })
+
   it('periodically reconciles active jobs in SSE mode when completion events are missed', async () => {
     jest.useFakeTimers()
     mockApiCall

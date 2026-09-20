@@ -83,6 +83,7 @@ export function useProgressSse(): UseProgressPollResult {
 
     const startInterval = () => {
       if (interval) clearInterval(interval)
+      if (document.hidden) return
       interval = setInterval(() => {
         void fetchJobs()
       }, hasActiveJobs ? SSE_PROGRESS_SYNC_INTERVAL : SSE_PROGRESS_IDLE_RECONCILE_INTERVAL)
