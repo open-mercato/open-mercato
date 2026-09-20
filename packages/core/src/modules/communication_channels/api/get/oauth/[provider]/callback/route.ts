@@ -145,16 +145,18 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
   // Resolve cache after the container exists; missing DI is fail-closed for
   // replay protection (treat as unavailable → still attempt crypto-only path
   // would leave the hole open, so require cache).
-  let oauthStateStore: OAuthStateConsumeStore
-  try {
-    oauthStateStore = container.resolve('cache') as OAuthStateConsumeStore
-  } catch {
-    return redirectWithFlash(req, returnUrl, {
-      type: 'error',
-      code: 'state_store_unavailable',
-      provider,
-    })
+  // bootstrap.ts always registers 'cache' (even as undefined when both
+  // createCacheService attempts fail), so resolve() returns undefined rather
+  // than throwing. Guard on the shape instead of catching.
+  const resolved = (() => { try { return container.resolve('cache') } catch { return null } })()
+  if (
+    !resolved ||
+    typeof (resolved as OAuthStateConsumeStore).has !== 'function' ||
+    typeof (resolved as OAuthStateConsumeStore).set !== 'function'
+  ) {
+    return redirectWithFlash(req, returnUrl, { type: 'error', code: 'state_store_unavailable', provider })
   }
+  const oauthStateStore = resolved as OAuthStateConsumeStore
   try {
     await consumeOAuthStateOnce(oauthStateStore, statePayload)
   } catch (err) {

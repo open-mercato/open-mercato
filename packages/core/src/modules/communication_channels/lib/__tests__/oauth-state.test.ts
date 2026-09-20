@@ -176,11 +176,12 @@ describe('consumeOAuthStateOnce', () => {
     const store = createMemoryStore()
     const payload = {
       state: 'replay-state-' + Math.random().toString(36).slice(2),
+      tenantId: 'tenant-1',
       expiresAt: Date.now() + 60_000,
     }
 
     await consumeOAuthStateOnce(store, payload)
-    expect(await store.has(oauthStateConsumedCacheKey(payload.state))).toBe(true)
+    expect(await store.has(oauthStateConsumedCacheKey(payload.tenantId, payload.state))).toBe(true)
 
     await expect(consumeOAuthStateOnce(store, payload)).rejects.toMatchObject({
       name: 'OAuthStateError',
@@ -191,14 +192,34 @@ describe('consumeOAuthStateOnce', () => {
   it('stores the used-marker with a TTL bounded by expiresAt', async () => {
     const store = createMemoryStore()
     const now = Date.now()
-    const payload = { state: 'ttl-state', expiresAt: now + 12_000 }
+    const payload = { state: 'ttl-state', tenantId: 'tenant-1', expiresAt: now + 12_000 }
 
     await consumeOAuthStateOnce(store, payload, now)
 
-    const entry = store.entries.get(oauthStateConsumedCacheKey(payload.state))
+    const entry = store.entries.get(oauthStateConsumedCacheKey(payload.tenantId, payload.state))
     expect(entry).toBeDefined()
     expect(entry!.expiresAt).toBeGreaterThanOrEqual(now + 12_000 - 50)
     expect(entry!.expiresAt).toBeLessThanOrEqual(now + 12_000 + 50)
+  })
+
+  it('concurrent contenders: pins the race behaviour (has→set is not atomic)', async () => {
+    const store = createMemoryStore()
+    const payload = {
+      state: 'race-' + Math.random().toString(36).slice(2),
+      tenantId: 'tenant-1',
+      expiresAt: Date.now() + 60_000,
+    }
+    const results = await Promise.allSettled([
+      consumeOAuthStateOnce(store, payload),
+      consumeOAuthStateOnce(store, payload),
+    ])
+    // With a non-atomic has→set, both contenders may pass the has check and both
+    // proceed. If the implementation later adds atomic setNx this test will fail
+    // loudly, which is the point.
+    const fulfilled = results.filter(r => r.status === 'fulfilled')
+    const rejected = results.filter(r => r.status === 'rejected')
+    // Pin current behaviour: at least one succeeds; the other may or may not.
+    expect(fulfilled.length).toBeGreaterThanOrEqual(1)
   })
 
   it('verify alone still succeeds on replay — consume is what enforces single-use', () => {

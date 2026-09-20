@@ -16,9 +16,13 @@ import crypto from 'node:crypto'
  *   - 5-minute TTL — short window to bound replay surface.
  *   - Payload binds the initiating `userId` so the callback rejects state cookies
  *     used by a different session.
- *   - Single-use consume-on-read via a short-TTL cache marker keyed by `state`
- *     (see {@link consumeOAuthStateOnce}) so a captured cookie cannot re-drive
- *     the callback within the TTL.
+ *   - Single-use consume-on-read via a short-TTL cache marker keyed by
+ *     `tenantId:state` (see {@link consumeOAuthStateOnce}) so a captured cookie
+ *     cannot re-drive the callback within the TTL. **This guarantee only holds
+ *     across all replicas when `CACHE_STRATEGY=redis`.** With
+ *     `CACHE_STRATEGY=memory` (the default) the marker is process-local — a
+ *     replayed callback that reaches a different replica succeeds within the TTL.
+ *     Multi-replica deployments MUST use a shared cache (`CACHE_STRATEGY=redis`).
  *
  * The output is a base64url string that we set on an HttpOnly + SameSite=Lax cookie.
  * Forgery requires the encryption key (KMS-managed in production).
@@ -144,6 +148,7 @@ function getSecret(): string {
 }
 
 function timingSafeStringEqual(a: string, b: string): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string') return false
   const left = Buffer.from(a)
   const right = Buffer.from(b)
   if (left.length !== right.length) return false
@@ -151,8 +156,8 @@ function timingSafeStringEqual(a: string, b: string): boolean {
 }
 
 /** Cache key for a consumed OAuth `state` nonce. Exported for tests. */
-export function oauthStateConsumedCacheKey(state: string): string {
-  return `communication_channels:oauth-state:used:${state}`
+export function oauthStateConsumedCacheKey(tenantId: string, state: string): string {
+  return `communication_channels:oauth-state:used:${tenantId}:${state}`
 }
 
 /** Encrypt + sign a state payload. Output is a base64url string suitable for a cookie. */
@@ -245,20 +250,26 @@ export function verifyOAuthState(input: {
  *
  * Call immediately after {@link verifyOAuthState} on the callback path so a
  * captured valid cookie cannot re-drive the flow within the cookie TTL.
+ *
+ * Note: the `has`→`set` pattern is not atomic. Two concurrent callbacks racing
+ * on the same `state` both pass the `has` check and both proceed — the
+ * single-use guarantee requires an atomic `setNx` which `CacheStrategy` does
+ * not currently expose. The race window is milliseconds; document it rather
+ * than silently claiming it is closed.
  */
 export async function consumeOAuthStateOnce(
   store: OAuthStateConsumeStore,
-  payload: Pick<OAuthStatePayload, 'state' | 'expiresAt'>,
+  payload: Pick<OAuthStatePayload, 'state' | 'expiresAt' | 'tenantId'>,
   now: number = Date.now(),
 ): Promise<void> {
-  const key = oauthStateConsumedCacheKey(payload.state)
+  const key = oauthStateConsumedCacheKey(payload.tenantId, payload.state)
   if (await store.has(key)) {
     throw new OAuthStateError('State cookie already used', 'replay')
   }
   const ttl = Math.max(payload.expiresAt - now, 1_000)
   await store.set(key, 1, {
     ttl,
-    tags: [COMMUNICATION_CHANNELS_OAUTH_STATE_CACHE_TAG],
+    tags: [COMMUNICATION_CHANNELS_OAUTH_STATE_CACHE_TAG, `${COMMUNICATION_CHANNELS_OAUTH_STATE_CACHE_TAG}:${payload.tenantId}`],
   })
 }
 
