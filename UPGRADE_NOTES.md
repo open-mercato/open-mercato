@@ -22,6 +22,36 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
+## 0.8.0 → 0.8.1 (unreleased)
+
+### `encryptEntityPayload`/`encryptFields` can now throw `TenantDataEncryptionError` (`WRONG_KEY`) instead of silently corrupting data (#5951)
+
+`TenantDataEncryptionService.encryptFields` treated a field as "already encrypted" whenever it
+decrypted under the **current** tenant DEK — a deliberate anti-forgery check (#2720). Real
+ciphertext sealed under a *different* key (a DEK mid-rotation, or the PBKDF2 fallback key the KMS
+falls back to during a Vault outage) failed that check too, so it was encrypted a **second** time,
+producing a nested envelope no read path can undo, plus a lookup hash computed over ciphertext
+instead of plaintext. This is not limited to a deliberate rotation: the ORM subscriber
+re-encrypts every mapped field on `beforeUpdate`, so a transient Vault blip plus an unrelated
+column update was enough to trigger it.
+
+The write now fails closed instead. A structurally well-formed envelope (12-byte IV, 16-byte tag,
+non-empty ciphertext — `isEncryptedPayloadShape`, new additive export from
+`@open-mercato/shared/lib/encryption/aes`) that does not decrypt under the current DEK now raises
+`TenantDataEncryptionError` with code `WRONG_KEY` instead of returning a corrupted payload.
+
+**Action for module authors:** any code that calls `encryptEntityPayload`/`encryptFields`
+directly — not through `mercato entities rotate-encryption-key` (which skips such a value and
+reports it in the run summary) or `backfill-system-encryption` (which skips it silently — the
+overwhelmingly common cause is a value already encrypted under the current key, and the CLI has no
+signal to distinguish that from a value sealed under a key that is gone) — now needs to
+handle this exception explicitly if it does not already propagate uncaught errors to a place that
+surfaces them to an operator. See `apps/mercato/src/modules/example/commands/todos.ts` for the
+reference pattern (the scaffolded app template calls `encryptEntityPayload` and lets the error
+propagate). If you hit `WRONG_KEY` in production, see "Key mismatch fails the write" in
+[`apps/docs/docs/architecture/data-encryption.mdx`](apps/docs/docs/architecture/data-encryption.mdx)
+for how to resolve an affected row.
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).
@@ -477,32 +507,6 @@ Two additional heal paths are available if you need them:
 - **Manual CLI** — re-run `yarn mercato entities seed-encryption --tenant <tenantId> --org <organizationId>` per tenant. It idempotently upserts **all** modules' default encryption maps, including both phone_calls ones.
 
 Note: only calls ingested **after** the maps exist are encrypted. Rows written by a build that ran without them stay plaintext until they are re-ingested (a pull is idempotent, so re-pulling the affected range rewrites them) or handled with the `entities rotate-encryption` / `decrypt-database` tooling.
-
-### `encryptEntityPayload`/`encryptFields` can now throw `TenantDataEncryptionError` (`WRONG_KEY`) instead of silently corrupting data (#5951)
-
-`TenantDataEncryptionService.encryptFields` treated a field as "already encrypted" whenever it
-decrypted under the **current** tenant DEK — a deliberate anti-forgery check (#2720). Real
-ciphertext sealed under a *different* key (a DEK mid-rotation, or the PBKDF2 fallback key the KMS
-falls back to during a Vault outage) failed that check too, so it was encrypted a **second** time,
-producing a nested envelope no read path can undo, plus a lookup hash computed over ciphertext
-instead of plaintext. This is not limited to a deliberate rotation: the ORM subscriber
-re-encrypts every mapped field on `beforeUpdate`, so a transient Vault blip plus an unrelated
-column update was enough to trigger it.
-
-The write now fails closed instead. A structurally well-formed envelope (12-byte IV, 16-byte tag,
-non-empty ciphertext — `isEncryptedPayloadShape`, new additive export from
-`@open-mercato/shared/lib/encryption/aes`) that does not decrypt under the current DEK now raises
-`TenantDataEncryptionError` with code `WRONG_KEY` instead of returning a corrupted payload.
-
-**Action for module authors:** any code that calls `encryptEntityPayload`/`encryptFields`
-directly — not through `mercato entities rotate-encryption-key` or `backfill-system-encryption`,
-both of which are hardened to skip and report the affected row instead of throwing — now needs to
-handle this exception explicitly if it does not already propagate uncaught errors to a place that
-surfaces them to an operator. See `apps/mercato/src/modules/example/commands/todos.ts` for the
-reference pattern (the scaffolded app template calls `encryptEntityPayload` and lets the error
-propagate). If you hit `WRONG_KEY` in production, see "Key mismatch fails the write" in
-[`apps/docs/docs/architecture/data-encryption.mdx`](apps/docs/docs/architecture/data-encryption.mdx)
-for how to resolve an affected row.
 
 ## 0.6.7 → 0.7.0 (2026-08-26)
 

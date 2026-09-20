@@ -45,6 +45,11 @@ const BASE64_PART = /^[A-Za-z0-9+/]+={0,2}$/
  * attacker-supplied input while a DEK is reachable, where `isEncryptedWithDek` is the test to use.
  * Callers that must run it over user-controlled data are responsible for confirming first that no
  * DEK is reachable, which is what makes forgery pointless: there is nothing to impersonate.
+ *
+ * See also {@link isEncryptedPayloadShape}, which answers the stricter "would the decrypt path
+ * accept this?" question by decoded byte length instead of encoded character length. The two
+ * agree on anything the server actually wrote; use this one for offline detection with no DEK
+ * reachable, and that one to predict whether a decrypt attempt will succeed.
  */
 export function looksLikeEncryptedPayload(value: unknown): boolean {
   if (typeof value !== 'string') return false
@@ -104,6 +109,11 @@ const AES_GCM_TAG_BYTES = 16
  *
  * The byte-length checks matter: `Buffer.from(value, 'base64')` is lenient, so a loose
  * four-segment check matches strings like `aaaa:bbbb:cccc:v1` that no AES-GCM payload could be.
+ *
+ * See also {@link looksLikeEncryptedPayload}, the pre-existing looser check by encoded character
+ * length. Use that one when no DEK is reachable at all (it needs none); use this one whenever the
+ * question is "will the encrypt/decrypt path accept this?", since it matches the same byte-length
+ * validation {@link decryptWithAesGcmStrict} performs.
  */
 export function isEncryptedPayloadShape(value: unknown): value is string {
   if (typeof value !== 'string') return false

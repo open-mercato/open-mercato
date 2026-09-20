@@ -608,7 +608,13 @@ const rotateEncryptionKey: ModuleCli = {
           const col = resolved?.columnName
           if (!col) continue
           const rawValue = row[col]
-          if (rotate && !isEncryptedPayloadShape(rawValue)) {
+          // Rotate mode only touches values that look like an envelope (candidates to
+          // re-key); encrypt mode only touches values that do not (plaintext to seal).
+          // A shape-valid envelope encountered in encrypt mode is either already
+          // correctly encrypted or sealed under a foreign DEK — either way, handing it
+          // to encryptEntityPayload would either no-op or throw WRONG_KEY and abort the
+          // whole run (#5951); mirror the filter the update path already applies below.
+          if (isEncryptedPayloadShape(rawValue) ? !rotate : rotate) {
             continue
           }
           payload[rule.field] = rawValue

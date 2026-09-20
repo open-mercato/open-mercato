@@ -229,6 +229,31 @@ describe('entities rotate-encryption-key CLI', () => {
     warnSpy.mockRestore()
   })
 
+  // Regression for #5951: in encrypt mode (no --old-key) a column already holding a
+  // shape-valid envelope sealed under a *different* key used to reach encryptEntityPayload
+  // verbatim, where the real service throws WRONG_KEY and aborts the whole run with no
+  // try/catch anywhere in the call chain. The guard must exclude any shape-valid envelope
+  // from the payload in encrypt mode, the same way rotate mode excludes plaintext.
+  it('never enters a shape-valid envelope into the payload in encrypt mode (no --old-key)', async () => {
+    const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
+    singleMapFixture()
+    const foreignDekEnvelope = shapeValidCiphertext('cipher')
+    execute.mockResolvedValueOnce([
+      { id: 'row-1', resource_id: foreignDekEnvelope, context_json: 'plain text' },
+    ])
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await rotate.run(['--tenant', 'tenant-1', '--org', 'org-1'])
+
+    expect(encryptEntityPayload).toHaveBeenCalledTimes(1)
+    expect(encryptEntityPayload.mock.calls[0][1]).not.toHaveProperty('resource_id')
+    expect(encryptEntityPayload.mock.calls[0][1]).toHaveProperty('context_json', 'plain text')
+
+    logSpy.mockRestore()
+    warnSpy.mockRestore()
+  })
+
   // Regression for #5950: encryptEntityPayload provisions a tenant DEK in KMS/Vault
   // the first time it runs for a tenant, so a dry run against a tenant that has none
   // used to create real key material as a side effect.
