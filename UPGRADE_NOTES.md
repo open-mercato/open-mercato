@@ -41,10 +41,11 @@ non-empty ciphertext — `isEncryptedPayloadShape`, new additive export from
 `TenantDataEncryptionError` with code `WRONG_KEY` instead of returning a corrupted payload.
 
 **Action for module authors:** any code that calls `encryptEntityPayload`/`encryptFields`
-directly — not through `mercato entities rotate-encryption-key` (which skips such a value and
-reports it in the run summary) or `backfill-system-encryption` (which skips it silently — the
-overwhelmingly common cause is a value already encrypted under the current key, and the CLI has no
-signal to distinguish that from a value sealed under a key that is gone) — now needs to
+directly — not through `mercato entities rotate-encryption-key --old-key <key>` (which skips a
+value neither key opens and reports it in the run summary) or `backfill-system-encryption` /
+`rotate-encryption-key` run without `--old-key` (both skip such a value silently — the
+overwhelmingly common cause is a value already encrypted under the current key, and neither CLI
+has a signal to distinguish that from a value sealed under a key that is gone) — now needs to
 handle this exception explicitly if it does not already propagate uncaught errors to a place that
 surfaces them to an operator. See `apps/mercato/src/modules/example/commands/todos.ts` for the
 reference pattern (the scaffolded app template calls `encryptEntityPayload` and lets the error
