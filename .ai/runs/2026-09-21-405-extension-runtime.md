@@ -69,8 +69,14 @@ Land the three runtime-gap fixes the PR already implements — `DataTable` compo
 
   1. `@open-mercato/cli` › `module-facts.bc-guard` — a CPU-duration budget assertion (`< 90_000ms`, measured 98.9–101.9s). Passes standalone on this branch (290/290) and reproduces with a near-identical number (100119ms) on an **unrelated branch** in a concurrent worktree, so it tracks machine load, not the diff. Green on CI hardware for this head.
   2. `@open-mercato/core` › `catalog/products/[id]` `page.doubleSave` + `page.scrollRestoration` — `TypeError: useLocale is not a function`. Pre-existing breakage inherited from `develop`: `useLocale()` entered `page.tsx` via unrelated PR #6136 without the test mocks being updated, and `git diff origin/develop HEAD` over those paths is empty. Confirmed on CI for this head as the only failing suites. Out of scope here per Non-goals; needs its own fix on `develop`.
-- [ ] 3.2 Run the authoritative code-review pass (`om-auto-review-pr 6077 --autofix`) and land its fixes
+- [x] 3.2 Run the authoritative code-review pass (`om-auto-review-pr 6077 --autofix`) and land its fixes — review 5271858087
+
+  Verdict: no blockers, no majors — 2 minors and 2 nits left as review comments rather than churn commits (the autofix loop triggers on `changes-requested`, which this verdict is not). Submitted as a COMMENT review: GitHub forbids approving your own PR, so a second reviewer's approval is still required.
 
 ### Phase 4: Finalize
 
-- [ ] 4.1 Post the outcome and handoff comment, normalize labels (keeping `needs-qa` — the change is user-facing), and release the lock
+- [x] 4.1 Post the outcome and handoff comment, normalize labels (keeping `needs-qa` — the change is user-facing), and release the lock
+
+### Phase 5: Blocked on the base branch
+
+- [ ] 5.1 Unblock CI: `develop` fails `catalog/products/[id]` `page.doubleSave` + `page.scrollRestoration` with `useLocale is not a function`. Out of scope for this PR per Non-goals; needs its own fix on `develop` (extend both tests' i18n-context jest mocks), or an explicit decision to carry it here
