@@ -51,6 +51,11 @@ test('parseAgentsValue: all cannot combine with a tool', () => {
   assert.throws(() => parseAgentsValue('all,codex'), /cannot be combined with individual agents/)
 })
 
+test('parseAgentsValue: github-copilot is a recognised tool id', () => {
+  assert.ok(AGENT_TOOL_IDS.includes('github-copilot'))
+  assert.deepEqual(parseAgentsValue('github-copilot'), { skip: false, tools: ['github-copilot'] })
+})
+
 test('resolveExperimentalHooksValidator: stays disabled by default', () => {
   assert.equal(resolveExperimentalHooksValidator(undefined, {}), false)
 })
