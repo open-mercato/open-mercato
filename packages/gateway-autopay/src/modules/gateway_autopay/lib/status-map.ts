@@ -50,8 +50,9 @@ export interface AutopayStatusInterpretation {
 export function interpretAutopayTransactionStatus(
   transactions: AutopayTransactionRecord[],
 ): AutopayStatusInterpretation {
-  const successes = transactions.filter((t) => t.paymentStatus === 'SUCCESS')
-  const pendings = transactions.filter((t) => t.paymentStatus === 'PENDING')
+  const successes = transactions.filter((transaction) => transaction.paymentStatus === 'SUCCESS')
+  const pendings = transactions.filter((transaction) => transaction.paymentStatus === 'PENDING')
+  const failures = transactions.filter((transaction) => transaction.paymentStatus === 'FAILURE')
 
   if (successes.length === 1) {
     const [success] = successes
@@ -67,7 +68,7 @@ export function interpretAutopayTransactionStatus(
 
   if (successes.length > 1) {
     const [first] = successes
-    const totalReceived = successes.reduce((sum, t) => sum + Number(t.amount), 0)
+    const totalReceived = successes.reduce((sum, transaction) => sum + Number(transaction.amount), 0)
     return {
       status: 'captured',
       amount: Number(first.amount),
@@ -89,10 +90,27 @@ export function interpretAutopayTransactionStatus(
     }
   }
 
+  // Only a set of exclusively FAILURE records is a confirmed failed outcome.
+  // Anything else non-empty here is either a mix of FAILURE and an
+  // unrecognized status, or entirely unrecognized statuses (e.g. the
+  // out-of-scope preauth extension's ON_HOLD/CONFIRMED) — never collapse
+  // those into `failed`, which the core status machine treats as terminal
+  // and would then reject a later `captured` transition.
+  if (failures.length > 0 && failures.length === transactions.length) {
+    const [first] = failures
+    return {
+      status: 'failed',
+      amount: Number(first.amount),
+      amountReceived: 0,
+      currencyCode: first.currency,
+      matchedRemoteId: first.remoteID,
+    }
+  }
+
   if (transactions.length > 0) {
     const [first] = transactions
     return {
-      status: 'failed',
+      status: 'unknown',
       amount: Number(first.amount),
       amountReceived: 0,
       currencyCode: first.currency,

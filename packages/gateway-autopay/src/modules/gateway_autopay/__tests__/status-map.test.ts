@@ -64,4 +64,17 @@ describe('interpretAutopayTransactionStatus', () => {
     const result = interpretAutopayTransactionStatus([])
     expect(result.status).toBe('unknown')
   })
+
+  it('reports unknown, never failed, for an unrecognized status (e.g. out-of-scope preauth ON_HOLD/CONFIRMED)', () => {
+    const result = interpretAutopayTransactionStatus([tx({ paymentStatus: 'ON_HOLD' })])
+    expect(result.status).toBe('unknown')
+  })
+
+  it('reports unknown, never failed, for a mix of FAILURE and an unrecognized status', () => {
+    const result = interpretAutopayTransactionStatus([
+      tx({ paymentStatus: 'FAILURE', remoteID: 'r1' }),
+      tx({ paymentStatus: 'ON_HOLD', remoteID: 'r2' }),
+    ])
+    expect(result.status).toBe('unknown')
+  })
 })

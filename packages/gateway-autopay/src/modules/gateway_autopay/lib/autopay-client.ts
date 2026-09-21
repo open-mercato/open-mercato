@@ -270,14 +270,17 @@ export async function queryTransactionStatus(
   const reason = extractTag(xml, 'reason') ?? undefined
   const transactions = parseTransactionRecords(xml)
 
-  if (transactions.length > 0) {
-    const responseHash = extractTag(xml, 'hash')
-    const serviceIdFromResponse = extractTag(xml, 'serviceID') ?? credentials.serviceId
-    const expectedFields = [serviceIdFromResponse, ...transactions.flatMap(transactionRecordFields)]
-    const expectedHash = hash(credentials, expectedFields)
-    if (!responseHash || responseHash !== expectedHash) {
-      throw new AutopayApiError('[internal] Autopay status response failed hash verification')
-    }
+  // Verified for both zero and nonzero transaction counts — an empty list is
+  // exactly the response shape the health probe deliberately requests (a
+  // synthetic, never-real OrderID), so skipping verification there would let
+  // a malformed or unsigned "no results" response masquerade as a genuine
+  // one instead of failing closed.
+  const responseHash = extractTag(xml, 'hash')
+  const serviceIdFromResponse = extractTag(xml, 'serviceID') ?? credentials.serviceId
+  const expectedFields = [serviceIdFromResponse, ...transactions.flatMap(transactionRecordFields)]
+  const expectedHash = hash(credentials, expectedFields)
+  if (!responseHash || responseHash !== expectedHash) {
+    throw new AutopayApiError('[internal] Autopay status response failed hash verification')
   }
 
   return { transactions, reason }

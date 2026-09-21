@@ -28,6 +28,23 @@ describe('autopayHealthCheck', () => {
     expect(result.status).toBe('healthy')
   })
 
+  it('reports unhealthy for a zero-transaction response with an invalid hash — an empty list is not a free pass', async () => {
+    const xml = '<?xml version="1.0"?><transactionList><serviceID>2</serviceID><transactions></transactions><hash>INVALID-HASH</hash></transactionList>'
+    jest.spyOn(global, 'fetch').mockResolvedValue(new Response(xml, { status: 200 }))
+
+    const result = await autopayHealthCheck.check(credentials)
+    expect(result.status).toBe('unhealthy')
+  })
+
+  it('reports unhealthy for a zero-transaction response signed with the wrong shared key', async () => {
+    const wrongKeyHash = computeAutopayHash(['2'], 'not-the-real-shared-key')
+    const xml = `<?xml version="1.0"?><transactionList><serviceID>2</serviceID><transactions></transactions><hash>${wrongKeyHash}</hash></transactionList>`
+    jest.spyOn(global, 'fetch').mockResolvedValue(new Response(xml, { status: 200 }))
+
+    const result = await autopayHealthCheck.check(credentials)
+    expect(result.status).toBe('unhealthy')
+  })
+
   it('reports unhealthy when the response fails hash verification', async () => {
     const xml = '<?xml version="1.0"?><transactionList><serviceID>2</serviceID><transactions>'
       + '<transaction><orderID>x</orderID><remoteID>r</remoteID><amount>1.00</amount><currency>PLN</currency>'
