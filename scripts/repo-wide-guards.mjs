@@ -228,6 +228,21 @@ export const REPO_WIDE_GUARDS = [
     ],
   },
   {
+    workspace: '@open-mercato/enterprise',
+    workspaceDir: 'packages/enterprise',
+    jestConfig: 'jest.config.cjs',
+    tests: [
+      {
+        path: 'src/modules/agent_orchestrator/__tests__/agent-taxonomy-rename.test.ts',
+        scans: 'packages/core/src/modules/workflows plus the orchestrator module — retired `informative`/`actionable` wire values after the taxonomy rename',
+      },
+      {
+        path: 'src/modules/agent_orchestrator/__tests__/agent-run-invocation-identity.test.ts',
+        scans: 'packages/core/src/modules/workflows/lib — that the activity executor and the async worker both thread `invocationId` into the agent bridge, which is what gives an agent invocation an identity instead of a creation-time guess',
+      },
+    ],
+  },
+  {
     workspace: '@open-mercato/app',
     workspaceDir: 'apps/mercato',
     jestConfig: 'jest.config.cjs',
@@ -262,6 +277,10 @@ export const REPO_WIDE_GUARDS = [
  */
 export const CROSS_PACKAGE_EXCEPTIONS = [
   {
+    path: 'packages/cli/src/lib/generators/__tests__/agent-files-extension.test.ts',
+    reason: 'Reads nothing outside packages/cli — every `packages/...` literal is joined against a per-test mkdtemp fixture root, never the repo.',
+  },
+  {
     path: 'packages/create-app/src/lib/apply-starter-preset.test.ts',
     reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
   },
@@ -272,6 +291,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
   {
     path: 'packages/create-app/src/lib/template-dependency-drift.test.ts',
     reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
+  },
+  {
+    path: 'packages/create-app/src/lib/template-env-parity.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779). It compares apps/mercato/.env.example against packages/create-app/template/.env.example.',
   },
   {
     path: 'packages/create-app/src/lib/standalone-cache-strategy-guard.test.ts',
