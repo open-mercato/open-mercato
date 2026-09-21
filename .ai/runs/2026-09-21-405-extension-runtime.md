@@ -79,4 +79,6 @@ Land the three runtime-gap fixes the PR already implements — `DataTable` compo
 
 ### Phase 5: Blocked on the base branch
 
-- [ ] 5.1 Unblock CI: `develop` fails `catalog/products/[id]` `page.doubleSave` + `page.scrollRestoration` with `useLocale is not a function`. Out of scope for this PR per Non-goals; needs its own fix on `develop` (extend both tests' i18n-context jest mocks), or an explicit decision to carry it here
+- [x] 5.1 Unblock CI: `develop` fails `catalog/products/[id]` `page.doubleSave` + `page.scrollRestoration` with `useLocale is not a function`. Fixed on its own PR — **#6317**, `test(catalog): mock useLocale in product page tests` (adds `useLocale: () => 'en-US'` to both jest mock factories, matching the sibling `page.parallelLoad` suite). Kept off this branch per Non-goals — fe02be9e4
+
+- [ ] 5.2 Once #6317 merges, merge `develop` into this branch again and confirm the `test` check goes green
