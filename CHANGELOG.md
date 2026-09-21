@@ -261,6 +261,9 @@ Platform plumbing rounds out the release: `entry.overrides` in `src/modules.ts` 
 - @zielivia
 ---
 
+## 🐛 Fixes
+- 🐛 Let the standalone MCP server load API routes that import `next/server`. `mcp:serve-http` / `mcp:serve` / `mcp:dev` / `mcp:list-tools` run in plain Node, whose ESM resolver cannot resolve the bare subpath `next/server` (`next` ships no `exports` map), so every tool backed by such a route (287 route modules on 0.7.0, e.g. `customers.get_deal`, `customers.get_person`) failed with `Failed to load route module: Cannot find module '…/next/server'`. The `mercato ai_assistant` commands now install a `node:module` resolve hook that retries `next/<subpath>.js` after a failed bare `next/<subpath>`; it touches nothing else and steps aside once `next` resolves on its own. (#6118) *(@KamilMichalski0)*
+
 # 0.7.0 (2026-08-26)
 
 ## Highlights
