@@ -14,7 +14,6 @@ import { galleryFamilies } from '../registry'
 const NON_COMPONENT: Record<string, string> = {
   'date-format.ts': 'Date formatting helpers, no visual component.',
   'date-picker-helpers.ts': 'Shared date-picker parsing/formatting helpers, no visual component.',
-  'label.tsx': 'Form label sub-primitive shown through FormField/inputs, not a standalone entry.',
   'notification-stack.tsx': 'Imperative stacking host for notification primitives, no standalone visual.',
 }
 

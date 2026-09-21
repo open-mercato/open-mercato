@@ -830,6 +830,26 @@ export default function EditCatalogProductPage({
     };
   }, []);
 
+  // The browser's default `history.scrollRestoration` ("auto") tries to restore the
+  // previous session's pixel scroll offset on a full reload. This page's form sections
+  // (variants, options, unit-of-measure, ...) mount progressively as data loads, so the
+  // restore fires before the page has grown to its final height, then that same pixel
+  // offset lines up with a different, further-down section once loading finishes —
+  // landing the reload mid-page instead of at the top (#6171). Opt this page out of
+  // native scroll restoration and start every load at the top unless a hash target
+  // (handled by the effect below) asks for a specific section.
+  React.useEffect(() => {
+    if (typeof window === "undefined" || !window.history) return
+    const previousScrollRestoration = window.history.scrollRestoration
+    window.history.scrollRestoration = "manual"
+    if (!window.location.hash) {
+      window.scrollTo(0, 0)
+    }
+    return () => {
+      window.history.scrollRestoration = previousScrollRestoration
+    }
+  }, [])
+
   // Next.js client-side navigation does not scroll to hash targets.
   // Runs without a dependency array intentionally: the target element is rendered
   // asynchronously by CrudForm, so we need to retry until it exists in the DOM.
@@ -1361,6 +1381,36 @@ export default function EditCatalogProductPage({
         }
       }
       await updateCrud("catalog/products", payload);
+      // The update route only returns `{ ok: true }`, so re-fetch the record to pick
+      // up the server-bumped updatedAt and refresh the optimistic-lock token — without
+      // this, a second consecutive save reuses the stale pre-edit updatedAt and the
+      // lock guard falsely reports a conflict (#5985).
+      const refreshedProductRes = await apiCall<ProductResponse>(
+        `/api/catalog/products?id=${encodeURIComponent(productId)}&page=1&pageSize=1&withDeleted=false`,
+      );
+      const refreshedRecord = Array.isArray(refreshedProductRes.result?.items)
+        ? refreshedProductRes.result?.items?.[0]
+        : undefined;
+      const refreshedUpdatedAt =
+        typeof refreshedRecord?.updatedAt === "string"
+          ? refreshedRecord.updatedAt
+          : typeof refreshedRecord?.updated_at === "string"
+            ? refreshedRecord.updated_at
+            : null;
+      // Merge the just-submitted `values` back into `initialValues` too, not only
+      // `updatedAt` — CrudForm re-syncs its visible fields from `initialValues`
+      // whenever that prop's identity changes, so leaving the other fields at
+      // their stale pre-edit snapshot here made a successful save visually
+      // revert the field the user just changed back to its old value (#6170).
+      setInitialValues((prev) =>
+        prev
+          ? {
+              ...prev,
+              ...values,
+              updatedAt: refreshedUpdatedAt ?? prev.updatedAt,
+            }
+          : prev,
+      );
       const previousConversionIds = new Set(
         initialConversionsRef.current
           .map((entry) => toTrimmedOrNull(entry.id))
