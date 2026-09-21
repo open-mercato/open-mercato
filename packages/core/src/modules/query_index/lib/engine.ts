@@ -528,10 +528,10 @@ export class HybridQueryEngine implements QueryEngine {
         // `ignoreRuntimeHealth` asks the on-disk question -- a column holds ciphertext even while
         // the KMS is down -- so an outage keeps encrypted columns on the token path (#4622).
         // `organizationId: null` is deliberate, not an omission: the service then unions in every
-        // organization's map (`fetchAllOrganizationFieldNames`), so a field any org encrypts stays
-        // on the token path -- a wider set fails safe. Passing the request's org instead would
-        // silently break encrypted-column search for orgs without their own map. That union is an
-        // UNCACHED `encryption_maps` read, one extra round-trip per searched list request.
+        // organization's map, so a field any org encrypts stays on the token path -- a wider set
+        // fails safe. Passing the request's org instead would silently break encrypted-column
+        // search for orgs without their own map. The service caches that union (#5949), and the
+        // TTL cache in `resolveEncryptedLikeFieldSet` keeps even the lookup off the request path.
         try {
           const encryptionService = this.getEncryptionService()
           const readEncryptedFieldNames = encryptionService?.getEncryptedFieldNames?.bind(encryptionService)
