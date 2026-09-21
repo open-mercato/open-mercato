@@ -29,7 +29,7 @@ module.exports = {
     ],
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(@mikro-orm|kysely)/)',
+    'node_modules/(?!(@mikro-orm|kysely|sanitize-html|htmlparser2|dom-serializer|domelementtype|domhandler|domutils|entities)/)',
   ],
   testMatch: ['<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)'],
   passWithNoTests: true,

@@ -20,6 +20,14 @@ describe('sanitizeRichText', () => {
     ).toBe('<p>Hi<img src="x" />there</p>')
   })
 
+  it('drops raw-text content nested in foreign markup', () => {
+    expect(
+      sanitizeRichTextHtml(
+        '<svg><textarea><img src="x" onerror="alert(1)"></textarea></svg><p>Safe</p>',
+      ),
+    ).toBe('<p>Safe</p>')
+  })
+
   it('removes unsafe href values from links', () => {
     expect(
       sanitizeRichTextHtml('<a href="java\nscript:alert(1)" target="_blank" rel="opener">Bad link</a>'),
