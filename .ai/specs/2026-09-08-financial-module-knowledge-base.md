@@ -1726,3 +1726,91 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
   Unverified, as first flagged in the 2026-09-17 entry above — this
   round touched architecture/mechanism compliance only, never the actual
   statutory line-name content.
+
+### 2026-09-21 (Multi-Currency — maintainer-review + `om-spec-writing` compliance pass, PR #6190)
+
+- An automated specification review found ten issues in
+  `2026-09-17-multi-currency.md` (rate selection, sign convention,
+  zero-netting, reversal atomicity, settlement timing, historical
+  cutoff, cross-currency defaulting, migration semantics, base-currency
+  identity, missing preview/history contracts). Every finding was
+  re-verified directly against primary sources — the actual
+  `currencies` module source, the GL core engine and Cash & Bank
+  Management specs, and the live `sales`/`currencies` commands — before
+  being addressed, following the same discipline as the Annual
+  Financial Statements maintainer-review round.
+- **New, reusable facts about the `currencies` module, confirmed
+  directly against source (not previously recorded here):**
+  - `ExchangeRateService.getRate()`/`getRates()` take currency
+    **codes**, not `currencyId`s, and return a `RateResult` whose
+    `rates` field is an **array** (every provider row for that exact
+    pair/date), not a scalar — a caller that reads `rates[0]` (as
+    `customers/api/deals/aggregate/route.ts` already does, for
+    display only) is not a pattern to reuse for a posting decision.
+  - `ExchangeRate.type` (`'buy' | 'sell' | null`) is **fixed by query
+    direction** for both bundled providers, not an independent axis:
+    querying `XXX → PLN` always returns `type: 'buy'` rows from both
+    NBP and Raiffeisen (checked directly against
+    `providers/nbp.ts`/`providers/raiffeisen.ts`) — the only real
+    multiplicity within a single directional query is **which
+    provider** (`source`), confirmed by `ExchangeRate`'s own unique
+    constraint (`organizationId, tenantId, fromCurrencyCode,
+    toCurrencyCode, date, source` — no `type` column in the
+    constraint).
+  - `ExchangeRateService.findExactRates()` **does** filter stored
+    `ExchangeRate` rows by their own `isActive: true` — this is a
+    different `isActive` flag from `Currency.isActive`, which is what
+    `currencies/AGENTS.md`'s "MUST NOT filter rate fetching by
+    `isActive`" rule actually governs (which currencies
+    `RateFetchingService` fetches new rates *for*, never which stored
+    rate rows a lookup selects). A citation in the Multi-Currency
+    spec's first draft conflated the two — corrected there (Design
+    decision 2); recorded here so a future spec doesn't repeat the
+    conflation.
+  - Both bundled rate providers (`NBPProvider`, `RaiffeisenPolandProvider`)
+    hard-require **PLN** on one side of every pair
+    (`providerBaseCurrency = 'PLN'`, gated by
+    `availableCurrencies.has('PLN')`) — auto-fetching is structurally
+    PLN-base-only today, regardless of what `Currency.isBase` says for
+    a given tenant. Relevant to any future non-PLN-base scenario.
+  - `NBPProvider` fetches only NBP's **Table C** (commercial bid/ask),
+    never **Table A** (the average rate Polish statutory practice
+    generally associates with balance-sheet valuation, "kurs średni
+    NBP") — checked directly against `providers/nbp.ts`'s API endpoint
+    (`/exchangerates/tables/c/...`). If UoR Art. 30 (still Unverified
+    in this project — see the Multi-Currency spec's Design decision 8)
+    turns out to require the Table A average rate specifically, this
+    is a real gap in `currencies`' own fetcher scope, not just a
+    Multi-Currency-spec policy choice — flagged as an open item for
+    whoever next confirms Art. 30's text.
+  - `Currency.isBase` is **mutable** — `currencies/commands/
+    currencies.ts`'s `updateCurrency` command permits changing it, with
+    uniqueness enforced only per `(organizationId, tenantId)` at write
+    time, not pinned for the organization's lifetime. No module in this
+    family currently guards against a live base-currency change once
+    foreign-currency documents/entries exist referencing the old base —
+    a real, currently-unaddressed cross-module risk (Multi-Currency's
+    own `FxRevaluationRun.baseCurrencyId` snapshot, Design decision 16,
+    only detects the problem after the fact on its own next run).
+- **GL core engine's `reverseJournalEntry` contract reconfirmed
+  load-bearing for a second consumer**: like Posting Rules Engine's
+  reversal-mirroring subscriber, Multi-Currency's period-end unwind
+  must call the dedicated `reverseJournalEntry` command (own
+  `operationDate`, inverted lines, linked via `referenceType`/
+  `referenceId`) rather than `postJournalEntry` with a `type:
+  'REVERSAL'` override — an earlier Multi-Currency draft's Architecture
+  section described the latter; corrected.
+- **Cross-module transaction pattern reconfirmed**: Cash & Bank
+  Management's `matchBankStatementLine` already establishes the
+  precedent this project uses for "one command needs to call another
+  module's command and write its own entity atomically" — the outer
+  command opens its own `em.transactional()` and the nested
+  `commandBus.execute()` call joins it, since `CommandBus.execute`
+  directly invokes the handler rather than queueing it. Multi-Currency's
+  `revalueOpenBalances` reuses this same pattern for its
+  reverse-then-repost sequence (Design decision 10), now also with an
+  explicit `SELECT ... FOR UPDATE` row lock for the concurrency case
+  Cash & Bank Management's own single-document settlement flow didn't
+  need to consider (one settlement never races another settlement of
+  the *same* invoice the way two revaluation runs for the same
+  tenant/org can race each other).
