@@ -49,7 +49,7 @@ Prevent workflow-authored input and output mappings from reaching inherited obje
 
 ### Phase 2: Authoring validation and regression coverage
 
-- [ ] 2.1 Reject unsafe mapping targets in workflow schemas and add focused regression tests
+- [x] 2.1 Reject unsafe mapping targets in workflow schemas and add focused regression tests — 6efe18356b
 
 ### Phase 3: Verification and review
 
