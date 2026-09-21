@@ -50,7 +50,7 @@ const calcService = container.resolve('salesCalculationService')
 
 - Dispatches `sales.line.calculate.*` / `sales.document.calculate.*` events
 - Register line/totals calculators or override via DI
-- **Current state (not yet wired):** no production code path in this module calls `catalog`'s `selectBestPrice`/`resolvePriceVariantId`/`catalogPricingService` today — sales line pricing is entered/edited directly on the line, not resolved from `CatalogProductPrice`. An earlier revision of this file stated the opposite as an already-enforced `MUST` rule; that was aspirational, not descriptive. Wiring sales to the catalog pricing engine is tracked separately (`2026-08-14-cart-module.md`, a future `sales`-specific spec) and is out of scope for `.ai/specs/2026-08-21-pricing-engine.md`. If/when that wiring lands, route it through `catalogPricingService` per `catalog/AGENTS.md` — never reimplement pricing inline in `sales`.
+- **Not yet wired:** no code here calls catalog's `selectBestPrice`/`catalogPricingService` — lines are priced directly, not resolved from `CatalogProductPrice`. Out of scope for the pricing-engine spec; future wiring routes through `catalogPricingService` — never reimplement pricing inline.
 
 ## Data Model Constraints
 
