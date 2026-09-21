@@ -23,6 +23,8 @@ export type FormHeaderEditProps = FormHeaderBaseProps & {
   mode?: 'edit'
   /** Small title next to the back link */
   title?: string
+  /** Semantic level for the title. Defaults to 2 for section-level compatibility. */
+  titleHeadingLevel?: 1 | 2
   /** Structured action buttons (Delete/Cancel/Save) */
   actions?: FormActionButtonsProps
   /** Custom right-side content (overrides `actions`) */
@@ -96,9 +98,11 @@ function EditHeader({
   backHref,
   resolvedBackLabel,
   title,
+  titleHeadingLevel = 2,
   actions,
   actionsContent,
 }: FormHeaderEditProps & { resolvedBackLabel: string }) {
+  const TitleHeading = titleHeadingLevel === 1 ? 'h1' : 'h2'
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
       <div className="flex items-center gap-3">
@@ -107,7 +111,7 @@ function EditHeader({
             &larr; {resolvedBackLabel}
           </Link>
         ) : null}
-        {title ? <div className="text-base font-medium">{title}</div> : null}
+        {title ? <TitleHeading className="text-base font-medium">{title}</TitleHeading> : null}
       </div>
       {actionsContent ?? (actions ? <FormActionButtons {...actions} /> : null)}
     </div>

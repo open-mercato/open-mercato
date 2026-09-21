@@ -1,8 +1,9 @@
 'use client'
 
 import { Handle, Position, NodeProps } from '@xyflow/react'
+import { NODE_HANDLE_CLASS } from '../../lib/node-geometry'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
-import { WorkflowStatus } from '../../lib/status-colors'
+import { toWorkflowStatus } from '../../lib/status-colors'
 
 export interface EndNodeData {
   label: string
@@ -12,35 +13,29 @@ export interface EndNodeData {
   badge?: string
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
+  hasError?: boolean
+  hasCompensation?: boolean
+  errorCount?: number
 }
 
 /**
  * EndNode - End point of a workflow
  * Uses WorkflowNodeCard for consistent styling
  */
-export function EndNode({ data, isConnectable, selected }: NodeProps) {
+export function EndNode({ id, data, isConnectable, selected }: NodeProps) {
   const nodeData = data as unknown as EndNodeData
 
-  // Map old status values to new WorkflowStatus types
-  const mapStatus = (status?: string): WorkflowStatus => {
-    if (!status || status === 'pending') return 'not_started'
-    if (status === 'running' || status === 'in_progress') return 'in_progress'
-    if (status === 'completed') return 'completed'
-    if (status === 'error') return 'not_started'
-    return 'not_started'
-  }
-
-  const workflowStatus = mapStatus(nodeData.status)
+  const workflowStatus = toWorkflowStatus(nodeData.status)
 
   return (
     <div className="end-node" title={nodeData.tooltip}>
       {/* Target Handle */}
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         id="target"
         isConnectable={isConnectable}
-        className="!w-3 !h-3 !bg-[#0080FE] !border-2 !border-white"
+        className={`${NODE_HANDLE_CLASS} !bg-primary`}
       />
 
       <WorkflowNodeCard
@@ -49,6 +44,12 @@ export function EndNode({ data, isConnectable, selected }: NodeProps) {
         status={workflowStatus}
         nodeType="end"
         selected={selected}
+        hasError={nodeData.hasError}
+        hasCompensation={nodeData.hasCompensation}
+        errorCount={nodeData.errorCount}
+        nodeId={id}
+        editable={isConnectable}
+        variant="pill"
       />
     </div>
   )
