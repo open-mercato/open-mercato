@@ -687,13 +687,33 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
     `bookedExchangeRate` that isn't `1` is also rejected (nothing to
     convert). Missing/invalid rate → rejects with a readable
     `EXCHANGE_RATE_REQUIRED` error, no partial write (see Design
-    decisions, Testing Strategy). **Update (2026-09-17):** the
-    Multi-Currency spec (`.ai/specs/2026-09-17-multi-currency.md`)
-    proposes `SalesInvoice.exchangeRate`; once that ships,
+    decisions, Testing Strategy). **Update (2026-09-17, revised
+    2026-09-21):** the Multi-Currency spec
+    (`.ai/specs/2026-09-17-multi-currency.md`) proposes
+    `SalesInvoice.exchangeRate`; once that ships,
     `bookedExchangeRate` can default from the invoice's own stored
-    rate instead of always requiring manual entry here — a caller
-    still overriding it explicitly should remain possible. Not
-    applied yet. Computes the realized gain/loss as
+    rate — **but only when the settling `BankAccount`'s currency
+    equals the tenant's base currency** (Multi-Currency's Design
+    decision 14, added in that spec's own maintainer-review pass):
+    the invoice's stored rate is base-currency units per
+    invoice-currency unit, not bank-currency units per
+    invoice-currency unit, so it cannot stand in for
+    `bookedExchangeRate` whenever the bank account's currency differs
+    from base (a three-currency settlement still needs an explicit
+    value or a cross-rate this document would have to derive itself —
+    see that spec's worked example). A caller overriding the default
+    explicitly should remain possible either way. **New precondition
+    (Multi-Currency Design decision 12):** once `fx_revaluation` exists,
+    this match MUST first check whether the target `SalesInvoice` (or
+    `VendorInvoice`, via the other settlement paths) is a line in the
+    current, unreversed `FxRevaluationRun` and reject with **409
+    `PRIOR_VALUATION_NOT_REVERSED`** if so — settling a still-covered
+    document before its period-end valuation is reversed would double-
+    count the movement (unrealized left on the books plus realized
+    here). Neither the default-from-invoice behavior nor the new
+    precondition is applied yet; both land together with
+    `fx_revaluation`'s own implementation. Computes the realized
+    gain/loss as
     `statementLineAmountInBankCurrency - (matchedAmountInInvoiceCurrency * bookedExchangeRate)`
     (the same multiplication direction, converting the settled invoice
     amount back into bank currency for comparison) and, when non-zero,
