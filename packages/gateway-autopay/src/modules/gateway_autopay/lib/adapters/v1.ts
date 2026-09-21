@@ -14,6 +14,7 @@ import type {
   WebhookEvent,
   UnifiedPaymentStatus,
 } from '@open-mercato/shared/modules/payment_gateways/types'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   buildSessionRequest,
   cancelTransaction,
@@ -22,7 +23,7 @@ import {
   sanitizeOrderId,
   type AutopayCredentials,
 } from '../autopay-client'
-import { mapAutopayStatus, interpretAutopayTransactionStatus } from '../status-map'
+import { mapAutopayStatus, interpretAutopayTransactionStatus, type AutopayStatusInterpretation } from '../status-map'
 
 function resolveCredentials(raw: Record<string, unknown>): AutopayCredentials {
   const serviceId = raw.serviceId
@@ -49,7 +50,9 @@ function resolveCredentials(raw: Record<string, unknown>): AutopayCredentials {
  * `CreateSessionInput` has no dedicated customer-email field, but Autopay's
  * documented parameter table marks CustomerEmail as required (position 7).
  * This adapter reads it from `input.metadata.customerEmail` — callers of
- * `createSession` for the `autopay` provider MUST populate that key.
+ * `createSession` for the `autopay` provider MUST populate that key. The
+ * stock checkout submit route does not populate it yet (see the spec);
+ * fixing that caller is tracked separately from this adapter.
  */
 function readCustomerEmail(metadata: Record<string, unknown> | undefined): string {
   const value = metadata?.customerEmail
@@ -64,18 +67,39 @@ function readGatewayId(metadata: Record<string, unknown> | undefined): string | 
   return typeof value === 'string' && value ? value : undefined
 }
 
+async function resolveStatusInterpretation(
+  credentials: AutopayCredentials,
+  orderId: string,
+): Promise<AutopayStatusInterpretation> {
+  const { transactions } = await queryTransactionStatus(credentials, { orderId })
+  return interpretAutopayTransactionStatus(transactions)
+}
+
 /**
- * Autopay's `transactionRefund` needs the provider's own `remoteID`, not the
- * merchant `OrderID` used elsewhere in this adapter — `remoteID` is only
- * known once the payer picks a channel (captured from a prior `getStatus`
- * call) and must be threaded through by the caller.
+ * `transactionRefund` needs Autopay's own `remoteID`, not the merchant
+ * `OrderID` (`sessionId`) the canonical `paymentGatewayService.refundPayment`
+ * call actually supplies — it does not thread caller metadata through to the
+ * adapter. Rather than require a metadata field no real caller populates,
+ * this resolves the settled transaction's `remoteID` itself via
+ * `transactionStatus`, the same lookup `getStatus()` already performs. An
+ * explicit `metadata.remoteId` is still honored first, as a fast path for a
+ * caller that already has it cached (e.g. from a prior `getStatus` result)
+ * and wants to skip the extra round trip.
  */
-function readRemoteId(metadata: Record<string, unknown> | undefined): string {
-  const value = metadata?.remoteId
-  if (typeof value !== 'string' || !value) {
-    throw new Error('[internal] Autopay refund requires metadata.remoteId, the provider transaction id captured from a prior getStatus call — the OrderID alone is not sufficient')
+async function resolveRefundRemoteId(
+  credentials: AutopayCredentials,
+  input: RefundInput,
+): Promise<string> {
+  const provided = input.metadata?.remoteId
+  if (typeof provided === 'string' && provided) return provided
+
+  const interpretation = await resolveStatusInterpretation(credentials, input.sessionId)
+  if (interpretation.status !== 'captured' || !interpretation.matchedRemoteId) {
+    throw new Error(
+      `Autopay cannot refund session ${input.sessionId}: no captured transaction was found (current status: ${interpretation.status})`,
+    )
   }
-  return value
+  return interpretation.matchedRemoteId
 }
 
 /** This package only ever creates PLN sessions (enforced in `createSession`),
@@ -121,15 +145,16 @@ export const autopayAdapterV1: GatewayAdapter = {
   },
 
   async capture(_input: CaptureInput): Promise<CaptureResult> {
-    // Matches gateway-stripe's plain-string precedent (lib/client.ts) for
-    // capability-boundary errors meant to be read by whoever calls this
-    // adapter — not tagged [internal], since it is not a code-assertion bug.
-    throw new Error('Autopay does not support capture for hosted-redirect sessions: payment settles immediately on redirect completion. This capability is unsupported by this integration.')
+    const { t } = await resolveTranslations()
+    throw new Error(t(
+      'gateway_autopay.errors.captureUnsupported',
+      'Autopay does not support capturing a payment separately — it settles immediately when the payer completes the redirect.',
+    ))
   },
 
   async refund(input: RefundInput): Promise<RefundResult> {
     const credentials = resolveCredentials(input.credentials)
-    const remoteId = readRemoteId(input.metadata)
+    const remoteId = await resolveRefundRemoteId(credentials, input)
     const result = await refundTransaction(credentials, {
       remoteId,
       amount: input.amount !== undefined ? input.amount.toFixed(2) : undefined,
@@ -158,14 +183,46 @@ export const autopayAdapterV1: GatewayAdapter = {
       idempotencyKey: input.idempotencyKey,
     })
 
-    if (result.confirmation === 'CONFIRMED') {
+    if (result.confirmation === 'CONFIRMED' && result.reason === 'CANCELED_FULLY') {
       return {
         status: 'cancelled',
         providerData: { reason: result.reason, messageId: result.messageId },
       }
     }
 
-    throw new Error(`Autopay could not cancel the transaction — it may already be settled (use refund instead): ${result.reason ?? 'no reason provided by Autopay'}`)
+    if (result.confirmation === 'CONFIRMED') {
+      // Docs also document CONFIRMED / CANCELED_PARTIALLY: at least one
+      // attempt was cancelled but another attempt for the same OrderID could
+      // not be (for example because it already settled). Claiming a clean
+      // `cancelled` here would be a fake state transition the core status
+      // machine cannot walk back from (cancelled -> captured is rejected),
+      // permanently hiding a payment that actually went through. Reconcile
+      // against the real current state instead of trusting the label.
+      const interpretation = await resolveStatusInterpretation(credentials, input.sessionId)
+      if (interpretation.status === 'captured') {
+        return {
+          status: 'captured',
+          providerData: {
+            reason: result.reason,
+            messageId: result.messageId,
+            reconciledAfterPartialCancel: true,
+          },
+        }
+      }
+      const { t: translatePartial } = await resolveTranslations()
+      throw new Error(translatePartial(
+        'gateway_autopay.errors.cancelPartial',
+        'Autopay only partially cancelled this payment ({reason}) and no settled payment was found — this needs to be resolved manually before treating it as cancelled.',
+        { reason: result.reason ?? 'unknown reason' },
+      ))
+    }
+
+    const { t } = await resolveTranslations()
+    throw new Error(t(
+      'gateway_autopay.errors.cancelFailed',
+      'Autopay could not cancel this payment. It may already be settled — try a refund instead. ({reason})',
+      { reason: result.reason ?? 'no reason provided by Autopay' },
+    ))
   },
 
   async getStatus(input: GetStatusInput): Promise<GatewayPaymentStatus> {

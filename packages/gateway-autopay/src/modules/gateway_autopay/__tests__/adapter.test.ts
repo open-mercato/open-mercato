@@ -110,7 +110,7 @@ describe('autopayAdapterV1.createSession', () => {
 
 describe('autopayAdapterV1.capture', () => {
   it('always fails closed — Autopay has no separate capture step', async () => {
-    await expect(autopayAdapterV1.capture({ sessionId: 'x', credentials })).rejects.toThrow(/capture/i)
+    await expect(autopayAdapterV1.capture({ sessionId: 'x', credentials })).rejects.toThrow(/capturing/i)
   })
 })
 
@@ -157,6 +157,13 @@ describe('autopayAdapterV1.getStatus', () => {
     expect(status.providerData?.reason).toBe('NOT_FOUND')
   })
 
+  it('rejects a zero-transaction status response with an invalid hash', async () => {
+    const xml = '<?xml version="1.0"?><transactionList><serviceID>2</serviceID><transactions></transactions><hash>not-a-real-hash</hash></transactionList>'
+    jest.spyOn(global, 'fetch').mockResolvedValue(new Response(xml, { status: 200 }))
+
+    await expect(autopayAdapterV1.getStatus({ sessionId: 'missing-order', credentials })).rejects.toThrow(/hash verification/)
+  })
+
   it('rejects a status response whose hash does not verify', async () => {
     const xml = '<?xml version="1.0"?><transactionList><serviceID>2</serviceID><transactions>' +
       transactionXml({ orderID: '100', remoteID: 'r1', amount: '1.50', currency: 'PLN', paymentDate: '20260910120000', paymentStatus: 'SUCCESS' }) +
@@ -198,13 +205,45 @@ describe('autopayAdapterV1.cancel', () => {
     await expect(autopayAdapterV1.cancel({ sessionId: '100', credentials })).rejects.toThrow(/hash verification/)
   })
 
+  it('reconciles a CANCELED_PARTIALLY confirmation to captured when a settled attempt is found', async () => {
+    jest.spyOn(global, 'fetch').mockImplementation(async (url, init) => {
+      if (String(url).includes('transactionCancel')) {
+        const body = new URLSearchParams(String((init as RequestInit).body))
+        const messageId = body.get('MessageID') ?? 'm1'
+        return new Response(cancelResponseXml({ confirmation: 'CONFIRMED', reason: 'CANCELED_PARTIALLY', messageId }), { status: 200 })
+      }
+      return new Response(statusResponseXml([
+        { orderID: '100', remoteID: 'r1', amount: '1.50', currency: 'PLN', paymentDate: '20260910120000', paymentStatus: 'SUCCESS' },
+      ]), { status: 200 })
+    })
+
+    const result = await autopayAdapterV1.cancel({ sessionId: '100', credentials })
+    expect(result.status).toBe('captured')
+    expect(result.providerData?.reconciledAfterPartialCancel).toBe(true)
+  })
+
+  it('fails closed on CANCELED_PARTIALLY when reconciliation finds no settled attempt — never claims cancelled', async () => {
+    jest.spyOn(global, 'fetch').mockImplementation(async (url, init) => {
+      if (String(url).includes('transactionCancel')) {
+        const body = new URLSearchParams(String((init as RequestInit).body))
+        const messageId = body.get('MessageID') ?? 'm1'
+        return new Response(cancelResponseXml({ confirmation: 'CONFIRMED', reason: 'CANCELED_PARTIALLY', messageId }), { status: 200 })
+      }
+      return new Response(statusResponseXml([
+        { orderID: '100', remoteID: 'r1', amount: '1.50', currency: 'PLN', paymentDate: '20260910120000', paymentStatus: 'PENDING' },
+      ]), { status: 200 })
+    })
+
+    await expect(autopayAdapterV1.cancel({ sessionId: '100', credentials })).rejects.toThrow(/partially cancelled/)
+  })
+
   it('reuses the same MessageID for two cancels sharing an idempotencyKey', async () => {
     const sentFields: Record<string, string>[] = []
     jest.spyOn(global, 'fetch').mockImplementation(async (_url, init) => {
       const body = new URLSearchParams(String((init as RequestInit).body))
       const fields = Object.fromEntries(body.entries())
       sentFields.push(fields)
-      return new Response(cancelResponseXml({ confirmation: 'CONFIRMED', messageId: fields.MessageID }), { status: 200 })
+      return new Response(cancelResponseXml({ confirmation: 'CONFIRMED', reason: 'CANCELED_FULLY', messageId: fields.MessageID }), { status: 200 })
     })
 
     await autopayAdapterV1.cancel({ sessionId: '100', credentials, idempotencyKey: 'op-1' })
@@ -236,8 +275,28 @@ describe('autopayAdapterV1.refund', () => {
     expect(result.refundId).toBe(messageId)
   })
 
-  it('requires metadata.remoteId — the OrderID alone is not enough for a refund', async () => {
-    await expect(autopayAdapterV1.refund({ sessionId: '100', credentials })).rejects.toThrow(/remoteId/)
+  it('resolves the remoteId itself via transactionStatus when the caller does not supply metadata.remoteId — the real gateway service never does', async () => {
+    jest.spyOn(global, 'fetch').mockImplementation(async (url, init) => {
+      if (String(url).includes('transactionStatus')) {
+        return new Response(statusResponseXml([
+          { orderID: '100', remoteID: 'r-auto', amount: '1.50', currency: 'PLN', paymentDate: '20260910120000', paymentStatus: 'SUCCESS' },
+        ]), { status: 200 })
+      }
+      const body = new URLSearchParams(String((init as RequestInit).body))
+      const messageId = body.get('MessageID') ?? 'm1'
+      return new Response(refundResponseXml({ messageId }), { status: 200 })
+    })
+
+    const result = await autopayAdapterV1.refund({ sessionId: '100', amount: 1.5, credentials })
+    expect(result.status).toBe('pending')
+  })
+
+  it('fails closed when self-resolving remoteId finds no captured transaction', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValue(new Response(statusResponseXml([
+      { orderID: '100', remoteID: 'r1', amount: '1.50', currency: 'PLN', paymentDate: '20260910120000', paymentStatus: 'PENDING' },
+    ]), { status: 200 }))
+
+    await expect(autopayAdapterV1.refund({ sessionId: '100', credentials })).rejects.toThrow(/no captured transaction/)
   })
 
   it('reuses the same MessageID for two refunds sharing an idempotencyKey', async () => {
