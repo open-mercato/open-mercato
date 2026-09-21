@@ -197,6 +197,7 @@ describe('tenant-less entity encryption delegation', () => {
       expect.any(Object),
       null,
       null,
+      { em: {} },
     )
     expect(entity.secret).toBe('encrypted')
     expect(changeSet.payload.secret).toBe('encrypted')
