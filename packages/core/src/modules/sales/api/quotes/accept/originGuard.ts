@@ -1,4 +1,5 @@
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
 
 export type SameOriginViolation = {
   reason: 'missing-origin' | 'invalid-origin' | 'cross-origin'
@@ -13,7 +14,11 @@ function isSafeMethod(method: string | null | undefined) {
 
 function readExpectedOrigin(req: Request): string | null {
   try {
-    return new URL(req.url).origin
+    // Behind a TLS-terminating proxy, `req.url` carries the app's listening
+    // identity (e.g. https://localhost:3000), not its public origin. Prefer the
+    // configured app origin and only fall back to reconstructing it from the
+    // request when APP_URL / NEXT_PUBLIC_APP_URL are unset.
+    return new URL(getAppBaseUrl(req)).origin
   } catch {
     return null
   }
