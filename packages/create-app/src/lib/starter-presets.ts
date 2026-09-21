@@ -21,6 +21,8 @@ const CORE = '@open-mercato/core'
 const EVENTS = '@open-mercato/events'
 const AI_ASSISTANT = '@open-mercato/ai-assistant'
 const SEARCH = '@open-mercato/search'
+const CHANNEL_IMAP = '@open-mercato/channel-imap'
+const CHANNEL_GMAIL = '@open-mercato/channel-gmail'
 
 const EMPTY_MODULES: ModuleEntry[] = [
   { id: 'auth', from: CORE },
@@ -90,7 +92,15 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
         // `communication_channels` declares `requires: ['progress']` (issue #6094);
         // without this entry `yarn generate` hard-fails on every `crm` scaffold.
         { id: 'progress', from: CORE },
+        // `communication_channels` powers the profile "My communication channels" page,
+        // but the hub only persists credentials through `integrations`
+        // (`integrationCredentialsService`) and only shows connect buttons for modules
+        // that inject into the `profile:communication-channels:connect` spot — without
+        // both, the page renders with no way to connect a mailbox (issue #6169).
+        { id: 'integrations', from: CORE },
         { id: 'communication_channels', from: CORE },
+        { id: 'channel_imap', from: CHANNEL_IMAP },
+        { id: 'channel_gmail', from: CHANNEL_GMAIL },
         { id: 'ai_assistant', from: AI_ASSISTANT },
       ],
     },

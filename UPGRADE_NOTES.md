@@ -478,6 +478,14 @@ Two additional heal paths are available if you need them:
 
 Note: only calls ingested **after** the maps exist are encrypted. Rows written by a build that ran without them stay plaintext until they are re-ingested (a pull is idempotent, so re-pulling the affected range rewrites them) or handled with the `entities rotate-encryption` / `decrypt-database` tooling.
 
+### The schedule dialog's pickers and `CrudForm` date/time fields now follow the app locale (#5942)
+
+`TimePicker`'s default clock is now derived from the active locale instead of being hardcoded to `12h`, and every consumer of `<DatePicker>` (`@open-mercato/ui/primitives/date-picker`, including `CrudForm`'s `date`/`datepicker`/`datetime`/`datetime-local` fields) that does not pin its own `locale` now falls back to the active app locale instead of always rendering English.
+
+**Who is affected.** `pl`/`de`/`es` tenants see a 24-hour clock on every `TimePicker`, and a Monday-first, localized calendar on every `DatePicker` that previously fell back to English regardless of the tenant's language. `en` and `ko` output is unchanged — both are 12-hour locales, and English was already the picker default. No API, schema, or component prop was removed.
+
+**Action for module authors:** none required. A field or call site that already pins an explicit `locale` (date-fns `Locale` object) or `format` (`'12h' | '24h'`) keeps that value unchanged — the new default only applies where neither was set. To pin the previous English/12-hour behavior regardless of tenant locale, pass `format="12h"` to `TimePicker`, or `locale={enUS}` (from `date-fns/locale/en-US`) to `DatePicker`.
+
 ### `communication_channels` now requires `progress` to be enabled (#6094)
 
 `communication_channels`'s import-history worker and its queue command (`workers/channel-import-history.ts`, `commands/queue-import-history.ts`) resolve `progressService` from the DI container, which is registered only by the `progress` module. An app that enabled `communication_channels` without `progress` previously got no build-time warning: the queue command still returned a job id and a `200`, and the worker then failed on every retry with `AwilixResolutionError: Could not resolve 'progressService'`, with no error surfaced to the user and no `progress_jobs` row to inspect.
