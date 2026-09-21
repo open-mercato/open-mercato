@@ -136,6 +136,17 @@ describe('CrudForm legacyInjectionSpotId bridge (#6017 / #6063)', () => {
     expect(container.querySelector('[data-testid="legacy-header-widget"]')).toBeTruthy()
   })
 
+  it('renders a widget with the same widgetId on both header spots twice (header is not deduped)', async () => {
+    widgetsBySpot[`${PRIMARY_SPOT}:header`] = [makeWidget('shared-header-widget', 'shared-header-widget')]
+    widgetsBySpot[`${LEGACY_SPOT}:header`] = [makeWidget('shared-header-widget', 'shared-header-widget')]
+
+    const { container } = renderForm()
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-testid="shared-header-widget"]')).toHaveLength(2)
+    })
+  })
+
   it('merges :fields widgets from both spots and dedupes a shared field id', async () => {
     fieldWidgetsBySpot[`${PRIMARY_SPOT}:fields`] = [makeFieldWidget('cf:primary_field')]
     fieldWidgetsBySpot[`${LEGACY_SPOT}:fields`] = [

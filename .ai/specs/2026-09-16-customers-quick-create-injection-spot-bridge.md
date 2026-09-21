@@ -4,6 +4,10 @@
 
 Fix issue #6017: the sales document form's Person/Company quick-create dialogs now declare `injectionSpotId` pointing at the customers module's declared CrudForm hosts (`crud-form:customers.person` / `crud-form:customers.company`), so widgets registered on those hosts render inside the dialogs. Switching away from `CrudForm`'s previously auto-derived spot id (`crud-form:customers.customer_entity`, a FROZEN surface per `BACKWARD_COMPATIBILITY.md` §6) would otherwise be a breaking removal, so `CrudForm` gains an additive `legacyInjectionSpotId` bridge prop that dual-publishes both ids' header, body, and field widgets for at least one minor version.
 
+## Overview
+
+Two `CrudForm` mounts inside `SalesDocumentForm` (the "Create person" and "Create company" quick-create dialogs) currently publish an undeclared, entity-derived injection spot instead of the customers module's declared `crud-form:customers.person` / `crud-form:customers.company` hosts. This spec binds both dialogs to the declared hosts and adds a `legacyInjectionSpotId` bridge to `CrudForm` so the previously-published (FROZEN, §6) spot id keeps working for any widget still targeting it — resolving the mismatch without a breaking removal. Scope is limited to `CrudForm`, the two dialogs, and the associated tests/docs; no API, schema, or DI surface changes.
+
 ## Problem Statement
 
 - Widgets registered on the customers module's declared `crud-form:customers.person` / `…company` hosts did not render in the two sales quick-create dialogs, because those dialogs never passed `injectionSpotId` and `CrudForm` fell back to auto-deriving one from `entityIds[0]` (`crud-form:customers.customer_entity`) instead.
@@ -47,14 +51,15 @@ No API route changes. `legacyInjectionSpotId` is a new optional React prop; ever
 ## Verification Plan
 
 - `packages/core/src/modules/sales/components/documents/__tests__/SalesDocumentForm.injectionHost.test.tsx` — both dialogs mount with the declared `injectionSpotId`, the legacy `legacyInjectionSpotId`, and no initial record id.
-- Unit coverage in `packages/ui/src/backend/__tests__/CrudForm` (or the nearest existing CrudForm test suite) for `mergeByKey`: a widget registered on only the primary spot, only the legacy spot, and on both (deduped) all render exactly once.
+- Unit coverage in `packages/ui/src/backend/__tests__/CrudForm.legacyInjectionBridge.test.tsx` for `mergeByKey`: a widget registered on only the primary spot, only the legacy spot, and on both (deduped) all render exactly once; a widget registered on both **header** spots renders twice, pinning the documented non-dedup exception.
 - `yarn typecheck` and `yarn test` for `packages/ui`, `packages/core` (sales + customers).
 
 ## Risks & Impact Review
 
 | Risk | Severity | Area | Mitigation | Residual Risk |
 | --- | --- | --- | --- | --- |
-| A widget registered on both the legacy and the new declared id renders twice in the dialogs. | Low | UI | `mergeByKey` dedupes by `widgetId` (body/group/stack) and `metadata.id` (fields) before rendering. | None — no in-repo widget currently targets either id from these dialogs. |
+| A widget registered on both the legacy and the new declared id renders twice in the dialogs' body/group/stack or field placements. | Low | UI | `mergeByKey` dedupes by `widgetId` (body/group/stack) and `metadata.id` (fields) before rendering. | None — no in-repo widget currently targets either id from these dialogs. |
+| A widget registered on both ids' **header** spot renders twice. | Low | UI | Not mitigated — the header renders through two independent `<InjectionSpot>` elements, not the merged list, so `mergeByKey` never runs for it. Documented on `legacyInjectionSpotId`'s JSDoc and pinned by a regression test. | Present by design until a caller needs header dedup; no in-repo widget currently targets either header id from these dialogs. |
 | A widget assumes a record always exists and breaks when it first mounts in create mode via the bridge. | Medium | UI | Disclosed explicitly in `UPGRADE_NOTES.md`'s "Action for module authors" block, matching the existing in-repo pattern (`customer_accounts` Account Status / Company Users groups already tolerate `recordId === undefined`). | Third-party widgets not yet audited; disclosure is the available mitigation for a public contract. |
 | `legacyInjectionSpotId` bridge is forgotten and never removed, permanently doubling the spot surface. | Low | Maintainability | Tracked here and in `UPGRADE_NOTES.md` with an explicit removal target of "after at least one minor version". | Requires a future PR to actually remove it. |
 
@@ -70,3 +75,4 @@ No API route changes. `legacyInjectionSpotId` is a new optional React prop; ever
 ## Changelog
 
 - 2026-09-16 - Initial bridge spec for issue #6017 / PR #6063.
+- 2026-09-21 - Added Overview section; corrected the Risks table to disclose that the header spot is not deduped (only body/group/stack/fields are), matching the shipped `mergeByKey` scope and the `legacyInjectionSpotId` JSDoc.

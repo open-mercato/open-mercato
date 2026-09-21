@@ -423,6 +423,12 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
    * compatibility bridge for a host that changed its declared spot id, so a
    * widget still targeting the old id keeps rendering. See
    * BACKWARD_COMPATIBILITY.md §6 for the deprecation protocol this supports.
+   *
+   * Body, group, and `:fields` widgets are deduped by id (`mergeByKey`), so a
+   * widget registered on both `injectionSpotId` and `legacyInjectionSpotId`
+   * renders once. The header is the exception: it renders through two
+   * independent `<InjectionSpot>` elements (not the merged list), so a widget
+   * registered on both header spots renders twice.
    */
   legacyInjectionSpotId?: string
   replacementHandle?: string
