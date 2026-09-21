@@ -3,7 +3,21 @@ import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import type { CredentialsService } from '@open-mercato/core/modules/integrations/lib/credentials-service'
 import type { IntegrationLogService } from '@open-mercato/core/modules/integrations/lib/log-service'
 import type { IntegrationStateService } from '@open-mercato/core/modules/integrations/lib/state-service'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { applyAutopayEnvPreset, readAutopayEnvPreset } from './lib/preset'
+
+/**
+ * `undefined` (flag never passed) must stay `undefined`, not coerce to
+ * `false` — `applyAutopayEnvPreset` does `params.force ?? preset.force`, so a
+ * coerced `false` here would silently override
+ * `OM_INTEGRATION_AUTOPAY_FORCE_PRECONFIGURE=true` from the env preset every
+ * time the CLI is run without an explicit `--force` flag.
+ */
+export function resolveForceFlag(rawForce: string | boolean | undefined): boolean | undefined {
+  if (rawForce === undefined) return undefined
+  if (typeof rawForce === 'boolean') return rawForce
+  return parseBooleanToken(rawForce) ?? undefined
+}
 
 function parseArgs(args: string[]): Record<string, string | boolean> {
   const result: Record<string, string | boolean> = {}
@@ -52,7 +66,7 @@ const configureFromEnvCommand: ModuleCli = {
     const args = parseArgs(rest)
     const tenantId = String(args.tenantId ?? args.tenant ?? '')
     const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? '')
-    const force = args.force === true
+    const force = resolveForceFlag(args.force)
 
     if (!tenantId || !organizationId) {
       printHelp()
