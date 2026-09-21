@@ -227,6 +227,16 @@ export default function SyncRunsDashboardPage() {
   const seedConsumedRef = React.useRef<{ selection: string | null; parameters: string | null }>({ selection: null, parameters: null })
   const seedAttemptedRef = React.useRef<string | null>(null)
   const seedMountedRef = React.useRef(true)
+  const seedSequenceRef = React.useRef(0)
+  /**
+   * State, not a ref, so a new seed re-runs the parameter effect on its own.
+   * That effect is otherwise keyed on the `runParameters` memo, whose identity
+   * does not change when the seeded run uses the integration, entity type and
+   * direction the form already carries — the dashboard row menu's common case.
+   * It is never cleared: clearing it would re-run the effect with no seed and
+   * reset the operator's own edits to the defaults.
+   */
+  const [seedToken, setSeedToken] = React.useState<string | null>(null)
 
   /** An operator touching the form retires the seed — and the banner with it. */
   const retireSeed = React.useCallback(() => {
@@ -351,7 +361,7 @@ export default function SyncRunsDashboardPage() {
       seeded[param.key] = param.type === 'boolean' ? raw === true : String(raw)
     }
     setParamValues(seeded)
-  }, [runParameters])
+  }, [runParameters, seedToken])
 
   // A control the form stopped showing must not keep submitting the value the
   // operator last set for another entity type.
@@ -537,7 +547,11 @@ export default function SyncRunsDashboardPage() {
         else dropped.push(key)
       }
 
-      const token = `${fromRunId}:${Date.now()}`
+      // A counter, not a timestamp: two "Run again" clicks on the same run
+      // inside one millisecond would otherwise mint the same token, and the
+      // parameter effect — keyed on it — would not re-run for the second.
+      seedSequenceRef.current += 1
+      const token = `${fromRunId}:${seedSequenceRef.current}`
       seedRef.current = {
         token,
         entityType: source.entityType,
@@ -553,6 +567,7 @@ export default function SyncRunsDashboardPage() {
       setSelectedEntityType(source.entityType)
       setSelectedDirection(source.direction)
       setSeedSource({ integrationId: source.integrationId, entityType: source.entityType, droppedKeys: dropped })
+      setSeedToken(token)
 
       // Drop the parameter so a re-render or a back-navigation cannot re-seed
       // over edits the operator has since made.

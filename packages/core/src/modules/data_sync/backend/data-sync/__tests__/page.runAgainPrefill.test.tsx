@@ -96,6 +96,21 @@ const SOURCE_RUN = {
   parameters: { segment: 'b2b-active', startId: 4200, legacy_region: 'emea' },
 }
 
+/**
+ * A run matching what the form settles on by itself: the first integration, its
+ * first supported entity and its default direction. Seeding this run changes
+ * none of the three, so the `runParameters` memo keeps its identity and the
+ * parameter effect has nothing but the seed token to re-run on.
+ */
+const SAME_SELECTION_RUN = {
+  id: 'run-5',
+  integrationId: 'erp-ambra',
+  entityType: 'customers',
+  direction: 'import',
+  status: 'completed',
+  parameters: { segment: 'retail-core' },
+}
+
 /** A run on the OTHER integration, so the cross-integration seed path is real. */
 const OTHER_RUN = {
   id: 'run-7',
@@ -109,6 +124,7 @@ const OTHER_RUN = {
 function mockApi(runResponse: { ok: boolean; status: number; result: unknown } | null = null) {
   apiCallMock.mockImplementation(async (url: string) => {
     if (url === '/api/data_sync/runs/run-7') return { ok: true, status: 200, result: OTHER_RUN }
+    if (url === '/api/data_sync/runs/run-5') return { ok: true, status: 200, result: SAME_SELECTION_RUN }
     if (url.startsWith('/api/data_sync/options')) return { ok: true, status: 200, result: OPTIONS }
     if (url.startsWith('/api/data_sync/runs/')) {
       return runResponse ?? { ok: true, status: 200, result: SOURCE_RUN }
@@ -160,9 +176,10 @@ describe('SyncRunsDashboardPage ?from= prefill', () => {
   })
 
   /**
-   * The path the reset effects never re-run on, because the integration is
-   * already selected. An earlier version seeded nothing at all here while the
-   * banner still claimed it had.
+   * Mounting with `?from=` already present: the integration still transitions
+   * null → erp-ambra, so the reset effects do re-run and carry the seed. The
+   * case where they do NOT re-run is the one below, which must be reached by
+   * seeding a form that has already settled.
    */
   it('seeds when the source run belongs to the already-selected integration', async () => {
     searchParams = new URLSearchParams('from=run-9')
@@ -172,6 +189,29 @@ describe('SyncRunsDashboardPage ?from= prefill', () => {
     await screen.findByText(/copied from erp-ambra/i)
     await waitFor(() => expect(selectedEntityTypeText()).toMatch(/Price Lists/))
     expect(screen.getByDisplayValue('b2b-active')).toBeInTheDocument()
+  })
+
+  /**
+   * The dashboard row menu's own path: the operator is already on the page, the
+   * form has settled on the first integration, and "Run again…" names a run
+   * with that same integration, entity type and direction. Nothing the
+   * `runParameters` memo keys on changes, so before the seed token the
+   * parameter effect never re-ran and the form kept its defaults while the
+   * banner claimed the parameters had been copied.
+   */
+  it('seeds the parameters of a run the settled form already matches', async () => {
+    mockApi()
+    const { rerender } = renderWithProviders(<SyncRunsDashboardPage />)
+
+    // Let the form settle on erp-ambra / customers / import by itself.
+    await waitFor(() => expect(selectedEntityTypeText()).toMatch(/Customers/))
+    expect(screen.queryByDisplayValue('retail-core')).not.toBeInTheDocument()
+
+    searchParams = new URLSearchParams('from=run-5')
+    rerender(<SyncRunsDashboardPage />)
+
+    await screen.findByText(/copied from erp-ambra/i)
+    await waitFor(() => expect(screen.getByDisplayValue('retail-core')).toBeInTheDocument())
   })
 
   it('names the dropped parameter the adapter no longer declares', async () => {
