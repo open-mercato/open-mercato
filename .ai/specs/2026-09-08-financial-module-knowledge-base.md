@@ -246,21 +246,40 @@ silently leave off later ones (see Changelog, 2026-09-14).
   Polish-registered tenant's base/functional currency (`currencies.Currency.
   isBase`) is a legal given, not a UI-configurable preference.
 - **Ustawa o rachunkowości, Art. 30** ("wycena bilansowa" — the actual
-  period-end FX revaluation mandate) — **Unverified.**
-  `2026-09-17-multi-currency.md` (Multi-Currency) needs this article to confirm
-  P&L-recognition of unrealized FX gain/loss on open balances, but this
-  session's extracted UoR text (`/tmp/uor.txt`) runs only Art. 9 through
-  roughly Art. 25 (Rozdział 2) — Rozdział 4 ("Wycena aktywów i pasywów"),
-  where Art. 30 lives, is not present. Same discipline as the Załącznik nr 1
-  gap above: flagged, not implemented from recollection.
+  period-end FX revaluation mandate) — **Confirmed**, 2026-09-21, against
+  the current consolidated text (Dz.U.2026.0.522, effective 2026-08-21;
+  source: lexlege.pl, cross-checked against przepisy.gofin.pl search
+  snippets). Ust. 1: *"Nie rzadziej niż na dzień bilansowy wycenia się
+  wyrażone w walutach obcych: 1) składniki aktywów... po obowiązującym na
+  ten dzień średnim kursie ogłoszonym dla danej waluty przez Narodowy
+  Bank Polski..."* — i.e. valuation is required no less often than the
+  balance-sheet date, at the NBP **average rate ("Table A")**, not the
+  buy/sell rate. Ust. 4 routes the resulting exchange differences to
+  financial income/costs (P&L) for everything except long-term
+  investments (governed instead by Art. 35). This confirms
+  `2026-09-17-multi-currency.md`'s existing design was already correct on
+  both points the article governs (periodic revaluation trigger, P&L
+  recognition), but it also turns the spec's previously-speculative
+  "`NBPProvider` only fetches Table C (buy/sell), never Table A
+  (average)" gap into a **confirmed statutory non-compliance risk** — see
+  that spec's Design decision 8, Risks & Impact Review, and
+  Implementation Plan Step 0 for the resulting fix.
 - **Ustawa o rachunkowości, Art. 6** (zasada memoriału / accrual
-  principle) — **Unverified.** `2026-09-17-deferred-revenue.md`
-  (Deferred Revenue) would ideally cite this article as the statutory
-  basis for recognizing revenue in the period it is earned rather than
-  when cash is received, but this session's extracted UoR text
-  (`/tmp/uor.txt`) only covers roughly Art. 9 through Art. 25 — Art. 6
-  (Rozdział 1) is outside that range. Same gap pattern as the Art. 30
-  and Załącznik nr 1 entries above; flagged rather than assumed.
+  principle) — **Confirmed**, 2026-09-21, same source as Art. 30 above.
+  Ust. 1: *"W księgach rachunkowych jednostki oraz w wyniku finansowym
+  jednostki należy ująć wszystkie osiągnięte, przypadające na jej rzecz
+  przychody i obciążające ją koszty związane z tymi przychodami
+  dotyczące danego roku obrotowego, niezależnie od terminu ich
+  zapłaty."* — the general accrual principle: revenue and the costs
+  connected to it are recognized in the fiscal year they belong to,
+  regardless of payment timing. Ust. 2 is even more directly on point,
+  naming *"koszty lub przychody dotyczące przyszłych okresów"* (costs or
+  **revenues relating to future periods**) as something the matching
+  principle requires allocating to the correct period — a near-literal
+  statutory description of RMP/deferred revenue itself. Applied in
+  `2026-09-17-deferred-revenue.md`'s Literature & Prior Art section as
+  the statutory basis for recognizing revenue in the period it is earned
+  rather than when cash is received.
 
 **Tier 2 — textbook/terminology (cite these when you need the *named*
 pattern "control account" / "subsidiary ledger" in English, since neither
@@ -1870,3 +1889,56 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
   only needs revisiting when the *fact it cites* (an entity's shape, a
   dependency direction, a chart-of-accounts row) changes — not merely
   because the module it's about got more design detail added.
+
+### 2026-09-21 (cont. — UoR Art. 6 and Art. 30 literature grounding closed; `om-spec-writing` Spec Checklist run on Deferred Revenue)
+
+- **Both remaining open UoR literature flags in this file (Art. 6, Art.
+  30) are now Confirmed.** No PDF of the statute was available this
+  round (none uploaded, none found on device); the primary-source text
+  was instead retrieved live via WebSearch/WebFetch against
+  `lexlege.pl` (current consolidated text, Dz.U.2026.0.522, effective
+  2026-08-21), cross-checked against `przepisy.gofin.pl` search-result
+  snippets as a second source. See the updated Art. 6 and Art. 30
+  entries above for the literal quotes. `2026-09-17-deferred-revenue.md`
+  and `2026-09-17-multi-currency.md` were both updated in step (Literature
+  & Prior Art sections, plus Multi-Currency's Design decision 8, Risks &
+  Impact Review, and Implementation Plan Step 0, since Art. 30 confirms a
+  previously-speculative NBP Table A/C gap as a real statutory
+  non-compliance risk). The **Załącznik nr 1** flag (line-item schema
+  annex) is deliberately left Unverified — out of scope for this round,
+  a structurally larger verification job than a single article.
+- **A subagent's checklist-review finding must still be independently
+  re-verified, even when it names a real, existing sibling-spec
+  pattern.** Running `om-spec-writing`'s Spec Checklist on
+  `2026-09-17-deferred-revenue.md` for the first time (distinct from the
+  Compliance Gate already run in the prior pass), a review subagent
+  flagged `RevenueRecognitionScheduleEntry`'s lack of a `deletedAt`
+  column as a soft-delete contract violation, by analogy to
+  `RevenueDeferral`. Checked directly against
+  `2026-09-06-fixed-assets.md`: `DepreciationScheduleEntry` (the exact
+  structural sibling of `RevenueRecognitionScheduleEntry`) also has no
+  `deletedAt` and is genuinely hard-deleted while unposted — an
+  established, deliberate pattern for schedule-entry-shaped child
+  tables in this project, not a gap. **Fix applied narrowly**: added
+  `deletedAt` only to `RevenueDeferral` (the header entity, matching
+  `FixedAsset`'s real precedent), and added an explicit spec note
+  confirming `RevenueRecognitionScheduleEntry`'s lack of `deletedAt` is
+  correct. General lesson: a subagent citing a real sibling entity by
+  name is still a claim to verify against that entity's actual spec
+  text, not a citation to accept because the named pattern genuinely
+  exists elsewhere in the project.
+- **Checklist pass on Deferred Revenue found 7 further real gaps**,
+  each independently confirmed against Fixed Assets' actual spec text
+  before fixing: missing `openApi` export statement, missing
+  mutation-guard-registry wiring for the three custom write routes,
+  missing per-method `requireAuth`/`requireFeatures` metadata
+  statement, missing i18n section, missing `pageSize <= 100` cap on the
+  list route, missing index + batch size for the due-row accrual scan
+  (Fixed Assets names `(organization_id, asset_id, accrued_at)` and a
+  batch size of 500 for the identical query shape — Deferred Revenue's
+  equivalent is now `(organization_id, deferral_id, accrued_at)`, also
+  batched at 500), and one wrong citation (a Design decision cited
+  "knowledge base §3" for a fact that is actually recorded in this
+  file's dated Changelog, not §3 "External sources" — corrected in
+  place, per `financial-spec-citation-check` discipline of not letting
+  a mismatched citation stand once caught).
