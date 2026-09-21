@@ -65,14 +65,14 @@ test.describe('TC-ADMIN-001: Create API Key', () => {
     } finally {
       // Cleanup: try to delete the API key via API (best effort)
       if (token) {
-        const listResponse = await apiRequest(request, 'GET', '/api/auth/api-keys', { token });
+        const listResponse = await apiRequest(request, 'GET', `/api/api_keys/keys?search=${encodeURIComponent(keyName)}&pageSize=50`, { token });
         const listData = await listResponse.json().catch(() => null);
         if (listData && Array.isArray(listData.items)) {
           const keyToDelete = listData.items.find((item: Record<string, unknown>) =>
             item.name === keyName,
           );
           if (keyToDelete && typeof keyToDelete.id === 'string') {
-            await apiRequest(request, 'DELETE', `/api/auth/api-keys?id=${keyToDelete.id}`, { token }).catch(() => {});
+            await apiRequest(request, 'DELETE', `/api/api_keys/keys?id=${encodeURIComponent(keyToDelete.id)}`, { token }).catch(() => {});
           }
         }
       }
