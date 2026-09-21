@@ -37,6 +37,7 @@ The following file names, their expected export names, and their role in module 
 | `index.ts` | `metadata: ModuleInfo` | MUST NOT rename export or change `ModuleInfo` shape in a breaking way |
 | `acl.ts` | `features: Array<{id,title,module}>` | MUST NOT change array item shape; may add optional fields |
 | `setup.ts` | `setup: ModuleSetupConfig` | MUST NOT remove hooks (`onTenantCreated`, `seedDefaults`, `seedExamples`, `defaultRoleFeatures`); may add optional hooks |
+| `runtime.ts` | `runtime: ModuleRuntime` (or default export) | MUST NOT change `ModuleRuntime` required members (`start`) or the `ModuleRuntimeContext` / `ModuleRuntimeHandle` shape; may add optional fields and additional `ModuleRuntimeRole` values |
 | `ce.ts` | `entities: CustomEntitySpec[]` | MUST NOT change `CustomEntitySpec` required fields; may add optional fields |
 | `search.ts` | `searchConfig: SearchModuleConfig` | MUST NOT change `SearchEntityConfig` required fields; may add optional fields |
 | `events.ts` | `eventsConfig` via `createModuleEvents()` | MUST NOT change `EventDefinition` required fields (`id`, `label`); may add optional fields |
@@ -99,6 +100,8 @@ These exported types are consumed by module developers. Required fields MUST NOT
 - `ModuleOverrides`: `overrides.ai.agents`, `overrides.ai.tools`, and `overrides.ai.extensions` shapes are STABLE; other domain keys are reserved by the unified override contract and may be wired additively. `nav` was wired 2026-07-30 under that clause (see [spec](.ai/specs/2026-07-30-nav-group-order-override-domain.md)): `overrides.nav.groupOrder` **prepends** sidebar nav group ids ahead of the built-in `defaultGroupOrder`, and ids it does not name keep their existing position. It is a default applied *beneath* role and per-user sidebar preferences, so an operator's own arrangement still wins. With no override configured, group ordering is byte-identical to before — that guarantee MUST hold for any future change to this domain.
 - `ModulesRegisteredListener` (`@open-mercato/shared/lib/modules/registry`): added 2026-08-12 as `(modules: Module[]) => void | PromiseLike<void>` (see [spec](.ai/specs/2026-08-12-module-registry-registration-listeners.md)). The listener MUST keep receiving the reconciled module list, and the return type MUST NOT be narrowed back to `void` — a subscriber returning a promise is supported and its rejection is observed and logged rather than escaping into bootstrap.
 - `WorkerMeta`: `queue` — MUST NOT remove
+- `TelemetryProvider` (`@open-mercato/telemetry`): `name`, `supports`, `start`, `shutdown`, `runInSpan`, `activeSpan`, `activeTraceContext`, `inject`, `runInRemoteSpan`, `emitLog`, `recordMetric` — MUST NOT remove. `reportError?()` was added 2026-09-08 as an additive OPTIONAL method (see [spec](.ai/specs/2026-09-08-error-reporting-policy.md)); it **MUST stay optional** — third parties implement this interface and a required method would break every existing provider. The facade calls it as `provider.reportError?.(…)` *in addition to* the span/log/metric path, so a provider that omits it loses nothing.
+- `ReportErrorContext` (`@open-mercato/telemetry`) and the `reportError` context of `TelemetryRuntime` (`@open-mercato/shared/lib/telemetry/runtime`): `module?` and `attributes?` — MUST NOT remove. `code?: string` was added 2026-09-08 as an additive optional field carrying the enumerated `module.reason` fingerprint the backend groups on; it MUST stay optional so existing callers (the API dispatcher, the CRUD factory) keep compiling and keep emitting exactly what they emit today. `om.errors` gains an `error.code` label only when a caller supplies one — the same attribute name the span and the log record use, so one query works against all three.
 - `RefreshCredentialsInput` (communication_channels hub): `channelId`, `credentials`, `scope` — MUST NOT remove. `oauthClient?` was added 2026-05-27 as an additive optional field (see [Spec A](.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md)). The legacy `credentials._client` read path in the Gmail adapter is **deprecated and slated for removal in the next minor release** — pass OAuth client config via `RefreshCredentialsInput.oauthClient` instead.
 - `OAuthClientConfig` (communication_channels hub): added 2026-05-27 with `clientId` required; optional `clientSecret`, `tenantId`, `scopes`. New optional fields may be added; required `clientId` MUST NOT be removed.
 - `BackendChromePayload`: `groups`, `settingsSections`, `settingsPathPrefixes`, `profileSections`, `profilePathPrefixes`, `grantedFeatures`, `roles` — MUST NOT remove. `currentOrganization?` (`BackendChromeCurrentOrganization | null`) was added 2026-07-30 as an additive optional field (see [spec](.ai/specs/2026-07-30-backend-chrome-current-organization.md)); it is `null` under an all-organizations selection, when no organization is in scope, and when the lookup fails, so consumers MUST treat `null` as "unknown" rather than "no organization". `brand?` is **unchanged** and remains the branding channel — it populates only when the organization has a `logoUrl`, and `currentOrganization` does not supersede it.
@@ -356,6 +359,22 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 
 ---
 
+## CRUD Foreign-Key Violations Answer 409 (2026-09-07)
+
+Deleting a user who had customised their sidebar failed on the `user_sidebar_preferences` / `sidebar_variants` foreign keys and surfaced as a generic `500`. The fix clears those rows in `auth.users.delete`, gives both FKs `ON DELETE CASCADE`, and teaches `makeCrudRoute` to recognise a Postgres foreign-key violation (SQLSTATE 23503). **All changes are additive** and pass the contract-surface checks above:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Import path / exports (`@open-mercato/shared/lib/db/pg-errors`) | New exports `isForeignKeyViolation(err)` and `getForeignKeyViolationConstraint(err)` | ✓ ADDITIVE (new exports, nothing removed or renamed) |
+| HTTP response shapes (`makeCrudRoute` handlers) | A handler that throws a Postgres foreign-key violation now answers `409 { error, code: 'FOREIGN_KEY_VIOLATION', requestId }` with an `x-request-id` header, where it previously answered the generic `500 { error, message, requestId }`. The constraint name is logged and reported to telemetry but never returned to the client. Every other error class keeps its byte-identical historical answer | ⚠️ Behaviour change for one error class only. No retained response loses a field, but a client that treated the old `500` as retryable now receives a non-retryable `409`. Regression-tested in `crud-factory.test.ts` |
+| Database schema (`user_sidebar_preferences_user_id_foreign`, `sidebar_variants_user_id_foreign`) | Both constraints are dropped and recreated with `on update cascade on delete cascade` (`Migration20260907120000_auth`). No table or column is added, renamed, removed or retyped, and `down()` restores each constraint to its original definition | ✓ ADDITIVE-ONLY compatible (delete behaviour widened, nothing narrowed) |
+| Command behaviour (`auth.users.delete`, `auth.users.create` undo) | The dependent-row cascade also clears `user_sidebar_preferences` and `sidebar_variants`. Those rows are not captured by `UserUndoSnapshot`, so undoing a user delete restores the user, roles, ACLs and custom fields but not the sidebar customisation. `user_consents` is deliberately left untouched | ✓ Behaviour-preserving for every delete that succeeded before; deletes that previously failed with `500` now succeed |
+| Event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
+
+**Migration path for existing modules**: no action required. A client that branched on `5xx` for foreign-key failures should treat `409` with `code: 'FOREIGN_KEY_VIOLATION'` as the same condition; it was never retryable.
+
+---
+
 ## Module Registry Registration Listeners (2026-08-12)
 
 [`.ai/specs/2026-08-12-module-registry-registration-listeners.md`](.ai/specs/2026-08-12-module-registry-registration-listeners.md) adds a public subscription to the module registry so a cache derived from the module list can drop what it built from an incomplete one ([#5103](https://github.com/open-mercato/open-mercato/issues/5103)). **All changes are additive** and pass the contract-surface checks above:
@@ -399,3 +418,39 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 **Why the deprecation protocol does not apply.** The protocol exists to give downstream authors a bridge release. Here the request shape being removed *is* the vulnerability: both values it compared are disclosed by the server, so a bridge would keep the passkey second factor bypassable for a minor version in both login MFA and sudo step-up. A security fix that leaves the hole open is not a fix.
 
 **Migration path.** Send `startAuthentication()` output as `payload.response`. The first-party `PasskeyChallengeVerify` component already does, so shipped UIs are unaffected. Credentials enrolled through the setup path's client-supplied `publicKey` shortcut are **not** reliably rendered unusable by this change — depending on what the client supplied, such a row holds either a key nobody can sign with or a keypair the enroller controls, and the second kind produces assertions this change accepts. That shortcut is a separate open surface (#5296); operator-facing remediation is in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
+
+## Data Sync Start Control Applicability (2026-09-02)
+
+[`.ai/specs/2026-09-02-data-sync-adapter-start-controls.md`](.ai/specs/2026-09-02-data-sync-adapter-start-controls.md) lets a `DataSyncAdapter` declare, per entity type, which of the Data Sync dashboard's manual-start controls apply, so the dashboard stops offering controls that cannot mean anything for the selected entity type. **All changes are additive** and pass the contract-surface checks above:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Type definitions (§2) | New optional method `DataSyncAdapter.supportsStartControl?(control, entityType)`; new exported type `DataSyncStartControl = 'fullSync' \| 'batchSize'` | ✓ ADDITIVE (optional member, new type — same shape as the `persistsSharedCursor` and `runParameters` additions before it) |
+| Import paths (§4) | New module `data_sync/lib/start-controls.ts` exporting `resolveStartControlMap`, `applicableStartControls`, `StartControlMap`, `StartControlApplicability`, `DATA_SYNC_START_CONTROLS` | ✓ ADDITIVE (new path; nothing moved or re-exported) |
+| API route URLs (§7) | `GET /api/data_sync/options` items gain a `startControls` object; `POST /api/data_sync/run` is unchanged and keeps honouring `fullSync` and `batchSize` whatever an adapter declares | ✓ ADDITIVE (new optional response field, no request-shape change) |
+| Auto-discovery, function signatures, event IDs, widget spot IDs, DB schema, DI names, ACL features, notification IDs, CLI commands, generated files | No change | ✓ n/a |
+
+**Contract commitments**: only an explicit `false` removes a control, so an adapter that declares nothing — or whose predicate returns anything else — renders the same form and sends the same request body as before. A predicate that throws is treated as *applies*, because `api/options.ts` resolves every registered adapter in one response and one broken predicate must not take the dashboard down for the rest. The `startControls` map is sparse and keyed only by the adapter's own `supportedEntities`; a missing entry means every control applies, so a client that ignores the field behaves exactly as today. The declaration governs what the dashboard **offers**, never what the run API **accepts** — that separation MUST hold for any future change here, or an API client posting `fullSync: true` would silently stop getting a full run.
+
+**Migration path for existing adapters**: none. The method is optional and defaults to prior behaviour.
+
+## Error Reporting Policy (2026-09-08)
+
+Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-error-reporting-policy.md). Every change is additive; no existing path emits less than it did before.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| `TelemetryProvider` | Optional `reportError?()` added, called in addition to the span/log/metric path. MUST stay optional — third parties implement this interface | ✓ ADDITIVE |
+| `ReportErrorContext` / `TelemetryRuntime['reportError']` context | Optional `code?: string` fingerprint added | ✓ ADDITIVE |
+| `data_sync.run.completed` payload | Optional `createdCount`, `updatedCount`, `skippedCount`, `failedCount` added; no existing field changed (§5 permits additive payload fields) | ✓ ADDITIVE |
+| `integration_logs` rows at `level: 'error'` | Also reported to the active telemetry backend (message, `code`, ids — never `payload`). With telemetry off, one global lookup and no behaviour change | ✓ ADDITIVE |
+| `queue` failure paths, `data_sync` engine | Existing `logger.error` lines keep their text and gain a `reportError` call with a `code` | ✓ ADDITIVE |
+| `reportError`'s `code` | A value that is not shaped `module.reason` is dropped rather than published, so it cannot become an unbounded, unredacted metric label. No in-repo caller passes one; a caller that did reported exactly as one passing no `code`, which is the pre-PR behaviour | ✓ ADDITIVE |
+| `integration_logs` message text for the payment status poller and the Stripe webhook processor | The failure cause moves from `payload` **into** the message (`Payment status polling failed: {cause}`), because the payload is deliberately never reported. `payload` keeps the same fields | ✓ ADDITIVE (row content, no schema or field change) |
+| `integration_logs.code` for the payment status poller | Previously `null`, now `payment_gateways.status_poll_failed`, so it groups apart from the `integrations.log_error` catch-all. The column and its API field already existed | ✓ ADDITIVE (a value where there was none) |
+| `IntegrationLogError` (`core:integrations`), `SyncRunPartialFailureError` (`core:data_sync`) | New exported error classes | ✓ ADDITIVE |
+| API route URLs, response schemas, database schema, event IDs, ACL features, DI names, CLI commands, env vars | No change — the policy adds no configuration | ✓ n/a |
+
+**Operator note — terminal queue failures.** Not a contract break, but visible in an alert rule: on the **local** strategy a job's final attempt previously emitted both `queue.job_failed` and `queue.job_exhausted`; it now emits only `queue.job_exhausted`, matching the `async` strategy. An alert thresholding on `queue.job_failed` alone stops seeing terminal failures — page on `queue.job_exhausted`.
+
+**Volume note for operators.** Reported error *volume* rises where errors were previously only recorded: an integration that writes 115 error rows now also reports 115 errors, grouped by `error.code` at the backend. This is deliberate — see the spec's §S3 — and the controls are the collector's filtering/sampling and the backend's own quotas, not a framework switch.

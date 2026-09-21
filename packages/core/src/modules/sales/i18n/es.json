@@ -1139,6 +1139,7 @@
   "sales.documents.list.table.unassigned": "Sin asignar",
   "sales.documents.payments.add": "Agregar pago",
   "sales.documents.payments.amount": "Importe",
+  "sales.documents.payments.amountInvalid": "Introduce el importe como un número.",
   "sales.documents.payments.amountRequired": "Introduce un importe positivo.",
   "sales.documents.payments.created": "Pago registrado.",
   "sales.documents.payments.createdAt": "Creado",
@@ -1490,5 +1491,6 @@
   "sales.widgets.newQuotes.settings.last24h": "Últimas 24 horas",
   "sales.widgets.newQuotes.settings.last30d": "Últimos 30 días",
   "sales.widgets.newQuotes.settings.last7d": "Últimos 7 días",
-  "sales.widgets.newQuotes.settings.pageSize": "Número de cotizaciones"
+  "sales.widgets.newQuotes.settings.pageSize": "Número de cotizaciones",
+  "sales.workflows.commands.orders.update": "Actualizar pedido de venta"
 }

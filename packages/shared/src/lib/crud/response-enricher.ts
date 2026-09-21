@@ -93,11 +93,33 @@ export interface ResponseEnricher<TRecord = any, TEnriched = any> {
   /** Tenant IDs where this enricher should be disabled. */
   disabledTenantIds?: string[]
 
-  /** Optional cache configuration for read-through enrichment results. */
+  /**
+   * Optional cache configuration for read-through enrichment results.
+   *
+   * The runner caches the **additive delta** — the keys this enricher adds to a
+   * record — not the record itself, so a cache hit still serves freshly-read
+   * base fields and cannot overwrite what an earlier enricher in the chain
+   * contributed. That makes the cache usable only by an enricher whose output is
+   * purely additive: one that changes or drops a key the record already carried
+   * is never cached and simply re-runs on every request. Declaring `cache` on
+   * such an enricher is silently a no-op rather than an error, so an enricher
+   * that appears never to cache is usually mutating an existing key.
+   */
   cache?: {
     strategy: 'read-through'
     ttl: number
     tags?: string[]
+    /**
+     * NOT IMPLEMENTED — nothing in the runner reads this field, so declaring it
+     * has no effect and an enricher relying on it will serve stale enrichment
+     * until the TTL expires. It is kept rather than removed so any existing
+     * declaration keeps compiling.
+     *
+     * Wire invalidation with an event subscriber that calls `deleteByTags` on
+     * the tags above; see
+     * `packages/core/src/modules/wms/subscribers/invalidate-enricher-cache-*.ts`
+     * for the reference implementation.
+     */
     invalidateOn?: string[]
   }
 
