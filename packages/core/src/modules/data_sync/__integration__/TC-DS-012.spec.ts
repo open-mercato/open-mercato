@@ -81,8 +81,9 @@ test.describe('TC-DS-012: Data sync run resume point', () => {
       expect(uncommittedDetailBody.initialCursor).toBeNull()
       expect(uncommittedDetailBody.batchesCompleted).toBe(0)
 
-      // The list row menu renders the same resume point without opening the
-      // run, so the list endpoint carries the same three fields.
+      // No surface reads these from the list — D8 keeps the resume point on the
+      // detail page alone. Asserted as a contract guard: the fields are public
+      // on this endpoint and must not disappear if a surface starts using them.
       const listResponse = await apiRequest(
         request,
         'GET',

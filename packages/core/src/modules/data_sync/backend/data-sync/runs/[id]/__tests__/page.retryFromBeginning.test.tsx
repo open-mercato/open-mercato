@@ -36,8 +36,8 @@ jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
  * list — a mock that renders a wrapper regardless would hide exactly the
  * regression these tests exist to catch.
  */
-jest.mock('@open-mercato/ui/backend/RowActions', () => ({
-  RowActions: ({ items }: { items?: Array<{ id?: string; label: string; onSelect?: () => void }> }) => (
+jest.mock('@open-mercato/ui/backend/forms/ActionsDropdown', () => ({
+  ActionsDropdown: ({ items }: { items?: Array<{ id?: string; label: string; onSelect?: () => void }> }) => (
     !items || items.length === 0 ? null : (
       <div data-testid="overflow">
         {items.map((item, index) => (

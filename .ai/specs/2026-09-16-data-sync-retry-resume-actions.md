@@ -291,11 +291,11 @@ a client-side correction, not an API change.
 Returns `cursor`, `initialCursor` and `batchesCompleted` per row. It does **not** return `parameters`,
 and it does not need to — see the next section.
 
-It also does not return a progress job, so a list row has no batch total. The row therefore reads
-"Retry (resumes from batch 41)" with no denominator, while the detail page reads "batch 41 of ~118".
-Joining progress jobs into the list query to recover the denominator is rejected: it would add a query
-per page render to put an approximate number in a menu sub-label the operator can get exactly by
-opening the run.
+It also does not return a progress job, so a list row has no batch total. Neither surface carries a
+denominator: the row names the action alone (**D8**) and the detail page states the batch number
+without "of ~118" (§ Architecture 1b). Joining progress jobs into the list query to recover a
+denominator is rejected regardless: it would add a query per page render to put an approximate number
+where the operator can get an exact one by opening the run.
 
 ### `POST /api/data_sync/runs/[id]/retry` — unchanged
 
@@ -693,6 +693,21 @@ cover, create their own fixtures, clean up in teardown, and depend on no seeded 
 
 ## Changelog
 
+- **2026-09-21** — **Code-review fixes (PR #6187).** Two corrections, neither changing a decision:
+  1. **The `?from=` prefill now seeds its parameters on the dashboard's own path.** The parameter effect
+     was keyed on the `runParameters` memo alone, whose identity does not change when the seeded run
+     carries the integration, entity type and direction the form already holds — the single-integration
+     case the row menu's **Run again…** hits directly. The seed token moved from a ref into state and
+     into that effect's dependencies, so a new seed re-runs it on its own; the token is a counter rather
+     than `Date.now()`, so two clicks inside one millisecond still mint distinct tokens. It is never
+     cleared: clearing it would re-run the effect with no seed and reset the operator's own edits.
+  2. **The detail page's overflow uses `ActionsDropdown`, not `RowActions`** — `packages/ui/AGENTS.md`
+     § UI Interaction already routes `FormHeader mode="detail"` context actions there, and that sibling
+     carries the #3580 sizing fix (`min-w-52 w-max max-w-xs` plus `whitespace-normal` items). So the
+     residual below is now **list-page only**. Qualifying the last line of that entry: whatever
+     `ActionsDropdown` measures at rest, it does not paint a long label outside its border — its items
+     are `whitespace-normal h-auto` inside a `max-w-xs` menu, so they wrap. Its resting width was not
+     re-measured here; that is cosmetic, not the overflow defect.
 - **2026-09-17** — **D8**, taken against a running instance during manual test-drive rather than on
   paper. The resume point is removed from the runs list entirely. `RowActions` fixes its menu at `w-44`
   (176px) and renders every item through a `whitespace-nowrap` `Button`, so a label longer than roughly
@@ -709,7 +724,8 @@ cover, create their own fixtures, clean up in teardown, and depend on no seeded 
   and accepted: **US-A1's "see where a retry will resume before pressing it" now requires opening the
   run**, one click further than the story asked for. `lib/resume-point.ts` is unchanged — the helper and
   its contract were never the problem.
-- **2026-09-17** — **Known residual, deliberately not fixed here.** Two shipped row-menu labels still
+- **2026-09-17** — **Known residual, deliberately not fixed here** (since 2026-09-21 the **runs list**
+  row menu only; the detail page moved to `ActionsDropdown`). Two shipped row-menu labels still
   exceed what `RowActions` can render: `Retry from the beginning` (24 characters) and the Spanish
   `Reintentar desde el principio` (29), against a box that holds roughly 22. The menu is a fixed `w-44`
   (176px) whose items inherit `whitespace-nowrap` from the `Button` primitive, so an over-long label

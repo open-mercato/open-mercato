@@ -23,7 +23,7 @@ import { getSyncRunStatusVariant } from '../../../../lib/syncRunStatus'
 import { resolveResumePoint } from '../../../../lib/resume-point'
 import { applicableStartControls, type StartControlMap } from '../../../../lib/start-controls'
 import { useDataSyncRunAccess } from '../../../../components/useDataSyncRunAccess'
-import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { ActionsDropdown } from '@open-mercato/ui/backend/forms/ActionsDropdown'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   buildRetryFailureMessage,
@@ -450,9 +450,12 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
                       : t('data_sync.runs.detail.retry')}
                   </Button>
                 ) : null}
-                {/* RowActions renders nothing for an empty list, so an
-                    overflow with no items never appears. */}
-                <RowActions items={overflowActions} />
+                {/* The detail page's overflow is `FormHeader mode="detail"`'s
+                    menuActions surface, so it uses ActionsDropdown — which sizes
+                    to its content (#3580) where RowActions' fixed w-44 paints
+                    "Retry from the beginning" outside the menu. It also renders
+                    nothing for an empty list, so an empty overflow stays absent. */}
+                <ActionsDropdown items={overflowActions} triggerMode="icon" />
               </div>
               {resumePoint.kind === 'resumes' ? (
                 <p className="flex flex-wrap items-center justify-end gap-1 text-xs text-muted-foreground">
@@ -468,7 +471,9 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
                   {t('data_sync.runs.detail.runAgain.hint', "Opens the start form with this run's settings")}
                 </p>
               ) : null}
-              {resumePoint.kind !== 'none' && !canReplayFromStart ? (
+              {/* Gated like the Run-again hint above: it explains an action a
+                  `data_sync.view`-only operator never sees. */}
+              {canRunSync && resumePoint.kind !== 'none' && !canReplayFromStart ? (
                 <p className="flex max-w-prose items-start justify-end gap-1 text-right text-xs text-muted-foreground">
                   <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                   <span>
