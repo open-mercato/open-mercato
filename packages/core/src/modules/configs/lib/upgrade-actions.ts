@@ -21,6 +21,12 @@ export type UpgradeActionDefinition = {
   ctaKey: string
   successKey: string
   loadingKey?: string
+  /**
+   * Modules that must be enabled for this action to be offered/executed.
+   * Mirrors `InjectionWidgetMetadata.requiredModules` — omit for actions
+   * owned by `configs` itself.
+   */
+  requiredModules?: string[]
   run: (ctx: UpgradeActionContext) => Promise<void>
 }
 
@@ -119,6 +125,7 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     ctaKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.cta',
     successKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.success',
     loadingKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.loading',
+    requiredModules: ['payment_gateways'],
     run: async ({ container, tenantId, organizationId }) => {
       const { registerSessionInitializationPruneSchedule } = await import(
         '@open-mercato/core/modules/payment_gateways/setup'
