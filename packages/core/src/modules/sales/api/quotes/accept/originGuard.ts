@@ -1,5 +1,5 @@
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
-import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
+import { getAppBaseUrl, isEquivalentLoopbackOrigin } from '@open-mercato/shared/lib/url'
 
 export type SameOriginViolation = {
   reason: 'missing-origin' | 'invalid-origin' | 'cross-origin'
@@ -68,6 +68,13 @@ export function validateSameOriginMutationRequest(
   try {
     const normalizedRequestOrigin = new URL(requestOrigin).origin
     if (normalizedRequestOrigin === expectedOrigin) {
+      return null
+    }
+
+    // The configured APP_URL and the address a request actually arrives on can
+    // both be loopback (localhost vs. 127.0.0.1 on the same port) without either
+    // side being attacker-controlled — treat those as the same origin.
+    if (isEquivalentLoopbackOrigin(normalizedRequestOrigin, expectedOrigin)) {
       return null
     }
 

@@ -51,4 +51,33 @@ describe('validateSameOriginMutationRequest', () => {
 
     expect(validateSameOriginMutationRequest(req)).toBeNull()
   })
+
+  it('allows a loopback Origin that differs only in hostname (127.0.0.1 vs localhost) from APP_URL on the same port', () => {
+    // Ephemeral test/dev harnesses commonly set APP_URL to one loopback alias
+    // (e.g. http://127.0.0.1:5037) while the client actually reaches the app via
+    // another (http://localhost:5037). Neither side is attacker-controlled here.
+    process.env.APP_URL = 'http://127.0.0.1:5037'
+    delete process.env.NEXT_PUBLIC_APP_URL
+
+    const req = makeRequest('http://127.0.0.1:5037/api/sales/quotes/accept', {
+      origin: 'http://localhost:5037',
+    })
+
+    expect(validateSameOriginMutationRequest(req)).toBeNull()
+  })
+
+  it('still rejects loopback origins on different ports', () => {
+    process.env.APP_URL = 'http://127.0.0.1:5037'
+    delete process.env.NEXT_PUBLIC_APP_URL
+
+    const req = makeRequest('http://127.0.0.1:5037/api/sales/quotes/accept', {
+      origin: 'http://localhost:4000',
+    })
+
+    expect(validateSameOriginMutationRequest(req)).toEqual({
+      reason: 'cross-origin',
+      requestOrigin: 'http://localhost:4000',
+      expectedOrigin: 'http://127.0.0.1:5037',
+    })
+  })
 })

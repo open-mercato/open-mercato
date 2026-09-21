@@ -179,7 +179,7 @@ function normalizeOriginPort(url: URL): string {
   return ''
 }
 
-function isEquivalentLoopbackOrigin(origin: string, allowedOrigin: string): boolean {
+export function isEquivalentLoopbackOrigin(origin: string, allowedOrigin: string): boolean {
   try {
     const candidateUrl = new URL(origin)
     const allowedUrl = new URL(allowedOrigin)
