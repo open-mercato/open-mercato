@@ -66,4 +66,28 @@ describe('ensureInboxSettings', () => {
     const [, data] = em.create.mock.calls[0]
     expect(data.inboxAddress).toBe(`ops-${SCOPE.organizationId.slice(0, 8)}@ops.example.com`)
   })
+
+  it('refetches the winner instead of throwing when two bootstraps race (issue #6232)', async () => {
+    const winner = { id: 'settings-winner', inboxAddress: 'ops-abc@inbox.mercato.local', isActive: true }
+    mockFindOneWithDecryption
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(winner)
+    const em = createMockEm()
+    const conflict = Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' })
+    em.flush.mockRejectedValueOnce(conflict)
+
+    const result = await ensureInboxSettings(em as never, SCOPE)
+
+    expect(result).toBe(winner)
+    expect(mockFindOneWithDecryption).toHaveBeenCalledTimes(2)
+  })
+
+  it('rethrows a flush error that is not a unique-constraint violation', async () => {
+    mockFindOneWithDecryption.mockResolvedValue(null)
+    const em = createMockEm()
+    const boom = new Error('connection reset')
+    em.flush.mockRejectedValueOnce(boom)
+
+    await expect(ensureInboxSettings(em as never, SCOPE)).rejects.toThrow('connection reset')
+  })
 })
