@@ -122,7 +122,14 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'checkout', from: '@open-mercato/checkout' },
   { id: 'documents', from: '@open-mercato/documents' },
   { id: 'gateway_stripe', from: '@open-mercato/gateway-stripe' },
-  { id: 'gateway_autopay', from: '@open-mercato/gateway-autopay' },
+  // Autopay hosted-redirect PLN payment gateway. The package ships with the
+  // scaffold but stays disabled by default: the existing checkout submit route
+  // does not yet pass the payer email or the settled provider transaction id
+  // this adapter needs (see .ai/specs/2026-09-10-autopay-hosted-pln-payment-sessions.md),
+  // and the hosted-session redirect transport has not been verified against a
+  // live Autopay sandbox. Enabling it here is a deliberate follow-up once both
+  // are resolved, not a one-line edit.
+  // { id: 'gateway_autopay', from: '@open-mercato/gateway-autopay' },
   // Per-user email channels for the Communications Hub (SPEC-045d / email
   // integration spec). Each provider package registers its `ChannelAdapter`
   // at import time via `setup.ts`; the hub picks them up by `providerKey`.
