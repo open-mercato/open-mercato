@@ -75,7 +75,7 @@ import { loadGeneratedFieldRegistrations } from './fields/registry'
 import type { CustomFieldDefDto, CustomFieldDefinitionsPayload, CustomFieldsetDto } from './utils/customFieldDefs'
 import { isDefVisible } from './utils/customFieldDefs'
 import { buildFormFieldsFromCustomFields, buildFormFieldFromCustomFieldDef } from './utils/customFieldForms'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useOptionalLocale } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
 import { ComboboxInput } from './inputs/ComboboxInput'
 import { format } from 'date-fns/format'
@@ -96,6 +96,7 @@ import { useInjectionSpotEvents, InjectionSpot, useInjectionWidgets } from './in
 import { dispatchBackendMutationError } from './injection/mutationEvents'
 import { VersionHistoryAction } from './version-history/VersionHistoryAction'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { parseLocaleNumber, resolveLocaleNumberSeparators } from '@open-mercato/shared/lib/number'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
@@ -377,6 +378,17 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   embedded?: boolean
   // Hide the footer action bar (Save/Cancel/Delete) when embedding in a custom layout
   hideFooterActions?: boolean
+  /**
+   * Vertical rhythm of the form body.
+   *
+   * `default` is the page-width layout every existing host renders today and is
+   * unchanged byte-for-byte. `compact` tightens the between-group and
+   * between-field spacing and the group-card padding for narrow hosts — a docked
+   * inspector rail, a side panel — where the page rhythm reads as airy and costs
+   * the host a third of its column. It changes SPACING only: no label, helper
+   * text, control size or copy differs between the two.
+   */
+  density?: 'default' | 'compact'
   /**
    * Opt-in: track dirty state even when `embedded` is true, AND enable the form's built-in
    * navigation protection (beforeunload, link-click intercept, pushState/replaceState/popstate).
@@ -737,6 +749,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   loadingMessage,
   customEntity = false,
   embedded = false,
+  density = 'default',
   hideFooterActions = false,
   trackDirtyWhenEmbedded = false,
   onDirtyChange,
@@ -1329,6 +1342,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   // handles the overflow case on its own: when content scrolls, the footer stays pinned
   // to the dialog's bottom and the user can scroll fields above it.
   const dialogFormPadding = ''
+  // One step down the DS scale each, never an arbitrary value. `default` returns
+  // the exact strings that were inline before this prop existed.
+  const isCompactDensity = density === 'compact'
+  const densityStackLg = isCompactDensity ? 'space-y-3' : 'space-y-4'
+  const densityStackMd = isCompactDensity ? 'space-y-2' : 'space-y-3'
+  const densityCardPadding = isCompactDensity ? 'p-3' : 'p-4'
+  const densityGroupCardPadding = isCompactDensity ? 'px-3 py-2' : 'px-4 py-3'
 
   const buildCustomFieldsManageHref = React.useCallback(
     (targetEntityId: string | null) => {
@@ -3344,7 +3364,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           const sectionKey = `${entityLayout.entityId}:${section.fieldsetCode ?? 'default'}`
           const manageDisabled = !manageHref
           nodes.push(
-            <div key={sectionKey} className="rounded-lg border bg-card p-4 space-y-4">
+            <div key={sectionKey} className={`rounded-lg border bg-card ${densityCardPadding} ${densityStackLg}`}>
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-2">
                   {FieldsetIcon ? (
@@ -3586,7 +3606,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 fieldCount={customFieldCount}
                 chevronPosition={collapsibleChevronPosition}
               >
-                <div className="space-y-3">
+                <div className={densityStackMd}>
                   {customFieldsInnerNodes}
                 </div>
               </CollapsibleGroup>,
@@ -3640,14 +3660,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               fieldCount={groupFields.length}
               chevronPosition={collapsibleChevronPosition}
             >
-              <div className="space-y-3">
+              <div className={densityStackMd}>
                 {groupContent}
               </div>
             </CollapsibleGroup>,
           )
         } else {
           nodes.push(
-            <div key={g.id} className="rounded-lg border bg-card px-4 py-3 space-y-3">
+            <div key={g.id} className={`rounded-lg border bg-card ${densityGroupCardPadding} ${densityStackMd}`}>
               {g.title ? (
                 <div className="text-sm font-medium">{t(g.title, g.title)}</div>
               ) : null}
@@ -3702,7 +3722,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           className={embedded ? 'min-h-[1px]' : 'min-h-[400px]'}
         >
           {wrapFormBody(
-            <form id={formId} onSubmit={handleSubmit} className={`space-y-4 ${dialogFormPadding}`}>
+            <form id={formId} onSubmit={handleSubmit} className={`${densityStackLg} ${dialogFormPadding}`}>
             {resolvedInjectionSpotId ? (
               <InjectionSpot
                 spotId={resolvedInjectionSpotId}
@@ -3721,13 +3741,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               {sortableGroupsEnabled ? (
                 <DndContext sensors={sortableSensors} collisionDetection={closestCenter} onDragEnd={handleGroupDragEnd}>
                   <SortableContext items={col1Ids} strategy={verticalListSortingStrategy}>
-                    <div className="space-y-3">{col1Content}</div>
+                    <div className={densityStackMd}>{col1Content}</div>
                   </SortableContext>
                 </DndContext>
               ) : (
-                <div className="space-y-3">{col1Content}</div>
+                <div className={densityStackMd}>{col1Content}</div>
               )}
-              {hasSecondaryColumn ? <div className="space-y-3" data-crud-injection-region>{col2Content}</div> : null}
+              {hasSecondaryColumn ? <div className={densityStackMd} data-crud-injection-region>{col2Content}</div> : null}
             </div>
             {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
             {hideFooterActions || formReadOnly ? null : (
@@ -3789,7 +3809,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           <form
             id={formId}
             onSubmit={handleSubmit}
-            className={`${embedded ? 'space-y-4' : 'rounded-lg border bg-card p-4 space-y-4'} ${dialogFormPadding}`}
+            className={`${embedded ? densityStackLg : `rounded-lg border bg-card ${densityCardPadding} ${densityStackLg}`} ${dialogFormPadding}`}
           >
             {resolvedInjectionSpotId ? (
               <InjectionSpot
@@ -4036,14 +4056,23 @@ function NumberInput({
   autoFocus?: boolean
   onSubmit?: () => void
 }) {
+  const locale = useOptionalLocale()
   const serializedValue = value !== undefined && value !== null ? String(value) : ''
   const [local, setLocal] = React.useState<string>(serializedValue)
   const isFocusedRef = React.useRef(false)
+  // Users type the separator the surrounding UI displays, which follows the application
+  // locale — `110,70` under Polish. `Number()` only ever accepted `.` (issue #5552).
+  const parse = React.useCallback(
+    (raw: string): number | undefined => {
+      if (raw === '') return undefined
+      return parseLocaleNumber(raw, locale) ?? undefined
+    },
+    [locale],
+  )
   const commitIfChanged = React.useCallback(() => {
     if (local === serializedValue) return
-    const numValue = local === '' ? undefined : Number(local)
-    onChange(numValue)
-  }, [local, onChange, serializedValue])
+    onChange(parse(local))
+  }, [local, onChange, parse, serializedValue])
   
   React.useEffect(() => {
     // Only sync from props when not focused to avoid caret jumps
@@ -4055,17 +4084,31 @@ function NumberInput({
   const handleChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const next = e.target.value
     setLocal(next)
-    const numValue = next === '' ? undefined : Number(next)
-    onChange(numValue)
-  }, [onChange])
+    onChange(parse(next))
+  }, [onChange, parse])
 
   const handleKeyDown = React.useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       commitIfChanged()
       onSubmit?.()
+      return
     }
-  }, [commitIfChanged, onSubmit])
+    // A text input has no native spinner, so keep the step affordance the previous
+    // type="number" field offered.
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault()
+      // Binary floating point puts 8.2 - 1 at 7.199999999999999; the native spinner
+      // re-serialized against the step rather than committing that to form state.
+      const base = parse(local) ?? 0
+      const stepped = Number((base + (e.key === 'ArrowUp' ? 1 : -1)).toFixed(10))
+      // The box must keep showing the separator the rest of the UI displays, which is
+      // the application locale's — not the dot String() always emits (issue #5552).
+      const { decimal } = resolveLocaleNumberSeparators(locale)
+      setLocal(decimal === '.' ? String(stepped) : String(stepped).replace('.', decimal))
+      onChange(stepped)
+    }
+  }, [commitIfChanged, local, locale, onChange, onSubmit, parse])
   
   const handleFocus = React.useCallback(() => {
     isFocusedRef.current = true
@@ -4077,8 +4120,15 @@ function NumberInput({
   }, [commitIfChanged])
   
   return (
+    // type="text" rather than type="number": the browser sanitizes a type="number" value
+    // against the BROWSER locale, so it discards the separator the app locale displays
+    // before React ever sees it (issue #5552). inputMode keeps the mobile numeric keypad.
     <Input
-      type="number"
+      type="text"
+      inputMode="decimal"
+      // A text input is eligible for autofill and spellcheck; a number field is not.
+      autoComplete="off"
+      spellCheck={false}
       placeholder={placeholder}
       value={local}
       onChange={handleChange}
