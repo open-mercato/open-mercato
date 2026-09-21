@@ -234,25 +234,46 @@ opposite of the adjusting entry made in the previous period."*
    stored rate instead of always requiring manual entry — a coordination
    note for #6055, not a redesign (see Risks).
 
-8. **Legal grounding for base currency, and an explicit unverified
-   gap on the valuation rule itself.** Ustawa o rachunkowości, Art. 9
-   (checked directly against the extracted statute text): *"Księgi
-   rachunkowe prowadzi się w języku polskim i w walucie polskiej"*
-   (accounting books are kept in Polish and in Polish currency) —
-   confirms a Polish-registered tenant's base/functional currency is a
-   legal given (PLN), not a UI-configurable preference, which is why
-   `currencies.Currency.isBase` is treated as fixed per tenant
-   throughout this spec. **However**, the specific rule mandating
-   period-end revaluation of foreign-currency monetary balances (UoR
-   Art. 30, "wycena bilansowa") is **not** in the extracted statute
-   text available this session (which runs Art. 9 through roughly
-   Art. 25 — Rozdział 2 only, not Rozdział 4 "Wycena aktywów i
-   pasywów" where Art. 30 lives). This spec's revaluation design
-   (recognize unrealized gain/loss through P&L at each valuation date,
-   no equity/OCI deferral) is the working assumption based on general
-   double-entry practice and is flagged
-   **⚠ NEEDS HUMAN CONFIRMATION** pending the actual Art. 30 text —
-   same discipline as the Załącznik nr 1 flag in #6188.
+8. **Legal grounding for base currency, and Art. 30 now Confirmed —
+   closed 2026-09-21** (was flagged ⚠ NEEDS HUMAN CONFIRMATION; the
+   session's earlier extracted statute text ran only Art. 9 through
+   roughly Art. 25, not Rozdział 4 where Art. 30 lives). Ustawa o
+   rachunkowości, Art. 9 (checked directly against the extracted
+   statute text): *"Księgi rachunkowe prowadzi się w języku polskim i w
+   walucie polskiej"* (accounting books are kept in Polish and in
+   Polish currency) — confirms a Polish-registered tenant's base/
+   functional currency is a legal given (PLN), not a UI-configurable
+   preference, which is why `currencies.Currency.isBase` is treated as
+   fixed per tenant throughout this spec. **Art. 30 checked directly
+   against the current consolidated text** (Dz.U.2026.0.522, effective
+   21 August 2026; cross-checked across two independent sources,
+   lexlege.pl and przepisy.gofin.pl). Ust. 1: *"Nie rzadziej niż na
+   dzień bilansowy wycenia się wyrażone w walutach obcych: 1) składniki
+   aktywów (z wyłączeniem udziałów w jednostkach podporządkowanych
+   wycenianych metodą praw własności) i pasywów – po obowiązującym na
+   ten dzień średnim kursie ogłoszonym dla danej waluty przez Narodowy
+   Bank Polski, z zastrzeżeniem pkt 2; ..."* — confirms both halves of
+   this spec's working assumption were correct: valuation is required
+   **at least as of the balance-sheet date** ("nie rzadziej niż," this
+   spec's periodic revaluation trigger), at the **NBP average rate**
+   ("średni kurs ogłoszony... przez Narodowy Bank Polski"). Ust. 4:
+   *"Różnice kursowe dotyczące inwestycji długoterminowych wyrażonych w
+   walutach obcych... rozlicza się w sposób określony w art. 35, ust. 2
+   i 4. Różnice kursowe, z zastrzeżeniem ust. 5–7, dotyczące
+   pozostałych aktywów i pasywów wyrażonych w walutach obcych...
+   zalicza się odpowiednio do przychodów lub kosztów finansowych..."*
+   — confirms this spec's P&L-recognition design (financial income/
+   costs, no equity/OCI deferral) is correct for everything **except**
+   long-term investments (Art. 35 terms instead — out of scope here,
+   no long-term-investment revaluation designed in this spec). **New,
+   load-bearing consequence of this confirmation**: Art. 30 ust. 1
+   names the NBP **average rate** specifically — the exact "Table A"
+   rate this spec's own Design decision 9c already flagged
+   `NBPProvider` as never fetching (it fetches only Table C, bid/ask
+   commercial rates). That gap is now a **confirmed statutory
+   non-compliance risk**, not a speculative one — see the Risks entry
+   below, upgraded accordingly, and Implementation Plan Step 0, now
+   resolved.
 
 9. **Rate resolution: `currencyId` → code once per run, then a
    deterministic provider-priority pick from `RateResult.rates` — not
@@ -293,10 +314,12 @@ opposite of the adjusting entry made in the previous period."*
       case this spec already treats as the working assumption (Design
       decision 8). Default provider priority: `['NBP', 'Raiffeisen
       Bank Polska']` (NBP first, as the central-bank source; see
-      Design decision 8's Art. 30 flag for the separate, still-open
-      question of whether NBP's *Table A* average rate — which this
-      module's `NBPProvider` does not fetch at all, only NBP's Table C
-      bid/ask — is what Art. 30 actually requires). Configurable via
+      Design decision 8 — Art. 30 is now Confirmed to require NBP's
+      *Table A* average rate specifically, which this module's
+      `NBPProvider` does not fetch at all, only NBP's Table C bid/ask
+      — this priority-ordering policy remains correct as a *provider*
+      choice, but is not sufficient on its own until Table A support
+      is added, per Implementation Plan Step 0). Configurable via
       `ModuleConfigService` under `fx_revaluation.ratePriority`
       (ordered `source` list), same cross-module config pattern Cash &
       Bank Management already uses for its own account lookups. Any
@@ -812,18 +835,28 @@ line detail.
 
 ## Risks & Impact Review
 
-- **UoR Art. 30 text is unverified this session, and now has a second,
-  concrete open question layered on it** (Design decisions 8 and 9c):
-  even once Art. 30's wording is confirmed, `NBPProvider` only fetches
-  NBP's Table C (commercial bid/ask), never Table A (the average rate
-  Polish statutory practice generally associates with balance-sheet
-  valuation) — if Art. 30 specifically names the average rate, this
-  module's rate source would need a Table A fetcher added to
-  `currencies` (out of this document's own boundary, Design decision
-  1) before the rate-selection policy in Design decision 9 is fully
-  correct, not just internally consistent. Both points should be
-  confirmed against the actual statute (or an accountant) before
-  implementation locks either in.
+- **UoR Art. 30 is now Confirmed (closed 2026-09-21, Design decision
+  8) — and it confirms a real, previously-speculative gap.** Art. 30
+  ust. 1 names the NBP **average rate** ("średni kurs... przez
+  Narodowy Bank Polski") as the required valuation rate, but
+  `NBPProvider` only fetches NBP's Table C (commercial bid/ask), never
+  Table A (the average rate). This is no longer a "confirm before
+  implementation" open question — it is a **confirmed statutory
+  non-compliance in this design as written**: `fx_revaluation`'s
+  Design decision 9 rate-selection policy would post period-end
+  valuations at the wrong rate class until `currencies` gains a Table A
+  fetcher (out of this document's own module boundary, Design decision
+  1). **Severity: High** — this is a correctness gap in the amounts
+  the module posts, not a cosmetic one, though it is caught before any
+  implementation exists. **Mitigation**: Implementation Plan Step 0 is
+  now a concrete, scoped task (add Table A support to `currencies`)
+  rather than an open confirmation; `fx_revaluation` cannot correctly
+  implement Design decision 9 until it lands. **Detection**: none
+  needed pre-implementation; once built, a valuation run using Table C
+  instead of Table A would be caught by comparing posted rates against
+  NBP's own published Table A for the same date — a reconciliation
+  check worth adding to Testing Strategy when `currencies`' Table A
+  support is designed.
 - **`matchBankStatementLine`'s new precondition (Design decision 12)
   is a real, if small, behavioral change to Cash & Bank Management**,
   not just a forward-pointer — settlement of a foreign-currency
@@ -882,10 +915,12 @@ line detail.
   isn't meaningfully "one currency").
 - **Deferring unrealized FX to Other Comprehensive Income / equity**
   (an IFRS/US-GAAP pattern for certain long-term or hedged items) —
-  noted as a real alternative treatment in general accounting practice
-  but not adopted here pending Art. 30 confirmation (see Risks); P&L
-  recognition is the simpler default and matches how realized FX
-  already posts in Cash & Bank Management.
+  noted as a real alternative treatment in general accounting practice;
+  **rejected, now confirmed correct rather than pending** — Art. 30
+  ust. 4 (Confirmed, Design decision 8) routes exchange differences on
+  everything except long-term investments (Art. 35 terms instead, out
+  of this spec's scope) to financial income/costs, i.e. P&L, matching
+  how realized FX already posts in Cash & Bank Management.
 - **A brand-new `JournalEntry.type: 'ADJUSTING'`** — rejected in favor
   of reusing the existing `REVERSAL` mechanism (Design decision 5);
   avoids a schema change to `ledger` for a case its own reversal
@@ -935,14 +970,17 @@ line detail.
 
 ## Implementation Plan
 
-0. **Confirm UoR Art. 30 text (including whether it names NBP's
-   average/Table A rate specifically) before the commands/UI steps
-   below** — moved earlier in this pass, per the maintainer review's
-   "resolve the unverified accounting-policy prerequisite before
-   implementation, rather than leaving it until the last step"
-   finding; if Art. 30 requires Table A, Design decision 9c's provider
-   policy needs revisiting together with `currencies`' own fetcher
-   scope before Step 3 below is implemented.
+0. **Add NBP Table A (average-rate) support to `currencies` before the
+   commands/UI steps below — resolved 2026-09-21, Design decision 8.**
+   No longer an open confirmation: Art. 30 ust. 1 is now Confirmed to
+   require the NBP average rate specifically, and `NBPProvider`
+   currently fetches only Table C. This step is a concrete addition to
+   `currencies`' own fetcher scope (out of this document's module
+   boundary — coordinate with whoever owns `currencies`), not a
+   question to ask a human; Design decision 9c's provider-priority
+   policy is revisited together with it before Step 3 below is
+   implemented, since `fx_revaluation` cannot post statutorily-correct
+   valuations against Table C rates in the meantime.
 1. Patch `accounts-payable.md` and the `SalesInvoice`-owning spec with
    the field additions from Design decision 3, plus the post-posting
    immutability guard (Design decision 15).
@@ -1157,10 +1195,17 @@ practice for not-yet-built modules.
   against the extracted statute text, which runs Art. 9 through
   roughly Art. 25): *"Księgi rachunkowe prowadzi się w języku polskim
   i w walucie polskiej."* Grounds the base-currency-is-fixed-per-tenant
-  assumption (Design decision 8). **Art. 30** ("wycena bilansowa,"
-  the actual period-end FX revaluation mandate) is **Unverified** —
-  not present in the extracted range; flagged **⚠ NEEDS HUMAN
-  CONFIRMATION**.
+  assumption (Design decision 8). **Art. 30 ("wycena bilansowa," the
+  period-end FX revaluation mandate) — Confirmed, closed 2026-09-21**
+  (was Unverified; not present in this session's earlier extracted
+  range). Checked directly against the current consolidated text
+  (Dz.U.2026.0.522), cross-checked across two independent sources —
+  see Design decision 8 for the literal quotes (ust. 1: NBP average
+  rate, no less often than the balance-sheet date; ust. 4: P&L
+  recognition except long-term investments). Closing this citation
+  surfaced a load-bearing consequence: `NBPProvider`'s Table C (not
+  Table A) rate source is now a confirmed gap, not a speculative one —
+  see Risks and Implementation Plan Step 0.
 
 ### Step 3 — Real-system comparison (consciously narrowed)
 
@@ -1342,3 +1387,30 @@ Final Compliance Report.
 - **Concurrency**: Passed — `SELECT ... FOR UPDATE` row-locking (Design decision 10a) makes the reversal-then-repost sequence safe under concurrent calls, verified against the same "`CommandBus.execute` doesn't itself create a cross-command transaction" constraint the maintainer review cited.
 - **Risks**: Passed — Risks & Impact Review covers all ten maintainer-review findings plus the two residual cross-module coordination risks (Cash & Bank Management's new precondition, `currencies`' still-unguarded `isBase` change) with no residual risk left undocumented.
 - **Verdict**: Approved — re-requesting review against this revision.
+
+## Changelog addendum — 2026-09-21 (cont. — UoR Art. 30 literature grounding closed)
+
+Closed the Art. 30 Unverified flag from Design decision 8 (Literature &
+Prior Art; Implementation Plan Step 0 had already gated on this
+confirmation, per the prior maintainer-review round). Checked directly
+against the current consolidated statute text (Dz.U.2026.0.522,
+effective 21 August 2026), cross-checked across two independent
+sources (lexlege.pl, przepisy.gofin.pl): ust. 1 confirms the NBP
+average rate ("Table A") is the required valuation rate, at least as
+of the balance-sheet date; ust. 4 confirms P&L recognition (no equity/
+OCI deferral) for everything except long-term investments, matching
+this spec's design exactly. Updated: Design decision 8 (main citation),
+Design decision 9c (provider-priority note), the Alternatives-considered
+OCI/equity entry (now "confirmed correct" rather than "pending"), the
+Risks entry (Table A/Table C gap upgraded from speculative to a
+confirmed statutory non-compliance risk, with severity/mitigation/
+detection added), Implementation Plan Step 0 (now a concrete scoped
+task — add Table A support to `currencies` — rather than an open
+confirmation to ask a human), and the Literature & Prior Art entry.
+**Net effect**: this spec's own design was already correct on both
+points Art. 30 governs (trigger timing, P&L recognition); the one real,
+now-confirmed consequence is that `currencies`' `NBPProvider` needs
+Table A support before `fx_revaluation` can post statutorily-correct
+valuations — a `currencies`-module task, out of this document's own
+boundary, now blocking Implementation Plan Step 3 instead of an
+unresolved legal question blocking it.
