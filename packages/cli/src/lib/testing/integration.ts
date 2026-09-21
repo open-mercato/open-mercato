@@ -3617,6 +3617,12 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       // var at the workflow level, masking the gap). Keep in sync with the
       // Playwright-process env block above.
       MOCK_INBOUND_WEBHOOK_SECRET: 'open-mercato-mock-dev-inbound-webhook-secret',
+      // The communication_channels hub fails closed under NODE_ENV=production
+      // instead of deriving the OAuth state-cookie key from JWT_SECRET
+      // (lib/oauth-state.ts), so without a dedicated key every provider's
+      // happy-path `/oauth/<provider>/initiate` 500s in this runtime. Test-only
+      // value; real deployments set OM_HUB_OAUTH_STATE_KEY or KMS_MASTER_KEY.
+      OM_HUB_OAUTH_STATE_KEY: process.env.OM_HUB_OAUTH_STATE_KEY ?? 'om-ephemeral-integration-oauth-state-key',
       NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
       CI: 'true',
       TENANT_DATA_ENCRYPTION_FALLBACK_KEY: process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? 'om-ephemeral-integration-fallback-key',
