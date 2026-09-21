@@ -509,6 +509,14 @@ Two additional heal paths are available if you need them:
 
 Note: only calls ingested **after** the maps exist are encrypted. Rows written by a build that ran without them stay plaintext until they are re-ingested (a pull is idempotent, so re-pulling the affected range rewrites them) or handled with the `entities rotate-encryption` / `decrypt-database` tooling.
 
+### The schedule dialog's pickers and `CrudForm` date/time fields now follow the app locale (#5942)
+
+`TimePicker`'s default clock is now derived from the active locale instead of being hardcoded to `12h`, and every consumer of `<DatePicker>` (`@open-mercato/ui/primitives/date-picker`, including `CrudForm`'s `date`/`datepicker`/`datetime`/`datetime-local` fields) that does not pin its own `locale` now falls back to the active app locale instead of always rendering English.
+
+**Who is affected.** `pl`/`de`/`es` tenants see a 24-hour clock on every `TimePicker`, and a Monday-first, localized calendar on every `DatePicker` that previously fell back to English regardless of the tenant's language. `en` and `ko` output is unchanged — both are 12-hour locales, and English was already the picker default. No API, schema, or component prop was removed.
+
+**Action for module authors:** none required. A field or call site that already pins an explicit `locale` (date-fns `Locale` object) or `format` (`'12h' | '24h'`) keeps that value unchanged — the new default only applies where neither was set. To pin the previous English/12-hour behavior regardless of tenant locale, pass `format="12h"` to `TimePicker`, or `locale={enUS}` (from `date-fns/locale/en-US`) to `DatePicker`.
+
 ## 0.6.7 → 0.7.0 (2026-08-26)
 
 ### `PUT /api/auth/users/acl` merges omitted fields instead of clearing them (#5493)
