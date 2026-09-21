@@ -298,7 +298,7 @@ describe('POST /api/messages — channel conversation deliverability (#5535)', (
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 
-  it('leaves a caller-supplied parent message alone', async () => {
+  it('leaves a caller-supplied parent message alone when the caller may act on its channel', async () => {
     resolveChannelTypeMock.mockResolvedValue('discord')
 
     const response = await composeMessage(
@@ -306,7 +306,51 @@ describe('POST /api/messages — channel conversation deliverability (#5535)', (
     )
 
     expect(response.status).toBe(201)
-    expect(resolveChannelThreadAccessMock).not.toHaveBeenCalled()
+    expect(composeInput().parentMessageId).toBe(messageId)
+  })
+
+  // #5645 review: naming the parent explicitly used to skip the channel gate
+  // entirely, so `messages.compose` plus a known message id delivered to a
+  // tenant-wide channel's correspondent.
+  it('refuses with 403 when the caller-supplied parent sits on a channel they may not act on', async () => {
+    resolveChannelTypeMock.mockResolvedValue('discord')
+    em.findOne.mockResolvedValue({
+      id: messageId,
+      threadId: CHANNEL_THREAD_ID,
+      organizationId,
+      tenantId,
+    })
+    resolveChannelThreadAccessMock.mockResolvedValue({
+      messageThreadId: CHANNEL_THREAD_ID,
+      externalConversationId: conversationId,
+      channelId: '77777777-7777-4777-8777-777777777777',
+      channelType: 'discord',
+      canAccess: false,
+    })
+
+    const response = await composeMessage(
+      composeRequest(publicComposeBody({ parentMessageId: messageId })),
+    )
+
+    expect(response.status).toBe(403)
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+    expect(resolveChannelThreadAccessMock).toHaveBeenCalledWith(
+      container,
+      { tenantId, organizationId },
+      { messageThreadId: CHANNEL_THREAD_ID },
+      expect.objectContaining({ userId }),
+    )
+  })
+
+  it('leaves a caller-supplied parent on an internal thread alone', async () => {
+    resolveChannelTypeMock.mockResolvedValue('discord')
+    resolveChannelThreadAccessMock.mockResolvedValue(null)
+
+    const response = await composeMessage(
+      composeRequest(publicComposeBody({ parentMessageId: messageId })),
+    )
+
+    expect(response.status).toBe(201)
     expect(composeInput().parentMessageId).toBe(messageId)
   })
 

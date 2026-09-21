@@ -81,3 +81,10 @@
 - [x] 6.5 Re-run the full validation gate on the fixed head
 
 > QA note: `OM_ENABLE_TEST_CHANNEL_SEEDING` is set nowhere in the CLI runner or the CI workflow, so `TC-CHANNEL-REPLY-001` and every sibling channel spec `test.skip` silently in CI. That is why a defect this size survived an all-green run, and it is worth wiring in its own change.
+
+### Phase 7: @adeptofvoltron's review — the two majors on the access boundary
+
+- [x] 7.1 Merge the latest `develop` (74 commits of drift since the 2026-09-14 base merge) — no conflicts
+- [x] 7.2 Gate the explicit-`parentMessageId` compose path through the same channel-access check, and re-pin the test that had fixed the gap in place — the new 403 case was verified to fail with the gate removed
+- [x] 7.3 Add `TC-CHANNEL-REPLY-002` — integration-level permission-denied evidence on the boundary: a second, genuinely unprivileged operator refused on read, reply and parent-threaded compose
+- [ ] 7.4 Re-run the full configured validation gate and hand the PR back for re-review
