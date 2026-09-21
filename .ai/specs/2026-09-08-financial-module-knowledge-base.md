@@ -404,9 +404,12 @@ Fowler nor Hay use those exact terms):**
   consolidation of multinational entities, which is beyond the scope
   of this text."* One limited, conceptual mention survives: the
   "Global View" sidebar, Ch.7 (p.7-28), on FX risk in receivables —
-  no transaction/revaluation mechanics. Ch.3, Appendix 3B "Using
-  Reversing Entries" (pp.3-43–3-45) — **Confirmed**, and directly
-  load-bearing: *"A reversing entry is the exact opposite of the
+  no transaction/revaluation mechanics. Ch.3, "Reversing
+  Entries—An Optional Step" (p.3-35) — **Confirmed, with a
+  location correction** (this section introduces Appendix 3B, pp.
+  3-43–3-45, but the appendix itself holds only the worked
+  illustration — the defining sentence sits in the main chapter
+  body): *"A reversing entry is the exact opposite of the
   adjusting entry made in the previous period."* Grounds
   `2026-09-17-multi-currency.md`'s reuse of GL core engine's existing
   `REVERSAL` mechanism for undoing a prior period's FX valuation,
@@ -1519,8 +1522,9 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
   user decision, given how strong the internal precedent already is —
   see Tier 4 note in §3 above.
 - **New citations**: two Kieso hits (Tier 2 — a confirmed absence
-  stated by the book itself, plus a genuinely load-bearing Appendix 3B
-  "Reversing Entries" citation), two Fowler hits (Tier 3 — the
+  stated by the book itself, plus a genuinely load-bearing Ch. 3,
+  "Reversing Entries—An Optional Step" (p. 3-35) citation), two Fowler
+  hits (Tier 3 — the
   strongest literature match found in this project so far, "Quantity"
   and "Conversion Ratio"), one Hay confirmed-absence (consistent with
   the established pattern for this book), and one UoR Art. 9 confirmed
@@ -1687,8 +1691,10 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
   wrong side (`ytdCredit` instead of subtracting from `ytdDebit`), and
   the mirror error for expense accounts. Caught while re-deriving the
   example for the fresh literature citation; corrected, with an added
-  algebraic proof (grounded in Kieso Appendix 3B's reversing-entry
-  mirror-image property, already verified for the Multi-Currency spec)
+  algebraic proof (grounded in Kieso Ch. 3's reversing-entry
+  mirror-image property, p. 3-35 — not Appendix 3B itself, which only
+  holds the worked illustration — already verified for the
+  Multi-Currency spec)
   that a `CLOSING` entry and its `REVERSAL` cancel in the raw turnover
   sums regardless of which side each lands on — so the reopen/correction
   flow is unaffected by which side the original arithmetic slip picked.
