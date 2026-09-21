@@ -63,7 +63,12 @@ Land the three runtime-gap fixes the PR already implements — `DataTable` compo
 
 ### Phase 3: Verification
 
-- [ ] 3.1 Run the full `validation.commands` gate against the merged branch and fix any failure the merge introduced
+- [x] 3.1 Run the full `validation.commands` gate against the merged branch and fix any failure the merge introduced — gate run at 967b81ef6
+
+  Gate result: `build:packages`, `generate`, `build:packages`, `i18n:check-sync`, `i18n:check-usage`, `typecheck`, `build:app` all green. `test` red on two suites, **neither caused by this PR**:
+
+  1. `@open-mercato/cli` › `module-facts.bc-guard` — a CPU-duration budget assertion (`< 90_000ms`, measured 98.9–101.9s). Passes standalone on this branch (290/290) and reproduces with a near-identical number (100119ms) on an **unrelated branch** in a concurrent worktree, so it tracks machine load, not the diff. Green on CI hardware for this head.
+  2. `@open-mercato/core` › `catalog/products/[id]` `page.doubleSave` + `page.scrollRestoration` — `TypeError: useLocale is not a function`. Pre-existing breakage inherited from `develop`: `useLocale()` entered `page.tsx` via unrelated PR #6136 without the test mocks being updated, and `git diff origin/develop HEAD` over those paths is empty. Confirmed on CI for this head as the only failing suites. Out of scope here per Non-goals; needs its own fix on `develop`.
 - [ ] 3.2 Run the authoritative code-review pass (`om-auto-review-pr 6077 --autofix`) and land its fixes
 
 ### Phase 4: Finalize
