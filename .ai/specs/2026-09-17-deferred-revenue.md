@@ -312,7 +312,10 @@ independent implementations of the same pattern, not a shared library
     Management's (#6055) already-established fact that a nested
     `commandBus.execute()` call joins the caller's own
     `em.transactional()` block rather than opening a second one (see
-    knowledge base §3, "cross-module transaction pattern"). This gives
+    knowledge base, Changelog, "cross-module transaction pattern"
+    entry — **corrected citation, spec-checklist pass, 2026-09-21**: an
+    earlier version of this decision pointed at §3, which is "External
+    sources," not where this fact is recorded). This gives
     the finding's required transaction/recovery boundary for free: a
     crash between the ledger post and the marker write is a crash
     *before commit*, so the whole transaction — ledger entry included
@@ -441,7 +444,34 @@ draft named no features at all):
 requires `deferred_revenue.accrue` (separated from `.manage` because,
 matching `accrueDepreciation`'s own precedent, accrual is typically run
 by a different operational role than the one deciding what to defer or
-stop); all read routes require `deferred_revenue.deferrals.view`.
+stop); all read routes require `deferred_revenue.deferrals.view`. Every
+route file exports `openApi` (via `buildModuleCrudOpenApi` for the two
+`makeCrudRoute` list/detail routes, plus a hand-written schema for the
+three custom command routes and the `preview` read route — **added,
+spec-checklist pass, 2026-09-21**, matching the per-route requirement
+every sibling spec's own compliance matrix checks) and a `metadata`
+export naming the per-method `requireAuth`/`requireFeatures` pair above
+(never a top-level `export const requireAuth`). The three custom write
+routes (`deferRevenueRecognition`, `accrueRevenueRecognition`,
+`stopRevenueRecognitionSchedule`) go through the mutation guard
+registry — mapped to `update` (accrue and stop act on existing state)
+and `create` (`deferRevenueRecognition` originates a new
+`RevenueDeferral`) respectively, the same mapping convention Fixed
+Assets' own non-CRUD action routes use.
+
+### Cross-module touchpoints
+
+**New subsection, added spec-checklist pass, 2026-09-21** — every
+sibling spec's own compliance matrix explicitly names each
+cross-module touchpoint's mechanism, owning module, and module-absent
+behavior; this spec's Architecture bullet named the mechanism but never
+the last part.
+
+| Touchpoint | Mechanism | Owner | Module-absent behavior |
+|---|---|---|---|
+| `sales.SalesInvoiceLine` / `SalesInvoiceLineRevenueAccount` | Direct `entityManager` read, scoped by `organizationId`/`tenantId`, no ORM relation | `deferred_revenue` (this module owns the read; neither `sales` nor `sales_invoice_gl_posting` is aware of it) | If `sales_invoice_gl_posting` is not installed, no `SalesInvoiceLineRevenueAccount` row can exist for any line, so `POST .../deferrals` always resolves its existing **404** ("no `SalesInvoiceLineRevenueAccount` row for this line") — the same response an installed-but-not-yet-posted line already produces; no new failure mode, and `deferred_revenue` never appears in either module's own `requires` |
+| `sales.SalesCreditMemo` / `SalesReturn` (Design decision 14) | Direct `entityManager` read, scoped identically | `deferred_revenue` | If the entity/table doesn't exist (module not installed or the correction feature not yet shipped), the read returns no matching rows the same as "no correction exists yet" — `blockedByCorrection` never fires, which is the same behavior as today with no correction recorded; a future version of that module changing the entity shape is the real risk (see Risks) |
+| `ledger.postJournalEntry` / `ledger.reverseJournalEntry` | `commandBus.execute(...)`, joins the caller's own transaction (see Design decision 12) | `ledger` (hard `requires` — `deferred_revenue` cannot function at all without it) | N/A — hard dependency, module absence is not a supported configuration |
 
 ### Tenant & Organization Scoping
 
@@ -480,6 +510,7 @@ same posture Cash & Bank Management already established for reading
 | `stoppedAt` | `date`, nullable | set by `stopRevenueRecognitionSchedule` |
 | `createdAt` | `timestamptz` | |
 | `updatedAt` | `timestamptz` | **added, maintainer-review round** — backs the default-ON optimistic lock on `status`/`stoppedAt` (see API Contracts, `POST .../stop`), matching every other mutable entity in the financial-module family (e.g. `FiscalPeriod.updatedAt`) |
+| `deletedAt` | `timestamptz`, nullable | **added, spec-checklist pass, 2026-09-21** — soft delete, mirroring `FixedAsset.deletedAt`'s exact shape (blocked once the entity leaves its initial, nothing-posted-yet state). Blocked once any `RevenueRecognitionScheduleEntry` for this deferral has `accruedAt IS NOT NULL` — i.e. only deletable pre-first-accrual, formalizing the ad hoc "delete before first accrual" recovery path already described in Migration & Backward Compatibility as an actual column/rule instead of an undocumented hard `DELETE` |
 
 ### `deferred_revenue.RevenueRecognitionScheduleEntry`
 
@@ -488,7 +519,16 @@ One row per period per deferral, generated in full by
 `DepreciationScheduleEntry` already established. Row boundaries follow
 the anniversary-month rule in Design decision 11 (**precise definition
 added, maintainer-review round** — the initial draft left
-`numberOfPeriods` undefined).
+`numberOfPeriods` undefined). **No `deletedAt` on this entity —
+confirmed correct, spec-checklist pass, 2026-09-21**: checked directly
+against `DepreciationScheduleEntry`, which also has no `deletedAt` and
+is genuinely hard-`DELETE`d while `accruedAt IS NULL` ("rows with
+`accruedAt IS NULL` may be deleted and regenerated only while the asset
+is still `ACTIVE` and unposted... never after `accruedAt` is set" —
+`2026-09-06-fixed-assets.md`, Architecture). This spec's own unaccrued-row
+deletion (below) already matches that precedent exactly; a soft-delete
+column here would be a deviation from, not an application of, the
+pattern this spec explicitly copies "by shape" (Design decision 1).
 
 | Field | Type | Notes |
 |---|---|---|
@@ -503,6 +543,34 @@ An unaccrued row (`accruedAt IS NULL`) may be deleted only by
 `stopRevenueRecognitionSchedule`, and only after that command's own
 catch-up step has run — never edited in place, matching `JournalEntry`'s
 append-only posture once a row is accrued.
+
+### Migration (`migrations/`)
+
+**New subsection, added spec-checklist pass, 2026-09-21** — the initial
+draft named no indexes at all, despite claiming to mirror a command
+(`accrueDepreciation`) whose own spec names one for the identical query
+shape.
+
+Standard MikroORM-generated tables for the two entities above. Supporting
+indexes: `(organization_id, deferral_id, accrued_at)` on
+`revenue_recognition_schedule_entry` — mirrors Fixed Assets'
+`(organization_id, asset_id, accrued_at)` on `depreciation_schedule_entry`
+exactly, backing both the per-deferral schedule view (`GET
+.../deferrals/:id`) and `accrueRevenueRecognition`'s "find due,
+unposted entries" query (`WHERE accrued_at IS NULL AND period_end_date
+<= :asOf`); `(organization_id, invoice_line_id)` on `revenue_deferral`
+(unique) backs the "one deferral per line" rejection (`POST
+.../deferrals`, 400); `(organization_id, status)` on `revenue_deferral`
+backs `GET .../deferrals`'s `status` filter.
+
+`accrueRevenueRecognition`'s due-row scan pages in batches of **500**,
+matching Fixed Assets' own named batch size for the identical query
+shape exactly (`2026-09-06-fixed-assets.md`, Migration: "the due-entry
+scan pages in batches of 500... a request timeout mid-run is not
+designed around... within the request/command; a background-worker
+migration ... is a documented future option") — see Risks & Impact
+Review for the same request-timeout/background-worker-threshold
+discussion, now added here for the identical reason.
 
 ## API Contracts
 
@@ -537,7 +605,10 @@ a preview-before-commit schedule with no backing read contract).
 
 **Added, maintainer-review round.** List route, filterable by
 `status`/`invoiceId`, scoped by `organizationId`/`tenantId` (Access
-Control). **200**: paged array of `RevenueDeferral` summaries.
+Control). `pageSize` capped at **100** (**added, spec-checklist pass,
+2026-09-21**, matching root `AGENTS.md` → "UI & HTTP": "Keep `pageSize`
+at or below 100" — the initial draft left this route's pagination
+undefined). **200**: paged array of `RevenueDeferral` summaries.
 
 ### `GET /api/deferred_revenue/deferrals/:id`
 
@@ -640,6 +711,12 @@ showing exactly what will be recognized immediately.
 
 ## Risks & Impact Review
 
+**Severity and detection added to every entry below, maintainer-review
+round (spec-checklist pass, 2026-09-21)** — the initial draft's Risk
+entries had concrete scenarios and mitigations but, unlike Fixed
+Assets' own Risk Register, no severity rating and no blast-radius/
+detection discussion.
+
 - **A `SalesCreditMemo`/`SalesReturn` against an already-deferred line
   has no defined *reconciliation* with this module — narrowed,
   maintainer-review round (Design decision 14).** The initial draft
@@ -649,12 +726,24 @@ showing exactly what will be recognized immediately.
   original amount. What remains unsolved, and stays a real gap: no
   command adjusts the remaining schedule's `plannedAmount` to match a
   partial reversal, and a held deferral needs a human to resolve it —
-  there is no automated reconciliation path yet.
+  there is no automated reconciliation path yet. **Severity: Medium**
+  (bounded — the guard stops the overstatement from actually posting;
+  the residual cost is a manual-reconciliation backlog, not a wrong
+  ledger balance). **Detection**: every `blockedByCorrection` count in
+  `/accrue`'s response is directly observable per call; an operator
+  dashboard/alert on a nonzero count is an operational follow-up, not
+  designed here.
 - **Design decision 6's "recognize immediately" policy on early stop is
   an assumption, not a confirmed business rule** — flagged **⚠ NEEDS
   HUMAN CONFIRMATION**, now gating Implementation Plan Step 0
   (**resequenced, maintainer-review round** — see Design decision 6
   and Implementation Plan) rather than the last implementation step.
+  **Severity: High if wrong** (a confirmed-wrong default would mean
+  every early stop recognized revenue that should have been refunded
+  instead — a real overstatement, not a cosmetic one) **but blocked
+  from ever executing** by Implementation Plan Step 0. **Detection**:
+  N/A pre-implementation — this is a design-time gate, not a runtime
+  condition to monitor.
 - **The concurrency fix (Design decision 12) adds a row lock shared by
   `accrue` and `stop` — added, maintainer-review round.** Under high
   contention (many schedule entries due for the same deferral at once,
@@ -662,11 +751,38 @@ showing exactly what will be recognized immediately.
   that lock rather than running in parallel. Acceptable for Phase 1's
   manual-trigger, no-scheduler scope (Design decision 7) — no evidence
   of a throughput requirement this would violate — but worth
-  monitoring once real accrual volume exists.
+  monitoring once real accrual volume exists. **Severity: Low** (a
+  wait, not a failure — the lock is held only for one entry's
+  claim-and-post, not the whole `/accrue` run). **Detection**: lock
+  wait time is observable at the database level (Postgres
+  `pg_locks`/`pg_stat_activity`) if contention is ever suspected; no
+  application-level metric is designed for Phase 1.
+- **No supporting index is specified for `accrueRevenueRecognition`'s
+  due-row scan, and no batch size or background-worker threshold is
+  named — added, maintainer-review round (spec-checklist pass).** The
+  spec claims to mirror `accrueDepreciation`'s mechanics exactly
+  (Design decision 1), but Fixed Assets' own spec names both an
+  explicit index (`(organization_id, asset_id, accrued_at)` on
+  `depreciation_schedule_entry`) and an explicit batch size (500,
+  Migration, "the due-entry scan pages in batches of 500... a request
+  timeout mid-run is not designed around... within the request/command;
+  a background-worker migration for [larger volumes] is a documented
+  future option") for the identical `accrued_at IS NULL AND
+  period_end_date <= :asOf` query shape — this draft specified neither
+  (fixed in Architecture/Data Model below). **Severity: Medium** (a
+  slow, unindexed scan degrades `/accrue` latency and risks a request
+  timeout under real volume, but does not corrupt data — the
+  claim-based concurrency contract from Design decision 12 stays
+  correct regardless of scan speed). **Detection**: `/accrue` request
+  duration is the direct signal; the same threshold Fixed Assets
+  already names (move to a background worker once volume makes the
+  in-request scan unreliable) applies here unchanged.
 - **No code exists yet for `deferred_revenue`, `sales_invoice_gl_posting`,
   or `ledger`** — this spec's integration points
   (`SalesInvoiceLineRevenueAccount`, `ledger.postJournalEntry`) are
   checked against sibling specs' text, not a running system.
+  **Severity: N/A** — a specification-stage fact, not a runtime risk.
+  **Detection: N/A.**
 
 ## Alternatives considered
 
@@ -870,6 +986,23 @@ Review Heuristic 6.
   same DS contract every other financial-module dialog in this family
   already follows.
 
+## Internationalization (i18n)
+
+**New section, added spec-checklist pass, 2026-09-21** — the initial
+draft had no i18n treatment at all. All user-facing strings resolve
+through `useT()` client-side / `resolveTranslations()` server-side —
+never hard-coded labels — matching Fixed Assets' own minimal i18n
+section exactly. In scope: the "Defer recognition"/"Stop" action labels
+and confirmation-dialog copy, `RevenueDeferral.status` display labels
+(`StatusBadge`), the schedule table's column headers, and every new
+error code's user-facing message (`DEFERRED_REVENUE_ACCOUNT_UNSET`,
+`DEFERRED_REVENUE_CURRENCY_UNSUPPORTED`, `FISCAL_PERIOD_LOCKED`, the
+`409` "already `STOPPED`/`COMPLETED`" message, and the optimistic-lock
+conflict message). No new locale infrastructure — this module adds
+translation keys under its own namespace, following the same
+per-module key convention every other module in this family already
+uses.
+
 ## File Manifest
 
 | File | Change |
@@ -923,13 +1056,35 @@ missing `840` account (Design decision 8).
   word for word (defer to a liability, recognize periodically, exactly
   the wall's own "Zawieszono na koncie bilansowym → Wygenerowano
   harmonogram").
-- **Ustawa o rachunkowości — the accrual principle itself (Art. 6) is
-  Unverified this session.** The extracted statute text available
-  (`/tmp/uor.txt`) runs Art. 9 through roughly Art. 25; Art. 6, which
-  would state the memoriał (accrual) principle directly, is not in
-  range. This spec's premise (revenue must be recognized in the period
-  it's earned, not when cash arrives) is not sourced from the statute
-  directly this session — flagged rather than assumed.
+- **Ustawa o rachunkowości, Art. 6 — Confirmed** (closed, 2026-09-21;
+  was Unverified in the initial draft, since this session's earlier
+  extracted statute text ran only Art. 9 through roughly Art. 25).
+  Checked directly against the current consolidated text (Dz.U.2026.0.522,
+  effective as of 21 August 2026 — the announcement of this unified
+  text, `WDU20260000522`, is dated 30 March 2026), cross-checked across
+  two independent sources (lexlege.pl's full article text and
+  przepisy.gofin.pl's matching excerpt): *"Art. 6. 1. W księgach
+  rachunkowych jednostki należy ująć wszystkie osiągnięte, przypadające
+  na jej rzecz przychody i obciążające ją koszty związane z tymi
+  przychodami dotyczące danego roku obrotowego, niezależnie od terminu
+  ich zapłaty."* (ust. 1 — the accrual principle itself: revenue and
+  its related costs are recorded for the fiscal year they belong to,
+  regardless of payment timing) — directly grounds this spec's premise
+  (revenue must be recognized in the period it's earned, not when cash
+  arrives). **Ust. 2 is even more directly on point than ust. 1**, and
+  was not anticipated before this check: *"Dla zapewnienia współmierności
+  przychodów i związanych z nimi kosztów do aktywów lub pasywów danego
+  okresu sprawozdawczego zaliczane będą koszty lub przychody dotyczące
+  przyszłych okresów oraz przypadające na ten okres sprawozdawczy
+  koszty, które jeszcze nie zostały poniesione."* — this clause names
+  "przychody dotyczące przyszłych okresów" (**revenues relating to
+  future periods**) as something the matching principle requires to be
+  allocated to the correct reporting period, which is a near-literal
+  statutory description of RMP/deferred revenue itself, not merely the
+  general accrual principle this spec initially cited it for. Upgrades
+  this citation from a generic accrual-principle grounding to the
+  specific statutory basis for the deferral mechanism this module
+  implements.
 - **Fowler, Hay — Confirmed absence**, consistent with the established
   pattern for both books: zero hits for "deferred revenue," "unearned
   revenue," "prepaid," or "amortization schedule" in either full text.
@@ -987,6 +1142,14 @@ missing `840` account (Design decision 8).
 | root AGENTS.md | FK IDs only for cross-module links | Compliant | `invoiceLineId`, `invoiceId`, `originalRevenueAccountId`, `deferredRevenueLiabilityAccountId` — all FK-ids, no ORM relations |
 | root AGENTS.md | Undoability is the default for state changes | Compliant / Non-compliant | Reversal of the reclassification entry is possible via `ledger.reverseJournalEntry` (any time); full undo of `deferRevenueRecognition`'s own state is only defined pre-accrual (Migration & Backward Compatibility) — **flagged as a named gap, not silently missing**, matching this module's own "no redeferral" one-per-line constraint |
 | root AGENTS.md | Zod validation for all API inputs | Compliant | All API Contracts bodies are typed, finite shapes suitable for Zod schemas (dates, uuids, enums) |
+| packages/core/AGENTS.md | API routes MUST export `openApi` | Compliant | **Added, spec-checklist pass, 2026-09-21** — Access Control (Architecture) now states this per route; missing from the first compliance pass |
+| packages/core/AGENTS.md | `metadata` export with per-method `requireAuth`/`requireFeatures` | Compliant | **Added, spec-checklist pass** — Access Control (Architecture); missing from the first compliance pass |
+| packages/core/AGENTS.md → API Routes | Custom (non-`makeCrudRoute`) write routes use the mutation guard registry | Compliant | **Added, spec-checklist pass** — Access Control (Architecture) now names the `create`/`update` mapping for the three command routes; missing from the first compliance pass |
+| packages/core/AGENTS.md | Cross-module touchpoints name mechanism, owner, and module-absent behavior | Compliant | **Added, spec-checklist pass** — new Cross-module touchpoints table (Architecture); the first compliance pass named the mechanism but not module-absent behavior |
+| root AGENTS.md → UI & HTTP | `pageSize` at or below 100 | Compliant | **Added, spec-checklist pass** — `GET .../deferrals` (API Contracts) now states the cap; missing from the first compliance pass |
+| root AGENTS.md | i18n keys planned for user-facing strings | Compliant | **Added, spec-checklist pass** — new Internationalization section; missing entirely from the first compliance pass |
+| root AGENTS.md (soft-delete column convention) | Mutable/removable entities carry `deletedAt` where the project's own sibling entities do | Compliant | **Added, spec-checklist pass** — `RevenueDeferral.deletedAt` (Data Model), matching `FixedAsset.deletedAt`'s exact shape; `RevenueRecognitionScheduleEntry` deliberately has none, confirmed correct against `DepreciationScheduleEntry`'s identical hard-delete-while-unposted precedent (Data Model) |
+| root AGENTS.md (query/index strategy) | Every query pattern identifies supporting index(es) | Compliant | **Added, spec-checklist pass** — new Migration subsection (Architecture) names the due-row-scan index and the 500-row batch size, mirroring Fixed Assets' own named index/batch size for the identical query shape; missing from the first compliance pass |
 
 ### Internal Consistency Check
 
@@ -1000,13 +1163,25 @@ missing `840` account (Design decision 8).
 
 ### Non-Compliant Items
 
-None outstanding. The one partial item (Undoability, post-accrual) is
-recorded as an explicit, reasoned gap in Migration & Backward
-Compatibility rather than an unaddressed rule violation — matching how
-Annual Financial Statements (#6188) and Multi-Currency (#6190) each
-recorded their own remaining ⚠-flagged open points in this same report
-rather than treating "Fully compliant" as requiring every business
-question to be pre-answered.
+None outstanding as of this update. **Correction, spec-checklist pass,
+2026-09-21**: the *first* run of this report (same date, earlier in the
+day) claimed "Fully compliant" while genuinely missing seven rows a
+proper `references/spec-checklist.md` pass then caught — `openApi`,
+mutation-guard-registry wiring, per-method `requireAuth`/
+`requireFeatures` metadata, i18n, `pageSize` cap, the `deletedAt`
+column contract, and named indexes/batch size — all now fixed above.
+Recorded honestly rather than silently backfilled, matching this
+project's own "AFS never actually ran its compliance gate the first
+time either" precedent (knowledge base) — a Final Compliance Report is
+only as good as the checklist actually run against it, and the
+original om-spec-writing Heuristics pass is not a substitute for the
+separate, more mechanical `spec-checklist.md` sweep. The one remaining
+partial item (Undoability, post-accrual) is recorded as an explicit,
+reasoned gap in Migration & Backward Compatibility rather than an
+unaddressed rule violation — matching how Annual Financial Statements
+(#6188) and Multi-Currency (#6190) each recorded their own remaining
+⚠-flagged open points in this same report rather than treating "Fully
+compliant" as requiring every business question to be pre-answered.
 
 ### Verdict
 
@@ -1045,3 +1220,49 @@ question to be pre-answered.
   (#6190) `SELECT ... FOR UPDATE` concurrency pattern (Design decision
   10), and `sales-invoice-gl-posting.md`'s Phase 1 base-currency
   restriction (`:1007`).
+- **2026-09-21 (cont. — literature grounding closed, `spec-checklist.md`
+  review run for the first time)** — Closed the UoR Art. 6 Unverified
+  flag from the initial draft: checked directly against the current
+  consolidated statute text (Dz.U.2026.0.522), cross-checked across two
+  independent sources, both ust. 1 (accrual principle) and ust. 2
+  (matching principle, naming "przychody dotyczące przyszłych okresów"
+  almost verbatim as RMP itself) now Confirmed with literal quotes
+  (Literature & Prior Art). Ran `references/spec-checklist.md` in full
+  for the first time (previously only the narrower om-spec-writing
+  Heuristics + the 7 maintainer-review findings had been checked) —
+  delegated the §1 scope-cohesion item to a fresh-context subagent
+  given only this file (verdict: **KEEP TOGETHER**, the three commands
+  form one inseparable lifecycle and share a lock — see Review below),
+  and ran the remaining sections adversarially. Found and fixed seven
+  real gaps the first Final Compliance Report had missed: no `openApi`/
+  mutation-guard-registry/`requireAuth`-`requireFeatures` metadata
+  statement, no i18n section, no `pageSize` cap on `GET .../deferrals`,
+  no `deletedAt` on `RevenueDeferral` despite a hard-delete recovery
+  path already described in Migration, no supporting index or batch
+  size for `accrueRevenueRecognition`'s due-row scan despite claiming
+  to mirror `accrueDepreciation` exactly (which names both), no
+  module-absent-behavior statement for the two soft cross-module
+  dependencies, and one wrong citation (Design decision 12 pointed at
+  knowledge base §3, which is "External sources," not where that fact
+  lives). Confirmed, not fixed: `RevenueRecognitionScheduleEntry`
+  correctly has no `deletedAt` — checked directly against
+  `DepreciationScheduleEntry`, which is also genuinely hard-deleted
+  while unposted, so a soft-delete column there would have been a
+  deviation from the precedent this spec explicitly copies, not a
+  compliance fix. Added severity/detection to every Risks & Impact
+  Review entry (absent from the first pass) and a fifth risk entry for
+  the newly-found scale gap. Updated the Final Compliance Report's
+  Compliance Matrix and Non-Compliant Items to record this correction
+  honestly rather than silently backfilling a "Fully compliant" claim
+  that was wrong when first written.
+
+### Review — 2026-09-21
+- **Reviewer**: Agent (adversarial re-read against `references/spec-checklist.md`; §1's scope-cohesion item delegated to a separate fresh-context subagent given only this spec file, per the checklist's own instruction)
+- **Design Logic**: Passed — TLDR/MVP/phasing/terminology all explicit; §1's scope-cohesion sub-item verdict: **KEEP TOGETHER** (the three commands share one lock and one lifecycle — `defer` without `accrue` would leave revenue permanently stuck in RMP with no recognition path; no "functions without the other" language anywhere in the spec's own text)
+- **Architecture**: Passed (after fixes) — cross-module touchpoints now name mechanism, owner, and module-absent behavior for both soft dependencies (new Cross-module touchpoints table); FK-id-only links, tenant scoping, and module placement were already correct
+- **Security**: Passed (after fixes) — `deletedAt` added to `RevenueDeferral` matching `FixedAsset`'s exact contract; `RevenueRecognitionScheduleEntry`'s lack of `deletedAt` confirmed correct against `DepreciationScheduleEntry`'s identical precedent, not a gap; zod-suitable typed API bodies throughout; no PII/GDPR fields (N/A, confirmed); tenant isolation explicit everywhere
+- **Commands**: Passed — singular naming; all mutations are commands; undo/rollback specified per mutation with the one post-accrual gap self-disclosed (Migration & Backward Compatibility), not silently missing
+- **API/UI**: Passed (after fixes) — `openApi`/mutation-guard-registry/`requireAuth`-`requireFeatures` metadata now stated; i18n section added; `pageSize <= 100` now stated on `GET .../deferrals`; canonical mechanisms (`makeCrudRoute` for reads, mutation guard registry for the three command routes, `CrudForm`/`DataTable`/`apiCall`/`useGuardedMutation`) and Design System compliance were already correctly specified
+- **Performance/Cache**: Passed (after fixes) — supporting index and 500-row batch size now named for `accrueRevenueRecognition`'s due-row scan, mirroring Fixed Assets' identical query shape exactly; cache tag invalidation per write path was already specified
+- **Risks**: Passed (after fixes) — severity and detection added to all five Risk entries (a new fifth entry covers the scale gap this same pass found); concrete scenarios and mitigations were already present
+- **Verdict**: Approved — ready for implementation **once Implementation Plan Step 0 (Design decision 6 confirmation) is resolved**, unchanged from the Final Compliance Report's own verdict
