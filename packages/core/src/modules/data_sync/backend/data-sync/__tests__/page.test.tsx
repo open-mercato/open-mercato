@@ -46,6 +46,23 @@ import SyncRunsDashboardPage from '../page'
 const FULL_SYNC_LABEL = 'Run as full sync'
 const BATCH_SIZE_LABEL = 'Batch size'
 
+/**
+ * The dashboard mounts with no entity type selected, and no entity type means
+ * no declaration to read — so that first render carries BOTH controls no matter
+ * what the adapter restricts. The entity type only lands one effect later, once
+ * the options response has selected an integration.
+ *
+ * Reading the controls off whichever render a control first appears in
+ * therefore reads the pre-selection state, where a restricted control is still
+ * on screen. Wait for the entity select to carry the resolved entity type — the
+ * one signal that the declaration has been applied — before asserting.
+ */
+async function waitForSelectedEntity(entityLabel: string) {
+  await waitFor(() => {
+    expect(screen.getAllByRole('combobox').map((trigger) => trigger.textContent)).toContain(entityLabel)
+  })
+}
+
 function mockOptions(startControls: StartControlMap | undefined, supportedEntities: string[]) {
   apiCallMock.mockImplementation(async (url: string) => {
     if (url.startsWith('/api/data_sync/options')) {
@@ -91,7 +108,8 @@ describe('data sync dashboard start controls', () => {
 
     renderWithProviders(<SyncRunsDashboardPage />)
 
-    expect(await screen.findByText(FULL_SYNC_LABEL)).toBeInTheDocument()
+    await waitForSelectedEntity('Orders.Feed')
+    expect(screen.getByText(FULL_SYNC_LABEL)).toBeInTheDocument()
     expect(screen.getByText(BATCH_SIZE_LABEL)).toBeInTheDocument()
   })
 
@@ -100,7 +118,8 @@ describe('data sync dashboard start controls', () => {
 
     renderWithProviders(<SyncRunsDashboardPage />)
 
-    expect(await screen.findByText(FULL_SYNC_LABEL)).toBeInTheDocument()
+    await waitForSelectedEntity('Orders.Feed')
+    expect(screen.getByText(FULL_SYNC_LABEL)).toBeInTheDocument()
     expect(screen.getByText(BATCH_SIZE_LABEL)).toBeInTheDocument()
   })
 
@@ -109,9 +128,10 @@ describe('data sync dashboard start controls', () => {
 
     renderWithProviders(<SyncRunsDashboardPage />)
 
-    // The batch size control is the anchor: it still applies, so its presence
-    // proves the card rendered and the absence below is not a mounting failure.
-    expect(await screen.findByText(BATCH_SIZE_LABEL)).toBeInTheDocument()
+    await waitForSelectedEntity('Orders.Backfill')
+    // Batch size still applies here, so its presence proves the card rendered
+    // and the absence below is not a mounting failure.
+    expect(screen.getByText(BATCH_SIZE_LABEL)).toBeInTheDocument()
     expect(screen.queryByText(FULL_SYNC_LABEL)).not.toBeInTheDocument()
   })
 
@@ -120,7 +140,8 @@ describe('data sync dashboard start controls', () => {
 
     renderWithProviders(<SyncRunsDashboardPage />)
 
-    expect(await screen.findByText(FULL_SYNC_LABEL)).toBeInTheDocument()
+    await waitForSelectedEntity('Orders.Backfill')
+    expect(screen.getByText(FULL_SYNC_LABEL)).toBeInTheDocument()
     expect(screen.queryByText(BATCH_SIZE_LABEL)).not.toBeInTheDocument()
   })
 
@@ -129,7 +150,8 @@ describe('data sync dashboard start controls', () => {
 
     renderWithProviders(<SyncRunsDashboardPage />)
 
-    await waitFor(() => expect(screen.getByText('Start sync')).toBeInTheDocument())
+    await waitForSelectedEntity('Orders.Backfill')
+    expect(screen.getByText('Start sync')).toBeInTheDocument()
     expect(screen.queryByText(FULL_SYNC_LABEL)).not.toBeInTheDocument()
     expect(screen.queryByText(BATCH_SIZE_LABEL)).not.toBeInTheDocument()
   })
