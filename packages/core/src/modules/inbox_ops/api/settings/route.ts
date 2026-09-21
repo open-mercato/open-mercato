@@ -35,7 +35,7 @@ export async function GET(req: Request) {
       }
     }
 
-    const settings = await ensureInboxSettings(ctx.em, ctx.scope)
+    const { settings } = await ensureInboxSettings(ctx.em, ctx.scope)
 
     const responseBody = {
       settings: {
@@ -77,7 +77,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: 'Invalid request', details: parsed.error.issues }, { status: 400 })
     }
 
-    const settings = await ensureInboxSettings(ctx.em, ctx.scope)
+    const { em: settingsEm, settings } = await ensureInboxSettings(ctx.em, ctx.scope)
 
     // Optimistic lock: refuse a stale overwrite when two tabs edit the same inbox
     // settings record. Strictly additive — a no-op without the expected-version header.
@@ -104,7 +104,10 @@ export async function PATCH(req: Request) {
       settings.webhookSecret = parsed.data.webhookSecret ? parsed.data.webhookSecret : null
     }
 
-    await ctx.em.flush()
+    // Flush through `settingsEm` — after a concurrent-bootstrap recovery this
+    // is a clean fork, not `ctx.em`, whose unit of work would otherwise retry
+    // the losing insert.
+    await settingsEm.flush()
 
     const cache = resolveCache(ctx.container)
     await runWithCacheTenant(ctx.tenantId, () => invalidateSettingsCache(cache, ctx.tenantId))

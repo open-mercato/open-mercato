@@ -8,6 +8,15 @@ export interface EnsureInboxSettingsScope {
   organizationId: string
 }
 
+export interface EnsureInboxSettingsResult {
+  // The manager the returned `settings` row is actually managed by — a
+  // concurrent-bootstrap recovery returns a clean fork, never the manager
+  // whose insert just failed, so callers must flush further writes through
+  // this manager rather than the one they passed in.
+  em: EntityManager
+  settings: InboxSettings
+}
+
 function isUniqueViolation(error: unknown): boolean {
   if (error instanceof UniqueConstraintViolationException) return true
   if (!error || typeof error !== 'object') return false
@@ -32,9 +41,9 @@ async function findExisting(em: EntityManager, scope: EnsureInboxSettingsScope) 
 export async function ensureInboxSettings(
   em: EntityManager,
   scope: EnsureInboxSettingsScope,
-): Promise<InboxSettings> {
+): Promise<EnsureInboxSettingsResult> {
   const existing = await findExisting(em, scope)
-  if (existing) return existing
+  if (existing) return { em, settings: existing }
 
   const domain = process.env.INBOX_OPS_DOMAIN || 'inbox.mercato.local'
   const slug = scope.organizationId.slice(0, 8)
@@ -53,11 +62,16 @@ export async function ensureInboxSettings(
     // Two concurrent bootstraps (e.g. two tabs) race to insert the same
     // deterministic inboxAddress; the loser refetches the winner's row
     // instead of surfacing a raw unique-constraint error to the caller.
+    // Recover on a clean fork: `em`'s unit of work still owns the
+    // half-persisted `settings` entity scheduled for the failed insert, so
+    // flushing `em` again later (e.g. after a caller-side PATCH mutation)
+    // would retry that same rejected insert.
     if (!isUniqueViolation(error)) throw error
-    const winner = await findExisting(em, scope)
+    const recoveryEm = em.fork()
+    const winner = await findExisting(recoveryEm, scope)
     if (!winner) throw error
-    return winner
+    return { em: recoveryEm, settings: winner }
   }
 
-  return settings
+  return { em, settings }
 }
