@@ -16,7 +16,14 @@ import {
   PostgresQueryCompiler,
   type CompiledQuery,
 } from 'kysely'
+import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { purgeOrphans } from '../lib/stale'
+
+jest.mock('@open-mercato/shared/lib/indexers/error-log', () => ({
+  recordIndexerError: jest.fn(async () => undefined),
+}))
+
+const mockRecordIndexerError = recordIndexerError as jest.MockedFunction<typeof recordIndexerError>
 
 const STARTED_AT = new Date('2026-09-01T00:00:00Z')
 
@@ -74,7 +81,11 @@ const BASE = {
 }
 
 describe('purgeOrphans sweeps orphaned search tokens', () => {
-  it('deletes orphan tokens in the same transaction as the projections', async () => {
+  beforeEach(() => {
+    mockRecordIndexerError.mockClear()
+  })
+
+  it('deletes orphan tokens after the projections, without wrapping the pair in a transaction', async () => {
     const { db, statements, transactions } = makeDb()
 
     await purgeOrphans(db, { ...BASE, tenantId: 't1', organizationId: 'o1' })
@@ -82,10 +93,12 @@ describe('purgeOrphans sweeps orphaned search tokens', () => {
     expect(projectionDelete(statements)).toBeDefined()
     expect(tokenDelete(statements)).toBeDefined()
     // Order matters: the anti-join must see the projections already gone, otherwise a
-    // record's own stale projection vouches for its own stale tokens.
+    // record's own stale projection vouches for its own stale tokens. Visibility is all it
+    // needs, and a committed delete is visible — so ordering, not a shared transaction,
+    // is what carries the correctness here.
     expect(statements.indexOf(projectionDelete(statements)!))
       .toBeLessThan(statements.indexOf(tokenDelete(statements)!))
-    expect(transactions).toEqual(['begin', 'commit'])
+    expect(transactions).toEqual([])
   })
 
   // The whole point of the fix: a record is an orphan because its projection is gone, not
@@ -115,37 +128,50 @@ describe('purgeOrphans sweeps orphaned search tokens', () => {
     expect(token.parameters).toEqual(expect.arrayContaining([STARTED_AT]))
   })
 
-  it('mirrors the projection sweep scope null-safely', async () => {
+  // `is not distinct from` cannot serve as a btree index condition, so spelling the bound
+  // scope constants that way would leave the delete with only the `entity_type` prefix of
+  // `search_tokens_presence_idx` — the exact planner trap `shared/lib/search/availability.ts`
+  // documents on this table (#4723). The anti-join keeps the null-safe form because it
+  // compares columns, where no index-usable equivalent exists.
+  it('mirrors the projection sweep scope with index-usable predicates', async () => {
     const { db, statements } = makeDb()
 
     await purgeOrphans(db, { ...BASE, tenantId: 't1', organizationId: 'o1' })
 
     const token = tokenDelete(statements)!
-    expect(token.sql).toContain('tenant_id is not distinct from')
-    expect(token.sql).toContain('organization_id is not distinct from')
+    expect(token.sql).toMatch(/"tenant_id" = \$\d+/)
+    expect(token.sql).toMatch(/"organization_id" = \$\d+/)
+    expect(token.sql).not.toMatch(/\btenant_id is not distinct from \$\d+/)
+    expect(token.sql).not.toMatch(/\borganization_id is not distinct from \$\d+/)
     expect(token.parameters).toEqual(expect.arrayContaining(['example:todo', 't1', 'o1']))
+  })
+
+  it('keeps the anti-join null-safe, where the columns rule out an index-usable form', async () => {
+    const { db, statements } = makeDb()
+
+    await purgeOrphans(db, { ...BASE, tenantId: 't1', organizationId: 'o1' })
+
+    const sql = tokenDelete(statements)!.sql
+    expect(sql).toContain('surviving.tenant_id is not distinct from search_tokens.tenant_id')
+    expect(sql).toContain('surviving.organization_id is not distinct from search_tokens.organization_id')
   })
 
   // An explicit `null` scope means "the global/unscoped rows"; an omitted scope means "every
   // scope". Collapsing the two would let a tenant-scoped run sweep another tenant's tokens.
   it('distinguishes an explicit null scope from an omitted one', async () => {
-    // Anchored on the bound parameter so the anti-join's own `is not distinct from`
-    // comparisons — which name columns on both sides — cannot satisfy the match.
-    const boundTenantScope = /\btenant_id is not distinct from \$\d+/
-    const boundOrgScope = /\borganization_id is not distinct from \$\d+/
-
     const explicit = makeDb()
     await purgeOrphans(explicit.db, { ...BASE, tenantId: null, organizationId: null })
     const explicitToken = tokenDelete(explicit.statements)!
-    expect(explicitToken.sql).toMatch(boundTenantScope)
-    expect(explicitToken.sql).toMatch(boundOrgScope)
-    expect(explicitToken.parameters).toEqual(expect.arrayContaining([null]))
+    expect(explicitToken.sql).toContain('"tenant_id" is null')
+    expect(explicitToken.sql).toContain('"organization_id" is null')
 
     const omitted = makeDb()
     await purgeOrphans(omitted.db, { ...BASE })
     const omittedToken = tokenDelete(omitted.statements)!
-    expect(omittedToken.sql).not.toMatch(boundTenantScope)
-    expect(omittedToken.sql).not.toMatch(boundOrgScope)
+    expect(omittedToken.sql).not.toContain('"tenant_id" is null')
+    expect(omittedToken.sql).not.toContain('"organization_id" is null')
+    expect(omittedToken.sql).not.toMatch(/"tenant_id" = \$\d+/)
+    expect(omittedToken.sql).not.toMatch(/"organization_id" = \$\d+/)
   })
 
   it('restricts the sweep to the partition being rebuilt', async () => {
@@ -181,25 +207,53 @@ describe('purgeOrphans sweeps orphaned search tokens', () => {
   // `entity_indexes` ships in an earlier migration (Migration20251030150038) than
   // `search_tokens` (Migration20251212084132), so this code can legitimately run against a
   // database that has the projection table and not the token table. Sweeping unconditionally
-  // there would throw 42P01 and — inside the shared transaction — roll back the projection
-  // purge that used to succeed, breaking every reindex during a rolling deploy.
+  // there would throw 42P01 during every reindex of a rolling deploy.
   it('skips the token sweep when search_tokens does not exist, and still purges projections', async () => {
-    const { db, statements, transactions } = makeDb({ tokensTableMissing: true })
+    const { db, statements } = makeDb({ tokensTableMissing: true })
 
     await purgeOrphans(db, { ...BASE, tenantId: 't1', organizationId: 'o1' })
 
     expect(projectionDelete(statements)).toBeDefined()
     expect(tokenDelete(statements)).toBeUndefined()
-    expect(transactions).toEqual(['begin', 'commit'])
+    expect(mockRecordIndexerError).not.toHaveBeenCalled()
   })
 
-  it('rolls the projection delete back when the token delete fails', async () => {
-    const { db, statements, transactions } = makeDb({ failOn: /^delete from "search_tokens"/ })
+  // The failure trade this sweep is allowed to make. `reindexer.ts` does not guard the
+  // `purgeOrphans` call and marks the whole job failed on a throw, so a statement timeout on
+  // a large token delete must not discard a rebuild whose projections all wrote. Leftover
+  // orphan tokens are the pre-fix steady state and the next run sweeps them; a failed reindex
+  // is not recoverable that cheaply. Same stance as `batch.ts` takes on failed token writes.
+  it('keeps the projection purge and records the error when the token delete fails', async () => {
+    const { db, statements } = makeDb({ failOn: /^delete from "search_tokens"/ })
 
     await expect(purgeOrphans(db, { ...BASE, tenantId: 't1', organizationId: 'o1' }))
-      .rejects.toThrow('token delete failed')
+      .resolves.toBeUndefined()
 
     expect(projectionDelete(statements)).toBeDefined()
-    expect(transactions).toEqual(['begin', 'rollback'])
+    expect(mockRecordIndexerError).toHaveBeenCalledTimes(1)
+    expect(mockRecordIndexerError).toHaveBeenCalledWith(
+      { db },
+      expect.objectContaining({
+        source: 'fulltext',
+        handler: 'query_index:purge-orphans',
+        entityType: 'example:todo',
+        tenantId: 't1',
+        organizationId: 'o1',
+        error: expect.objectContaining({ message: '[internal] token delete failed' }),
+      }),
+    )
+  })
+
+  // A probe that throws (a permissions or connectivity blip on information_schema) must not
+  // be able to fail a reindex either — it sits on the same non-fatal side of the boundary.
+  it('does not fail the purge when the table probe itself throws', async () => {
+    const { db, statements } = makeDb({ failOn: /information_schema/ })
+
+    await expect(purgeOrphans(db, { ...BASE, tenantId: 't1', organizationId: 'o1' }))
+      .resolves.toBeUndefined()
+
+    expect(projectionDelete(statements)).toBeDefined()
+    expect(tokenDelete(statements)).toBeUndefined()
+    expect(mockRecordIndexerError).toHaveBeenCalledTimes(1)
   })
 })

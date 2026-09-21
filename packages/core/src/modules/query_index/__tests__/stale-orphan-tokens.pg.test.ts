@@ -2,8 +2,8 @@
  * Behavioural cover for the reindex orphan-token sweep (#6072) against a real PostgreSQL.
  *
  * The sibling `stale-orphan-tokens.test.ts` pins the SQL the sweep compiles; this suite pins
- * what PostgreSQL then does with it — `is not distinct from` across NULL scopes, the
- * correlated anti-join, `hashtext` partitioning and the transaction boundary are exactly the
+ * what PostgreSQL then does with it — `= / is null` across NULL scopes, the correlated
+ * anti-join, `hashtext` partitioning and the non-fatal token-failure boundary are exactly the
  * places where a plausible-looking predicate silently deletes searchable tokens for live
  * records, and `search_tokens` backs every module's list search.
  *
@@ -297,7 +297,11 @@ maybe('purgeOrphans orphan-token sweep against PostgreSQL', () => {
     }
   })
 
-  it('rolls the projection delete back when the token delete fails', async () => {
+  // A failing token delete must not take the projection purge — or the whole reindex job —
+  // down with it. `reindexer.ts` does not guard this call, so a throw here fails a rebuild
+  // whose projections all wrote successfully; leftover orphan tokens are merely the pre-fix
+  // steady state and the next run sweeps them.
+  it('keeps the committed projection purge when the token delete fails', async () => {
     const scope = { tenantId: TENANT, organizationId: ORG_A }
     await addProjection('gone', scope)
     await addToken('gone', scope)
@@ -308,12 +312,83 @@ maybe('purgeOrphans orphan-token sweep against PostgreSQL', () => {
       for each row execute function orphancheck_block_delete()`.execute(db)
 
     try {
-      await expect(purgeOrphans(db, { ...BASE, ...scope })).rejects.toThrow(/token delete blocked/)
-      expect(await projectionIds()).toEqual(['gone'])
+      await expect(purgeOrphans(db, { ...BASE, ...scope })).resolves.toBeUndefined()
+      expect(await projectionIds()).toEqual([])
       expect(await tokenIds()).toEqual(['gone'])
     } finally {
       await sql`drop trigger orphancheck_block_delete on search_tokens`.execute(db)
       await sql`drop function orphancheck_block_delete()`.execute(db)
+    }
+  })
+
+  // Why the sweep's scope predicates are spelled `= / is null` rather than the projection
+  // sweep's `is not distinct from`. What separates them is not whether the index is touched —
+  // all three spellings scan it — but how much of it the scan can use as an `Index Cond`:
+  // `=` and `is null` push all three columns down, while `is not distinct from` can only
+  // index the `entity_type` prefix and re-checks tenant and organization as a row `Filter`.
+  // On `search_tokens` (records × fields × tokens) that is the difference between reading one
+  // tenant's slice and reading every tenant's, which is what `availability.ts` already had to
+  // learn on this table (#4723). `enable_seqscan = off` keeps the assertion about what the
+  // index *can* do rather than what the planner prefers at this fixture's size; the setting
+  // and the EXPLAIN share one pinned connection.
+  //
+  // This one characterises PostgreSQL, not `purgeOrphans` — it EXPLAINs the two spellings
+  // directly, so it would keep passing if the sweep regressed to the null-safe form. The
+  // regression guard for that is `stale-orphan-tokens.test.ts`, which reads the SQL the
+  // function actually compiles and runs in CI. This test exists to keep the *reason* for the
+  // spelling verifiable instead of folklore.
+  it('indexes the whole scope with = / is null, and only entity_type with is not distinct from', async () => {
+    const scope = { tenantId: TENANT, organizationId: ORG_A }
+    await sql`create index if not exists search_tokens_presence_idx
+      on search_tokens (entity_type, tenant_id, organization_id)`.execute(db)
+    for (let i = 0; i < 50; i += 1) {
+      await addToken(`rec-${i}`, i % 2 === 0 ? scope : { tenantId: OTHER_TENANT, organizationId: ORG_B })
+    }
+    await sql`analyze search_tokens`.execute(db)
+
+    const indexCondOf = (plan: string): string =>
+      plan.split('\n').find((line) => line.includes('Index Cond:')) ?? ''
+
+    try {
+      const plans = await db.transaction().execute(async (trx) => {
+        await sql`set local enable_seqscan = off`.execute(trx)
+        const run = async (query: ReturnType<typeof sql<{ 'QUERY PLAN': string }>>) =>
+          (await query.execute(trx)).rows.map((row) => row['QUERY PLAN']).join('\n')
+        return {
+          equals: await run(sql<{ 'QUERY PLAN': string }>`
+            explain delete from search_tokens
+            where entity_type = ${ENTITY}
+              and tenant_id = ${TENANT}::uuid
+              and organization_id = ${ORG_A}::uuid
+          `),
+          isNull: await run(sql<{ 'QUERY PLAN': string }>`
+            explain delete from search_tokens
+            where entity_type = ${ENTITY}
+              and tenant_id is null
+              and organization_id is null
+          `),
+          nullSafe: await run(sql<{ 'QUERY PLAN': string }>`
+            explain delete from search_tokens
+            where entity_type = ${ENTITY}
+              and tenant_id is not distinct from ${TENANT}::uuid
+              and organization_id is not distinct from ${ORG_A}::uuid
+          `),
+        }
+      })
+
+      // The scoped path this change is for.
+      expect(indexCondOf(plans.equals)).toContain('tenant_id')
+      expect(indexCondOf(plans.equals)).toContain('organization_id')
+      // The explicit-null scope path takes the same benefit.
+      expect(indexCondOf(plans.isNull)).toContain('tenant_id IS NULL')
+      expect(indexCondOf(plans.isNull)).toContain('organization_id IS NULL')
+      // The finding: the null-safe spelling degrades to the entity_type prefix alone.
+      expect(indexCondOf(plans.nullSafe)).toContain('entity_type')
+      expect(indexCondOf(plans.nullSafe)).not.toContain('tenant_id')
+      expect(indexCondOf(plans.nullSafe)).not.toContain('organization_id')
+      expect(plans.nullSafe).toMatch(/Filter:.*tenant_id/)
+    } finally {
+      await sql`drop index if exists search_tokens_presence_idx`.execute(db)
     }
   })
 })
