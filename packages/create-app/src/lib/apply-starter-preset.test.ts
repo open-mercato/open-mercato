@@ -420,6 +420,41 @@ test('any preset enabling ai_assistant also enables search', () => {
   }
 })
 
+// Drift guard: `ModuleInfo.requires` is enforced by the generator at `yarn generate`
+// time (packages/cli/src/lib/generators/module-registry.ts:4222), so a preset whose
+// module set does not satisfy it produces an app that hard-fails on the very first
+// command the CLI prints. Issue #6094 is how that escaped review — no test runs the
+// generator against a non-classic preset.
+function declaredRequires(entry: ModuleEntry): string[] {
+  const indexFile = join(moduleSourceDir(entry), 'index.ts')
+  if (!existsSync(indexFile)) return []
+  const match = readFileSync(indexFile, 'utf-8').match(/requires:\s*\[([^\]]*)\]/)
+  if (!match) return []
+  return [...match[1].matchAll(/['"]([^'"]+)['"]/g)].map((m) => m[1])
+}
+
+test('every non-classic preset satisfies the declared `requires` of every module it enables', () => {
+  // Premise assertion, so a future refactor turns this red rather than vacuously green.
+  assert.deepEqual(
+    declaredRequires({ id: 'communication_channels', from: '@open-mercato/core' }),
+    ['progress'],
+  )
+
+  for (const presetId of ['empty', 'crm', 'wms']) {
+    const modules = resolvePreset(presetId).modules
+    const enabledIds = new Set(modules.map((m) => m.id))
+    for (const entry of modules) {
+      const missing = declaredRequires(entry).filter((id) => !enabledIds.has(id))
+      assert.deepEqual(
+        missing,
+        [],
+        `preset "${presetId}" enables "${entry.id}", which declares requires: [${declaredRequires(entry).join(', ')}] — ` +
+          `${missing.join(', ')} is not in the preset, so \`yarn generate\` fails with "Module dependency check failed"`,
+      )
+    }
+  }
+})
+
 test('template baseline modules keep example and design_system unregistered for classic', () => {
   const content = readFileSync(join(__dirname, '..', '..', 'template', 'src', 'modules.ts'), 'utf-8')
 
