@@ -14,6 +14,7 @@
  */
 
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { safeSetNestedValue } from './safe-mapping-path'
 
 const logger = createLogger('workflows').child({ component: 'agent-result-mapping' })
 
@@ -29,16 +30,6 @@ export type AgentResultEnvelope = {
 
 function getNestedValue(obj: any, path: string): any {
   return path.split('.').reduce((current, key) => current?.[key], obj)
-}
-
-function setNestedValue(obj: Record<string, any>, path: string, value: any): void {
-  const keys = path.split('.')
-  const lastKey = keys.pop()!
-  const target = keys.reduce<Record<string, any>>((current, key) => {
-    if (!(key in current)) current[key] = {}
-    return current[key]
-  }, obj)
-  target[lastKey] = value
 }
 
 function warnOnTemplateMapping(sourcePath: string): void {
@@ -81,7 +72,7 @@ export function mapAgentResultToContext(
     warnOnTemplateMapping(sourcePath)
     const value = getNestedValue(source, sourcePath)
     if (value !== undefined) {
-      setNestedValue(result, targetKey, value)
+      safeSetNestedValue(result, targetKey, value)
     }
   }
   return result

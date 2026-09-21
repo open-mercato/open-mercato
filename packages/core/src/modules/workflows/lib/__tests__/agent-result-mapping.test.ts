@@ -53,6 +53,20 @@ describe('mapAgentResultToContext', () => {
       expect(result).toEqual({ pid: 'p1' })
       expect(result).not.toHaveProperty('missing')
     })
+
+    test('ignores prototype-bearing targets without polluting Object.prototype', () => {
+      const outputMapping = JSON.parse(
+        '{"safe":"proposalId","__proto__.workflowPolluted":"proposalId","constructor.prototype.workflowPolluted":"proposalId"}',
+      ) as Record<string, string>
+
+      const result = mapAgentResultToContext(
+        { kind: 'auto_approved', proposalId: 'p1' },
+        outputMapping,
+      )
+
+      expect(result).toEqual({ safe: 'p1' })
+      expect(Object.prototype).not.toHaveProperty('workflowPolluted')
+    })
   })
 })
 

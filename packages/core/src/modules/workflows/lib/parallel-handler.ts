@@ -33,6 +33,7 @@ import { logWorkflowEvent } from './event-logger'
 import * as stepHandler from './step-handler'
 import { branchToken, mergeTokenContext, type ExecutionToken } from './execution-token'
 import { WORKFLOW_ERROR_CONTEXT_KEY, buildErrorContextEntry } from './error-routing'
+import { isSafeMappingTargetPath } from './safe-mapping-path'
 
 export interface AdvanceBranchesResult {
   outcome: 'joined' | 'waiting' | 'failed'
@@ -626,7 +627,7 @@ async function fireJoin(
   const outputMapping: Record<string, string> | undefined = joinStep?.config?.outputMapping
   if (outputMapping) {
     for (const [topKey, sourcePath] of Object.entries(outputMapping)) {
-      if (topKey === 'branches') continue
+      if (topKey === 'branches' || !isSafeMappingTargetPath(topKey)) continue
       const value = getNestedValue(nextContext, sourcePath)
       if (value !== undefined) nextContext[topKey] = value
     }
