@@ -14,9 +14,9 @@ describe('attachments bigint-backed number fields', () => {
 
   function bigIntModeOf(className: string, propertyName: string): string | undefined {
     const meta = Object.values(MetadataStorage.getMetadata()).find(
-      (m: any) => m.className === className,
-    ) as any
-    const type = meta?.properties?.[propertyName]?.type
+      (candidate) => candidate.className === className,
+    )
+    const type = meta?.properties[propertyName]?.type
     expect(type).toBeInstanceOf(BigIntType)
     return (type as InstanceType<typeof BigIntType>).mode
   }
