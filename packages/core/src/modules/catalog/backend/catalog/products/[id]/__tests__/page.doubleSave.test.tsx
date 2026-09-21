@@ -26,6 +26,9 @@ jest.mock('@open-mercato/ui/backend/Page', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => mockTranslate,
+  // The page reads the active locale to format canonical UoM fields; the real
+  // hook throws outside an I18nProvider, so the mock has to supply it too.
+  useLocale: () => 'en',
 }))
 
 jest.mock('next/link', () => ({ children }: { children: React.ReactNode }) => <span>{children}</span>)

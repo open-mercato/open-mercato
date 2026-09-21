@@ -87,4 +87,6 @@
 - [x] 7.1 Merge the latest `develop` (74 commits of drift since the 2026-09-14 base merge) — no conflicts
 - [x] 7.2 Gate the explicit-`parentMessageId` compose path through the same channel-access check, and re-pin the test that had fixed the gap in place — the new 403 case was verified to fail with the gate removed
 - [x] 7.3 Add `TC-CHANNEL-REPLY-002` — integration-level permission-denied evidence on the boundary: a second, genuinely unprivileged operator refused on read, reply and parent-threaded compose
-- [ ] 7.4 Re-run the full configured validation gate and hand the PR back for re-review
+- [x] 7.4 Re-run the full configured validation gate — green locally except one wall-clock budget assertion in `@open-mercato/cli` (`module-facts.bc-guard`, 97s against a 90s budget) that passes in isolation and passes in CI; machine contention, not a code failure
+- [x] 7.5 Repair the two catalog product-edit suites the `develop` merge brought in red — `page.tsx` on `develop` calls `useLocale()` while both test mocks stub `@open-mercato/shared/lib/i18n/context` with `useT` alone. Inherited breakage, test-only, two lines; worth its own fix on `develop`
+- [ ] 7.6 Hand the PR back to @adeptofvoltron for re-review
