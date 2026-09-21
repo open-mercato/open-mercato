@@ -1,3 +1,4 @@
+import { useOptionalLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import * as React from 'react'
 import {
   ScheduleAgenda,
@@ -9,6 +10,9 @@ import {
   type ScheduleViewMode,
 } from '@open-mercato/ui/backend/schedule'
 import type { GalleryEntry } from '../types'
+import { startOfWeek } from 'date-fns/startOfWeek'
+import { endOfWeek } from 'date-fns/endOfWeek'
+import { getScheduleLocale } from '@open-mercato/ui/backend/schedule/localization'
 
 // Component titles and variant names are proper nouns from the codebase and
 // are deliberately not translated. `code` MUST contain the entry's importPath
@@ -17,9 +21,35 @@ import type { GalleryEntry } from '../types'
 
 // Fixed sample dates (June 2026) — previews must not depend on "today" so the
 // gallery renders identically on any day.
-const weekRange: ScheduleRange = {
-  start: new Date(2026, 5, 7),
-  end: new Date(2026, 5, 13, 23, 59, 59, 999),
+function ScheduleGridEntryThreeDayBoardPreview() {
+  const t = useT()
+  return (
+    <ScheduleGrid
+      items={sampleItems(t)}
+      range={boardRange}
+      timezone="Europe/Warsaw"
+      onItemClick={() => {}}
+      onSlotClick={() => {}}
+      className="w-full"
+    />
+  )
+}
+function ScheduleAgendaEntryTwoDaysPreview() {
+  const t = useT()
+  return (
+    <ScheduleAgenda
+      items={sampleItems(t)}
+      range={agendaRange}
+      timezone="Europe/Warsaw"
+      onItemClick={() => {}}
+      onSlotClick={() => {}}
+      className="w-full"
+    />
+  )
+}
+function ScheduleAgendaEntryReadOnlyDayPreview() {
+  const t = useT()
+  return <ScheduleAgenda items={sampleItems(t)} range={draftDayRange} className="w-full" />
 }
 const monthRange: ScheduleRange = {
   start: new Date(2026, 5, 1),
@@ -41,12 +71,11 @@ const draftDayRange: ScheduleRange = {
   start: new Date(2026, 5, 12),
   end: new Date(2026, 5, 12, 23, 59, 59, 999),
 }
-
-const sampleItems: ScheduleItem[] = [
+const sampleItems = (t: ReturnType<typeof useT>): ScheduleItem[] => [
   {
     id: 'availability-1',
     kind: 'availability',
-    title: 'Open studio hours',
+    title: t('design_system.gallery.samples.content.openStudioHours'),
     startsAt: new Date(2026, 5, 8, 9, 0),
     endsAt: new Date(2026, 5, 8, 12, 0),
     status: 'confirmed',
@@ -56,7 +85,7 @@ const sampleItems: ScheduleItem[] = [
   {
     id: 'event-1',
     kind: 'event',
-    title: 'Fitting — Anna Nowak',
+    title: t('design_system.gallery.samples.content.fittingAnnaNowak'),
     startsAt: new Date(2026, 5, 8, 13, 0),
     endsAt: new Date(2026, 5, 8, 14, 0),
     status: 'negotiation',
@@ -64,7 +93,7 @@ const sampleItems: ScheduleItem[] = [
   {
     id: 'event-2',
     kind: 'event',
-    title: 'Delivery walkthrough',
+    title: t('design_system.gallery.samples.content.deliveryWalkthrough'),
     startsAt: new Date(2026, 5, 9, 10, 0),
     endsAt: new Date(2026, 5, 9, 11, 30),
     status: 'confirmed',
@@ -72,7 +101,7 @@ const sampleItems: ScheduleItem[] = [
   {
     id: 'exception-1',
     kind: 'exception',
-    title: 'Studio closed',
+    title: t('design_system.gallery.samples.content.studioClosed'),
     startsAt: new Date(2026, 5, 10, 0, 0),
     endsAt: new Date(2026, 5, 10, 23, 59),
     status: 'cancelled',
@@ -80,24 +109,27 @@ const sampleItems: ScheduleItem[] = [
   {
     id: 'event-3',
     kind: 'event',
-    title: 'Quarterly review',
+    title: t('design_system.gallery.samples.content.quarterlyReview'),
     startsAt: new Date(2026, 5, 12, 15, 0),
     endsAt: new Date(2026, 5, 12, 16, 0),
     status: 'draft',
   },
 ]
-
-function initialRangeFor(view: ScheduleViewMode): ScheduleRange {
-  return view === 'month' ? monthRange : weekRange
+function initialRangeFor(view: ScheduleViewMode, language?: string): ScheduleRange {
+  if (view === 'month') return monthRange
+  const anchor = new Date(2026, 5, 10)
+  const locale = getScheduleLocale(language)
+  return { start: startOfWeek(anchor, { locale }), end: endOfWeek(anchor, { locale }) }
 }
-
 function DemoScheduleView({ initialView }: { initialView: ScheduleViewMode }) {
+  const t = useT()
+  const locale = useOptionalLocale()
   const [view, setView] = React.useState<ScheduleViewMode>(initialView)
-  const [range, setRange] = React.useState<ScheduleRange>(initialRangeFor(initialView))
+  const [range, setRange] = React.useState<ScheduleRange>(() => initialRangeFor(initialView, locale))
   const [timezone, setTimezone] = React.useState('Europe/Warsaw')
   return (
     <ScheduleView
-      items={sampleItems}
+      items={sampleItems(t)}
       view={view}
       range={range}
       timezone={timezone}
@@ -108,10 +140,10 @@ function DemoScheduleView({ initialView }: { initialView: ScheduleViewMode }) {
     />
   )
 }
-
 function DemoScheduleToolbar({ initialView }: { initialView: ScheduleViewMode }) {
+  const locale = useOptionalLocale()
   const [view, setView] = React.useState<ScheduleViewMode>(initialView)
-  const [range, setRange] = React.useState<ScheduleRange>(initialRangeFor(initialView))
+  const [range, setRange] = React.useState<ScheduleRange>(() => initialRangeFor(initialView, locale))
   const [timezone, setTimezone] = React.useState('Europe/Warsaw')
   return (
     <ScheduleToolbar
@@ -125,7 +157,6 @@ function DemoScheduleToolbar({ initialView }: { initialView: ScheduleViewMode })
     />
   )
 }
-
 const scheduleViewEntry: GalleryEntry = {
   id: 'schedule-view',
   title: 'ScheduleView',
@@ -137,10 +168,16 @@ const scheduleViewEntry: GalleryEntry = {
       render: () => <DemoScheduleView initialView="week" />,
       code: `import { ScheduleView, type ScheduleItem, type ScheduleRange, type ScheduleViewMode } from '@open-mercato/ui/backend/schedule'
 
+import { useOptionalLocale } from '@open-mercato/shared/lib/i18n/context'
+import { getScheduleLocale } from '@open-mercato/ui/backend/schedule/localization'
+import { startOfWeek } from 'date-fns/startOfWeek'
+import { endOfWeek } from 'date-fns/endOfWeek'
+
+const locale = getScheduleLocale(useOptionalLocale())
 const [view, setView] = React.useState<ScheduleViewMode>('week')
-const [range, setRange] = React.useState<ScheduleRange>({
-  start: new Date(2026, 5, 7),
-  end: new Date(2026, 5, 13, 23, 59, 59, 999),
+const [range, setRange] = React.useState<ScheduleRange>(() => {
+  const anchor = new Date(2026, 5, 10)
+  return { start: startOfWeek(anchor, { locale }), end: endOfWeek(anchor, { locale }) }
 })
 
 <ScheduleView
@@ -168,7 +205,6 @@ const [range, setRange] = React.useState<ScheduleRange>({
     },
   ],
 }
-
 const scheduleToolbarEntry: GalleryEntry = {
   id: 'schedule-toolbar',
   title: 'ScheduleToolbar',
@@ -180,10 +216,16 @@ const scheduleToolbarEntry: GalleryEntry = {
       render: () => <DemoScheduleToolbar initialView="week" />,
       code: `import { ScheduleToolbar, type ScheduleRange, type ScheduleViewMode } from '@open-mercato/ui/backend/schedule'
 
+import { useOptionalLocale } from '@open-mercato/shared/lib/i18n/context'
+import { getScheduleLocale } from '@open-mercato/ui/backend/schedule/localization'
+import { startOfWeek } from 'date-fns/startOfWeek'
+import { endOfWeek } from 'date-fns/endOfWeek'
+
+const locale = getScheduleLocale(useOptionalLocale())
 const [view, setView] = React.useState<ScheduleViewMode>('week')
-const [range, setRange] = React.useState<ScheduleRange>({
-  start: new Date(2026, 5, 7),
-  end: new Date(2026, 5, 13, 23, 59, 59, 999),
+const [range, setRange] = React.useState<ScheduleRange>(() => {
+  const anchor = new Date(2026, 5, 10)
+  return { start: startOfWeek(anchor, { locale }), end: endOfWeek(anchor, { locale }) }
 })
 const [timezone, setTimezone] = React.useState('Europe/Warsaw')
 
@@ -212,7 +254,6 @@ const [range, setRange] = React.useState<ScheduleRange>({
     },
   ],
 }
-
 const scheduleGridEntry: GalleryEntry = {
   id: 'schedule-grid',
   title: 'ScheduleGrid',
@@ -221,16 +262,7 @@ const scheduleGridEntry: GalleryEntry = {
     {
       id: 'three-day-board',
       title: 'Three-day board',
-      render: () => (
-        <ScheduleGrid
-          items={sampleItems}
-          range={boardRange}
-          timezone="Europe/Warsaw"
-          onItemClick={() => {}}
-          onSlotClick={() => {}}
-          className="w-full"
-        />
-      ),
+      render: () => <ScheduleGridEntryThreeDayBoardPreview />,
       code: `import { ScheduleGrid, type ScheduleItem } from '@open-mercato/ui/backend/schedule'
 
 <ScheduleGrid
@@ -254,7 +286,6 @@ const scheduleGridEntry: GalleryEntry = {
     },
   ],
 }
-
 const scheduleAgendaEntry: GalleryEntry = {
   id: 'schedule-agenda',
   title: 'ScheduleAgenda',
@@ -263,16 +294,7 @@ const scheduleAgendaEntry: GalleryEntry = {
     {
       id: 'two-days',
       title: 'Two days with statuses',
-      render: () => (
-        <ScheduleAgenda
-          items={sampleItems}
-          range={agendaRange}
-          timezone="Europe/Warsaw"
-          onItemClick={() => {}}
-          onSlotClick={() => {}}
-          className="w-full"
-        />
-      ),
+      render: () => <ScheduleAgendaEntryTwoDaysPreview />,
       code: `import { ScheduleAgenda, type ScheduleItem } from '@open-mercato/ui/backend/schedule'
 
 <ScheduleAgenda
@@ -286,9 +308,7 @@ const scheduleAgendaEntry: GalleryEntry = {
     {
       id: 'read-only-day',
       title: 'Read-only day (draft item)',
-      render: () => (
-        <ScheduleAgenda items={sampleItems} range={draftDayRange} className="w-full" />
-      ),
+      render: () => <ScheduleAgendaEntryReadOnlyDayPreview />,
       code: `import { ScheduleAgenda } from '@open-mercato/ui/backend/schedule'
 
 <ScheduleAgenda
@@ -298,10 +318,4 @@ const scheduleAgendaEntry: GalleryEntry = {
     },
   ],
 }
-
-export const entries: GalleryEntry[] = [
-  scheduleViewEntry,
-  scheduleToolbarEntry,
-  scheduleGridEntry,
-  scheduleAgendaEntry,
-]
+export const entries: GalleryEntry[] = [scheduleViewEntry, scheduleToolbarEntry, scheduleGridEntry, scheduleAgendaEntry]

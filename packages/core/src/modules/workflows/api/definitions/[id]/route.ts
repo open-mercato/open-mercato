@@ -13,15 +13,33 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
-import { WorkflowDefinition } from '../../../data/entities'
+import { WorkflowDefinition, WorkflowInstance } from '../../../data/entities'
 import {
   updateWorkflowDefinitionInputSchema,
+  updateWorkflowDefinitionInputCheckedSchema,
   type UpdateWorkflowDefinitionApiInput,
 } from '../../../data/validators'
 import { serializeWorkflowDefinition, serializeCodeWorkflowDefinition } from '../serialize'
+import {
+  workflowDefinitionDetailResponseSchema,
+  workflowDefinitionMutationResponseSchema,
+  workflowDefinitionDeleteResponseSchema,
+  workflowErrorSchema,
+} from '../../openapi'
 import { invalidateTriggerCache } from '../../../lib/event-trigger-service'
+import { normalizeDefinitionValidationIssues } from '../../../lib/definition-error-body'
 import { getCodeWorkflow, getAllCodeWorkflows } from '../../../lib/code-registry'
 import { codeWorkflowUuid } from '../../../lib/find-definition'
+import {
+  ACTIVE_WORKFLOW_INSTANCE_STATUSES,
+  buildStructuralEditConflictBody,
+  diffDefinitionStructure,
+} from '../../../lib/definition-edit-safety'
+import {
+  authorizeWorkflowGrantChange,
+  normalizeGrantedFeatures,
+  syncWorkflowDefinitionPrincipal,
+} from '../../../lib/definition-grant'
 import { createGenericOptimisticLockReader } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { registerOptimisticLockReaderIfAbsent } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
@@ -170,12 +188,12 @@ export async function PUT(
     const body = await request.json()
 
     // Validate input
-    const validation = updateWorkflowDefinitionInputSchema.safeParse(body)
+    const validation = updateWorkflowDefinitionInputCheckedSchema.safeParse(body)
     if (!validation.success) {
       return NextResponse.json(
         {
           error: 'Validation failed',
-          details: validation.error.issues,
+          details: normalizeDefinitionValidationIssues(validation.error),
         },
         { status: 400 }
       )
@@ -208,11 +226,12 @@ export async function PUT(
         )
       }
 
-      // Check if an override already exists (including soft-deleted, due to unique constraint on workflowId+tenantId)
+      // Check if an override already exists. Pin to the latest version so the
+      // override update targets a deterministic row now that versions coexist.
       const existingOverride = await em.findOne(WorkflowDefinition, {
         workflowId: codeDef.workflowId,
         tenantId,
-      })
+      }, { orderBy: { version: 'DESC' } })
 
       let savedOverride: WorkflowDefinition
       if (existingOverride) {
@@ -337,6 +356,35 @@ export async function PUT(
       throw lockError
     }
 
+    // Edit-safety rule (spec 4.1). Instances pin this row and the engine
+    // re-reads it on every advance, so a topology rewrite would re-point routes
+    // under a running instance. Structural changes are refused while instances
+    // are still executing; the structured body offers the new-version remedy.
+    // Cosmetic, config and metadata edits stay in-place, and the per-user draft
+    // layer (a separate route) is untouched so work-in-progress stays saveable.
+    if (input.definition !== undefined) {
+      const structuralChanges = diffDefinitionStructure(definition.definition, input.definition)
+      if (structuralChanges.length > 0) {
+        const activeInstanceCount = await em.count(WorkflowInstance, {
+          definitionId: definition.id,
+          status: { $in: [...ACTIVE_WORKFLOW_INSTANCE_STATUSES] },
+          tenantId,
+          organizationId,
+          deletedAt: null,
+        })
+        if (activeInstanceCount > 0) {
+          return NextResponse.json(
+            buildStructuralEditConflictBody({
+              definitionId: definition.id,
+              activeInstanceCount,
+              changes: structuralChanges,
+            }),
+            { status: 409 },
+          )
+        }
+      }
+    }
+
     // Update fields. workflowId is intentionally ignored — it identifies the
     // row and renaming would break references. Version is user-managed and
     // applied when supplied so the edit form can bump it explicitly.
@@ -365,6 +413,29 @@ export async function PUT(
       definition.effectiveTo = input.effectiveTo
     }
 
+    // Execution identity. Absent leaves the stored grant untouched; an explicit
+    // value is authorised against the SAVING user's own current features (never
+    // the original author's) and the principal is re-scoped before the row is
+    // flushed, so the column and the role ACL can never disagree.
+    if (input.grantedFeatures !== undefined) {
+      const requestedGrant = normalizeGrantedFeatures(input.grantedFeatures)
+      const previousGrant = normalizeGrantedFeatures(definition.grantedFeatures)
+      const grantFailure = await authorizeWorkflowGrantChange(rbacService, {
+        userId: auth.sub,
+        scope: { tenantId, organizationId },
+        requested: requestedGrant,
+        current: previousGrant,
+      })
+      if (grantFailure) {
+        return NextResponse.json(grantFailure.body, { status: grantFailure.status })
+      }
+      definition.grantedFeatures = requestedGrant.length ? requestedGrant : null
+      // Clearing a grant re-scopes the existing principal to no features rather
+      // than leaving its old ACL behind.
+      await syncWorkflowDefinitionPrincipal(container, definition, { previousFeatures: previousGrant })
+    }
+
+    definition.updatedBy = auth.sub
     definition.updatedAt = new Date()
 
     await em.flush()
@@ -533,6 +604,7 @@ export const openApi = {
         {
           status: 200,
           description: 'Workflow definition found',
+          schema: workflowDefinitionDetailResponseSchema,
           example: {
             data: {
               id: '123e4567-e89b-12d3-a456-426614174000',
@@ -612,6 +684,7 @@ export const openApi = {
         {
           status: 404,
           description: 'Workflow definition not found',
+          schema: workflowErrorSchema,
           example: {
             error: 'Workflow definition not found',
           },
@@ -690,6 +763,7 @@ export const openApi = {
         {
           status: 200,
           description: 'Workflow definition updated successfully',
+          schema: workflowDefinitionMutationResponseSchema,
           example: {
             data: {
               id: '123e4567-e89b-12d3-a456-426614174000',
@@ -756,13 +830,16 @@ export const openApi = {
         {
           status: 400,
           description: 'Validation error',
+          schema: workflowErrorSchema,
           example: {
             error: 'Validation failed',
             details: [
               {
-                code: 'invalid_type',
-                message: 'Expected object, received string',
                 path: ['definition'],
+                code: 'invalid_type',
+                message: 'Invalid input: expected object, received string',
+                expected: 'object',
+                got: 'string',
               },
             ],
           },
@@ -770,8 +847,28 @@ export const openApi = {
         {
           status: 404,
           description: 'Workflow definition not found',
+          schema: workflowErrorSchema,
           example: {
             error: 'Workflow definition not found',
+          },
+        },
+        {
+          status: 409,
+          description:
+            'Structural change refused while instances are still running (or optimistic-lock conflict). Publish a new version and apply the change there.',
+          schema: workflowErrorSchema,
+          example: {
+            error: 'Structural changes require a new version while instances are still running',
+            code: 'WORKFLOW_STRUCTURAL_EDIT_REQUIRES_NEW_VERSION',
+            definitionId: '123e4567-e89b-12d3-a456-426614174000',
+            activeInstanceCount: 3,
+            activeStatuses: ['RUNNING', 'PAUSED', 'WAITING_FOR_ACTIVITIES', 'FORKED', 'COMPENSATING'],
+            changes: [{ kind: 'transitionRetargeted', id: 't_lz3k9_ab12cd34e' }],
+            remedy: {
+              action: 'createVersion',
+              method: 'POST',
+              endpoint: '/api/workflows/definitions/123e4567-e89b-12d3-a456-426614174000/publish',
+            },
           },
         },
       ],
@@ -787,6 +884,7 @@ export const openApi = {
         {
           status: 200,
           description: 'Workflow definition deleted successfully',
+          schema: workflowDefinitionDeleteResponseSchema,
           example: {
             message: 'Workflow definition deleted successfully',
           },
@@ -794,6 +892,7 @@ export const openApi = {
         {
           status: 404,
           description: 'Workflow definition not found',
+          schema: workflowErrorSchema,
           example: {
             error: 'Workflow definition not found',
           },
@@ -801,6 +900,7 @@ export const openApi = {
         {
           status: 409,
           description: 'Cannot delete - active workflow instances exist',
+          schema: workflowErrorSchema,
           example: {
             error: 'Cannot delete workflow definition with 3 active instance(s)',
           },

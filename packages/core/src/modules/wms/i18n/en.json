@@ -1,4 +1,8 @@
 {
+  "search.entityType.wms.inventory_lot": "Inventory lot",
+  "search.entityType.wms.product_inventory_profile": "Inventory profile",
+  "search.entityType.wms.warehouse": "Warehouse",
+  "search.entityType.wms.warehouse_location": "Location",
   "wms.audit.inventory.receive": "Receive inventory",
   "wms.audit.salesOrder.assignWarehouse": "Assign warehouse to order",
   "wms.audit.salesOrder.reRunReservation": "Re-run reservation for order",

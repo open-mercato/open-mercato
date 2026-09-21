@@ -11,6 +11,9 @@ const testModules: Module[] = [
   // A module whose feature is a PORTAL one — the half that used to be reachable
   // only at tenant bootstrap, so it never landed on roles that already existed.
   { id: 'staff', setup: { defaultCustomerRoleFeatures: { buyer: ['portal.time_reports.view'] } } },
+  // The module that owns CustomerRole/CustomerRoleAcl. Its presence is what makes
+  // the portal half of the sync runnable at all — see the disabled-module case below.
+  { id: 'customer_accounts' },
 ]
 registerModules(testModules)
 registerCliModules(testModules)
@@ -26,8 +29,17 @@ let tenantsList: Array<{ id: string }> = []
 let rolesByTenant: Record<string, RoleStub[]> = {}
 let customerRolesByTenant: Record<string, CustomerRoleStub[]> = {}
 let existingCustomerAcls: CustomerRoleAclStub[] = []
+/**
+ * Stands in for MikroORM's own behavior when `customer_accounts` is not in
+ * `modules.ts`: the entity is never registered, so any query against it throws
+ * rather than returning null. Reaching one of these at all is the failure.
+ */
+let portalEntitiesUnregistered = false
 
 const findOne = jest.fn(async (Entity: any, where: any) => {
+  if (portalEntitiesUnregistered && (Entity?.name === 'CustomerRole' || Entity?.name === 'CustomerRoleAcl')) {
+    throw new Error(`Metadata for entity ${Entity.name} not found`)
+  }
   if (Entity?.name === 'Role') {
     const tid = where?.tenantId ?? null
     const roles = rolesByTenant[tid ?? '__null__'] ?? []
@@ -109,6 +121,8 @@ describe('auth CLI sync-role-acls', () => {
     rolesByTenant = {}
     customerRolesByTenant = {}
     existingCustomerAcls = []
+    portalEntitiesUnregistered = false
+    registerCliModules(testModules)
   })
 
   it('creates RoleAcl rows for built-in + custom roles on --tenant <id>', async () => {
@@ -230,6 +244,37 @@ describe('auth CLI sync-role-acls', () => {
     await cmd.run(['--tenant', 't-1'])
 
     expect(persistedAcls.find((a) => a.role?.name === 'admin')).toBeDefined()
+  })
+
+  /**
+   * A deployment that enables `staff` (so a module declares
+   * `defaultCustomerRoleFeatures`) but not `customer_accounts` (so nothing
+   * registers `CustomerRole`). The portal half must not run at all: guarding only
+   * the dynamic import did not skip it, because every core module ships in
+   * `@open-mercato/core` regardless of `modules.ts`, so the import resolved and
+   * the first `findOne(CustomerRole)` aborted the command — and with it every
+   * `mercato init` on that deployment.
+   */
+  it('skips the portal half entirely when customer_accounts is disabled', async () => {
+    registerCliModules(testModules.filter((mod) => mod.id !== 'customer_accounts'))
+    portalEntitiesUnregistered = true
+    const cmd = cli.find((c: any) => c.command === 'sync-role-acls')!
+    seedRoles('t-1')
+    const buyerRole: CustomerRoleStub = { id: 'cr-buyer-t-1', slug: 'buyer', tenantId: 't-1' }
+    customerRolesByTenant['t-1'] = [buyerRole]
+    existingCustomerAcls = [{ role: buyerRole, tenantId: 't-1', featuresJson: [] }]
+
+    // Bare await on purpose: completing at all is the regression signal, and an
+    // unwrapped rejection reports the real `Metadata for entity ... not found`
+    // rather than a matcher's "rejected instead of resolved".
+    await cmd.run(['--tenant', 't-1'])
+
+    expect(findOne).not.toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'CustomerRole' }),
+      expect.anything(),
+    )
+    const adminAcl = persistedAcls.find((a) => a.role?.name === 'admin')
+    expect(adminAcl?.featuresJson).toEqual(expect.arrayContaining(['auth.*', 'customers.*']))
   })
 
   it('errors and writes nothing when --tenant points at a non-existent tenant', async () => {

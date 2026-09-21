@@ -101,4 +101,19 @@ describe('enqueuePushDelivery', () => {
     await mod.enqueuePushDelivery(job, 0)
     expect(enqueueFn).toHaveBeenCalledWith(job, undefined)
   })
+
+  // Regression: the enqueue path used to boot a local consumer via `queue.process()`.
+  // That call does not return until the local strategy's first drain finishes, so it ran
+  // the send handler inside the enqueueing request — and a retryable send re-enqueues from
+  // within that handler, awaiting the very bootstrap it was running under. `POST
+  // /api/notifications` deadlocked on the first retryable delivery and, because the
+  // bootstrap promise was cached on `globalThis`, stayed wedged for every later push.
+  // The send belongs to `workers/send-push.worker.ts` in both strategies.
+  it.each(['local', 'async'])('never starts a consumer (QUEUE_STRATEGY=%s)', async (strategy) => {
+    process.env.QUEUE_STRATEGY = strategy
+    const mod = loadQueueModule()
+    await mod.enqueuePushDelivery(job)
+    expect(enqueueFn).toHaveBeenCalledTimes(1)
+    expect(processFn).not.toHaveBeenCalled()
+  })
 })

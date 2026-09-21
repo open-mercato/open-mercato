@@ -27,6 +27,7 @@ import {
 import { CUSTOMER_INTERACTION_ENTITY_ID } from '../../lib/interactionCompatibility'
 import { applyEmailVisibilityFilter } from '../../lib/visibilityFilter'
 import { resolveEncryptedSortPage } from './encryptedSortPage'
+import { applyDecryptedFields } from './decryptedFields'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -603,8 +604,22 @@ export async function GET(req: Request) {
       ),
     )
     const interactionIds = pageRows.map((row) => row.id)
+    // A page can span the selected organization plus its descendants
+    // (organizationScope.ts expands a concrete selection that way), and
+    // encryption maps are resolved per organization with first-match-wins —
+    // an org-specific map replaces rather than merges with the tenant-wide
+    // one. Resolving a single field set from `selectedOrganizationId` and
+    // applying it to every row therefore missed descendant-org fields the
+    // row's own map covers (#5945 follow-up). Each row's own
+    // `organization_id` is resolved instead, one lookup per distinct
+    // organization on the page — `getEncryptedFieldNames` memoizes per
+    // (entity, tenant, organization), so this adds no query for the common
+    // single-organization case.
+    const pageOrganizationIds = Array.from(
+      new Set(pageRows.map((row) => row.organization_id).filter((value): value is string => !!value)),
+    )
 
-    const [users, deals, customFieldValues, interactionRecords] = await Promise.all([
+    const [users, deals, customFieldValues, interactionRecords, encryptedFieldsByOrganization] = await Promise.all([
       authorIds.length > 0 ? findWithDecryption(em, User, { id: { $in: authorIds } }, undefined, { tenantId: auth.tenantId, organizationId: selectedOrganizationId }) : Promise.resolve([]),
       dealIds.length > 0 ? findWithDecryption(em, CustomerDeal, { id: { $in: dealIds } }, undefined, { tenantId: auth.tenantId, organizationId: selectedOrganizationId }) : Promise.resolve([]),
       interactionIds.length > 0
@@ -620,6 +635,17 @@ export async function GET(req: Request) {
       interactionIds.length > 0
         ? findWithDecryption(em, CustomerInteraction, { id: { $in: interactionIds } } as never, undefined, { tenantId: auth.tenantId, organizationId: selectedOrganizationId })
         : Promise.resolve([]),
+      (async () => {
+        const byOrganization = new Map<string, readonly string[]>()
+        if (interactionIds.length === 0 || !encryptionService?.getEncryptedFieldNames || pageOrganizationIds.length === 0) {
+          return byOrganization
+        }
+        await Promise.all(pageOrganizationIds.map(async (organizationId) => {
+          const fields = await encryptionService.getEncryptedFieldNames(CUSTOMER_INTERACTION_ENTITY_ID, auth.tenantId, organizationId)
+          byOrganization.set(organizationId, fields)
+        }))
+        return byOrganization
+      })(),
     ])
 
     const userMap = new Map(
@@ -634,22 +660,24 @@ export async function GET(req: Request) {
     const dealMap = new Map(
       deals.map((deal) => [deal.id, deal.title]),
     )
-    // title/body are encrypted at rest (see encryption.ts). The kysely rows above
-    // carry ciphertext when tenant encryption is enabled, so override them with the
-    // decrypted values from findWithDecryption for the returned page.
-    const interactionContentMap = new Map(
-      (interactionRecords as Array<{ id: string; title?: string | null; body?: string | null }>).map(
-        (record) => [record.id, { title: record.title ?? null, body: record.body ?? null }],
-      ),
+    // The kysely rows above carry raw column values, so every field the entity's
+    // encryption map covers arrives as ciphertext. findWithDecryption already
+    // returned those fields in plaintext, so the response takes them from the
+    // decrypted records. The covered set is read from each row's own
+    // organization's resolved map rather than hard-coded or shared across the
+    // page, so extending the map — or a page spanning several organizations —
+    // cannot leave a field passing through as ciphertext (#5945).
+    const interactionRecordMap = new Map<string, CustomerInteraction>(
+      (interactionRecords as CustomerInteraction[]).map((record) => [record.id, record]),
     )
 
-    const baseItems = pageRows.map((row) => ({
+    const baseItems = pageRows.map((row) => applyDecryptedFields({
       id: row.id,
       entityId: row.entity_id,
       dealId: row.deal_id ?? null,
       interactionType: row.interaction_type,
-      title: (interactionContentMap.has(row.id) ? interactionContentMap.get(row.id)!.title : row.title) ?? null,
-      body: (interactionContentMap.has(row.id) ? interactionContentMap.get(row.id)!.body : row.body) ?? null,
+      title: row.title ?? null,
+      body: row.body ?? null,
       status: row.status,
       scheduledAt: toIsoString(row.scheduled_at),
       occurredAt: toIsoString(row.occurred_at),
@@ -680,7 +708,7 @@ export async function GET(req: Request) {
       authorEmail: row.author_user_id ? userMap.get(row.author_user_id)?.email ?? null : null,
       dealTitle: row.deal_id ? dealMap.get(row.deal_id) ?? null : null,
       customValues: normalizeCustomFieldResponse(customFieldValues[row.id]) ?? null,
-    }))
+    }, interactionRecordMap.get(row.id), encryptedFieldsByOrganization.get(row.organization_id) ?? []))
 
     const enricherContext = await buildEnricherContext(
       container,
