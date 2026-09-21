@@ -1638,3 +1638,85 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
   precedent for staging a `financial_pl`-side spec in this repo — both
   banners now note that SPEC-010 itself has completed that move, while
   making clear their own `financial_pl` halves have not.
+
+### 2026-09-21 (cont. — Annual Financial Statements: maintainer-review + `om-spec-writing` compliance pass, PR #6188)
+
+- **A maintainer-review round (`haxiorz`, running `om-auto-review-pr`) on
+  PR #6188 was answered by re-verifying, not just applying, its seven
+  findings** — each independently re-derived from #6013's/#5663's own
+  design text before being accepted (e.g. confirming `getTrialBalance`'s
+  `closingBalance` really is definitionally `0` for zespół 4-7 accounts
+  post-`CLOSING`, rather than trusting the review's characterization).
+  All seven confirmed and fixed: RZiS-basis-vs-closing-balance (the
+  headline bug — RZiS must read pre-closing YTD turnover, never
+  post-closing balance, or every fiscal year reports zero revenue/
+  expense by construction), account-mapping double-counting via
+  `parentAccountId` rollups (fixed with a validated antichain, not "one
+  row per account"), missing derived totals/subtotals, missing
+  reconciliation-before-lock (reused `posting_rules.lockFiscalPeriod`'s
+  existing zespół-4→5 gate rather than inventing a new one — see the
+  reusable finding below), `ClosingResolution` having no link to which
+  `CLOSING` revision it validated against, an unusable raw-audit
+  exporter, and no `StatementLineMapping` concurrency control.
+- **Reusable finding: prefer reusing an existing command's own
+  precondition machinery over inventing a parallel one.** The RZiS/
+  Bilans generation precondition ("is this fiscal period safe to
+  report on") turned out to already exist, nearly verbatim, as Posting
+  Rules Engine's `lockFiscalPeriod`'s own reconciliation gate
+  (`findUnreclassifiedEntries`) — reusing it instead of writing a
+  second, parallel reconciliation check kept the two modules from
+  silently disagreeing about when a period is "closed enough."
+- **A full `om-spec-writing` process run surfaced gaps a review-findings-only
+  pass had missed, on direct challenge from the user** ("czy to pokrywa
+  wszystkie zgłoszone issues w review i naniosłeś zgodnie ze strategią
+  naszą literature i wywołałeś om-spec-writing"). The maintainer-review
+  fix pass had approximated the skill's structure from its own summary
+  rather than reading `.agents/skills/om-spec-writing/` itself. Reading
+  it surfaced: a missing Internationalization (i18n) section (an
+  outright §5 gap, not a refinement); the required scope-cohesion check
+  had never been delegated to a fresh-context subagent (run properly
+  this round — verdict NO SPLIT); fresh Step 2/3 literature/real-system
+  grounding had not been done specifically for the two brand-new design
+  decisions (added: a real, independently found ERPNext merged bug-fix
+  precedent, `frappe/erpnext#44878`, for the RZiS-basis bug's real-world
+  comparability); and the Final Compliance Report / formal `### Review`
+  changelog block the skill requires had never actually been produced.
+- **Self-caught arithmetic error, found on re-derivation, not reported by
+  anyone**: the maintainer-review fix's own worked example for the
+  RZiS-basis correction put a revenue account's `CLOSING` debit on the
+  wrong side (`ytdCredit` instead of subtracting from `ytdDebit`), and
+  the mirror error for expense accounts. Caught while re-deriving the
+  example for the fresh literature citation; corrected, with an added
+  algebraic proof (grounded in Kieso Appendix 3B's reversing-entry
+  mirror-image property, already verified for the Multi-Currency spec)
+  that a `CLOSING` entry and its `REVERSAL` cancel in the raw turnover
+  sums regardless of which side each lands on — so the reopen/correction
+  flow is unaffected by which side the original arithmetic slip picked.
+- **`financial-spec-citation-check` caught a fabricated-precedent risk in
+  this project's own prior work, not just external literature.** The
+  maintainer-review fix for mapping-edit concurrency cited "the same
+  pattern `PostingRulesSettings`/`TaxCodeAccountMapping` already use" for
+  a DIY `version`-integer optimistic lock. Re-checked directly against
+  both entities' actual Data Model sections
+  (`2026-09-06-posting-rules-engine.md`; `tax_management`'s
+  `2026-09-16-tax-management.md`): both entities are real, but **neither
+  uses a `version` field — both are `{ …, updatedAt }`**, matching this
+  project's actual default-ON optimistic-lock convention (root
+  `AGENTS.md`), not the DIY scheme the citation had been used to justify.
+  Reusable finding: a citation naming a real, correctly-spelled entity
+  can still misdescribe *which* mechanism that entity uses — spelling a
+  name right is not the same as verifying the claim, and the check has
+  to read the entity's own field list, not just confirm the entity
+  exists.
+- **Net effect of the compliance pass**: `StatementLineMapping` dropped
+  its bespoke `version` column entirely in favor of the framework's
+  `updatedAt`/`CrudForm`/`surfaceRecordConflict` mechanism, which in turn
+  let its `GET`/`PUT` routes move from a hand-written command-backed
+  route to plain `makeCrudRoute` `list`/`update` handlers — a
+  simplification that came *from* running the compliance check properly,
+  not despite it.
+- Still open, unaffected by this round: the Załącznik nr 1 statutory line
+  names' primary-source verification (Ustawa o rachunkowości) remains
+  Unverified, as first flagged in the 2026-09-17 entry above — this
+  round touched architecture/mechanism compliance only, never the actual
+  statutory line-name content.
