@@ -22,7 +22,9 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## 0.7.0 → 0.7.1 (unreleased)
+## 0.7.0 → 0.8.0 (2026-09-18)
+
+Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).
 
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 
@@ -79,7 +81,7 @@ Full reasoning: `.ai/specs/2026-09-03-extensible-locale-set.md`.
 
 ### ⚠️ `translations.supported_locales` now also drives the UI language switcher (check before upgrading)
 
-**This is the one change in 0.7.1 that can alter behaviour for an existing installation with no
+**This is the one change in 0.8.0 that can alter behaviour for an existing installation with no
 code change on your side. Review your saved selection before you deploy.**
 
 Settings → Module Configs → Translations (feature `translations.manage_locales`) writes a
@@ -303,7 +305,7 @@ Nothing that was previously accepted is now rejected. `loose` remains a read ali
 
 `Migration20260824180000_deal_status_lost` rewrites stored `loose` values in `customer_deals.status` and `customer_deals.pipeline_stage`, renames the `loose` dictionary entry for the `deal_status` and `pipeline_stage` kinds, and replaces the seeded `Loose` stage label with `Lost`. It deletes nothing. A dictionary entry is left alone when the same scope already holds a `lost` entry, because `customer_dictionary_entries_unique` covers (organization, tenant, kind, normalized value), and a label is only corrected when it is still the seeded `Loose`, so a tenant that renamed the option keeps its own wording. Rows the migration deliberately skips keep classifying correctly through the read aliases.
 
-**Deploy order matters in one direction only, and it is the rollback.** Running the new code before the migration is safe: every reader accepts both spellings, so an un-migrated instance keeps classifying its `loose` rows correctly. Rolling the *code* back to 0.7.0 after the migration has run is not. `lib/dealsSummaryQueries.ts` at 0.7.0 matches `status = 'loose'`, the rows now say `lost`, and the quarter win/loss KPI and the monthly trend series report **zero lost deals** on an instance whose data is perfectly fine. Nothing errors, so the only symptom is a blank number. `down()` is a documented no-op, so there is no automated way back either: if you must roll the code back, either reverse the status values by hand (`update customer_deals set status = 'loose' where status = 'lost'`, which is lossy for any deal that was already `lost` before the migration) or stay on 0.7.1.
+**Deploy order matters in one direction only, and it is the rollback.** Running the new code before the migration is safe: every reader accepts both spellings, so an un-migrated instance keeps classifying its `loose` rows correctly. Rolling the *code* back to 0.7.0 after the migration has run is not. `lib/dealsSummaryQueries.ts` at 0.7.0 matches `status = 'loose'`, the rows now say `lost`, and the quarter win/loss KPI and the monthly trend series report **zero lost deals** on an instance whose data is perfectly fine. Nothing errors, so the only symptom is a blank number. `down()` is a documented no-op, so there is no automated way back either: if you must roll the code back, either reverse the status values by hand (`update customer_deals set status = 'loose' where status = 'lost'`, which is lossy for any deal that was already `lost` before the migration) or stay on 0.8.0.
 
 **Action for module authors:** replace `DEAL_STATUS_LOSE` with `DEAL_STATUS_LOST`. The old constant is still exported and still equals `'loose'`, now marked `@deprecated` and scheduled for removal no earlier than 0.9.0. Code comparing a status literally against `'loose'` should call `isLostDealStatus`, which matches both spellings; code that consumes `canonicalDealStatus` output must expect `'lost'` where it previously saw `'loose'`. See `.ai/specs/2026-08-24-deal-status-lost-spelling.md`.
 
@@ -324,14 +326,14 @@ logs a warning each time it does so.
 **But a standalone app MUST enable the provider module, or all outbound email stops.** The
 provider is no longer compiled into `@open-mercato/shared`; the adapter is contributed by the
 `channel_resend` / `channel_ses` module, and `src/modules.ts` is your app's file, so upgrading
-the packages does not add it. An app scaffolded before 0.7.1 keeps sending nothing and throws
+the packages does not add it. An app scaffolded before 0.8.0 keeps sending nothing and throws
 `No ChannelAdapter registered for providerKey 'resend'` on the first send — a password reset or
 invitation — with no failure at boot to warn you. Add the dependency and the entry:
 
 ```jsonc
 // package.json — match your other @open-mercato/* versions
-"@open-mercato/channel-resend": "0.7.1",
-// and "@open-mercato/channel-ses": "0.7.1" if you set SYSTEM_EMAIL_PROVIDER=ses
+"@open-mercato/channel-resend": "0.8.0",
+// and "@open-mercato/channel-ses": "0.8.0" if you set SYSTEM_EMAIL_PROVIDER=ses
 ```
 
 ```ts
@@ -471,7 +473,7 @@ The new `phone_calls` module encrypts two entities at rest through the standard 
 
 Two additional heal paths are available if you need them:
 
-- **Upgrade Action** (`phone_calls.seed-call-encryption-maps`, version `0.7.1`) — the managed, UI/API-triggered heal for the same backfill, gated on `UPGRADE_ACTIONS_ENABLED=true` and the `configs.manage` feature, run per tenant (idempotent). The migration only reaches scopes that had active maps when it ran, so this is the path for a tenant that upgraded with encryption **disabled** and enabled it afterwards — that tenant has no map and nothing else would tell you.
+- **Upgrade Action** (`phone_calls.seed-call-encryption-maps`, version `0.8.0`) — the managed, UI/API-triggered heal for the same backfill, gated on `UPGRADE_ACTIONS_ENABLED=true` and the `configs.manage` feature, run per tenant (idempotent). The migration only reaches scopes that had active maps when it ran, so this is the path for a tenant that upgraded with encryption **disabled** and enabled it afterwards — that tenant has no map and nothing else would tell you.
 - **Manual CLI** — re-run `yarn mercato entities seed-encryption --tenant <tenantId> --org <organizationId>` per tenant. It idempotently upserts **all** modules' default encryption maps, including both phone_calls ones.
 
 Note: only calls ingested **after** the maps exist are encrypted. Rows written by a build that ran without them stay plaintext until they are re-ingested (a pull is idempotent, so re-pulling the affected range rewrites them) or handled with the `entities rotate-encryption` / `decrypt-database` tooling.
@@ -1350,7 +1352,7 @@ For the 0.6.7 compatibility window, `sales.orders.create` and `POST /api/sales/o
 
 **Action for downstream:** stop sending `paidTotalAmount`, `refundedTotalAmount`, and `outstandingAmount` when creating orders. Callers that never sent them are unaffected and continue receiving the historical `{ id }` create response. To create an already-settled order, create the order and then record its payment with `sales.payments.create` / `POST /api/sales/payments`, which recomputes the ledger from payment rows.
 
-## 0.6.5 → 0.6.6 (unreleased)
+## 0.6.5 → 0.6.6 (2026-07-17)
 
 ### ACL feature policy and concrete capability payloads
 
@@ -2359,7 +2361,7 @@ are tracked as follow-up work:
 
 | Package | Current pin | Dependabot proposed | Why deferred |
 |---------|-------------|---------------------|--------------|
-| `@mikro-orm/*` | `^6.6.10` | `^7.0.11` | v7 drops decorator re-exports and `persistAndFlush`/`removeAndFlush`, requires invasive migration across every `data/entities.ts` and all write paths — **addressed in the [0.5.0 → 0.5.1](#050--051-unreleased) window** |
+| `@mikro-orm/*` | `^6.6.10` | `^7.0.11` | v7 drops decorator re-exports and `persistAndFlush`/`removeAndFlush`, requires invasive migration across every `data/entities.ts` and all write paths — **addressed in the [0.5.0 → 0.6.0](#050--060-2026-05-06) window** |
 | `typescript` | `^5.9.3` | `^6.0.3` | v6 deprecates `moduleResolution=node10` (`error TS5107`) across every package `tsconfig.json`; fix requires either `"ignoreDeprecations": "6.0"` everywhere or a real migration to `bundler`/`node16` |
 | `awilix` | `^12.0.5` | `^13.0.3` | v13 changed the `Cradle` generic default from `any` to `{}`, which makes every `container.resolve('em')` return `unknown` at 100+ DI call sites with no code change |
 
