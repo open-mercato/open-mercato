@@ -38,6 +38,8 @@ Replace the seven open Dependabot pull requests shown on page 2 of the open-PR s
 
 ## Progress
 
+PR: #6304
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Consolidate dependency updates
