@@ -179,11 +179,24 @@ function normalizeOriginPort(url: URL): string {
   return ''
 }
 
-export function isEquivalentLoopbackOrigin(origin: string, allowedOrigin: string): boolean {
+export function isEquivalentLoopbackOrigin(
+  origin: string,
+  allowedOrigin: string,
+  options: { requireSameProtocol?: boolean } = {},
+): boolean {
   try {
     const candidateUrl = new URL(origin)
     const allowedUrl = new URL(allowedOrigin)
     if (!isLoopbackHostname(candidateUrl.hostname) || !isLoopbackHostname(allowedUrl.hostname)) {
+      return false
+    }
+    // Callers reconstructing an origin from a TLS-terminating proxy's forwarded
+    // headers (see shouldAllowLoopbackOrigin below) legitimately see a different
+    // scheme than the app's own configured origin, so scheme is ignored by default.
+    // A same-origin browser check (Origin header comparison) MUST NOT ignore it —
+    // http and https are different origins per browser security model — so pass
+    // requireSameProtocol there.
+    if (options.requireSameProtocol && candidateUrl.protocol !== allowedUrl.protocol) {
       return false
     }
     return normalizeOriginPort(candidateUrl) === normalizeOriginPort(allowedUrl)

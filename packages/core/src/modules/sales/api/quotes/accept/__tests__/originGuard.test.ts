@@ -80,4 +80,43 @@ describe('validateSameOriginMutationRequest', () => {
       expectedOrigin: 'http://127.0.0.1:5037',
     })
   })
+
+  it('rejects a spoofed Origin backed by matching X-Forwarded-* headers when APP_URL is unset', () => {
+    // With no configured app origin, the expected origin must come only from
+    // req.url — never from X-Forwarded-Proto/X-Forwarded-Host, which an
+    // attacker fully controls on this unauthenticated public endpoint. Without
+    // that guarantee, a forged Origin plus matching forwarded headers would
+    // make both sides of the comparison agree and bypass the guard entirely.
+    delete process.env.APP_URL
+    delete process.env.NEXT_PUBLIC_APP_URL
+
+    const req = makeRequest('https://app.example.com/api/sales/quotes/accept', {
+      origin: 'https://attacker.example.com',
+      'x-forwarded-proto': 'https',
+      'x-forwarded-host': 'attacker.example.com',
+    })
+
+    expect(validateSameOriginMutationRequest(req)).toEqual({
+      reason: 'cross-origin',
+      requestOrigin: 'https://attacker.example.com',
+      expectedOrigin: 'https://app.example.com',
+    })
+  })
+
+  it('rejects a loopback Origin that matches on host/port but not scheme', () => {
+    // http and https are different origins even for loopback addresses; a TLS
+    // downgrade must not be tolerated by the loopback-equivalence carve-out.
+    process.env.APP_URL = 'https://127.0.0.1:5037'
+    delete process.env.NEXT_PUBLIC_APP_URL
+
+    const req = makeRequest('https://127.0.0.1:5037/api/sales/quotes/accept', {
+      origin: 'http://localhost:5037',
+    })
+
+    expect(validateSameOriginMutationRequest(req)).toEqual({
+      reason: 'cross-origin',
+      requestOrigin: 'http://localhost:5037',
+      expectedOrigin: 'https://127.0.0.1:5037',
+    })
+  })
 })
