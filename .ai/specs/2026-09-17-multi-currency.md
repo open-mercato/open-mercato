@@ -176,10 +176,12 @@ opposite of the adjusting entry made in the previous period."*
    (`referenceType: 'cash_bank_management:bank_statement_line'`) — and
    is unwound at the start of the next run via GL's existing
    `REVERSAL` type, linked back via the same `referenceType`/
-   `referenceId` pair. Kieso, Appendix 3B ("Using Reversing Entries",
-   p. 3-43–3-45): *"A reversing entry is the exact opposite of the
-   adjusting entry made in the previous period. Use of reversing
-   entries is an optional bookkeeping procedure..."* — GL core engine
+   `referenceId` pair. Kieso, Ch. 3, "Reversing Entries—An Optional
+   Step" (p. 3-35 — the section introducing Appendix 3B, not the
+   appendix's own worked pages): *"A reversing entry is the exact
+   opposite of the adjusting entry made in the previous period. Use
+   of reversing entries is an optional bookkeeping procedure..."* —
+   GL core engine
    already made reversal its one correction mechanism, so this spec
    is applying an existing, already-adopted pattern to a new use case,
    not introducing one.
@@ -505,12 +507,18 @@ practice for not-yet-built modules.
   exchange rate may move against the company," discussed only as a
   hedging-motivation aside, no transaction/revaluation mechanics —
   **Confirmed but limited**.
-- **Kieso, Ch. 3, Appendix 3B "Using Reversing Entries" (p.
-  3-43–3-45) — Confirmed, and directly load-bearing for Design
-  decision 5/6.** *"A reversing entry is the exact opposite of the
-  adjusting entry made in the previous period."* Grounds reusing GL
-  core engine's existing reversal mechanism for undoing the prior
-  period's FX valuation rather than inventing a new entry type.
+- **Kieso, Ch. 3, "Reversing Entries—An Optional Step" (p. 3-35) —
+  Confirmed, with a location correction, and directly load-bearing
+  for Design decision 5/6.** *"A reversing entry is the exact
+  opposite of the adjusting entry made in the previous period."*
+  The quote is exact and verified directly against the
+  primary-source PDF, but it sits in Ch. 3's main body (p. 3-35),
+  which introduces and points forward to Appendix 3B (pp.
+  3-43–3-45) — the appendix itself contains only the worked
+  accrual/deferral illustration, not this defining sentence.
+  Grounds reusing GL core engine's existing reversal mechanism for
+  undoing the prior period's FX valuation rather than inventing a
+  new entry type.
 - **Fowler, *Analysis Patterns* — the stronger source for this topic,
   contrary to the usual pattern in this project.** §3.1 "Quantity" (p.
   36–38), Confirmed: *"Monetary values should also be represented as
