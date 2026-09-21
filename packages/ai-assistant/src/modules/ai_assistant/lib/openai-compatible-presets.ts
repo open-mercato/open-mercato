@@ -180,30 +180,6 @@ const FIREWORKS_PRESET: OpenAICompatiblePreset = {
   ],
 }
 
-/**
- * Azure OpenAI — enterprise Azure deployments. Base URL is deployment-
- * specific and must be provided via `AZURE_OPENAI_BASE_URL`.
- */
-const AZURE_PRESET: OpenAICompatiblePreset = {
-  id: 'azure',
-  name: 'Azure OpenAI',
-  baseURL: undefined,
-  baseURLEnvKeys: ['AZURE_OPENAI_BASE_URL'],
-  envKeys: ['AZURE_OPENAI_API_KEY'],
-  defaultModel: 'gpt-5-mini',
-  defaultModels: [
-    {
-      id: 'gpt-5-mini',
-      name: 'GPT-5 Mini',
-      contextWindow: 128000,
-    },
-    {
-      id: 'gpt-5',
-      name: 'GPT-5',
-      contextWindow: 128000,
-    },
-  ],
-}
 
 /**
  * LiteLLM proxy — self-hosted router for arbitrary upstream providers.
@@ -329,7 +305,6 @@ export const OPENAI_COMPATIBLE_PRESETS: readonly OpenAICompatiblePreset[] = [
   GROQ_PRESET,
   TOGETHER_PRESET,
   FIREWORKS_PRESET,
-  AZURE_PRESET,
   LITELLM_PRESET,
   OLLAMA_PRESET,
   OPENROUTER_PRESET,

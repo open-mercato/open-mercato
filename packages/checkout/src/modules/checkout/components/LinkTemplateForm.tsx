@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
-import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { parseLocaleNumber } from '@open-mercato/shared/lib/number'
 import {
   AlertTriangle,
   BadgeCheck,
@@ -82,6 +83,9 @@ type LegalDocumentsValue = {
 }
 
 type PriceListItem = PriceListItemInput
+// `amount` stays a raw locale-typed string while a row is being edited (issue #5828) —
+// converted to a number only at submit time.
+type PriceListEditorItem = Omit<PriceListItem, 'amount'> & { amount: number | string }
 
 const DEFAULT_COLORS = {
   primaryColor: '#1E3A8A',
@@ -104,6 +108,16 @@ function readNumberInputValue(value: unknown): string {
   if (typeof value === 'number' && Number.isFinite(value)) return String(value)
   if (typeof value === 'string') return value
   return ''
+}
+
+// Money fields stay a raw locale-typed string while being edited (issue #5828) so an
+// in-progress decimal separator is never dropped mid-keystroke; this converts to the
+// canonical number the API expects right before submission.
+export function toSubmittedAmount(value: unknown, locale?: string): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value !== 'string') return null
+  if (!value.trim()) return null
+  return parseLocaleNumber(value, locale)
 }
 
 function readBoolean(value: unknown, fallback = false): boolean {
@@ -173,23 +187,26 @@ function createDefaultValues(t?: TranslateFn): FormValues {
   }
 }
 
-function normalizePriceListItems(value: unknown): PriceListItem[] {
+function normalizePriceListItems(value: unknown): PriceListEditorItem[] {
   if (!Array.isArray(value)) return []
   return value
     .map((item) => {
       if (!isRecord(item)) return null
       const id = readString(item.id).trim()
       const description = readString(item.description)
-      const amount = Number(item.amount ?? 0)
+      // Preserve a string amount as-is — a row mid-edit carries the raw locale-typed text
+      // (issue #5828); re-coercing it with `Number()` here would corrupt it on every render.
+      const amount =
+        typeof item.amount === 'number' || typeof item.amount === 'string' ? item.amount : 0
       const currencyCode = readString(item.currencyCode).trim().toUpperCase()
       return {
         id: id || `item_${Date.now()}`,
         description,
-        amount: Number.isFinite(amount) ? amount : 0,
+        amount,
         currencyCode: currencyCode || 'USD',
       }
     })
-    .filter((item): item is PriceListItem => item !== null)
+    .filter((item): item is PriceListEditorItem => item !== null)
 }
 
 function normalizeCustomerFields(value: unknown, t?: TranslateFn): CustomerFieldDefinitionInput[] {
@@ -375,20 +392,20 @@ function ColorField({
   )
 }
 
-function PriceListEditor({
+export function PriceListEditor({
   value,
   onChange,
   error,
 }: {
-  value: PriceListItem[]
-  onChange: (next: PriceListItem[]) => void
+  value: PriceListEditorItem[]
+  onChange: (next: PriceListEditorItem[]) => void
   error?: string
 }) {
   const t = useT()
   const items = Array.isArray(value) ? value : []
 
   const updateItem = React.useCallback(
-    (index: number, patch: Partial<PriceListItem>) => {
+    (index: number, patch: Partial<PriceListEditorItem>) => {
       onChange(items.map((item, currentIndex) => (currentIndex === index ? { ...item, ...patch } : item)))
     },
     [items, onChange],
@@ -451,11 +468,18 @@ function PriceListEditor({
                     </td>
                     <td className="px-3 py-2">
                       <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={item.amount}
-                        onChange={(event) => updateItem(index, { amount: Number(event.target.value) })}
+                        type="text"
+                        inputMode="decimal"
+                        value={readNumberInputValue(item.amount)}
+                        onChange={(event) =>
+                          updateItem(index, {
+                            // Stays raw while editing — re-parsing and re-serializing on every
+                            // keystroke would drop an in-progress decimal separator (e.g. typing
+                            // "110,70" collapses to "11070" the instant the comma is typed,
+                            // issue #5828). Converted to a number at submit time instead.
+                            amount: event.target.value,
+                          })
+                        }
                         placeholder="0.00"
                         aria-label={t('checkout.linkTemplateForm.priceList.aria.amount', { index: index + 1 })}
                         className="h-8"
@@ -503,7 +527,7 @@ function PriceListEditor({
   )
 }
 
-function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProps) {
+export function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProps) {
   const t = useT()
   const pricingMode = readString(values.pricingMode) || 'fixed'
   const pricingModeError = readError(errors, 'pricingMode')
@@ -545,11 +569,10 @@ function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProp
         <div className="grid gap-4 md:grid-cols-2">
           <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.amount')} error={fixedPriceAmountError} required>
             <Input
-              type="number"
-              min="0"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
               value={readNumberInputValue(values.fixedPriceAmount)}
-              onChange={(event) => setValue('fixedPriceAmount', Number(event.target.value))}
+              onChange={(event) => setValue('fixedPriceAmount', event.target.value)}
               placeholder="150"
               className={errorInputClassName(fixedPriceAmountError)}
               aria-invalid={Boolean(fixedPriceAmountError)}
@@ -570,11 +593,10 @@ function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProp
             error={fixedPriceOriginalAmountError}
           >
             <Input
-              type="number"
-              min="0"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
               value={readNumberInputValue(values.fixedPriceOriginalAmount)}
-              onChange={(event) => setValue('fixedPriceOriginalAmount', Number(event.target.value))}
+              onChange={(event) => setValue('fixedPriceOriginalAmount', event.target.value)}
               placeholder="200"
               className={errorInputClassName(fixedPriceOriginalAmountError)}
               aria-invalid={Boolean(fixedPriceOriginalAmountError)}
@@ -598,11 +620,10 @@ function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProp
         <div className="grid gap-4 md:grid-cols-3">
           <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.minimumAmount')} error={customAmountMinError} required>
             <Input
-              type="number"
-              min="0"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
               value={readNumberInputValue(values.customAmountMin)}
-              onChange={(event) => setValue('customAmountMin', Number(event.target.value))}
+              onChange={(event) => setValue('customAmountMin', event.target.value)}
               placeholder="10"
               className={errorInputClassName(customAmountMinError)}
               aria-invalid={Boolean(customAmountMinError)}
@@ -611,11 +632,10 @@ function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProp
 
           <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.maximumAmount')} error={customAmountMaxError} required>
             <Input
-              type="number"
-              min="0"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
               value={readNumberInputValue(values.customAmountMax)}
-              onChange={(event) => setValue('customAmountMax', Number(event.target.value))}
+              onChange={(event) => setValue('customAmountMax', event.target.value)}
               placeholder="500"
               className={errorInputClassName(customAmountMaxError)}
               aria-invalid={Boolean(customAmountMaxError)}
@@ -1316,6 +1336,7 @@ function SettingsSection({ values, setValue, errors }: CrudFormGroupComponentPro
 
 export function LinkTemplateForm({ mode, recordId }: Props) {
   const t = useT()
+  const locale = useLocale()
   const searchParams = useSearchParams()
   const entityId = mode === 'link' ? CHECKOUT_ENTITY_IDS.link : CHECKOUT_ENTITY_IDS.template
   const templateId = React.useMemo(() => {
@@ -1668,6 +1689,14 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
               const payload = {
                 ...values,
                 status: submitIntent === 'publish' ? 'active' : values.status,
+                fixedPriceAmount: toSubmittedAmount(values.fixedPriceAmount, locale),
+                fixedPriceOriginalAmount: toSubmittedAmount(values.fixedPriceOriginalAmount, locale),
+                customAmountMin: toSubmittedAmount(values.customAmountMin, locale),
+                customAmountMax: toSubmittedAmount(values.customAmountMax, locale),
+                priceListItems: normalizePriceListItems(values.priceListItems).map((item) => ({
+                  ...item,
+                  amount: toSubmittedAmount(item.amount, locale) ?? Number.NaN,
+                })),
                 customFields: collectCustomFieldValues(values),
               }
               const endpoint = `/api/checkout/${mode === 'link' ? 'links' : 'templates'}${recordId ? `/${encodeURIComponent(recordId)}` : ''}`

@@ -33,12 +33,42 @@ TODO: Fix that latter to have reference by the package names
    is found in the source scanner ahead of compilation. Declaring the utility
    here guarantees the rule lands in the bundle. Used for tiny section labels
    (workspace switcher TENANT / ORGANIZATION, notification count badge, etc.). */
+@utility text-ai-body {
+  font-size: 0.9375rem;
+  line-height: 1.5rem;
+}
+
+@utility text-compact {
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+}
+
+@utility text-title-4 {
+  font-size: 2rem;
+  line-height: 2.5rem;
+}
+
 @utility text-overline {
   font-size: var(--font-size-overline, 0.6875rem);
   line-height: var(--font-size-overline--line-height, 1rem);
 }
 
 @theme inline {
+  --color-accent-orange: var(--accent-orange);
+  --color-accent-orange-text: var(--accent-orange-text);
+  --color-accent-orange-foreground: var(--accent-orange-foreground);
+  --color-accent-orange-border: var(--accent-orange-border);
+  --radius-ai-control: 0.5625rem;
+  --radius-ai-input: 0.75rem;
+  --radius-ai-prompt: 1.25rem;
+  --radius-ai-prompt-inner: calc(var(--radius-ai-prompt) - 1px);
+  --radius-ai-prompt-mobile: 1.125rem;
+  --radius-ai-prompt-mobile-inner: calc(var(--radius-ai-prompt-mobile) - 1px);
+
+  --color-key-icon-pink-bg: var(--key-icon-pink-bg);
+  --color-key-icon-pink-icon: var(--key-icon-pink-icon);
+  --color-chart-legend-gray: var(--chart-legend-gray);
+  --color-chart-legend-light-gray: var(--chart-legend-light-gray);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
@@ -56,6 +86,10 @@ TODO: Fix that latter to have reference by the package names
   --color-chart-3: var(--chart-3);
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
+  /* Named chart palette (.ai/ds-rules.md - Data Visualization). The unnamed
+     chart-1..5 scale was registered here but the NAMED tokens never were, so
+     the documented utilities (`bg-chart-blue`, `text-chart-violet`, ...) were
+     silently producing no rule at all. */
   --color-chart-blue: var(--chart-blue);
   --color-chart-emerald: var(--chart-emerald);
   --color-chart-amber: var(--chart-amber);
@@ -88,6 +122,11 @@ TODO: Fix that latter to have reference by the package names
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --radius-alert: 0.75rem;
+  --radius-content-card: 0.75rem;
+  --radius-textarea: 0.75rem;
+  --radius-upload: 0.75rem;
+  --radius-selection-card: 0.75rem;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -139,15 +178,64 @@ TODO: Fix that latter to have reference by the package names
   --color-status-pink-solid-foreground: var(--status-pink-solid-foreground);
 
   /* ═══ Design System: Accent Colors ═══ */
+  /* Additional Figma badge categories; independent of outcome status roles. */
+  --color-badge-yellow-solid: var(--badge-yellow-solid);
+  --color-badge-yellow-solid-foreground: var(--badge-yellow-solid-foreground);
+  --color-badge-yellow-light: var(--badge-yellow-light);
+  --color-badge-yellow-bg: var(--badge-yellow-bg);
+  --color-badge-yellow-text: var(--badge-yellow-text);
+  --color-badge-yellow-border: var(--badge-yellow-border);
+  --color-badge-purple-solid: var(--badge-purple-solid);
+  --color-badge-purple-solid-foreground: var(--badge-purple-solid-foreground);
+  --color-badge-purple-light: var(--badge-purple-light);
+  --color-badge-purple-bg: var(--badge-purple-bg);
+  --color-badge-purple-text: var(--badge-purple-text);
+  --color-badge-purple-border: var(--badge-purple-border);
+  --color-badge-sky-solid: var(--badge-sky-solid);
+  --color-badge-sky-solid-foreground: var(--badge-sky-solid-foreground);
+  --color-badge-sky-light: var(--badge-sky-light);
+  --color-badge-sky-bg: var(--badge-sky-bg);
+  --color-badge-sky-text: var(--badge-sky-text);
+  --color-badge-sky-border: var(--badge-sky-border);
+  --color-badge-teal-solid: var(--badge-teal-solid);
+  --color-badge-teal-solid-foreground: var(--badge-teal-solid-foreground);
+  --color-badge-teal-light: var(--badge-teal-light);
+  --color-badge-teal-bg: var(--badge-teal-bg);
+  --color-badge-teal-text: var(--badge-teal-text);
+  --color-badge-teal-border: var(--badge-teal-border);
+
+  --color-file-format-red: var(--file-format-red);
+  --color-file-format-red-foreground: var(--file-format-red-foreground);
+  --color-file-format-orange: var(--file-format-orange);
+  --color-file-format-orange-foreground: var(--file-format-orange-foreground);
+  --color-file-format-yellow: var(--file-format-yellow);
+  --color-file-format-yellow-foreground: var(--file-format-yellow-foreground);
+  --color-file-format-green: var(--file-format-green);
+  --color-file-format-green-foreground: var(--file-format-green-foreground);
+  --color-file-format-teal: var(--file-format-teal);
+  --color-file-format-teal-foreground: var(--file-format-teal-foreground);
+  --color-file-format-blue: var(--file-format-blue);
+  --color-file-format-blue-foreground: var(--file-format-blue-foreground);
+  --color-file-format-purple: var(--file-format-purple);
+  --color-file-format-purple-foreground: var(--file-format-purple-foreground);
+  --color-file-format-pink: var(--file-format-pink);
+  --color-file-format-pink-foreground: var(--file-format-pink-foreground);
+  --color-file-format-gray: var(--file-format-gray);
+  --color-file-format-gray-foreground: var(--file-format-gray-foreground);
+
   --color-accent-indigo: var(--accent-indigo);
   --color-accent-indigo-foreground: var(--accent-indigo-foreground);
 
   /* ═══ Design System: Brand Colors ═══ */
   --color-brand-violet: var(--brand-violet);
+  --color-brand-violet-soft: var(--brand-violet-soft);
   --color-brand-lime: var(--brand-lime);
   --color-brand-yellow: var(--brand-yellow);
+  --color-brand-lime-foreground: var(--brand-lime-foreground);
 
   /* ═══ Design System: Social Brand Colors (theme-invariant) ═══ */
+  --color-brand-google: var(--brand-google);
+  --color-brand-google-text-bg: var(--brand-google-text-bg);
   --color-brand-apple: var(--brand-apple);
   --color-brand-github: var(--brand-github);
   --color-brand-x: var(--brand-x);
@@ -157,6 +245,7 @@ TODO: Fix that latter to have reference by the package names
   --color-brand-linkedin: var(--brand-linkedin);
 
   /* ═══ Design System: Typography ═══ */
+  --tracking-badge-small: 0.02em;
   --font-size-overline: 0.6875rem;
   --font-size-overline--line-height: 1rem;
 
@@ -197,17 +286,35 @@ TODO: Fix that latter to have reference by the package names
 }
 
 :root {
+  --accent-orange-text: #a15a00;
+  --accent-orange: #ff9600;
+  --accent-orange-foreground: #171717;
+  --accent-orange-border: #c46f00;
+  --key-icon-pink-bg: #ffebf4;
+  --key-icon-pink-icon: #fb4ba3;
+  --chart-legend-gray: #7b7b7b;
+  --chart-legend-light-gray: #d1d1d1;
   color-scheme: light;
   --font-geist-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-geist-mono: ui-monospace, "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
   --radius: 0.625rem;
+  /* Vertical space a viewport-pinned floating CTA needs to clear: its bottom
+     offset (1.5rem) plus its own height, rounded up to the spacing scale.
+     Consumed by the `body[data-demo-feedback-fab]` safe-area rule below.
+     Pure spacing — theme-invariant (no .dark override). */
+  --om-floating-cta-safe-area: 5rem;
   /* Brand lime + yellow — theme-invariant (no .dark override). Brand violet is themed (see below + .dark). */
   --brand-lime: #B4F372;
+  /* Brand yellow — mid stop of the OM brand gradient (lime -> yellow -> violet), theme-invariant. */
   --brand-yellow: #EEFB63;
+  /* Foreground for text/icons placed on the brand-lime surface — dark, theme-invariant (the lime stays light in both themes). */
+  --brand-lime-foreground: #1f2a12;
   /* Focus ring tokens (Figma dual-shadow spec — opt-in via .focus-ring-fancy) */
   --focus-ring-inner: rgba(255, 255, 255, 1);
   --focus-ring-outer: rgba(153, 160, 174, 0.16);
   /* Social brand colors — theme-invariant */
+  --brand-google: #F14336;
+  --brand-google-text-bg: #D93C31; /* White label contrast4.53:1; source red remains for icon-only. */
   --brand-apple: #000000;
   --brand-github: #181717;
   --brand-x: #000000;
@@ -224,9 +331,55 @@ TODO: Fix that latter to have reference by the package names
   --primary: oklch(0.205 0 0);
   --primary-foreground: oklch(0.985 0 0);
   --brand-violet: #BC9AFF;
+  --brand-violet-soft: oklch(0.95 0.03 293);
   --brand-violet-foreground: #0C0C0C;
   --primary-hover: oklch(0.145 0 0);
   /* Accent indigo — used for selection controls (checkbox, radio, switch) */
+  /* Figma file-format category colors, identical in both themes. */
+  --badge-yellow-solid: #f6b51e;
+  --badge-yellow-solid-foreground: #171717;
+  --badge-yellow-light: #ffecc0;
+  --badge-yellow-bg: #fffaeb;
+  --badge-yellow-text: #624c18;
+  --badge-yellow-border: #f6b51e;
+  --badge-purple-solid: #7d52f4;
+  --badge-purple-solid-foreground: #ffffff;
+  --badge-purple-light: #cac0ff;
+  --badge-purple-bg: #efebff;
+  --badge-purple-text: #351a75;
+  --badge-purple-border: #7d52f4;
+  --badge-sky-solid: #47c2ff;
+  --badge-sky-solid-foreground: #171717;
+  --badge-sky-light: #c0eaff;
+  --badge-sky-bg: #ebf8ff;
+  --badge-sky-text: #124b68;
+  --badge-sky-border: #47c2ff;
+  --badge-teal-solid: #22d3bb;
+  --badge-teal-solid-foreground: #171717;
+  --badge-teal-light: #c2f5ee;
+  --badge-teal-bg: #e4fbf8;
+  --badge-teal-text: #0b463e;
+  --badge-teal-border: #22d3bb;
+
+  --file-format-red: #dc2626;
+  --file-format-red-foreground: #ffffff;
+  --file-format-orange: #d97706;
+  --file-format-orange-foreground: #171717;
+  --file-format-yellow: #f6b51e;
+  --file-format-yellow-foreground: #171717;
+  --file-format-green: #16a34a;
+  --file-format-green-foreground: #171717;
+  --file-format-teal: #47c2ff;
+  --file-format-teal-foreground: #171717;
+  --file-format-blue: #4f46e5;
+  --file-format-blue-foreground: #ffffff;
+  --file-format-purple: #7d52f4;
+  --file-format-purple-foreground: #ffffff;
+  --file-format-pink: #fb4ba3;
+  --file-format-pink-foreground: #171717;
+  --file-format-gray: #7b7b7b;
+  --file-format-gray-foreground: #0c0c0c;
+
   --accent-indigo: #6366f1;
   --accent-indigo-foreground: #ffffff;
   /* Disabled control tokens (Figma: bg/weak-25, text/disabled-300, stroke-soft-200) */
@@ -342,6 +495,34 @@ TODO: Fix that latter to have reference by the package names
 }
 
 .dark {
+  --brand-google: #F14336;
+  --brand-google-text-bg: #D93C31; /* White label contrast4.53:1; source red remains for icon-only. */
+  --file-format-red: #dc2626;
+  --file-format-red-foreground: #ffffff;
+  --file-format-orange: #d97706;
+  --file-format-orange-foreground: #171717;
+  --file-format-yellow: #f6b51e;
+  --file-format-yellow-foreground: #171717;
+  --file-format-green: #16a34a;
+  --file-format-green-foreground: #171717;
+  --file-format-teal: #47c2ff;
+  --file-format-teal-foreground: #171717;
+  --file-format-blue: #4f46e5;
+  --file-format-blue-foreground: #ffffff;
+  --file-format-purple: #7d52f4;
+  --file-format-purple-foreground: #ffffff;
+  --file-format-pink: #fb4ba3;
+  --file-format-pink-foreground: #171717;
+  --file-format-gray: #7b7b7b;
+  --file-format-gray-foreground: #0c0c0c;
+  --accent-orange-text: #ffbd5c;
+  --accent-orange: #ff9600;
+  --accent-orange-foreground: #171717;
+  --accent-orange-border: #ff9600;
+  --key-icon-pink-bg: var(--status-pink-bg);
+  --key-icon-pink-icon: var(--status-pink-icon);
+  --chart-legend-gray: var(--muted-foreground);
+  --chart-legend-light-gray: var(--text-disabled);
   color-scheme: dark;
   /* Focus ring tokens — dark variant */
   --focus-ring-inner: var(--background);
@@ -365,9 +546,35 @@ TODO: Fix that latter to have reference by the package names
   --primary: oklch(0.922 0 0);
   --primary-foreground: oklch(0.205 0 0);
   --brand-violet: #BC9AFF;
+  --brand-violet-soft: oklch(0.3 0.06 293);
   --brand-violet-foreground: #0C0C0C;
   --primary-hover: oklch(0.85 0 0);
   /* Accent indigo — slightly lighter in dark mode for contrast */
+  --badge-yellow-solid: #e6a819;
+  --badge-yellow-solid-foreground: #171717;
+  --badge-yellow-light: rgb(251 198 75 / 24%);
+  --badge-yellow-bg: rgb(251 198 75 / 16%);
+  --badge-yellow-text: #ffd268;
+  --badge-yellow-border: #e6a819;
+  --badge-purple-solid: #7d52f4;
+  --badge-purple-solid-foreground: #ffffff;
+  --badge-purple-light: rgb(120 77 239 / 24%);
+  --badge-purple-bg: rgb(120 77 239 / 16%);
+  --badge-purple-text: #cac0ff;
+  --badge-purple-border: #7d52f4;
+  --badge-sky-solid: #35ade9;
+  --badge-sky-solid-foreground: #171717;
+  --badge-sky-light: rgb(71 194 255 / 24%);
+  --badge-sky-bg: rgb(71 194 255 / 16%);
+  --badge-sky-text: #68cdff;
+  --badge-sky-border: #35ade9;
+  --badge-teal-solid: #1daf9c;
+  --badge-teal-solid-foreground: #171717;
+  --badge-teal-light: rgb(34 211 187 / 24%);
+  --badge-teal-bg: rgb(34 211 187 / 16%);
+  --badge-teal-text: #3fdec9;
+  --badge-teal-border: #1daf9c;
+
   --accent-indigo: #6d74f4; /* was indigo-400 #818cf8: white glyph 2.98:1 < 3.0 (WCAG non-text); now 3.85:1 */
   --accent-indigo-foreground: #ffffff;
   /* Disabled control tokens (dark) */
@@ -498,30 +705,163 @@ TODO: Fix that latter to have reference by the package names
   }
 }
 
-.rbc-calendar {
+.schedule-calendar .rbc-calendar {
+  height: 40rem;
   font-family: var(--font-sans);
-}
-
-.rbc-toolbar,
-.rbc-time-header,
-.rbc-time-content,
-.rbc-agenda-view,
-.rbc-month-view {
   color: var(--foreground);
 }
 
-.rbc-today {
-  background-color: color-mix(in oklab, var(--accent) 40%, transparent);
+.schedule-calendar .rbc-calendar :is(.rbc-time-view, .rbc-month-view, .rbc-agenda-view) {
+  border: 0;
 }
 
-.schedule-calendar .rbc-time-gutter,
-.schedule-calendar .rbc-agenda-time-cell,
-.schedule-calendar .rbc-agenda-date-cell {
+.schedule-calendar .rbc-calendar .rbc-time-view {
+  min-width: 48rem;
+}
+
+.schedule-calendar .rbc-calendar :is(.rbc-header, .rbc-time-header-content, .rbc-time-content, .rbc-day-bg, .rbc-month-row, .rbc-timeslot-group, .rbc-agenda-table) {
+  border-color: var(--border);
+}
+
+.schedule-calendar .rbc-calendar .rbc-time-header {
+  background: var(--card);
+}
+
+.schedule-calendar .rbc-calendar .rbc-time-header-cell {
+  flex-shrink: 0;
+  min-height: 4.5rem;
+}
+
+.schedule-calendar .rbc-calendar .rbc-header {
+  padding: 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.schedule-calendar .rbc-calendar .rbc-time-header.rbc-overflowing {
+  border-right-color: var(--border);
+}
+
+.schedule-calendar .rbc-calendar .rbc-time-content {
+  border-top: 1px solid var(--border);
+  font-size: 0.875rem;
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
+}
+
+.schedule-calendar .rbc-calendar .rbc-time-content > * + * > * {
+  border-left-color: var(--border);
+}
+
+.schedule-calendar .rbc-calendar .rbc-timeslot-group {
+  min-height: 4rem;
+}
+
+.schedule-calendar .rbc-calendar .rbc-day-slot .rbc-time-slot {
+  border-top: 1px dashed color-mix(in srgb, var(--border) 40%, transparent);
+}
+
+.schedule-calendar .rbc-calendar .rbc-time-gutter {
+  min-width: 4.5rem;
+  color: var(--muted-foreground);
   font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
 }
 
-.schedule-calendar .rbc-time-content {
-  font-size: 0.8125rem;
+.schedule-calendar .rbc-calendar .rbc-time-gutter .rbc-timeslot-group {
+  border-bottom-color: transparent;
+}
+
+.schedule-calendar .rbc-calendar .rbc-label {
+  padding-inline: 0.75rem;
+}
+
+.schedule-calendar .rbc-calendar .rbc-allday-cell {
+  height: auto;
+  min-height: 3rem;
+}
+
+.schedule-calendar .rbc-calendar .rbc-row-segment {
+  padding: 0.25rem;
+}
+
+.schedule-calendar .rbc-calendar .rbc-event {
+  border-width: 1px;
+  border-style: solid;
+  border-inline-start-width: 3px;
+  border-radius: var(--radius-md);
+  padding: 0.25rem 0.5rem;
+  box-shadow: var(--shadow-xs);
+}
+
+.schedule-calendar .rbc-calendar .rbc-event-label {
+  margin-bottom: 0.125rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.schedule-calendar .rbc-calendar .rbc-event-content {
+  white-space: normal;
+}
+
+.schedule-calendar .rbc-month-view .rbc-row-segment {
+  padding: 0.125rem;
+}
+
+.schedule-calendar .rbc-month-view .rbc-event {
+  min-height: 2.75rem;
+  padding: 0.125rem 0.375rem;
+}
+
+.schedule-calendar .rbc-calendar .rbc-event:is(:hover, .rbc-selected) {
+  box-shadow: var(--shadow-md);
+}
+
+.schedule-calendar .rbc-calendar .rbc-event:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.schedule-calendar .rbc-calendar .rbc-today {
+  background-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.schedule-calendar .rbc-calendar .rbc-off-range-bg {
+  background: var(--muted);
+}
+
+.schedule-calendar .rbc-calendar .rbc-off-range {
+  color: var(--muted-foreground);
+}
+
+.schedule-calendar .rbc-calendar .rbc-current-time-indicator {
+  background: var(--primary);
+}
+
+.schedule-calendar .rbc-calendar .rbc-show-more {
+  color: var(--foreground);
+  background: var(--muted);
+  border-radius: var(--radius-sm);
+  padding: 0.25rem 0.5rem;
+}
+
+.schedule-calendar .rbc-calendar .rbc-overlay {
+  color: var(--popover-foreground);
+  background: var(--popover);
+  border-color: var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.schedule-calendar .rbc-calendar .rbc-overlay-header,
+.schedule-calendar .rbc-calendar .rbc-agenda-view table.rbc-agenda-table :is(th, td) {
+  border-color: var(--border);
+}
+
+.schedule-calendar .rbc-calendar :is(.rbc-agenda-time-cell, .rbc-agenda-date-cell) {
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Flash message animations */
@@ -659,11 +999,28 @@ body[data-column-chooser-open="true"] .om-demo-feedback-floating {
 }
 
 /* Hide floating demo feedback button while an AI chat (e.g. the merchandising
-   assistant sheet) is open — the FAB sits at z-[60] and otherwise overlaps
-   the chat composer's send button. The data attribute is set/cleared by the
-   shared <AiChat> component. */
+   assistant sheet) is open — the FAB would otherwise overlap the chat
+   composer's send button. The data attribute is set/cleared by the shared
+   <AiChat> component. */
 body[data-ai-chat-open="true"] .om-demo-feedback-floating {
   display: none !important;
+}
+
+/* Bottom safe area for the floating demo feedback CTA.
+ *
+ * The button is `position: fixed` in the bottom-right corner, so whatever is
+ * last in the page scroll container stays underneath it once the operator
+ * scrolls to the end of the page — the compact-viewport workflow step palette
+ * and in-flow form footers both ended up unreachable that way (#5984).
+ * Stacking order alone cannot fix that: those controls are ordinary in-flow
+ * content, not overlays. Reserving the CTA's own footprint at the end of
+ * `<main>` lets every page scroll its last row clear of the button.
+ *
+ * The attribute is mirrored from the widget's own visibility, so pages that
+ * never render the CTA (demo mode off, `ff_om_hide_contact`, AI dock mounted)
+ * keep their original spacing. */
+body[data-demo-feedback-fab="visible"] main {
+  padding-bottom: var(--om-floating-cta-safe-area);
 }
 
 /* Hide native scrollbar while keeping scroll behavior — used by sticky sidebars */

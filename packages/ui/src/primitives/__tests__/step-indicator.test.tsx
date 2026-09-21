@@ -2,19 +2,17 @@
 
 import * as React from 'react'
 import { render as rtlRender, fireEvent } from '@testing-library/react'
-import { StepIndicator, type StepIndicatorStep } from '../step-indicator'
+import { StepIndicator, StepperDots, type StepIndicatorStep } from '../step-indicator'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 
 // StepIndicator uses useT() for the "Go to step: {label}" aria-label.
 // Wrap every render in an empty-dict I18nProvider so the primitive
 // falls back to its English fallback without real translations.
 const render: typeof rtlRender = (ui: React.ReactElement, options?: Parameters<typeof rtlRender>[1]) =>
-  rtlRender(
-    <I18nProvider locale="en" dict={{}}>
-      {ui}
-    </I18nProvider>,
-    options,
-  )
+  rtlRender(ui, {
+    wrapper: ({ children }) => <I18nProvider locale="en" dict={{}}>{children}</I18nProvider>,
+    ...options,
+  })
 
 const baseSteps: StepIndicatorStep[] = [
   { id: 'account', label: 'Account', status: 'complete' },
@@ -201,5 +199,41 @@ describe('StepIndicator', () => {
     const ref = React.createRef<HTMLOListElement>()
     render(<StepIndicator ref={ref} steps={baseSteps} />)
     expect(ref.current?.getAttribute('data-slot')).toBe('step-indicator')
+  })
+})
+
+
+describe('StepperDots', () => {
+  it('exposes a bounded current step while keeping dots decorative and non-interactive', () => {
+    const { getByRole, container, rerender } = render(<StepperDots count={3} activeStep={1} aria-label="Onboarding" />)
+    const progress = getByRole('progressbar', { name: 'Onboarding' })
+    expect(progress).toHaveAttribute('aria-valuenow', '2')
+    expect(progress).toHaveAttribute('aria-valuemax', '3')
+    expect(container.querySelectorAll('[data-slot="stepper-dot"][aria-hidden="true"]')).toHaveLength(3)
+    expect(container.querySelectorAll('[data-state="active"]')).toHaveLength(1)
+    expect(container.querySelector('button')).toBeNull()
+    rerender(<StepperDots count={3} activeStep={12} />)
+    expect(progress).toHaveAttribute('aria-valuenow', '3')
+    rerender(<StepperDots count={3} activeStep={-2} />)
+    expect(progress).toHaveAttribute('aria-valuenow', '1')
+  })
+
+  it('does not announce a fictitious step for an empty or invalid count', () => {
+    const { queryByRole, rerender } = render(<StepperDots count={0} activeStep={0} />)
+    expect(queryByRole('progressbar')).toBeNull()
+    rerender(<StepperDots count={Number.NaN} activeStep={0} />)
+    expect(queryByRole('progressbar')).toBeNull()
+  })
+})
+
+
+describe('StepIndicator numbers', () => {
+  it('numbers pending and current steps, retaining the completed check and aria-current', () => {
+    const { container } = render(<StepIndicator steps={baseSteps} showNumbers />)
+    const dots = container.querySelectorAll('[data-slot="step-indicator-dot"]')
+    expect(dots[0].querySelector('svg')).not.toBeNull()
+    expect(dots[1]).toHaveTextContent('2')
+    expect(dots[1]).toHaveAttribute('aria-current', 'step')
+    expect(dots[2]).toHaveTextContent('3')
   })
 })
