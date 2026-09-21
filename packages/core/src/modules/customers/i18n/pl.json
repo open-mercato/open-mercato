@@ -458,6 +458,7 @@
   "customers.changelog.previous": "Poprzednie",
   "customers.changelog.showing": "Pokazano {{shown}} z {{total}} wpisów",
   "customers.changelog.showingWithPeriod": "Pokazano {{shown}} z {{total}} wpisów · ostatnie {{days}} dni",
+  "customers.changelog.source.agent": "Agent",
   "customers.changelog.source.api": "API",
   "customers.changelog.source.system": "System",
   "customers.changelog.source.ui": "UI",
@@ -2201,6 +2202,9 @@
   "customers.people.detail.tasks.cancelSuccess": "Zadanie anulowano",
   "customers.people.detail.tasks.completeSuccess": "Zadanie oznaczone jako wykonane",
   "customers.people.detail.tasks.createSuccess": "Zadanie utworzone",
+  "customers.people.detail.tasks.deleteConfirmAction": "Usuń zadanie",
+  "customers.people.detail.tasks.deleteConfirmDescription": "Zadanie zostanie usunięte ze wszystkich widoków, w których się pojawia. Tej operacji nie można cofnąć.",
+  "customers.people.detail.tasks.deleteConfirmTitle": "Usunąć zadanie?",
   "customers.people.detail.tasks.deleteError": "Nie udało się usunąć zadania",
   "customers.people.detail.tasks.deleteSuccess": "Zadanie usunięte",
   "customers.people.detail.tasks.dialog.context": "To zadanie będzie powiązane z {{name}}",
@@ -2872,5 +2876,8 @@
   "customers.workPlan.customerTodos.table.state.empty": "Brak zadań klientów.",
   "customers.workPlan.customerTodos.table.state.noMatches": "Brak zadań spełniających filtry.",
   "customers.workPlan.customerTodos.table.title": "Zadania związane z klientami",
+  "customers.workflows.commands.companies.update": "Aktualizuj firmę",
+  "customers.workflows.commands.deals.update": "Aktualizuj szansę sprzedaży",
+  "customers.workflows.commands.people.update": "Aktualizuj osobę",
   "notifications.categories.customers": "Klienci"
 }
