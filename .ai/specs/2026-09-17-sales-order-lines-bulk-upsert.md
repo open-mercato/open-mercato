@@ -12,9 +12,12 @@ caller can replace N single calls with one.
 ## Overview
 
 A new command handler in `packages/core/src/modules/sales/commands/documents.ts`,
-its input schema in `packages/core/src/modules/sales/data/validators.ts`, and the
-per-line snapshot logic extracted into a helper both commands share. No route, no
-schema change, no change to the per-line command's observable behavior.
+its input schema in `packages/core/src/modules/sales/data/validators.ts`, the
+per-line snapshot logic extracted into a helper both commands share, and one
+`POST /api/sales/order-lines/batch` route so the command is reachable — and
+therefore testable against a real database — from outside the process. No
+database schema change, no change to the per-line command's observable
+behavior.
 
 ## Problem Statement
 
@@ -201,6 +204,32 @@ Schema-level refusals (zod, before any query):
 { orderId: string, lineIds: string[] }   // lineIds in input order
 ```
 
+### HTTP route
+
+```
+POST /api/sales/order-lines/batch      requireFeatures: ['sales.orders.manage']
+```
+
+A bespoke command route on the `api/quotes/convert` pattern rather than a
+`makeSalesLineRoute` verb: the batch is one aggregate write with its own body
+shape, and it has to return the operation metadata header so the undo endpoint —
+and the integration suite's `undoHarness` — can reach it.
+
+The route parses the same `orderLineBulkUpsertSchema` the command parses (after
+`withScopedPayload` supplies `organizationId` / `tenantId` from the request's
+auth and organization scope), runs the mutation-guard registry for
+`sales.order` / `update`, executes the command, and returns
+`{ orderId, lineIds }` with `x-om-operation` set. Refusals surface with the
+status the command raised — `404` for an unknown order or `deleteIds` entry,
+`409` for a shipped-line or empty-order refusal, `409`/`423` for an
+optimistic-lock conflict — and a schema refusal is `400` with the zod issues,
+matching `makeCrudRoute`.
+
+The route is **not** capped. A cap is the obvious reflex for a public array, but
+it would defeat the case the command exists for as soon as a caller is not
+in-process, and the surface is authenticated and feature-gated rather than
+anonymous. See the risk table.
+
 ### Audit and undo
 
 One `ActionLog` entry per call, with `snapshotBefore` / `snapshotAfter` order
@@ -217,17 +246,20 @@ changed-field chips instead.
 
 ### Not in scope
 
-- **No REST route.** The adopter calls the command bus. A route would live at
-  `POST /api/sales/order-lines/batch` behind `sales.orders.manage` (the feature
-  the existing order-lines route already uses) and would need a payload cap; it is
-  a follow-up, not part of this change.
 - **No quote twin.** `sales.quotes.lines.upsert` has the same shape and the same
   cost. Adding `sales.quotes.lines.upsert_many` is a mechanical follow-up once the
   order form is agreed.
 - **No payload cap.** SPEC-021's open question 3 proposed capping a graph save at
-  100 children. A cap defeats the case this command exists for (a single order
-  carrying ~1,100 lines), and the command bus is not an anonymous surface. A REST
-  route, if one is added, is where a cap belongs.
+  100 children. A cap defeats the case this command exists for — a single order
+  carrying ~1,100 lines — for every caller that reaches it over HTTP rather than
+  through the bus, and the route is authenticated and feature-gated rather than
+  anonymous. If a cap is wanted it belongs in the platform's request-size policy,
+  applied uniformly, not in this one route.
+- **No shared command-route helper.** `api/quotes/convert`, `api/quotes/send` and
+  now `api/order-lines/batch` each carry their own copy of the container / auth /
+  organization-scope / mutation-guard boilerplate. Extracting it is worth doing
+  and would touch two routes this change is otherwise not about; it is a separate
+  refactor.
 
 ## Risks & Impact Review
 
@@ -235,7 +267,7 @@ changed-field chips instead.
 |---|---|---|---|---|---|
 | Extracting the shared helper changes per-line behavior | An order line written through the existing command gets different prices, UoM or metadata than before | High | `sales.orders.lines.upsert` | The extraction is mechanical: the same expressions, with `uomResolver` and the tax-service resolver injected instead of constructed inline, and both still constructed per call by the per-line command. Its existing test suites pass unmodified. | Low |
 | A long batch holds one transaction open | A 1,100-line batch holds a write transaction for the duration of 1,100 inserts, blocking concurrent writers to the same order | Medium | sales writes | Atomicity is the requirement, so the transaction cannot be split. The aggregate lock is per order, and the batch is far shorter in wall-clock time than the N sequential transactions it replaces. | Accepted |
-| Unbounded `lines` array | A caller sends a batch large enough to exhaust memory building the snapshot list | Low | sales writes | Memory is O(N) in lines already held by the aggregate load. The command bus is reachable only by server-side callers; the absent REST route is where an external cap belongs. | Accepted |
+| Unbounded `lines` array over HTTP | A caller sends a batch large enough to exhaust memory building the snapshot list, or to hold the order's write transaction open for a long time | Low | sales writes | Memory is O(N) in lines the aggregate load already holds. The route is behind `sales.orders.manage`, so the caller is an authenticated principal that can already rewrite the order one line at a time — a cap would slow that caller down rather than stop them. Capping the route would also foreclose the ~1,100-line case for any adopter not calling the bus in-process. | Accepted |
 | Coarser undo | Undoing a batch reverts every line in it, not one line | Low | audit/undo | Intended: one caller action is one undo entry, matching SPEC-021's stated goal. The per-line command remains for granular edits. | Accepted |
 | Divergence from SPEC-021's body shape | A later graph save uses `lines: { upsert, delete }` while this uses `lines` / `deleteIds` | Low | contract surface | Flagged for maintainers on the PR; the shape is cheap to align before anything depends on it. | Open |
 
@@ -278,32 +310,106 @@ the batch path and the per-line path apply them identically.
 
 ### Integration coverage
 
-The module's integration suite is Playwright driving the running app over HTTP,
-and this command has no HTTP surface, so no integration spec can reach it as
-things stand. The transaction boundaries above are covered by failure injection
-against the real handler rather than against a database: the tests assert the
-ordering and the begin/commit/rollback calls, and the database supplies the
-rollback itself.
+`packages/core/src/modules/sales/__integration__/TC-SALES-2979-line-bulk-upsert.spec.ts`
+drives `POST /api/sales/order-lines/batch` against a real database, through the
+running app, on fixtures it creates and removes itself:
 
-Closing that gap means adding the REST route this spec currently defers. That is
-a deliberate scope question, not an oversight — see "Not in scope" above.
+- **one batch equals the per-line sequence it replaces.** Two orders are seeded
+  identically; one takes a single batch (update by id, append without id, delete
+  a third), the other takes the same three edits as `DELETE` / `PUT` / `POST` on
+  `/api/sales/order-lines`. The resulting line projections — number, name,
+  quantity, unit prices, line totals — and the order's grand net, grand gross and
+  `lineItemCount` must match. This is the change's central claim, asserted
+  against a database rather than against a calculation double. The batch's own
+  structure is checked alongside it: `lineIds` in input order, an untouched line
+  surviving, the set renumbered `1..n`,
+- a refusal writes nothing: an unknown `deleteIds` entry (404), a delete-only
+  batch that would empty the order (409), an unknown order id (404) and the two
+  schema refusals (400) each leave the order's line set and totals byte-identical,
+- **undo restores the line graph.** The batch response's `x-om-operation` header
+  drives the real undo endpoint, and the order comes back with every prior line
+  under its original id, number, name, quantity and total, the appended line
+  gone, and the totals restored.
+
+That third case is the one the unit tests cannot supply. `restoreOrderGraph`
+native-deletes the whole child graph before rebuilding it; a mock can show that
+`rollback` was *called*, but only a database can show the graph actually came
+back. It is the round-trip proof for the atomic-undo fix.
+
+#### A pre-existing gap the equivalence test pins
+
+Running the two paths side by side surfaced something neither of them
+introduced. An upsert entry that changes a line's quantity without supplying
+totals carries the stored row's `totalGrossAmount` into the recalculation
+(`mapPersistedLine` reads it off the row and marks it `totalsFromStoredRow`),
+and `calculateLineTotals` honours any present `totalGrossAmount` verbatim —
+`totalsFromStoredRow` only gates the *net* reconciliation. So the edited line's
+net follows the new quantity while its gross, and therefore the order's grand
+gross, stays at the pre-edit value.
+
+Measured over HTTP on `PUT /api/sales/order-lines`, quantity 2 → 5 at 10.00:
+`total_net_amount` 20.00 → 50.00, `total_gross_amount` 20.00 → **20.00**, order
+grand gross **20.00**. `sales.orders.lines.upsert_many` reproduces it exactly,
+which is the equivalence this change promises.
+
+It is out of scope here — it predates the batch, it lives in the per-line path
+and the calculation engine, and fixing it changes an existing command's
+observable behaviour. The integration spec pins it as a characterization
+assertion with that framing, so it fails by design once the gross branch is
+fixed and both paths are forced to move together.
+
+Two properties stay unit-level by construction, and the spec does not claim
+otherwise:
+
+- **injected failure mid-transaction** — a flush or commit failure cannot be
+  provoked from outside the process, so the rollback ordering is asserted against
+  the real handler with a failing double,
+- **`sales.document.totals.calculated`** — a server-side lifecycle event with no
+  `clientBroadcast`, so no HTTP client can observe the emission, only its
+  persisted effect on the order's totals.
+
+Covering those two against a real database would mean an in-process jest lane
+with Postgres attached to the shared `test` job, which does not exist in this
+repo today — the only database-touching jest test is a schema check in
+`packages/shared`. That is a CI change affecting every PR, and a maintainer's
+call rather than this change's.
 
 ## Final Compliance Report
 
 - Tenant/organization scoping: `ensureOrderScope` on both `prepare` and `execute`,
-  as in the per-line command. Covered by a test.
+  as in the per-line command. The route resolves the organization scope from the
+  request before it builds the command context, so a scoped payload can never be
+  supplied by the caller. Covered by unit and integration tests.
 - Optimistic locking: `enforceSalesDocumentOptimisticLock` on the order aggregate,
-  before any mutation.
-- Backward compatibility: additive. New command id, new schema exports, no change
-  to an existing signature, route, event id, DI key, ACL feature or entity.
-  `orderLineUpsertCommand`'s observable behavior is unchanged.
-- Generated files: none edited by hand; `yarn generate` run.
-- i18n: `sales.audit.orders.lines.upsert_many` and
-  `sales.orders.lines.upsert_many` added to all five locales;
-  `yarn i18n:check-sync` clean.
+  before any mutation. The route passes the request through on the command
+  context, so the lock header reaches it.
+- Access control: the route declares `requireFeatures: ['sales.orders.manage']`,
+  the feature the existing order-lines route already uses for writes. No new ACL
+  feature.
+- Backward compatibility: additive. New command id, new schema exports, new route
+  path; no change to an existing signature, route, event id, DI key, ACL feature
+  or entity. `orderLineUpsertCommand`'s observable behavior is unchanged.
+- Generated files: none edited by hand; `yarn generate` run (the new route
+  registers itself through auto-discovery).
+- i18n: `sales.audit.orders.lines.upsert_many`,
+  `sales.orders.lines.upsert_many` and `sales.documents.items.errorSaveBatch`
+  added to all five locales; `yarn i18n:check-sync` clean.
 - No new production dependency.
 
 ## Changelog
+
+### 2026-09-21
+
+- Added `POST /api/sales/order-lines/batch` and the integration spec
+  `TC-SALES-2979-line-bulk-upsert`, so the batch — and in particular its undo —
+  is exercised against a real database rather than only against doubles. The
+  route is uncapped, for the reason recorded in "Not in scope".
+- Recorded which two properties stay unit-level and why, rather than letting the
+  integration section read as full coverage.
+- Recorded a pre-existing gap the equivalence test surfaced: a quantity change
+  that supplies no totals leaves the line's — and the order's — gross at its
+  pre-edit value, on the per-line path as much as on the batch. Not fixed here;
+  pinned as a characterization assertion.
 
 ### 2026-09-17
 
