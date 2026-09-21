@@ -1814,3 +1814,59 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
   need to consider (one settlement never races another settlement of
   the *same* invoice the way two revaluation runs for the same
   tenant/org can race each other).
+
+### 2026-09-21 (Deferred Revenue — maintainer-review + `om-spec-writing` compliance pass, PR #6193)
+
+- **A per-entry `accruedAt IS NULL` filter is an idempotency check, not
+  a concurrency guard, on its own.** Fixed Assets' `accrueDepreciation`
+  (and this spec's own initial draft, mirroring it) relied on this
+  filter alone to make retries safe. That's correct for *sequential*
+  retries (a crash-then-rerun) but not for *concurrent* calls: two
+  requests can both read `accruedAt IS NULL` before either writes.
+  Checked directly against GL core engine's schema
+  (`2026-08-18-general-ledger-core-engine.md`): the
+  `(organization_id, reference_type, reference_id)` index on
+  `journal_entry` is a plain, non-unique supporting index for list
+  filters — it provides no deduplication a caller can lean on instead.
+  **Fix adopted (reusable pattern)**: reuse Multi-Currency's (#6190,
+  Design decision 10) own `SELECT ... FOR UPDATE`-on-the-parent-row
+  shape — lock the one row that gates the operation
+  (`FxRevaluationRun` there, `RevenueDeferral` here) as the transaction's
+  first statement, before any read that decides whether to write.
+  Any future module in this family that claims a row for one-time
+  processing (an `accruedAt`/`processedAt`/similar nullable marker)
+  should default to this locked-claim shape rather than a bare
+  `WHERE ... IS NULL` filter, once concurrent callers are possible —
+  Fixed Assets' own `accrueDepreciation` was never reviewed against
+  concurrent calls and may carry the same latent gap; flagged here as
+  a candidate for a future pass, not fixed in this pass (out of scope
+  for a Deferred Revenue-only review).
+- **A snapshot on the header entity must cover every account a later
+  command posts against, not just the "original" side.** This spec's
+  own initial draft snapshotted `originalRevenueAccountId` but kept
+  reading `deferredRevenueLiabilityAccountId` live from
+  `ModuleConfigService` on every accrual — an asymmetry the maintainer
+  review caught (a later config change would silently move which
+  account future recognition entries credit, while the already-posted
+  reclassification entry stays pinned to the old one, permanently
+  unclearable). General lesson for this project: any command that
+  posts against a **pair** of accounts derived from tenant config at
+  creation time must snapshot **both**, not just the one that happens
+  to come from an existing entity (here, `SalesInvoiceLineRevenueAccount`)
+  rather than fresh config.
+- **Sibling-spec forward-pointers survive a compliance-pass edit
+  cleanly when the edit stays internal to the module being revised.**
+  Checked directly: `2026-09-15-default-chart-of-accounts.md`'s `840`
+  forward-pointer note, `2026-08-18-sales-invoice-gl-posting.md`'s
+  `SalesInvoiceLineRevenueAccount`-reuse note, and
+  `2026-09-06-fixed-assets.md`'s "second real consumer" note about
+  `DepreciationScheduleEntry`'s shape all remained accurate after this
+  pass with no edits needed — because every fix in this round (the
+  locking contract, the currency restriction, the liability-account
+  snapshot, the period preflight, the schedule-boundary rule, the
+  correction guard) is internal to `deferred_revenue`'s own design and
+  changes no fact any sibling spec had actually asserted about it. A
+  useful general check for the next compliance pass: a sibling note
+  only needs revisiting when the *fact it cites* (an entity's shape, a
+  dependency direction, a chart-of-accounts row) changes — not merely
+  because the module it's about got more design detail added.
