@@ -58,8 +58,8 @@ Land the three runtime-gap fixes the PR already implements — `DataTable` compo
 
 ### Phase 2: Make the branch mergeable
 
-- [ ] 2.1 Merge `origin/develop` into the PR branch and resolve the `.ai/lessons.md` catalog conflict, keeping both sides' entries
-- [ ] 2.2 Push the merge so the PR reports a clean mergeable state
+- [x] 2.1 Merge `origin/develop` into the PR branch and resolve the `.ai/lessons.md` catalog conflict, keeping both sides' entries — 967b81ef6
+- [x] 2.2 Push the merge so the PR reports a clean mergeable state — 967b81ef6
 
 ### Phase 3: Verification
 
