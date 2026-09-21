@@ -22,9 +22,7 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## 0.7.0 → 0.8.0 (2026-09-18)
-
-Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).
+## 0.8.0 → 0.8.1 (unreleased)
 
 ### Catalog product search now requires the `unaccent` and `pg_trgm` PostgreSQL extensions
 
@@ -54,6 +52,10 @@ accent-insensitive predicate — in that case build it from
 `@open-mercato/shared/lib/db/accentInsensitiveSearch` so your expression matches the index verbatim.
 A predicate that differs by so much as whitespace is still correct, but PostgreSQL will not use the
 index for it.
+
+## 0.7.0 → 0.8.0 (2026-09-18)
+
+Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).
 
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 

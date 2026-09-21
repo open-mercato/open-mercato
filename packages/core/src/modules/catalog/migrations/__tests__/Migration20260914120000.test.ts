@@ -24,12 +24,14 @@ describe('Migration20260914120000', () => {
 
   // A bare `permission denied to create extension` aborts the whole db:migrate
   // run, taking every later module's migrations with it, so the failure has to
-  // say which extension and what to grant.
-  test('up() turns a missing CREATE privilege into an actionable error', async () => {
+  // say which extension and what to grant. Both a plain privilege denial
+  // (42501) and a managed-provider allowlist rejection (0A000) must be caught,
+  // since either bare error aborts the run the same way.
+  test('up() turns a missing CREATE privilege or an unallowlisted extension into an actionable error', async () => {
     const statements = (await collectSql('up')).map(normalize)
 
     for (const [index, extension] of ['unaccent', 'pg_trgm'].entries()) {
-      expect(statements[index]).toContain(`exception when insufficient_privilege then`)
+      expect(statements[index]).toContain(`exception when insufficient_privilege or feature_not_supported then`)
       expect(statements[index]).toContain(`Open Mercato requires the PostgreSQL "${extension}" extension`)
       expect(statements[index]).toContain(`CREATE EXTENSION IF NOT EXISTS "${extension}" SCHEMA public`)
     }

@@ -13,15 +13,19 @@
  */
 
 /**
- * Name of the IMMUTABLE `unaccent()` wrapper the expressions below call.
+ * Schema-qualified name of the IMMUTABLE `unaccent()` wrapper the expressions
+ * below call.
  *
  * PostgreSQL's built-in `unaccent()` is STABLE, because the single-argument form
  * resolves its text-search dictionary through `search_path`, and a STABLE
  * function cannot appear in an index expression. The wrapper pins the dictionary
  * with `'public.unaccent'::regdictionary` so it is genuinely immutable rather
- * than merely declared so.
+ * than merely declared so — but the wrapper's own *call site* is still resolved
+ * through `search_path` unless it is schema-qualified too, so both the index
+ * expression and the runtime query predicate reference `public.` explicitly
+ * rather than relying on the caller's `search_path` containing it.
  */
-export const IMMUTABLE_UNACCENT_FUNCTION = 'om_immutable_unaccent'
+export const IMMUTABLE_UNACCENT_FUNCTION = 'public.om_immutable_unaccent'
 
 /** DDL creating the wrapper. Kept here so the migration and the query agree. */
 export const buildImmutableUnaccentFunctionSql = (): string =>

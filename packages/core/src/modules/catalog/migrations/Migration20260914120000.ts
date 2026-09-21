@@ -10,16 +10,21 @@ import { Migration } from '@mikro-orm/migrations';
 // `create extension` needs CREATE on the database, which the application role
 // does not always hold on managed PostgreSQL. Failing here aborts the whole
 // `yarn db:migrate` run — every later module's migrations included — so the bare
-// `permission denied to create extension` is turned into a message that names
-// what to grant. The check runs only when the extension is actually missing, so
-// an instance where an operator pre-created them needs no extra privilege.
+// permission error is turned into a message that names what to grant. The check
+// runs only when the extension is actually missing, so an instance where an
+// operator pre-created them needs no extra privilege.
+//
+// Two distinct SQLSTATEs cover the ways this can fail: `insufficient_privilege`
+// (42501) when the role itself lacks CREATE, and `feature_not_supported`
+// (0A000) on managed providers (e.g. RDS) that reject an extension outright for
+// not being on their allowlist, independent of the role's own privileges.
 const ensureExtensionSql = (extension: string): string => `
   do $$
   begin
     if not exists (select 1 from pg_extension where extname = '${extension}') then
       begin
         execute 'create extension if not exists "${extension}" schema public';
-      exception when insufficient_privilege then
+      exception when insufficient_privilege or feature_not_supported then
         raise exception using
           errcode = 'insufficient_privilege',
           message = 'Open Mercato requires the PostgreSQL "${extension}" extension for accent-insensitive catalog search, and this role may not create it.',
