@@ -209,9 +209,11 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
    profitable year both need a test fixture exercising this subtraction
    (Testing Strategy) — as does the reopen case (Design decisions #5),
    where a superseded `CLOSING` entry and its `REVERSAL` are exact
-   mirror-image postings (Kieso, *Intermediate Accounting*, 17e,
-   Appendix 3B: *"A reversing entry is the exact opposite of the
-   adjusting entry made in the previous period"*) that net to zero in
+   mirror-image postings (Kieso, *Intermediate Accounting*, 17e, Ch. 3,
+   "Reversing Entries—An Optional Step," p. 3-35 — the section
+   introducing Appendix 3B, not the appendix's own worked pages: *"A
+   reversing entry is the exact opposite of the adjusting entry made in
+   the previous period"*) that net to zero in
    the raw `ytdDebit`/`ytdCredit` sums regardless of which side each
    lands on, leaving exactly the new `CLOSING` entry's own contribution
    to subtract — proven algebraically and asserted as a test case in
@@ -960,7 +962,7 @@ cross-module fallout.
   `buildIncomeStatementData` against the *new* `closingEntryId` reports
   `120`, not `100`, `220`, or `0` — proving the original `CLOSING` and
   its `REVERSAL` cancel out of the raw `ytdDebit`/`ytdCredit` sums
-  (Kieso Appendix 3B) regardless of which side each landed on, leaving
+  (Kieso, Ch. 3, p. 3-35) regardless of which side each landed on, leaving
   only the new `CLOSING`'s own contribution to subtract.
 - **Reopen/correction round-trip, `ClosingResolution` revisioning**
   (Design decisions #5/#5b): `unlockFiscalPeriod` → `REVERSAL` +
@@ -1037,13 +1039,18 @@ decisions #2's antichain-and-exhaustive-traversal requirement.
 
 **Step 2 — Literature grounding (Kieso, *Intermediate Accounting*, 17th
 Ed.).**
-- **Confirmed (maintainer-review round, 2026-09-21)** — Appendix 3B,
-  "Reversing Entries": *"A reversing entry is the exact opposite of the
-  adjusting entry made in the previous period."* Reused from the same
-  verified citation already grounding `2026-09-17-multi-currency.md`'s
-  own reversal design — not a fresh PDF search this round, since the
-  quote and page were already confirmed against the primary source in
-  this session. Grounds Design decisions #0's reopen-cycle proof: a
+- **Confirmed, with a location correction (literature-comparison
+  verification round, 2026-09-21)** — Ch. 3, "Reversing Entries—An
+  Optional Step" (p. 3-35): *"A reversing entry is the exact opposite of
+  the adjusting entry made in the previous period."* The quote itself is
+  exact and verified directly against the primary-source PDF
+  (`pdftotext -layout` + `grep`), but the earlier citation in this
+  document attributed it to "Appendix 3B" — that appendix (pp. 3-43–45)
+  is the worked accrual/deferral illustration this same chapter section
+  points forward to; the defining sentence itself sits in the main
+  chapter body, not the appendix's own pages. Reused from the same
+  reversal-design grounding already established for
+  `2026-09-17-multi-currency.md`. Grounds Design decisions #0's reopen-cycle proof: a
   superseded `CLOSING` entry and its `REVERSAL` are, by this definition,
   exact opposite postings, which is precisely why they net to zero in
   `buildIncomeStatementData`'s raw `ytdDebit`/`ytdCredit` sums regardless
