@@ -54,7 +54,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findWorkflowDefinition } from './find-definition'
 import { validateAgainstPorts } from './port-contract'
 import type { WorkflowIoContract } from '../data/validators'
-import { safeSetNestedValue } from './safe-mapping-path'
+import { safeGetNestedValue, safeSetNestedValue } from './safe-mapping-path'
 
 const logger = createLogger('workflows')
 
@@ -1641,17 +1641,6 @@ async function logStepEvent(
 }
 
 /**
- * Get nested value from object using dot notation
- *
- * @param obj - Source object
- * @param path - Dot-notation path (e.g., "user.email")
- * @returns Value at path or undefined
- */
-function getNestedValue(obj: any, path: string): any {
-  return path.split('.').reduce((current, key) => current?.[key], obj)
-}
-
-/**
  * Map data from source context using mapping configuration
  *
  * @param sourceContext - Source data object
@@ -1665,7 +1654,7 @@ function mapInputData(
   const result: Record<string, any> = {}
 
   for (const [targetKey, sourcePath] of Object.entries(mapping)) {
-    const value = getNestedValue(sourceContext, sourcePath)
+    const value = safeGetNestedValue(sourceContext, sourcePath)
     if (value !== undefined) {
       safeSetNestedValue(result, targetKey, value)
     }
@@ -1689,7 +1678,7 @@ function mapOutputData(
   const result: Record<string, any> = {}
 
   for (const [targetKey, sourcePath] of Object.entries(mapping)) {
-    const value = getNestedValue(childContext, sourcePath)
+    const value = safeGetNestedValue(childContext, sourcePath)
     if (value !== undefined) {
       safeSetNestedValue(result, targetKey, value)
     }

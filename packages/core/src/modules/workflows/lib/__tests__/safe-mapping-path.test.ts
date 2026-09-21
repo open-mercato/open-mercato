@@ -1,6 +1,11 @@
-import { isSafeMappingTargetPath, safeSetNestedValue } from '../safe-mapping-path'
+import { afterEach } from '@jest/globals'
+import { isSafeMappingPath, safeGetNestedValue, safeSetNestedValue } from '../safe-mapping-path'
 
 describe('safe workflow mapping paths', () => {
+  afterEach(() => {
+    delete (Object.prototype as Record<string, unknown>).workflowPolluted
+  })
+
   test.each([
     '__proto__.polluted',
     'nested.__proto__.polluted',
@@ -8,7 +13,17 @@ describe('safe workflow mapping paths', () => {
     'nested.constructor.value',
     'nested.prototype.value',
   ])('rejects prototype-bearing target path %s', (path) => {
-    expect(isSafeMappingTargetPath(path)).toBe(false)
+    expect(isSafeMappingPath(path)).toBe(false)
+  })
+
+  test('reads only safe own-property paths', () => {
+    const inherited = { inherited: 'nope' }
+    const source = Object.assign(Object.create(inherited), { own: { value: 42 } })
+
+    expect(safeGetNestedValue(source, 'own.value')).toBe(42)
+    expect(safeGetNestedValue(source, 'inherited')).toBeUndefined()
+    expect(safeGetNestedValue(source, '__proto__')).toBeUndefined()
+    expect(safeGetNestedValue(source, 'constructor.prototype')).toBeUndefined()
   })
 
   test('writes valid nested paths without following inherited properties', () => {
@@ -28,5 +43,13 @@ describe('safe workflow mapping paths', () => {
     expect(safeSetNestedValue(target, 'constructor.prototype.workflowPolluted', true)).toBe(false)
     expect(Object.prototype).not.toHaveProperty('workflowPolluted')
     expect(target).toEqual({})
+  })
+
+  test('clones mapped objects before descending so aliases cannot pollute prototypes', () => {
+    const target: Record<string, unknown> = { alias: Object.prototype }
+
+    expect(safeSetNestedValue(target, 'alias.workflowPolluted', true)).toBe(true)
+    expect(Object.prototype).not.toHaveProperty('workflowPolluted')
+    expect(target).toEqual({ alias: { workflowPolluted: true } })
   })
 })
