@@ -2,42 +2,38 @@ import { test, expect, type Page } from '@playwright/test'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
+import {
+  openWorkflowStudio,
+  openWorkflowTriggersDialog,
+} from '@open-mercato/core/helpers/integration/workflowsUi'
 
-async function openDefinitionDetailWithRetries(page: Page, definitionId: string): Promise<void> {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await page.goto(`/backend/definitions/${definitionId}`)
-    const addTriggerButton = page.getByRole('button', { name: 'Add Trigger' })
-    if (await addTriggerButton.isVisible().catch(() => false)) {
-      return
-    }
-
-    const genericErrorHeading = page.getByRole('heading', { name: /^Something went wrong$/i }).first()
-    if (await genericErrorHeading.isVisible().catch(() => false)) {
-      const retryButton = page.getByRole('button', { name: /Try again/i }).first()
-      if (await retryButton.isVisible().catch(() => false)) {
-        await retryButton.click().catch(() => {})
-        if (await addTriggerButton.isVisible().catch(() => false)) {
-          return
-        }
-      }
-      await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {})
-      if (await addTriggerButton.isVisible().catch(() => false)) {
-        return
-      }
-    }
-  }
-
-  await expect(page.getByRole('button', { name: 'Add Trigger' })).toBeVisible()
+/**
+ * Open the Studio and reveal the triggers editor.
+ *
+ * "Add Trigger" is NOT in the definition drawer: the Studio routes triggers
+ * through the focused `TriggersDialog`, opened from the START node's trigger
+ * cap on the canvas. The old `/backend/definitions/<id>` + immediate probe
+ * could never converge, and neither could opening the drawer — the retry and
+ * `Something went wrong` scaffolding went with the retired form editor.
+ */
+async function openTriggersEditor(page: Page, definitionId: string): Promise<void> {
+  await openWorkflowStudio(page, definitionId)
+  await openWorkflowTriggersDialog(page)
 }
 
 /**
  * TC-WF-001: Event Pattern Autocomplete in Trigger Editor
  *
- * Verifies that the EventPatternInput component in the "Create Event Trigger"
- * dialog shows autocomplete suggestions for declared events, that filtering by
+ * Verifies that the EventPatternInput component on a trigger's event field
+ * shows autocomplete suggestions for declared events, that filtering by
  * partial text works, that selecting a suggestion displays the human-readable
  * label (not the raw event ID), and that custom wildcard patterns are also
  * accepted without being reset.
+ *
+ * The field moved but the contract did not: there is no nested "Create Event
+ * Trigger" dialog any more. `TriggersDialog` hosts the inline `TriggersEditor`,
+ * where "Add Trigger" appends a row and expands it IN PLACE, so the pattern
+ * field is reached through the row rather than through a second dialog.
  *
  * Note: trigger creation (POST /api/workflows/triggers) is not tested here —
  * that API route is a separate concern outside the scope of issue #544, which
@@ -48,6 +44,10 @@ test.describe('TC-WF-001: Event Pattern Autocomplete', () => {
     page,
     request,
   }) => {
+    // Login + Studio boot + canvas paint before the first assertion — the same
+    // walk the sibling Studio journeys (TC-WF-006/007) budget for; it does not
+    // fit the shared 20s default.
+    test.setTimeout(90_000)
     let token: string | null = null
     let definitionId: string | null = null
     const timestamp = Date.now()
@@ -86,17 +86,23 @@ test.describe('TC-WF-001: Event Pattern Autocomplete', () => {
         throw new Error('Workflow definition ID should be present after creation')
       }
 
-      // --- Navigate to the workflow definition edit page ---
+      // --- Navigate to the Studio and reveal the triggers editor ---
       await login(page, 'admin')
-      await openDefinitionDetailWithRetries(page, definitionId)
+      await openTriggersEditor(page, definitionId)
 
-      // --- Open the Create Event Trigger dialog ---
-      await page.getByRole('button', { name: 'Add Trigger' }).click()
-      const dialog = page.getByRole('dialog', { name: 'Create Event Trigger' })
+      // --- Add a trigger row; it expands inline, no nested dialog ---
+      const dialog = page.getByTestId('workflow-triggers-dialog')
       await expect(dialog).toBeVisible()
+      await dialog.getByRole('button', { name: /^add trigger$/i }).click()
+
+      const row = dialog.getByTestId('trigger-row').last()
+      await expect(row).toBeVisible({ timeout: 5_000 })
 
       // --- Event Pattern autocomplete: suggestions appear on focus ---
-      const patternInput = dialog.getByPlaceholder('sales.orders.updated')
+      // `EventPatternInput` renders a `role="combobox"` input; it takes no `id`,
+      // so the row's field ids do not address it.
+      const patternInput = row.getByRole('combobox')
+      await expect(patternInput).toHaveAttribute('placeholder', 'sales.orders.updated')
       await patternInput.click()
 
       // At least one event suggestion should appear in the dropdown. The list is
@@ -136,15 +142,10 @@ test.describe('TC-WF-001: Event Pattern Autocomplete', () => {
       await patternInput.press('Escape')
       await expect(patternInput).toHaveValue('sales.orders.*')
 
-      // Cancel without saving — trigger creation API is out of scope for this test
-      if (await dialog.isVisible().catch(() => false)) {
-        // Press Escape to dismiss dialog — avoids DOM detachment race from React re-renders
-        await page.keyboard.press('Escape')
-        if (await dialog.isVisible().catch(() => false)) {
-          await dialog.getByRole('button', { name: 'Cancel' }).click({ timeout: 5_000 }).catch(() => {})
-        }
-      }
-      await expect(dialog).toBeHidden()
+      // Cancel without saving — the dialog edits a working copy, so dismissing
+      // it discards the row. Trigger persistence is TC-WF-008's subject.
+      await dialog.getByRole('button', { name: /^cancel$/i }).click()
+      await expect(dialog).toBeHidden({ timeout: 5_000 })
     } finally {
       await deleteEntityIfExists(request, token, '/api/workflows/definitions', definitionId)
     }
