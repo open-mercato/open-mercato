@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery, QBFilterQuery } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -87,6 +87,21 @@ function json(payload: unknown, init: ResponseInit = { status: 200 }) {
   })
 }
 
+/**
+ * Which keys an actor may list: the selected organizations' keys, plus the
+ * tenant-wide keys (saved with no organization) for the actors the create and
+ * delete routes trust with them: a superadmin, or an actor with no
+ * organization allowlist. Null when no organization is selected.
+ */
+async function listOrganizationFilter(ctx: ApiKeyCrudCtx, organizationIds: string[] | null): Promise<QBFilterQuery<ApiKey> | null> {
+  const selected = organizationIds && organizationIds.length > 0 ? organizationIds : ctx.auth?.orgId ? [ctx.auth.orgId] : null
+  if (!selected) return null
+  const byOrganization: QBFilterQuery<ApiKey> = { organizationId: { $in: selected } }
+  const allowedIds = ctx.organizationScope?.allowedIds ?? null
+  const seesTenantWide = !Array.isArray(allowedIds) || (await resolveIsSuperAdmin(ctx))
+  return seesTenantWide ? { $or: [byOrganization, { organizationId: null }] } : byOrganization
+}
+
 const crud = makeCrudRoute<
   z.infer<typeof createApiKeySchema>,
   never,
@@ -157,11 +172,8 @@ const crud = makeCrudRoute<
       const qb = em.createQueryBuilder(ApiKey, 'k')
       qb.where({ deletedAt: null })
       qb.andWhere({ tenantId: auth.tenantId })
-      if (organizationIds && organizationIds.length > 0) {
-        qb.andWhere({ organizationId: { $in: organizationIds } })
-      } else if (auth.orgId) {
-        qb.andWhere({ organizationId: auth.orgId })
-      }
+      const keyScope = await listOrganizationFilter(ctx as ApiKeyCrudCtx, organizationIds)
+      if (keyScope) qb.andWhere(keyScope)
       if (search) {
         const pattern = `%${escapeLikePattern(search)}%`
         qb.andWhere({
