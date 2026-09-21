@@ -487,7 +487,7 @@ Module dependency check failed:
 - Module "communication_channels" requires: progress
 ```
 
-**Action for module authors:** add `{ id: 'progress', from: '@open-mercato/core' }` to `src/modules.ts` before `communication_channels`, then re-run `yarn generate`. Both `apps/mercato/src/modules.ts` and the `create-app` template already enable `progress`, so this repo's own apps and freshly scaffolded apps are unaffected.
+**Action for module authors:** add `{ id: 'progress', from: '@open-mercato/core' }` to `src/modules.ts` before `communication_channels`, then re-run `yarn generate`. `apps/mercato/src/modules.ts`, the `create-app` template's `modules.ts` (used unchanged by the `classic` preset), and the `crm` starter preset (the only other preset that enables `communication_channels`) all enable `progress` too, so this repo's own apps and freshly scaffolded apps are unaffected.
 
 ## 0.6.7 → 0.7.0 (2026-08-26)
 

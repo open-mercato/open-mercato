@@ -55,10 +55,10 @@ test('resolvePreset: empty returns 12-module list', () => {
   assert.deepEqual(result.filesToRemove, [])
 })
 
-test('resolvePreset: crm returns 19-module list extending empty (includes attachments + messages + currencies + communication_channels + ai_assistant + search)', () => {
+test('resolvePreset: crm returns 20-module list extending empty (includes attachments + messages + currencies + communication_channels + progress + ai_assistant + search)', () => {
   const result = resolvePreset('crm')
   assert.equal(result.isClassic, false)
-  assert.equal(result.modules.length, 19)
+  assert.equal(result.modules.length, 20)
   const ids = result.modules.map((m) => m.id)
   assert.ok(ids.includes('auth'))
   assert.ok(ids.includes('directory'))
@@ -79,6 +79,8 @@ test('resolvePreset: crm returns 19-module list extending empty (includes attach
   assert.ok(ids.includes('currencies'))
   // communication_channels backs CRM email + /backend/profile/communication-channels
   assert.ok(ids.includes('communication_channels'))
+  // progress backs communication_channels' declared `requires: ['progress']` (issue #6094)
+  assert.ok(ids.includes('progress'))
   // ai_assistant must be included so customers AI widgets can register
   // (issue #1849 — CRM mode must enable AI assistant module)
   assert.ok(ids.includes('ai_assistant'))
@@ -162,6 +164,7 @@ test('generateModulesTs: produces valid content for crm modules', () => {
   assert.ok(content.includes("id: 'dashboards'"))
   assert.ok(content.includes("id: 'events'"))
   assert.ok(content.includes("id: 'communication_channels'"))
+  assert.ok(content.includes("id: 'progress'"))
   // ai_assistant must register from its own package
   assert.ok(content.includes("id: 'ai_assistant'"))
   assert.ok(content.includes("from: '@open-mercato/ai-assistant'"))
@@ -242,7 +245,7 @@ test('applyStarterPreset: empty writes 12-module modules.ts and keeps example so
   }
 })
 
-test('applyStarterPreset: crm writes 19-module modules.ts and keeps example source present', () => {
+test('applyStarterPreset: crm writes 20-module modules.ts and keeps example source present', () => {
   const dir = makeTempDir()
   try {
     applyStarterPreset('crm', dir)
@@ -258,6 +261,7 @@ test('applyStarterPreset: crm writes 19-module modules.ts and keeps example sour
     assert.ok(content.includes("id: 'dashboards'"))
     assert.ok(content.includes("id: 'events'"))
     assert.ok(content.includes("id: 'communication_channels'"))
+    assert.ok(content.includes("id: 'progress'"))
     // ai_assistant must register so customers AI widgets work in the CRM preset
     // (regression coverage for issue #1849)
     assert.ok(content.includes("id: 'ai_assistant'"))

@@ -87,6 +87,9 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
         { id: 'dictionaries', from: CORE },
         { id: 'feature_toggles', from: CORE },
         { id: 'currencies', from: CORE },
+        // `communication_channels` declares `requires: ['progress']` (issue #6094);
+        // without this entry `yarn generate` hard-fails on every `crm` scaffold.
+        { id: 'progress', from: CORE },
         { id: 'communication_channels', from: CORE },
         { id: 'ai_assistant', from: AI_ASSISTANT },
       ],
