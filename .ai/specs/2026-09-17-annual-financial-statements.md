@@ -170,33 +170,52 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
    requires turnover to reconcile against the journal in full). But it
    means `closingBalance` — the figure the original draft bucketed for
    *both* statements — is definitionally `0` for every zespół 4-7 account
-   once `CLOSING` has run: that is what a closing entry does. Worked
-   example: revenue account posts a real `100` credit turnover for the
-   year; `CLOSING` posts a further `100` debit to zero it; `closingBalance`
-   is `0`. An expense account posts a real `60` debit turnover; `CLOSING`
-   posts a further `60` credit; `closingBalance` is `0`. A RZiS built from
-   `closingBalance` reports `0` revenue and `0` expense — passing the
+   once `CLOSING` has run: that is what a closing entry does, by posting
+   to the **contrary side** of the account's `normalBalance` for exactly
+   its accumulated amount. Worked example: a (credit-normal) revenue
+   account posts real turnover of `100` credit for the year (`ytdCredit
+   = 100`, `ytdDebit = 0`); `CLOSING` zeroes it by **debiting** it `100`
+   (`ytdDebit` becomes `100`); `closingBalance = ytdCredit − ytdDebit =
+   100 − 100 = 0`. A (debit-normal) expense account posts real turnover
+   of `60` debit (`ytdDebit = 60`); `CLOSING` zeroes it by **crediting**
+   it `60` (`ytdCredit` becomes `60`); `closingBalance = ytdDebit −
+   ytdCredit = 60 − 60 = 0`. A RZiS built from `closingBalance` reports
+   `0` revenue and `0` expense for both accounts — passing the
    variant-parity check trivially (`0 == 0`) while the real result was a
    `40` profit. **Fix:** Bilans (permanent accounts — assets, liabilities,
    equity — which `CLOSING` does not zero) keeps reading `closingBalance`,
    via `buildBalanceSheetData`. RZiS reads `ytdDebit`/`ytdCredit` for the
    fiscal year's last `FiscalPeriod`, then subtracts the specific `CLOSING`
-   `JournalEntry`'s own lines for that account (fetched by
-   `referenceType`/`id` — a single, cheap, one-entry read the command
-   already has to do for Design decisions #5's precondition, not a new
-   #6013 query capability) — `buildIncomeStatementData`. Continuing the
-   example: `ytdCredit` for the revenue account is `200` (`100` real +
-   `100` closing); subtracting the `CLOSING` entry's own `100` credit
-   leaves the real `100`. Symmetrically for the expense account's
-   `ytdDebit`. Net result `100 − 60 = 40`, correctly nonzero, and the
-   parity check between porównawczy/kalkulacyjny now validates something
-   real rather than two zeroes agreeing. This keeps #6013 completely
-   unmodified (its own turnover semantics stay correct for ZSiO) — the
-   correction lives entirely inside `financial_statements`/`financial_pl`,
-   which already read `JournalEntryLine` data cross-module (Architecture).
-   A loss-making year (revenue `60`, expense `100`, net `−40`) and a
+   `JournalEntry`'s own lines for that account, on whichever side they
+   landed — always the side *contrary* to the account's `normalBalance`,
+   never the normal side, since that is definitionally where a closing
+   entry posts (fetched by `referenceType`/`id` — a single, cheap,
+   one-entry read the command already has to do for Design decisions
+   #5's precondition, not a new #6013 query capability) —
+   `buildIncomeStatementData`. Continuing the example: the revenue
+   account's `ytdDebit` (`100`, entirely `CLOSING`'s contribution — a
+   credit-normal account is never legitimately debited by real revenue
+   postings) drops to `0`; `ytdCredit` (`100`, real) is untouched; net
+   `100 − 0 = 100`. Symmetrically, the expense account's `ytdCredit`
+   (`60`, entirely `CLOSING`'s contribution) drops to `0`; `ytdDebit`
+   (`60`, real) is untouched; net `60 − 0 = 60`. RZiS net result
+   `100 − 60 = 40`, correctly nonzero, and the parity check between
+   porównawczy/kalkulacyjny now validates something real rather than two
+   zeroes agreeing. This keeps #6013 completely unmodified (its own
+   turnover semantics stay correct for ZSiO) — the correction lives
+   entirely inside `financial_statements`/`financial_pl`, which already
+   read `JournalEntryLine` data cross-module (Architecture). A
+   loss-making year (revenue `60`, expense `100`, net `−40`) and a
    profitable year both need a test fixture exercising this subtraction
-   (Testing Strategy).
+   (Testing Strategy) — as does the reopen case (Design decisions #5),
+   where a superseded `CLOSING` entry and its `REVERSAL` are exact
+   mirror-image postings (Kieso, *Intermediate Accounting*, 17e,
+   Appendix 3B: *"A reversing entry is the exact opposite of the
+   adjusting entry made in the previous period"*) that net to zero in
+   the raw `ytdDebit`/`ytdCredit` sums regardless of which side each
+   lands on, leaving exactly the new `CLOSING` entry's own contribution
+   to subtract — proven algebraically and asserted as a test case in
+   Testing Strategy, not merely claimed.
 
 1. **`ReportLine.formula` (SPEC-024's own sketch) is corrected from an
    account-number-range string to a mapping-table reference.** SPEC-024
@@ -406,15 +425,38 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
    screen — not a second, independently-drifting representation of the
    numbers. Requires the same `financial_pl.statements.manage` scope as
    generation; no separate export permission for Phase 1.
-7. **`StatementLineMapping` rows carry an optimistic-lock `version`,
-   the same as every other multi-editor settings table in this
-   project.** (Added in maintainer review — the original draft's mapping
-   settings grid had no described conflict handling for two accountants
-   editing mappings concurrently.) `PUT /statement-line-mapping/:id`
-   requires the caller's last-read `version` and rejects with `409
-   MAPPING_VERSION_CONFLICT` (naming the current version) on mismatch,
-   the same pattern `PostingRulesSettings`/`TaxCodeAccountMapping` already
-   use for their own settings rows.
+7. **`StatementLineMapping` concurrent-edit protection uses this
+   project's canonical `updatedAt`-based optimistic lock — not a
+   bespoke `version` column.** (Added in maintainer review as a plain
+   `version` int with a `409 MAPPING_VERSION_CONFLICT` code; **corrected
+   in this compliance pass** — `financial-spec-citation-check` re-verified
+   the first pass's own "same pattern `PostingRulesSettings`/
+   `TaxCodeAccountMapping` already use" claim against the actual sources
+   and it did not hold: both entities are real —
+   `PostingRulesSettings` [`.ai/specs/2026-09-06-posting-rules-engine.md`]
+   and `TaxCodeAccountMapping`
+   [`tax_management`'s `2026-09-16-tax-management.md`] — but neither
+   carries a `version` field; both are `{ …, updatedAt }`. The claim was
+   a Mismatch on the mechanism (right precedent, wrong field), not a
+   fabricated entity — and both precedents actually strengthen the case
+   for the fix below.)
+   Root `AGENTS.md`'s "Always" section states this project's optimistic
+   locking is **default ON** via each entity's own `updated_at` column,
+   with `CrudForm` auto-deriving the conflict header from
+   `initialValues.updatedAt` and rendering `409`s through the framework's
+   own conflict bar (`surfaceRecordConflict`) — the same mechanism
+   `PostingRulesSettings` and `TaxCodeAccountMapping` both actually use.
+   `StatementLineMapping`
+   therefore gets no extra `version` column: its existing `updatedAt`
+   (Common columns convention, root `AGENTS.md`) is enough. This also
+   simplifies the route: editing one mapping row's `lineCode` has no
+   cross-row validation of its own (the antichain/coverage check only
+   applies at `generateAnnualStatements` time, Design decisions #2), so
+   there is no remaining reason for a bespoke command-backed route —
+   `GET`/`PUT /statement-line-mapping/:id` are `makeCrudRoute`'s stock
+   `list`/`update` handlers (`packages/core/AGENTS.md` → API Routes: "no
+   DIY substitutes" for what the CRUD factory already does), not a
+   hand-written `updateStatementLineMapping` command route.
 
 ## Architecture
 
@@ -459,9 +501,10 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
 ### `financial_pl` (Poland plugin, `official-modules`)
 
 - `data/entities.ts` — `StatementLineMapping` (tenant settings,
-  nullable/no-default, `version` optimistic lock, per Design decisions
-  #2/#7), `ClosingResolution` (per fiscal period **and** `closingEntryId`,
-  per Design decisions #4/#5b).
+  nullable/no-default, per Design decisions #2; concurrent-edit
+  protection via its own `updated_at` column, per Design decisions #7 —
+  no extra `version` field), `ClosingResolution` (per fiscal period
+  **and** `closingEntryId`, per Design decisions #4/#5b).
 - `lib/bilansTemplate.ts` / `lib/rzisTemplate.ts` — the fixed Załącznik
   nr 1 line structures (section codes/names/order/`sign`/`isTotal`, per
   Design decisions #1b), independent of any tenant's actual chart.
@@ -492,20 +535,36 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
   decisions #5b) — `409` if a resolution already exists for that specific
   `closingEntryId` (a genuinely new `CLOSING` entry, from a reopen, is a
   new key, not a conflict).
-- `commands/updateStatementLineMapping.ts` — input `{ id, ...fields,
-  version }` (Design decisions #7); `409
-  MAPPING_VERSION_CONFLICT` on stale `version`.
 - `api/statements/route.ts` — `GET` (list generated statements) and
-  `POST /generate` (invoke `generateAnnualStatements`), behind
-  `financial_pl.statements.manage`.
-- `api/statement-line-mapping/route.ts` — `GET` (list current mappings,
-  paginated, grouped by zespół for the settings UI) and `PUT /:id`
-  (invoke `updateStatementLineMapping`), behind
-  `financial_pl.statements.manage`.
+  `POST /generate` (invoke `generateAnnualStatements`) / `POST
+  /closing-resolution` (invoke `recordClosingResolution`). Both writes
+  are custom routes, not `makeCrudRoute` (each wraps cross-entity
+  validation — lock/antichain state, or the three-amount-sum check — not
+  plain field persistence), so per `packages/core/AGENTS.md` → API
+  Routes both **must** wire the mutation guard registry before running:
+  collect `getAllMutationGuardInstances()` (+ `bridgeLegacyGuard`), call
+  `runMutationGuards(...)` mapped to the closest registry operation
+  (`update` — both are state-changing actions on existing fiscal-period
+  state, not creation of a free-standing resource), and return
+  `guardResult.errorBody`/`errorStatus` when blocked. Metadata:
+  `requireAuth: true`, `requireFeatures:
+  ['financial_pl.statements.manage']`; both export `openApi`.
+- `api/statement-line-mapping/route.ts` — `GET` (list) / `PUT /:id`
+  (update `lineCode`) via `makeCrudRoute`'s stock `list`/`update`
+  handlers (Design decisions #7 — plain field persistence with no
+  cross-row validation of its own, so the CRUD factory applies directly
+  rather than a hand-written route; `indexer` omitted — these rows are
+  tenant settings, never surfaced through global/query-engine search,
+  same justification #6013 and Posting Rules Engine's own settings
+  entities use). `update` gets the CRUD factory's default-ON
+  `updatedAt`-based optimistic lock for free (Design decisions #7); list
+  results are grouped by zespół client-side for the settings UI. Same
+  metadata/`openApi` requirements as above.
 - `backend/financial-pl/statements/page.tsx` — read-only Bilans/RZiS
   view (rendered from the returned `ReportFormat`), a `StatementLineMapping`
-  admin page (surfacing `409` version conflicts as "someone else edited
-  this row, reload"), and the `ClosingResolution` entry form — export via
+  admin page (`CrudForm`'s stock conflict bar on a `409`, "someone else
+  edited this row, reload" — no bespoke conflict code), and the
+  `ClosingResolution` entry form — export via
   `lib/exportStatementAdapter.ts` (Design decisions #6) rather than
   #6038's raw audit exporter.
 
@@ -516,8 +575,9 @@ behind a format interface (`IFinancialStatementFormat`). Two modules:
 `{ id, tenantId, organizationId, accountId (FK LedgerAccount), side
 ('debit'|'credit'), statementCode ('bilans'|'rzis_porownawczy'|
 'rzis_kalkulacyjny'), lineCode (string, matches the target template's
-line codes), version (integer, optimistic lock, Design decisions #7),
-createdAt, updatedAt }`. Nullable/no-default: an account posted-to in a
+line codes), createdAt, updatedAt }`. `updatedAt` is this row's
+concurrent-edit protection (Design decisions #7 — the project's
+default-ON optimistic lock, not a bespoke `version` field). Nullable/no-default: an account posted-to in a
 period with no matching row, or covered by no ancestor's row, for the
 side it was posted on blocks `generateAnnualStatements` for that period
 (Design decisions #2) — validated as a complete, non-overlapping
@@ -544,6 +604,18 @@ duplicate.
 
 ## API Contracts
 
+(Canonical-mechanism note, added in this compliance pass —
+`packages/core/AGENTS.md` → API Routes: every route below exports
+`openApi`, every route's metadata is `requireAuth: true,
+requireFeatures: ['financial_pl.statements.manage']`. `generate` and
+`closing-resolution` are custom write routes wired through the
+mutation guard registry — Architecture, `api/statements/route.ts` —
+because each carries cross-entity validation `makeCrudRoute` doesn't
+express; `statement-line-mapping`'s `GET`/`PUT` are plain
+`makeCrudRoute` `list`/`update` handlers instead, since a single
+mapping row's `lineCode` edit needs no such validation, Design
+decisions #7.)
+
 ### `POST /api/financial-pl/statements/generate`
 
 - **Body**: `{ fiscalPeriodId: string }`.
@@ -553,7 +625,8 @@ duplicate.
   dated within it (Design decisions #5), or one or more posted-to
   accounts are not covered by a valid `StatementLineMapping` antichain
   for the side they were posted on (body names the missing/overlapping
-  account/side pairs, Design decisions #2).
+  account/side pairs, Design decisions #2), or the mutation guard
+  registry blocks the call (`guardResult.errorBody`/`errorStatus`).
 - **Response 422**: `netResultParity.matches` is `false` — generation
   still returns both variants (for debugging) but flags the mismatch
   rather than silently succeeding.
@@ -562,16 +635,21 @@ duplicate.
 ### `GET /api/financial-pl/statement-line-mapping`
 
 - **Query**: `page?`, `pageSize?` (mirrors #6013's `getTrialBalance`
-  pagination contract, Design decisions #2).
+  pagination contract, Design decisions #2, and `makeCrudRoute`'s own
+  stock list-query shape).
 - **Response 200**: `{ rows: StatementLineMapping[], page, pageSize, total, totalPages }`.
 - **Response 403**: caller lacks `financial_pl.statements.manage`.
 
 ### `PUT /api/financial-pl/statement-line-mapping/:id`
 
-- **Body**: `{ lineCode, version }` (Design decisions #7).
+- **Body**: `{ lineCode }`, plus the caller's optimistic-lock header
+  derived from the row's `updatedAt` (`CrudForm`'s stock behavior —
+  Design decisions #7, no `version` field in the body).
 - **Response 200**: the updated `StatementLineMapping`.
-- **Response 409 `MAPPING_VERSION_CONFLICT`**: `version` doesn't match
-  the current row (body names the current `version`).
+- **Response 409**: `updatedAt` doesn't match the current row —
+  `makeCrudRoute`'s standard optimistic-lock conflict body (current
+  record echoed back), surfaced by `surfaceRecordConflict`; no
+  bespoke `MAPPING_VERSION_CONFLICT` code.
 - **Response 403**: caller lacks `financial_pl.statements.manage`.
 
 ### `POST /api/financial-pl/statements/closing-resolution`
@@ -588,32 +666,67 @@ duplicate.
   `(fiscalPeriodId, closingEntryId)` pair (immutable once recorded for
   that specific closing revision — a correction after a reopen targets a
   new `closingEntryId` and is a new record, not an edit, consistent with
-  `TaxLiabilityRecord`'s own "posts once; a correction is a new record"
-  precedent, Design decisions #5b).
+  `TaxLiabilityRecord`'s own "a `TaxLiabilityRecord` posts once; a
+  correction is a new" record precedent
+  [`.worktrees/tax-management/.ai/specs/2026-09-16-tax-management.md`],
+  Design decisions #5b), or the mutation guard registry blocks the call
+  (`guardResult.errorBody`/`errorStatus`, Architecture →
+  `api/statements/route.ts`).
+
+## Internationalization (i18n)
+
+(Added — the original draft named no i18n keys at all, an om-spec-writing
+checklist §5 requirement.) `financial_pl`'s own UI strings (the
+statements page's labels, the mapping settings page's column headers,
+error banners, the `409`/`422` user-facing messages) go through this project's standard `useT()` (client)/
+`resolveTranslations()` (server) mechanism, keyed under a
+`financial_pl.statements.*` namespace — never hard-coded Polish/English
+strings in components. `bilansTemplate.ts`/`rzisTemplate.ts`'s actual
+statutory line *names* ("Aktywa trwałe," "Przychody netto ze sprzedaży,"
+etc.) are Poland-specific legal text, not translatable UI copy — they
+render as-is regardless of the viewer's locale, the same way a US GAAP
+line item wouldn't be translated for a Polish plugin (this mirrors Tax
+Management's own treatment of statutory Polish tax-form field names).
+Only the *chrome* around those fixed statutory lines (page titles,
+button labels, validation messages) is a translation key.
 
 ## UI/UX
 
+(Canonical-mechanism note, added in this compliance pass —
+`packages/ui/AGENTS.md`: "`<CrudForm>` for backend writes; `<DataTable>`
+for lists." Both surfaces below follow that split; every mutating call
+not made through `CrudForm` goes through `useGuardedMutation(...)
+.runMutation(...)` wrapping `apiCall()`, per root `AGENTS.md` → UI &
+HTTP, surfacing the route's `409`/`422`/`400` bodies as the inline
+banners/messages described here.)
+
 - `backend/financial-pl/statements/page.tsx` — a fiscal-period picker, a
-  "Generate" action (calls `/generate`), and, once generated, two
-  read-only report views (Bilans, RZiS — with a toggle between
-  porównawczy/kalkulacyjny) rendered from `ReportFormat`'s sections/lines
-  (subtotal/total lines rendered distinctly, per `isTotal`, Design
-  decisions #1b), plus "Export PDF"/"Export Excel" buttons wired to
-  `lib/exportStatementAdapter.ts` (Design decisions #6, not #6038's raw
-  audit exporter directly). A visible banner if `netResultParity.matches`
-  is `false`, and a separate banner if the current `CLOSING` entry has no
-  `ClosingResolution` yet (Design decisions #5b) versus one carried over
-  from a now-superseded closing revision.
-- `backend/financial-pl/statement-line-mapping/page.tsx` — a settings
-  table: one row per `(account, side, statement)`, editable, grouped by
-  zespół for discoverability (reusing the flat, sorted-by-code
-  presentation #6013 already established for its own trial-balance
-  table — no new tree/indentation UI), with each row's `version` held for
-  its `PUT` call and a "someone else edited this row, reload" message on
-  `409 MAPPING_VERSION_CONFLICT` (Design decisions #7). The table
-  visually flags any two mapped rows that violate the antichain
-  requirement (Design decisions #2) before the accountant even attempts
-  generation.
+  "Generate" action (`useGuardedMutation` wrapping `apiCall('/generate')`
+  — no list/detail entity of its own, so not a `CrudForm` case), and,
+  once generated, two read-only report views (Bilans, RZiS — with a
+  toggle between porównawczy/kalkulacyjny) rendered from `ReportFormat`'s
+  sections/lines (subtotal/total lines rendered distinctly, per
+  `isTotal`, Design decisions #1b), plus "Export PDF"/"Export Excel"
+  buttons wired to `lib/exportStatementAdapter.ts` (Design decisions #6,
+  not #6038's raw audit exporter directly). A visible banner if
+  `netResultParity.matches` is `false`, and a separate banner if the
+  current `CLOSING` entry has no `ClosingResolution` yet (Design
+  decisions #5b) versus one carried over from a now-superseded closing
+  revision. The `ClosingResolution` entry form embedded here (below) is
+  the page's one `CrudForm` usage.
+- `backend/financial-pl/statement-line-mapping/page.tsx` — a `DataTable`
+  listing one row per `(account, side, statement)`, grouped by zespół
+  for discoverability (reusing the flat, sorted-by-code presentation
+  #6013 already established for its own trial-balance `DataTable` — its
+  own Design Logic notes `DataTable` has no tree/indentation rendering
+  today, so neither this table nor #6013's attempts one). Each row's
+  edit action opens a `CrudForm` dialog for the single `lineCode` field;
+  `CrudForm` auto-derives its optimistic-lock header from the row's
+  `updatedAt` and renders the framework's own conflict bar — "someone
+  else edited this row, reload" — on a `409` (Design decisions #7; no
+  hand-written version-conflict UI). The table visually flags any two
+  mapped rows that violate the antichain requirement (Design decisions
+  #2) before the accountant even attempts generation.
 - Closing-resolution entry: a small form on the same statements page
   (three amount fields that must sum to the displayed net result, plus
   an optional attachment upload) rather than a separate page — it's a
@@ -652,8 +765,9 @@ duplicate.
   (Design decisions #5b) — the statements page flags the fiscal period
   as awaiting a fresh resolution until it is.
 - **Two accountants edit `StatementLineMapping` concurrently.** The
-  second `PUT` fails `409 MAPPING_VERSION_CONFLICT` (Design decisions
-  #7); the UI reloads the current row rather than overwriting it.
+  second `PUT` fails `makeCrudRoute`'s standard `updatedAt`-mismatch
+  `409` (Design decisions #7); `CrudForm`'s conflict bar reloads the
+  current row rather than overwriting it.
 - **Export requested for an unmapped/mid-correction period.** Rejected
   with the same 409 `generateAnnualStatements` would give — export never
   runs against a `ReportFormat` this document couldn't itself produce
@@ -693,12 +807,20 @@ duplicate.
   completeness, derived totals, reconciliation timing, `ClosingResolution`
   revisioning, export, and mapping-edit concurrency** — all caught by an
   automated specification review before implementation started (see the
-  banner note under TLDR and Changelog). Named here for the same reason
-  this project already records other caught-before-implementation
-  mistakes in Risks sections elsewhere (e.g., Tax Management's "two prior
-  false starts"): a mistake caught in review and fixed in the same
-  document is a process working correctly, not something to omit from
-  the record.
+  banner note under TLDR and Changelog). **The maintainer-review round's
+  own fix for mapping-edit concurrency then turned out to have a second,
+  self-caught problem**: it invented a DIY `version` column instead of
+  this project's canonical `updatedAt`-based optimistic lock, on a
+  citation that didn't actually check out under
+  `financial-spec-citation-check` — caught and corrected during this
+  document's own `om-spec-writing` Compliance Gate pass, not by a
+  further external review (Design decisions #7, Changelog "2026-09-21
+  (cont.)"). Named here for the same reason this project already records
+  other caught-before-implementation mistakes in Risks sections
+  elsewhere (e.g., Tax Management's "two prior false starts"): a mistake
+  caught in review — including a review catching its own prior review's
+  mistake — and fixed in the same document is a process working
+  correctly, not something to omit from the record.
 
 ## Alternatives considered
 
@@ -780,22 +902,23 @@ cross-module fallout.
    `lib/buildIncomeStatementData.ts`, `lib/computeDerivedTotals.ts`,
    `index.ts` (`requires: ['ledger']`).
 2. `financial_pl`: `data/entities.ts` + migration (`StatementLineMapping`
-   with `version`, `ClosingResolution` with `closingEntryId` and the
-   revised unique constraint).
+   — `updatedAt` is its only concurrency column, no `version` field —
+   `ClosingResolution` with `closingEntryId` and the revised unique
+   constraint).
 3. `financial_pl`: `lib/bilansTemplate.ts`, `lib/rzisTemplate.ts` (both
    variants, each line's `sign`/`isTotal` set) — the fixed Załącznik nr 1
    line structures.
 4. `financial_pl`: `commands/generateAnnualStatements.ts` (antichain
    validation, `posting_rules.lockFiscalPeriod`-gated precondition,
    `CLOSING`-entry lookup and subtraction for RZiS),
-   `commands/recordClosingResolution.ts`,
-   `commands/updateStatementLineMapping.ts` (optimistic lock).
+   `commands/recordClosingResolution.ts`.
 5. `financial_pl`: `lib/exportStatementAdapter.ts` (Design decisions #6).
 6. `financial_pl`: `acl.ts` (`financial_pl.statements.manage`),
-   `api/statements/route.ts`, `api/statement-line-mapping/route.ts`.
+   `api/statements/route.ts` (custom, mutation-guard-wired),
+   `api/statement-line-mapping/route.ts` (`makeCrudRoute` `list`/`update`).
 7. `financial_pl`: `backend/financial-pl/statements/page.tsx`,
-   `backend/financial-pl/statement-line-mapping/page.tsx` (version-conflict
-   handling, antichain-violation display).
+   `backend/financial-pl/statement-line-mapping/page.tsx` (`DataTable` +
+   `CrudForm` edit dialog, antichain-violation display).
 8. Testing Strategy (below) implemented and passing.
 9. Manual QA + `yarn generate` + typecheck + full walkthrough (mirrors
    every sibling spec's Phase-1 closing step).
@@ -829,16 +952,26 @@ cross-module fallout.
   `posting_rules.lockFiscalPeriod` time (Design decisions #5), with a
   second assertion that `generateAnnualStatements` itself still 422s if a
   parity mismatch somehow reaches it despite a locked period.
-- **Reopen/correction round-trip** (Design decisions #5/#5b):
-  `unlockFiscalPeriod` → `REVERSAL` + corrected postings →
-  `lockFiscalPeriod` → new `CLOSING` → regenerate → assert the new
-  `ClosingResolution` is a new row keyed to the new `closingEntryId`, and
-  the original row is untouched.
+- **Reopen/correction round-trip, RZiS-basis arithmetic** (Design
+  decisions #0/#5/#5b): revenue account real turnover `100`; original
+  `CLOSING` debits it `100`; `REVERSAL` of that `CLOSING` credits it
+  back `100`; a correction posts a further real `20` credit (corrected
+  real revenue now `120`); new `CLOSING` debits it `120`. Assert
+  `buildIncomeStatementData` against the *new* `closingEntryId` reports
+  `120`, not `100`, `220`, or `0` — proving the original `CLOSING` and
+  its `REVERSAL` cancel out of the raw `ytdDebit`/`ytdCredit` sums
+  (Kieso Appendix 3B) regardless of which side each landed on, leaving
+  only the new `CLOSING`'s own contribution to subtract.
+- **Reopen/correction round-trip, `ClosingResolution` revisioning**
+  (Design decisions #5/#5b): `unlockFiscalPeriod` → `REVERSAL` +
+  corrected postings → `lockFiscalPeriod` → new `CLOSING` → regenerate
+  → assert the new `ClosingResolution` is a new row keyed to the new
+  `closingEntryId`, and the original row is untouched.
 - **`ClosingResolution` sum validation** against the derived net-result
   total (not a hand-summed figure) — existing case, kept.
 - **Concurrent mapping edit**: two `PUT` calls against the same row's
-  stale `version`; assert the second gets `409
-  MAPPING_VERSION_CONFLICT` naming the current version.
+  stale `updatedAt`; assert the second gets `makeCrudRoute`'s standard
+  optimistic-lock `409` naming the current record.
 - **Export fidelity**: assert `exportStatementDocument`'s PDF/XLSX output
   reproduces the same section/line/subtotal amounts the API response
   shows, for both Bilans and each RZiS variant.
@@ -855,17 +988,16 @@ cross-module fallout.
 | `packages/modules/financial_statements/lib/buildIncomeStatementData.ts` | Create | Pre-closing-turnover → line-bucketed aggregation (RZiS) |
 | `packages/modules/financial_statements/lib/computeDerivedTotals.ts` | Create | Signed subtotal/net-result derivation |
 | `packages/modules/financial_statements/index.ts` | Create | Module manifest, `requires: ['ledger']` |
-| `financial_pl/data/entities.ts` | Modify | `StatementLineMapping` (+`version`), `ClosingResolution` (+`closingEntryId`) |
+| `financial_pl/data/entities.ts` | Modify | `StatementLineMapping` (`updatedAt` only), `ClosingResolution` (+`closingEntryId`) |
 | `financial_pl/lib/bilansTemplate.ts` / `rzisTemplate.ts` | Create | Załącznik nr 1 line templates (`sign`/`isTotal`) |
 | `financial_pl/lib/exportStatementAdapter.ts` | Create | Statement-compatible PDF/XLSX export |
-| `financial_pl/commands/generateAnnualStatements.ts` | Create | Generation + antichain validation + variant-parity check |
-| `financial_pl/commands/recordClosingResolution.ts` | Create | Uchwała-outcome input, keyed to `closingEntryId` |
-| `financial_pl/commands/updateStatementLineMapping.ts` | Create | Optimistic-lock mapping edit |
+| `financial_pl/commands/generateAnnualStatements.ts` | Create | Generation + antichain validation + variant-parity check; custom route, mutation-guard-wired |
+| `financial_pl/commands/recordClosingResolution.ts` | Create | Uchwała-outcome input, keyed to `closingEntryId`; custom route, mutation-guard-wired |
 | `financial_pl/acl.ts` | Modify | `financial_pl.statements.manage` |
-| `financial_pl/api/statements/route.ts` | Create | `POST /generate`, `POST /closing-resolution` |
-| `financial_pl/api/statement-line-mapping/route.ts` | Create | `GET` list, `PUT /:id` |
+| `financial_pl/api/statements/route.ts` | Create | `POST /generate`, `POST /closing-resolution` (custom, mutation-guard-wired, `openApi`) |
+| `financial_pl/api/statement-line-mapping/route.ts` | Create | `makeCrudRoute`: `GET` list, `PUT /:id` update (default-ON `updatedAt` lock, `openApi`) |
 | `financial_pl/backend/financial-pl/statements/page.tsx` | Create | Report view + export |
-| `financial_pl/backend/financial-pl/statement-line-mapping/page.tsx` | Create | Mapping settings UI, version-conflict handling |
+| `financial_pl/backend/financial-pl/statement-line-mapping/page.tsx` | Create | `DataTable` + `CrudForm` edit dialog |
 
 ## Literature & Prior Art
 
@@ -884,8 +1016,38 @@ reused for `ClosingResolution`), and the knowledge base's §2 conventions
 (control-account/subsidiary-ledger boundary — not directly implicated
 here but checked; "account numbers are illustrative, never literal").
 
+**Step 1 (maintainer-review round, 2026-09-21) — re-checked against
+Posting Rules Engine and GL Bulk Read Service at the exact commits the
+review cited.** `2026-09-06-posting-rules-engine.md` (commit `8d4c8c58e`)
+confirmed verbatim: `posting_rules.lockFiscalPeriod` "rejects when
+`findUnreclassifiedEntries` is non-empty, and... successfully delegates
+to `ledger.lockFiscalPeriod` when empty" — grounds Design decisions #5's
+reuse of that command as the generation precondition, in place of the
+original draft's bare `CLOSING`-entry check.
+`2026-09-10-general-ledger-bulk-read-service.md` (commit `e4be2d758`)
+confirmed verbatim: its export endpoint serializes rows "pulled from
+Phase 1's `iterateJournalEntries`/`iterateJournalEntryLines`/
+`listAccounts`/`listAccountGroups`" — confirms it has no `ReportFormat`
+awareness, grounding Design decisions #6's dedicated export adapter.
+`2026-09-09-general-ledger-account-balances.md` (commit `21e9717db`)
+re-confirmed verbatim (already cited above) for the closing-entry
+turnover-inclusion text underlying Design decisions #0, and its
+`TrialBalanceRowDto` rollup/100-row-pagination text underlying Design
+decisions #2's antichain-and-exhaustive-traversal requirement.
+
 **Step 2 — Literature grounding (Kieso, *Intermediate Accounting*, 17th
 Ed.).**
+- **Confirmed (maintainer-review round, 2026-09-21)** — Appendix 3B,
+  "Reversing Entries": *"A reversing entry is the exact opposite of the
+  adjusting entry made in the previous period."* Reused from the same
+  verified citation already grounding `2026-09-17-multi-currency.md`'s
+  own reversal design — not a fresh PDF search this round, since the
+  quote and page were already confirmed against the primary source in
+  this session. Grounds Design decisions #0's reopen-cycle proof: a
+  superseded `CLOSING` entry and its `REVERSAL` are, by this definition,
+  exact opposite postings, which is precisely why they net to zero in
+  `buildIncomeStatementData`'s raw `ytdDebit`/`ytdCredit` sums regardless
+  of which side of the account each one lands on.
 - **Confirmed** — Ch. 5, "Classification in the Balance Sheet" (pp.
   5-5–5-6, Illustration 5.1): the general classified format (Current
   assets / Long-term investments / PP&E / Intangibles / Other assets vs.
@@ -942,6 +1104,26 @@ Ed.).**
   by *absence* that ERPNext doesn't attempt a fine-grained statutory-
   line mapping at the framework level either; that's left to
   country-specific reporting configuration on top.
+- **ERPNext (maintainer-review round, 2026-09-21) — Period Closing
+  Voucher, direct confirmation of Design decisions #0's failure mode as
+  a real, recurring bug class, not a theoretical concern.** ERPNext's
+  own closing mechanism (`docs.frappe.io/erpnext/v12/user/manual/en/
+  accounts/period-closing-voucher`, verified 2026-09-21) is structurally
+  identical to this project's `CLOSING` entry: *"The entries reduce the
+  period's income and expense balances to zero and move the difference
+  to equity. They do not close receivable, payable, bank, stock, asset,
+  liability, or other Balance Sheet accounts."* — the same permanent-
+  vs-nominal-account split Design decisions #0 relies on. More directly:
+  a real, merged ERPNext bug fix, `frappe/erpnext` PR #44878, "fix: show
+  profit and loss after period closing" (merged 2024-12-24, backported
+  to two release branches), confirms that "the consolidated financial
+  statement failed to display profit and loss figures after a period
+  closing voucher was posted" — the identical failure mode caught in
+  this document's own maintainer review, independently arising in a
+  widely-deployed real system. ERPNext's own published documentation
+  does not detail its query-level fix, so this is confirmed as *the
+  same class of bug*, not a verified match on *mechanism* — recorded
+  as such rather than overclaiming a shared implementation.
 - **Odoo** (documentation, v19): Account Type fixes Balance-Sheet-vs-
   Profit&Loss-vs-Off-Balance-Sheet placement; the documentation
   explicitly ties correct Account Type configuration to the ability to
@@ -962,6 +1144,64 @@ Ed.).**
   style zespół 4/5 split exists in its account hierarchy), so it isn't a
   directly comparable precedent for the variant-parity requirement
   specifically.
+
+## Final Compliance Report — 2026-09-21
+
+(Added in this compliance pass — the maintainer-review round applied
+`spec-checklist.md` item-by-item and fixed what it found, but the
+`om-spec-writing` skill's own required Compliance Gate — this section —
+had not actually been run. Running it now surfaced one further, real
+gap beyond the seven review findings: Design decisions #7's
+optimistic-lock mechanism was a DIY `version` column where the project's
+own default-ON `updatedAt` mechanism already applied — see Design
+decisions #7 and the Compliance Matrix row below. Everything else in
+this report reflects the document as already revised.)
+
+### AGENTS.md Files Reviewed
+
+- `AGENTS.md` (root)
+- `packages/core/AGENTS.md`
+- `packages/ui/AGENTS.md`
+- `packages/cache/AGENTS.md`
+- `packages/events/AGENTS.md`
+
+### Compliance Matrix
+
+| Rule Source | Rule | Status | Notes |
+|---|---|---|---|
+| root AGENTS.md | No direct ORM relationships between modules | Compliant | `StatementLineMapping.accountId` and `ClosingResolution.{fiscalPeriodId,closingEntryId}` are FK-ids only (Data Model); `financial_statements` reads `ledger`/`posting_rules` in-process but never via ORM relations across module boundaries. |
+| root AGENTS.md | Filter by `organization_id` for tenant-scoped entities | Compliant | Both `financial_pl` entities carry `tenantId`/`organizationId`; `buildBalanceSheetData`/`buildIncomeStatementData` scope through #6013's own `getTrialBalance` scoping. |
+| root AGENTS.md → UI & HTTP | Non-`CrudForm` writes use `useGuardedMutation(...).runMutation(...)` | Compliant | UI/UX: the "Generate" action and closing-resolution submit are `useGuardedMutation` + `apiCall()`; the mapping edit is a `CrudForm` dialog instead (see next row). |
+| packages/core/AGENTS.md → API Routes | Every API route file exports `openApi`; custom (non-`makeCrudRoute`) write routes wire the mutation guard registry | Compliant | API Contracts header note + Architecture: `generate`/`closing-resolution` are custom, mutation-guard-wired; `statement-line-mapping` `GET`/`PUT` are `makeCrudRoute`. All four export `openApi`. |
+| packages/core/AGENTS.md → API Routes | Route metadata declares per-method `requireAuth`/`requireFeatures` | Compliant | All four routes: `requireAuth: true, requireFeatures: ['financial_pl.statements.manage']` (API Contracts header note). Phase 1 has a single manage-only ACL feature, no separate read-only viewer role — noted as a Phase 2 candidate, not a gap, since no read-only accountant role exists yet anywhere in this module family. |
+| packages/core/AGENTS.md → Encryption | PII/GDPR fields declared in `<module>/encryption.ts`, read via `findWithDecryption` | N/A | No PII/GDPR-relevant column in either entity — `StatementLineMapping` holds only account/line references, `ClosingResolution` only amounts and an attachment reference (a file pointer, not personal data). |
+| packages/ui/AGENTS.md | Backend forms use `<CrudForm>`; lists use `<DataTable>` with stable `entityId` | Compliant | UI/UX (corrected in this pass): the mapping settings page is a `DataTable`; its row edit and the closing-resolution entry are both `CrudForm`. The original draft described a hand-rolled editable table with no named component — fixed. |
+| packages/ui/src/backend/AGENTS.md | All HTTP goes through `apiCall`/`apiCallOrThrow`, never raw `fetch` | Compliant | UI/UX header note. |
+| root AGENTS.md (default-ON optimistic locking) | New user-editable entities/forms get `updated_at`-based optimistic locking, not a bespoke scheme | Compliant (corrected in this pass) | Design decisions #7 replaced a DIY `version` integer + custom `409 MAPPING_VERSION_CONFLICT` code with the framework's own `updatedAt`/`CrudForm`/`surfaceRecordConflict` mechanism, after re-verifying (and correcting) the citations that had justified the DIY version. |
+| packages/cache/AGENTS.md | Read-heavy endpoints declare a caching strategy; cache resolved via DI | N/A, justified | Annual statements are generated at most a few times per fiscal year per tenant (post-close), not a high-frequency read path; `buildBalanceSheetData`/`buildIncomeStatementData` already inherit whatever caching #6013's `getTrialBalance` itself defines (out of this document's scope to redefine). No new cache layer is introduced. |
+| packages/events/AGENTS.md | Cross-module side effects go through `createModuleEvents`, never direct imports | N/A, justified | `financial_statements`/`financial_pl` emit no event in Phase 1 — nothing outside this module needs to react to a generated statement or a recorded closing resolution; both modules only *consume* `ledger`'s and `posting_rules`' existing surface (one-way dependency direction, knowledge-base §2). Flagged as a Phase 2 candidate if a future filing/e-Sprawozdania submission module needs to react to generation. |
+| root AGENTS.md → Design System Rules | Semantic status tokens, DS text scale, shared primitives, no raw `<svg>` | N/A | This document contains no literal className/JSX snippets to audit — it describes components (`DataTable`, `CrudForm`, `Alert`-style banners) by name, not markup. Enforced at implementation time by the existing DS lint/tests, not by this spec. |
+| Spec-checklist §5 | i18n keys planned, never hard-coded strings | Compliant | Internationalization (i18n) section (added in this pass): `financial_pl.statements.*` namespace via `useT()`/`resolveTranslations()`; statutory line names are explicitly out of scope for translation (Poland-specific legal text), matching Tax Management's own precedent. |
+| Spec-checklist §5 | Pagination `pageSize <= 100` | Compliant | `GET /statement-line-mapping` mirrors #6013's own paginated `getTrialBalance` contract (Design decisions #2). |
+| Spec-checklist §5 | Migration/backward-compatibility strategy is explicit | Compliant | Migration & Backward Compatibility section (added in the maintainer-review pass). |
+
+### Internal Consistency Check
+
+| Check | Status | Notes |
+|---|---|---|
+| Data models match API contracts | Pass | `StatementLineMapping`'s `updatedAt`-only concurrency column matches the `PUT` contract's header-based lock (no `version` field anywhere after this pass); `ClosingResolution.closingEntryId` matches every route/command reference to it. |
+| API contracts match UI/UX section | Pass | The `DataTable`/`CrudForm` split in UI/UX now matches the `makeCrudRoute` vs. custom-route split in API Contracts/Architecture. |
+| Risks cover all write operations | Pass | Risks & Impact Review's transparency entry names all seven review findings plus this pass's optimistic-lock correction; Edge Cases covers each write path's failure mode (antichain violation, variant mismatch, unlocked period, stale resolution, concurrent mapping edit, export rejection). |
+| Commands defined for all mutations | Pass | `generateAnnualStatements`, `recordClosingResolution` are commands behind mutation-guard-wired routes; the mapping edit is a plain `makeCrudRoute` update with no cross-row validation of its own, so no separate command file is needed for it (Design decisions #7). |
+| Cache strategy covers all read APIs | Pass (N/A, justified) | See Compliance Matrix — no new cache layer; inherits #6013's. |
+
+### Non-Compliant Items
+
+None outstanding. (One was found and fixed during this report's own preparation — Design decisions #7's DIY `version` column — rather than left for a future round.)
+
+### Verdict
+
+**Fully compliant** — approved for the re-review requested on PR #6188, pending a maintainer's second look.
 
 ## Changelog
 
@@ -1045,3 +1285,78 @@ alone) before being addressed here:
 No scope change: still base-currency-only, still no report builder/
 scheduler/Cash-Flow-Statement, still a single-plugin Core/plugin split.
 Re-requesting review against this revision.
+
+### 2026-09-21 (cont. — `om-spec-writing` compliance pass)
+
+The maintainer-review round above fixed all seven reported findings
+with verified citations, but had not actually run the `om-spec-writing`
+skill's own process end to end — it approximated the skill's structure
+from summary rather than reading `.agents/skills/om-spec-writing/`
+itself. Re-run properly this round, in order:
+
+- **Step "Review" — scope-cohesion check.** Checklist item 1 delegated
+  to a fresh-context subagent given only this spec file (`spec-checklist.md`'s
+  required procedure: "run this item in a fresh-context subagent given
+  only the spec file"). **Verdict: NO SPLIT** — the spec covers one
+  independently deployable capability (Annual Financial Statements,
+  Core `financial_statements` + `financial_pl` plugin), with the
+  Core/plugin boundary being a single, already-established integration
+  seam (the same split SPEC-024 and #6013 already use), not a bundle of
+  unrelated capabilities.
+- **Internationalization (i18n).** The original draft named no i18n
+  keys at all — an outright checklist §5 gap, not a refinement. Added
+  the Internationalization (i18n) section.
+- **Fresh literature/real-system grounding for the two brand-new design
+  decisions.** Re-verified the Kieso Appendix 3B reversing-entry
+  citation (reused, already confirmed for the Multi-Currency spec) and
+  added a new, independently found real-system precedent: ERPNext's
+  merged bug-fix PR `frappe/erpnext#44878` ("fix: show profit and loss
+  after period closing," 2024-12-24), confirming the RZiS-basis-vs-
+  closing-balance bug (Design decisions #0) is a known, recurring class
+  of bug in comparable systems, not a false positive invented for this
+  review.
+- **Self-caught arithmetic error.** Re-deriving Design decisions #0's
+  worked example while writing the fresh literature citation surfaced a
+  debit/credit side error in the maintainer-review round's own numbers
+  (a revenue account's `CLOSING` debit had been added to `ytdCredit`
+  instead of subtracted from `ytdDebit`, and the mirror error for
+  expense accounts). Corrected the worked example and the "Reopen/
+  correction round-trip" test case (split into an arithmetic-focused
+  case and a `ClosingResolution`-revisioning case), and added an
+  explicit algebraic proof, grounded in the same Kieso citation, that a
+  `CLOSING` entry and its `REVERSAL` cancel in the raw turnover sums
+  regardless of which side each lands on — so the reopen case is
+  unaffected by which side the original error picked.
+- **Citation re-verification under challenge (`financial-spec-citation-check`).**
+  Re-checked this round's own new citations against source rather than
+  accepting them: Design decisions #7's "same pattern
+  `PostingRulesSettings`/`TaxCodeAccountMapping` already use" claim
+  turned out to be a Mismatch — both entities are real, but both use
+  `updatedAt`, not a `version` field, exactly like this project's
+  default-ON optimistic-lock mechanism (root `AGENTS.md`). Corrected
+  Design decisions #7, Data Model, API Contracts, UI/UX, Edge Cases,
+  Testing Strategy, and the File Manifest to drop the DIY `version`
+  column entirely and use the canonical mechanism, which also let
+  `GET`/`PUT /statement-line-mapping/:id` move from a bespoke command
+  route to plain `makeCrudRoute` `list`/`update` handlers.
+- **Canonical mechanisms named explicitly.** The spec previously
+  described routes/forms/tables in prose without naming this project's
+  actual framework primitives — a checklist §5 gap ("no DIY
+  substitutes"). Added: `openApi` exports and `requireAuth`/
+  `requireFeatures` metadata for all four routes; mutation-guard-registry
+  wiring for the two custom (non-`makeCrudRoute`) write routes;
+  `DataTable`/`CrudForm` naming in UI/UX; `useGuardedMutation`/`apiCall`
+  for non-`CrudForm` writes.
+- **Final Compliance Report.** Added (see above), including the one
+  further gap the report's own preparation surfaced (the `version`
+  column, above) — fixed here rather than reported and left open.
+
+### Review — 2026-09-21
+
+- **Reviewer**: Agent (`om-spec-writing` skill, this compliance pass)
+- **Security**: Passed — no PII/GDPR fields introduced; `organization_id`/`tenantId` scoping explicit throughout Data Model; ACL (`financial_pl.statements.manage`) declared on every route.
+- **Performance**: Passed — no new N+1 pattern; `buildBalanceSheetData`/`buildIncomeStatementData` paginate through #6013's existing `getTrialBalance` contract rather than a new query shape.
+- **Cache**: Passed (N/A, justified) — no new cache layer; a low-frequency (per-fiscal-year) generation flow inherits whatever caching #6013 itself defines.
+- **Commands**: Passed — `generateAnnualStatements`/`recordClosingResolution` are commands behind mutation-guard-wired custom routes; the mapping edit needs no command of its own (plain `makeCrudRoute` field update, Design decisions #7).
+- **Risks**: Passed — Risks & Impact Review's transparency entry covers all seven review findings plus this pass's optimistic-lock correction; no residual risk left undocumented.
+- **Verdict**: Approved — re-requesting review against this revision.
