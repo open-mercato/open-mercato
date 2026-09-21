@@ -39,6 +39,10 @@ No command, flag, or output line changes — the `🚀 Running …`, `⏱️ Don
 | `mercato sync_akeneo …` | `1` for a missing Akeneo env preset, or any error while applying it |
 | `mercato ai_assistant mcp:ensure-api-key` | `1` when required arguments are missing |
 | `mercato ai_assistant test-tools` | `1` when the tool test report contains at least one failure |
+| `mercato tillio configure-from-env` | `1` for missing `--tenantId`/`--organizationId`, a blocked provisioning result, or any error while applying the env preset |
+| `mercato seeds encrypt` / `decrypt` / `load` | `1` for missing `--in`/`--out`, or a scope that cannot be resolved for `load` |
+| `mercato agent_orchestrator eval` | `2` for missing required arguments or an invalid `--repeat`; `1` or `2` when `--gate` is set and the gate cannot run or fails |
+| `mercato agent_orchestrator token-usage` | `2` for missing `--dir`/`--agent`, an unknown agent id, a directory with no `AGENT.md`, or a manifest with no baked token usage |
 
 Concretely: `mercato auth setup --orgSlug 'Bad Slug!'` printed a validation error and exited `0` before; it now exits `2`.
 
