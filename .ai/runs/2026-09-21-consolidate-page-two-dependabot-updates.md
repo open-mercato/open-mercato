@@ -45,7 +45,7 @@ PR: #6304
 ### Phase 1: Consolidate dependency updates
 
 - [x] 1.1 Re-resolve the seven requested dependency versions from the current `develop` manifests and lockfile. — 1f55f84b5e
-- [ ] 1.2 Add focused sanitizer regression coverage and run the affected package tests.
+- [x] 1.2 Add focused sanitizer regression coverage and run the affected package tests. — 645b64a8c6
 
 ### Phase 2: Verify and supersede
 
