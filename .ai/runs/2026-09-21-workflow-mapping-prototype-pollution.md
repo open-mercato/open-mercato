@@ -45,7 +45,7 @@ Prevent workflow-authored input and output mappings from reaching inherited obje
 
 ### Phase 1: Runtime containment
 
-- [ ] 1.1 Add the safe mapping-path helper and route every reported write sink through it
+- [x] 1.1 Add the safe mapping-path helper and route every reported write sink through it — 1dcfffc3f1
 
 ### Phase 2: Authoring validation and regression coverage
 
