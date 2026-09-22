@@ -111,7 +111,7 @@ export default async function BackendLayout({
   // Resolved per request (this layout is force-dynamic), so browser RUM can be
   // toggled per environment without a rebuild. Null keeps the SDK chunk from
   // ever being requested.
-  const browserTelemetryConfig = resolveBrowserTelemetryConfig()
+  const browserTelemetryConfig = resolveBrowserTelemetryConfig({ cookieHeader: cookieStore.toString() })
 
   return (
     <I18nProvider locale={locale} dict={dict} localeLocked={resolveForcedLocale(process.env) !== null} supportedLocales={supportedLocales}>

@@ -50,7 +50,7 @@ function stripTelemetry(src: string): string {
 /** Turn the live wired template layout back into one from before browser RUM shipped. */
 function stripBrowserTelemetry(src: string): string {
   return src
-    .replace(/\n[ \t]*\/\/ Resolved per request[\s\S]*?const browserTelemetryConfig = resolveBrowserTelemetryConfig\(\)\n/, '\n')
+    .replace(/\n[ \t]*\/\/ Resolved per request[\s\S]*?const browserTelemetryConfig = resolveBrowserTelemetryConfig\(.*\)\n/, '\n')
     .split('\n')
     .filter(
       (line) =>
@@ -366,7 +366,11 @@ describe('mercato telemetry init', () => {
       expect(layout).toContain("import { BrowserTelemetry } from '@open-mercato/telemetry/browser'")
       // The credential-reading half stays on the server entry.
       expect(layout).toContain("import { resolveBrowserTelemetryConfig } from '@open-mercato/telemetry/browser/server'")
-      expect(layout).toContain('const browserTelemetryConfig = resolveBrowserTelemetryConfig()')
+      // The scaffold layout already awaits cookies(), so the patcher reuses that binding — the
+      // header is read only by the integration-test opt-in, never in production.
+      expect(layout).toContain(
+        'const browserTelemetryConfig = resolveBrowserTelemetryConfig({ cookieHeader: cookieStore.toString() })',
+      )
       expect(layout).toContain('<BrowserTelemetry config={browserTelemetryConfig} />')
       // Resolved before it is used, and rendered inside the shell.
       expect(layout.indexOf('const browserTelemetryConfig')).toBeLessThan(layout.indexOf('<BrowserTelemetry'))
@@ -383,12 +387,30 @@ describe('mercato telemetry init', () => {
       for (const line of [
         "import { BrowserTelemetry } from '@open-mercato/telemetry/browser'",
         "import { resolveBrowserTelemetryConfig } from '@open-mercato/telemetry/browser/server'",
-        'const browserTelemetryConfig = resolveBrowserTelemetryConfig()',
+        'const browserTelemetryConfig = resolveBrowserTelemetryConfig({ cookieHeader: cookieStore.toString() })',
         '<BrowserTelemetry config={browserTelemetryConfig} />',
       ]) {
         expect(wired).toContain(line)
         expect(patched).toContain(line)
       }
+    })
+
+    it('falls back to the argument-free call when the layout no longer awaits cookies()', async () => {
+      legacyFixture()
+      const layoutPath = path.join(tmpDir, LAYOUT_FILE)
+      // An app that customized the layout away from the scaffold's `cookies()` binding must still
+      // get something that compiles; the cookie is only ever read by the integration-test opt-in.
+      fs.writeFileSync(
+        layoutPath,
+        fs.readFileSync(layoutPath, 'utf8').replace(/const\s+cookieStore\s*=\s*await\s+cookies\(\)/, 'const cookieStore = null'),
+      )
+
+      await runTelemetryInit([])
+
+      const layout = read(LAYOUT_FILE)
+      assertParses(layout, 'no-cookies-layout', '.tsx')
+      expect(layout).toContain('const browserTelemetryConfig = resolveBrowserTelemetryConfig()')
+      expect(layout).toContain('<BrowserTelemetry config={browserTelemetryConfig} />')
     })
 
     it('is idempotent across the RUM steps too', async () => {

@@ -78,13 +78,17 @@ const ENV_CORE_BLOCK = `
  */
 const ENV_BROWSER_BLOCK = `
 # --- Browser RUM (client-side telemetry) ---
-# Document-load, fetch, and user-interaction spans exported from the backoffice
-# through a same-origin proxy (/api/telemetry/browser-traces) that adds the
-# collector credential server-side. Off by default; requires an active
+# Document-load and fetch spans exported from the backoffice through a
+# same-origin proxy (/api/telemetry/browser-traces) that adds the collector
+# credential server-side. Off by default; requires an active
 # TELEMETRY_BACKEND + OTLP endpoint above.
 # Read at request time (not NEXT_PUBLIC_*), so toggling needs no rebuild.
 # Browser spans join their server spans only when TELEMETRY_TRUST_INBOUND_TRACE=true
 # above; without it RUM still works, but each page yields two separate traces.
+# Ingest budget: each open tab exports at most 20 batches/min (a 3s batch delay),
+# and the proxy allows 400/min per authenticated user — roughly 20 concurrent tabs.
+# Over that, batches are dropped with 204 rather than a retryable status, so the
+# only symptom is missing spans for that one user, never a client retry storm.
 # TELEMETRY_BROWSER_ENABLED=false
 # TELEMETRY_BROWSER_SAMPLING_RATIO=1.0  # 0.0-1.0 (default 1.0)
 # TELEMETRY_BROWSER_SERVICE_NAME=       # default: <OTEL_SERVICE_NAME>-browser
@@ -240,10 +244,24 @@ const LAYOUT_SNIPPET = `  // add near the other imports:
   import { resolveBrowserTelemetryConfig } from '@open-mercato/telemetry/browser/server'
 
   // in the component body, before the returned JSX:
-  const browserTelemetryConfig = resolveBrowserTelemetryConfig()
+  // pass the request's Cookie header when the layout already reads cookies
+  // (only consulted by the integration-test opt-in; production is env-only):
+  const browserTelemetryConfig = resolveBrowserTelemetryConfig({ cookieHeader: cookieStore.toString() })
 
   // as the last child of <AppShell>:
   <BrowserTelemetry config={browserTelemetryConfig} />`
+
+/**
+ * The config resolver takes the request's `Cookie` header so an integration spec can opt one page
+ * into browser RUM; production resolution is env-only and never reads it. A scaffolded layout
+ * already awaits `cookies()`, so reuse that binding — but an app that removed it must still get a
+ * layout that compiles, hence the argument-free fallback. Both forms behave identically outside an
+ * `OM_TEST_MODE` environment.
+ */
+function resolveArgument(layout: string): string {
+  const binding = layout.match(/const\s+(\w+)\s*=\s*await\s+cookies\(\)/)
+  return binding ? `{ cookieHeader: ${binding[1]}.toString() }` : ''
+}
 
 /**
  * Render the client bootstrap in the backoffice shell. The config is resolved
@@ -287,7 +305,7 @@ function patchBackendLayout(appDir: string, options: TelemetryInitOptions): Step
     `${returnIndent}// Resolved per request (this layout is force-dynamic), so browser RUM can be\n` +
     `${returnIndent}// toggled per environment without a rebuild. Null keeps the SDK chunk from\n` +
     `${returnIndent}// ever being requested.\n` +
-    `${returnIndent}const browserTelemetryConfig = resolveBrowserTelemetryConfig()\n\n` +
+    `${returnIndent}const browserTelemetryConfig = resolveBrowserTelemetryConfig(${resolveArgument(content)})\n\n` +
     next.slice(returnMatch.index)
 
   const importInsertAt = (lastImport.index ?? 0) + lastImport[0].length

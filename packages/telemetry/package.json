@@ -59,7 +59,6 @@
     "@opentelemetry/instrumentation-fetch": "^0.220.0",
     "@opentelemetry/instrumentation-pg": "^0.71.0",
     "@opentelemetry/instrumentation-undici": "^0.29.0",
-    "@opentelemetry/instrumentation-user-interaction": "^0.64.0",
     "@opentelemetry/resources": "^2.9.0",
     "@opentelemetry/sdk-logs": "^0.220.0",
     "@opentelemetry/sdk-metrics": "^2.9.0",

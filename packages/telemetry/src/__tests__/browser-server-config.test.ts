@@ -5,6 +5,7 @@ import {
 } from '@open-mercato/shared/lib/logger'
 import { BROWSER_TRACES_PATH } from '../browser/config'
 import {
+  BROWSER_TELEMETRY_TEST_COOKIE,
   resetBrowserTelemetryWarnings,
   resolveBrowserTelemetryConfig,
   resolveCollectorHeaders,
@@ -25,6 +26,8 @@ const TELEMETRY_ENV_KEYS = [
   'OTEL_EXPORTER_OTLP_HEADERS',
   'OTEL_SERVICE_NAME',
   'OTEL_RESOURCE_ATTRIBUTES',
+  'OM_TEST_MODE',
+  'OM_TEST_BROWSER_TELEMETRY_MODE',
 ] as const
 
 describe('browser telemetry config', () => {
@@ -193,6 +196,52 @@ describe('browser telemetry config', () => {
 
     it('returns null when nothing is configured', () => {
       expect(resolveCollectorTracesUrl()).toBeNull()
+    })
+  })
+
+  describe('integration-test cookie opt-in', () => {
+    const ON = `${BROWSER_TELEMETRY_TEST_COOKIE}=on`
+
+    function armTestMode(): void {
+      process.env.OM_TEST_MODE = '1'
+      process.env.OM_TEST_BROWSER_TELEMETRY_MODE = 'opt-in'
+    }
+
+    it('boots RUM for a request carrying the cookie, with no telemetry env set at all', () => {
+      armTestMode()
+
+      // The point of the escape hatch: a Playwright spec can cover the enabled path for its own
+      // page without turning the web SDK on for every other spec in the environment.
+      expect(resolveBrowserTelemetryConfig({ cookieHeader: `foo=1; ${ON}; bar=2` })).toEqual({
+        endpoint: BROWSER_TRACES_PATH,
+        serviceName: 'open-mercato-browser',
+        environment: null,
+        samplingRatio: 1,
+      })
+    })
+
+    it('ignores the cookie in production, where neither test-mode variable is set', () => {
+      expect(resolveBrowserTelemetryConfig({ cookieHeader: ON })).toBeNull()
+    })
+
+    it('ignores the cookie when OM_TEST_MODE is set but the feature was not explicitly opted in', () => {
+      process.env.OM_TEST_MODE = '1'
+
+      // Two gates, not one: OM_TEST_MODE is on across the whole integration environment.
+      expect(resolveBrowserTelemetryConfig({ cookieHeader: ON })).toBeNull()
+    })
+
+    it('ignores a request without the cookie even with both gates armed', () => {
+      armTestMode()
+
+      expect(resolveBrowserTelemetryConfig({ cookieHeader: 'session=abc' })).toBeNull()
+      expect(resolveBrowserTelemetryConfig()).toBeNull()
+    })
+
+    it('does not match a cookie whose name merely ends with the opt-in name', () => {
+      armTestMode()
+
+      expect(resolveBrowserTelemetryConfig({ cookieHeader: `not_${BROWSER_TELEMETRY_TEST_COOKIE}=on` })).toBeNull()
     })
   })
 

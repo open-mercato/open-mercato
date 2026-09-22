@@ -73,12 +73,54 @@ export function resetBrowserTelemetryWarnings(): void {
 }
 
 /**
+ * Cookie an integration spec sets to boot RUM for its own page only. See
+ * `resolveTestOptIn` for why a per-request switch is the only way to cover the
+ * enabled path.
+ */
+export const BROWSER_TELEMETRY_TEST_COOKIE = 'om_test_browser_telemetry'
+
+/**
+ * Browser RUM is an environment-wide switch read from `process.env`, so a Playwright spec cannot
+ * turn it on for one page — and turning it on for the whole integration environment would boot the
+ * web SDK on every page of every other spec. This is the same targeted escape hatch the auth and
+ * AI-chat rate limiters use (`OM_TEST_MODE=1` plus a second, explicit `*_MODE=opt-in` variable):
+ * both are absent in production, and only then is the request's cookie consulted at all.
+ *
+ * The synthetic config it returns is deliberately self-contained — no `TELEMETRY_BACKEND`, no
+ * collector endpoint — so enabling it costs the integration environment nothing but the one page
+ * that asked for it. With no collector configured the proxy answers `204`, which is exactly the
+ * accept-and-drop contract the route documents, and the spec asserts on the batch the browser
+ * posted rather than on anything the collector received.
+ */
+function resolveTestOptIn(cookieHeader: string | null | undefined): BrowserTelemetryConfig | null {
+  if (process.env.OM_TEST_MODE !== '1') return null
+  if (process.env.OM_TEST_BROWSER_TELEMETRY_MODE !== 'opt-in') return null
+  if (!cookieHeader) return null
+  const pattern = new RegExp(`(?:^|;)\\s*${BROWSER_TELEMETRY_TEST_COOKIE}=on(?:;|$)`)
+  if (!pattern.test(cookieHeader)) return null
+  return {
+    endpoint: BROWSER_TRACES_PATH,
+    serviceName: `${process.env.OTEL_SERVICE_NAME?.trim() || 'open-mercato'}-browser`,
+    environment: readDeploymentEnvironment(process.env.OTEL_RESOURCE_ATTRIBUTES),
+    samplingRatio: 1,
+  }
+}
+
+/**
  * Returns `null` when browser telemetry is off — which is the default
  * everywhere, including local. Requires an active server telemetry backend
  * *and* an explicit opt-in: RUM without a reachable collector is pure overhead
  * in the client bundle.
+ *
+ * `options.cookieHeader` is the request's raw `Cookie` header, and is read only by the
+ * integration-test opt-in above; production resolution is env-only and never consults it.
  */
-export function resolveBrowserTelemetryConfig(): BrowserTelemetryConfig | null {
+export function resolveBrowserTelemetryConfig(
+  options: { cookieHeader?: string | null } = {},
+): BrowserTelemetryConfig | null {
+  const testOptIn = resolveTestOptIn(options.cookieHeader)
+  if (testOptIn) return testOptIn
+
   if (!parseBooleanWithDefault(process.env.TELEMETRY_BROWSER_ENABLED, false)) return null
   if (!isTelemetryBackendEnabled()) return null
   if (!resolveCollectorTracesUrl()) return null

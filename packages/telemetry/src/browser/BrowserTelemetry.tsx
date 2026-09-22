@@ -48,7 +48,6 @@ async function startBrowserTelemetry(config: BrowserTelemetryConfig): Promise<vo
     { registerInstrumentations },
     { DocumentLoadInstrumentation },
     { FetchInstrumentation },
-    { UserInteractionInstrumentation },
     { W3CTraceContextPropagator },
     { defaultTextMapSetter },
   ] = await Promise.all([
@@ -59,7 +58,6 @@ async function startBrowserTelemetry(config: BrowserTelemetryConfig): Promise<vo
     import('@opentelemetry/instrumentation'),
     import('@opentelemetry/instrumentation-document-load'),
     import('@opentelemetry/instrumentation-fetch'),
-    import('@opentelemetry/instrumentation-user-interaction'),
     import('@opentelemetry/core'),
     import('@opentelemetry/api'),
   ])
@@ -134,8 +132,15 @@ async function startBrowserTelemetry(config: BrowserTelemetryConfig): Promise<vo
           ignoreUrls: [new RegExp(escapeRegExp(config.endpoint))],
           clearTimingResources: true,
         }),
-        // Ties a fetch to the click that caused it (tab click vs. remount).
-        new UserInteractionInstrumentation(),
+        // No `UserInteractionInstrumentation` here, deliberately. It works by patching
+        // `addEventListener` when `enable()` runs, but React attaches a SINGLE delegated `click`
+        // listener to the root container during `createRoot`/hydration — and this SDK boots from
+        // `useEffect`, which React runs strictly after hydration. The patch would land after the
+        // only listener that will ever see a backoffice click, so it produces no spans at all
+        // (confirmed in manual QA). Booting early enough to beat hydration would mean putting the
+        // SDK back on the critical path, which is the one thing this file refuses to do. An
+        // instrumentation that silently produces nothing is worse than an absent one: an empty
+        // interaction view reads as "nobody clicks" rather than "this is broken".
       ],
     })
   } finally {
@@ -150,9 +155,21 @@ async function startBrowserTelemetry(config: BrowserTelemetryConfig): Promise<vo
 
   // BatchSpanProcessor would otherwise drop whatever is still queued when the user navigates away
   // — which is exactly when a slow page gets abandoned, i.e. the spans we most want.
+  //
+  // `forceFlush` exports through the OTLP fetch transport, which sets `keepalive: true` on the
+  // request whenever the payload and the number of in-flight requests are within the browser's
+  // limits — so the batch survives the page going away. That is the durable path here;
+  // `sendBeacon` would be the other candidate, but upstream deprecated its export delegate in
+  // favour of the fetch one, so reaching for it would trade a supported API for a doomed one.
+  //
+  // Both events, because neither alone covers every exit: `visibilitychange` misses some bfcache
+  // entries, and `pagehide` does not fire when a tab is merely backgrounded. A second flush with
+  // an empty queue is a no-op, so the overlap costs nothing.
+  const flush = () => void provider.forceFlush().catch(() => {})
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') void provider.forceFlush().catch(() => {})
+    if (document.visibilityState === 'hidden') flush()
   })
+  window.addEventListener('pagehide', flush)
 }
 
 function escapeRegExp(value: string): string {

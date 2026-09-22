@@ -106,8 +106,15 @@ jest.mock('@opentelemetry/instrumentation-fetch', () =>
   }),
 )
 
-jest.mock('@opentelemetry/instrumentation-user-interaction', () =>
-  record('@opentelemetry/instrumentation-user-interaction', { UserInteractionInstrumentation: class {} }),
+/**
+ * Nothing imports this any more — the mock stays so that a re-introduction shows up in
+ * `mockLoadedModules` (and is caught by the regression test below) instead of failing as a missing
+ * dependency with the reason lost. `virtual` because the package is no longer installed.
+ */
+jest.mock(
+  '@opentelemetry/instrumentation-user-interaction',
+  () => record('@opentelemetry/instrumentation-user-interaction', { UserInteractionInstrumentation: class {} }),
+  { virtual: true },
 )
 
 jest.mock('@opentelemetry/core', () =>
@@ -200,6 +207,18 @@ describe('BrowserTelemetry', () => {
     expect(ignoreUrls.some((pattern) => pattern.test('http://localhost/api/customers'))).toBe(false)
   })
 
+  it('never loads the user-interaction instrumentation — it cannot see a React click and would emit nothing', async () => {
+    await renderAndSettle(<BrowserTelemetry config={CONFIG} />)
+
+    // React attaches its single delegated `click` listener to the root during hydration, which is
+    // strictly before this SDK boots from `useEffect`. The instrumentation patches
+    // `addEventListener` on `enable()`, so it would land too late to ever see a backoffice click
+    // and would ship an interaction view that reads "nobody clicks" instead of "this is broken".
+    expect(mockLoadedModules).not.toContain('@opentelemetry/instrumentation-user-interaction')
+    const registered = mockRegisterInstrumentations.mock.calls[0][0] as { instrumentations: unknown[] }
+    expect(registered.instrumentations).toHaveLength(2)
+  })
+
   it('carries the resolved service identity onto the resource', async () => {
     await renderAndSettle(<BrowserTelemetry config={CONFIG} />)
 
@@ -285,6 +304,14 @@ describe('BrowserTelemetry', () => {
 
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
     document.dispatchEvent(new Event('visibilitychange'))
+    expect(forceFlush).toHaveBeenCalledTimes(1)
+  })
+
+  it('also flushes on pagehide, which is the exit visibilitychange can miss', async () => {
+    await renderAndSettle(<BrowserTelemetry config={CONFIG} />)
+    const { forceFlush } = mockProviderInstances[0]
+
+    window.dispatchEvent(new Event('pagehide'))
     expect(forceFlush).toHaveBeenCalledTimes(1)
   })
 

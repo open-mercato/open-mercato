@@ -84,7 +84,15 @@ Server traces can only prove where the time *isn't*: a page can render an API
 answer in 50 ms yet leave the user waiting seconds on bundle download,
 hydration, or a click handler — all invisible to server spans. The
 `@open-mercato/telemetry/browser` entry closes that gap with the OpenTelemetry
-web SDK: document-load, fetch, and user-interaction spans from the backoffice.
+web SDK: document-load and fetch spans from the backoffice.
+
+Interaction spans are deliberately **not** collected. The upstream
+`UserInteractionInstrumentation` patches `addEventListener` when it starts, but
+React attaches a single delegated `click` listener to the root container during
+hydration — before this SDK boots from `useEffect` — so the patch would never see
+a backoffice click. Booting earlier would put the SDK back on the critical path,
+which defeats the point; an instrumentation that silently emits nothing is worse
+than an absent one.
 
 Browser RUM is off by default and needs an explicit opt-in on top of an active
 server backend:
@@ -108,9 +116,17 @@ The wiring has three parts, all shipped with a fresh scaffold:
 - The `telemetry` module (enabled in `modules.ts` via
   `{ id: 'telemetry', from: '@open-mercato/telemetry' }`) serves the
   same-origin proxy `POST /api/telemetry/browser-traces` — authenticated,
-  rate-limited, size-capped — and forwards batches to the configured OTLP
+  budgeted per user, size-capped — and forwards batches to the configured OTLP
   collector, adding `OTEL_EXPORTER_OTLP_HEADERS` server-side so the credential
   never reaches the browser.
+
+  The ingest budget is 400 batches/min **per authenticated user**, sized from the
+  export cadence: the batch processor's 3s delay means at most 20 batches/min per
+  open tab, so the budget covers roughly 20 concurrent tabs. Over it, a batch is
+  dropped with `204` — never `429`, which the OTLP exporter treats as retryable
+  and would answer with a backoff storm. The endpoint deliberately does not use
+  the dispatcher's IP-keyed rate limiter, which collapses to one deployment-wide
+  bucket whenever `RATE_LIMIT_TRUST_PROXY_DEPTH` is 0.
 
 `@open-mercato/telemetry/browser` is the ONLY part of this package a client
 bundle may import. Everything that reads the environment or the collector
