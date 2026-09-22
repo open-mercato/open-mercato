@@ -40,7 +40,7 @@
 | 2 | 2.2 | Generate + review Phase 2 migration | inline | done | 59223f63a |
 | 2 | 2.3 | `resolveTerms()` per-field inheritance + `sourceGroupId` + unit tests | dispatch:capable | done | cc6f6d704 |
 | 2 | 2.4 | API routes: `GET/PUT /api/customer-groups/:id/terms` | dispatch:standard | done | 1ba6d6d03 |
-| 2 | 2.5 | Admin UI: terms section on group edit page | dispatch:capable | todo | — |
+| 2 | 2.5 | Admin UI: terms section on group edit page | dispatch:capable | done | 5d37eb8ef |
 | 2 | 2.6 | Explain-terms panel on customer detail page | dispatch:capable | todo | — |
 | 2 | 2.7 | i18n keys — Phase 2 surfaces | dispatch:cheap | todo | — |
 | 2 | 2.8 | Integration tests: Phase 2 API routes + behavioral cases (incl. deprecated single-value equivalence) | dispatch:capable | todo | — |

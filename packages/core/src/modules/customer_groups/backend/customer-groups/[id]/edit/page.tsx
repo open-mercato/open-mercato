@@ -19,9 +19,17 @@ import {
 } from '../../../../components/customerGroupTree'
 import { CustomerGroupParentField } from '../../../../components/CustomerGroupParentField'
 import { CustomerGroupDefaultField } from '../../../../components/CustomerGroupDefaultField'
+import {
+  CustomerGroupTermsSection,
+  type CustomerGroupTermsDTO,
+} from '../../../../components/CustomerGroupTermsSection'
 
 type CustomerGroupListResponse = {
   items?: unknown[]
+}
+
+type CustomerGroupTermsResponse = {
+  terms?: CustomerGroupTermsDTO | null
 }
 
 type CustomerGroupFormValues = {
@@ -84,6 +92,8 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
   const [loading, setLoading] = React.useState<boolean>(true)
   const [error, setError] = React.useState<string | null>(null)
   const [isNotFound, setIsNotFound] = React.useState<boolean>(false)
+  // `undefined` = not fetched yet, `null` = confirmed no terms row for this group.
+  const [terms, setTerms] = React.useState<CustomerGroupTermsDTO | null | undefined>(undefined)
 
   React.useEffect(() => {
     if (!groupId) return
@@ -93,9 +103,10 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
       setError(null)
       setIsNotFound(false)
       try {
-        const [recordCall, listCall] = await Promise.all([
+        const [recordCall, listCall, termsCall] = await Promise.all([
           apiCall<CustomerGroupListResponse>(`/api/customer-groups?id=${encodeURIComponent(groupId)}`),
           apiCall<CustomerGroupListResponse>('/api/customer-groups?pageSize=100'),
+          apiCall<CustomerGroupTermsResponse>(`/api/customer-groups/${encodeURIComponent(groupId)}/terms`),
         ])
         if (!recordCall.ok) {
           if (recordCall.status === 404) {
@@ -127,6 +138,7 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
         if (listCall.ok) {
           setGroups(mapListItemsToSummaries(listCall.result?.items))
         }
+        setTerms(termsCall.ok ? (termsCall.result?.terms ?? null) : null)
       } catch (err) {
         if (!cancelled) {
           const fallback = t('customer_groups.groups.form.errors.load', 'Failed to load customer group')
@@ -328,6 +340,12 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
             })
           }}
           deleteRedirect={`/backend/customer-groups?flash=${encodeURIComponent(t('customer_groups.groups.flash.deleted', 'Customer group deleted'))}&type=success`}
+        />
+        <CustomerGroupTermsSection
+          groupId={groupId}
+          terms={terms}
+          loading={loading}
+          onSaved={setTerms}
         />
       </PageBody>
     </Page>
