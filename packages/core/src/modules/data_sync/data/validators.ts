@@ -1,21 +1,43 @@
 import { z } from 'zod'
 
-export const runSyncSchema = z.object({
+const runSyncFields = {
   integrationId: z.string().min(1),
   entityType: z.string().min(1),
   direction: z.enum(['import', 'export']),
   fullSync: z.boolean().default(false),
-  // Optional rather than defaulted: the run route cannot otherwise tell "the
-  // operator asked for 100" from "nobody named a page size", and only the second
-  // may be answered by the adapter's declared default.
-  batchSize: z.number().int().min(1).max(1000).optional(),
   triggeredBy: z.string().optional(),
   // Adapter-declared run parameters. Validated/coerced against the adapter's
   // `runParameters` declaration in the run route; here we only accept a record.
   parameters: z.record(z.string(), z.unknown()).optional(),
+}
+
+/**
+ * @deprecated Use {@link runSyncRequestSchema}, which leaves `batchSize` absent
+ * when the caller named none so `startDataSyncRun` can answer with the adapter's
+ * `defaultBatchSize(entityType)`. This schema substitutes 100 for an omitted
+ * value, which shadows that declaration. Kept unchanged for out-of-tree callers
+ * and slated for removal no earlier than one minor version after 0.9.0.
+ */
+export const runSyncSchema = z.object({
+  ...runSyncFields,
+  batchSize: z.number().int().min(1).max(1000).default(100),
 })
 
+/** @deprecated Derived from {@link runSyncSchema}; use `RunSyncRequestInput`. */
 export type RunSyncInput = z.infer<typeof runSyncSchema>
+
+/**
+ * The shape the run route parses. Identical to `runSyncSchema` except that an
+ * omitted `batchSize` stays omitted: the route cannot otherwise tell "the
+ * operator asked for 100" from "nobody named a page size", and only the second
+ * may be answered by the adapter's declared default.
+ */
+export const runSyncRequestSchema = z.object({
+  ...runSyncFields,
+  batchSize: z.number().int().min(1).max(1000).optional(),
+})
+
+export type RunSyncRequestInput = z.infer<typeof runSyncRequestSchema>
 
 export const retrySyncSchema = z.object({
   fromBeginning: z.boolean().default(false),

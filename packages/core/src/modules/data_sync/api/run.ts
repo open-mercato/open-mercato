@@ -7,7 +7,7 @@ import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
 import type { ProgressService } from '../../progress/lib/progressService'
 import type { IntegrationStateService } from '../../integrations/lib/state-service'
 import type { SyncRunService } from '../lib/sync-run-service'
-import { runSyncSchema } from '../data/validators'
+import { runSyncRequestSchema } from '../data/validators'
 import { startDataSyncRun } from '../lib/start-run'
 import { getDataSyncAdapter } from '../lib/adapter-registry'
 import { normalizeRunParameters } from '../lib/run-parameters'
@@ -41,7 +41,7 @@ export async function POST(req: Request) {
     }
 
     const payload = await readJsonSafe(req)
-    const parsed = runSyncSchema.safeParse(payload)
+    const parsed = runSyncRequestSchema.safeParse(payload)
     if (!parsed.success) {
       return NextResponse.json({ error: 'Invalid payload', details: parsed.error.flatten() }, { status: 422 })
     }

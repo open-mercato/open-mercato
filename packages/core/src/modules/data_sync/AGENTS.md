@@ -237,7 +237,7 @@ defaultBatchSize: (entityType) => (entityType === 'orders.backfill' ? 500 : unde
 ```
 
 `undefined` — or no declaration — keeps core's 100. The declaration is clamped to
-the `1..1000` `runSyncSchema` accepts, and a value that is not a positive integer
+the `1..1000` the run API accepts, and a value that is not a positive integer
 is ignored rather than fatal.
 
 It resolves in **`lib/start-run.ts`**, not in the callers: every start path funnels
@@ -250,10 +250,11 @@ reason `supportsStartControl`'s is treated as *applies*.
 
 **A default, not a ceiling.** `batchSize` on the run request still wins, so this
 sets what an operator gets when they choose nothing — never what they may choose.
-`runSyncSchema.batchSize` is therefore `.optional()` rather than defaulted: a
-route that substitutes 100 of its own cannot tell "the operator asked for 100"
-from "nobody named a page size", and only the second may be answered here. Any
-future start path MUST leave it undefined rather than pass a number of its own.
+The run route therefore parses `runSyncRequestSchema`, whose `batchSize` is
+`.optional()`, and not the deprecated `runSyncSchema`, whose `.default(100)`
+cannot tell "the operator asked for 100" from "nobody named a page size" — only
+the second may be answered here. Any future start path MUST leave it undefined
+rather than pass a number of its own.
 
 Retry is the known gap: the run row does not record the page size a run used, so
 a retry re-resolves the adapter's default instead of replaying an explicit value.

@@ -327,7 +327,7 @@ export interface DataSyncAdapter {
    * on the run request always wins, so an operator can page smaller or larger
    * for one run. What this sets is what they get when they choose nothing.
    *
-   * The declaration is clamped to the same `1..1000` `runSyncSchema` accepts,
+   * The declaration is clamped to the same `1..1000` the run API accepts,
    * and a value that is not a positive integer is ignored rather than fatal —
    * an adapter must not be able to make itself unstartable over its page size.
    *

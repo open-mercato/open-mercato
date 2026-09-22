@@ -47,26 +47,26 @@ resolution, pass `currencyCode` in your `PricingContext` and audit any `CatalogP
 that only differ by currency for the product/variant you resolve most often — those are the rows
 whose resolution outcome can change.
 
-### `runSyncSchema.batchSize` is optional instead of defaulted (type-only)
+### `runSyncSchema` is deprecated in favour of `runSyncRequestSchema` (no action required yet)
 
-`runSyncSchema` in `@open-mercato/core/modules/data_sync/data/validators` used to declare
-`batchSize: z.number().int().min(1).max(1000).default(100)`. It is now `.optional()`, so a
-`DataSyncAdapter` can answer "nobody named a page size" with its own `defaultBatchSize(entityType)`
-— a schema default made that state indistinguishable from an operator typing 100.
+`runSyncSchema` in `@open-mercato/core/modules/data_sync/data/validators` declares
+`batchSize: z.number().int().min(1).max(1000).default(100)`, which makes "the operator asked for 100"
+indistinguishable from "nobody named a page size" — and only the second may be answered by an
+adapter's own `defaultBatchSize(entityType)`. `runSyncRequestSchema` is the same schema with
+`batchSize` `.optional()` instead, and is what the run route now parses.
 
-**No runtime change.** The same request bodies are accepted, the same `1..1000` bound applies, and an
-omitted `batchSize` still resolves to 100 for every adapter that declares nothing — the fallback just
-moved from the schema into `startDataSyncRun`.
+**Nothing changed for existing callers.** `runSyncSchema` and `RunSyncInput` are untouched: same
+accepted bodies, same `1..1000` bound, same inferred `batchSize: number`. They are marked
+`@deprecated` and will be removed no earlier than one minor version after 0.9.0.
 
-**What may not compile.** `RunSyncInput['batchSize']` is now `number | undefined`, so code that reads
-a parsed value and passes it somewhere requiring `number` needs to handle the absent case:
+**To migrate**, swap the import and let the start helper resolve the absent value:
 
 ```ts
-// before
-const batchSize: number = runSyncSchema.parse(body).batchSize
+// before — an omitted batchSize became 100 here, shadowing the adapter's declaration
+const { batchSize } = runSyncSchema.parse(body)                 // number
 
-// after — let the start helper resolve it, or supply your own fallback
-const { batchSize } = runSyncSchema.parse(body)          // number | undefined
+// after
+const { batchSize } = runSyncRequestSchema.parse(body)          // number | undefined
 await startDataSyncRun({ ..., input: { ..., batchSize } })
 ```
 

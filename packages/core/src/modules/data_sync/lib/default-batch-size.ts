@@ -3,12 +3,12 @@ import type { DataSyncAdapter } from './adapter'
 /**
  * The page size a run gets when neither the caller nor the adapter names one.
  *
- * Also the value `runSyncSchema` bounded its old `.default(100)` against, and the
- * one the dashboard's Batch size field falls back to.
+ * Also the value the deprecated `runSyncSchema` still defaults to, and the one
+ * the dashboard's Batch size field falls back to.
  */
 export const DATA_SYNC_DEFAULT_BATCH_SIZE = 100
 
-/** The bounds `runSyncSchema.batchSize` accepts, shared so a declaration cannot exceed the API. */
+/** The bounds `runSyncRequestSchema.batchSize` accepts, shared so a declaration cannot exceed the API. */
 export const DATA_SYNC_MIN_BATCH_SIZE = 1
 export const DATA_SYNC_MAX_BATCH_SIZE = 1000
 

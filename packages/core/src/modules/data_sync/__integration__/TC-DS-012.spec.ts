@@ -34,7 +34,7 @@ test.describe('TC-DS-012: Data sync adapter default batch size', () => {
       for (const [entityType, declared] of Object.entries(defaultBatchSizes as JsonRecord)) {
         expect(supportedEntities).toContain(entityType)
         expect(Number.isInteger(declared)).toBe(true)
-        // Clamped to the same bounds `runSyncSchema` accepts, so a declared
+        // Clamped to the same bounds the run API accepts, so a declared
         // value can never be one the run API would reject.
         expect(declared as number).toBeGreaterThanOrEqual(1)
         expect(declared as number).toBeLessThanOrEqual(1000)

@@ -96,7 +96,7 @@ The counterpart obligation is stated in the module's `AGENTS.md`: a start path M
 undefined rather than substitute a number of its own, or it silently shadows the declaration. The two
 call sites that did exactly that (Retry, the schedule row) are fixed here.
 
-### Why `runSyncSchema.batchSize` must stop defaulting
+### Why the run route needs a schema whose `batchSize` is not defaulted
 
 With `.default(100)`, `POST /api/data_sync/run` always forwards an explicit 100, so the resolution in
 `startDataSyncRun` is unreachable from the dashboard — the one path that matters most. More
@@ -104,9 +104,15 @@ fundamentally, a schema-level default erases the distinction the feature is buil
 asked for 100* and *nobody named a page size* must be different states, because only the second may
 be answered by the adapter.
 
-Accepted input is unchanged — the field was already omittable — and an omitted value still resolves
-to 100 for every adapter that declares nothing. What changes is the inferred output type, from
-`number` to `number | undefined`. See "Migration & Backward Compatibility".
+The distinction ships as a **new export** rather than an edit to the existing one. `runSyncSchema` is
+a FROZEN §1 contract surface; changing its `batchSize` to `.optional()` in place would narrow
+`RunSyncInput['batchSize']` from `number` to `number | undefined` in a single release, and an
+out-of-tree caller that parses the schema itself and paginates with the result — rather than handing
+the parsed input to `startDataSyncRun` — would silently receive `undefined` where it received `100`.
+So `runSyncRequestSchema` carries the optional field and the run route parses it, while
+`runSyncSchema` keeps its exact behaviour and gains `@deprecated` JSDoc pointing at the replacement.
+Accepted input, the `1..1000` bound and the resolved-to-100 fallback are identical across both. See
+"Migration & Backward Compatibility".
 
 ### Why the dashboard has to seed its field
 
@@ -168,9 +174,11 @@ batchSize: input.batchSize ?? defaultBatchSizeFor(
 ),
 ```
 
-### 4. `data/validators.ts`, `api/runs/[id]/retry.ts`, `components/IntegrationScheduleTab.tsx`
+### 4. `data/validators.ts`, `api/run.ts`, `api/runs/[id]/retry.ts`, `components/IntegrationScheduleTab.tsx`
 
-`.default(100)` → `.optional()`; the two hardcoded `batchSize: 100` request fields removed.
+New `runSyncRequestSchema` — `runSyncSchema` with `batchSize` `.optional()` instead of
+`.default(100)` — which the run route parses; `runSyncSchema` itself is untouched and `@deprecated`.
+The two hardcoded `batchSize: 100` request fields are removed.
 
 ### 5. `api/options.ts` and `backend/data-sync/page.tsx` — the wire and the form
 
@@ -208,10 +216,12 @@ resolves to nothing falls back to the same 100 as before. The full surface-by-su
 in [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md) → *Data Sync Adapter Default Batch
 Size (2026-09-16)*.
 
-One TypeScript-only narrowing: `RunSyncInput['batchSize']` becomes `number | undefined`, so a consumer
-that reads `parsed.data.batchSize` and passes it somewhere requiring `number` must handle the absent
-case. In-repo there is exactly one such consumer (`api/run.ts`), which forwards it to
-`startDataSyncRun`'s now-optional field.
+No existing surface is changed or narrowed. `runSyncSchema` and `RunSyncInput` keep their runtime and
+their inferred types and are deprecated in favour of the new `runSyncRequestSchema` /
+`RunSyncRequestInput`, whose `batchSize` is `number | undefined`. In-repo there is exactly one
+consumer (`api/run.ts`), which parses the new schema and forwards the value to `startDataSyncRun`'s
+optional field. The deprecated pair is kept for at least one minor version, removal no earlier than
+one minor after 0.9.0.
 
 **Migration path for adapters**: none required. To opt in, add the hook.
 
@@ -243,6 +253,9 @@ case. In-repo there is exactly one such consumer (`api/run.ts`), which forwards 
   hook, `__proto__`-named entity types over the wire, and the client-side read.
 - `lib/__tests__/start-run.test.ts` (new) — the chokepoint: core's default with no adapter, the declared
   value per entity type, an explicit value winning, and a throwing hook falling back.
+- `data/__tests__/validators.test.ts` (new) — the bridge: the deprecated `runSyncSchema` still
+  substitutes 100 for an omitted page size, `runSyncRequestSchema` leaves it absent, and both accept
+  the same bodies and the same `1..1000` bound.
 - `api/__tests__/options.test.ts` — the map is shipped, sparse, and a throwing hook still answers 200.
 - `api/__tests__/run.test.ts` — the route forwards no page size when the request names none.
 - `api/runs/[id]/__tests__/retry-parameters.test.ts` — Retry forwards no page size of its own.
@@ -255,3 +268,6 @@ case. In-repo there is exactly one such consumer (`api/run.ts`), which forwards 
 ## Changelog
 
 - **2026-09-16** — initial draft.
+- **2026-09-22** — review follow-up: the optional `batchSize` moves to a new `runSyncRequestSchema`
+  instead of narrowing `runSyncSchema` in place, so no FROZEN contract surface changes and the
+  deprecation protocol is followed literally.
