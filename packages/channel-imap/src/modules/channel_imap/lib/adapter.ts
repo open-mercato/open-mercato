@@ -33,6 +33,7 @@ import { normalizeInboundImapMessage } from './normalize-inbound'
 import { validateImapCredentials } from './validate-credentials'
 import { emailResolveContact } from '@open-mercato/core/modules/communication_channels/lib/email-contact'
 import { decodeCursor, encodeCursor } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
+import { getImportHistoryLimits } from '@open-mercato/core/modules/communication_channels/lib/import-history-limits'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('channel_imap')
@@ -285,12 +286,20 @@ class ImapChannelAdapter implements ChannelAdapter {
     const connection = credentialsToConnection(credentials)
     const imap = getImapClient()
 
-    const sinceDaysRaw = Number.isFinite(input.sinceDays) ? Math.trunc(input.sinceDays) : 30
-    const sinceDays = Math.max(1, Math.min(365, sinceDaysRaw))
+    // Ceiling is provider-specific and lower than the deployment-wide one:
+    // this adapter's cursor embeds the full remaining UID list, so it stays
+    // capped until it gets a paging cursor of its own. See
+    // `import-history-limits.ts` for the shared source of truth.
+    const limits = getImportHistoryLimits(this.providerKey)
+
+    const sinceDaysRaw = Number.isFinite(input.sinceDays) ? Math.trunc(input.sinceDays) : limits.defaultSinceDays
+    const sinceDays = Math.max(1, Math.min(limits.maxSinceDays, sinceDaysRaw))
     const sinceDate = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000)
 
-    const maxMessagesRaw = Number.isFinite(input.maxMessages) ? Math.trunc(input.maxMessages as number) : 1000
-    const maxMessages = Math.max(1, Math.min(5000, maxMessagesRaw))
+    const maxMessagesRaw = Number.isFinite(input.maxMessages)
+      ? Math.trunc(input.maxMessages as number)
+      : limits.defaultMaxMessages
+    const maxMessages = Math.max(1, Math.min(limits.maxMessages, maxMessagesRaw))
 
     const PAGE_SIZE = clampHardCap(undefined)
 

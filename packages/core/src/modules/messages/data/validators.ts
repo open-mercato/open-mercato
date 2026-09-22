@@ -116,6 +116,16 @@ const composeMessageBaseSchema = z.object({
    * asserting its own channel type.
    */
   sourceChannelType: z.string().min(1).max(64).optional(),
+  /**
+   * Set by channel ingest for a message that arrived FROM an external channel
+   * (#6093). On such a message `recipients` are not external addressees — a
+   * public message has none — but the internal users the hub routes it to
+   * (the conversation's assignee), so the "no recipients on a public message"
+   * rule does not apply. Server-only like `sourceChannelType`: the HTTP route
+   * strips any client-sent value, so a caller cannot waive the rule by
+   * asserting its message came in from a channel.
+   */
+  inboundFromChannel: z.boolean().optional(),
   recipients: z.array(messageRecipientSchema).max(100).optional().default([]),
   subject: z.string().max(500).optional().default(''),
   body: z.string().max(50000).optional().default(''),
@@ -163,7 +173,11 @@ function refineComposeMessage(value: ComposeMessageRefinementValue, ctx: z.Refin
           message: 'externalEmail is required when visibility is public',
         })
       }
-      if (recipientCount > 0) {
+      // #6093: a channel-ingested message is addressed to the assignee of its
+      // conversation; that recipient is internal routing, not a second
+      // external addressee, so only a user-composed public message is bound
+      // by this rule.
+      if (recipientCount > 0 && !value.inboundFromChannel) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['recipients'],
@@ -207,23 +221,24 @@ function refineComposeMessage(value: ComposeMessageRefinementValue, ctx: z.Refin
 }
 
 /**
- * Full compose contract, including the server-resolved `sourceChannelType` and
- * the server-supplied `sentAt`. Used by the `messages.messages.compose` command
- * and by the HTTP route AFTER it has resolved the channel type itself.
+ * Full compose contract, including the server-resolved `sourceChannelType`,
+ * the ingest-only `inboundFromChannel`, and the server-supplied `sentAt`. Used
+ * by the `messages.messages.compose` command and by the HTTP route AFTER it
+ * has resolved the channel type itself.
  */
 export const composeMessageSchema = composeMessageBaseSchema.superRefine(refineComposeMessage)
 
 /**
  * Client-facing compose contract — the same rules minus the server-only fields:
- * `sourceChannelType` is never accepted from a request body (#4975) and neither
- * is `sentAt` (#6095). Published in OpenAPI so the documented request shape
- * matches what `POST /api/messages` actually reads: the route discards any
- * client-sent value for these, resolves the real channel type from the
- * referenced conversation or parent message, and only then validates against
- * {@link composeMessageSchema}.
+ * `sourceChannelType` is never accepted from a request body (#4975), neither is
+ * `inboundFromChannel` (#6093) nor `sentAt` (#6095). Published in OpenAPI so the
+ * documented request shape matches what `POST /api/messages` actually reads:
+ * the route discards any client-sent value for these, resolves the real
+ * channel type from the referenced conversation or parent message, and only
+ * then validates against {@link composeMessageSchema}.
  */
 export const composeMessageRequestSchema = composeMessageBaseSchema
-  .omit({ sourceChannelType: true, sentAt: true })
+  .omit({ sourceChannelType: true, inboundFromChannel: true, sentAt: true })
   .superRefine(refineComposeMessage)
 
 export const updateDraftSchema = z.object({

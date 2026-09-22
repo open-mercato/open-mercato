@@ -203,6 +203,26 @@ describe('POST /api/messages — server-only compose fields', () => {
     expect(response.status).toBe(201)
     expect(composeInput().sentAt).toBeUndefined()
   })
+
+  it('drops a client-supplied inboundFromChannel flag (#6093)', async () => {
+    // The flag lets channel ingest address an inbound message to the assigned
+    // user despite public visibility. A browser caller must not be able to
+    // waive the recipients rule by asserting it.
+    resolveChannelTypeMock.mockResolvedValue('email')
+
+    await expect(
+      composeMessage(
+        composeRequest(
+          publicComposeBody({
+            externalEmail: 'jane@example.com',
+            inboundFromChannel: true,
+            recipients: [{ userId, type: 'to' }],
+          }),
+        ),
+      ),
+    ).rejects.toThrow()
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+  })
 })
 
 describe('POST /api/messages — the channel-type lookup stays off the compose hot path', () => {

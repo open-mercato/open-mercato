@@ -470,11 +470,14 @@ export async function POST(req: Request) {
         sourceHint.data,
       )
     : undefined
-  // `sentAt` is likewise server-only (#6095): channel ingest stamps the
-  // provider's receive time through the command, but a request body must not
-  // be able to backdate a message.
+  // `inboundFromChannel` and `sentAt` are likewise server-only (#6093, #6095):
+  // channel ingest sets them so an inbound message can be addressed to the
+  // conversation's assignee and stamped with the provider's receive time, but
+  // a request body must not be able to waive the recipients rule or backdate
+  // a message with them.
   const {
     sourceChannelType: _clientSuppliedChannelType,
+    inboundFromChannel: _clientSuppliedInboundFlag,
     sentAt: _clientSuppliedSentAt,
     ...clientBody
   } = (body ?? {}) as Record<string, unknown>

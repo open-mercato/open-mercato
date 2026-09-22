@@ -744,5 +744,8 @@
   "eudr.supplierPanel.viewSubmissions": "Zobacz zgłoszenia",
   "eudr.supplierPanel.warnings": "Z ostrzeżeniami",
   "eudr.warnings.harvestBeforeCutoff": "Zbiory przed datą graniczną EUDR",
-  "eudr.warnings.speciesMissing": "W powiązanym mapowaniu drewna brakuje naukowej lub zwyczajowej nazwy gatunku"
+  "eudr.warnings.speciesMissing": "W powiązanym mapowaniu drewna brakuje naukowej lub zwyczajowej nazwy gatunku",
+  "search.entityType.eudr.eudr_due_diligence_statement": "Oświadczenie DDS",
+  "search.entityType.eudr.eudr_evidence_submission": "Zgłoszenie dowodów",
+  "search.entityType.eudr.eudr_plot": "Działka"
 }

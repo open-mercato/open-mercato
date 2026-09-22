@@ -30,6 +30,13 @@ type MessageSentEventPayload = {
   senderUserId: string
   recipientUserIds: string[]
   sendViaEmail: boolean
+  /**
+   * The message arrived from an external channel (#6093). Its `senderUserId`
+   * is the channel's system user and its real correspondent lives in
+   * `externalName` / `externalEmail`; subscribers that show a sender read it
+   * from there.
+   */
+  inboundFromChannel?: boolean
   externalEmail?: string | null
   forwardedFrom?: string
   replyTo?: string
@@ -303,7 +310,13 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         : undefined
 
       const isPublicVisibility = input.visibility === 'public'
-      const sendViaEmail = isPublicVisibility ? true : input.sendViaEmail
+      // #6093: a channel-ingested message was RECEIVED, not sent. Ingest passes
+      // `sendViaEmail: false` on purpose; forcing it for public visibility would
+      // mail the assignee a copy and echo the message to its external sender
+      // (#6089) the moment the recipients waiver lets it compose. #6090 removes
+      // the forcing for every caller; until then it is skipped here for the
+      // ingest path only.
+      const sendViaEmail = isPublicVisibility && !input.inboundFromChannel ? true : input.sendViaEmail
       const message = trx.create(Message, {
         type: input.type,
         visibility: input.visibility ?? null,
@@ -409,7 +422,9 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         messageId,
         senderUserId: input.userId,
         recipientUserIds: input.recipients.map((recipient) => recipient.userId),
-        sendViaEmail: input.visibility === 'public' ? true : input.sendViaEmail,
+        sendViaEmail:
+          input.visibility === 'public' && !input.inboundFromChannel ? true : input.sendViaEmail,
+        inboundFromChannel: input.inboundFromChannel === true,
         externalEmail: responseExternalEmail,
         tenantId: input.tenantId,
         organizationId: input.organizationId,
