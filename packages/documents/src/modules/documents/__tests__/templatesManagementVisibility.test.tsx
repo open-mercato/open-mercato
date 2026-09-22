@@ -257,6 +257,7 @@ describe('templates management visibility', () => {
       pageSize={100}
       total={101}
       totalPages={2}
+      totalIsCapped={false}
       search="Quarterly"
       isLoading={false}
       canManageTemplates

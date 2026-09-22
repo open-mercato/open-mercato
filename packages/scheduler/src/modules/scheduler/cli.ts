@@ -3,6 +3,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from './data/entities.js'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { auditSchedulerModuleQueueRows } from './lib/safeQueueTargets'
 
 const writeLine = (text = '') => {
   process.stdout.write(`${text}\n`)
@@ -225,4 +226,46 @@ const startCommand: ModuleCli = {
   },
 }
 
-export default [listCommand, statusCommand, runCommand, startCommand]
+// Lists every persisted module-authored queue-target row with its current
+// dispatch verdict (#5213). Rows authored before the hardening by a
+// non-user-bound API key are indistinguishable from genuine registrations at
+// rest, so operators review the ALLOWED entries against their known integrations.
+const auditQueueTargetsCommand: ModuleCli = {
+  command: 'audit-queue-targets',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const { resolve } = await createRequestContainer()
+    const em = resolve('em') as EntityManager
+
+    const where: Record<string, unknown> = { deletedAt: null, sourceType: 'module' }
+    if (args.tenant || args.tenantId) where.tenantId = args.tenant || args.tenantId
+
+    const rows = await em.find(ScheduledJob, where, {
+      orderBy: { name: 'ASC' },
+    })
+
+    const audits = auditSchedulerModuleQueueRows(rows)
+
+    writeLine(`Module-authored queue-target schedules: ${audits.length}`)
+    let allowedCount = 0
+    for (const audit of audits) {
+      const verdict = audit.dispatchAllowed ? 'ALLOWED' : 'blocked'
+      if (audit.dispatchAllowed) allowedCount += 1
+      writeLine(
+        `[${verdict}] ${audit.scheduleId}${audit.name ? ` — ${audit.name}` : ''}` +
+        ` module=${audit.sourceModule ?? '(none)'} queue=${audit.targetQueue ?? '(none)'}` +
+        ` enabled=${audit.isEnabled ? 'yes' : 'no'}`,
+      )
+    }
+
+    if (allowedCount > 0) {
+      writeLine('')
+      writeLine(`Review the ${allowedCount} ALLOWED row(s) above against your known module integrations.`)
+      writeLine('Pre-upgrade rows created with a non-user-bound API key cannot be distinguished')
+      writeLine('from genuine registrations at rest; disable anything unrecognized:')
+      writeLine('  yarn mercato scheduler list --tenant <tenantId>')
+    }
+  },
+}
+
+export default [listCommand, statusCommand, runCommand, startCommand, auditQueueTargetsCommand]

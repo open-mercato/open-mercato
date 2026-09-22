@@ -4,6 +4,15 @@ export type OrganizationAccessDecisionInput = {
   targetOrganizationId: string | null
 }
 
+export type UnrestrictedOrganizationScopeInput = {
+  isSuperAdmin: boolean
+  allowedOrganizationIds: readonly string[] | null | undefined
+}
+
+export function isUnrestrictedOrganizationScope(input: UnrestrictedOrganizationScopeInput): boolean {
+  return input.isSuperAdmin || input.allowedOrganizationIds === null
+}
+
 /**
  * Fail-closed organization-access predicate. The single source of truth for
  * "may this principal act on `targetOrganizationId`".
@@ -15,8 +24,7 @@ export type OrganizationAccessDecisionInput = {
  * - restricted + target org            -> allow iff the target is a member of the allowed set
  */
 export function isOrganizationAccessAllowed(input: OrganizationAccessDecisionInput): boolean {
-  if (input.isSuperAdmin) return true
-  if (input.allowedOrganizationIds === null) return true
+  if (isUnrestrictedOrganizationScope(input)) return true
   if (!input.targetOrganizationId) return false
-  return input.allowedOrganizationIds.includes(input.targetOrganizationId)
+  return (input.allowedOrganizationIds ?? []).includes(input.targetOrganizationId)
 }

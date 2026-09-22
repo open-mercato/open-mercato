@@ -45,6 +45,27 @@ export interface StreamImportInput {
    * declares no parameters.
    */
   parameters?: Record<string, RunParameterValue>
+  /**
+   * Aborted when the run is cancelled, so an adapter can stop INSIDE a batch.
+   *
+   * The engine only gets to look at cancellation between batches — its check sits in the batch
+   * handler, which runs after the adapter has yielded. An adapter whose batch takes minutes (a
+   * whole-table walk over a slow link) therefore keeps working, keeps writing, and keeps its
+   * advisory lock for that whole time, however long ago the operator pressed Cancel.
+   *
+   * Honour it wherever the work is divisible — per page, per record, around a long flush — and just
+   * return: the generator's own `finally` runs, which is where a lock or a connection is released.
+   * Adapters that ignore it behave exactly as they do today.
+   *
+   * The `return` MUST sit ABOVE the `yield` for the page you abandoned, never below it. The engine
+   * commits `batch.cursor` for every batch it receives, so yielding a half-applied page advances the
+   * cursor past records that were never applied and no later run ever walks them again.
+   *
+   * The signal only reaches work running in THIS process. An adapter that hands part of a batch to
+   * other workers must give that work its own cancellation check against the same progress job —
+   * aborting here stops the generator, not anything already queued elsewhere.
+   */
+  signal?: AbortSignal
 }
 
 export interface ImportItem {
@@ -57,6 +78,18 @@ export interface ImportItem {
 export interface ImportBatch {
   items: ImportItem[]
   cursor: string
+  /**
+   * Whether the source has more to give after this batch. The final batch MUST report `false`.
+   *
+   * This is not advisory. The engine uses the last batch's value to tell a stream that DRAINED from
+   * one the adapter STOPPED EARLY on {@link StreamImportInput.signal}, because both end the same way
+   * — the generator simply returns. An adapter that reports `true` on its final batch will have a
+   * complete run misreported as `cancelled` whenever a cancel lands during the final read: the
+   * operator is told a finished sync was partial, and the run stays resumable with nothing left to
+   * resume.
+   *
+   * Derive it from the source rather than hardcoding it — `Boolean(nextPage)`, `offset < total`.
+   */
   hasMore: boolean
   totalEstimate?: number
   processedCount?: number
@@ -76,6 +109,8 @@ export interface StreamExportInput {
   runId?: string
   /** See {@link StreamImportInput.parameters}. */
   parameters?: Record<string, RunParameterValue>
+  /** Aborted when the run is cancelled — see {@link StreamImportInput.signal}. */
+  signal?: AbortSignal
 }
 
 export interface ExportItemResult {
@@ -88,6 +123,7 @@ export interface ExportItemResult {
 export interface ExportBatch {
   results: ExportItemResult[]
   cursor: string
+  /** Whether the source has more to give; the final batch MUST report `false`. See {@link ImportBatch.hasMore}. */
   hasMore: boolean
   batchIndex: number
 }
@@ -171,6 +207,14 @@ export interface RunParameter {
   entityType?: string | string[]
 }
 
+/**
+ * A control the `data_sync` dashboard renders on its "Run once now" card.
+ *
+ * - `fullSync` asks the run API for a `null` start cursor instead of a resolved one.
+ * - `batchSize` sets `StreamImportInput.batchSize` / `StreamExportInput.batchSize`.
+ */
+export type DataSyncStartControl = 'fullSync' | 'batchSize'
+
 export interface DataSyncAdapter {
   readonly providerKey: string
   readonly direction: 'import' | 'export' | 'bidirectional'
@@ -230,6 +274,43 @@ export interface DataSyncAdapter {
    * kinds — an incremental feed and a whole-table backfill.
    */
   persistsSharedCursor?(entityType: string): boolean
+  /**
+   * Whether a control on the Data Sync dashboard's "Run once now" card is
+   * meaningful for this entity type. Only an explicit `false` removes a
+   * control, so an adapter that declares nothing — or returns nothing — keeps
+   * today's form exactly.
+   *
+   * Return `false` for an entity type where the operator's choice reaches the
+   * adapter and changes nothing observable: an entity type whose cursor carries
+   * identity, so an inherited cursor is discarded and the run starts from the
+   * top whichever way `fullSync` is set; or one whose paging the source fixes,
+   * so `batchSize` is read and ignored. That card then omits the control rather
+   * than offering a switch whose "no effect" an operator cannot tell apart from
+   * "it worked".
+   *
+   * Core cannot infer this — it does not know what an entity type does with the
+   * values it is handed. The adapter does, and this is the channel for saying
+   * so.
+   *
+   * SCOPE: the "Run once now" card only. It does NOT gate the recurring-schedule
+   * switch on the same page, nor the per-entity-type "Full" switch on the
+   * integration settings tab — whose row-level run posts that schedule's own
+   * `fullSync` to the same run API. An adapter that declares `fullSync`
+   * inapplicable still sees those, and `buildDefaultScheduleState` may pre-set
+   * them to `true`. Harmless by construction, since the adapter has said the
+   * value does not matter, but do not read this predicate as covering every
+   * place a run can be started.
+   *
+   * This governs what the dashboard OFFERS, not what the API accepts:
+   * `POST /api/data_sync/run` keeps honouring both fields, so a client that
+   * posts `fullSync: true` still gets a `null` cursor whatever this returns.
+   *
+   * The predicate is per entity type for the same reason
+   * {@link DataSyncAdapter.persistsSharedCursor} is — one adapter commonly
+   * serves both an incremental feed and a whole-table backfill, and only one of
+   * them has a beginning to restart from.
+   */
+  supportsStartControl?(control: DataSyncStartControl, entityType: string): boolean
   getInitialCursor?(input: { entityType: string; scope: TenantScope }): Promise<string | null>
   getMapping(input: { entityType: string; scope: TenantScope }): Promise<DataMapping>
   validateConnection?(input: {

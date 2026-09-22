@@ -27,6 +27,7 @@ export function useTemplatesPage() {
   const [pageSize, setPageSizeState] = React.useState(TEMPLATE_MANAGEMENT_PAGE_SIZE)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
@@ -73,6 +74,7 @@ export function useTemplatesPage() {
           setRows([])
           setTotal(0)
           setTotalPages(1)
+          setTotalIsCapped(false)
           setCanManageTemplates(false)
           setLoadError(t('documents.templates.error.load'))
           return
@@ -83,11 +85,15 @@ export function useTemplatesPage() {
         const nextTotal = Math.max(0, Math.floor(root ? readNumber(root, 'total', 'totalCount', 'total_count') ?? nextRows.length : nextRows.length))
         const nextTotalPages = Math.max(1, Math.floor(root ? readNumber(root, 'totalPages', 'total_pages') ?? Math.ceil(nextTotal / nextPageSize) : 1))
         const returnedPage = Math.max(1, Math.floor(root ? readNumber(root, 'page') ?? page : page))
+        const nextTotalIsCapped = root ? readBoolean(root, 'totalIsCapped', 'total_is_capped') ?? false : false
         setRows(nextRows)
         setTotal(nextTotal)
         setTotalPages(nextTotalPages)
+        setTotalIsCapped(nextTotalIsCapped)
         if (nextPageSize !== pageSize) setPageSizeState(nextPageSize)
-        if (Math.min(returnedPage, nextTotalPages) !== page) setPage(Math.min(returnedPage, nextTotalPages))
+        // A capped totalPages is a floor, so clamping to it would bounce the
+        // user off pages that exist past the cap.
+        if (!nextTotalIsCapped && Math.min(returnedPage, nextTotalPages) !== page) setPage(Math.min(returnedPage, nextTotalPages))
         const capabilities = readRecord(root?.capabilities)
         setCanManageTemplates(capabilities ? readBoolean(capabilities, 'canManageTemplates', 'can_manage_templates') ?? false : false)
       })
@@ -96,6 +102,7 @@ export function useTemplatesPage() {
         setRows([])
         setTotal(0)
         setTotalPages(1)
+        setTotalIsCapped(false)
         setCanManageTemplates(false)
         setLoadError(t('documents.templates.error.load'))
       })
@@ -135,6 +142,7 @@ export function useTemplatesPage() {
     setPageSize: changePageSize,
     total,
     totalPages,
+    totalIsCapped,
     search,
     setSearch: changeSearch,
     isLoading,

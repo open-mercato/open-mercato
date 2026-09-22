@@ -22,11 +22,20 @@ import {
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
-import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
+import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitCustomersEvent } from '../events'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
+import { E } from '#generated/entities.ids.generated'
+
+// The route (`api/tags/route.ts`) declares this same entity type and hands it down to the
+// execute path, but an undo runs through `CommandBus.undo()` where no route declaration is
+// active — so the undo marks carry the indexer explicitly, or a restored tag would stay
+// invisible to every index-backed list until the next full rebuild (#5741).
+const tagCrudIndexer: CrudIndexerConfig<CustomerTag> = {
+  entityType: E.customers.customer_tag,
+}
 
 const tagCrudEvents: CrudEventsConfig = {
   module: 'customers',
@@ -274,6 +283,7 @@ const updateTagCommand: CommandHandler<TagUpdateInput, { tagId: string }> = {
         tenantId: tag.tenantId,
       },
       events: tagCrudEvents,
+      indexer: tagCrudIndexer,
     })
   },
 }
@@ -373,6 +383,7 @@ const deleteTagCommand: CommandHandler<{ body?: Record<string, unknown>; query?:
         tenantId: tag.tenantId,
       },
       events: tagCrudEvents,
+      indexer: tagCrudIndexer,
     })
   },
 }

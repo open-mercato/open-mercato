@@ -22,6 +22,7 @@ import { Checkbox } from '../primitives/checkbox'
 import { Separator } from '../primitives/separator'
 import { FlashMessages } from './FlashMessages'
 import { QueryProvider } from '../theme/QueryProvider'
+import { useBrandStyle } from '../theme/useBrandStyle'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { apiCall } from './utils/apiCall'
 import { LastOperationBanner } from './operations/LastOperationBanner'
@@ -37,6 +38,7 @@ import { readVersionedPreference, writeVersionedPreference } from '@open-mercato
 import { cloneSidebarGroups } from './sidebar/customization-helpers'
 import type { SectionNavGroup } from './section-page/types'
 import { InjectionSpot } from './injection/InjectionSpot'
+import { useNavBadge } from './nav/navBadges'
 import {
   BackendRecordInjectionContextProvider,
   type RecordInjectionContext,
@@ -64,6 +66,7 @@ import {
   BACKEND_TOPBAR_ACTIONS_INJECTION_SPOT_ID,
   GLOBAL_HEADER_STATUS_INDICATORS_INJECTION_SPOT_ID,
   GLOBAL_SIDEBAR_STATUS_BADGES_INJECTION_SPOT_ID,
+  BACKEND_NAV_BADGES_INJECTION_SPOT_ID,
 } from './injection/spotIds'
 
 // Versioned-envelope discriminator for the persisted sidebar open/closed group
@@ -411,6 +414,45 @@ function resolveItemKey(item: { id?: string; href: string }): string {
   return item.href
 }
 
+// Horizontal padding lives on each sidebar block rather than on the <aside>, so the scroll
+// container never needs a negative-margin bleed to reach the panel edges. The transition keeps the
+// compact/expanded padding step in sync with the aside's width animation.
+function sidebarBlockPadding(compact: boolean): string {
+  return `${compact ? 'px-2' : 'px-3'} transition-[padding] duration-200 ease-out`
+}
+
+/**
+ * The live count a module published for this nav item, or nothing at all.
+ *
+ * Zero and absent both render nothing: a "0" chip is noise dressed as
+ * information. Collapsed sidebars keep the chip — it is the only thing left
+ * saying something needs you.
+ */
+function NavItemBadge({ href, compact }: { href: string; compact: boolean }) {
+  const badge = useNavBadge(href)
+  if (!badge || badge.count <= 0) return null
+  const display = badge.count > 99 ? '99+' : String(badge.count)
+  const tone = badge.tone === 'attention'
+    ? 'bg-status-warning-bg text-status-warning-text'
+    : 'bg-muted text-muted-foreground'
+  return (
+    <span
+      className={`ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-medium ${tone} ${
+        compact ? 'absolute right-0 top-0 -mr-1 -mt-1' : ''
+      }`}
+      aria-label={badge.label ?? display}
+    >
+      {display}
+    </span>
+  )
+}
+
+// An InjectionSpot renders nothing when no widget is registered, so its wrapper must collapse
+// instead of surviving as an empty flex child that still costs a full `gap-3`.
+function sidebarInjectionWrapper(compact: boolean): string {
+  return `${sidebarBlockPadding(compact)} empty:hidden`
+}
+
 function SerializedIcon({ markup }: { markup: string }) {
   return <span aria-hidden="true" dangerouslySetInnerHTML={{ __html: markup }} />
 }
@@ -434,6 +476,38 @@ const HeaderContext = createContext<{
   setBreadcrumb: (b?: Breadcrumb) => void
   setTitle: (t?: string) => void
 } | null>(null)
+
+/**
+ * Additive contract that lets a page under the backend shell drive the desktop
+ * sidebar collapse without owning the shell. `requestCollapse(true)` forces the
+ * sidebar to render collapsed without overwriting the user's persisted manual
+ * preference; `releaseRequest()` drops the request and falls back to whatever
+ * the underlying state is (including any active settings/profile force-collapse).
+ */
+export type SidebarCollapseContextValue = {
+  collapsed: boolean
+  setCollapsed: (next: boolean) => void
+  requestCollapse: (next: boolean) => void
+  releaseRequest: () => void
+}
+
+const noopSidebarCollapse: SidebarCollapseContextValue = {
+  collapsed: false,
+  setCollapsed: () => {},
+  requestCollapse: () => {},
+  releaseRequest: () => {},
+}
+
+const SidebarCollapseContext = createContext<SidebarCollapseContextValue | null>(null)
+
+/**
+ * Read the backend shell's sidebar-collapse controls. Returns a safe no-op
+ * default when called outside `AppShell` so standalone renders and tests never
+ * crash.
+ */
+export function useSidebarCollapse(): SidebarCollapseContextValue {
+  return useContext(SidebarCollapseContext) ?? noopSidebarCollapse
+}
 
 export function ApplyBreadcrumb({ breadcrumb, title, titleKey }: { breadcrumb?: Array<{ label: string; href?: string; labelKey?: string }>; title?: string; titleKey?: string }) {
   const ctx = useContext(HeaderContext)
@@ -532,7 +606,8 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   const { items: topbarInjectedMenuItems } = useInjectedMenuItems('menu:topbar:actions')
   useEventBridge() // SSE DOM Event Bridge — singleton SSE connection for real-time server events
   const resolvedProductName = productName ?? t('appShell.productName')
-  const resolvedLogo = chromePayload?.brand?.logo?.src ? chromePayload.brand.logo : logo
+  const brandStyle = useBrandStyle()
+  const resolvedLogo = brandStyle?.logo ? { src: brandStyle.logo, preserveAspectRatio: true } : chromePayload?.brand?.logo?.src ? chromePayload.brand.logo : logo
   const resolvedBrandName = chromePayload?.brand?.logo?.src
     ? chromePayload.brand.name ?? resolvedProductName
     : resolvedProductName
@@ -554,6 +629,17 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   }, [mobileOpen])
   // Initialize from server-provided prop only to avoid hydration flicker
   const [collapsed, setCollapsed] = React.useState(sidebarCollapsedDefault)
+  // External collapse request (additive). A page under the shell can force the
+  // sidebar collapsed via `useSidebarCollapse().requestCollapse(true)` without
+  // touching `collapsed` (the user's persisted manual preference) — so nothing
+  // is written to localStorage/cookie and `releaseRequest()` restores the prior
+  // underlying state. Default `null` means "no request", keeping behavior
+  // byte-for-byte identical when no page consumes the context.
+  const [externalCollapseRequest, setExternalCollapseRequest] = React.useState<boolean | null>(null)
+  // Remember the value the user manually had before an external request took
+  // over, mirroring `collapsedBeforeSectionRef`. Not required for correctness
+  // (the request never mutates `collapsed`) but keeps the intent explicit.
+  const collapsedBeforeExternalRequestRef = React.useRef<boolean | null>(null)
   // Maintain internal nav state so we can augment it client-side
   const [navGroups, setNavGroups] = React.useState(resolvedGroups)
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>(() =>
@@ -569,8 +655,28 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     if (!label) return false
     return label.toLowerCase().includes(navQueryNorm)
   }, [navQueryActive, navQueryNorm])
-  const effectiveCollapsed = collapsed
+  // An active external collapse request wins over the manual/section state
+  // ("collapsed wins"); when released (`null`) we fall back to `collapsed`,
+  // which already reflects any settings/profile force-collapse.
+  const effectiveCollapsed = externalCollapseRequest === true ? true : collapsed
   const expandedSidebarWidth = '240px'
+
+  const requestCollapse = React.useCallback((next: boolean) => {
+    setExternalCollapseRequest((prev) => {
+      if (prev === null) collapsedBeforeExternalRequestRef.current = collapsed
+      return next
+    })
+  }, [collapsed])
+  const releaseRequest = React.useCallback(() => {
+    collapsedBeforeExternalRequestRef.current = null
+    setExternalCollapseRequest(null)
+  }, [])
+  const sidebarCollapseValue = React.useMemo<SidebarCollapseContextValue>(() => ({
+    collapsed: effectiveCollapsed,
+    setCollapsed: (next: boolean) => setCollapsed(next),
+    requestCollapse,
+    releaseRequest,
+  }), [effectiveCollapsed, requestCollapse, releaseRequest])
 
   // Track scroll position of the desktop sidebar's inner scroll container so we can
   // flip the affordance chevron between down/up (and hide it entirely when content
@@ -804,11 +910,12 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   ) {
     const sortedSections = [...sections].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     const lastVisibleIndex = sortedSections.length - 1
+    const blockPadding = sidebarBlockPadding(compact)
 
     return (
       <div className="flex h-full flex-col gap-3">
         {!hideHeader && (
-          <div className="mb-2">
+          <div className={`mb-2 ${blockPadding}`}>
             <Link
               href="/backend"
               className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
@@ -820,16 +927,18 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           </div>
         )}
         {!compact && !hideSearch && (
-          <SearchInput
-            value={navQuery}
-            onChange={setNavQuery}
-            placeholder={t('appShell.searchNavPlaceholder', 'Search...')}
-            aria-label={t('appShell.searchNavAria', 'Search navigation')}
-            clearLabel={t('appShell.searchNavClear', 'Clear search')}
-            className="mb-2"
-          />
+          <div className={blockPadding}>
+            <SearchInput
+              value={navQuery}
+              onChange={setNavQuery}
+              placeholder={t('appShell.searchNavPlaceholder', 'Search...')}
+              aria-label={t('appShell.searchNavAria', 'Search navigation')}
+              clearLabel={t('appShell.searchNavClear', 'Clear search')}
+              className="mb-2"
+            />
+          </div>
         )}
-        <div data-sidebar-scroll="true" className={`flex flex-1 flex-col gap-3 overflow-y-auto scrollbar-hide pr-1 ${compact ? '-ml-2 pl-2' : '-ml-3 pl-3'}`}>
+        <div data-sidebar-scroll="true" className="flex flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto scrollbar-hide">
           <nav className="flex flex-col gap-2">
           {sortedSections.map((section, sectionIndex) => {
             const sectionNavQueryActive = hideSearch ? false : navQueryActive
@@ -902,6 +1011,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                       )}
                     </span>
                     {!compact && <span className="truncate">{label}</span>}
+                    <NavItemBadge href={item.href} compact={compact} />
                   </Link>
                   {showChildren ? childItems.map((child) => renderSectionItem(child, depth + 1)) : null}
                 </React.Fragment>
@@ -909,7 +1019,11 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
             }
 
             return (
-              <div key={section.id}>
+              <div
+                key={section.id}
+                className={`${blockPadding} ${sectionIndex !== lastVisibleIndex ? 'border-b pb-2' : ''}`}
+                data-sidebar-group="true"
+              >
                 {!compact && (
                   <Button
                     variant="muted"
@@ -926,7 +1040,6 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                     {sortedItems.map((item) => renderSectionItem(item))}
                   </div>
                 )}
-                {sectionIndex !== lastVisibleIndex && <div className={`my-2 border-t ${compact ? '-ml-2 -mr-3' : '-ml-3 -mr-4'}`} />}
               </div>
             )
           })}
@@ -937,9 +1050,12 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   }
 
   function renderSidebar(compact: boolean, hideHeader?: boolean, forceMainOnly?: boolean) {
+    const blockPadding = sidebarBlockPadding(compact)
+    const injectionWrapper = sidebarInjectionWrapper(compact)
+
     if (!isChromeReady && isChromeLoading) {
       return (
-        <div className="flex flex-col min-h-full gap-3" data-testid="backend-chrome-loading">
+        <div className={`flex min-h-full flex-col gap-3 ${blockPadding}`} data-testid="backend-chrome-loading">
           {!hideHeader ? (
             <div className="mb-2">
               <Link
@@ -952,7 +1068,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
               </Link>
             </div>
           ) : null}
-          <div className="flex flex-1 flex-col gap-3 pr-1">
+          <div className="flex flex-1 flex-col gap-3">
             <div className="space-y-3">
               <div className="h-8 rounded bg-muted/50" />
               <div className="space-y-2 pl-1">
@@ -1007,7 +1123,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     return (
       <div className="flex h-full flex-col gap-3">
         {!hideHeader && (
-          <div className="mb-2">
+          <div className={`mb-2 ${blockPadding}`}>
             <Link
               href="/backend"
               className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
@@ -1019,22 +1135,26 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           </div>
         )}
         {shouldRenderSidebarInjectionSpots ? (
-          <InjectionSpot
-            spotId={BACKEND_SIDEBAR_TOP_INJECTION_SPOT_ID}
-            context={injectionContext}
-          />
+          <div className={injectionWrapper} data-sidebar-injection-wrapper="true">
+            <InjectionSpot
+              spotId={BACKEND_SIDEBAR_TOP_INJECTION_SPOT_ID}
+              context={injectionContext}
+            />
+          </div>
         ) : null}
         {!compact && (
-          <SearchInput
-            value={navQuery}
-            onChange={setNavQuery}
-            placeholder={t('appShell.searchNavPlaceholder', 'Search...')}
-            aria-label={t('appShell.searchNavAria', 'Search navigation')}
-            clearLabel={t('appShell.searchNavClear', 'Clear search')}
-            className="mb-2"
-          />
+          <div className={blockPadding}>
+            <SearchInput
+              value={navQuery}
+              onChange={setNavQuery}
+              placeholder={t('appShell.searchNavPlaceholder', 'Search...')}
+              aria-label={t('appShell.searchNavAria', 'Search navigation')}
+              clearLabel={t('appShell.searchNavClear', 'Clear search')}
+              className="mb-2"
+            />
+          </div>
         )}
-        <div data-sidebar-scroll="true" className={`flex flex-1 flex-col gap-3 overflow-y-auto scrollbar-hide pr-1 ${compact ? '-ml-2 pl-2' : '-ml-3 pl-3'}`}>
+        <div data-sidebar-scroll="true" className="flex flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto scrollbar-hide">
           {(() => {
               const isSettingsPath = (href: string) => {
                 if (href === '/backend/settings') return true
@@ -1063,10 +1183,12 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                 <>
                   <nav className="flex flex-col gap-2" data-testid="sidebar">
                     {shouldRenderSidebarInjectionSpots ? (
-                      <InjectionSpot
-                        spotId={BACKEND_SIDEBAR_NAV_INJECTION_SPOT_ID}
-                        context={injectionContext}
-                      />
+                      <div className={injectionWrapper} data-sidebar-injection-wrapper="true">
+                        <InjectionSpot
+                          spotId={BACKEND_SIDEBAR_NAV_INJECTION_SPOT_ID}
+                          context={injectionContext}
+                        />
+                      </div>
                     ) : null}
                     {mainGroups.map((g, gi) => {
                       const groupId = resolveGroupKey(g)
@@ -1080,7 +1202,11 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                       })
                       if (visibleItems.length === 0) return null
                       return (
-                        <div key={groupId}>
+                        <div
+                          className={`${blockPadding} ${gi !== mainLastVisibleGroupIndex ? 'border-b pb-2' : ''}`}
+                          key={groupId}
+                          data-sidebar-group="true"
+                        >
                           {!compact && (
                             <Button
                               variant="muted"
@@ -1173,7 +1299,6 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                               })}
                             </div>
                           )}
-                          {gi !== mainLastVisibleGroupIndex && <div className={`my-2 border-t ${compact ? '-ml-2 -mr-3' : '-ml-3 -mr-4'}`} />}
                         </div>
                       )
                     })}
@@ -1182,7 +1307,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
               )
             })()}
         </div>
-        <div className="sticky bottom-0 bg-background pb-1">
+        <div className={`sticky bottom-0 bg-background pb-1 ${injectionWrapper}`} data-sidebar-injection-wrapper="true">
           {shouldRenderSidebarInjectionSpots ? (
             <InjectionSpot
               spotId={BACKEND_SIDEBAR_NAV_FOOTER_INJECTION_SPOT_ID}
@@ -1227,15 +1352,17 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     if (!sections) return null
     return (
       <div className="flex h-full flex-col gap-2">
-        <Link
-          href="/backend"
-          className="inline-flex items-center gap-2 rounded-lg px-2 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-muted"
-          data-testid="appshell-section-back-to-main"
-          aria-label={t('backend.nav.backToMain', 'Back to Main')}
-        >
-          <ChevronLeft className="size-4 shrink-0" aria-hidden />
-          <span className="truncate">{title}</span>
-        </Link>
+        <div className={sidebarBlockPadding(false)}>
+          <Link
+            href="/backend"
+            className="inline-flex items-center gap-2 rounded-lg px-2 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-muted"
+            data-testid="appshell-section-back-to-main"
+            aria-label={t('backend.nav.backToMain', 'Back to Main')}
+          >
+            <ChevronLeft className="size-4 shrink-0" aria-hidden />
+            <span className="truncate">{title}</span>
+          </Link>
+        </div>
         <div className="min-h-0 flex-1">
           {renderSectionSidebar(sections, title, false, true, true)}
         </div>
@@ -1287,10 +1414,26 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
 
   return (
     <HeaderContext.Provider value={headerCtxValue}>
+    <SidebarCollapseContext.Provider value={sidebarCollapseValue}>
     <div
       className={`relative min-h-svh lg:grid transition-[grid-template-columns] duration-200 ease-out ${gridColsClass}`}
-      style={{ '--topbar-height': '61px' } as React.CSSProperties}
+      style={{
+        '--topbar-height': '61px',
+        // Left offset of the content column (sidebar, plus the section sidebar on
+        // settings/profile routes). Exposed so full-bleed pages — e.g. the
+        // workflow visual editor — can size themselves to the content column with
+        // `calc(100vw - var(--app-content-offset))` instead of being capped by
+        // `main`'s centered max-width. Only meaningful at `lg` and up, where the
+        // grid (and the sidebar) is active.
+        '--app-content-offset': isSectionView ? `calc(${asideWidth} + 240px)` : asideWidth,
+      } as React.CSSProperties}
     >
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-tooltip focus:rounded-md focus:border focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-focus"
+      >
+        {t('appShell.skipToMainContent', 'Skip to main content')}
+      </a>
       {/* Desktop sidebar collapse/expand toggle — sits on the divider line between
           sidebar and content, like Notion/Vercel. Hidden on mobile (hamburger in
           topbar handles the drawer). */}
@@ -1304,7 +1447,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
         {effectiveCollapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
       </button>
       {/* Desktop main sidebar */}
-      <aside ref={sidebarAsideRef} className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block lg:sticky lg:top-0 lg:h-svh lg:self-start lg:overflow-hidden lg:relative transition-[width,padding] duration-200 ease-out`} style={{ width: asideWidth }}>
+      <aside ref={sidebarAsideRef} className={`${asideClassesBase} px-0 hidden lg:block lg:sticky lg:top-0 lg:h-svh lg:self-start lg:overflow-hidden lg:relative transition-[width] duration-200 ease-out`} style={{ width: asideWidth }}>
         {renderSidebar(effectiveCollapsed, false, isSectionView)}
         {/* Scroll affordance — gradient fade + clickable chevron that flips up when
             the user reaches the bottom and disappears when nothing is scrollable
@@ -1349,7 +1492,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           original swap behavior to fit the narrow width. */}
       {isSectionView ? (
         <aside
-          className={`${asideClassesBase} px-3 hidden lg:block lg:sticky lg:top-0 lg:h-svh lg:self-start lg:overflow-hidden lg:relative`}
+          className={`${asideClassesBase} px-0 hidden lg:block lg:sticky lg:top-0 lg:h-svh lg:self-start lg:overflow-hidden lg:relative`}
           style={{ width: '240px' }}
           data-testid="appshell-section-sidebar"
         >
@@ -1466,7 +1609,8 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           </div>
         </header>
         <ProgressTopBar t={t} className="sticky top-0 z-sticky" completedAutoHideMs={progressCompletedAutoHideMs} />
-        <main className="flex-1 p-4 lg:p-6 mx-auto w-full max-w-screen-2xl">
+        <main id="main-content" tabIndex={-1} className="flex-1 p-4 lg:p-6 mx-auto w-full max-w-screen-2xl">
+          <InjectionSpot spotId={BACKEND_NAV_BADGES_INJECTION_SPOT_ID} context={injectionContext} />
           <InjectionSpot spotId={BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID} context={injectionContext} />
           <FlashMessages />
           <PartialIndexBanner />
@@ -1571,7 +1715,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                   ? `mobile-drawer-tab-${mobileDrawerView === 'main' ? 'main' : 'section'}`
                   : undefined
               }
-              className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3"
+              className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-3"
             >
               {/* Force expanded sidebar in mobile drawer, hide its header and collapse toggle */}
               {renderSidebar(false, true, mobileDrawerView === 'main')}
@@ -1581,6 +1725,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
       )}
     </div>
     <UmesDevToolsPanel />
+    </SidebarCollapseContext.Provider>
     </HeaderContext.Provider>
   )
 }

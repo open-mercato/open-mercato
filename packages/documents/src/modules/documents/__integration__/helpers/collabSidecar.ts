@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 
 /**
@@ -26,6 +27,28 @@ function formatSidecarOutput(chunks: string[]): string {
   return chunks.join('').trim().slice(-4_000)
 }
 
+/**
+ * Resolve the sidecar entry from the APP under test rather than from a fixed monorepo
+ * path. The standalone lane drives a scaffolded app that installs `@open-mercato/*` from
+ * npm, so the monorepo `packages/documents/dist` build is both a different copy and a
+ * different resolution root: running it against that app root would load two copies of
+ * `@open-mercato/shared` (DI container, entity metadata) into one process. Resolving
+ * through the app's own `package.json` keeps the sidecar on exactly the code the app
+ * runs — and in the monorepo it resolves through the workspace link back to the same
+ * `packages/documents/dist` file this helper used before, so that lane is unchanged.
+ */
+function resolveSidecarEntry(appRoot: string): { entry: string; cwd: string } {
+  try {
+    const requireFromApp = createRequire(path.join(appRoot, 'package.json'))
+    return { entry: requireFromApp.resolve('@open-mercato/documents/collab-server'), cwd: appRoot }
+  } catch {
+    return {
+      entry: path.resolve(process.cwd(), 'packages/documents/dist/server/documents-collab-server.js'),
+      cwd: process.cwd(),
+    }
+  }
+}
+
 async function stopSidecarProcess(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return
   child.kill('SIGTERM')
@@ -50,10 +73,10 @@ export async function startManagedCollabSidecar(baseUrl: string): Promise<Manage
 
   const port = collabUrl.port || '80'
   const appRoot = process.env.OM_TEST_APP_ROOT?.trim() || path.resolve(process.cwd(), 'apps/mercato')
-  const serverEntry = path.resolve(process.cwd(), 'packages/documents/dist/server/documents-collab-server.js')
+  const { entry: serverEntry, cwd: serverCwd } = resolveSidecarEntry(appRoot)
   const output: string[] = []
   const child = spawn(process.execPath, [serverEntry], {
-    cwd: process.cwd(),
+    cwd: serverCwd,
     env: {
       ...process.env,
       NODE_ENV: 'production',

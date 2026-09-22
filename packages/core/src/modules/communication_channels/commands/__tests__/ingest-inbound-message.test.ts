@@ -25,6 +25,8 @@ import ingestInboundMessageCommand, {
   type IngestInboundMessageInput,
 } from '../ingest-inbound-message'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveCommunicationChannelsSystemUserId } from '../../lib/system-user'
+import { composeMessageSchema } from '../../../messages/data/validators'
 
 const mockIngestFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
 
@@ -350,5 +352,607 @@ describe('ingestInboundMessageCommand — concurrent-insert race (M3)', () => {
 
     const result = await ingestInboundMessageCommand.execute(input as never, ctx)
     expect(result.status).toBe('duplicate')
+  })
+})
+describe('ingestInboundMessageCommand — non-email sender identity (#4975)', () => {
+  function makeCtx() {
+    const em: any = {
+      create: jest.fn((_entity: unknown, data: Record<string, any>) => ({
+        id: '550e8400-e29b-41d4-a716-446655440050',
+        ...data,
+      })),
+      persist: jest.fn(),
+      flush: jest.fn().mockResolvedValue(undefined),
+      getConnection: () => ({ execute: jest.fn().mockResolvedValue([]) }),
+    }
+    em.fork = () => em
+    const adapter = { providerKey: 'discord' }
+    const commandBus = {
+      execute: jest.fn(async () => ({ result: { id: 'msg-1', threadId: 'thread-1' } })),
+    }
+    return {
+      ctx: {
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return em
+            if (name === 'channelAdapterRegistry') return { get: () => adapter }
+            if (name === 'commandBus') return commandBus
+            return null
+          },
+        },
+      } as any,
+      commandBus,
+    }
+  }
+
+  function discordInput(): IngestInboundMessageInput {
+    return {
+      channelId: '550e8400-e29b-41d4-a716-446655440040',
+      providerKey: 'discord',
+      channelType: 'discord',
+      scope: {
+        tenantId: '550e8400-e29b-41d4-a716-446655440020',
+        organizationId: '550e8400-e29b-41d4-a716-446655440030',
+      },
+      message: {
+        externalMessageId: 'discord-message-1',
+        externalConversationId: '1534331920463433771',
+        // A Discord snowflake, exactly as the gateway produces it — no address.
+        senderIdentifier: '1499156851487539260',
+        senderDisplayName: 'Karol Kapsa',
+        body: 'Kolejna wiadomość testowa!@',
+        bodyFormat: 'text',
+        timestamp: new Date(),
+        channelPayload: {},
+        channelContentType: 'text/plain',
+        channelMetadata: {},
+      },
+    } as IngestInboundMessageInput
+  }
+
+  function primeLookups(): void {
+    mockIngestFindOne.mockReset()
+    mockIngestFindOne
+      .mockResolvedValueOnce(null as never) // existingExternal — first delivery
+      .mockResolvedValueOnce({
+        id: 'ch-1',
+        isActive: true,
+        providerKey: 'discord',
+        channelType: 'discord',
+        userId: '550e8400-e29b-41d4-a716-446655440077',
+      } as never) // channel
+      .mockResolvedValueOnce(null as never) // conversation → create
+      .mockResolvedValueOnce(null as never) // mapping → create
+      .mockResolvedValue(null as never)
+  }
+
+  it('passes the channel type to the compose command so the hub can waive externalEmail', async () => {
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(discordInput() as never, ctx)
+
+    const composeCall = commandBus.execute.mock.calls.find(
+      (call: unknown[]) => call[0] === 'messages.messages.compose',
+    )
+    expect(composeCall).toBeDefined()
+    const composeInput = (composeCall as any[])[1].input as Record<string, unknown>
+    expect(composeInput.sourceChannelType).toBe('discord')
+    expect(composeInput.externalEmail).toBeUndefined()
+  })
+
+  it('produces a compose payload the messages validator accepts with no address', async () => {
+    // The regression this pins: before #4975 this exact payload failed
+    // `externalEmail is required when visibility is public`, the ingest job
+    // retried three times and died, and no inbound Discord message ever landed.
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(discordInput() as never, ctx)
+
+    const composeCall = commandBus.execute.mock.calls.find(
+      (call: unknown[]) => call[0] === 'messages.messages.compose',
+    )
+    const composeInput = (composeCall as any[])[1].input as Record<string, unknown>
+    const parsed = composeMessageSchema.safeParse(composeInput)
+
+    expect(parsed.success).toBe(true)
+  })
+
+  it('still demands an address on an email-typed channel', async () => {
+    mockIngestFindOne.mockReset()
+    mockIngestFindOne
+      .mockResolvedValueOnce(null as never)
+      .mockResolvedValueOnce({
+        id: 'ch-1',
+        isActive: true,
+        providerKey: 'gmail',
+        channelType: 'email',
+        userId: 'u-1',
+      } as never)
+      .mockResolvedValueOnce(null as never)
+      .mockResolvedValueOnce(null as never)
+      .mockResolvedValue(null as never)
+    const { ctx, commandBus } = makeCtx()
+
+    const input = { ...discordInput(), providerKey: 'gmail', channelType: 'email' }
+    await ingestInboundMessageCommand.execute(input as never, ctx)
+
+    const composeCall = commandBus.execute.mock.calls.find(
+      (call: unknown[]) => call[0] === 'messages.messages.compose',
+    )
+    const composeInput = (composeCall as any[])[1].input as Record<string, unknown>
+    expect(composeInput.sourceChannelType).toBe('email')
+    const parsed = composeMessageSchema.safeParse(composeInput)
+    expect(parsed.success).toBe(false)
+    expect(
+      parsed.error?.issues.some((issue) => issue.path[0] === 'externalEmail'),
+    ).toBe(true)
+  })
+})
+
+describe('ingestInboundMessageCommand — assigned conversation (#6093)', () => {
+  const assigneeId = '550e8400-e29b-41d4-a716-446655440099'
+
+  function makeCtx() {
+    const em: any = {
+      create: jest.fn((_entity: unknown, data: Record<string, any>) => ({
+        id: '550e8400-e29b-41d4-a716-446655440050',
+        ...data,
+      })),
+      persist: jest.fn(),
+      flush: jest.fn().mockResolvedValue(undefined),
+      getConnection: () => ({ execute: jest.fn().mockResolvedValue([]) }),
+    }
+    em.fork = () => em
+    const commandBus = {
+      execute: jest.fn(async () => ({ result: { id: 'msg-2', threadId: 'thread-1' } })),
+    }
+    return {
+      ctx: {
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return em
+            if (name === 'channelAdapterRegistry') return { get: () => ({ providerKey: 'gmail' }) }
+            if (name === 'commandBus') return commandBus
+            return null
+          },
+        },
+      } as any,
+      commandBus,
+    }
+  }
+
+  function emailInput(): IngestInboundMessageInput {
+    return {
+      channelId: '550e8400-e29b-41d4-a716-446655440040',
+      providerKey: 'gmail',
+      channelType: 'email',
+      scope: {
+        tenantId: '550e8400-e29b-41d4-a716-446655440020',
+        organizationId: '550e8400-e29b-41d4-a716-446655440030',
+      },
+      message: {
+        externalMessageId: 'gmail-message-2',
+        externalConversationId: 'thread-abc',
+        senderIdentifier: 'alice@example.com',
+        senderDisplayName: 'Alice',
+        subject: 'Re: Quote',
+        body: 'Please go ahead.',
+        bodyFormat: 'text',
+        timestamp: new Date(),
+        channelPayload: {},
+        channelContentType: 'email/mime',
+        channelMetadata: {},
+      },
+    } as IngestInboundMessageInput
+  }
+
+  function primeLookups(mapping: Record<string, unknown> | null, channelUserId: string | null = 'u-1'): void {
+    mockIngestFindOne.mockReset()
+    mockIngestFindOne
+      .mockResolvedValueOnce(null as never) // existingExternal — first delivery
+      .mockResolvedValueOnce({
+        id: 'ch-1',
+        isActive: true,
+        providerKey: 'gmail',
+        channelType: 'email',
+        userId: channelUserId,
+      } as never) // channel
+      .mockResolvedValueOnce({
+        id: '550e8400-e29b-41d4-a716-446655440061',
+        channelId: '550e8400-e29b-41d4-a716-446655440040',
+        externalConversationId: 'thread-abc',
+        lastMessageAt: new Date('2026-06-01T00:00:00Z'),
+      } as never) // existing conversation
+      .mockResolvedValueOnce(mapping as never) // existing thread mapping
+      .mockResolvedValue(null as never)
+  }
+
+  function composeInputOf(commandBus: { execute: jest.Mock }): Record<string, unknown> {
+    const composeCall = commandBus.execute.mock.calls.find(
+      (call: unknown[]) => call[0] === 'messages.messages.compose',
+    )
+    expect(composeCall).toBeDefined()
+    return (composeCall as any[])[1].input as Record<string, unknown>
+  }
+
+  it('addresses the message to the assigned user and marks it as channel-inbound', async () => {
+    primeLookups({ id: 'map-1', assignedUserId: assigneeId, messageThreadId: '550e8400-e29b-41d4-a716-446655440071' })
+    const { ctx, commandBus } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(emailInput() as never, ctx)
+
+    const composeInput = composeInputOf(commandBus)
+    expect(composeInput.recipients).toEqual([{ userId: assigneeId, type: 'to' }])
+    expect(composeInput.inboundFromChannel).toBe(true)
+  })
+
+  it('produces a compose payload the messages validator accepts once the conversation is assigned', async () => {
+    // The regression this pins: before #6093 this exact payload failed
+    // `recipients must be empty when visibility is public`, the worker logged
+    // "permanent ingest failure; skipping message", and every reply after the
+    // conversation was assigned (e.g. by replying from the panel) was dropped.
+    primeLookups({ id: 'map-1', assignedUserId: assigneeId, messageThreadId: '550e8400-e29b-41d4-a716-446655440071' })
+    const { ctx, commandBus } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(emailInput() as never, ctx)
+
+    // Contact resolution is mocked out above; supply the address the adapter
+    // would have resolved so only the recipients rule is under test.
+    const parsed = composeMessageSchema.safeParse({
+      ...composeInputOf(commandBus),
+      externalEmail: 'alice@example.com',
+    })
+    expect(parsed.success).toBe(true)
+  })
+
+  it('still composes an unassigned conversation on a tenant-wide channel with no recipients', async () => {
+    primeLookups({ id: 'map-1', assignedUserId: null, messageThreadId: '550e8400-e29b-41d4-a716-446655440071' }, null)
+    const { ctx, commandBus } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(emailInput() as never, ctx)
+
+    const composeInput = composeInputOf(commandBus)
+    expect(composeInput.recipients).toEqual([])
+    expect(composeInput.inboundFromChannel).toBe(true)
+  })
+})
+
+describe('ingestInboundMessageCommand — per-user channel owner is the default assignee (#6106)', () => {
+  const ownerId = '550e8400-e29b-41d4-a716-446655440088'
+  const assigneeId = '550e8400-e29b-41d4-a716-446655440099'
+  const conversationId = '550e8400-e29b-41d4-a716-446655440061'
+
+  function makeCtx() {
+    const created: Array<{ data: Record<string, any> }> = []
+    const em: any = {
+      create: jest.fn((_entity: unknown, data: Record<string, any>) => {
+        const row = { id: '550e8400-e29b-41d4-a716-446655440050', ...data }
+        created.push({ data: row })
+        return row
+      }),
+      persist: jest.fn(),
+      flush: jest.fn().mockResolvedValue(undefined),
+      getConnection: () => ({ execute: jest.fn().mockResolvedValue([]) }),
+    }
+    em.fork = () => em
+    const commandBus = {
+      execute: jest.fn(async () => ({ result: { id: 'msg-3', threadId: 'thread-3' } })),
+    }
+    return {
+      created,
+      commandBus,
+      ctx: {
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return em
+            if (name === 'channelAdapterRegistry') return { get: () => ({ providerKey: 'discord' }) }
+            if (name === 'commandBus') return commandBus
+            return null
+          },
+        },
+      } as any,
+    }
+  }
+
+  function discordInput(): IngestInboundMessageInput {
+    return {
+      channelId: '550e8400-e29b-41d4-a716-446655440040',
+      providerKey: 'discord',
+      channelType: 'discord',
+      scope: {
+        tenantId: '550e8400-e29b-41d4-a716-446655440020',
+        organizationId: '550e8400-e29b-41d4-a716-446655440030',
+      },
+      message: {
+        externalMessageId: '1550017981365358683',
+        externalConversationId: 'discord:1541039457296326710',
+        senderIdentifier: '1465576843796156549',
+        senderDisplayName: 'Discord user',
+        body: 'hello from discord',
+        bodyFormat: 'text',
+        timestamp: new Date(),
+        channelPayload: {},
+        channelContentType: 'discord/message',
+        channelMetadata: {},
+      },
+    } as IngestInboundMessageInput
+  }
+
+  function primeLookups(options: {
+    channelUserId: string | null
+    conversation: Record<string, unknown> | null
+    mapping: Record<string, unknown> | null
+  }): void {
+    mockIngestFindOne.mockReset()
+    mockIngestFindOne
+      .mockResolvedValueOnce(null as never)
+      .mockResolvedValueOnce({
+        id: 'ch-1',
+        isActive: true,
+        providerKey: 'discord',
+        channelType: 'discord',
+        userId: options.channelUserId,
+      } as never)
+      .mockResolvedValueOnce(options.conversation as never)
+      .mockResolvedValueOnce(options.mapping as never)
+      .mockResolvedValue(null as never)
+  }
+
+  function composeInputOf(commandBus: { execute: jest.Mock }): Record<string, any> {
+    const composeCall = commandBus.execute.mock.calls.find(
+      (call: unknown[]) => call[0] === 'messages.messages.compose',
+    )
+    expect(composeCall).toBeDefined()
+    return (composeCall as any[])[1].input as Record<string, any>
+  }
+
+  function createdWith(created: Array<{ data: Record<string, any> }>, key: string): Record<string, any> | undefined {
+    return created.map((entry) => entry.data).find((row) => key in row)
+  }
+
+  it('addresses the first message of a thread to the channel owner and assigns the new thread to them', async () => {
+    primeLookups({ channelUserId: ownerId, conversation: null, mapping: null })
+    const { ctx, commandBus, created } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(discordInput() as never, ctx)
+
+    const composeInput = composeInputOf(commandBus)
+    expect(composeInput.recipients).toEqual([{ userId: ownerId, type: 'to' }])
+    expect(composeInput.inboundFromChannel).toBe(true)
+    expect(createdWith(created, 'lastMessageAt')?.assignedUserId).toBe(ownerId)
+    expect(createdWith(created, 'externalThreadRef')?.assignedUserId).toBe(ownerId)
+    const parsed = composeMessageSchema.safeParse(composeInput)
+    expect(parsed.success).toBe(true)
+  })
+
+  it('routes a later message on an unassigned legacy thread to the channel owner', async () => {
+    primeLookups({
+      channelUserId: ownerId,
+      conversation: { id: conversationId, lastMessageAt: new Date('2026-06-01T00:00:00Z') },
+      mapping: { id: 'map-1', assignedUserId: null, messageThreadId: '550e8400-e29b-41d4-a716-446655440071' },
+    })
+    const { ctx, commandBus, created } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(discordInput() as never, ctx)
+
+    expect(composeInputOf(commandBus).recipients).toEqual([{ userId: ownerId, type: 'to' }])
+    expect(createdWith(created, 'externalThreadRef')).toBeUndefined()
+    const senderFallback = (resolveCommunicationChannelsSystemUserId as jest.Mock).mock.calls.at(-1)?.[2]
+    expect(senderFallback).toBeNull()
+  })
+
+  it('keeps a manual assignment authoritative over the channel owner', async () => {
+    primeLookups({
+      channelUserId: ownerId,
+      conversation: { id: conversationId, lastMessageAt: new Date('2026-06-01T00:00:00Z') },
+      mapping: { id: 'map-1', assignedUserId: assigneeId, messageThreadId: '550e8400-e29b-41d4-a716-446655440071' },
+    })
+    const { ctx, commandBus } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(discordInput() as never, ctx)
+
+    expect(composeInputOf(commandBus).recipients).toEqual([{ userId: assigneeId, type: 'to' }])
+  })
+
+  it('leaves a tenant-wide channel unassigned and without recipients', async () => {
+    primeLookups({ channelUserId: null, conversation: null, mapping: null })
+    const { ctx, commandBus, created } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(discordInput() as never, ctx)
+
+    expect(composeInputOf(commandBus).recipients).toEqual([])
+    expect(createdWith(created, 'lastMessageAt')?.assignedUserId).toBeNull()
+    expect(createdWith(created, 'externalThreadRef')?.assignedUserId).toBeNull()
+  })
+})
+
+describe('ingestInboundMessageCommand — HTML body normalization', () => {
+  function makeCtx() {
+    const em: any = {
+      create: jest.fn((_entity: unknown, data: Record<string, any>) => ({ ...data })),
+      persist: jest.fn(),
+      flush: jest.fn().mockResolvedValue(undefined),
+      getConnection: () => ({ execute: jest.fn().mockResolvedValue([]) }),
+    }
+    em.fork = () => em
+    const commandBus = {
+      execute: jest.fn(async () => ({ result: { id: 'msg-1', threadId: 'thread-1' } })),
+    }
+    return {
+      ctx: {
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return em
+            if (name === 'channelAdapterRegistry') return { get: () => ({ providerKey: 'imap' }) }
+            if (name === 'commandBus') return commandBus
+            return null
+          },
+        },
+      } as any,
+      commandBus,
+    }
+  }
+
+  function makeInput(
+    body: string,
+    bodyFormat: 'text' | 'html',
+    channelPayload: Record<string, unknown> = {},
+  ): IngestInboundMessageInput {
+    return {
+      channelId: '550e8400-e29b-41d4-a716-446655440040',
+      providerKey: 'imap',
+      channelType: 'email',
+      scope: {
+        tenantId: '550e8400-e29b-41d4-a716-446655440020',
+        organizationId: '550e8400-e29b-41d4-a716-446655440030',
+      },
+      message: {
+        externalMessageId: 'ext-html-1',
+        externalConversationId: 'conv-1',
+        senderIdentifier: 'jane@example.com',
+        body,
+        bodyFormat,
+        timestamp: new Date(),
+        channelPayload,
+        channelContentType: 'email/mime',
+        channelMetadata: {},
+      },
+    } as IngestInboundMessageInput
+  }
+
+  function primeLookups() {
+    mockIngestFindOne.mockReset()
+    mockIngestFindOne
+      .mockResolvedValueOnce(null as never) // no duplicate ExternalMessage
+      .mockResolvedValueOnce({
+        id: 'ch-1',
+        isActive: true,
+        providerKey: 'imap',
+        channelType: 'email',
+        userId: 'u-1',
+      } as never) // channel
+      .mockResolvedValue(null as never) // conversation + mapping → created
+  }
+
+  function composedInput(commandBus: { execute: jest.Mock }) {
+    const call = commandBus.execute.mock.calls.find(([commandId]) => commandId === 'messages.messages.compose')
+    expect(call).toBeDefined()
+    return (call as unknown[])[1] as { input: { body: string; bodyFormat: string } }
+  }
+
+  it('converts an HTML body to plain text instead of relabelling it as text', async () => {
+    // `messages` renders bodies as plain text, so an HTML body that is merely
+    // relabelled surfaces raw markup (doctype, <style> blocks) in the inbox.
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+    const html = [
+      '<!DOCTYPE html><html><head>',
+      '<style>body { margin: 0; font-size: 14px; }</style>',
+      '<script>console.log("tracking")</script>',
+      '</head><body><p>Cześć,</p><p>w nawiązaniu do spotkania.</p></body></html>',
+    ].join('')
+
+    await ingestInboundMessageCommand.execute(makeInput(html, 'html') as never, ctx)
+
+    const { input: composed } = composedInput(commandBus)
+    expect(composed.bodyFormat).toBe('text')
+    expect(composed.body).toContain('Cześć,')
+    expect(composed.body).toContain('w nawiązaniu do spotkania.')
+    expect(composed.body).not.toContain('<!DOCTYPE')
+    expect(composed.body).not.toContain('<p>')
+    expect(composed.body).not.toContain('font-size')
+    expect(composed.body).not.toContain('tracking')
+  })
+
+  it('leaves a plain-text body untouched', async () => {
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(makeInput('Hello!\n\nRegards,\nJane', 'text') as never, ctx)
+
+    const { input: composed } = composedInput(commandBus)
+    expect(composed.bodyFormat).toBe('text')
+    expect(composed.body).toBe('Hello!\n\nRegards,\nJane')
+  })
+
+  it('stores the sender\'s own plain part verbatim for a multipart/alternative email', async () => {
+    // `lib/email-mime.ts` prefers the HTML part when picking `body` but keeps
+    // the text/plain alternative at `channelPayload.text`. That part is what a
+    // human actually composed, so it must beat html-to-text output — which
+    // inlines link URLs, flattens tables and synthesizes list markers.
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+    const plain = 'Cześć,\n\nSzczegóły: https://example.com/order/1234\n\nPozdrawiam,\nJan'
+    const html = '<html><body><p>Cześć,</p><p>Szczegóły: <a href="https://example.com/order/1234">tutaj</a></p><p>Pozdrawiam,<br>Jan</p></body></html>'
+
+    await ingestInboundMessageCommand.execute(
+      makeInput(html, 'html', { html, text: plain }) as never,
+      ctx,
+    )
+
+    const { input: composed } = composedInput(commandBus)
+    expect(composed.bodyFormat).toBe('text')
+    expect(composed.body).toBe(plain)
+    // The conversion artefact the plain part exists to avoid.
+    expect(composed.body).not.toContain('[https://example.com/order/1234]')
+  })
+
+  it('still converts when the sender supplied no usable plain alternative', async () => {
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+    const html = '<html><body><p>HTML only sender</p></body></html>'
+
+    await ingestInboundMessageCommand.execute(
+      makeInput(html, 'html', { html, text: '   ' }) as never,
+      ctx,
+    )
+
+    const { input: composed } = composedInput(commandBus)
+    expect(composed.bodyFormat).toBe('text')
+    expect(composed.body).toBe('HTML only sender')
+  })
+
+  it('bounds the synchronous parse of an oversized HTML body', async () => {
+    // Inbound mail is untrusted and `lib/email-capabilities.ts` allows bodies up
+    // to 5MB, so the whole document used to be parsed before the 50k truncation
+    // could apply. The pre-parse cap bounds that work.
+    //
+    // The padding is a <style> block, which the converter skips — so the marker
+    // that follows it survives truncation and is observable in the composed
+    // body. Without the cap the parser reaches it; with the cap the input is cut
+    // mid-<style> and the marker is never seen.
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+    const cssPadding = '/* padding */ .a { color: #ffffff; }\n'.repeat(20_000)
+    const html = `<html><body><p>Opening line</p><style>${cssPadding}</style><p>MARKER-BEYOND-CAP</p></body></html>`
+    expect(cssPadding.length).toBeGreaterThan(512 * 1024)
+
+    await ingestInboundMessageCommand.execute(makeInput(html, 'html') as never, ctx)
+
+    const { input: composed } = composedInput(commandBus)
+    expect(composed.body).toContain('Opening line')
+    expect(composed.body).not.toContain('MARKER-BEYOND-CAP')
+    expect(composed.body.length).toBeLessThanOrEqual(50_000)
+    // The cap counts markup bytes and the compose-level cap counts text
+    // characters, so this one bites first and the compose-level marker never
+    // fires to cover for it. It must say so itself rather than ending the body
+    // mid-sentence with nothing to tell the reader the rest exists.
+    expect(composed.body).toContain('message truncated by Open Mercato')
+  })
+
+  it('does not mark an HTML body that fits inside the pre-parse cap', async () => {
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(
+      makeInput('<html><body><p>Short enough</p></body></html>', 'html') as never,
+      ctx,
+    )
+
+    const { input: composed } = composedInput(commandBus)
+    expect(composed.body).toContain('Short enough')
+    expect(composed.body).not.toContain('message truncated by Open Mercato')
   })
 })

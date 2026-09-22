@@ -21,7 +21,7 @@ import {
   type FolderRow,
   type CollectionCapabilities,
 } from './documentsListTypes'
-import { readNumber, readRecord } from './documentUi'
+import { readBoolean, readNumber, readRecord } from './documentUi'
 
 export function useDocumentsList() {
   const t = useT()
@@ -36,6 +36,7 @@ export function useDocumentsList() {
   const [pageSize, setPageSize] = React.useState(25)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [archivedFilter, setArchivedFilter] = React.useState<'exclude' | 'include' | 'only'>('exclude')
   const [favoritesOnly, setFavoritesOnly] = React.useState(false)
@@ -73,6 +74,7 @@ export function useDocumentsList() {
         setFolders([])
         setTotal(0)
         setTotalPages(1)
+        setTotalIsCapped(false)
         setCollectionCapabilities(EMPTY_COLLECTION_CAPABILITIES)
         setLoadError(t('documents.list.error.load'))
         return
@@ -86,12 +88,14 @@ export function useDocumentsList() {
       setCollectionCapabilities(normalizeCollectionCapabilities(documentsCall.result))
       setTotal(nextTotal)
       setTotalPages(root ? readNumber(root, 'totalPages', 'total_pages') ?? Math.max(1, Math.ceil(nextTotal / pageSize)) : 1)
+      setTotalIsCapped(root ? readBoolean(root, 'totalIsCapped', 'total_is_capped') ?? false : false)
     }).catch(() => {
       if (requestId.current !== currentRequestId) return
       setRows([])
       setFolders([])
       setTotal(0)
       setTotalPages(1)
+      setTotalIsCapped(false)
       setCollectionCapabilities(EMPTY_COLLECTION_CAPABILITIES)
       setLoadError(t('documents.list.error.load'))
     }).finally(() => {
@@ -297,7 +301,7 @@ export function useDocumentsList() {
 
   return {
     rows, folders, selectedFolderId, setSelectedFolderId, page, setPage, pageSize, setPageSize,
-    total, totalPages, search, setSearch, isLoading, isCreating, loadError, hasTemplates, collectionCapabilities, refresh,
+    total, totalPages, totalIsCapped, search, setSearch, isLoading, isCreating, loadError, hasTemplates, collectionCapabilities, refresh,
     archivedFilter, setArchivedFilter, favoritesOnly, setFavoritesOnly,
     createDocument, deleteDocument, moveDocument, saveFolder, deleteFolder, ConfirmDialogElement,
     toggleFavorite, duplicateDocument, archiveToggle,

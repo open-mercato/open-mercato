@@ -37,6 +37,7 @@ export type TeamMemberFormValues = {
 
 export type TeamMemberFormProps = {
   title: string
+  titleHeadingLevel?: 1 | 2
   submitLabel?: string
   backHref: string
   cancelHref: string
@@ -109,6 +110,7 @@ export const buildTeamMemberPayload = (
 export function TeamMemberForm(props: TeamMemberFormProps) {
   const {
     title,
+    titleHeadingLevel = 2,
     submitLabel,
     backHref,
     cancelHref,
@@ -540,6 +542,7 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
     <CrudForm<TeamMemberFormValues>
       embedded={embedded}
       title={title}
+      titleHeadingLevel={titleHeadingLevel}
       backHref={backHref}
       cancelHref={cancelHref}
       versionHistory={initialValues.id

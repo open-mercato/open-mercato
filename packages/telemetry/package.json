@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/telemetry",
-  "version": "0.6.7",
+  "version": "0.8.0",
   "description": "Vendor-neutral spans, metrics, and error reporting backed by a pluggable OTLP provider. Off by default; the telemetry runtime is loaded only when explicitly enabled.",
   "type": "module",
   "main": "./dist/index.js",
@@ -73,7 +73,7 @@
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.1",
     "@types/jest": "^30.0.0",
-    "@types/node": "^26.1.2",
+    "@types/node": "^26.4.0",
     "@types/react": "^19.2.17",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",

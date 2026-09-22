@@ -239,7 +239,7 @@
   "eudr.lifecycle.amendWindowClosed": "Änderungsfenster geschlossen",
   "eudr.lifecycle.amendWindowRemaining": "Verbleibendes Änderungsfenster: {hours} Std. {minutes} Min.",
   "eudr.lifecycle.confirmArchive": "Erklärung archivieren?",
-  "eudr.lifecycle.confirmArchiveBody": "Die Erklärung wird archiviert.",
+  "eudr.lifecycle.confirmArchiveBody": "Die Erklärung wird archiviert. Archivierte Erklärungen sind schreibgeschützt und können nicht bearbeitet, wiederhergestellt oder gelöscht werden.",
   "eudr.lifecycle.confirmMarkAvailable": "Erklärung als verfügbar markieren?",
   "eudr.lifecycle.confirmMarkAvailableBody": "Referenzdetails sind erforderlich, bevor die Erklärung verfügbar wird.",
   "eudr.lifecycle.confirmReturnToDraft": "Erklärung in Entwurf zurücksetzen?",
@@ -313,7 +313,8 @@
   "eudr.mitigation_actions.update": "EUDR-Minderungsmaßnahme aktualisieren",
   "eudr.nav.group": "Compliance",
   "eudr.nav.mappings": "Produktzuordnungen",
-  "eudr.nav.overview": "Übersicht",
+  "eudr.nav.module": "EUDR",
+  "eudr.nav.overview": "EUDR-Übersicht",
   "eudr.nav.plots": "Parzellen",
   "eudr.nav.riskAssessments": "Risikobewertungen",
   "eudr.nav.statements": "Erklärungen",
@@ -743,5 +744,8 @@
   "eudr.supplierPanel.viewSubmissions": "Einreichungen anzeigen",
   "eudr.supplierPanel.warnings": "Mit Warnungen",
   "eudr.warnings.harvestBeforeCutoff": "Ernte vor dem EUDR-Stichtag",
-  "eudr.warnings.speciesMissing": "Bei einer verknüpften Holz-Zuordnung fehlt der wissenschaftliche oder gebräuchliche Artname"
+  "eudr.warnings.speciesMissing": "Bei einer verknüpften Holz-Zuordnung fehlt der wissenschaftliche oder gebräuchliche Artname",
+  "search.entityType.eudr.eudr_due_diligence_statement": "DDS-Erklärung",
+  "search.entityType.eudr.eudr_evidence_submission": "Nachweiseinreichung",
+  "search.entityType.eudr.eudr_plot": "Parzelle"
 }

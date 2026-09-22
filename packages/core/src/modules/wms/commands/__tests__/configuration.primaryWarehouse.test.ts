@@ -137,6 +137,13 @@ function createCtx(em: ReturnType<typeof createWarehouseStore>['em']) {
         if (name === 'em') {
           return { fork: () => em }
         }
+        if (name === 'dataEngine') {
+          return {
+            setCustomFields: jest.fn().mockResolvedValue(undefined),
+            markOrmEntityChange: jest.fn(),
+            flushOrmEntityChanges: jest.fn().mockResolvedValue(undefined),
+          }
+        }
         throw new Error(`unexpected resolve: ${name}`)
       },
     },

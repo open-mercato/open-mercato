@@ -32,6 +32,7 @@ type TodosResponse = {
   page: number
   pageSize: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 type OrganizationsResponse = {
@@ -264,7 +265,8 @@ export default function TodosTable() {
   return (
     <>
       <DataTable
-        title={t('example.todos.table.title')}
+      title={t('example.todos.table.title')}
+      titleHeadingLevel={1}
         actions={(
           <Button asChild>
             <Link href="/backend/todos/create">{t('example.todos.table.actions.create')}</Link>
@@ -338,6 +340,7 @@ export default function TodosTable() {
           pageSize: 50,
           total: todosData?.total || 0,
           totalPages: todosData?.totalPages || 0,
+          totalIsCapped: todosData?.totalIsCapped === true,
           onPageChange: setPage,
         }}
         isLoading={isLoading}

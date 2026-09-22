@@ -145,6 +145,57 @@ Adapter contract (`data_sync/lib/adapter.ts`) requires:
 - optional `validateConnection(...)`
 - optional `runParameters` — see below
 - optional `persistsSharedCursor(entityType)`
+- optional `supportsStartControl(control, entityType)` — see below
+
+## Honouring cancellation inside a batch
+
+`StreamImportInput` and `StreamExportInput` carry an optional `signal: AbortSignal`. The engine aborts
+it as soon as it observes a cancellation request — including while your generator is still working on a
+batch it has not yielded yet. Without it, Cancel is only observed between batches, so an adapter whose
+batch is a slow page of records makes the operator wait out the whole page while the run holds its
+advisory lock.
+
+```ts
+async function* streamImport({ cursor, signal }: StreamImportInput): AsyncIterable<ImportBatch> {
+  let page = cursor ?? null
+  while (page) {
+    const applied = await applyPage(page)
+    // The return MUST sit above the yield. The engine commits `batch.cursor` for every batch it
+    // receives, so yielding a half-applied page advances the cursor past records that were never
+    // applied — and no later run walks them again.
+    if (signal?.aborted) return
+    // Derive `hasMore` from the source — never hardcode `true`. See below.
+    yield {
+      items: applied.items,
+      cursor: applied.nextPage,
+      hasMore: applied.nextPage !== null,
+      batchIndex: applied.index,
+    }
+    page = applied.nextPage
+  }
+}
+```
+
+Check inside the per-record loop too, not only per page — a page whose records each go through the
+command bus is exactly the case where a batch outlasts the operator's patience. The in-tree adapters
+(`sync_excel`, `sync_akeneo`) do this and are worth copying.
+
+**Your final batch must report `hasMore: false`.** A stream that drained and a stream the adapter
+stopped early on the signal both end the same way — the generator returns — so the engine uses the
+last batch's `hasMore` to tell them apart. An adapter that always reports `true` will have a complete
+run misreported as `cancelled` whenever a cancel lands during the final read, leaving the operator
+told that a finished sync was partial and the run resumable with nothing left to resume.
+
+**The signal is for work that happens before a yield.** If your adapter does meaningful cleanup after
+its last batch — a reconcile pass, a deferred flush — let that cleanup finish rather than abandoning
+it on an abort. Once you have yielded `hasMore: false` you have declared everything delivered, and the
+run finalizes `completed` and is no longer resumable, so work skipped after that point never runs
+again for that cursor.
+
+Release locks and connections in the generator's own `finally` — it runs when the engine closes the
+iterator on an early exit. The signal only reaches work running in the engine's own process: an adapter
+that hands part of a batch to other workers must give that work its own cancellation check. Adapters
+that ignore the signal keep the previous between-batches behavior.
 
 ## Run parameters
 
@@ -171,6 +222,34 @@ For a multi-locale deployment, pair each literal with an i18n key — `labelKey`
 Retrying a run re-normalizes the stored values against the adapter's *current* declaration, so parameters you have since removed or re-scoped are dropped and a value that no longer satisfies its declaration fails the retry with a 422 rather than reaching the adapter.
 
 A recurring schedule cannot yet pin an operator-chosen value, but it does apply your declared defaults: the scheduled worker normalizes an empty input against the current declaration, so a scheduled run reaches the adapter with the same set an untouched dashboard form would rather than an empty object. Write the adapter against its defaults, not against `undefined`. A declared default that violates its own declaration skips the scheduled run with a logged error instead of starting it half-applied.
+
+## Start controls the dashboard renders
+
+Alongside your `runParameters`, the "Run once now" card renders two controls the framework owns: **Run as full sync** and **Batch size**. Whether either one means anything depends on what your adapter does with the value for that entity type, which is something core cannot see. Declare it:
+
+```ts
+const adapter: DataSyncAdapter = {
+  providerKey: 'my_provider',
+  direction: 'import',
+  supportedEntities: ['orders.feed', 'orders.backfill'],
+  supportsStartControl: (control, entityType) =>
+    !(control === 'fullSync' && entityType === 'orders.backfill'),
+  // ...
+}
+```
+
+Only an explicit `false` removes a control, so omitting the hook keeps today's form exactly. Return `false` where the operator's choice reaches you and changes nothing observable:
+
+- **`fullSync`** — for an entity type whose cursor carries identity. If you check whether an arriving cursor is your own and mint a fresh position when it is not, then `fullSync: true` (a `null` cursor) and `fullSync: false` (an inherited one) both start you at the top. The switch's help text promises to *"ignore the saved cursor"*, and an operator who ticks it cannot tell "it had no effect" from "it worked".
+- **`batchSize`** — for an entity type whose paging the source fixes, so the value arrives on `StreamImportInput` / `StreamExportInput` and is ignored.
+
+The predicate is per entity type for the same reason `persistsSharedCursor` is: one adapter commonly serves both an incremental feed and a whole-table backfill, and only one of them has a beginning to restart from.
+
+`GET /api/data_sync/options` evaluates the predicate across your `supportedEntities` and ships the result as a sparse `startControls` map — entity types with no restriction are omitted, so an adapter that declares nothing sends `{}`.
+
+**This changes what the dashboard offers, not what the API accepts.** `POST /api/data_sync/run` still honours both fields whatever you declare, so a script or an API client posting `fullSync: true` gets a `null` start cursor as before.
+
+Do not infer the answer from `persistsSharedCursor`. Where a cursor is stored and whether restarting from scratch is meaningful are independent facts — an entity type kept out of the shared row can still have a genuine beginning — and both are yours to state.
 
 ## Shared cursor vs run-scoped cursor
 

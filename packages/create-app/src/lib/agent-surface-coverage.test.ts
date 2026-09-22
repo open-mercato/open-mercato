@@ -200,7 +200,7 @@ test('business one-shot guidance maps staff record outcomes to canonical complet
   assert.match(blueprint, /Avoid optional locales, standalone widget\/event\/enricher files/)
 })
 
-test('the 235-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
+test('the 237-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
     id: string
     prompt: string
@@ -212,12 +212,12 @@ test('the 235-case catalog routes audited installed-module, runtime, and AI/prov
     frameworkContext?: Array<{ module?: string; package?: string; query: string }>
     source?: { paths?: string[] }
   }>
-  assert.equal(cases.length, 235)
+  assert.equal(cases.length, 237)
   const byId = new Map(cases.map((entry) => [entry.id, entry]))
   const expectations: Record<string, { contexts: string[]; decisions: string[] }> = {
     'OMH-013': { contexts: ['.ai/guides/modules/auth/index.md'], decisions: ['auth-invitation-flow', 'feature-based-declarative-auth', 'session-safe-auth'] },
     'OMH-015': { contexts: ['.ai/guides/modules/content/index.md'], decisions: ['static-content-page', 'localized-copy', 'ssr-friendly-content'] },
-    'OMH-039': { contexts: ['.ai/guides/modules/communication_channels/index.md', '.ai/guides/modules/channel_gmail/index.md', '.ai/guides/modules/channel_imap/index.md'], decisions: ['email-provider-kind', 'channel-adapter-contract', 'structured-logger-redaction'] },
+    'OMH-039': { contexts: ['.ai/guides/modules/communication_channels/index.md', '.ai/guides/modules/channel_gmail/index.md', '.ai/guides/modules/channel_imap/index.md', '.ai/guides/modules/channel_resend/index.md', '.ai/guides/modules/channel_ses/index.md'], decisions: ['email-provider-kind', 'channel-adapter-contract', 'structured-logger-redaction'] },
     'OMH-052': { contexts: ['.ai/guides/modules/attachments/index.md'], decisions: ['attachment-scope-both-or-neither', 'check-attachment-access'] },
     'OMH-087': { contexts: ['.ai/guides/ai-workflows.md', '.ai/guides/modules/api_keys/index.md', '.ai/guides/modules/configs/index.md', '.ai/guides/modules/dictionaries/index.md', '.ai/guides/modules/gateway_stripe/index.md', '.ai/guides/modules/perspectives/index.md', '.ai/guides/modules/resources/index.md', '.ai/guides/modules/sync_akeneo/index.md', '.ai/guides/modules/sync_excel/index.md', '.ai/guides/modules/dashboards/index.md', '.ai/guides/modules/notifications/index.md', '.ai/guides/modules/messages/index.md', '.ai/guides/modules/inbox_ops/index.md', '.ai/guides/modules/ai_assistant/index.md'], decisions: ['mfa-and-sudo-contributions', 'dashboard-notification-message-inbox-surfaces', 'typed-tool-versus-mcp', 'mcp-opencode-code-mode', 'mcp-two-tier-auth'] },
     'OMH-026': { contexts: ['.ai/guides/extensions.md'], decisions: ['facts-first-target', 'bound-crud-form-host', 'correlated-roundtrip'] },
@@ -529,7 +529,7 @@ test('every published case count states the shipped catalog or the portability s
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{ id: string }>
   const validators = JSON.parse(read('shared/ai/harness/validators.json')) as { catalog: { writableCaseIds: string[] } }
   // Any run of lower-case qualifier words may sit between the number and "cases", so shapes like
-  // "49 writable implementation/regression cases" and "235 live-routing cases" are checked too; a
+  // "49 writable implementation/regression cases" and "231 live-routing cases" are checked too; a
   // fixed qualifier list silently skipped them and let a stale count hide in the longer phrasing.
   const statedCounts = /(?<![A-Za-z0-9-])([0-9]+)[ -][a-z/ -]{0,120}cases?\b/g
   const allowed = new Map([

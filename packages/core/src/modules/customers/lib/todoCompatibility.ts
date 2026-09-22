@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
+import { isValidEntityIdShape } from '@open-mercato/shared/lib/query/engine'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import {
   CustomerInteraction,
@@ -78,6 +79,17 @@ export type CanonicalTodoListResult = {
   total: number
 }
 
+function emptyCanonicalTodoList(): CanonicalTodoListResult {
+  return { items: [], bridgeIds: new Set(), total: 0 }
+}
+
+function isCollapsedRestrictedOrganizationScope(
+  organizationIds: string[] | null | undefined,
+  isUnrestricted: boolean | undefined,
+): boolean {
+  return isUnrestricted !== true && (!organizationIds || organizationIds.length === 0)
+}
+
 export type ListTodosPagination = { page: number; pageSize: number }
 
 function resolveLegacyTodoSource(source: string | null | undefined): string {
@@ -87,7 +99,10 @@ function resolveLegacyTodoSource(source: string | null | undefined): string {
 }
 
 function extractTodoTitle(record: Record<string, unknown>): string | null {
-  const candidates = ['title', 'subject', 'name', 'summary', 'text', 'description']
+  // `task_name` / `taskName` carry a workflow user task's name; the query engine
+  // returns the raw column on the ORM path and the camelCase property on the
+  // indexed one, so both spellings are read.
+  const candidates = ['title', 'subject', 'name', 'task_name', 'taskName', 'summary', 'text', 'description']
   for (const key of candidates) {
     const value = record[key]
     if (typeof value === 'string' && value.trim().length > 0) {
@@ -216,6 +231,15 @@ export async function resolveLegacyTodoDetails(
   for (const [source, idSet] of idsBySource.entries()) {
     const ids = Array.from(idSet)
     if (!ids.length) continue
+    if (!isValidEntityIdShape(source)) {
+      // A legacy/malformed `todoSource` (e.g. a bare module name written before
+      // the value was required to be a `module:entity` id) does not resolve to
+      // any real table. Querying it anyway surfaces a raw DB error ("relation
+      // ... does not exist") as a dashboard-wide schema-mismatch banner instead
+      // of just leaving that row's details unresolved.
+      logger.warn('Skipping malformed legacy todo source', { component: 'todoCompatibility', source })
+      continue
+    }
     try {
       const result = await queryEngine.query<Record<string, unknown>>(source as EntityId, {
         tenantId,
@@ -377,8 +401,11 @@ export async function listLegacyTodoRows(
   tenantId: string,
   organizationIds: string[] | null,
   entityId: string | undefined,
-  options?: { limit?: number | null },
+  options?: { limit?: number | null; isUnrestricted?: boolean },
 ): Promise<CustomerTodoRow[]> {
+  if (isCollapsedRestrictedOrganizationScope(organizationIds, options?.isUnrestricted)) {
+    return []
+  }
   const where: Record<string, unknown> = { tenantId }
   if (organizationIds && organizationIds.length > 0) {
     where.organizationId = { $in: organizationIds }
@@ -425,8 +452,12 @@ export async function listCanonicalTodoRows(
     pagination?: ListTodosPagination | null
     searchText?: string | null
     limit?: number | null
+    isUnrestricted?: boolean
   },
 ): Promise<CanonicalTodoListResult> {
+  if (isCollapsedRestrictedOrganizationScope(organizationIds, options?.isUnrestricted)) {
+    return emptyCanonicalTodoList()
+  }
   const where: Record<string, unknown> = {
     tenantId: auth.tenantId,
     interactionType: 'task',

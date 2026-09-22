@@ -12,12 +12,13 @@ import { getEntityRegistryEntry } from '../../../lib/entityRegistry'
 import { formatDateTime } from '../documentUi'
 import type { TemplateRow } from '../components/templateUi'
 
-export function TemplatesTable({ rows, page, pageSize, total, totalPages, search, isLoading, canManageTemplates, onSearchChange, onPageChange, onPageSizeChange, onRefresh, onEdit, onDelete }: {
+export function TemplatesTable({ rows, page, pageSize, total, totalPages, totalIsCapped, search, isLoading, canManageTemplates, onSearchChange, onPageChange, onPageSizeChange, onRefresh, onEdit, onDelete }: {
   rows: TemplateRow[]
   page: number
   pageSize: number
   total: number
   totalPages: number
+  totalIsCapped: boolean
   search: string
   isLoading: boolean
   canManageTemplates: boolean
@@ -39,6 +40,7 @@ export function TemplatesTable({ rows, page, pageSize, total, totalPages, search
   return (
     <DataTable<TemplateRow>
       title={t('documents.templates.list.title')}
+      titleHeadingLevel={1}
       actions={canManageTemplates ? <Button type="button" onClick={() => onEdit(null)}>{t('documents.templates.actions.new')}</Button> : undefined}
       refreshButton={{ label: t('documents.actions.refresh'), onRefresh, isRefreshing: isLoading }}
       columns={columns}
@@ -58,6 +60,7 @@ export function TemplatesTable({ rows, page, pageSize, total, totalPages, search
         pageSize,
         total,
         totalPages,
+        totalIsCapped,
         onPageChange,
         onPageSizeChange,
         pageSizeOptions: [25, 50, 100],

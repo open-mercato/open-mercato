@@ -97,7 +97,7 @@ function resolveSearchService(ctx: CatalogToolContext): SearchServiceLike | null
 const searchProductsInput = z
   .object({
     q: z.string().trim().optional().describe('Optional fulltext query (title / subtitle / sku / handle). Omit or leave empty (or do NOT pass it at all) to list all products. NEVER use "*", "**", or "%" — they are not wildcards and will be discarded.'),
-    limit: z.number().int().min(1).max(100).optional().describe('Page size. Default 50, hard maximum 100. Results are paginated: when `total` exceeds `limit + offset`, call again with the next `offset` instead of asking for more than 100 rows.'),
+    limit: z.number().int().min(1).max(100).optional().describe('Page size. Default 50, hard maximum 100. Results are paginated: keep calling with the next `offset` until a page returns fewer than `limit` items, instead of asking for more than 100 rows. Do not treat `offset >= total` as the end — `total` is a floor when `totalIsCapped` is true.'),
     offset: z.number().int().min(0).optional().describe('Rows to skip for pagination (default 0). Combine with `limit` to fetch subsequent pages — for example offset=100, limit=100 fetches rows 101..200.'),
     categoryId: z.string().optional().describe('Restrict to products assigned to this catalog category UUID. Only use a category ID returned by a previous tool call — do NOT guess. Empty string is treated the same as omitting the field.'),
     priceMin: z.number().optional().describe('Lower-bound (inclusive) on the gross unit price. OMIT this field when you do not want a lower bound — do NOT pass 0 as "no minimum", because 0 is a real bound that combined with priceMax=0 will return only free products.'),
@@ -266,7 +266,7 @@ const searchProductsTool: CatalogAiToolDefinition = {
   displayName: 'Search products',
   description:
     'Hybrid search + filter across tenant products. When `q` is non-empty, routes through the search service (tenant + organization scoped) then hydrates tenant-scoped product summaries; when `q` is empty or omitted, runs the catalog query engine with the supplied filters and returns ALL products. ' +
-    'Pagination: response shape is `{ items, total, limit, offset, source }`. Hard cap is 100 rows per call (`limit` max=100, default=50); if `total` exceeds `limit + offset`, call again with the next `offset` rather than asking for >100. ' +
+    'Pagination: response shape is `{ items, total, totalIsCapped, limit, offset, source }`. Hard cap is 100 rows per call (`limit` max=100, default=50); keep calling with the next `offset` until a page returns fewer than `limit` items, rather than asking for >100. When `totalIsCapped` is true, `total` is a floor — render it as "at least N" and never treat `offset >= total` as exhaustion. ' +
     'Empty / sentinel inputs: pass an empty `q` (or omit it) to list all products. NEVER pass `0` for `priceMin`/`priceMax` to mean "no bound" — `0` is a real numeric bound (priceMin=0 + priceMax=0 returns only free products). To remove a bound, OMIT the field. Empty string `categoryId` and empty `tags` arrays are ignored. ' +
     '`source` in the output indicates which path executed (`search_service` vs `query_engine`).',
   inputSchema: searchProductsInput,

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { parseBooleanFlag } from '@open-mercato/shared/lib/boolean'
 import { sanitizeRichTextHref } from '@open-mercato/shared/lib/html/sanitizeRichText'
+import { channelTypeRequiresExternalEmail } from '../lib/channel-sender-identity'
 
 function collectDuplicateRecipientIds(
   recipients: Array<{ userId: string }>,
@@ -99,13 +100,32 @@ export const messageActionDataSchema = z.object({
   expiresAt: z.string().datetime().optional(),
 })
 
-export const composeMessageSchema = z.object({
+const composeMessageBaseSchema = z.object({
   type: z.string().optional().default('default'),
   visibility: z.enum(['public', 'internal']).nullable().optional(),
   sourceEntityType: z.string().min(1).optional(),
   sourceEntityId: z.string().uuid().optional(),
   externalEmail: z.string().email().optional(),
   externalName: z.string().min(1).max(255).optional(),
+  /**
+   * Channel type the message originates from, when the caller knows it (#4975).
+   * Non-email channels (Discord, Slack, SMS…) have senders with no address, so
+   * `externalEmail` is not required for them. Resolved server-side — the HTTP
+   * route strips any client-sent value and derives it from the referenced
+   * conversation or parent message, so a caller cannot waive the requirement by
+   * asserting its own channel type.
+   */
+  sourceChannelType: z.string().min(1).max(64).optional(),
+  /**
+   * Set by channel ingest for a message that arrived FROM an external channel
+   * (#6093). On such a message `recipients` are not external addressees — a
+   * public message has none — but the internal users the hub routes it to
+   * (the conversation's assignee), so the "no recipients on a public message"
+   * rule does not apply. Server-only like `sourceChannelType`: the HTTP route
+   * strips any client-sent value, so a caller cannot waive the rule by
+   * asserting its message came in from a channel.
+   */
+  inboundFromChannel: z.boolean().optional(),
   recipients: z.array(messageRecipientSchema).max(100).optional().default([]),
   subject: z.string().max(500).optional().default(''),
   body: z.string().max(50000).optional().default(''),
@@ -118,7 +138,14 @@ export const composeMessageSchema = z.object({
   sendViaEmail: z.boolean().optional().default(false),
   parentMessageId: z.string().uuid().optional(),
   isDraft: z.boolean().optional().default(false),
-}).superRefine((value, ctx) => {
+})
+
+type ComposeMessageRefinementValue = Omit<
+  z.infer<typeof composeMessageBaseSchema>,
+  'sourceChannelType'
+> & { sourceChannelType?: string }
+
+function refineComposeMessage(value: ComposeMessageRefinementValue, ctx: z.RefinementCtx): void {
   const isDraft = value.isDraft ?? false
   const visibility = value.visibility ?? 'internal'
   const recipientCount = value.recipients.length
@@ -128,14 +155,21 @@ export const composeMessageSchema = z.object({
 
   if (!isDraft) {
     if (visibility === 'public') {
-      if (!hasExternalEmail) {
+      // #4975: an external correspondent is only guaranteed to have an address
+      // on an email-typed channel. `channelTypeRequiresExternalEmail` fails
+      // closed, so an unknown or absent channel type keeps the original rule.
+      if (!hasExternalEmail && channelTypeRequiresExternalEmail(value.sourceChannelType)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['externalEmail'],
           message: 'externalEmail is required when visibility is public',
         })
       }
-      if (recipientCount > 0) {
+      // #6093: a channel-ingested message is addressed to the assignee of its
+      // conversation; that recipient is internal routing, not a second
+      // external addressee, so only a user-composed public message is bound
+      // by this rule.
+      if (recipientCount > 0 && !value.inboundFromChannel) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['recipients'],
@@ -176,7 +210,27 @@ export const composeMessageSchema = z.object({
   }
 
   validateDefaultWithObjectsPayload(value, ctx)
-})
+}
+
+/**
+ * Full compose contract, including the server-resolved `sourceChannelType` and
+ * the ingest-only `inboundFromChannel`. Used by the `messages.messages.compose`
+ * command and by the HTTP route AFTER it has resolved the channel type itself.
+ */
+export const composeMessageSchema = composeMessageBaseSchema.superRefine(refineComposeMessage)
+
+/**
+ * Client-facing compose contract — the same rules minus the server-only fields:
+ * `sourceChannelType` is never accepted from a request body (#4975) and neither
+ * is `inboundFromChannel` (#6093). Published in OpenAPI so the documented
+ * request shape matches what `POST /api/messages` actually reads: the route
+ * discards any client-sent value for these, resolves the real channel type from
+ * the referenced conversation or parent message, and only then validates
+ * against {@link composeMessageSchema}.
+ */
+export const composeMessageRequestSchema = composeMessageBaseSchema
+  .omit({ sourceChannelType: true, inboundFromChannel: true })
+  .superRefine(refineComposeMessage)
 
 export const updateDraftSchema = z.object({
   type: z.string().optional(),

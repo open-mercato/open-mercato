@@ -67,6 +67,7 @@ export function TemplatesPageClient() {
           pageSize={templates.pageSize}
           total={templates.total}
           totalPages={templates.totalPages}
+          totalIsCapped={templates.totalIsCapped}
           search={templates.search}
           isLoading={templates.isLoading}
           canManageTemplates={templates.canManageTemplates}

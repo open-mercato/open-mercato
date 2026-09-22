@@ -40,6 +40,7 @@ type TroubleshootingGuidesResponse = {
   items?: unknown[]
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
   error?: string
 }
 
@@ -70,6 +71,7 @@ export default function WarrantyTroubleshootingGuidesPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [tabCounts, setTabCounts] = React.useState<Partial<Record<GuideSegment, number>>>({})
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
@@ -155,6 +157,7 @@ export default function WarrantyTroubleshootingGuidesPage() {
         setRows(items.map(normalizeTroubleshootingGuide).filter((row): row is TroubleshootingGuideRecord => row !== null))
         setTotal(typeof call.result?.total === 'number' ? call.result.total : items.length)
         setTotalPages(typeof call.result?.totalPages === 'number' ? call.result.totalPages : 1)
+        setTotalIsCapped(call.result?.totalIsCapped === true)
       } catch (error) {
         if (!cancelled) {
           const message = error instanceof Error
@@ -466,6 +469,7 @@ export default function WarrantyTroubleshootingGuidesPage() {
             pageSize: PAGE_SIZE,
             total,
             totalPages,
+            totalIsCapped,
             onPageChange: setPage,
           }}
           />

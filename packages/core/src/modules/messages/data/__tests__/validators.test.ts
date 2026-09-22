@@ -1,4 +1,10 @@
-import { composeMessageSchema, forwardMessageSchema, messageActionSchema, updateDraftSchema } from '../validators'
+import {
+  composeMessageRequestSchema,
+  composeMessageSchema,
+  forwardMessageSchema,
+  messageActionSchema,
+  updateDraftSchema,
+} from '../validators'
 
 describe('messages validators', () => {
   it('rejects duplicate recipient ids during compose', () => {
@@ -34,6 +40,150 @@ describe('messages validators', () => {
     })
 
     expect(invalidPublicResult.success).toBe(false)
+  })
+
+  describe('conditional externalEmail requirement (#4975, Variant A)', () => {
+    const publicBase = {
+      subject: 'Subject',
+      body: 'Body',
+      visibility: 'public' as const,
+      recipients: [],
+    }
+
+    it('still requires an external email when no channel type is supplied', () => {
+      const result = composeMessageSchema.safeParse(publicBase)
+
+      expect(result.success).toBe(false)
+      expect(result.error?.issues.some((issue) => issue.path[0] === 'externalEmail')).toBe(true)
+    })
+
+    it('still requires an external email for an email-typed channel', () => {
+      const result = composeMessageSchema.safeParse({ ...publicBase, sourceChannelType: 'email' })
+
+      expect(result.success).toBe(false)
+      expect(result.error?.issues.some((issue) => issue.path[0] === 'externalEmail')).toBe(true)
+    })
+
+    it('accepts a public message from a non-email channel with no external email', () => {
+      const result = composeMessageSchema.safeParse({
+        ...publicBase,
+        sourceChannelType: 'discord',
+        externalName: 'Karol Kapsa',
+      })
+
+      expect(result.success).toBe(true)
+    })
+
+    it('accepts a non-email channel message with no sender identity at all', () => {
+      // The identity of a non-email sender lives on `ExternalMessage.sender_identifier`
+      // and is joined to this message through `MessageChannelLink`, so compose must
+      // not invent a second requirement in its place.
+      const result = composeMessageSchema.safeParse({
+        ...publicBase,
+        sourceChannelType: 'discord',
+      })
+
+      expect(result.success).toBe(true)
+    })
+
+    it('fails closed for an unrecognized channel type', () => {
+      const result = composeMessageSchema.safeParse({
+        ...publicBase,
+        sourceChannelType: 'not-a-real-channel',
+      })
+
+      expect(result.success).toBe(false)
+      expect(result.error?.issues.some((issue) => issue.path[0] === 'externalEmail')).toBe(true)
+    })
+
+    it('keeps every other public-visibility rule for non-email channels', () => {
+      const result = composeMessageSchema.safeParse({
+        ...publicBase,
+        sourceChannelType: 'discord',
+        recipients: [{ userId: '11111111-1111-1111-8111-111111111111', type: 'to' }],
+      })
+
+      expect(result.success).toBe(false)
+      expect(result.error?.issues.some((issue) => issue.path[0] === 'recipients')).toBe(true)
+    })
+  })
+
+  describe('recipients on a channel-ingested public message (#6093)', () => {
+    const ingestedBase = {
+      subject: 'Re: Quote #123',
+      body: 'Thanks, please go ahead.',
+      visibility: 'public' as const,
+      externalEmail: 'alice@example.com',
+      sourceChannelType: 'email',
+      inboundFromChannel: true,
+    }
+    const assignee = [{ userId: '11111111-1111-1111-8111-111111111111', type: 'to' as const }]
+
+    it('accepts the assigned user as a recipient of an ingested message', () => {
+      // Ingest routes an inbound message to the user the conversation is
+      // assigned to. Before #6093 the public-visibility rule rejected that
+      // recipient, the worker classified the error as permanent, and every
+      // message after the first assignment was silently dropped.
+      const result = composeMessageSchema.safeParse({ ...ingestedBase, recipients: assignee })
+
+      expect(result.success).toBe(true)
+    })
+
+    it('still accepts an ingested message with no recipients (unassigned conversation)', () => {
+      const result = composeMessageSchema.safeParse({ ...ingestedBase, recipients: [] })
+
+      expect(result.success).toBe(true)
+    })
+
+    it('keeps rejecting recipients on a public message that was not ingested', () => {
+      const result = composeMessageSchema.safeParse({
+        ...ingestedBase,
+        inboundFromChannel: undefined,
+        recipients: assignee,
+      })
+
+      expect(result.success).toBe(false)
+      expect(result.error?.issues.some((issue) => issue.path[0] === 'recipients')).toBe(true)
+    })
+
+    it('keeps rejecting recipients when the flag is explicitly false', () => {
+      const result = composeMessageSchema.safeParse({
+        ...ingestedBase,
+        inboundFromChannel: false,
+        recipients: assignee,
+      })
+
+      expect(result.success).toBe(false)
+    })
+
+    it('keeps every other public-visibility rule for an ingested message', () => {
+      // The waiver is only about recipients: an email-typed channel still
+      // needs the sender's address, and subject/body are still required.
+      const noAddress = composeMessageSchema.safeParse({
+        ...ingestedBase,
+        externalEmail: undefined,
+        recipients: assignee,
+      })
+      expect(noAddress.success).toBe(false)
+      expect(noAddress.error?.issues.some((issue) => issue.path[0] === 'externalEmail')).toBe(true)
+
+      const noBody = composeMessageSchema.safeParse({ ...ingestedBase, body: '', recipients: assignee })
+      expect(noBody.success).toBe(false)
+      expect(noBody.error?.issues.some((issue) => issue.path[0] === 'body')).toBe(true)
+    })
+
+    it('is not part of the client-facing compose contract', () => {
+      // A caller of POST /api/messages must not be able to waive the rule by
+      // claiming its message came in from a channel.
+      const result = composeMessageRequestSchema.safeParse({
+        ...ingestedBase,
+        sourceChannelType: undefined,
+        recipients: assignee,
+      })
+
+      expect(result.success).toBe(false)
+      expect(result.error?.issues.some((issue) => issue.path[0] === 'recipients')).toBe(true)
+    })
   })
 
   it('allows saving draft without recipients, subject, or body', () => {

@@ -36,6 +36,22 @@ function safeJsLiteral(value: string): string {
   return escapeUnsafeJsStringChars(JSON.stringify(value))
 }
 
+describe('Next.js bundle boundary', () => {
+  it('keeps runtime-only imports out of the Next.js bundle', () => {
+    const loaderSource = fs.readFileSync(
+      path.join(__dirname, '..', 'generated-registry-loader.ts'),
+      'utf8',
+    )
+
+    expect(loaderSource).toMatch(
+      /await import\(\s*\/\* webpackIgnore: true \*\/\s*\/\* turbopackIgnore: true \*\/\s*pathToFileURL\(jsPath\)\.href\s*\)/,
+    )
+    expect(loaderSource).toMatch(
+      /await import\(\s*\/\* webpackIgnore: true \*\/\s*\/\* turbopackIgnore: true \*\/\s*'@open-mercato\/shared\/lib\/bootstrap\/dynamicLoader'\s*\)/,
+    )
+  })
+})
+
 describe('rewriteGeneratedAliasImports', () => {
   // Regression for the MCP dev-server crash:
   //   "Cannot find package '@/.mercato' imported from .../tool-loader.js"

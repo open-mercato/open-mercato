@@ -43,9 +43,11 @@ import {
 } from '../data/validators'
 import {
   EUDR_AMEND_GUARDED_FIELDS,
+  canDeleteStatement,
   canTransition,
   evaluateSubmissionGate,
   isAmendWindowOpen,
+  isStatementReadOnly,
   type GateAssessmentView,
   type GateSubmissionView,
 } from '../lib/statement-lifecycle'
@@ -495,7 +497,7 @@ async function validateStatementUpdate(
   }
 
   const hasBaseChanges = hasStatementFieldChanges(record, parsed)
-  if (record.status === 'archived' && (hasBaseChanges || Object.keys(custom).length > 0)) {
+  if (isStatementReadOnly(record.status) && (hasBaseChanges || Object.keys(custom).length > 0)) {
     throw new CrudHttpError(400, { error: 'eudr.errors.archivedReadOnly' })
   }
 
@@ -579,9 +581,6 @@ const createStatementCommand: CommandHandler<ScopedStatementCreateInput, Stateme
     ensureOrganizationScope(ctx, scope.organizationId)
     if (parsed.status !== undefined && parsed.status !== 'draft') {
       throw new CrudHttpError(400, { error: 'eudr.errors.invalidTransition' })
-    }
-    if (parsed.referenceIssuedAt !== undefined) {
-      throw new CrudHttpError(400, { error: 'eudr.errors.referenceIssuedAtImmutable' })
     }
 
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
@@ -844,7 +843,7 @@ const deleteStatementCommand: CommandHandler<{ body?: Record<string, unknown>; q
     if (!record) throw new CrudHttpError(404, { error: 'EUDR due diligence statement not found' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    if (record.status === 'archived') {
+    if (isStatementStatus(record.status) && !canDeleteStatement(record.status)) {
       throw new CrudHttpError(400, { error: 'eudr.errors.archivedReadOnly' })
     }
     if (record.status === 'available') {

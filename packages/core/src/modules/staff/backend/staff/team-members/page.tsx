@@ -47,6 +47,7 @@ type TeamMembersResponse = {
   items?: Array<Record<string, unknown>>
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 type TeamsResponse = {
@@ -68,6 +69,7 @@ export default function StaffTeamMembersPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'displayName', desc: false }])
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
@@ -272,6 +274,9 @@ export default function StaffTeamMembersPage() {
         : typeof payload.totalPages === 'number'
           ? payload.totalPages
           : Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
+      // A role filter is applied client-side over the fetched page, so the total
+      // shown is that array's length — exact by construction, never a capped floor.
+      setTotalIsCapped(!roleFilterApplied && payload.totalIsCapped === true)
     } catch (error) {
       logger.error('staff.team-members.list', { err: error })
       flash(labels.errors.load, 'error')
@@ -414,7 +419,8 @@ export default function StaffTeamMembersPage() {
     <Page>
       <PageBody>
         <DataTable<TeamMemberRow>
-          title={labels.title}
+        title={labels.title}
+        titleHeadingLevel={1}
           data={rows}
           columns={columns}
           isLoading={isLoading}
@@ -452,6 +458,7 @@ export default function StaffTeamMembersPage() {
             pageSize: PAGE_SIZE,
             total,
             totalPages,
+            totalIsCapped,
             onPageChange: setPage,
           }}
           rowActions={(row) => row.kind === 'member' ? (
@@ -642,4 +649,3 @@ function renderLabelPills(values: string[]): React.ReactNode {
     </div>
   )
 }
-

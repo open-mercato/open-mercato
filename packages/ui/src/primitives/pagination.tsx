@@ -7,7 +7,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
 } from 'lucide-react'
-import { cva, type VariantProps } from 'class-variance-authority'
+import { cva } from 'class-variance-authority'
 
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -144,13 +144,32 @@ const navButtonVariants = cva(
     'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground',
 )
 
+export type PaginationAppearance = 'basic' | 'circle' | 'group'
+
+const sourceCellClass = 'border border-border bg-background text-muted-foreground hover:border-transparent hover:bg-muted disabled:bg-background disabled:text-text-disabled disabled:opacity-100 disabled:hover:bg-background disabled:hover:text-text-disabled'
+
 export type PaginationProps = React.HTMLAttributes<HTMLDivElement> & {
+  appearance?: PaginationAppearance
   /** Current 1-indexed page. */
   page: number
   /** Items per page. */
   pageSize: number
   /** Total item count. Used to derive `Math.ceil(total / pageSize)` pages. */
   total: number
+  /**
+   * `total` is a floor, not an exact count (a capped list count,
+   * `OM_LIST_COUNT_CAP`). The derived page count then only bounds the page
+   * *list*: the current page is never clamped down to it, the last-page jump
+   * is suppressed (it would present the floor as the end of the data), and
+   * Next stays available past the floor when `hasNextPage` says so.
+   */
+  totalIsCapped?: boolean
+  /**
+   * Caller-provided "a next page exists" signal for the capped case, typically
+   * short-page detection (the current page came back full). Ignored when
+   * `totalIsCapped` is false; when omitted, Next ends at the known floor.
+   */
+  hasNextPage?: boolean
   /** Called when the user changes page. */
   onPageChange: (next: number) => void
   /** Called when the user changes page size. Optional — when omitted,
@@ -185,9 +204,12 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
   (
     {
       className,
+      appearance,
       page,
       pageSize,
       total,
+      totalIsCapped = false,
+      hasNextPage,
       onPageChange,
       onPageSizeChange,
       pageSizeOptions = [10, 25, 50, 100],
@@ -205,35 +227,50 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
     ref,
   ) => {
     const t = useT()
+    const grouped = appearance === 'group'
+    const shapeClass = appearance === 'circle' ? 'rounded-full' : grouped ? 'w-10 rounded-none border-y-0 border-l-0 hover:border-border' : 'rounded-md'
+    const navClassName = cn(navButtonVariants(), appearance && sourceCellClass, appearance && shapeClass, grouped && 'focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring')
     const resolvedFormatPageInfo =
       formatPageInfo ??
       ((p: number, total: number) =>
-        t('ui.pagination.info.pageOf', 'Page {page} of {total}', { page: p, total }))
+        totalIsCapped
+          ? t('ui.pagination.info.pageOfCapped', 'Page {page} of {total}+', { page: p, total })
+          : t('ui.pagination.info.pageOf', 'Page {page} of {total}', { page: p, total }))
     const resolvedFormatPageSizeLabel =
       formatPageSizeLabel ??
       ((size: number) =>
         t('ui.pagination.itemsPerPage.label', '{size} / page', { size }))
     const totalPages = Math.max(1, Math.ceil(total / Math.max(1, pageSize)))
-    const safePage = Math.min(Math.max(1, page), totalPages)
+    // A capped total is a floor: never clamp the current page down to the
+    // derived count — a page past the floor holds reachable rows.
+    const safePage = totalIsCapped
+      ? Math.max(1, page)
+      : Math.min(Math.max(1, page), totalPages)
+    const listPages = Math.max(totalPages, safePage)
+    const canGoNext = totalIsCapped
+      ? (hasNextPage ?? safePage < listPages)
+      : safePage < totalPages
     const items = React.useMemo(
-      () => buildPaginationItems(safePage, totalPages, siblingCount, boundaryCount),
-      [safePage, totalPages, siblingCount, boundaryCount],
+      () => buildPaginationItems(safePage, listPages, siblingCount, boundaryCount),
+      [safePage, listPages, siblingCount, boundaryCount],
     )
     const showPageSize = showPageSizeProp ?? Boolean(onPageSizeChange)
 
     const goTo = React.useCallback(
       (next: number) => {
         if (disabled) return
-        const bounded = Math.min(Math.max(1, next), totalPages)
+        const upperBound = totalIsCapped ? Math.max(listPages, safePage + 1) : totalPages
+        const bounded = Math.min(Math.max(1, next), upperBound)
         if (bounded !== safePage) onPageChange(bounded)
       },
-      [disabled, onPageChange, safePage, totalPages],
+      [disabled, onPageChange, safePage, totalPages, totalIsCapped, listPages],
     )
 
     return (
       <nav
         ref={ref}
         data-slot="pagination"
+        data-appearance={appearance}
         aria-label={props['aria-label'] ?? t('ui.pagination.landmark.ariaLabel', 'Pagination')}
         className={cn('flex w-full flex-wrap items-center justify-between gap-x-6 gap-y-2', className)}
         {...props}
@@ -243,7 +280,9 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
             data-slot="pagination-info"
             className="shrink-0 text-sm text-muted-foreground tabular-nums"
           >
-            {resolvedFormatPageInfo(safePage, totalPages)}
+            {/* When capped, report the best-known floor: a deep page proves at
+                least that many pages exist. */}
+            {resolvedFormatPageInfo(safePage, totalIsCapped ? listPages : totalPages)}
           </div>
         ) : (
           <div />
@@ -251,7 +290,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
 
         <div
           data-slot="pagination-controls"
-          className="flex flex-wrap items-center justify-center gap-2"
+          className={cn('flex items-center justify-center', grouped ? 'max-w-full justify-start gap-0 overflow-x-auto rounded-md border border-border [&>button:last-child]:border-r-0 [&>ol:last-child>li:last-child>button]:border-r-0' : 'flex-wrap gap-2')}
         >
           {showFirstLast ? (
             <button
@@ -260,7 +299,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
               aria-label={t('ui.pagination.first.ariaLabel', 'First page')}
               disabled={disabled || safePage <= 1}
               onClick={() => goTo(1)}
-              className={cn(navButtonVariants())}
+              className={navClassName}
             >
               <ChevronsLeft aria-hidden="true" className="size-5" />
             </button>
@@ -272,7 +311,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
               aria-label={t('ui.pagination.previous.ariaLabel', 'Previous page')}
               disabled={disabled || safePage <= 1}
               onClick={() => goTo(safePage - 1)}
-              className={cn(navButtonVariants())}
+              className={navClassName}
             >
               <ChevronLeft aria-hidden="true" className="size-5" />
             </button>
@@ -280,7 +319,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
 
           <ol
             data-slot="pagination-pages"
-            className="flex flex-wrap items-center justify-center gap-2 list-none"
+            className={cn('flex list-none items-center justify-center', grouped ? 'gap-0' : 'flex-wrap gap-2')}
           >
             {items.map((entry, index) => {
               if (entry === 'ellipsis-left' || entry === 'ellipsis-right') {
@@ -289,7 +328,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
                     key={`${entry}-${index}`}
                     data-slot="pagination-ellipsis"
                     aria-hidden="true"
-                    className="inline-flex size-8 items-center justify-center text-sm text-muted-foreground"
+                    className={cn('inline-flex size-8 shrink-0 items-center justify-center text-sm text-muted-foreground', grouped && 'w-10 border-r border-border')}
                   >
                     …
                   </li>
@@ -310,7 +349,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
                     }
                     disabled={disabled}
                     onClick={() => goTo(entry)}
-                    className={cn(cellVariants({ selected }))}
+                    className={cn(cellVariants({ selected }), appearance && sourceCellClass, appearance && shapeClass, appearance && selected && 'text-foreground', grouped && selected && 'bg-muted', grouped && 'focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring')}
                   >
                     {entry}
                   </button>
@@ -324,21 +363,23 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
               type="button"
               data-slot="pagination-next"
               aria-label={t('ui.pagination.next.ariaLabel', 'Next page')}
-              disabled={disabled || safePage >= totalPages}
+              disabled={disabled || !canGoNext}
               onClick={() => goTo(safePage + 1)}
-              className={cn(navButtonVariants())}
+              className={navClassName}
             >
               <ChevronRight aria-hidden="true" className="size-5" />
             </button>
           ) : null}
-          {showFirstLast ? (
+          {/* The last-page jump is suppressed for capped totals: it would land
+              on the floor page while presenting itself as the end of the data. */}
+          {showFirstLast && !totalIsCapped ? (
             <button
               type="button"
               data-slot="pagination-last"
               aria-label={t('ui.pagination.last.ariaLabel', 'Last page')}
               disabled={disabled || safePage >= totalPages}
               onClick={() => goTo(totalPages)}
-              className={cn(navButtonVariants())}
+              className={navClassName}
             >
               <ChevronsRight aria-hidden="true" className="size-5" />
             </button>

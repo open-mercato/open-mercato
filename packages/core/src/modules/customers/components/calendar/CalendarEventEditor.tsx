@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { Calendar, X } from 'lucide-react'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
-import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
@@ -113,7 +113,6 @@ function EditorBody({
   staffEnabled,
 }: EditorBodyProps) {
   const t = useT()
-  const locale = useLocale()
   const { setValue, errors } = ctx
   const form = formStateOfValues(ctx.values)
   const config = KIND_CONFIG[form.kind]
@@ -170,7 +169,7 @@ function EditorBody({
     const ids: string[] = []
     if (form.relatedTo && form.relatedTo.kind !== 'company') ids.push(form.relatedTo.id)
     for (const participant of form.participants) {
-      if (participant.isCustomer) ids.push(participant.userId)
+      if (participant.isCustomer && participant.userId) ids.push(participant.userId)
     }
     return Array.from(new Set(ids))
   }, [form.relatedTo, form.participants])
@@ -223,7 +222,6 @@ function EditorBody({
         startTime={form.startTime}
         endDate={form.endDate}
         endTime={form.endTime}
-        locale={locale}
         endsError={errors.ends}
         onAllDayChange={(allDay) => update({ allDay })}
         onDateChange={(date) => {
@@ -246,7 +244,6 @@ function EditorBody({
           endType={form.repeatEndType}
           count={form.repeatCount}
           untilDate={form.repeatUntilDate}
-          locale={locale}
           onFreqChange={(repeatFreq) =>
             update(
               repeatFreq === 'weekly'

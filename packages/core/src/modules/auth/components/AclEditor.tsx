@@ -4,13 +4,9 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import Link from 'next/link'
 import { hasFeature, matchFeature } from '@open-mercato/shared/security/features'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { FeatureDescriptor } from '@open-mercato/shared/security/aclDependencies'
 import { AclDependencyDiagnosticsPanel } from './AclDependencyDiagnosticsPanel'
-
-function toTitleCase(value: string): string {
-  return value.replace(/[-_.]/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
-}
 
 function normalizeFeatureArray(input: unknown): string[] {
   if (!Array.isArray(input)) return []
@@ -30,12 +26,16 @@ function isTenantRestrictedFeature(feature: string): boolean {
   return false
 }
 
-function formatWildcardLabel(moduleId: string, wildcard: string): string {
+function formatWildcardLabel(t: TranslateFn, moduleId: string, wildcard: string): string {
   if (!wildcard.endsWith('.*')) return wildcard
   const prefix = `${moduleId}.`
   const suffix = wildcard.startsWith(prefix) ? wildcard.slice(prefix.length, -2) : wildcard.slice(0, -2)
-  if (!suffix) return 'All features'
-  return `All ${suffix.split('.').map(toTitleCase).join(' / ')}`
+  if (!suffix) return t('auth.acl.wildcards.allFeatures', 'All features')
+  const group = suffix
+    .split('.')
+    .map((segment) => segment.replace(/[-_]/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()))
+    .join(' / ')
+  return t('auth.acl.wildcards.allGroup', 'All permissions in {group}', { group })
 }
 
 type Feature = { id: string; title: string; module: string; dependsOn?: string[] }
@@ -257,19 +257,28 @@ export function AclEditor({
   const grouped = React.useMemo(() => {
     const moduleMap = new Map<string, string>()
     for (const m of modules) {
-      moduleMap.set(m.id, m.title)
+      moduleMap.set(m.id, t(`auth.acl.modules.${m.id}`, m.title))
     }
     const map = new Map<string, { moduleId: string; moduleTitle: string; features: Feature[] }>()
     for (const f of features) {
       const moduleId = f.module
       const moduleTitle = moduleMap.get(moduleId) || moduleId
+      const localizedFeature = {
+        ...f,
+        title: t(`auth.acl.features.${f.id}`, f.title),
+      }
       if (!map.has(moduleId)) {
         map.set(moduleId, { moduleId, moduleTitle, features: [] })
       }
-      map.get(moduleId)!.features.push(f)
+      map.get(moduleId)!.features.push(localizedFeature)
     }
     return Array.from(map.values()).sort((a, b) => a.moduleTitle.localeCompare(b.moduleTitle))
-  }, [features, modules])
+  }, [features, modules, t])
+
+  const localizedFeatures = React.useMemo(
+    () => grouped.flatMap((group) => group.features),
+    [grouped],
+  )
 
   const hasGlobalWildcard = granted.includes('*')
   const hasOrganizationRestriction = Array.isArray(organizations) && organizations.length > 0
@@ -305,22 +314,28 @@ export function AclEditor({
 
   const isFeatureChecked = (featureId: string) => hasFeature(granted, featureId)
 
-  if (loading) return <div className="text-sm text-muted-foreground">Loading ACL…</div>
+  if (loading) {
+    return (
+      <div className="text-sm text-muted-foreground">
+        {t('auth.acl.loading', 'Loading access control…')}
+      </div>
+    )
+  }
 
   const showRoleBanner = kind === 'user' && !hasCustomAcl && !overrideEnabled
 
   return (
     <div className="space-y-4">
       {showRoleBanner && (
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-          <div className="text-sm font-medium text-blue-900 mb-2">
-            Permissions inherited from roles
+        <div className="rounded-lg border border-status-info-border bg-status-info-bg p-4">
+          <div className="text-sm font-medium text-status-info-text mb-2">
+            {t('auth.acl.inherited.title', 'Permissions inherited from roles')}
           </div>
-          <div className="text-sm text-blue-700 mb-3">
-            This user currently inherits permissions from their assigned roles.
+          <div className="text-sm text-status-info-text mb-3">
+            {t('auth.acl.inherited.description', 'This user currently inherits permissions from their assigned roles.')}
             {roleDetails.length > 0 && (
               <span>
-                {' '}Assigned roles:{' '}
+                {' '}{t('auth.acl.inherited.assignedRoles', 'Assigned roles:')}{' '}
                 {roleDetails.map((role, idx) => {
                   const roleId = typeof role?.id === 'string' && role.id.length > 0 ? role.id : `role-${idx}`
                   const roleName = typeof role?.name === 'string' && role.name.length > 0 ? role.name : roleId
@@ -329,7 +344,7 @@ export function AclEditor({
                       {idx > 0 && ', '}
                       <Link 
                         href={`/backend/roles/${roleId}/edit`}
-                        className="font-semibold text-blue-900 underline hover:text-blue-950 transition-colors"
+                        className="font-semibold text-status-info-text underline"
                       >
                         {roleName}
                       </Link>
@@ -347,8 +362,8 @@ export function AclEditor({
               checked={overrideEnabled} 
               onChange={(e) => setOverrideEnabled(e.target.checked)} 
             />
-            <label htmlFor="overrideAcl" className="text-sm text-blue-900 font-medium">
-              Override permissions for this user only
+            <label htmlFor="overrideAcl" className="text-sm text-status-info-text font-medium">
+              {t('auth.acl.inherited.override', 'Override permissions for this user only')}
             </label>
           </div>
         </div>
@@ -364,31 +379,39 @@ export function AclEditor({
               disabled={!actorIsSuperAdmin}
               onChange={(e) => setIsSuperAdmin(!!e.target.checked)}
             />
-            <label htmlFor="isSuperAdmin" className="text-sm">Super Admin (all features)</label>
+            <label htmlFor="isSuperAdmin" className="text-sm">
+              {t('auth.acl.superAdmin.label', 'Super Admin (all features)')}
+            </label>
           </div>
           {!actorIsSuperAdmin && (
-            <p className="text-xs text-muted-foreground">Only super administrators can change this option.</p>
+            <p className="text-xs text-muted-foreground">
+              {t('auth.acl.superAdmin.hint', 'Only super administrators can change this option.')}
+            </p>
           )}
       {!isSuperAdmin && (
         <>
           {hasGlobalWildcard && (
-            <div className="rounded border border-blue-200 bg-blue-50 p-3">
-              <div className="text-sm font-medium text-blue-900">Global wildcard (*) enabled</div>
-              <div className="text-xs text-blue-700 mt-1">This grants access to all features in the system.</div>
+            <div className="rounded border border-status-info-border bg-status-info-bg p-3">
+              <div className="text-sm font-medium text-status-info-text">
+                {t('auth.acl.globalWildcard.title', 'Global wildcard (*) enabled')}
+              </div>
+              <div className="text-xs text-status-info-text mt-1">
+                {t('auth.acl.globalWildcard.description', 'This grants access to all features in the system.')}
+              </div>
               <Button
                 variant="outline"
                 size="sm"
                 className="mt-2"
                 onClick={() => updateGranted((prev) => prev.filter((x) => x !== '*'))}
               >
-                Remove global wildcard
+                {t('auth.acl.globalWildcard.remove', 'Remove global wildcard')}
               </Button>
             </div>
           )}
           {!hasGlobalWildcard && (
             <AclDependencyDiagnosticsPanel
               granted={granted}
-              catalog={features as readonly FeatureDescriptor[]}
+              catalog={localizedFeatures as readonly FeatureDescriptor[]}
               onGrantedChange={updateGranted}
               hideUnknownReferences={process.env.NODE_ENV === 'production'}
             />
@@ -433,8 +456,13 @@ export function AclEditor({
                         onChange={(e) => toggleModuleWildcard(group.moduleId, e.target.checked)} 
                       />
                       <label htmlFor={`module-${group.moduleId}`} className="text-sm text-muted-foreground">
-                        All {moduleWildcard && !hasGlobalWildcard ? <span className="font-medium text-blue-600">({group.moduleId}.*)</span> : ''}
-                        {moduleRestricted ? <span className="ml-2 text-xs font-medium text-muted-foreground">(manage via super admin)</span> : null}
+                        {t('auth.acl.allModuleFeatures', 'All')}{' '}
+                        {moduleWildcard && !hasGlobalWildcard ? <span className="font-medium text-status-info-text">({group.moduleId}.*)</span> : ''}
+                        {moduleRestricted ? (
+                          <span className="ml-2 text-xs font-medium text-muted-foreground">
+                            {t('auth.acl.manageViaSuperAdmin', '(manage via super admin)')}
+                          </span>
+                        ) : null}
                       </label>
                     </div>
                   </div>
@@ -459,7 +487,7 @@ export function AclEditor({
                                 htmlFor={`wildcard-${wildcard}`}
                                 className={`text-sm ${disabled ? 'text-muted-foreground' : ''}`}
                               >
-                                {formatWildcardLabel(group.moduleId, wildcard)}{' '}
+                                {formatWildcardLabel(t, group.moduleId, wildcard)}{' '}
                                 <span className="text-muted-foreground text-xs font-mono">({wildcard})</span>
                                 {wildcardRestricted ? (
                                   <span className="ml-2 text-xs font-medium text-muted-foreground">
@@ -535,7 +563,9 @@ export function AclEditor({
               <div className="text-sm font-medium mb-2">
                 {t('auth.acl.organizationsScope', 'Organizations scope')}
               </div>
-              <div className="text-xs text-muted-foreground mb-2">Empty = all organizations. Select one or more to restrict.</div>
+              <div className="text-xs text-muted-foreground mb-2">
+                {t('auth.acl.organizationsScopeHint', 'Empty means all organizations. Select one or more to restrict access.')}
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {orgOptions.map((o) => {
                   const checked = organizations == null ? false : (organizations || []).includes(o.id)
@@ -557,7 +587,7 @@ export function AclEditor({
                 <Button variant="outline" onClick={() => setOrganizations(null)}>{t('auth.acl.allowAllOrganizations', 'Allow all organizations')}</Button>
               </div>
               {showOrganizationWarning && (
-                <div className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                <div className="mt-3 rounded border border-status-warning-border bg-status-warning-bg px-3 py-2 text-sm text-status-warning-text">
                   {t('auth.acl.organizationWarning', 'Organization restrictions are saved only when at least one feature override is selected. Add a feature or enable a module wildcard before saving.')}
                 </div>
               )}

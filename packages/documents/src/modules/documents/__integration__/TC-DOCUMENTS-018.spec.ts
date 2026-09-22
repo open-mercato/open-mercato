@@ -1,5 +1,9 @@
 import { expect, type APIRequestContext, test } from '@playwright/test'
-import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import {
+  apiRequest,
+  getAuthToken,
+  withCredentialIsolatedRequest,
+} from '@open-mercato/core/helpers/integration/api'
 import {
   createOrganizationFixture,
   createRoleFixture,
@@ -152,18 +156,28 @@ async function deleteApiKeyIfExists(
   }).catch(() => undefined)
 }
 
+/**
+ * This spec exists to prove that the API KEY alone decides access, so the request must
+ * carry no other credential. The `request` fixture's cookie jar holds the auth_token
+ * the last fixture login left behind, and that session would answer the call instead —
+ * which is how the cross-organization assertion below read 200 (the other-org owner's
+ * own session) rather than the expected 403/404. Issue every key call from a jar that
+ * never saw a login.
+ */
 async function getDocumentWithApiKey(
-  request: APIRequestContext,
   secret: string,
   documentId: string,
   selectedOrganizationId?: string,
 ) {
-  return request.fetch(resolveUrl(`/api/documents/${encodeURIComponent(documentId)}`), {
-    headers: {
-      Authorization: `ApiKey ${secret}`,
-      ...(selectedOrganizationId ? { Cookie: `om_selected_org=${selectedOrganizationId}` } : {}),
+  return withCredentialIsolatedRequest((keyOnly) => keyOnly.fetch(
+    resolveUrl(`/api/documents/${encodeURIComponent(documentId)}`),
+    {
+      headers: {
+        Authorization: `ApiKey ${secret}`,
+        ...(selectedOrganizationId ? { Cookie: `om_selected_org=${selectedOrganizationId}` } : {}),
+      },
     },
-  })
+  ))
 }
 
 test.describe('TC-DOCUMENTS-018: real API-key role-share authorization', () => {
@@ -225,7 +239,7 @@ test.describe('TC-DOCUMENTS-018: real API-key role-share authorization', () => {
         organizationId: homeScope.organizationId,
         roleIds: [keyRoleId],
       })
-      expect((await getDocumentWithApiKey(request, activeKey.secret, homeDocument.id)).status()).toBe(200)
+      expect((await getDocumentWithApiKey(activeKey.secret, homeDocument.id)).status()).toBe(200)
 
       otherOrganizationId = await createOrganizationFixture(request, superadminToken, {
         name: `TC-DOCUMENTS-018 other org ${stamp}`,
@@ -238,7 +252,7 @@ test.describe('TC-DOCUMENTS-018: real API-key role-share authorization', () => {
       })
       otherOrgDocument = await createDocument(request, otherOrgOwner.token, `TC-DOCUMENTS-018 other org ${stamp}`)
       expect([403, 404]).toContain(
-        (await getDocumentWithApiKey(request, activeKey.secret, otherOrgDocument.id)).status(),
+        (await getDocumentWithApiKey(activeKey.secret, otherOrgDocument.id)).status(),
       )
 
       // Materialize a historical role share while the role is tenant-wide,
@@ -313,7 +327,6 @@ test.describe('TC-DOCUMENTS-018: real API-key role-share authorization', () => {
       expect(tenantScopedKey.organizationId, 'tenant-scoped key must not inherit the creator organization').toBeNull()
       expect([403, 404]).toContain(
         (await getDocumentWithApiKey(
-          request,
           tenantScopedKey.secret,
           otherOrgDocument.id,
           otherOrganizationId,
@@ -336,7 +349,7 @@ test.describe('TC-DOCUMENTS-018: real API-key role-share authorization', () => {
         `TC-DOCUMENTS-018 other tenant ${stamp}`,
       )
       expect([403, 404]).toContain(
-        (await getDocumentWithApiKey(request, activeKey.secret, otherTenantDocument.id)).status(),
+        (await getDocumentWithApiKey(activeKey.secret, otherTenantDocument.id)).status(),
       )
 
       await setRoleAclFeatures(request, adminToken, {
@@ -345,7 +358,7 @@ test.describe('TC-DOCUMENTS-018: real API-key role-share authorization', () => {
         organizations: [homeScope.organizationId],
       })
       expect([401, 403]).toContain(
-        (await getDocumentWithApiKey(request, activeKey.secret, homeDocument.id)).status(),
+        (await getDocumentWithApiKey(activeKey.secret, homeDocument.id)).status(),
       )
       await setRoleAclFeatures(request, adminToken, {
         roleId: keyRoleId,
@@ -360,17 +373,17 @@ test.describe('TC-DOCUMENTS-018: real API-key role-share authorization', () => {
         roleIds: [keyRoleId],
         expiresAt: new Date(Date.now() + 1_500).toISOString(),
       })
-      expect((await getDocumentWithApiKey(request, expiringKey.secret, homeDocument.id)).status()).toBe(200)
+      expect((await getDocumentWithApiKey(expiringKey.secret, homeDocument.id)).status()).toBe(200)
       await new Promise((resolve) => setTimeout(resolve, 1_700))
       expect([401, 403]).toContain(
-        (await getDocumentWithApiKey(request, expiringKey.secret, homeDocument.id)).status(),
+        (await getDocumentWithApiKey(expiringKey.secret, homeDocument.id)).status(),
       )
 
       await deleteApiKeyIfExists(request, adminToken, activeKey.id)
       const deletedSecret = activeKey.secret
       activeKey = null
       expect([401, 403]).toContain(
-        (await getDocumentWithApiKey(request, deletedSecret, homeDocument.id)).status(),
+        (await getDocumentWithApiKey(deletedSecret, homeDocument.id)).status(),
       )
     } finally {
       await deleteApiKeyIfExists(request, adminToken, activeKey?.id ?? null)

@@ -307,6 +307,18 @@ export type WorkerMeta = {
    * constructs the enqueueing queue. See `AsyncQueueOptions.onJobAbandoned` for the contract.
    */
   onJobAbandoned?: AsyncQueueOptions['onJobAbandoned']
+  /**
+   * Opt-in flag allowing this queue to be selected as a user-facing scheduler
+   * target. Internal and system-only workers (webhook processors, indexers,
+   * bulk operations) must leave it unset — they stay undiscoverable by the
+   * scheduler job API.
+   */
+  schedulerSafe?: boolean
+  /**
+   * Creator features a principal must hold (on top of scheduler.jobs.manage)
+   * to schedule onto this worker's queue. Only read when schedulerSafe is set.
+   */
+  schedulerRequiredFeatures?: string[]
 }
 
 /**

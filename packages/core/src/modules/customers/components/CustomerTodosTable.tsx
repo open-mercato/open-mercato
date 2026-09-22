@@ -47,6 +47,7 @@ type CustomerTodosResponse = {
   page: number
   pageSize: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 const TASKS_TAB_QUERY = 'tab=tasks'
@@ -237,6 +238,7 @@ export function CustomerTodosTable(): React.JSX.Element {
   return (
     <DataTable
       title={t('customers.workPlan.customerTodos.table.title')}
+      titleHeadingLevel={1}
       actions={(
         <Button
           variant="outline"
@@ -279,6 +281,7 @@ export function CustomerTodosTable(): React.JSX.Element {
         pageSize,
         total: data?.total ?? 0,
         totalPages: data?.totalPages ?? 0,
+        totalIsCapped: data?.totalIsCapped === true,
         onPageChange: setPage,
       }}
       isLoading={isLoading}

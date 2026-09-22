@@ -69,6 +69,10 @@ PRs do not publish npm canary packages automatically. Maintainers can publish pk
 
 The legacy npm canary snapshot path is still available for comparison by dispatching the `NPM Snapshot Preview` workflow manually with the PR number on a trusted same-repository PR branch. That workflow publishes real npm canary packages and runs standalone app integration against the exact snapshot, so use it only when pkg.pr.new previews are not enough evidence. Both preview workflows are restricted to same-repository PR branches.
 
+## Developing on Windows
+
+The fastest way to a working dev environment on Windows is the starter: double-click `packages\starter\platform\start.cmd` (no admin needed — it installs a portable, checksum-verified Node 24 and hands off to the cross-platform CLI), or run `npx @open-mercato/starter` if you already have Node. The starter audits the machine, handles corporate proxies and TLS interception (CA capture + provisioning into host tooling, image builds, and the container engine), and starts the stack; WSL2 and Docker Desktop / Rancher Desktop are detected and *proposed* with exact instructions — including a "hand this to IT" sheet from `yarn om doctor` — never installed behind your back. Hardware floor: 16 GB RAM recommended (12 GB minimum), ~20 GB free disk. On machines where host Node workloads are not allowed, use `npx @open-mercato/starter up --mode docker` for the fully containerized stack. Printable EN/PL manuals with troubleshooting live in [`docs/manuals/windows/`](docs/manuals/windows/); the docs site covers the [Windows monorepo path](https://docs.openmercato.com/docs/installation/monorepo) and the [WSL2-native guide](https://docs.openmercato.com/docs/installation/wsl2).
+
 ## Releasing
 
 Two channels ship packages to npm:
@@ -90,7 +94,7 @@ Dispatch **Release Prepare** from the Actions tab with a `patch`, `minor` or `ma
 gh workflow run release-prepare.yml --ref main -f bump=patch
 ```
 
-It bumps every public package plus the root manifest, pushes `release/v<version>`, and opens a PR against `main`. It publishes nothing. The PR body confirms whether the changelog entry exists. Review and merge it as usual.
+It bumps every public package, the app workspaces (`apps/*`) and the root manifest, pushes `release/v<version>`, and opens a PR against `main`. It publishes nothing. The PR body confirms whether the changelog entry exists. Review and merge it as usual.
 
 > Opening the PR automatically requires _Settings → Actions → General → Workflow permissions → "Allow GitHub Actions to create and approve pull requests"_. Without it the branch is still pushed and the job summary links straight to the compare page — one click instead of zero.
 
@@ -104,7 +108,7 @@ gh workflow run release.yml --ref main
 
 The job requires approval from the `production` environment, then runs in a deliberate order — every reversible step before the irreversible one:
 
-1. **Preflight** — version alignment across packages, the version is not already on npm, and the changelog section exists. Nothing has happened yet if any of these fail.
+1. **Preflight** — version alignment across packages and app workspaces, the version is not already on npm, and the changelog section exists. Nothing has happened yet if any of these fail.
 2. **Build** — `build:packages`, `generate`, `build:packages`.
 3. **Tag** — pushes `v<version>`. A tag is cheap to delete; an npm version is not.
 4. **Publish** — `publish-packages.sh` with npm provenance, skipping anything already published.

@@ -25,6 +25,43 @@ env:
   # Keep build-time and runtime onboarding config aligned so the browser
   # integration suite can exercise the self-service verification flow.
   SELF_SERVICE_ONBOARDING_ENABLED: 'true'
+  # ── Enterprise modules: MUST be set at BUILD time, not just at test time ────
+  # `apps/mercato/src/modules.ts` reads these four flags to decide which
+  # enterprise modules enter `enabledModules`. That decision is consumed by
+  # `yarn generate` in the `prepare` job, which bakes the module registry into
+  # `.mercato/generated/` — and `yarn build:app` compiles that registry into the
+  # Next.js output every integration shard boots. Setting the flags only on the
+  # `ephemeral-integration` job is TOO LATE: the registry is already frozen, so
+  # the app under test contains no enterprise routes.
+  #
+  # The failure mode is deliberately misleading. Spec discovery
+  # (packages/cli/src/lib/testing/integration-discovery.ts) keys enterprise
+  # overlay specs off OM_ENABLE_ENTERPRISE_MODULES alone, so the runner happily
+  # DISCOVERS the enterprise suites while the app it drives has none of the code
+  # they test — every request 404s and the suite fails for a reason that looks
+  # nothing like the cause.
+  #
+  # Set workflow-wide so `prepare` (generate + build:app) and
+  # `ephemeral-integration` (runtime) can never diverge. Do NOT move these back
+  # to a single job. All four are required — the umbrella flag alone does not
+  # enable sso/security/agent_orchestrator.
+  OM_ENABLE_ENTERPRISE_MODULES: 'true'
+  OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true'
+  OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true'
+  OM_ENABLE_ENTERPRISE_MODULES_AGENTS: 'true'
+  # turbo 2.x defaults to `envMode: "strict"`, and turbo.json declares only
+  # `globalEnv: ["NODE_ENV"]`. Both `yarn generate` and `yarn build:app` run
+  # through `turbo run`, so in strict mode turbo STRIPS every OM_* variable
+  # above before the task process starts — the workflow env would be silently
+  # discarded and the registry generated with zero enterprise modules.
+  # `loose` passes the full environment through to tasks.
+  #
+  # Caveat worth knowing: loose mode changes only what tasks can SEE, not what
+  # turbo hashes. These flags are still absent from the cache key, so a cached
+  # `build` produced before this change can in principle be restored. Declaring
+  # them in turbo.json `globalEnv` would fix both passthrough and hashing and is
+  # the better long-term fix; it is deliberately left out of this change.
+  TURBO_ENV_MODE: 'loose'
   # NEXT_PUBLIC_* values are inlined by Next.js at build time, so this MUST be
   # workflow-wide: `prepare` builds the app once (`yarn build:app`) and every
   # `ephemeral-integration` shard reuses that artifact. Declaring it only on
@@ -104,7 +141,10 @@ jobs:
           CHANGED=$(git diff origin/${{ github.base_ref }} --name-only)
 
           # These paths affect behaviour across all modules — run the full sharded suite.
-          FULL_SUITE_PATTERN='^packages/shared/|^packages/ui/|^packages/events/|^packages/queue/|^packages/cache/|^packages/search/|^packages/onboarding/|^packages/webhooks/|^packages/core/src/lib/|^packages/enterprise/src/lib/|^apps/mercato/src/(app|lib|components|layout\.|page\.)'
+          # `packages/cli/src/lib/testing/` is the ephemeral harness that boots, drives and tears
+          # down this very suite. A change there matches no `src/modules/` path, so without this
+          # entry the job that would exercise it is the one job it can never trigger.
+          FULL_SUITE_PATTERN='^packages/shared/|^packages/ui/|^packages/events/|^packages/queue/|^packages/cache/|^packages/search/|^packages/onboarding/|^packages/webhooks/|^packages/core/src/lib/|^packages/enterprise/src/lib/|^packages/cli/src/lib/testing/|^apps/mercato/src/(app|lib|components|layout\.|page\.)'
           if echo "$CHANGED" | grep -qE "$FULL_SUITE_PATTERN"; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
             echo "modules=" >> "$GITHUB_OUTPUT"
@@ -401,6 +441,15 @@ jobs:
       - name: Lint
         run: yarn lint
 
+      - name: Guard against unmet peer dependencies in published packages
+        # A peer that only lives in devDependencies resolves fine through the
+        # monorepo's hoisted node_modules but is absent from a standalone app,
+        # which installs dependencies + peerDependencies only. No PR job builds a
+        # standalone app, so without this gate the break first appears post-merge
+        # in the snapshot workflow's `Standalone App Integration Tests`.
+        # Pre-existing cases are pinned in scripts/package-peer-deps-allowlist.json.
+        run: yarn packages:check-peer-deps
+
       - name: Guard against raw console.* logging
         # Blocking since the application-wide migration to the structured
         # logging facade (see .ai/specs/2026-07-02-structured-logging-facade.md).
@@ -613,6 +662,9 @@ jobs:
       - name: Check dependency version conflicts
         run: yarn check:dep-versions
 
+      - name: Check paginated lists forward totalIsCapped
+        run: yarn check:pagination-capped
+
       - name: Check i18n sync
         run: yarn tsx scripts/i18n-check-sync.ts
 
@@ -661,6 +713,17 @@ jobs:
         # the template-parity guard below: a PR that edits a token without
         # running `yarn ds:tokens` fails here instead of drifting silently.
         run: yarn ds:tokens:check
+
+      - name: Check lucide icon registry drift (always, unfiltered)
+        # packages/ui/src/backend/icons/lucideRegistry.generated.tsx is emitted
+        # from a repo-WIDE scan for `icon: '<name>'` strings, so the PR that
+        # drifts it usually touches another package entirely. turbo's
+        # --filter=[base]... selects a changed package and its DEPENDENTS, and
+        # packages/ui is a dependency of those packages rather than a dependent,
+        # so any guard living in ui's own suite is skipped on exactly the PRs
+        # that break it — which is how #4391 added `icon: 'bot'` and left the
+        # registry stale until #5651. Same reasoning as the DS token check above.
+        run: yarn ui:icons:check
 
       - name: Check create-app template parity (always, unfiltered)
         # The create-app package guards byte-parity between the monorepo app shell
@@ -776,9 +839,20 @@ jobs:
       matrix:
         shard: ${{ fromJson(needs.prepare.outputs.shard_matrix) }}
     env:
-      OM_ENABLE_ENTERPRISE_MODULES: 'true'
-      OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true'
-      OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true'
+      # OM_ENABLE_ENTERPRISE_MODULES{,_SSO,_SECURITY,_AGENTS} are set at the
+      # WORKFLOW level (top of this file), not here. They were job-level until
+      # the build/runtime split was found: `prepare` never saw them, so the app
+      # these shards boot was built without any enterprise module while this job
+      # still discovered the enterprise specs. Keeping a second copy here would
+      # re-create the two-sources-of-truth problem — read the workflow-level
+      # block before changing enterprise flags.
+      # SELF_SERVICE_ONBOARDING_ENABLED is workflow-level for the same reason.
+      OM_DISABLE_EMAIL_DELIVERY: '0'
+      OM_ENABLE_TEST_CHANNEL_SEEDING: 'true'
+      SYSTEM_EMAIL_PROVIDER: '__test_seed__'
+      EMAIL_FROM: 'system@test-seed.local'
+      NOTIFICATIONS_EMAIL_FROM: 'notifications@test-seed.local'
+      ADMIN_EMAIL: 'admin@test-seed.local'
       # TC-DOCUMENTS-017 owns a disposable loopback collaboration sidecar on
       # the same ephemeral database. The separate documents-multi-instance job
       # proves the Redis-backed two-sidecar path.
@@ -1063,7 +1137,11 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v1
+        uses: useblacksmith/setup-docker-builder@v2
+        with:
+          # One builder serves all three Dockerfile builds in this job, so they share one
+          # layer cache — same as v1, where the key defaulted to the repository name.
+          cache-key: ci-docker-build
 
       - name: Build docs Dockerfile
         uses: useblacksmith/build-push-action@v2

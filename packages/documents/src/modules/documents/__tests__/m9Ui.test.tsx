@@ -107,6 +107,7 @@ function renderTable(rows: DocumentRow[], overrides: Partial<React.ComponentProp
       pageSize={25}
       total={rows.length}
       totalPages={1}
+      totalIsCapped={false}
       hasTemplates={false}
       canCreateDocument
       canInstantiateTemplate={false}

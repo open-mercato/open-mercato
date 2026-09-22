@@ -1,6 +1,7 @@
 import type { AwilixContainer } from 'awilix'
 import type { z } from 'zod'
 import { toolInputJsonSchema } from './tool-input-schema'
+import { buildMcpToolAnnotations } from './mcp-tool-annotations'
 import { getToolRegistry } from './tool-registry'
 import { executeTool } from './tool-executor'
 import { loadAllModuleTools } from './tool-loader'
@@ -138,6 +139,7 @@ export class InProcessMcpClient implements McpClientInterface {
       name: tool.name,
       description: tool.description,
       inputSchema: toolInputJsonSchema(tool.inputSchema),
+      annotations: buildMcpToolAnnotations(tool),
     }))
   }
 

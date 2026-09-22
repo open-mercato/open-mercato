@@ -125,7 +125,10 @@ test.describe('TC-WC-024: warranty claim AI assess API', () => {
       })
       expect(unlinkedResponse.status(), 'an attachment not linked to the claim should be rejected').toBe(400)
       const unlinkedBody = await readJsonSafe<{ error?: string }>(unlinkedResponse)
-      expect(unlinkedBody?.error).toBe('warranty_claims.errors.attachmentNotLinked')
+      expect(
+        unlinkedBody?.error,
+        'the rejection should read as a localized sentence, not a raw i18n key',
+      ).toBe('The attachment is not linked to this claim.')
 
       const assessResponse = await apiRequest(request, 'POST', '/api/warranty_claims/ai/assess', {
         token: adminToken,
