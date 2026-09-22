@@ -37,6 +37,28 @@ function recordIngest(page: Page): IngestRecord[] {
   return records
 }
 
+/**
+ * Records the same-origin API GETs the backoffice itself made and that answered 200. Replaying a
+ * real one beats naming an endpoint here: the set of routes is not this spec's business, and a
+ * path that quietly stops existing would fail the test for the wrong reason.
+ */
+function recordApiGets(page: Page): string[] {
+  const urls: string[] = []
+  page.on('response', (response) => {
+    const request = response.request()
+    if (request.method() !== 'GET') return
+    if (response.status() !== 200) return
+    try {
+      const { pathname } = new URL(response.url())
+      if (!pathname.startsWith('/api/') || pathname.startsWith(TRACES_PATH)) return
+      urls.push(response.url())
+    } catch {
+      // A non-absolute or exotic URL is simply not a candidate for replay.
+    }
+  })
+  return urls
+}
+
 /** The web SDK registers itself on this global symbol; its presence is the "SDK booted" signal. */
 async function otelApiIsRegistered(page: Page): Promise<boolean> {
   return page.evaluate(() =>
@@ -49,6 +71,7 @@ test.describe('TC-TELEMETRY-002: browser RUM runtime', () => {
     const origin = new URL(baseURL ?? 'http://localhost:3000').origin
     await page.context().addCookies([{ name: OPT_IN_COOKIE, value: 'on', url: origin }])
     const ingest = recordIngest(page)
+    const apiGets = recordApiGets(page)
 
     await login(page, 'admin')
     await page.goto('/backend')
@@ -73,24 +96,32 @@ test.describe('TC-TELEMETRY-002: browser RUM runtime', () => {
     expect(patchState.hasStash, '@open-mercato/ui installs the fetch wrapper on every backoffice page').toBe(true)
     expect(patchState.stashIsWrapper, 'instrumenting the wrapper instead of the native fetch recurses forever').toBe(false)
 
-    // Both paths must still answer. A hang here IS the recursion bug, hence the tight budget.
-    const replay = await page.evaluate(async () => {
+    // A DataTable page drives `apiFetch` (which reads the instrumented stash) end to end. Waiting
+    // on the API call it makes, rather than on a DOM role, keeps this assertion about the thing
+    // under test: that the swap left `apiFetch` able to reach the API at all.
+    await expect.poll(() => apiGets.length, {
+      message: 'the backoffice must still reach its own API through the patched fetch',
+      timeout: 30_000,
+    }).toBeGreaterThan(0)
+    await page.goto('/backend/customers/people')
+    await expect(page.locator('table, [role="grid"]').first()).toBeVisible({ timeout: 30_000 })
+
+    // Replay one of the page's OWN successful GETs down both paths. A hang here IS the recursion
+    // bug, hence the tight budget; a non-200 means the swap broke the wrapper's auth handling.
+    const replayUrl = apiGets[apiGets.length - 1]
+    const replay = await page.evaluate(async (url: string) => {
       const w = window as Window & { __omOriginalFetch?: typeof window.fetch }
       const withTimeout = async (call: Promise<Response>) => {
         const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 10_000))
         return (await Promise.race([call, timeout])).status
       }
       return {
-        viaWindow: await withTimeout(window.fetch('/api/auth/me')),
-        viaStash: await withTimeout(w.__omOriginalFetch!('/api/auth/me')),
+        viaWindow: await withTimeout(window.fetch(url)),
+        viaStash: await withTimeout(w.__omOriginalFetch!(url)),
       }
-    })
-    expect(replay.viaWindow, 'window.fetch still reaches the API through the framework wrapper').toBe(200)
-    expect(replay.viaStash, 'the instrumented native fetch still reaches the API').toBe(200)
-
-    // A DataTable page proves `apiFetch` itself survived the swap end to end.
-    await page.goto('/backend/customers/people')
-    await expect(page.getByRole('table').or(page.getByRole('grid')).first()).toBeVisible({ timeout: 30_000 })
+    }, replayUrl)
+    expect(replay.viaWindow, `window.fetch must still reach ${replayUrl} through the framework wrapper`).toBe(200)
+    expect(replay.viaStash, `the instrumented native fetch must still reach ${replayUrl}`).toBe(200)
 
     // Exports are batched on a 3s delay, and a flush is forced when the page is hidden.
     await page.evaluate(() => {
@@ -139,7 +170,7 @@ test.describe('TC-TELEMETRY-002: browser RUM runtime', () => {
     await login(page, 'admin')
     await page.goto('/backend')
     await page.goto('/backend/customers/people')
-    await expect(page.getByRole('table').or(page.getByRole('grid')).first()).toBeVisible({ timeout: 30_000 })
+    await expect(page.locator('table, [role="grid"]').first()).toBeVisible({ timeout: 30_000 })
     await page.waitForTimeout(5_000)
 
     expect(await otelApiIsRegistered(page), 'the web SDK chunk must never be requested while RUM is off').toBe(false)
