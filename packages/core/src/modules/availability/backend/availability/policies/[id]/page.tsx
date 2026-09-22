@@ -1,6 +1,6 @@
 "use client"
 import * as React from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -51,11 +51,10 @@ function toNullableInt(value: number | string | null | undefined): number | null
   return Number.isFinite(parsed) ? parsed : null
 }
 
-export default function AvailabilityPolicyEditPage() {
+export default function AvailabilityPolicyEditPage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const router = useRouter()
-  const params = useParams<{ id: string }>()
-  const id = typeof params?.id === 'string' ? params.id : Array.isArray(params?.id) ? params.id[0] : ''
+  const id = params?.id ?? ''
   const { payload } = useBackendChrome()
   const canManage = hasFeature(payload?.grantedFeatures, 'availability.policies.manage')
 

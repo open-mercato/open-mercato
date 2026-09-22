@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createPolicyResolutionService, resolveIsStockManagedModuleDefault } from '../policyResolution'
 import type { PolicyResolutionScope } from '../policyResolution'
+import { AvailabilityPolicy } from '../../data/entities'
 
 const TENANT = 'tenant-1'
 const ORG = 'org-1'
@@ -30,11 +31,19 @@ function row(overrides: Record<string, unknown>) {
   }
 }
 
-function makeEm(candidates: unknown[], findOneResult: unknown = null): { em: EntityManager; findOne: jest.Mock } {
-  const find = jest.fn().mockResolvedValue(candidates)
+function makeEm(
+  candidates: unknown[],
+  findOneResult: unknown = null,
+  profileRows: unknown[] = [],
+): { em: EntityManager; findOne: jest.Mock; find: jest.Mock } {
+  const find = jest.fn().mockImplementation(async (entityClass: unknown) => {
+    // AvailabilityPolicy candidate pool vs the batched ProductInventoryProfile lookup —
+    // distinguished by entity class, mirroring how resolveMany() calls em.find twice.
+    return entityClass === AvailabilityPolicy ? candidates : profileRows
+  })
   const findOne = jest.fn().mockResolvedValue(findOneResult)
   const em = { find, findOne } as unknown as EntityManager
-  return { em, findOne }
+  return { em, findOne, find }
 }
 
 function makeContainer(withProfileEntity = true) {
@@ -126,22 +135,22 @@ describe('policy resolution chain', () => {
   })
 
   it('module default for is_stock_managed is true when wms is enabled and a profile exists', async () => {
-    const { em, findOne } = makeEm([], { id: 'profile-1' })
+    const { em, find } = makeEm([], null, [{ catalogProductId: PRODUCT, catalogVariantId: VARIANT }])
     const service = createPolicyResolutionService(makeContainer(true))
     const result = await service.resolve(em, scope)
     expect(result.isStockManaged).toEqual({ value: true, policySourceId: null })
-    expect(findOne).toHaveBeenCalled()
+    expect(find).toHaveBeenCalledTimes(2)
   })
 
   it('module default for is_stock_managed is false when wms is disabled (no ProductInventoryProfile DI key)', async () => {
-    const { em } = makeEm([], { id: 'profile-1' })
+    const { em } = makeEm([], null, [{ catalogProductId: PRODUCT, catalogVariantId: VARIANT }])
     const service = createPolicyResolutionService(makeContainer(false))
     const result = await service.resolve(em, scope)
     expect(result.isStockManaged).toEqual({ value: false, policySourceId: null })
   })
 
   it('module default for is_stock_managed is false when wms is enabled but no profile exists', async () => {
-    const { em } = makeEm([], null)
+    const { em } = makeEm([], null, [])
     const service = createPolicyResolutionService(makeContainer(true))
     const result = await service.resolve(em, scope)
     expect(result.isStockManaged).toEqual({ value: false, policySourceId: null })
@@ -158,5 +167,34 @@ describe('resolveIsStockManagedModuleDefault', () => {
       variantId: VARIANT,
     })
     expect(result).toBe(false)
+  })
+})
+
+describe('resolveMany (batched — R4)', () => {
+  it('issues exactly one AvailabilityPolicy query and one profile query regardless of scope count', async () => {
+    const scopes: PolicyResolutionScope[] = Array.from({ length: 200 }, (_, i) => ({
+      tenantId: TENANT,
+      organizationId: ORG,
+      productId: `product-${i}`,
+      variantId: `variant-${i}`,
+      storeId: STORE,
+    }))
+    const { em, find } = makeEm([], null, [])
+    const service = createPolicyResolutionService(makeContainer(true))
+    const results = await service.resolveMany(em, scopes)
+    expect(results).toHaveLength(200)
+    // One call for the AvailabilityPolicy candidate pool, one for the batched profile-existence check.
+    expect(find).toHaveBeenCalledTimes(2)
+  })
+
+  it('resolves each scope independently from the shared candidate pool', async () => {
+    const { em } = makeEm([
+      row({ id: 'variant-store', variantId: VARIANT, storeId: STORE, allowBackorder: true, backorderLeadTimeDays: 2 }),
+    ])
+    const service = createPolicyResolutionService(makeContainer(false))
+    const other = { ...scope, productId: 'other-product', variantId: 'other-variant' }
+    const [first, second] = await service.resolveMany(em, [scope, other])
+    expect(first.allowBackorder).toEqual({ value: true, policySourceId: 'variant-store' })
+    expect(second.allowBackorder).toEqual({ value: false, policySourceId: null })
   })
 })
