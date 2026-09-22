@@ -37,7 +37,7 @@
 | 1 | 1.13 | Integration tests: Phase 1 API routes + behavioral cases | dispatch:capable | todo | — |
 | 1 | 1.14 | Integration tests: Phase 1 UI paths | dispatch:capable | todo | — |
 | 2 | 2.1 | `CustomerGroupTerms` entity + validators | dispatch:standard | done | 8a3f3168c |
-| 2 | 2.2 | Generate + review Phase 2 migration | inline | todo | — |
+| 2 | 2.2 | Generate + review Phase 2 migration | inline | done | 59223f63a |
 | 2 | 2.3 | `resolveTerms()` per-field inheritance + `sourceGroupId` + unit tests | dispatch:capable | todo | — |
 | 2 | 2.4 | API routes: `GET/PUT /api/customer-groups/:id/terms` | dispatch:standard | todo | — |
 | 2 | 2.5 | Admin UI: terms section on group edit page | dispatch:capable | todo | — |
