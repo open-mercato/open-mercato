@@ -19,7 +19,7 @@ Source spec: `.ai/specs/2026-08-14-availability-contract.md` §13 Phases 1 and 2
 | 1 | 2.7 | backend UI — policy list/create/edit | inline | done | 860befad1 |
 | 1 | 2.8 | backend UI — admin check tool | inline | done | c67a04d87 |
 | 1 | 2.9-checkpoint-fix | Checkpoint 2 fixes: useParams() route-param guard, batched policyResolution.resolveMany() for R4 | inline | done | 269051ee8 |
-| 2 | 3.1 | wms sellable-quantity calculation + tests (R1, R4) | inline | todo | — |
+| 2 | 3.1 | wms sellable-quantity calculation + tests (R1, R4) | inline | done | cc7e1ba6f |
 | 2 | 3.2 | wms availability cache + invalidation subscriber | inline | todo | — |
 | 2 | 3.3 | wms AvailabilityProvider + registration + integration tests | inline | todo | — |
 | — | 4.1 | Playwright UI integration tests | inline | todo | — |
