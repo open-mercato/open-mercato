@@ -31,6 +31,7 @@ type ResponsePayload = {
   page?: number
   pageSize?: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 function ScopeCell({ value, allLabel }: { value: string | null; allLabel: string }) {
@@ -43,6 +44,7 @@ export default function AvailabilityPoliciesListPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const scopeVersion = useOrganizationScopeVersion()
@@ -91,6 +93,7 @@ export default function AvailabilityPoliciesListPage() {
           setRows(Array.isArray(payload.items) ? payload.items : [])
           setTotal(payload.total || 0)
           setTotalPages(payload.totalPages || 1)
+          setTotalIsCapped(payload?.totalIsCapped === true)
         }
       } catch (error) {
         if (!cancelled) {
@@ -183,7 +186,7 @@ export default function AvailabilityPoliciesListPage() {
               { id: 'delete', label: t('common.delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
             ]} />
           )}
-          pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: 50, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
         />
       </PageBody>
