@@ -208,8 +208,8 @@ describe('documentUpdateSchema — customFields', () => {
 
 describe('sales document update commands — customFields (#6217)', () => {
   beforeEach(() => {
-    setRecordCustomFields.mockClear()
-    emitCrudSideEffects.mockClear()
+    setRecordCustomFields.mockReset()
+    emitCrudSideEffects.mockReset()
   })
 
   it('persists customFields supplied to sales.orders.update', async () => {

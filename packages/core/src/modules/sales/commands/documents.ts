@@ -9,6 +9,7 @@ import { withAtomicFlush } from "@open-mercato/shared/lib/commands/flush";
 import {
   buildChanges,
   emitCrudSideEffects,
+  emitCrudUndoSideEffects,
   requireId,
   type CrudEventsConfig,
 } from "@open-mercato/shared/lib/commands/helpers";
@@ -5413,7 +5414,6 @@ const updateQuoteCommand: CommandHandler<
         organizationId: quote.organizationId,
         tenantId: quote.tenantId,
       },
-      events: quoteCrudEvents,
       indexer: { entityType: E.sales.sales_quote },
       actorUserId: ctx.auth?.sub ?? null,
     });
@@ -5476,8 +5476,20 @@ const updateQuoteCommand: CommandHandler<
     if (!before) return;
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId);
-    await restoreQuoteGraph(em, before);
+    const quote = await restoreQuoteGraph(em, before);
     await em.flush();
+    const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await emitCrudUndoSideEffects({
+      dataEngine,
+      action: "updated",
+      entity: quote,
+      identifiers: {
+        id: quote.id,
+        organizationId: quote.organizationId,
+        tenantId: quote.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_quote },
+    });
   },
 };
 
@@ -5705,7 +5717,6 @@ const updateOrderCommand: CommandHandler<
         organizationId: order.organizationId,
         tenantId: order.tenantId,
       },
-      events: orderCrudEvents,
       indexer: { entityType: E.sales.sales_order },
       actorUserId: ctx.auth?.sub ?? null,
     });
@@ -5781,8 +5792,20 @@ const updateOrderCommand: CommandHandler<
     if (!before) return;
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId);
-    await restoreOrderGraph(em, before);
+    const order = await restoreOrderGraph(em, before);
     await em.flush();
+    const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await emitCrudUndoSideEffects({
+      dataEngine,
+      action: "updated",
+      entity: order,
+      identifiers: {
+        id: order.id,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_order },
+    });
   },
 };
 
