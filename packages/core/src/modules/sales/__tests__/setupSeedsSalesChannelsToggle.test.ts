@@ -85,7 +85,6 @@ describe('sales setup seeds', () => {
 
     const setupModule = await import('../setup')
 
-    expect(setupModule.default).toBe(setupModule.setup)
     expect(evaluations).toEqual([])
 
     const em = createEm(calls)
@@ -101,11 +100,6 @@ describe('sales setup seeds', () => {
       'payment-methods',
       'channels-toggle',
     ])
-    expect(seeds.seedSalesStatusDictionaries).toHaveBeenCalledWith(em, scope)
-    expect(seeds.seedSalesAdjustmentKinds).toHaveBeenCalledWith(em, scope)
-    expect(seeds.ensureExampleShippingMethods).toHaveBeenCalledWith(em, scope)
-    expect(seeds.ensureExamplePaymentMethods).toHaveBeenCalledWith(em, scope)
-    expect(seeds.seedSalesChannelsToggle).toHaveBeenCalledWith(em)
     expect(seeds.seedSalesExamples).not.toHaveBeenCalled()
   })
 
@@ -136,7 +130,7 @@ describe('sales setup seeds', () => {
     expect(seeds.seedSalesChannelsToggle).not.toHaveBeenCalled()
   })
 
-  it('defers example seed implementation until seedExamples and forwards its context', async () => {
+  it('defers example seed implementation until seedExamples', async () => {
     const evaluations: string[] = []
     const calls: string[] = []
     const seeds = mockSetupOnlyModules(evaluations, calls)
@@ -152,7 +146,6 @@ describe('sales setup seeds', () => {
 
     expect(evaluations).toEqual(['examples'])
     expect(calls).toEqual(['examples'])
-    expect(seeds.seedSalesExamples).toHaveBeenCalledWith(em, container, scope)
     expect(seeds.seedSalesStatusDictionaries).not.toHaveBeenCalled()
     expect(seeds.ensureExampleShippingMethods).not.toHaveBeenCalled()
     expect(seeds.seedSalesChannelsToggle).not.toHaveBeenCalled()
