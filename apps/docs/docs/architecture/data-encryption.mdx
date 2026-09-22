@@ -154,6 +154,7 @@ production-only encryption map still needs a test.
 - UI: extend Custom Entities editor to allow selecting system entities (e.g., `users`, `sales.order`, `sales.quote`, `customer_addresses`) and ticking which fields should be encrypted.
 - Defaults (seeded): `users.email`, customer addresses (address fields), sales orders/quotes snapshot + personal data, customer notes, order/quote notes.
 - Each map entry also marks optional hash columns for deterministic lookup (e.g., `users.email_hash`).
+- **Scope resolution** – an organization-scoped read or write resolves the most specific map for `(entity, tenant, organization)`, falling back to the tenant-wide and then the global map. At the **tenant-wide scope** (`organizationId = null`) the field list is the union of the resolved map and every organization-scoped map of that entity/tenant, so a field any organization encrypts is treated as ciphertext everywhere. `getEncryptedFieldNames`, `encryptEntityPayload`, and `decryptEntityPayload` all resolve the same set — a field declared only on an organization map is therefore still encrypted on a tenant-wide write and decrypted on a tenant-wide read.
 
 ## Key management
 

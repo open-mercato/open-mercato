@@ -116,7 +116,6 @@ export function DateControl({
   value: string
   onChange(next: string): void
   ariaLabel: string
-  locale: string
   className?: string
 }) {
   const [open, setOpen] = React.useState(false)

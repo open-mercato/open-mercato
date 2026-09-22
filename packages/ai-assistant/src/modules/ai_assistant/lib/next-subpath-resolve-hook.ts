@@ -1,5 +1,5 @@
 /**
- * Node ESM resolution for `next/<subpath>` in the standalone MCP processes (#6238 / #6118).
+ * Node ESM resolution for `next/<subpath>` in the standalone MCP processes (#6118).
  *
  * `mercato ai_assistant mcp:serve-http` (and `mcp:serve`, `mcp:dev`,
  * `mcp:list-tools`) run in plain Node, and the AI API operation runner loads

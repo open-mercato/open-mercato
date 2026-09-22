@@ -147,3 +147,14 @@ describe('PhoneNumberField initial country detection', () => {
     expect(screen.getByText(expected)).toBeInTheDocument()
   })
 })
+
+describe('PhoneNumberField source options', () => {
+  it('uses the translated country picker name and optional country asset', () => {
+    render(<PhoneFieldHarness size={40} countryLabel="Numer kierunkowy kraju" renderCountryIcon={country => <img src={`${country.iso2}.svg`} alt="" />} />)
+    const picker = screen.getByRole('combobox', { name: 'Numer kierunkowy kraju' })
+    expect(picker.querySelector('img')).toHaveAttribute('src', 'US.svg')
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '212 555 1234' } })
+    fireEvent.blur(screen.getByRole('textbox'))
+    expect(screen.getByTestId('value')).toHaveTextContent('+1 212 555 1234')
+  })
+})

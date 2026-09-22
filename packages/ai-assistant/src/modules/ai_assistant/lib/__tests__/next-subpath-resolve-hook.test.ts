@@ -9,7 +9,7 @@ function notFound(specifier: string): Error & { code: string } {
   return Object.assign(new Error(`Cannot find module '${specifier}'`), { code: 'ERR_MODULE_NOT_FOUND' })
 }
 
-describe('resolveNextSubpath (#6238 / #6118)', () => {
+describe('resolveNextSubpath (#6118)', () => {
   const context = { parentURL: 'file:///app/route.js' }
 
   it('leaves specifiers other than next/<subpath> to the default resolver', () => {

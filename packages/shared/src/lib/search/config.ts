@@ -21,6 +21,13 @@ export type SearchConfig = {
   entityBlocklistedFields?: Record<string, string[]>
   maxFieldChars?: number
   maxTokensPerField?: number
+  /**
+   * Ceiling on token rows across all fields of one record; `0` disables it. The budget is spent in
+   * the order the document's own keys iterate in, so on an over-budget record *which* fields stay
+   * searchable depends on that key order — see `buildSearchTokenRows` in
+   * `@open-mercato/core/modules/query_index/lib/search-tokens` before recomputing expected tokens
+   * from a document that did not come straight from the indexer.
+   */
   maxTokensPerRecord?: number
 }
 

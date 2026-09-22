@@ -23,7 +23,7 @@ function getCommand(name: string): ModuleCli {
   return cmd
 }
 
-describe('standalone MCP commands install the next/<subpath> resolve hook (#6238 / #6118)', () => {
+describe('standalone MCP commands install the next/<subpath> resolve hook (#6118)', () => {
   beforeEach(() => {
     jest.clearAllMocks()
   })

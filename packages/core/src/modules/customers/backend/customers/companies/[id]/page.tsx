@@ -39,6 +39,7 @@ import { normalizeCustomFieldSubmitValue } from '../../../../components/detail/c
 import { InlineDictionaryEditor, renderMultilineMarkdownDisplay } from '../../../../components/detail/InlineEditors'
 import { formatTemplate } from '../../../../components/detail/utils'
 import { coerceDisplayName } from '../../../../lib/displayName'
+import { isDetailNotFoundStatus } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import {
   CompanyPeopleSection,
@@ -306,7 +307,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
         setData(payload as CompanyOverview)
       } catch (err) {
         if (cancelled) return
-        if ((err as { status?: number }).status === 404) {
+        if (isDetailNotFoundStatus((err as { status?: number }).status)) {
           setIsNotFound(true)
         } else {
           const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
