@@ -50,6 +50,27 @@ describe('dictionary fallback for locales the platform does not ship', () => {
     })
   })
 
+  describe('host app override precedence', () => {
+    it('lets the host app dictionary override a module-defined key', async () => {
+      registerModules([{ translations: { en: { greeting: 'Hello from module' } } }] as any)
+
+      const en = await loadDictionary('en')
+
+      // The host's own locale file must win — a module MUST NOT be able to
+      // silently shadow a key the host app explicitly set (issue #5995).
+      expect(en.greeting).toBe('Hello')
+    })
+
+    it('still falls back to a module key the host app does not define', async () => {
+      registerModules([{ translations: { en: { moduleOnly: 'Module value' } } }] as any)
+
+      const en = await loadDictionary('en')
+
+      expect(en.moduleOnly).toBe('Module value')
+      expect(en.greeting).toBe('Hello')
+    })
+  })
+
   describe('an app-registered locale', () => {
     it('falls back to the default locale instead of rendering raw keys', async () => {
       registerLocales(['cs'])

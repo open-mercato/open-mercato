@@ -94,18 +94,18 @@ export async function loadDictionary(locale: Locale): Promise<Dict> {
   const needsDefaultLocaleBase =
     locale !== defaultLocale && !(locales as readonly string[]).includes(locale)
   const merged: Dict = needsDefaultLocaleBase ? { ...(await loadDictionary(defaultLocale)) } : {}
-  // Load from registry instead of @/ import (works in standalone packages)
-  const baseRaw = await loadAppDictionary(locale)
-  Object.assign(merged, flattenDictionary(baseRaw))
   // Route handlers translate their responses, so they resolve a dictionary even
-  // when they are exercised in isolation without a bootstrapped registry. The
-  // app dictionary alone is the right degraded answer there — `registerModules`
-  // invalidates this cache, so a later bootstrap still gets the merged result.
+  // when they are exercised in isolation without a bootstrapped registry. Module
+  // dictionaries are layered first so the host app dictionary — merged last,
+  // below — is always the final word and can override any module-defined key.
   const modules = tryGetModules() ?? []
   for (const m of modules) {
     const dict = m.translations?.[locale]
     if (dict) Object.assign(merged, flattenDictionary(dict))
   }
+  // Load from registry instead of @/ import (works in standalone packages)
+  const baseRaw = await loadAppDictionary(locale)
+  Object.assign(merged, flattenDictionary(baseRaw))
   setCachedDictionary(locale, merged)
   return merged
 }

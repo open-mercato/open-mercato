@@ -24,6 +24,24 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### `loadDictionary` now lets a host app's own locale file override a module-defined translation key (#5995)
+
+`loadDictionary` (`@open-mercato/shared/lib/i18n/server`) used to merge the host app's dictionary
+(`apps/<host>/src/i18n/<locale>.json`) first and then layer every registered module's dictionary
+on top, so a module-defined key always won over the host's own value for the same key — with no
+error or warning. A host that added, say, `"customers.columnGroups.crm"` to its own locale file
+would see it silently overwritten by `packages/core/src/modules/customers/i18n/<locale>.json`.
+
+The merge order is now reversed: module dictionaries are layered first (registration order,
+unchanged relative precedence between modules), and the host app dictionary is applied last, so it
+is always the final word. `apps/<host>/src/i18n/<locale>.json` is now the supported way to
+override any translation key a module defines.
+
+**Action for module/app authors:** if your app's locale file happens to define a key that
+collides with a module-defined key, your app's value now wins where the module's used to. Audit
+your own locale files for accidental collisions with module dictionaries if you rely on a
+module's translation for a key your app also happens to define.
+
 ### `encryptEntityPayload`/`encryptFields` can now throw `TenantDataEncryptionError` (`WRONG_KEY`) instead of silently corrupting data (#5951)
 
 `TenantDataEncryptionService.encryptFields` treated a field as "already encrypted" whenever it
