@@ -30,6 +30,7 @@ import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { mapListItemsToSummaries, type CustomerGroupSummary } from '../../components/customerGroupTree'
+import { PersonGroupsExplainTerms } from './person-groups-explain-terms'
 
 const PERSON_GROUPS_RESOURCE_KINDS = new Set(['customers.person', 'customers.company'])
 
@@ -427,6 +428,8 @@ export function PersonGroupsTabWidget({
           ))}
         </ul>
       )}
+
+      <PersonGroupsExplainTerms customerId={customerId} />
 
       <Dialog
         open={assignDialogOpen}
