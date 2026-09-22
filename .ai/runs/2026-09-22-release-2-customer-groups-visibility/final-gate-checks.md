@@ -72,9 +72,40 @@ runner guidance.
 
 Scoped to this run's own surface (`customer_groups/__integration__/*.spec.ts`,
 24 files) rather than the entire monorepo's suite — a full repo-wide run is
-redundant with CI and disproportionate for a single PR's gate. See the
-dedicated final-gate integration report below once the environment-provisioning
-pass completes (in progress at time of writing).
+redundant with CI and disproportionate for a single PR's gate.
+
+**Final result: 24/24 passing** against a disposable Postgres DB
+(`om_qa_cgrp_85352`) and a production-mode `mercato server start` instance,
+rebuilt (`yarn build:packages` + `yarn build:app --force`) immediately before
+this run so the server served the exact committed code, not a stale bundle.
+
+Two real, in-PR findings surfaced and were fixed during this pass:
+
+1. **Pervasive wrong API URL path** across the entire `customer_groups` admin
+   UI: every product/component/widget file called `/api/customer-groups/...`
+   but the registered route is `/api/customer_groups/customer-groups/...`
+   (module-id prefix required, confirmed against the generated route manifest
+   and the working `customers` module). Fixed across 11 product files + 27
+   integration-spec/fixture occurrences. Took the suite from 13/24 → 23/24.
+2. **TC-CGRP-016 intermittent flake** (the create-page UI round-trip test,
+   last one at 23/24): root-caused via temporary, fully-reverted debug
+   instrumentation in `CrudForm.tsx` (confirmed zero diff after revert) that
+   proved the Code/Name `<input>` DOM value was set by Playwright's `.fill()`
+   without React's `onChange` ever reaching CrudForm's central `values` state
+   — ruling out the `initialValues`-merge effect (correctly guards on
+   `userEditedFieldIdsRef`), the hidden Radix `SelectBubbleInput` bridge
+   (`aria-hidden`, excluded from `getByRole` queries), and field-array
+   remount-by-key (uses stable `key={f.id}`) as causes. The actual cause: the
+   create page's async existing-groups fetch (for the Parent group picker)
+   re-renders the form shortly after mount, and a `.fill()` issued before
+   that settles can have its keystroke dropped before React's `onChange`
+   attaches to the field — later reverting the field to its pristine
+   `initialValues` when an unrelated re-render pushes the (still-stale)
+   `value` prop back into the input's local buffer. Fixed with a one-line
+   test-only readiness wait (`await expect(parentId combobox).toBeEnabled()`
+   before the first fill) — not a product change. Verified with 5 additional
+   solo runs (5/5 pass) plus this final 24/24 full-suite run; commit
+   `0384b2532`.
 
 ## Design-system / style compliance pass
 
