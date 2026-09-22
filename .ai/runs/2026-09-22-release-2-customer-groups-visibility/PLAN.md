@@ -28,7 +28,7 @@
 | 1 | 1.5-fix | Clear-and-set default-group semantics (gap found during Step 1.8) | inline | done | 99ac74b80 |
 | 1 | 1.3-fix | Make (tenant_id, priority) uniqueness soft-delete-aware (gap found during Step 1.6) | inline | done | 19de77865 |
 | 1 | 1.6 | API routes: `/api/customer-groups/memberships` CRUD + reorder command/route | group:A | done | dda675fb4 |
-| 1 | 1.7 | Admin UI: group list (drag-reorder, orphan banner mount) | group:A | todo | — |
+| 1 | 1.7 | Admin UI: group list (drag-reorder, orphan banner mount) | group:A | done | 3dce7cceb |
 | 1 | 1.8 | Admin UI: group create/edit page (Phase 1 fields) | dispatch:standard | done | 31c78ed51 |
 | 1 | 1.9 | Membership assignment UI on customer detail page | dispatch:capable | todo | — |
 | 1 | 1.10 | Reconciliation CLI + `GET /api/customer-groups/reconcile` + orphan banner data wiring | group:B | todo | — |
