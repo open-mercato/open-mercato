@@ -8,7 +8,7 @@ export const extensionPoints = defineModuleExtensionPoints({
       family: 'generic',
       spotId: 'profile:communication-channels:connect',
       supported: ['render-widget'],
-      source: 'backend/profile/communication-channels/page.tsx',
+      source: 'backend/profile/communication-channels/ConnectChannelMenu.tsx',
     }),
     profileChannelsTable: dataTableExtensionHost({ tableId: 'communication_channels.profile.channels', source: 'backend/profile/communication-channels/page.tsx' }),
   },

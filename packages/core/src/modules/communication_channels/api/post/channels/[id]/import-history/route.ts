@@ -8,6 +8,7 @@ import type { CrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { CommunicationChannel } from '../../../../../data/entities'
 import { ChannelAccessDeniedError, assertCanManageChannel } from '../../../../../lib/access-control'
 import {
+  getQueueImportHistorySchema,
   queueImportHistory,
   queueImportHistorySchema,
 } from '../../../../../commands/queue-import-history'
@@ -50,6 +51,10 @@ type RouteContext = {
 
 const bodySchema = queueImportHistorySchema.omit({ channelId: true })
 
+function buildBodySchema() {
+  return getQueueImportHistorySchema().omit({ channelId: true })
+}
+
 export async function POST(req: Request, context: RouteContext): Promise<Response> {
   const { id } = await context.params
   if (!z.string().uuid().safeParse(id).success) {
@@ -70,7 +75,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
-  const parsed = bodySchema.safeParse(rawBody)
+  const parsed = buildBodySchema().safeParse(rawBody)
   if (!parsed.success) {
     const first = parsed.error.issues[0]
     return NextResponse.json(

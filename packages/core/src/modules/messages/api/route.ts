@@ -470,8 +470,14 @@ export async function POST(req: Request) {
         sourceHint.data,
       )
     : undefined
-  const { sourceChannelType: _clientSuppliedChannelType, ...clientBody } =
-    (body ?? {}) as Record<string, unknown>
+  // `inboundFromChannel` is likewise server-only (#6093): channel ingest sets
+  // it so an inbound message can be addressed to the conversation's assignee,
+  // and a request body must not be able to waive the recipients rule with it.
+  const {
+    sourceChannelType: _clientSuppliedChannelType,
+    inboundFromChannel: _clientSuppliedInboundFlag,
+    ...clientBody
+  } = (body ?? {}) as Record<string, unknown>
   const input = composeMessageSchema.parse({
     ...clientBody,
     ...(sourceChannelType ? { sourceChannelType } : {}),
