@@ -115,3 +115,59 @@ export type LockFiscalPeriodInput = z.infer<typeof lockFiscalPeriodSchema>
 
 export const unlockFiscalPeriodSchema = lockFiscalPeriodSchema
 export type UnlockFiscalPeriodInput = z.infer<typeof unlockFiscalPeriodSchema>
+
+
+// `createLedgerAccount` / `updateLedgerAccount` input.
+export const ledgerAccountCreateSchema = z.object({
+  organizationId: z.uuid(),
+  tenantId: z.uuid(),
+  slug: z.string().min(1).max(100),
+  accountTypeId: z.uuid(),
+  parentAccountId: z.uuid().nullable().optional(),
+  description: z.string().max(1000).nullable().optional(),
+})
+
+export type LedgerAccountCreateInput = z.infer<typeof ledgerAccountCreateSchema>
+
+export const ledgerAccountUpdateSchema = z.object({
+  id: z.uuid(),
+  organizationId: z.uuid().optional(),
+  tenantId: z.uuid().optional(),
+  slug: z.string().min(1).max(100).optional(),
+  // Immutable once the account has posted entries — enforced at the
+  // command layer (commands/ledgerAccounts.ts), not by this schema.
+  accountTypeId: z.uuid().optional(),
+  parentAccountId: z.uuid().nullable().optional(),
+  description: z.string().max(1000).nullable().optional(),
+})
+
+export type LedgerAccountUpdateInput = z.infer<typeof ledgerAccountUpdateSchema>
+
+// `createLedgerAccountType` / `updateLedgerAccountType` input.
+export const ledgerAccountTypeCreateSchema = z.object({
+  organizationId: z.uuid(),
+  tenantId: z.uuid(),
+  slug: z.string().min(1).max(100),
+  name: z.string().min(1).max(200),
+  normalBalance: z.enum(['DEBIT', 'CREDIT']),
+  parentAccountTypeId: z.uuid().nullable().optional(),
+  accountGroupId: z.uuid().nullable().optional(),
+})
+
+export type LedgerAccountTypeCreateInput = z.infer<typeof ledgerAccountTypeCreateSchema>
+
+export const ledgerAccountTypeUpdateSchema = z.object({
+  id: z.uuid(),
+  organizationId: z.uuid().optional(),
+  tenantId: z.uuid().optional(),
+  slug: z.string().min(1).max(100).optional(),
+  name: z.string().min(1).max(200).optional(),
+  // Immutable (together with accountGroupId) once any account of this type
+  // has posted entries — enforced at the command layer
+  // (commands/ledgerAccountTypes.ts), not by this schema.
+  normalBalance: z.enum(['DEBIT', 'CREDIT']).optional(),
+  parentAccountTypeId: z.uuid().nullable().optional(),
+  accountGroupId: z.uuid().nullable().optional(),
+})
+
+export type LedgerAccountTypeUpdateInput = z.infer<typeof ledgerAccountTypeUpdateSchema>

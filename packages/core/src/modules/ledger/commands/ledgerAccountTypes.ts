@@ -1,0 +1,214 @@
+import { randomUUID } from 'crypto'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { parseWithCustomFields } from '@open-mercato/shared/lib/commands/helpers'
+import { runCrudCommandWrite } from '@open-mercato/shared/lib/commands/runCrudCommandWrite'
+import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
+import { conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
+import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { E } from '#generated/entities.ids.generated'
+import { JournalEntryLine, LedgerAccount, LedgerAccountType } from '../data/entities'
+import {
+  ledgerAccountTypeCreateSchema,
+  ledgerAccountTypeUpdateSchema,
+  type LedgerAccountTypeCreateInput,
+  type LedgerAccountTypeUpdateInput,
+} from '../data/validators'
+
+const LEDGER_ACCOUNT_TYPE_ENTITY_ID = 'ledger:ledger_account_type'
+
+type Scope = { organizationId: string; tenantId: string }
+
+const ledgerAccountTypeCrudEvents: CrudEventsConfig<LedgerAccountType> = {
+  module: 'ledger',
+  entity: 'ledger_account_type',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
+
+const ledgerAccountTypeCrudIndexer: CrudIndexerConfig<LedgerAccountType> = {
+  entityType: E.ledger.ledger_account_type,
+}
+
+/**
+ * Whether any `LedgerAccount` of `accountTypeId` has a posted
+ * `JournalEntryLine` — the invariant `updateLedgerAccountType`'s
+ * `normalBalance`/`accountGroupId`-immutability guard checks (see Testing
+ * Strategy). No ORM relation exists between the two entities (plain FK-id
+ * columns, see Design decisions), so this is a two-step lookup rather than
+ * a join: the account ids of this type, then whether any line references
+ * one of them.
+ */
+async function accountTypeHasPostedEntries(
+  em: EntityManager,
+  accountTypeId: string,
+  scope: Scope,
+): Promise<boolean> {
+  const accounts = await em.find(
+    LedgerAccount,
+    { accountTypeId, organizationId: scope.organizationId, tenantId: scope.tenantId },
+    { fields: ['id'] },
+  )
+  if (!accounts.length) return false
+  const accountIds = accounts.map((account) => account.id)
+  const count = await em.count(JournalEntryLine, {
+    accountId: { $in: accountIds },
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+  })
+  return count > 0
+}
+
+const createLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeCreateInput, { ledgerAccountTypeId: string }> = {
+  id: 'ledger.createLedgerAccountType',
+  async execute(rawInput, ctx) {
+    const { parsed, custom } = parseWithCustomFields(ledgerAccountTypeCreateSchema, rawInput)
+    ensureTenantScope(ctx, parsed.tenantId)
+    ensureOrganizationScope(ctx, parsed.organizationId)
+
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope: Scope = { organizationId: parsed.organizationId, tenantId: parsed.tenantId }
+
+    const existing = await em.findOne(LedgerAccountType, {
+      slug: parsed.slug,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    })
+    if (existing) {
+      throw conflict('An account type with this slug already exists for this organization.')
+    }
+
+    let record!: LedgerAccountType
+    await runCrudCommandWrite({
+      ctx,
+      em,
+      entityId: LEDGER_ACCOUNT_TYPE_ENTITY_ID,
+      action: 'created',
+      scope,
+      customFields: custom,
+      events: ledgerAccountTypeCrudEvents,
+      indexer: ledgerAccountTypeCrudIndexer,
+      sideEffect: () => ({
+        entity: record,
+        identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
+      }),
+      phases: [
+        () => {
+          const now = new Date()
+          record = em.create(LedgerAccountType, {
+            id: randomUUID(),
+            organizationId: parsed.organizationId,
+            tenantId: parsed.tenantId,
+            slug: parsed.slug,
+            name: parsed.name,
+            normalBalance: parsed.normalBalance,
+            parentAccountTypeId: parsed.parentAccountTypeId ?? null,
+            accountGroupId: parsed.accountGroupId ?? null,
+            createdAt: now,
+            updatedAt: now,
+          })
+          em.persist(record)
+        },
+      ],
+    })
+
+    return { ledgerAccountTypeId: record.id }
+  },
+  buildLog: async ({ input, result, ctx }) => {
+    if (!result) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('ledger.audit.createLedgerAccountType', 'Create ledger account type'),
+      resourceKind: 'ledger.ledger_account_type',
+      resourceId: result.ledgerAccountTypeId,
+      tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
+      organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    }
+  },
+}
+
+const updateLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeUpdateInput, { ledgerAccountTypeId: string }> = {
+  id: 'ledger.updateLedgerAccountType',
+  async execute(rawInput, ctx) {
+    const { parsed, custom } = parseWithCustomFields(ledgerAccountTypeUpdateSchema, rawInput)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+
+    const record = await em.findOne(LedgerAccountType, { id: parsed.id, deletedAt: null })
+    if (!record) throw notFound('Ledger account type not found.')
+    ensureTenantScope(ctx, record.tenantId)
+    ensureOrganizationScope(ctx, record.organizationId)
+    const scope: Scope = { organizationId: record.organizationId, tenantId: record.tenantId }
+
+    if (parsed.slug !== undefined && parsed.slug !== record.slug) {
+      const existing = await em.findOne(LedgerAccountType, {
+        slug: parsed.slug,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        deletedAt: null,
+        id: { $ne: record.id },
+      })
+      if (existing) throw conflict('An account type with this slug already exists for this organization.')
+    }
+
+    const changesNormalBalance = parsed.normalBalance !== undefined && parsed.normalBalance !== record.normalBalance
+    const changesAccountGroup =
+      parsed.accountGroupId !== undefined && (parsed.accountGroupId ?? null) !== (record.accountGroupId ?? null)
+
+    if (changesNormalBalance || changesAccountGroup) {
+      if (await accountTypeHasPostedEntries(em, record.id, scope)) {
+        throw conflict(
+          'normalBalance and accountGroupId cannot be changed once an account of this type has posted entries.',
+        )
+      }
+    }
+
+    await runCrudCommandWrite({
+      ctx,
+      em,
+      entityId: LEDGER_ACCOUNT_TYPE_ENTITY_ID,
+      action: 'updated',
+      scope,
+      customFields: custom,
+      events: ledgerAccountTypeCrudEvents,
+      indexer: ledgerAccountTypeCrudIndexer,
+      sideEffect: () => ({
+        entity: record,
+        identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
+      }),
+      phases: [
+        () => {
+          if (parsed.slug !== undefined) record.slug = parsed.slug
+          if (parsed.name !== undefined) record.name = parsed.name
+          if (parsed.normalBalance !== undefined) record.normalBalance = parsed.normalBalance
+          if (parsed.parentAccountTypeId !== undefined) record.parentAccountTypeId = parsed.parentAccountTypeId ?? null
+          if (parsed.accountGroupId !== undefined) record.accountGroupId = parsed.accountGroupId ?? null
+          record.updatedAt = new Date()
+          em.persist(record)
+        },
+      ],
+    })
+
+    return { ledgerAccountTypeId: record.id }
+  },
+  buildLog: async ({ input, result, ctx }) => {
+    if (!result) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('ledger.audit.updateLedgerAccountType', 'Update ledger account type'),
+      resourceKind: 'ledger.ledger_account_type',
+      resourceId: result.ledgerAccountTypeId,
+      tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
+      organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    }
+  },
+}
+
+registerCommand(createLedgerAccountTypeCommand)
+registerCommand(updateLedgerAccountTypeCommand)
