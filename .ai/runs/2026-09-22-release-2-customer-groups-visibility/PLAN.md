@@ -35,7 +35,7 @@
 | 1 | 1.11 | Group picker widget → `crud-form:catalog.catalog_product_price:fields` + `crud-form:sales.sales_tax_rate:fields` | group:B | done | 87691ea81 |
 | 1 | 1.12 | i18n keys — Phase 1 surfaces (en/de/es/ko/pl) | dispatch:cheap | done | 09c22259b |
 | 1 | 1.13 | Integration tests: Phase 1 API routes + behavioral cases | dispatch:capable | done | 519730eee |
-| 1 | 1.14 | Integration tests: Phase 1 UI paths | dispatch:capable | todo | — |
+| 1 | 1.14 | Integration tests: Phase 1 UI paths | dispatch:capable | done | 96bb20d13 |
 | 2 | 2.1 | `CustomerGroupTerms` entity + validators | dispatch:standard | done | 8a3f3168c |
 | 2 | 2.2 | Generate + review Phase 2 migration | inline | done | 59223f63a |
 | 2 | 2.3 | `resolveTerms()` per-field inheritance + `sourceGroupId` + unit tests | dispatch:capable | done | cc6f6d704 |
