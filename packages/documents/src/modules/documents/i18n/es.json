@@ -518,5 +518,6 @@
   "documents.versions.snapshot.defaultLabel": "Instantánea",
   "documents.versions.snapshot.labelPlaceholder": "Etiqueta (opcional)",
   "documents.versions.snapshotTooLarge": "Esta versión es demasiado grande para procesarla de forma segura.",
-  "documents.versions.title": "Historial de versiones"
+  "documents.versions.title": "Historial de versiones",
+  "search.entityType.documents.document": "Documento"
 }

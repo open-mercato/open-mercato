@@ -216,15 +216,23 @@ test('generated classic Codex root and representative initial chains fit their b
     // another template module no longer trips this test. What it still guards is the point
     // where the classic scaffold gets so large that it loses its inline index — a real
     // routing regression worth reviewing rather than an arbitrary ceiling.
+    //
+    // 2026-08-19, @wojciechszyjka on #4471: enabling channel_resend and channel_ses crossed that
+    // point, and the pointer-form fallback was accepted deliberately. The routing line below
+    // survives both forms, so the cost is one directory listing; develop already had no headroom
+    // left after warranty_claims, so trimming prose here would have lasted until the next module.
+    // Reclaiming real headroom so the index can be enumerated again is tracked in #5437.
     assert.equal(
       shedIndex,
-      false,
-      `classic scaffold no longer fits its inline module-fact index (${classicFactModules.length} modules); ` +
-        'either reclaim root bytes or accept the pointer-form fallback deliberately',
+      true,
+      `classic scaffold is expected to render the pointer-form module-fact index (${classicFactModules.length} modules); ` +
+        'if root bytes were reclaimed, restore the enumerated assertion here deliberately',
     )
-    assert.deepEqual(
-      [...moduleIndex[1].matchAll(/`([^`]+)`/g)].map((match) => match[1]),
-      classicFactModules,
+    assert.match(moduleIndex[1], /^\d+ sheets bundled, too many to index inline/)
+    assert.equal(
+      moduleIndex[1].includes('`'),
+      false,
+      'the pointer form must not enumerate module ids',
     )
     assert.ok(
       Buffer.byteLength(rootInstructions) <= STANDALONE_ROOT_TARGET_BYTES,
@@ -323,18 +331,20 @@ function generateClassicRoot(extraModules: string[]): { bytes: number; root: str
   }
 }
 
-test('the standalone template keeps its inline index and one more module stays within budget', () => {
-  // The shipped template must keep its enumerated inline module-fact index.
+test('the standalone template stays within budget in its pointer-form index', () => {
+  // Enabling warranty_claims consumed the last inline-index headroom, and channel_resend plus
+  // channel_ses (#4471) pushed the shipped template past it, so the root now renders the O(1)
+  // pointer form rather than overflowing — the designed graceful behavior, accepted deliberately.
+  // Reclaim root bytes (not a raised target) if the enumerated index must return, and flip this
+  // expectation back in the same change.
   const current = generateClassicRoot([])
-  assert.equal(current.shedIndex, false, 'the shipped template must keep its inline module-fact index')
+  assert.equal(current.shedIndex, true, 'the shipped template is expected to render the pointer-form index')
   assert.ok(
     current.bytes <= STANDALONE_ROOT_TARGET_BYTES,
     `shipped root uses ${current.bytes} bytes, over the ${STANDALONE_ROOT_TARGET_BYTES}-byte target`,
   )
+  assert.match(current.root, /Enabled module facts: \d+ sheets bundled, too many to index inline/)
 
-  // Enabling warranty_claims consumed the last inline-index headroom, so adding one more module now
-  // falls back to the O(1) pointer form rather than overflowing — the designed graceful behavior.
-  // Reclaim root bytes (not a raised target) if the inline index for one-more must return.
   const plusOne = generateClassicRoot(['channel_discord'])
   assert.ok(
     plusOne.bytes <= STANDALONE_ROOT_TARGET_BYTES,

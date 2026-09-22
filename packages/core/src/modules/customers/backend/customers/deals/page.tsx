@@ -1079,6 +1079,7 @@ export default function CustomersDealsPage() {
           stickyActionsColumn
           actionsColumnAlign="center"
           title={t('customers.deals.list.title')}
+          titleHeadingLevel={1}
           actions={(
             <Button asChild>
               <Link href="/backend/customers/deals/create">

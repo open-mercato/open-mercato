@@ -1,4 +1,8 @@
 {
+  "search.entityType.wms.inventory_lot": "Partia zapasu",
+  "search.entityType.wms.product_inventory_profile": "Profil zapasu",
+  "search.entityType.wms.warehouse": "Magazyn",
+  "search.entityType.wms.warehouse_location": "Lokalizacja",
   "wms.audit.inventory.receive": "Przyjmij zapas",
   "wms.audit.salesOrder.assignWarehouse": "Przypisz magazyn do zamówienia",
   "wms.audit.salesOrder.reRunReservation": "Ponów rezerwację dla zamówienia",

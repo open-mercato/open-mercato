@@ -7,8 +7,44 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { format } from 'date-fns/format'
 import type { Locale } from 'date-fns/locale'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { CompactButton } from './compact-button'
 
-export type CalendarProps = DayPickerProps
+export type CalendarProps = DayPickerProps & { daySize?: 36 | 40 }
+
+export type CalendarMonthSelectorProps = React.HTMLAttributes<HTMLDivElement> & {
+  month: Date
+  locale?: Locale
+  onPreviousMonth?: () => void
+  onNextMonth?: () => void
+  disabledPrevious?: boolean
+  disabledNext?: boolean
+}
+
+export function CalendarMonthSelector({
+  month, locale, onPreviousMonth, onNextMonth, disabledPrevious, disabledNext, className, ...props
+}: CalendarMonthSelectorProps) {
+  const t = useT()
+  return (
+    <div data-slot="calendar-month-selector" className={cn('flex h-9 items-center gap-1.5 rounded-md bg-muted p-1.5', className)} {...props}>
+      {onPreviousMonth
+        ? <CompactButton appearance="white" size={24} className="shadow-xs" onClick={onPreviousMonth} disabled={disabledPrevious} aria-label={t('ui.calendar.previousMonth', 'Previous month')}><ChevronLeft className="size-5" aria-hidden="true" /></CompactButton>
+        : <span className="size-6 shrink-0" aria-hidden="true" />}
+      <span className="min-w-0 flex-1 text-center text-sm font-medium text-muted-foreground" aria-live="polite">{format(month, 'MMMM yyyy', locale ? { locale } : undefined)}</span>
+      {onNextMonth
+        ? <CompactButton appearance="white" size={24} className="shadow-xs" onClick={onNextMonth} disabled={disabledNext} aria-label={t('ui.calendar.nextMonth', 'Next month')}><ChevronRight className="size-5" aria-hidden="true" /></CompactButton>
+        : <span className="size-6 shrink-0" aria-hidden="true" />}
+    </div>
+  )
+}
+
+// `LLLL`/`LLL`, not `MMMM`/`MMM`: these labels name a month on its own, and languages that
+// inflect month names — Polish among the five this repo ships — spell that differently from a
+// month inside a full date. `MMMM` is the inflected (genitive) form, so a Polish header read
+// "stycznia" ("of January") where it should read "styczeń". The two tokens are identical in
+// English, which is why the bug was invisible until a non-English tenant opened a picker.
+const STANDALONE_MONTH_YEAR = 'LLLL yyyy'
+const STANDALONE_MONTH_SHORT = 'LLL'
 
 const navButtonClassName = cn(
   'h-9 w-9 inline-flex items-center justify-center rounded-md shrink-0',
@@ -32,7 +68,7 @@ function MonthNavButton({
   }
   const target = direction === 'prev' ? dayPicker.previousMonth : dayPicker.nextMonth
   const Icon = direction === 'prev' ? ChevronLeft : ChevronRight
-  const targetLabel = format(target ?? new Date(), 'MMMM yyyy', locale ? { locale } : undefined)
+  const targetLabel = format(target ?? new Date(), STANDALONE_MONTH_YEAR, locale ? { locale } : undefined)
   const ariaLabel = `Go to ${direction === 'prev' ? 'previous' : 'next'} month: ${targetLabel}`
   return (
     <button
@@ -61,7 +97,7 @@ function buildMonthCaption(
     calendarMonth: CalendarMonth
     displayIndex?: number
   }) {
-    const label = format(calendarMonth.date, 'MMMM yyyy', locale ? { locale } : undefined)
+    const label = format(calendarMonth.date, STANDALONE_MONTH_YEAR, locale ? { locale } : undefined)
     const index = typeof displayIndex === 'number' ? displayIndex : 0
     // For multi-month layouts (e.g. range pickers) only the leftmost month
     // exposes the previous-month chevron and only the rightmost exposes the
@@ -128,7 +164,7 @@ function MonthGrid({
   const monthLabels = React.useMemo(
     () =>
       Array.from({ length: 12 }, (_, monthIndex) =>
-        format(new Date(year, monthIndex, 1), 'MMM', locale ? { locale } : undefined),
+        format(new Date(year, monthIndex, 1), STANDALONE_MONTH_SHORT, locale ? { locale } : undefined),
       ),
     [year, locale],
   )
@@ -203,6 +239,7 @@ export function Calendar({
   className,
   classNames,
   showOutsideDays = true,
+  daySize = 36,
   fixedWeeks = true,
   locale,
   components,
@@ -275,12 +312,13 @@ export function Calendar({
             nav: 'sr-only',
             month_grid: 'w-full border-collapse',
             weekdays: 'flex',
-            weekday: 'text-muted-foreground rounded-md w-9 font-normal text-xs',
+            weekday: cn('text-muted-foreground rounded-md font-normal text-xs', daySize === 40 ? 'w-10' : 'w-9'),
             weeks: 'w-full border-collapse',
             week: 'flex w-full mt-1',
-            day: 'h-9 w-9 text-center text-sm p-0 relative focus-within:relative focus-within:z-20',
+            day: cn('text-center text-sm p-0 relative focus-within:relative focus-within:z-20', daySize === 40 ? 'size-10' : 'size-9'),
             day_button: cn(
-              'h-9 w-9 p-0 font-normal aria-selected:opacity-100',
+              'p-0 font-normal aria-selected:opacity-100',
+              daySize === 40 ? 'size-10' : 'size-9',
               'inline-flex items-center justify-center rounded-md text-sm',
               'transition-colors focus:outline-none focus-visible:outline-none disabled:pointer-events-none',
               // Focus indicator is a soft accent fill instead of a ring overlay — keyboard
