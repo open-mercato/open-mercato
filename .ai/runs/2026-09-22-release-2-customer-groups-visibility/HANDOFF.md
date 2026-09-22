@@ -1,30 +1,31 @@
 # Handoff — 2026-09-22-release-2-customer-groups-visibility
 
-**Last updated:** 2026-09-22T13:35:00Z
+**Last updated:** 2026-09-22T18:45:00Z
 **Branch:** feat/release-2-customer-groups-visibility
-**PR:** https://github.com/open-mercato/open-mercato/pull/6338 (draft)
-**Current phase/step:** Phase 2, Step 2.6 (next todo row)
-**Last commit:** 51dff0108 — test(customer_groups): add Phase 1 integration test suite (TC-CGRP-001..009)
+**PR:** https://github.com/open-mercato/open-mercato/pull/6338 (ready for review, `blocked` on #6268)
+**Current phase/step:** RUN COMPLETE — all 29 Steps `done`, `Status: complete` on the PR body.
+**Last commit:** 6695f9490 — docs(runs): record final gate results — 24/24 integration passing
 
 ## What just happened
-- Session was interrupted by a provider rate limit mid-Step 2.6 dispatch; resumed after reset.
-- Recovered a "cezar autosave (run finalize)" commit that had captured Step 1.13's completed work (9 Playwright integration tests + fixtures) — reviewed for quality (high), amended with a proper commit message, filled in the real SHA, pushed.
-- Step 2.6 (explain-terms panel) failed instantly on the rate limit before writing any files — nothing to recover, safe to re-dispatch fresh.
-- All of Phase 1 (1.1–1.14 minus 1.14 itself) and Phase 2 through 2.5 are now committed and pushed. 23 of 26 planned Steps done.
+- All 29 planned Steps landed across Phase 1 (customer_groups groups/memberships), Phase 2 (commercial terms), and Phase 3 (catalog-visibility library).
+- Full `validation.commands` gate ran green; two real `create-mercato-app` template-sync findings were found and fixed (commit `df56fa6e2`).
+- A live QA pass (disposable Postgres `om_qa_cgrp_85352`, production-mode `mercato server start`) found and fixed a pervasive wrong-API-URL-path bug across the entire admin UI (11 product files + 27 test/fixture occurrences), taking the 24-test Playwright suite from 13/24 to 23/24.
+- The last failing test, TC-CGRP-016, was root-caused via temporary (fully reverted, zero git diff) debug instrumentation in `CrudForm.tsx`: the create page's async existing-groups fetch races a `.fill()` issued right after navigation, occasionally dropping the keystroke before React's `onChange` attaches. Fixed with a one-line test-only readiness wait (commit `0384b2532`) — not a product change. Full 24/24 suite now passes, verified with a clean final run.
+- PR #6338 finalized: body updated (`Status: complete`, final validation summary), labels set to the mandatory deviation set (`blocked` instead of `review`, plus `feature`, `needs-qa`, `priority-medium`, `risk-high`), consolidated label-rationale comment posted, a self-review pass posted (found no blockers — `om-auto-review-pr` isn't registered as an invocable skill in this worktree's session and GitHub blocks self-approval, so this substituted a manual review-equivalent comment), outcome/handoff summary comment posted, and the PR flipped from draft to ready for review via `gh pr ready`.
 
 ## Next concrete action
-- Re-dispatch Step 2.6 (explain-terms panel on customer detail page — extends `person-groups-tab.tsx`, needs a new `GET /api/customer-groups/explain-terms?customerId=` route since `resolveTerms()` has no HTTP surface yet).
-- Then 2.7 (i18n for Phase 2 surfaces — 2.5's terms section already added its own keys; 2.6 will need its own too), 2.8/2.9 (Phase 2 integration tests, mirroring 1.13's pattern), then Phase 3 (3.1–3.3, catalog-visibility library — independent of everything else, could be dispatched any time), 1.14 (Phase 1 UI integration tests — still pending, can run any time), then the final gate (step 9 of the skill: full validation.commands + full integration suite + DS pass), label normalization (step 10, MANDATORY `blocked` not `review`), review pass (step 11), summary (step 12), flip to ready (step 13).
+- None from this run — the run is complete. The PR stays `blocked` until #6268 merges to `develop`; once it does, this branch needs a follow-up merge from `develop` (expected no-op re-stack) before the `blocked` label is lifted (see PR body `## Blocked on`).
+- A human reviewer should still submit the formal GitHub approve/request-changes review — the automation account cannot self-approve its own PR.
 
 ## Blockers / open questions
-- None new. Still logged (not blocking): pricing.ts group-priority tie-break deliberately unimplemented; sales tax-rate group picker ships inert (needs a follow-up `sales/` ask); drag-reorder full-row-lift is an accepted DataTable primitive limitation.
+- Stacked on unmerged PR #6268 — MUST NOT merge before it. Tracked via the `blocked` pipeline label for the PR's whole lifetime until then.
+- The spec's §7.1 group-priority price-resolution tie-break is deliberately not implemented (would require editing #6268-owned `pricing.ts`); flagged in the PR body's "⚠️ Decision needed" section for explicit sign-off once #6268 merges.
+- Sales tax-rate group picker ships inert (documented follow-up, not blocking this PR).
 
 ## Environment caveats
-- Dev runtime runnable: not attempted this run. Postgres is running locally with several reusable `om_qa_*` databases from prior sessions, but no dev server has been started and no `.env`/QA env has been bootstrapped in this worktree yet.
-- Integration tests (Step 1.13) are written and confirmed syntactically valid/discoverable (`playwright test --list`, 9/9 found) but NOT executed end-to-end — no live dev server + DB was set up for that step. The final gate (step 9) is the designated point for the authoritative full-suite run.
-- Browser/UI checks: not yet attempted for any step.
+- Live QA server used this run (`om_qa_cgrp_85352` / port 3100) was left running at the end of this session for any immediate follow-up; it is disposable and can be torn down freely.
 
 ## Worktree
 - Path: /Users/bernard/workspace/open-mercato/.ai/cezar/worktrees/18501eb5-8b15-41ac-929d-0633b3aa3903
 - Created this run: no (pre-existing cezar worktree, reused)
-- node_modules: installed; `yarn build:packages` current as of the last checkpoint.
+- node_modules: installed; `yarn build:packages` and `yarn build:app` current as of the final gate run.
