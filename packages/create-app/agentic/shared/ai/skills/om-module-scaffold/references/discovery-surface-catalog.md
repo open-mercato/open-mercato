@@ -42,6 +42,7 @@ Compatibility scanners may still read `data/entities.override.*`, `data/entities
 | Workflows | `workflows.ts` | Stable workflow/activity IDs and durable output contracts. |
 | Search | `search.ts` | Entity indexing/presentation; cover reindex and convergence. |
 | Vector search | `vector.ts` | Vector entities with stable `buildSource`, presenter, and link contracts. |
+| Query index projection | `query-index.ts` | Which of the module's entity types are projected into `entity_indexes`; omit the file, or an entity, to keep the default (projected). |
 | Analytics | `analytics.ts` | Module analytics configuration with scoped aggregates. |
 | Translatable fields | `translations.ts` | Entity-field translation declarations; separate from UI locale messages. |
 | Response enrichment | `data/enrichers.ts` | Scoped `enrichOne` plus batched `enrichMany`, ACL and cache posture. |

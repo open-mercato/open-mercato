@@ -1,5 +1,6 @@
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
+import { isEntityTypeProjected } from '@open-mercato/shared/modules/query-index'
 import { upsertIndexRow, reindexSearchTokensForRecord, type UpsertIndexResult } from '../lib/indexer'
 import { applyCoverageAdjustments, createCoverageAdjustments } from '../lib/coverage'
 import {
@@ -23,6 +24,13 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
   const entityType = String(payload?.entityType || '')
   const recordId = String(payload?.recordId || '')
   if (!entityType || !recordId) return
+  // Return before the scope lookup and the coverage arithmetic, not just before
+  // the write: for an entity type the app does not project there is nothing to
+  // count, and `entity_index_coverage` must stay empty so the engine reports the
+  // type as not indexed rather than as covered-with-zero-rows.
+  // `query_index.delete_one` is deliberately left unfiltered, so a row written
+  // before the switch was set still cleans itself up.
+  if (!isEntityTypeProjected(entityType)) return
   let organizationId: string | null = payload?.organizationId ?? null
   let tenantId: string | null = payload?.tenantId ?? null
   const suppressCoverage = payload?.suppressCoverage === true

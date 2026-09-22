@@ -267,6 +267,9 @@ export type Module = {
   injectionTable?: ModuleInjectionTable
   // Optional: per-module vector search configuration (discovered from vector.ts)
   vector?: import('./vector').VectorModuleConfig
+  // Optional: per-module query-index configuration (discovered from query-index.ts).
+  // Declares which of the module's entity types are projected into `entity_indexes`.
+  queryIndex?: import('./query-index').QueryIndexModuleConfig
   // Optional: module-specific tenant setup configuration (from setup.ts)
   setup?: import('./setup').ModuleSetupConfig
   // Optional: a long-lived process-wide runtime the module starts itself (from runtime.ts).

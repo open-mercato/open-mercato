@@ -246,6 +246,7 @@ describe('module extension facts', () => {
       ['module-override:nav.groupOrder', 'additive'],
       ['module-override:notifications.handlers', 'disable-replace'],
       ['module-override:notifications.types', 'disable-replace'],
+      ['module-override:queryIndex.entities', 'disable-replace'],
       ['module-override:routes.api', 'disable-replace'],
       ['module-override:routes.pages', 'disable-replace'],
       ['module-override:setup', 'replace'],

@@ -1,5 +1,6 @@
 import type { Module } from '@open-mercato/shared/modules/registry'
 import { applyModuleOverridesToModules } from '@open-mercato/shared/modules/overrides'
+import { registerQueryIndexModuleConfigs } from '@open-mercato/shared/modules/query-index'
 import type { Locale } from '../i18n/config'
 import { invalidateDictionaryCache, invalidateDictionaryCacheLocales } from '../i18n/dictionary-cache'
 import { createLogger } from '../logger'
@@ -215,6 +216,15 @@ export function registerModules(modules: Module[]) {
     ? mergeI18nModules(existing, nextModules)
     : preserveExistingTranslations(existing ?? [], nextModules)
   setGlobalModules(registeredModules)
+  // Feed the query-index projection policy from the same list every runtime
+  // registers, so a CLI reindex and a request read agree on which entity types
+  // are projected. Derived from `registeredModules` so an i18n-only
+  // re-registration cannot drop the declarations of the modules it merges over.
+  registerQueryIndexModuleConfigs(
+    registeredModules
+      .map((module) => module.queryIndex)
+      .filter((config): config is NonNullable<Module['queryIndex']> => !!config),
+  )
   if (i18nOnlyRegistration) {
     invalidateDictionaryCacheLocales(getTranslationLocales(nextModules))
   } else {

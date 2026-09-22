@@ -200,6 +200,7 @@ const FRAMEWORK_OVERRIDE_HOSTS = [
   frameworkOverrideHost('di', 'disable-replace'),
   frameworkOverrideHost('encryption.maps', 'disable-replace'),
   frameworkOverrideHost('nav.groupOrder', 'additive'),
+  frameworkOverrideHost('queryIndex.entities', 'disable-replace'),
 ] as const
 
 function allFrameworkHosts(): ModuleExtensionHostFact[] {

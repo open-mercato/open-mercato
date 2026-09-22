@@ -3,6 +3,7 @@ import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import type { EventBus } from '@open-mercato/events/types'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { filterProjectedEntityTypes } from '@open-mercato/shared/modules/query-index'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { readCoverageSnapshots, primeColumnCache, type ColumnCheck } from '../lib/coverage'
 
@@ -41,7 +42,12 @@ function resolveWarmupStaggerMs(): number {
 }
 
 function getEntityIdList(): string[] {
-  return flattenSystemEntityIds(getEntityIds() as Record<string, Record<string, string>>)
+  // Warming a coverage snapshot for an entity type that is not projected would
+  // write the `entity_index_coverage` row whose absence tells the engine the type
+  // is not indexed.
+  return filterProjectedEntityTypes(
+    flattenSystemEntityIds(getEntityIds() as Record<string, Record<string, string>>),
+  )
 }
 
 // Durable staleness check against `entity_index_coverage.refreshed_at`. The in-memory
