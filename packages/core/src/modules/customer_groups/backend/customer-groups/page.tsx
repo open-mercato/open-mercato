@@ -35,6 +35,7 @@ import {
   useSortable,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { OrphanBanner } from '../../components/OrphanBanner'
 
 type CustomerGroupRow = {
   id: string
@@ -386,7 +387,7 @@ export default function CustomerGroupsPage() {
   return (
     <Page>
       <PageBody>
-        {/* Orphan banner mounts here — see Step 1.10 */}
+        <OrphanBanner />
         {dragReorderEnabled ? (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={rows.map((row) => row.id)} strategy={verticalListSortingStrategy}>
