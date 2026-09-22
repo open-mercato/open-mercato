@@ -133,6 +133,7 @@ describe('admin customer account user invite route', () => {
     expect(mockSendCustomerInvitationEmail).toHaveBeenCalledWith({
       container: mockContainer,
       organizationId,
+      tenantId,
       email: 'buyer@example.com',
       rawToken: 'raw-invite-token',
     })
