@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -12,10 +13,11 @@ import {
   type CustomerGroupUpdateInput,
 } from '../../data/validators'
 
-// Shared (non-route) module: the `route.ts` files under `api/customer-groups/` and
-// `api/customer-groups/[id]/` both delegate to this single `makeCrudRoute` instance so
-// the list projection, filters, and write mapping stay in one place. Next.js route
-// auto-discovery only picks up `route.ts` files, so this file is invisible to it.
+// Shared (non-route) module: `route.ts` delegates to this single `makeCrudRoute`
+// instance (GET/POST/PUT/DELETE all from one file — no `[id]` dynamic segment, see
+// `route.ts`'s own comment) so the list projection, filters, and write mapping stay
+// in one place. Next.js route auto-discovery only picks up `route.ts` files, so this
+// file is invisible to it.
 
 const rawBodySchema = z.object({}).passthrough()
 type RawCustomerGroupInput = z.infer<typeof rawBodySchema>
@@ -102,6 +104,19 @@ function applyCustomerGroupUpdate(entity: CustomerGroup, input: CustomerGroupUpd
   if (hasOwn(input, 'metadata')) entity.metadata = input.metadata ?? null
 }
 
+// "At most one is_default per tenant" (spec §5.1) has a DB-level backstop (the
+// partial unique index `customer_groups_tenant_default_unique` in data/entities.ts)
+// but that only throws a raw unique-violation on conflict — it does not implement
+// the spec's actual UX ("enabling this will replace it"). Clear-and-set semantics:
+// before saving a row with `isDefault: true`, unset every other default group for
+// the tenant in one bulk statement, so the new default always wins cleanly instead
+// of racing the unique index.
+export async function clearOtherDefaultGroups(em: EntityManager, tenantId: string, excludeId?: string): Promise<void> {
+  const where: Record<string, unknown> = { tenantId, isDefault: true, deletedAt: null }
+  if (excludeId) where.id = { $ne: excludeId }
+  await em.nativeUpdate(CustomerGroup, where, { isDefault: false })
+}
+
 const customerGroupListFields = [
   'id',
   'organization_id',
@@ -178,4 +193,22 @@ export const customerGroupCrud = makeCrudRoute<RawCustomerGroupInput, RawCustome
     response: () => ({ ok: true }),
   },
   del: { idFrom: 'query', softDelete: true, response: () => ({ ok: true }) },
+  hooks: {
+    // Raw JSON bodies carry `isDefault` as an actual boolean (not a query-string
+    // token), so this checks the value directly rather than via parseBooleanToken
+    // (which only parses strings and would otherwise always read null here).
+    beforeCreate: async (input, ctx) => {
+      if ((input as RawCustomerGroupInput).isDefault === true) {
+        const em = ctx.container.resolve('em') as EntityManager
+        await clearOtherDefaultGroups(em, scopeFromContext(ctx).tenantId)
+      }
+    },
+    beforeUpdate: async (input, ctx) => {
+      const raw = input as RawCustomerGroupInput
+      if (raw.isDefault === true && typeof raw.id === 'string') {
+        const em = ctx.container.resolve('em') as EntityManager
+        await clearOtherDefaultGroups(em, scopeFromContext(ctx).tenantId, raw.id)
+      }
+    },
+  },
 })

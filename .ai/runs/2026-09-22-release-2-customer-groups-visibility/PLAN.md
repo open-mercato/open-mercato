@@ -25,6 +25,7 @@
 | 1 | 1.3 | Generate + review Phase 1 migration | inline | done | d8e756b39 |
 | 1 | 1.4 | `customerGroupsService.resolveGroups()` + unit tests | dispatch:capable | done | 3effc1830 |
 | 1 | 1.5 | API routes: `/api/customer-groups` CRUD | dispatch:standard | done | 70cd10f06 |
+| 1 | 1.5-fix | Clear-and-set default-group semantics (gap found during Step 1.8) | inline | done | 99ac74b80 |
 | 1 | 1.6 | API routes: `/api/customer-groups/memberships` CRUD + reorder command/route | group:A | todo | — |
 | 1 | 1.7 | Admin UI: group list (drag-reorder, orphan banner mount) | group:A | todo | — |
 | 1 | 1.8 | Admin UI: group create/edit page (Phase 1 fields) | dispatch:standard | todo | — |
