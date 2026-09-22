@@ -11,7 +11,7 @@ Source spec: `.ai/specs/2026-08-14-availability-contract.md` §13 Phases 1 and 2
 | 1 | 1.1 | shared/availability: types + provider registry + resolveAvailability | inline | done | 612b946c5 |
 | 1 | 1.2 | shared/availability: catalog-only fallback provider + barrel + tests | inline | done | 492b0c18e |
 | 1 | 2.1 | availability module skeleton (index/acl/events) | inline | done | 0497c1115 |
-| 1 | 2.2 | AvailabilityPolicy entity + validators + migration | inline | todo | — |
+| 1 | 2.2 | AvailabilityPolicy entity + validators + migration | inline | done | e225f5ffd |
 | 1 | 2.3 | policyResolution.ts — 6-level chain + tests | inline | todo | — |
 | 1 | 2.4 | policy commands + CRUD API route + tests | inline | todo | — |
 | 1 | 2.5 | admin check API route + tests | inline | todo | — |
