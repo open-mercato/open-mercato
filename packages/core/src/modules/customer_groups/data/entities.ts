@@ -14,7 +14,16 @@ export type CustomerGroupMembershipSource = 'manual' | 'import' | 'rule' | 'onbo
 @Index({ name: 'customer_groups_tenant_idx', properties: ['tenantId'] })
 @Index({ name: 'customer_groups_parent_idx', properties: ['parentId'] })
 @Unique({ name: 'customer_groups_tenant_code_unique', properties: ['tenantId', 'code'] })
-@Unique({ name: 'customer_groups_tenant_priority_unique', properties: ['tenantId', 'priority'] })
+@Index({
+  // Partial (not @Unique) so a soft-deleted group's old priority value doesn't stay
+  // permanently reserved — found during Step 1.6/1.7: the admin list's drag-reorder
+  // rewrites priorities in gaps of 10, which would otherwise collide with any
+  // previously-deleted row's still-unique priority and 409 forever, not just on a
+  // transient race. Mirrors `customer_groups_tenant_default_unique` below.
+  name: 'customer_groups_tenant_priority_unique',
+  expression:
+    'create unique index "customer_groups_tenant_priority_unique" on "customer_groups" ("tenant_id", "priority") where "deleted_at" is null',
+})
 @Index({
   // "At most one is_default per tenant" (spec §5.1) is primarily an application-level
   // invariant enforced in the create/update command, but a partial unique index gives

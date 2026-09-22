@@ -591,15 +591,13 @@
           "unique": false
         },
         {
-          "columnNames": [
-            "tenant_id",
-            "priority"
-          ],
-          "composite": true,
-          "constraint": true,
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
           "keyName": "customer_groups_tenant_priority_unique",
           "primary": false,
-          "unique": true
+          "unique": false,
+          "expression": "create unique index \"customer_groups_tenant_priority_unique\" on \"customer_groups\" (\"tenant_id\", \"priority\") where \"deleted_at\" is null"
         }
       ],
       "checks": [],
