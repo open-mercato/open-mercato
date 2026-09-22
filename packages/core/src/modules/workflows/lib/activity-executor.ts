@@ -910,9 +910,10 @@ export async function executeSendEmail(
  * EMIT_EVENT activity handler
  *
  * Publishes a domain event to the event bus.
- * Honours an activity-timeout AbortSignal by refusing to emit after abort and
- * racing the emit await (#5148). An emit that has already begun cannot be
- * rolled back — same contract as UPDATE_ENTITY.
+ * Honours an activity-timeout AbortSignal by refusing to dispatch after abort
+ * (throwIfAborted guard) and by racing the await against the signal via
+ * raceAbortable (#5148). The event bus does not declare a signal parameter, so
+ * an emit that has already begun cannot be cancelled — same contract as UPDATE_ENTITY.
  */
 export async function executeEmitEvent(
   config: any,
@@ -970,7 +971,6 @@ export async function executeEmitEvent(
       eventBus.emitEvent(eventName, enrichedPayload, {
         tenantId: context.workflowInstance.tenantId,
         organizationId: context.workflowInstance.organizationId,
-        signal,
       })
     ),
     signal
@@ -1130,15 +1130,15 @@ export async function executeUpdateEntity(
       : null,
   }
 
-  // Execute the command. A timeout AbortSignal refuses a start and races the
-  // await (#5148); a write that has already begun cannot be rolled back.
+  // Execute the command. A timeout AbortSignal refuses a start (throwIfAborted
+  // guard) and races the await via raceAbortable (#5148). CommandBus.execute
+  // does not accept a signal, so a write that has already begun cannot be rolled back.
   throwIfAborted(signal)
   const { result, logEntry } = await raceAbortable(
     Promise.resolve(
       commandBus.execute(commandId, {
         input: finalInput,
         ctx,
-        signal,
       })
     ),
     signal
@@ -2185,11 +2185,14 @@ function sleep(ms: number): Promise<void> {
 /**
  * Execute a promise with timeout
  *
- * AbortController.signal is threaded into every activity handler. CALL_API /
- * CALL_WEBHOOK forward it to `fetch`. SEND_EMAIL, EMIT_EVENT, UPDATE_ENTITY and
- * EXECUTE_FUNCTION check it before side effects, race their awaits against it,
- * and forward it to callees that can honour it (#5148 / #4918). A command-bus
- * write or event emit that has already begun cannot be rolled back.
+ * AbortController.signal is threaded into every activity handler on both the
+ * synchronous (`executeActivity`) and asynchronous worker (`activity-worker-handler`)
+ * paths. CALL_API / CALL_WEBHOOK forward it to `fetch`. SEND_EMAIL forwards it to
+ * `emailService.send` (honouring is optional per implementation). EMIT_EVENT and
+ * UPDATE_ENTITY check it before dispatch and race their awaits against it via
+ * `raceAbortable` — neither the event bus nor the command bus declare a `signal`
+ * parameter, so a write/emit that has already begun cannot be rolled back.
+ * EXECUTE_FUNCTION forwards it as its third argument (#5148 / #4918).
  */
 async function executeWithTimeout<T>(
   executor: (signal: AbortSignal) => Promise<T>,

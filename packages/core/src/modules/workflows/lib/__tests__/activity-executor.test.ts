@@ -2145,13 +2145,14 @@ describe('Activity Executor (Unit Tests)', () => {
         send: jest.fn().mockImplementation((opts: { signal?: AbortSignal }) => {
           capturedSignal = opts.signal
           return new Promise((_resolve, reject) => {
-            opts.signal?.addEventListener('abort', () => {
-              reject(new DOMException('The operation was aborted', 'AbortError'))
-            })
-            setTimeout(() => {
+            const timerId = setTimeout(() => {
               completed = true
               _resolve({ messageId: 'late' })
             }, 500)
+            opts.signal?.addEventListener('abort', () => {
+              clearTimeout(timerId)
+              reject(new DOMException('The operation was aborted', 'AbortError'))
+            })
           })
         }),
       }
@@ -2173,26 +2174,17 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.success).toBe(false)
       expect(result.error).toMatch(/timeout after 20ms|aborted/i)
       expect(capturedSignal?.aborted).toBe(true)
-      await new Promise((resolve) => setTimeout(resolve, 40))
       expect(completed).toBe(false)
     })
 
-    test('should abort EMIT_EVENT when its timeout elapses (#5148)', async () => {
-      let completed = false
-      let capturedSignal: AbortSignal | undefined
+    test('should time out waiting for EMIT_EVENT when its timeout elapses (#5148)', async () => {
+      // The event bus does not declare a signal parameter, so the emit cannot
+      // be cancelled mid-flight. raceAbortable races the await against the
+      // AbortController and resolves the activity as failed; the emit itself
+      // may still complete in the background.
       const mockEventBus = {
         emitEvent: jest.fn().mockImplementation(
-          (_name: string, _payload: unknown, options?: { signal?: AbortSignal }) =>
-            new Promise((_resolve, reject) => {
-              capturedSignal = options?.signal
-              options?.signal?.addEventListener('abort', () => {
-                reject(new DOMException('The operation was aborted', 'AbortError'))
-              })
-              setTimeout(() => {
-                completed = true
-                _resolve(undefined)
-              }, 500)
-            })
+          () => new Promise(() => {}) // never resolves
         ),
       }
       mockContainer.resolve.mockReturnValue(mockEventBus)
@@ -2212,27 +2204,19 @@ describe('Activity Executor (Unit Tests)', () => {
 
       expect(result.success).toBe(false)
       expect(result.error).toMatch(/timeout after 20ms|aborted/i)
-      expect(capturedSignal?.aborted).toBe(true)
-      await new Promise((resolve) => setTimeout(resolve, 40))
-      expect(completed).toBe(false)
+      // emitEvent was dispatched (throwIfAborted guard passed); raceAbortable
+      // then won the race when the timeout fired.
+      expect(mockEventBus.emitEvent).toHaveBeenCalledTimes(1)
     })
 
-    test('should abort UPDATE_ENTITY when its timeout elapses (#5148)', async () => {
-      let completed = false
-      let capturedSignal: AbortSignal | undefined
+    test('should time out waiting for UPDATE_ENTITY when its timeout elapses (#5148)', async () => {
+      // CommandBus.execute does not declare a signal parameter, so the command
+      // cannot be cancelled mid-flight. raceAbortable races the await against the
+      // AbortController and resolves the activity as failed; the command itself
+      // may still complete in the background.
       const mockCommandBus = {
         execute: jest.fn().mockImplementation(
-          (_commandId: string, input: { signal?: AbortSignal }) =>
-            new Promise((_resolve, reject) => {
-              capturedSignal = input.signal
-              input.signal?.addEventListener('abort', () => {
-                reject(new DOMException('The operation was aborted', 'AbortError'))
-              })
-              setTimeout(() => {
-                completed = true
-                _resolve({ result: { ok: true }, logEntry: { id: 'log-1' } })
-              }, 500)
-            })
+          () => new Promise(() => {}) // never resolves
         ),
       }
       const mockRbacService = {
@@ -2271,9 +2255,9 @@ describe('Activity Executor (Unit Tests)', () => {
 
       expect(result.success).toBe(false)
       expect(result.error).toMatch(/timeout after 20ms|aborted/i)
-      expect(capturedSignal?.aborted).toBe(true)
-      await new Promise((resolve) => setTimeout(resolve, 40))
-      expect(completed).toBe(false)
+      // execute was dispatched (throwIfAborted guard passed); raceAbortable
+      // then won the race when the timeout fired.
+      expect(mockCommandBus.execute).toHaveBeenCalledTimes(1)
     })
 
     test('should abort EXECUTE_FUNCTION when its timeout elapses (#5148)', async () => {
@@ -2283,13 +2267,14 @@ describe('Activity Executor (Unit Tests)', () => {
         (_args: unknown, _ctx: unknown, signal?: AbortSignal) =>
           new Promise((_resolve, reject) => {
             capturedSignal = signal
-            signal?.addEventListener('abort', () => {
-              reject(new DOMException('The operation was aborted', 'AbortError'))
-            })
-            setTimeout(() => {
+            const timerId = setTimeout(() => {
               completed = true
               _resolve({ ok: true })
             }, 500)
+            signal?.addEventListener('abort', () => {
+              clearTimeout(timerId)
+              reject(new DOMException('The operation was aborted', 'AbortError'))
+            })
           })
       )
       mockContainer.resolve.mockReturnValue(mockFunction)
@@ -2311,7 +2296,6 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.error).toMatch(/timeout after 20ms|aborted/i)
       expect(capturedSignal?.aborted).toBe(true)
       expect(mockFunction).toHaveBeenCalledWith({}, expect.anything(), expect.any(AbortSignal))
-      await new Promise((resolve) => setTimeout(resolve, 40))
       expect(completed).toBe(false)
     })
   })

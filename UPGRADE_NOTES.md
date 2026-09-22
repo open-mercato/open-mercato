@@ -24,6 +24,32 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### `SEND_EMAIL` activity forwards an optional `signal` to `emailService.send` (no action required)
+
+The `SEND_EMAIL` activity handler now passes a `signal?: AbortSignal` field inside the object it sends to `emailService.send()`. Implementations that ignore unknown fields are unaffected. Implementations that wish to cancel an in-flight send on activity timeout may read the field:
+
+```ts
+// your email service adapter — honoring signal is optional
+async send(input: { to: string; subject: string; signal?: AbortSignal; … }) {
+  const result = await someMailClient.deliver(input, { signal: input.signal })
+  return result
+}
+```
+
+If your adapter serializes the payload for a message queue, strip `signal` before enqueuing to avoid a non-serializable field in the job data.
+
+### `EXECUTE_FUNCTION` passes an optional `AbortSignal` as its third argument (no action required)
+
+Registered workflow functions (`workflowFunction:<name>` in DI) now receive `(args, context, signal?: AbortSignal)` instead of `(args, context)`. Existing two-argument functions are unaffected — the third parameter is additive. Functions that want to cancel cooperative work on activity timeout can read it:
+
+```ts
+container.register('workflowFunction:myFn', asValue(
+  async (args, _ctx, signal?: AbortSignal) => {
+    return await someSlowOperation(args, { signal })
+  }
+))
+```
+
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 
 `Locale` in `@open-mercato/shared/lib/i18n/config` used to be a closed union literal. It is now
