@@ -141,3 +141,50 @@ export const customerGroupReorderSchema = z.object({
 })
 
 export type CustomerGroupReorderInput = z.infer<typeof customerGroupReorderSchema>
+
+// Optional/nullable non-negative number field (payment days, credit/order thresholds):
+// blanking a previously-set value on edit must transmit null to clear it (same rationale
+// as `clearableStringSchema` above), and negative input is rejected server-side to match
+// the UI's inline validation (spec acceptance criterion: "Numeric fields... reject
+// negative input inline").
+const clearableNonNegativeIntSchema = z.preprocess(
+  emptyStringToNull,
+  z.coerce.number().int().min(0).nullable().optional(),
+)
+
+const clearableNonNegativeNumberSchema = z.preprocess(
+  emptyStringToNull,
+  z.coerce.number().min(0).nullable().optional(),
+)
+
+const currencyCodeSchema = clearableStringSchema(4)
+
+export const customerGroupTermsCreateSchema = z.object({
+  organizationId: uuid().nullable().optional(),
+  tenantId: uuid(),
+  groupId: uuid(),
+  priceKindId: clearableUuidSchema,
+  paymentTermsDays: clearableNonNegativeIntSchema,
+  allowPurchaseOnAccount: z.boolean().optional().default(false),
+  defaultCreditLimit: clearableNonNegativeNumberSchema,
+  creditCurrencyCode: currencyCodeSchema,
+  approvalRequiredAbove: clearableNonNegativeNumberSchema,
+  minOrderValue: clearableNonNegativeNumberSchema,
+  metadata: clearableMetadataSchema,
+})
+
+export type CustomerGroupTermsCreateInput = z.infer<typeof customerGroupTermsCreateSchema>
+
+export const customerGroupTermsUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(customerGroupTermsCreateSchema.partial())
+
+export type CustomerGroupTermsUpdateInput = z.infer<typeof customerGroupTermsUpdateSchema>
+
+export const customerGroupTermsDeleteSchema = z.object({
+  id: uuid(),
+})
+
+export type CustomerGroupTermsDeleteInput = z.infer<typeof customerGroupTermsDeleteSchema>

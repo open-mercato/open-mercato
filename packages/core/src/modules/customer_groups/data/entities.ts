@@ -157,3 +157,81 @@ export class CustomerGroupMembership {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 }
+
+// `group_id` is a plain uuid column rather than a MikroORM relation, for the same
+// reason as `CustomerGroupMembership.groupId` above: this repo's convention for
+// scoped assignment tables that reference a same-module parent by id only (e.g.
+// `CustomerPipelineStage.pipelineId`). `priceKindId` crosses into the `catalog`
+// module, so it stays an FK id only (no relation) per the root AGENTS.md ban on
+// cross-module ORM relationships.
+//
+// Terms rows are optional per group (spec: "a group with no terms row yet shows...
+// inheriting"), so a terms row can be removed and later re-created for the same
+// group — the unique constraint on `group_id` is therefore a partial index scoped
+// to `deleted_at IS NULL`, mirroring `customer_group_memberships_active_unique`
+// above (and `customer_groups_tenant_priority_unique`'s soft-delete fix), rather
+// than a plain `@Unique`.
+//
+// `organizationId` mirrors `CustomerGroup.organizationId`: tenant-scoped, not
+// organization-scoped (spec §5 note re: `CatalogPriceKind`'s nullable
+// `organization_id`), kept nullable rather than dropped for a future
+// per-organization phase.
+@Entity({ tableName: 'customer_group_terms' })
+@Index({ name: 'customer_group_terms_tenant_idx', properties: ['tenantId'] })
+@Index({
+  name: 'customer_group_terms_group_unique',
+  expression:
+    'create unique index "customer_group_terms_group_unique" on "customer_group_terms" ("group_id") where "deleted_at" is null',
+})
+export class CustomerGroupTerms {
+  [OptionalProps]?:
+    | 'allowPurchaseOnAccount'
+    | 'createdAt'
+    | 'updatedAt'
+    | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'group_id', type: 'uuid' })
+  groupId!: string
+
+  @Property({ name: 'price_kind_id', type: 'uuid', nullable: true })
+  priceKindId?: string | null
+
+  @Property({ name: 'payment_terms_days', type: 'int', nullable: true })
+  paymentTermsDays?: number | null
+
+  @Property({ name: 'allow_purchase_on_account', type: 'boolean', default: false })
+  allowPurchaseOnAccount: boolean = false
+
+  @Property({ name: 'default_credit_limit', type: 'numeric', precision: 16, scale: 2, nullable: true })
+  defaultCreditLimit?: string | null
+
+  @Property({ name: 'credit_currency_code', type: 'text', nullable: true })
+  creditCurrencyCode?: string | null
+
+  @Property({ name: 'approval_required_above', type: 'numeric', precision: 16, scale: 2, nullable: true })
+  approvalRequiredAbove?: string | null
+
+  @Property({ name: 'min_order_value', type: 'numeric', precision: 16, scale: 2, nullable: true })
+  minOrderValue?: string | null
+
+  @Property({ type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
