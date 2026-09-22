@@ -26,7 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
-import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { CrudForm, type CrudField, type CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { mapListItemsToSummaries, type CustomerGroupSummary } from '../../components/customerGroupTree'
@@ -133,6 +133,33 @@ const MEMBERSHIP_STATUS_RANK: Record<MembershipStatus, number> = {
   expired: 2,
 }
 
+// The assign-dialog's `groupId` combobox used to seed its option list from a
+// single `pageSize=100` fetch of ALL groups (see `load()` below). A tenant with
+// more than 100 groups sorted by the CRUD factory's default `id` (UUID, so
+// effectively random) has no guarantee a given group — including one just
+// created — lands on that first page, so the option silently never appears no
+// matter what the user types (TC-CGRP-018). Search server-side instead, the
+// same way the sibling `GroupPickerField` (`components/GroupPickerField.tsx`)
+// already solves this exact "pick one group by name out of many" problem.
+async function loadGroupOptions(query?: string): Promise<CrudFieldOption[]> {
+  const params = new URLSearchParams({ pageSize: '20' })
+  const trimmed = (query ?? '').trim()
+  if (trimmed) params.set('search', trimmed)
+  const res = await apiCall<{ items?: unknown[] }>(`/api/customer_groups/customer-groups?${params.toString()}`)
+  if (!res.ok || !res.result) return []
+  return mapListItemsToSummaries(res.result.items).map((group) => ({
+    value: group.id,
+    label: `${group.name} (${group.code})`,
+  }))
+}
+
+async function resolveGroupLabel(id: string): Promise<string> {
+  const res = await apiCall<{ items?: unknown[] }>(`/api/customer_groups/customer-groups?ids=${encodeURIComponent(id)}&pageSize=1`)
+  if (!res.ok || !res.result) return id
+  const [group] = mapListItemsToSummaries(res.result.items)
+  return group ? `${group.name} (${group.code})` : id
+}
+
 function MembershipRowItem({
   row,
   status,
@@ -202,23 +229,37 @@ export function PersonGroupsTabWidget({
     setLoading(true)
     setError(null)
     try {
-      const [groupsRes, membershipsRes] = await Promise.all([
-        apiCall<{ items?: unknown[] }>('/api/customer_groups/customer-groups?pageSize=100'),
-        apiCall<{ items?: unknown[] }>(`/api/customer_groups/customer-groups/memberships?customerId=${encodeURIComponent(customerId)}&pageSize=100`),
-      ])
-      if (groupsRes.ok && groupsRes.result) {
-        setGroups(mapListItemsToSummaries(groupsRes.result.items))
-      } else if (groupsRes.status === 403) {
-        setGroups([])
-      } else {
-        throw new Error('groups')
-      }
+      const membershipsRes = await apiCall<{ items?: unknown[] }>(`/api/customer_groups/customer-groups/memberships?customerId=${encodeURIComponent(customerId)}&pageSize=100`)
+      let membershipRows: MembershipRow[] = []
       if (membershipsRes.ok && membershipsRes.result) {
-        setMemberships(mapMembershipItems(membershipsRes.result.items))
+        membershipRows = mapMembershipItems(membershipsRes.result.items)
+        setMemberships(membershipRows)
       } else if (membershipsRes.status === 403) {
         setMemberships([])
       } else {
         throw new Error('memberships')
+      }
+      // Resolve labels only for the groups this customer actually belongs to
+      // (bounded by membership count), not every group in the tenant — a
+      // tenant-wide `pageSize=100` fetch has the same "new/relevant row may
+      // fall outside the first page" failure mode as the assign-dialog
+      // combobox this file used to hit (TC-CGRP-018): sorted by the CRUD
+      // factory's default `id` (UUID), a referenced group has no guarantee of
+      // landing on page 1 once the tenant has more than 100 groups.
+      const groupIds = Array.from(new Set(membershipRows.map((row) => row.groupId)))
+      if (groupIds.length) {
+        const groupsRes = await apiCall<{ items?: unknown[] }>(
+          `/api/customer_groups/customer-groups?ids=${encodeURIComponent(groupIds.join(','))}&pageSize=${Math.min(groupIds.length, 100)}`,
+        )
+        if (groupsRes.ok && groupsRes.result) {
+          setGroups(mapListItemsToSummaries(groupsRes.result.items))
+        } else if (groupsRes.status === 403) {
+          setGroups([])
+        } else {
+          throw new Error('groups')
+        }
+      } else {
+        setGroups([])
       }
     } catch {
       setError(t('customer_groups.groups.personTab.errors.load', 'Failed to load group memberships.'))
@@ -260,7 +301,8 @@ export function PersonGroupsTabWidget({
         label: t('customer_groups.groups.personTab.form.group', 'Group'),
         type: 'combobox',
         allowCustomValues: false,
-        options: groups.map((group) => ({ value: group.id, label: `${group.name} (${group.code})` })),
+        loadOptions: loadGroupOptions,
+        resolveLabel: resolveGroupLabel,
         placeholder: t('customer_groups.groups.personTab.form.groupPlaceholder', 'Select a group…'),
       },
       {
@@ -277,7 +319,7 @@ export function PersonGroupsTabWidget({
         description: t('customer_groups.groups.personTab.form.validUntilHelp', 'Leave empty for no expiration.'),
       },
     ],
-    [groups, t],
+    [t],
   )
 
   const assignInitialValues = React.useMemo<Partial<AssignFormValues>>(

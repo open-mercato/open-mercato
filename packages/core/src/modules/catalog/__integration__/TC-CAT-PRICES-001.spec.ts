@@ -15,6 +15,10 @@ import {
   createRandomCurrencyFixture,
   deleteCurrenciesEntityIfExists,
 } from '@open-mercato/core/helpers/integration/currenciesFixtures';
+import {
+  createCustomerGroupFixture,
+  deleteCustomerGroupIfExists,
+} from '@open-mercato/core/helpers/integration/customerGroupsFixtures';
 import { selectBestPrice, type PriceRow, type PricingContext } from '@open-mercato/core/modules/catalog/lib/pricing';
 
 /**
@@ -128,12 +132,13 @@ test.describe('TC-CAT-PRICES-001: customer-group + quantity-tier price via the a
     // single token — a query spanning the underscore boundary matches
     // nothing even though it is a real substring of the title.
     const searchStamp = stamp.split('_')[0];
-    const customerGroupId = randomUUID();
+    const customerGroupName = `QA Price Rule Group ${stamp}`;
 
     let productId: string | null = null;
     let priceKindId: string | null = null;
     let currencyId: string | null = null;
     let currencyCode: string | null = null;
+    let customerGroupId: string | null = null;
     let baselinePriceId: string | null = null;
     let tierPriceId: string | null = null;
 
@@ -146,6 +151,15 @@ test.describe('TC-CAT-PRICES-001: customer-group + quantity-tier price via the a
       const currency = await createRandomCurrencyFixture(request, token, { name: `QA Price Rule Currency ${stamp}` });
       currencyId = currency.id;
       currencyCode = currency.code;
+      // The catalog price form's `customerGroupId` field is a searchable
+      // picker (`customer_groups.injection.group-picker-field`, additive over
+      // this module's own plain-text field) that only accepts an id resolved
+      // from a real group — `allowCustomValues={false}` on its `ComboboxInput`
+      // rejects an arbitrary typed UUID. A real fixture group is required.
+      customerGroupId = await createCustomerGroupFixture(request, token, {
+        code: `qa_pr_grp_${stamp}`,
+        name: customerGroupName,
+      });
 
       // Baseline: a plain price for the same product/currency/price-kind, no
       // scope, no quantity tier — the row the new admin-UI row must outrank.
@@ -174,7 +188,7 @@ test.describe('TC-CAT-PRICES-001: customer-group + quantity-tier price via the a
       await pickComboboxByText(page, 'currencyCode', currencyCode, new RegExp(`^${currencyCode}`));
       await fillText(page, 'unitPriceNet', '15');
       await fillText(page, 'minQuantity', '10');
-      await fillText(page, 'customerGroupId', customerGroupId);
+      await pickComboboxByText(page, 'customerGroupId', searchStamp, new RegExp(customerGroupName));
 
       await page.getByRole('button', { name: 'Save' }).last().click();
       await page.waitForURL(/\/backend\/catalog\/prices(\?.*)?$/);
@@ -217,6 +231,7 @@ test.describe('TC-CAT-PRICES-001: customer-group + quantity-tier price via the a
       await deleteGeneralEntityIfExists(request, token, PRICE_KINDS_PATH, priceKindId);
       await deleteCurrenciesEntityIfExists(request, token, '/api/currencies/currencies', currencyId);
       await deleteCatalogProductIfExists(request, token, productId);
+      await deleteCustomerGroupIfExists(request, token, customerGroupId);
     }
   });
 });
