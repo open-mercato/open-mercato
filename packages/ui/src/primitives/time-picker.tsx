@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Check, ChevronLeft, ChevronRight, Clock, X } from 'lucide-react'
+import { Check, CircleCheck, ChevronLeft, ChevronRight, Clock, X } from 'lucide-react'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -164,7 +164,7 @@ const slotVariants = cva(
       state: {
         default: 'bg-background hover:bg-muted/50 text-muted-foreground cursor-pointer',
         hover: 'bg-muted/50 text-muted-foreground cursor-pointer',
-        active: 'bg-primary/10 text-primary cursor-pointer',
+        active: 'bg-muted text-foreground cursor-pointer',
         disabled: 'bg-background text-muted-foreground/40 cursor-not-allowed',
       },
     },
@@ -176,6 +176,8 @@ export type TimePickerSlotProps = {
   value: string
   label?: string
   rightText?: string
+  /** Position of the selection indicator between or after the two time labels. */
+  checkPosition?: 'right' | 'center'
   state?: SlotInteractiveState
   selected?: boolean
   disabled?: boolean
@@ -191,6 +193,7 @@ export const TimePickerSlot = React.forwardRef<HTMLButtonElement, TimePickerSlot
       value,
       label,
       rightText,
+      checkPosition = 'right',
       state,
       selected,
       disabled,
@@ -225,23 +228,26 @@ export const TimePickerSlot = React.forwardRef<HTMLButtonElement, TimePickerSlot
         <span className="flex min-w-0 flex-1 items-center gap-1">
           <span>{display.main}</span>
           {display.suffix ? (
-            <span className={effectiveState === 'active' ? 'text-primary/60' : 'text-muted-foreground/60'}>
+            <span className="text-muted-foreground">
               {display.suffix}
             </span>
           ) : null}
         </span>
+        {effectiveState === 'active' && checkPosition === 'center' ? (
+          <CircleCheck data-slot="time-picker-slot-check" className="size-3.5 shrink-0 fill-accent-indigo text-background" aria-hidden="true" />
+        ) : null}
         {right ? (
-          <span className="flex min-w-0 items-center justify-end gap-1">
+          <span className={cn('flex min-w-0 items-center justify-end gap-1', checkPosition === 'center' && 'flex-1')}>
             <span>{right.main}</span>
             {right.suffix ? (
-              <span className={effectiveState === 'active' ? 'text-primary/60' : 'text-muted-foreground/60'}>
+              <span className="text-muted-foreground">
                 {right.suffix}
               </span>
             ) : null}
           </span>
         ) : null}
-        {effectiveState === 'active' ? (
-          <Check className="size-3.5 shrink-0 text-primary" aria-hidden="true" />
+        {effectiveState === 'active' && checkPosition === 'right' ? (
+          <CircleCheck data-slot="time-picker-slot-check" className="size-3.5 shrink-0 fill-accent-indigo text-background" aria-hidden="true" />
         ) : null}
       </button>
     )
@@ -250,14 +256,14 @@ export const TimePickerSlot = React.forwardRef<HTMLButtonElement, TimePickerSlot
 TimePickerSlot.displayName = 'TimePickerSlot'
 
 const durationChipVariants = cva(
-  'inline-flex h-7 items-center justify-center gap-1.5 rounded-lg px-2.5 text-sm font-medium transition-colors whitespace-nowrap',
+  'inline-flex h-7 items-center justify-center gap-1.5 rounded-md px-2.5 text-sm font-medium transition-colors whitespace-nowrap',
   {
     variants: {
       state: {
         default:
           'bg-background border border-border shadow-xs text-muted-foreground hover:bg-muted/40 cursor-pointer',
         hover: 'bg-muted/40 border border-border text-muted-foreground cursor-pointer',
-        active: 'bg-primary/10 text-primary cursor-pointer',
+        active: 'bg-status-info-bg text-status-info-text cursor-pointer',
         disabled:
           'bg-background border border-border text-muted-foreground/40 cursor-not-allowed shadow-xs',
       },
@@ -310,7 +316,7 @@ export const TimePickerDurationChip = React.forwardRef<HTMLButtonElement, TimePi
 TimePickerDurationChip.displayName = 'TimePickerDurationChip'
 
 const statusChipBaseVariants = cva(
-  'inline-flex h-7 items-center justify-center gap-1.5 rounded-lg px-2.5 text-sm font-medium transition-colors whitespace-nowrap border',
+  'inline-flex h-7 items-center justify-center gap-1 rounded-md pl-1.5 pr-2.5 text-sm font-medium transition-colors whitespace-nowrap border',
   {
     variants: {
       state: {

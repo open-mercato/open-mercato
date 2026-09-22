@@ -72,7 +72,7 @@ export function CalendarSettingsModal({
 
   const toggleRows: Array<{ key: ToggleKey; label: string }> = [
     { key: 'showCrmActivities', label: t('customers.calendar.settings.showCrmActivities', 'Show CRM activities on calendar') },
-    { key: 'aiSummaries', label: t('customers.calendar.settings.aiSummaries', 'AI summaries & quick actions') },
+    { key: 'aiSummaries', label: t('customers.calendar.settings.aiSummaries', 'AI summaries') },
     { key: 'conflictWarnings', label: t('customers.calendar.settings.conflictWarnings', 'Conflict warnings') },
     { key: 'showWeekends', label: t('customers.calendar.settings.showWeekends', 'Show weekends') },
   ]

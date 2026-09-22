@@ -5,12 +5,16 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isSingleDeliveryRequested } from './single-delivery'
 import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
-import { isBroadcastEvent } from '@open-mercato/shared/modules/events'
+import {
+  isBroadcastEvent,
+  isCrossProcessBroadcastEvent,
+  isPrivateCrossProcessEventEmitter,
+} from '@open-mercato/shared/modules/events'
 import {
   inferModuleIdFromResourceId,
   withModuleResourceUsage,
 } from '@open-mercato/shared/lib/modules/resource-usage'
-export { registerCrossProcessEventListener } from './bridge'
+export { registerCrossProcessEventListener, CROSS_PROCESS_EVENT_INSTANCE_ID } from './bridge'
 import { publishCrossProcessEvent } from './bridge'
 import type {
   EventBus,
@@ -57,9 +61,38 @@ function isSingleDeliveryEnabled(): boolean {
 type GlobalEventTap = (event: string, payload: EventPayload, options?: EmitOptions) => void | Promise<void>
 const GLOBAL_EVENT_TAPS_KEY = '__openMercatoEventBusGlobalTaps__'
 
-function hasTenantScope(payload: EventPayload): boolean {
-  return typeof (payload as Record<string, unknown>)?.tenantId === 'string'
-    && String((payload as Record<string, unknown>).tenantId).trim().length > 0
+function hasTrustedTenantScope(options?: EmitOptions): boolean {
+  return typeof options?.tenantId === 'string' && options.tenantId.trim().length > 0
+}
+
+function normalizePayloadScope(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+function resolveCrossProcessEmitOptions(
+  event: string,
+  payload: EventPayload,
+  options?: EmitOptions,
+): EmitOptions | undefined {
+  if (hasTrustedTenantScope(options)) return options
+  // Preserve the public raw EventBus contract for legacy clientBroadcast
+  // emitters. These callers are trusted server code and historically supplied
+  // their scope in the typed payload. Tenant-managed workflow execution passes
+  // scope in options, while private cross-process events never take this path.
+  if (!isBroadcastEvent(event)) return options
+  const tenantId = normalizePayloadScope((payload as Record<string, unknown>)?.tenantId)
+  if (!tenantId) return options
+  const organizationId = normalizePayloadScope((payload as Record<string, unknown>)?.organizationId)
+  const organizationIdsValue = (payload as Record<string, unknown>)?.organizationIds
+  const organizationIds = Array.isArray(organizationIdsValue)
+    ? organizationIdsValue.filter((value): value is string => typeof value === 'string')
+    : []
+  return {
+    ...options,
+    tenantId,
+    ...(organizationId ? { organizationId } : {}),
+    ...(organizationIds.length > 0 ? { organizationIds } : {}),
+  }
 }
 
 function getGlobalEventTaps(): Set<GlobalEventTap> {
@@ -435,9 +468,18 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
       inlinePersistentFailed = delivered.persistentFailures > 0
     }
 
-    if (isBroadcastEvent(event) && hasTenantScope(payload)) {
+    // Private coordination always requires trusted envelope scope and module
+    // provenance. Legacy declared browser events may promote their typed scope
+    // for raw EventBus compatibility; tenant-managed workflow adapters pass
+    // authoritative scope in options, which always wins over payload values.
+    const crossProcessOptions = resolveCrossProcessEmitOptions(event, payload, options)
+    if (
+      isCrossProcessBroadcastEvent(event)
+      && hasTrustedTenantScope(crossProcessOptions)
+      && isPrivateCrossProcessEventEmitter(event, crossProcessOptions?.emitterModuleId)
+    ) {
       try {
-        await publishCrossProcessEvent(event, payload, options)
+        await publishCrossProcessEvent(event, payload, crossProcessOptions)
       } catch (error) {
         logger.error('Cross-process publish error', { event, err: error })
       }

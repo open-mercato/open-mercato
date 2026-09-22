@@ -1,10 +1,28 @@
-import { createModuleEvents } from '@open-mercato/shared/modules/events'
+import { createModuleEvents, type EventPayloadSchema } from '@open-mercato/shared/modules/events'
 
 /**
  * Customers Module Events
  *
  * Declares all events that can be emitted by the customers module.
  */
+
+/**
+ * Payload emitted by `commands/deals.ts` for deal closure lifecycle events
+ * (`customers.deal.won` / `customers.deal.lost`). Fields mirror the emit call
+ * exactly; nullable fields are marked optional.
+ */
+const dealClosurePayloadSchema: EventPayloadSchema = {
+  fields: [
+    { path: 'id', type: 'text' },
+    { path: 'tenantId', type: 'text' },
+    { path: 'organizationId', type: 'text' },
+    { path: 'ownerUserId', type: 'text', optional: true },
+    { path: 'title', type: 'text' },
+    { path: 'valueAmount', type: 'text', optional: true },
+    { path: 'valueCurrency', type: 'text', optional: true },
+  ],
+}
+
 const events = [
   // People
   { id: 'customers.person.created', label: 'Customer (Person) Created', entity: 'person', category: 'crud' },
@@ -20,8 +38,8 @@ const events = [
   { id: 'customers.deal.created', label: 'Deal Created', entity: 'deal', category: 'crud' },
   { id: 'customers.deal.updated', label: 'Deal Updated', entity: 'deal', category: 'crud' },
   { id: 'customers.deal.deleted', label: 'Deal Deleted', entity: 'deal', category: 'crud' },
-  { id: 'customers.deal.won', label: 'Deal Won', entity: 'deal', category: 'lifecycle' },
-  { id: 'customers.deal.lost', label: 'Deal Lost', entity: 'deal', category: 'lifecycle' },
+  { id: 'customers.deal.won', label: 'Deal Won', entity: 'deal', category: 'lifecycle', payloadSchema: dealClosurePayloadSchema },
+  { id: 'customers.deal.lost', label: 'Deal Lost', entity: 'deal', category: 'lifecycle', payloadSchema: dealClosurePayloadSchema },
 
   // Comments
   { id: 'customers.comment.created', label: 'Comment Created', entity: 'comment', category: 'crud' },
@@ -78,6 +96,11 @@ const events = [
   { id: 'customers.person_company_link.created', label: 'Person Linked To Company', entity: 'person_company_link', category: 'crud', clientBroadcast: true },
   { id: 'customers.person_company_link.updated', label: 'Person-Company Link Updated', entity: 'person_company_link', category: 'crud', clientBroadcast: true },
   { id: 'customers.person_company_link.deleted', label: 'Person Unlinked From Company', entity: 'person_company_link', category: 'crud', clientBroadcast: true },
+  // Legacy profile-only company assignments (`customer_person_profiles.company_id` set with no
+  // backing link row, #5114) have no link entity, so detaching one cannot honestly emit
+  // `customers.person_company_link.deleted` — that event's payload promises a link id that never
+  // existed. This sibling carries the same live-refresh signal for that shape instead.
+  { id: 'customers.person.company_assignment.detached', label: 'Legacy Company Assignment Detached', entity: 'person_company_link', category: 'lifecycle', clientBroadcast: true },
 
   // ── Email integration (2026-05-27) ────────────────────────────────────────
   { id: 'customers.email.linked', label: 'Email Linked To Person', entity: 'email_link', category: 'lifecycle', clientBroadcast: true },

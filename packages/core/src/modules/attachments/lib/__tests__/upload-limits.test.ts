@@ -3,6 +3,7 @@ import {
   MultipartUploadLimitError,
   parseMultipartFormDataWithinUploadLimit,
   resolveAttachmentMaxBytes,
+  resolveAttachmentMultipartMaxBytes,
   resolveAttachmentTenantQuotaBytes,
   resolveDefaultAttachmentMaxUploadBytes,
   willExceedAttachmentTenantQuota,
@@ -50,6 +51,16 @@ describe('attachment upload limits', () => {
   it('rejects multipart content length above the global limit with overhead', () => {
     process.env[primaryMaxUploadEnv] = '1'
     expect(isMultipartRequestWithinUploadLimit(String(3 * 1024 * 1024))).toBe(false)
+  })
+
+  it.each(['invalid', '0', '-1', '1.5'])('rejects an invalid multipart content length: %s', (value) => {
+    expect(isMultipartRequestWithinUploadLimit(value)).toBe(false)
+  })
+
+  it('allows a missing content length for bounded streaming validation', () => {
+    process.env[primaryMaxUploadEnv] = '1'
+    expect(isMultipartRequestWithinUploadLimit(null)).toBe(true)
+    expect(resolveAttachmentMultipartMaxBytes()).toBe(2 * 1024 * 1024)
   })
 
   it('detects tenant quota exhaustion', () => {

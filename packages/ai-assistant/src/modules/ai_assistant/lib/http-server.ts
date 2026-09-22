@@ -10,6 +10,7 @@ import { executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
 import { authenticateMcpRequest, extractApiKeyFromHeaders, hasRequiredFeatures } from './auth'
 import { jsonSchemaToZod, toSafeZodSchema } from './schema-utils'
+import { buildMcpToolAnnotations } from './mcp-tool-annotations'
 import { redactSecretForLog, deriveApiKeySessionId } from './log-redaction'
 import type { McpServerConfig, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
@@ -219,6 +220,7 @@ function createMcpServerForRequest(
         {
           description: tool.description,
           inputSchema: safeSchema,
+          annotations: buildMcpToolAnnotations(tool),
         },
         async (args: unknown) => {
           const toolArgs = (args ?? {}) as Record<string, unknown>

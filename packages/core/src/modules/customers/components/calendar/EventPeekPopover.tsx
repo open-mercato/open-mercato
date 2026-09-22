@@ -22,6 +22,7 @@ export type EventPeekPopoverProps = {
   joinUrl: string | null
   aiSummaries: boolean
   canManage?: boolean
+  side?: React.ComponentProps<typeof PopoverContent>['side']
   onOpenChange(open: boolean): void
   onJoin(item: CalendarItem): void
   onEdit(item: CalendarItem): void
@@ -34,6 +35,7 @@ export function EventPeekPopover({
   joinUrl,
   aiSummaries,
   canManage = true,
+  side = 'right',
   onOpenChange,
   onJoin,
   onEdit,
@@ -63,12 +65,12 @@ export function EventPeekPopover({
     (part): part is string => Boolean(part),
   )
   const showSummary = aiSummaries && metaParts.length > 0
-  const showJoin = aiSummaries && Boolean(joinUrl)
+  const showJoin = Boolean(joinUrl)
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
-      <PopoverContent align="start" side="right" sideOffset={8} className="w-56 p-3">
+      <PopoverContent align="start" side={side} sideOffset={8} className="w-56 p-3">
         <div className="flex flex-col gap-2">
           <p className="text-sm font-semibold leading-5 text-foreground">{title}</p>
           <p className="text-xs leading-4 text-muted-foreground">{`${dateLabel} · ${timeRange}`}</p>

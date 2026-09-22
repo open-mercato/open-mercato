@@ -149,23 +149,70 @@ describe('module-facts BC resolve guard (T2)', () => {
     // wms, staff, integrations and checkout were therefore invisible to every fact
     // consumer — `integrations` published no contributions at all. Reading them costs
     // ~28KB, which is the fix working, not drift.
-    // The additive EUDR module contributes its real routes, ACL, events,
-    // entities, and extension surfaces without changing the extraction shape.
+    // The additive EUDR and Documents modules contribute their real routes, ACL,
+    // events, entities, and extension surfaces without changing the extraction
+    // shape.
     //
     // JSON cap raised a fifth time by the devices/push-notifications stack: the
     // `devices` and `push_notifications` modules plus the `channel-fcm`,
     // `channel-apns` and `channel-expo` provider packages add their own facts,
     // provenance entries and override targets to every render. The
-    // `warranty_claims` module (see above) lands alongside it, so the cap
-    // absorbs both additions.
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(4_000_000)
-    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
+    // `warranty_claims` module (see above) and the additive Documents module
+    // land alongside it.
+    //
+    // Raised again here for a reason unlike every raise above: those all tracked
+    // a schema or extraction change, this one tracks ordinary repo growth. The
+    // additive `channel_discord` module costs ~15.9KB JSON and ~9.2KB markdown
+    // (`channel_gmail` costs 6,886 / `channel_imap` 6,798; the difference is a
+    // gateway worker, a CLI command, a signed route and a subscriber, spread
+    // proportionally across overrideTargets, extensionSurfaces, factSources and
+    // ownedContracts — no duplicated payloads).
+    //
+    // The numbers below are MEASURED ON THE MERGED TREE, not transcribed from
+    // either side of the merge: neither side's cap covers the union. A cap that
+    // sits a fraction of a percent above the current measurement has stopped
+    // detecting blow-ups and started rejecting the next additive module of any
+    // size, whichever PR happens to add it — so keep bounded headroom over the
+    // measured size. A real blow-up here is multiplicative (a duplicated
+    // provenance payload, a contribution body copied per resolution), not one
+    // provider's worth of references.
+    //
+    // The union also carries phases P1-P6 of the staff time-tracking UMES
+    // extension-point work: 33 declared hosts expanding to ~110 emitted host
+    // facts, plus query-lifecycle, portal-page and strategy-registry hosts that
+    // exist only in the v2 surface. Same linear, one-module growth the block
+    // above describes -- the caps below are re-measured on the merged tree.
+    //
+    // Re-measured once more on the agent_orchestrator union (#5718). The caps
+    // above were measured on `develop`'s tree, and `develop`'s tree does not
+    // contain `agent_orchestrator`, the expanded `workflows` surface or the
+    // `web-research*` packages — so three of the four sat below the union, which
+    // is the "neither side's cap covers the union" case the note above names.
+    //
+    // The growth is linear and it is checkable: all four measures grew by very
+    // nearly the same proportion (+17.1% / +17.6% / +16.8% / +16.2%), which is
+    // what a union of two additive module sets produces. A real blow-up is
+    // multiplicative and would move one measure far out of step with the others,
+    // so uniform growth across all four is the evidence that this is repo size,
+    // not a duplicated payload. The headroom ratio is kept at the ~1.15 the
+    // previous raise used, so the guard keeps the same detection power it had.
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(5_550_000)
+    // Measured on the merged tree (`yarn jest module-facts.bc-guard`):
+    //   completeJson 4,823,226 · legacy delta 2,111,784 · markdown 1,820,787 ·
+    //   directory markdown 1,985,779.
+    // (Previous, on develop's tree: 4,120,374 · 1,795,214 · 1,558,590 · 1,709,511.)
+    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(2_430_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES
     // contributions all render a resolved Source cell, and contribution
-    // resolutions render as their own source-linked section.
-    expect(markdownBytes).toBeLessThan(1_750_000)
-    expect(directoryMarkdownBytes).toBeLessThan(2_050_000)
+    // resolutions render as their own source-linked section — plus the additive
+    // `channel_discord` module's own render, per the growth note above.
+    expect(markdownBytes).toBeLessThan(2_100_000)
+    // Raised even though it was still passing: at 2,050,000 it sat 3.2% above
+    // the union measurement, and a cap that close has stopped detecting blow-ups
+    // and started rejecting the next additive module — the failure mode the note
+    // above warns about, one merge away.
+    expect(directoryMarkdownBytes).toBeLessThan(2_290_000)
   })
 
   it('keeps every shipped directory section resumable and every advertised subsection anchor exact', () => {

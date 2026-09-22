@@ -8,6 +8,8 @@ import { ChevronRight, Search, X } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Kbd } from './kbd'
+import { CompactButton } from './compact-button'
+import { Button } from './button'
 
 /**
  * Command palette primitive — Cmd+K spotlight-style launcher backed by
@@ -134,11 +136,13 @@ const CommandMenuContent = React.forwardRef<
           'data-[state=open]:duration-150 data-[state=closed]:duration-100',
           className,
         )}
+        aria-describedby={undefined}
         {...props}
       >
         <DialogPrimitive.Title className="sr-only">{resolvedTitle}</DialogPrimitive.Title>
       <CommandPrimitive
         data-slot="command-menu-root"
+        label={resolvedTitle}
         className={cn(
           'mx-auto flex w-full max-w-xl flex-col overflow-hidden rounded-lg border border-input bg-background shadow-lg',
           contentClassName,
@@ -166,6 +170,8 @@ export type CommandMenuInputProps = React.ComponentPropsWithoutRef<
   clearAriaLabel?: string
   /** Container className override (border / padding / row). */
   wrapperClassName?: string
+  appearance?: 'default' | 'source' | 'dropdown'
+  trailing?: React.ReactNode
 }
 
 const CommandMenuInput = React.forwardRef<
@@ -179,7 +185,10 @@ const CommandMenuInput = React.forwardRef<
       showShortcut = true,
       shortcutLabel = '⌘K',
       showClear = true,
-      clearAriaLabel = 'Clear search',
+      clearAriaLabel,
+      appearance = 'default',
+      trailing,
+      disabled,
       value,
       defaultValue,
       onValueChange,
@@ -187,6 +196,8 @@ const CommandMenuInput = React.forwardRef<
     },
     ref,
   ) => {
+    const t = useT()
+    const inputRef = React.useRef<HTMLInputElement | null>(null)
     const isControlled = value !== undefined
     const [internal, setInternal] = React.useState<string>(
       typeof defaultValue === 'string' ? defaultValue : '',
@@ -206,39 +217,49 @@ const CommandMenuInput = React.forwardRef<
         data-slot="command-menu-input-wrapper"
         className={cn(
           'flex h-12 items-center gap-2 border-b border-input px-4',
+          appearance === 'source' && 'px-5',
+          appearance === 'dropdown' && 'h-9 border-0 px-2 hover:bg-muted focus-within:bg-muted',
           wrapperClassName,
         )}
       >
         <Search
           aria-hidden="true"
-          className="size-4 shrink-0 text-muted-foreground"
+          className={cn("size-4 shrink-0 text-muted-foreground", appearance !== 'default' && 'size-5')}
           data-slot="command-menu-input-icon"
         />
         <CommandPrimitive.Input
-          ref={ref}
+          ref={(element) => {
+            inputRef.current = element
+            if (typeof ref === 'function') ref(element)
+            else if (ref) ref.current = element
+          }}
+          disabled={disabled}
           data-slot="command-menu-input"
           value={currentValue}
           onValueChange={handleChange}
           className={cn(
-            'flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none',
+            'min-w-0 flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none disabled:text-text-disabled disabled:placeholder:text-text-disabled',
             className,
           )}
           {...props}
-        />
+          asChild
+        >
+          <input {...(props['aria-label'] ? { 'aria-labelledby': undefined } : {})} />
+        </CommandPrimitive.Input>
         {showClear && currentValue.length > 0 ? (
-          <button
-            type="button"
+          <CompactButton
+            size={appearance === 'default' ? 24 : 20}
+            appearance="ghost"
+            disabled={disabled}
             data-slot="command-menu-input-clear"
-            aria-label={clearAriaLabel}
-            onClick={() => handleChange('')}
-            className={cn(
-              'inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none cursor-pointer transition-colors',
-              'hover:bg-muted/40 hover:text-foreground',
-              'focus-visible:shadow-focus',
-            )}
+            aria-label={clearAriaLabel ?? t('ui.commandMenu.clear', 'Clear search')}
+            onClick={() => {
+              handleChange('')
+              inputRef.current?.focus()
+            }}
           >
-            <X aria-hidden="true" className="size-3.5" />
-          </button>
+            <X aria-hidden="true" />
+          </CompactButton>
         ) : showShortcut ? (
           <Kbd
             data-slot="command-menu-input-shortcut"
@@ -247,6 +268,7 @@ const CommandMenuInput = React.forwardRef<
             {shortcutLabel}
           </Kbd>
         ) : null}
+        {!currentValue && trailing}
       </div>
     )
   },
@@ -261,7 +283,7 @@ const CommandMenuList = React.forwardRef<
     ref={ref}
     data-slot="command-menu-list"
     className={cn(
-      'max-h-[420px] overflow-y-auto overflow-x-hidden p-2',
+      'max-h-96 overflow-y-auto overflow-x-hidden p-2',
       className,
     )}
     {...props}
@@ -304,40 +326,33 @@ const CommandMenuGroup = React.forwardRef<
     { className, heading, actionLabel, onAction, actionAriaLabel, children, ...props },
     ref,
   ) => {
+    const t = useT()
     const hasAction = onAction !== undefined
+    const groupHeading = hasAction ? (
+      <span className="flex w-full min-w-0 items-center justify-between gap-3">
+        <span className="min-w-0 break-words">{heading}</span>
+        <span data-slot="command-menu-group-action" className="shrink-0">
+          <Button type="button" variant="ghost" size="2xs" onClick={onAction}
+            aria-label={actionAriaLabel ?? actionLabel ?? t('ui.commandMenu.seeAll', 'See all')}>
+            {actionLabel}<ChevronRight aria-hidden="true" className="size-3" />
+          </Button>
+        </span>
+      </span>
+    ) : heading
     return (
       <CommandPrimitive.Group
         ref={ref}
         data-slot="command-menu-group"
-        heading={heading}
+        heading={groupHeading}
         className={cn(
           'overflow-hidden text-foreground',
-          '[&_[cmdk-group-heading]]:flex [&_[cmdk-group-heading]]:items-center [&_[cmdk-group-heading]]:justify-between',
+          '[&_[cmdk-group-heading]]:flex [&_[cmdk-group-heading]]:items-center',
           '[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5',
           '[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground',
           className,
         )}
         {...props}
       >
-        {hasAction ? (
-          <div
-            data-slot="command-menu-group-action"
-            className="-mt-7 mb-1 flex justify-end px-2"
-          >
-            <button
-              type="button"
-              onClick={onAction}
-              aria-label={actionAriaLabel ?? actionLabel ?? 'See all'}
-              className={cn(
-                'inline-flex items-center gap-1 rounded-md text-xs font-medium text-muted-foreground outline-none cursor-pointer transition-colors',
-                'hover:text-foreground focus-visible:shadow-focus',
-              )}
-            >
-              {actionLabel}
-              <ChevronRight aria-hidden="true" className="size-3" />
-            </button>
-          </div>
-        ) : null}
         {children}
       </CommandPrimitive.Group>
     )
@@ -356,6 +371,9 @@ export type CommandMenuItemProps = React.ComponentPropsWithoutRef<
   shortcut?: React.ReactNode
   /** Hide the auto chevron-right trailing affordance. Default `false`. */
   hideChevron?: boolean
+  size?: 40 | 64
+  sublabel?: React.ReactNode
+  badge?: React.ReactNode
 }
 
 const CommandMenuItem = React.forwardRef<
@@ -370,6 +388,9 @@ const CommandMenuItem = React.forwardRef<
       description,
       shortcut,
       hideChevron = false,
+      size,
+      sublabel,
+      badge,
       ...props
     },
     ref,
@@ -380,7 +401,11 @@ const CommandMenuItem = React.forwardRef<
       className={cn(
         'group relative flex w-full cursor-pointer select-none items-center gap-3 rounded-md px-2 py-2 text-sm text-foreground outline-none',
         'data-[selected=true]:bg-muted/40',
-        'data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50',
+        'data-[disabled=true]:pointer-events-none data-[disabled=true]:text-text-disabled',
+        'data-[disabled=true]:[&_[data-slot=command-menu-item-description]]:text-text-disabled',
+        size && 'data-[selected=true]:bg-muted',
+        size === 40 && 'h-10 rounded-lg px-3 py-2.5',
+        size === 64 && 'h-16 rounded-lg p-3',
         className,
       )}
       {...props}
@@ -389,7 +414,7 @@ const CommandMenuItem = React.forwardRef<
         <span
           data-slot="command-menu-item-leading"
           aria-hidden="true"
-          className="flex size-6 shrink-0 items-center justify-center"
+          className={cn("flex size-6 shrink-0 items-center justify-center", size === 40 && "size-5", size === 64 && "size-10")}
         >
           {leading}
         </span>
@@ -398,8 +423,9 @@ const CommandMenuItem = React.forwardRef<
         data-slot="command-menu-item-text"
         className="min-w-0 flex-1"
       >
-        <div className="truncate text-sm font-medium text-foreground">
-          {children}
+        <div className="flex min-w-0 items-center gap-1">
+          <span className={cn('truncate text-sm font-medium', size === 40 && 'font-normal')}>{children}</span>
+          {sublabel ? <span data-slot="command-menu-item-sublabel" className="truncate text-xs text-muted-foreground group-data-[disabled=true]:text-text-disabled">{sublabel}</span> : null}
         </div>
         {description ? (
           <div
@@ -410,6 +436,7 @@ const CommandMenuItem = React.forwardRef<
           </div>
         ) : null}
       </div>
+      {badge ? <span data-slot="command-menu-item-badge" className="shrink-0">{badge}</span> : null}
       {shortcut ? (
         <span
           data-slot="command-menu-item-shortcut"
@@ -421,7 +448,7 @@ const CommandMenuItem = React.forwardRef<
         <ChevronRight
           aria-hidden="true"
           data-slot="command-menu-item-chevron"
-          className="ml-auto size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-data-[selected=true]:opacity-100"
+          className={cn("ml-auto size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-data-[selected=true]:opacity-100", size && "size-5 opacity-100")}
         />
       ) : null}
     </CommandPrimitive.Item>

@@ -40,6 +40,7 @@ type ProductMappingsResponse = {
   items: ProductMappingRow[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 function formatDateTime(value: string | null | undefined, emptyLabel: string, locale: string): string {
@@ -71,6 +72,7 @@ export default function EudrProductMappingsPage() {
   const [pageSize, setPageSize] = React.useState(20)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [filters, setFilters] = React.useState<FilterValues>({})
@@ -127,6 +129,7 @@ export default function EudrProductMappingsPage() {
         setRows(Array.isArray(payload.items) ? payload.items : [])
         setTotal(typeof payload.total === 'number' ? payload.total : 0)
         setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
+        setTotalIsCapped(payload?.totalIsCapped === true)
       } catch {
         if (!cancelled) flash(translate('eudr.productMappings.list.loadError'), 'error')
       } finally {
@@ -244,7 +247,8 @@ export default function EudrProductMappingsPage() {
     <Page>
       <PageBody>
         <DataTable<ProductMappingRow>
-          title={translate('eudr.productMappings.list.title')}
+        title={translate('eudr.productMappings.list.title')}
+        titleHeadingLevel={1}
           columns={columns}
           data={rows}
           searchValue={search}
@@ -321,6 +325,7 @@ export default function EudrProductMappingsPage() {
             pageSize,
             total,
             totalPages,
+            totalIsCapped,
             onPageChange: setPage,
             pageSizeOptions: [20, 50, 100],
             onPageSizeChange: (nextPageSize) => {

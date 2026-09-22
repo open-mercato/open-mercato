@@ -170,7 +170,7 @@ function EditorBody({
     const ids: string[] = []
     if (form.relatedTo && form.relatedTo.kind !== 'company') ids.push(form.relatedTo.id)
     for (const participant of form.participants) {
-      if (participant.isCustomer) ids.push(participant.userId)
+      if (participant.isCustomer && participant.userId) ids.push(participant.userId)
     }
     return Array.from(new Set(ids))
   }, [form.relatedTo, form.participants])

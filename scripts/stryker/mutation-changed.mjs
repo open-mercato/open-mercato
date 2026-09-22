@@ -24,6 +24,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DEFAULT_BASE_REF, computeScope, parseArgs, readChangedFiles } from './scope.mjs'
+import { partitionByRelatedTests, splitMutateList } from './relatedTests.mjs'
 
 const REPOSITORY_ROOT = fileURLToPath(new URL('../..', import.meta.url))
 
@@ -54,6 +55,7 @@ export function runMutationChanged(dependencies = {}) {
   const {
     runGit = defaultRunGit,
     runStryker = defaultRunStryker,
+    partitionRelatedTests = defaultPartitionRelatedTests,
     write = (message) => process.stderr.write(`${message}\n`),
     baseRef = DEFAULT_BASE_REF,
   } = dependencies
@@ -81,8 +83,19 @@ export function runMutationChanged(dependencies = {}) {
   let exitCode = 0
 
   for (const entry of matrix.include) {
-    write(`[stryker] Mutating ${entry.package}: ${entry.mutate}`)
-    const status = runStryker(entry)
+    const { covered, uncovered } = partitionRelatedTests(splitMutateList(entry.mutate), entry.package)
+
+    if (uncovered.length > 0) {
+      write(`[stryker] ${entry.package}: no related tests, not mutated: ${uncovered.join(', ')}`)
+    }
+
+    if (covered.length === 0) {
+      write(`[stryker] ${entry.package}: nothing left to mutate after filtering for related tests.`)
+      continue
+    }
+
+    write(`[stryker] Mutating ${entry.package}: ${covered.join(',')}`)
+    const status = runStryker({ package: entry.package, mutate: covered.join(',') })
     ranPackages.push(entry.package)
     if (status !== 0) exitCode = status
   }
@@ -92,6 +105,12 @@ export function runMutationChanged(dependencies = {}) {
 
 function defaultRunGit(args) {
   return execFileSync('git', args, { cwd: REPOSITORY_ROOT, encoding: 'utf8' })
+}
+
+function defaultPartitionRelatedTests(files, packageName) {
+  return partitionByRelatedTests(files, {
+    packageDir: path.join(REPOSITORY_ROOT, 'packages', packageName),
+  })
 }
 
 function defaultRunStryker(entry) {

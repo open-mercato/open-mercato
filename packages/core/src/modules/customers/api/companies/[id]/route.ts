@@ -17,8 +17,6 @@ import {
   CustomerDealCompanyLink,
   CustomerDeal,
   CustomerTodoLink,
-  CustomerPersonCompanyLink,
-  CustomerPersonProfile,
   CustomerInteraction,
 } from '../../../data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
@@ -47,11 +45,12 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import {
-  filterActivePersonCompanyLinks,
-  withActiveCustomerPersonCompanyLinkFilter,
-} from '../../../lib/personCompanyLinkTable'
+  countCompanyPeopleUnion,
+  loadCompanyPeopleUnion,
+  type CompanyPersonUnionEntry,
+} from '../../../lib/personCompanies'
 import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
-import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
+import { denyCustomerDetailReadAsNotFound } from '../../../lib/detailReadAccess'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import {
   buildCollectionTags,
@@ -144,10 +143,6 @@ function parseIncludeParams(request: Request): Set<string> {
       .forEach((part) => tokens.add(part))
   })
   return tokens
-}
-
-function forbidden(message: string) {
-  return NextResponse.json({ error: message }, { status: 403 })
 }
 
 function notFound(message: string) {
@@ -463,9 +458,16 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   )
   if (!company) return notFound('Company not found')
 
-  if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: company.organizationId })) {
-    return forbidden('Access denied')
-  }
+  // Existence oracle (issue #5504): a caller who holds customers.companies.view
+  // but whose scope excludes the record's organization must get the SAME
+  // response as for a non-existent id, so 403-when-present / 404-when-absent
+  // collapses to a uniform 404 not-found. The dispatcher already returns a
+  // uniform 403 for callers who lack the feature entirely.
+  const organizationReadDenied = denyCustomerDetailReadAsNotFound(
+    { scope, auth, organizationId: company.organizationId },
+    'Company not found',
+  )
+  if (organizationReadDenied) return organizationReadDenied
 
   const companyScope = {
     tenantId: company.tenantId ?? auth.tenantId ?? null,
@@ -801,79 +803,13 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
             deal.organizationId === company.organizationId,
         )
 
-  let relatedPeople: Array<{
-    entity: CustomerEntity
-    profile: CustomerPersonProfile | null
-    linkedAt: string | null
-  }> = []
+  const peopleUnionScope = {
+    tenantId: company.tenantId ?? auth.tenantId ?? null,
+    organizationId: company.organizationId ?? scope?.selectedId ?? auth.orgId ?? null,
+  }
+  let relatedPeople: CompanyPersonUnionEntry[] = []
   if (includePeople) {
-    const peopleDecryptionScope = {
-      tenantId: company.tenantId ?? auth.tenantId ?? null,
-      organizationId: company.organizationId ?? scope?.selectedId ?? auth.orgId ?? null,
-    }
-    const relatedPeopleById = new Map<
-      string,
-      { entity: CustomerEntity; profile: CustomerPersonProfile | null; linkedAt: string | null }
-    >()
-    const companyLinkWhere = await withActiveCustomerPersonCompanyLinkFilter(
-      em,
-      {
-        company: company.id,
-        organizationId: company.organizationId,
-        tenantId: company.tenantId,
-      },
-      'customers.companies.GET',
-    )
-    const companyLinks = filterActivePersonCompanyLinks(
-      await findWithDecryption(
-        em,
-        CustomerPersonCompanyLink,
-        companyLinkWhere,
-        {
-          populate: ['person', 'person.personProfile'],
-          orderBy: { isPrimary: 'desc', createdAt: 'asc' },
-        },
-        peopleDecryptionScope,
-      ),
-    )
-    companyLinks.forEach((link) => {
-      const entity = typeof link.person === 'string' ? null : link.person
-      if (!entity || entity.kind !== 'person' || entity.deletedAt) return
-      const personProfile =
-        entity.personProfile && typeof entity.personProfile !== 'string'
-          ? entity.personProfile
-          : null
-      relatedPeopleById.set(entity.id, {
-        entity,
-        profile: personProfile,
-        linkedAt: link.createdAt instanceof Date ? link.createdAt.toISOString() : null,
-      })
-    })
-
-    const profiles = await findWithDecryption(
-      em,
-      CustomerPersonProfile,
-      {
-        company: company.id,
-        tenantId: company.tenantId,
-        organizationId: company.organizationId,
-        entity: { deletedAt: null },
-      },
-      { populate: ['entity'] },
-      peopleDecryptionScope,
-    )
-    profiles.forEach((entry) => {
-      const entity = entry.entity as CustomerEntity | null
-      if (!entity || entity.kind !== 'person' || entity.deletedAt) return
-      if (!relatedPeopleById.has(entity.id)) {
-        relatedPeopleById.set(entity.id, {
-          entity,
-          profile: entry ?? null,
-          linkedAt: entry.createdAt instanceof Date ? entry.createdAt.toISOString() : null,
-        })
-      }
-    })
-    relatedPeople = Array.from(relatedPeopleById.values())
+    relatedPeople = await loadCompanyPeopleUnion(em, company, peopleUnionScope)
   }
 
   // Entity custom fields, profile custom fields, and the routing lookup do not
@@ -919,26 +855,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   // instead of a waterfall (issue #3203).
   const peopleCountQuery = includePeople
     ? Promise.resolve(relatedPeople.length)
-    : (async () => {
-        const peopleLinkWhere = await withActiveCustomerPersonCompanyLinkFilter(
-          em,
-          {
-            company: company.id,
-            organizationId: company.organizationId,
-            tenantId: company.tenantId,
-          },
-          'customers.companies.GET',
-        )
-        return filterActivePersonCompanyLinks(
-          await findWithDecryption(
-            em,
-            CustomerPersonCompanyLink,
-            peopleLinkWhere,
-            {},
-            { tenantId: company.tenantId, organizationId: company.organizationId },
-          ),
-        ).length
-      })()
+    : countCompanyPeopleUnion(em, company)
   const [
     activityCount,
     interactionCount,
@@ -1486,8 +1403,8 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid identifier', schema: companyDetailErrorSchema },
         { status: 401, description: 'Unauthorized', schema: companyDetailErrorSchema },
-        { status: 403, description: 'Forbidden for tenant/organization scope', schema: companyDetailErrorSchema },
-        { status: 404, description: 'Company not found', schema: companyDetailErrorSchema },
+        { status: 403, description: 'Forbidden — caller lacks the required feature', schema: companyDetailErrorSchema },
+        { status: 404, description: 'Company not found, or its organization is not in the caller’s scope', schema: companyDetailErrorSchema },
       ],
     },
   },

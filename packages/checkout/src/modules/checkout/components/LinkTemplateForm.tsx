@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
-import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { parseLocaleNumber } from '@open-mercato/shared/lib/number'
 import {
   AlertTriangle,
   BadgeCheck,
@@ -375,7 +376,7 @@ function ColorField({
   )
 }
 
-function PriceListEditor({
+export function PriceListEditor({
   value,
   onChange,
   error,
@@ -385,6 +386,7 @@ function PriceListEditor({
   error?: string
 }) {
   const t = useT()
+  const locale = useLocale()
   const items = Array.isArray(value) ? value : []
 
   const updateItem = React.useCallback(
@@ -451,11 +453,14 @@ function PriceListEditor({
                     </td>
                     <td className="px-3 py-2">
                       <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={item.amount}
-                        onChange={(event) => updateItem(index, { amount: Number(event.target.value) })}
+                        type="text"
+                        inputMode="decimal"
+                        value={readNumberInputValue(item.amount)}
+                        onChange={(event) =>
+                          updateItem(index, {
+                            amount: parseLocaleNumber(event.target.value, locale) ?? Number.NaN,
+                          })
+                        }
                         placeholder="0.00"
                         aria-label={t('checkout.linkTemplateForm.priceList.aria.amount', { index: index + 1 })}
                         className="h-8"
@@ -503,8 +508,9 @@ function PriceListEditor({
   )
 }
 
-function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProps) {
+export function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProps) {
   const t = useT()
+  const locale = useLocale()
   const pricingMode = readString(values.pricingMode) || 'fixed'
   const pricingModeError = readError(errors, 'pricingMode')
   const fixedPriceAmountError = readError(errors, 'fixedPriceAmount')
@@ -545,11 +551,10 @@ function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProp
         <div className="grid gap-4 md:grid-cols-2">
           <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.amount')} error={fixedPriceAmountError} required>
             <Input
-              type="number"
-              min="0"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
               value={readNumberInputValue(values.fixedPriceAmount)}
-              onChange={(event) => setValue('fixedPriceAmount', Number(event.target.value))}
+              onChange={(event) => setValue('fixedPriceAmount', parseLocaleNumber(event.target.value, locale))}
               placeholder="150"
               className={errorInputClassName(fixedPriceAmountError)}
               aria-invalid={Boolean(fixedPriceAmountError)}
@@ -570,11 +575,10 @@ function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProp
             error={fixedPriceOriginalAmountError}
           >
             <Input
-              type="number"
-              min="0"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
               value={readNumberInputValue(values.fixedPriceOriginalAmount)}
-              onChange={(event) => setValue('fixedPriceOriginalAmount', Number(event.target.value))}
+              onChange={(event) => setValue('fixedPriceOriginalAmount', parseLocaleNumber(event.target.value, locale))}
               placeholder="200"
               className={errorInputClassName(fixedPriceOriginalAmountError)}
               aria-invalid={Boolean(fixedPriceOriginalAmountError)}
@@ -598,11 +602,10 @@ function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProp
         <div className="grid gap-4 md:grid-cols-3">
           <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.minimumAmount')} error={customAmountMinError} required>
             <Input
-              type="number"
-              min="0"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
               value={readNumberInputValue(values.customAmountMin)}
-              onChange={(event) => setValue('customAmountMin', Number(event.target.value))}
+              onChange={(event) => setValue('customAmountMin', parseLocaleNumber(event.target.value, locale))}
               placeholder="10"
               className={errorInputClassName(customAmountMinError)}
               aria-invalid={Boolean(customAmountMinError)}
@@ -611,11 +614,10 @@ function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProp
 
           <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.maximumAmount')} error={customAmountMaxError} required>
             <Input
-              type="number"
-              min="0"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
               value={readNumberInputValue(values.customAmountMax)}
-              onChange={(event) => setValue('customAmountMax', Number(event.target.value))}
+              onChange={(event) => setValue('customAmountMax', parseLocaleNumber(event.target.value, locale))}
               placeholder="500"
               className={errorInputClassName(customAmountMaxError)}
               aria-invalid={Boolean(customAmountMaxError)}
@@ -1606,6 +1608,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
             title={recordId
               ? t(mode === 'link' ? 'checkout.linkTemplateForm.titles.editLink' : 'checkout.linkTemplateForm.titles.editTemplate')
               : t(mode === 'link' ? 'checkout.linkTemplateForm.titles.createLink' : 'checkout.linkTemplateForm.titles.createTemplate')}
+            titleHeadingLevel={1}
             backHref={mode === 'link' ? '/backend/checkout/pay-links' : '/backend/checkout/templates'}
             cancelHref={mode === 'link' ? '/backend/checkout/pay-links' : '/backend/checkout/templates'}
             fields={fields}

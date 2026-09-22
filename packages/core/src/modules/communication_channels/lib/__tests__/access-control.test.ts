@@ -4,6 +4,7 @@ import {
   assertCanManageChannel,
   channelOrgScopeWhere,
   channelOrgScopeWhereFromFilter,
+  channelOwnerScopeWhere,
   ChannelAccessDeniedError,
 } from '../access-control'
 
@@ -47,6 +48,46 @@ describe('channelOrgScopeWhereFromFilter', () => {
     expect(channelOrgScopeWhereFromFilter({ organizationIds: undefined })).toEqual({})
     expect(channelOrgScopeWhereFromFilter({ organizationIds: [] })).toEqual({})
     expect(channelOrgScopeWhereFromFilter(null)).toEqual({})
+  })
+})
+
+/**
+ * The SQL twin of `assertCanAccessChannel`. A listing that hardcodes one half of
+ * the rule is how the Discord AI auto-reply panel ended up structurally empty
+ * (#5602) — and hardcoding the other half would be a privacy bug rather than an
+ * empty page, so the two must agree.
+ */
+describe('channelOwnerScopeWhere', () => {
+  it('admits shared channels and the caller’s own personal ones', () => {
+    expect(channelOwnerScopeWhere('user-1')).toEqual({
+      $or: [{ userId: null }, { userId: 'user-1' }],
+    })
+  })
+
+  it('admits shared channels only when there is no caller', () => {
+    expect(channelOwnerScopeWhere(null)).toEqual({ userId: null })
+    expect(channelOwnerScopeWhere(undefined)).toEqual({ userId: null })
+    expect(channelOwnerScopeWhere('')).toEqual({ userId: null })
+  })
+
+  it('agrees with assertCanAccessChannel on every ownership case', () => {
+    const clause = channelOwnerScopeWhere('user-1')
+    const admits = (channel: { userId: string | null }) =>
+      (clause.$or as Array<{ userId: string | null }>).some(
+        (branch) => branch.userId === channel.userId,
+      )
+    const allows = (channel: { userId: string | null }) => {
+      try {
+        assertCanAccessChannel(channel, 'user-1', [ADMIN_FEATURE])
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    for (const channel of [{ userId: null }, { userId: 'user-1' }, { userId: 'user-2' }]) {
+      expect(admits(channel)).toBe(allows(channel))
+    }
   })
 })
 

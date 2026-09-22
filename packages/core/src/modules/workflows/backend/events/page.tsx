@@ -34,6 +34,7 @@ type EventsResponse = {
   page: number
   pageSize: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 export default function WorkflowEventsPage() {
@@ -41,6 +42,7 @@ export default function WorkflowEventsPage() {
   const [pageSize] = React.useState(50)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const t = useT()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
 
@@ -71,6 +73,7 @@ export default function WorkflowEventsPage() {
       if (response) {
         setTotal(response.total || 0)
         setTotalPages(response.totalPages || 1)
+        setTotalIsCapped(response?.totalIsCapped === true)
       }
 
       return response?.items || []
@@ -276,7 +279,8 @@ export default function WorkflowEventsPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('workflows.events.list.title')}
+        title={t('workflows.events.list.title')}
+        titleHeadingLevel={1}
           columns={columns}
           data={data || []}
           filters={filters}
@@ -284,7 +288,7 @@ export default function WorkflowEventsPage() {
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
           isLoading={isLoading}
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage }}
           actions={
             <Button
               variant="outline"

@@ -9,6 +9,7 @@ import type {
   EventDefinition,
   EventModuleConfig,
   EventPayload,
+  EventPayloadSchema,
   EmitOptions,
   CreateModuleEventsOptions,
   ModuleEventEmitter,
@@ -65,17 +66,80 @@ export function getGlobalEventBus(): GlobalEventBus | null {
 // Event Registry for Validation
 // =============================================================================
 
-// Global set of all declared event IDs for runtime validation
-const allDeclaredEventIds = new Set<string>()
+type EventRegistryState = {
+  declaredEventIds: Set<string>
+  declaredEvents: EventDefinition[]
+  registeredEventConfigs: EventModuleConfig[] | null
+}
 
-// Global registry of all declared events with their full definitions
-const allDeclaredEvents: EventDefinition[] = []
+const GLOBAL_EVENT_REGISTRY_KEY = '__openMercatoEventDefinitionRegistry__'
+
+const fallbackEventRegistryState: EventRegistryState = {
+  declaredEventIds: new Set<string>(),
+  declaredEvents: [],
+  registeredEventConfigs: null,
+}
+
+function isEventRegistryState(value: unknown): value is EventRegistryState {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<EventRegistryState>
+  return candidate.declaredEventIds instanceof Set
+    && Array.isArray(candidate.declaredEvents)
+    && (candidate.registeredEventConfigs === null || Array.isArray(candidate.registeredEventConfigs))
+}
+
+function getEventRegistryState(): EventRegistryState {
+  try {
+    const globalScope = globalThis as Record<string, unknown>
+    const existing = globalScope[GLOBAL_EVENT_REGISTRY_KEY]
+    if (isEventRegistryState(existing)) return existing
+    globalScope[GLOBAL_EVENT_REGISTRY_KEY] = fallbackEventRegistryState
+    return fallbackEventRegistryState
+  } catch {
+    // Restricted runtimes may deny global access. Keep the previous
+    // module-local behavior as a safe fallback.
+    return fallbackEventRegistryState
+  }
+}
+
+const CRUD_AFTER_EVENT_SUFFIXES = ['.created', '.updated', '.deleted'] as const
+
+/**
+ * Generated payload schema for platform-emitted CRUD after-events. Mirrors the
+ * default payload built by the data engine's `emitOrmEntityEvent` when no
+ * `buildPayload` override is configured: `{ id, organizationId, tenantId }`
+ * plus `syncOrigin` when the write originated from a sync. organizationId and
+ * tenantId keys are always present but may be null, so they are `optional`.
+ */
+export const DEFAULT_CRUD_PAYLOAD_SCHEMA: EventPayloadSchema = {
+  fields: [
+    { path: 'id', type: 'text' },
+    { path: 'organizationId', type: 'text', optional: true },
+    { path: 'tenantId', type: 'text', optional: true },
+    { path: 'syncOrigin', type: 'text', optional: true },
+  ],
+}
+
+function applyDefaultCrudPayloadSchema(event: EventDefinition): EventDefinition {
+  if (event.payloadSchema) return event
+  if (event.category !== 'crud') return event
+  if (!CRUD_AFTER_EVENT_SUFFIXES.some(suffix => event.id.endsWith(suffix))) return event
+  return { ...event, payloadSchema: DEFAULT_CRUD_PAYLOAD_SCHEMA }
+}
 
 function addDeclaredEvent(event: EventDefinition): void {
-  allDeclaredEventIds.add(event.id)
-  // Avoid duplicates if createModuleEvents/registerEventModuleConfigs is called multiple times (e.g., HMR)
-  if (!allDeclaredEvents.find(e => e.id === event.id)) {
-    allDeclaredEvents.push(event)
+  const declared = applyDefaultCrudPayloadSchema(event)
+  const state = getEventRegistryState()
+  state.declaredEventIds.add(declared.id)
+  const existingIndex = state.declaredEvents.findIndex((candidate) => candidate.id === declared.id)
+  if (existingIndex < 0) {
+    state.declaredEvents.push(declared)
+    return
+  }
+  // Refresh a module's own definition in place during HMR without allowing a
+  // duplicate declaration from another module to take over the event id.
+  if (state.declaredEvents[existingIndex]?.module === declared.module) {
+    state.declaredEvents[existingIndex] = declared
   }
 }
 
@@ -84,7 +148,7 @@ function addDeclaredEvent(event: EventDefinition): void {
  * Used for runtime validation to ensure only declared events are emitted.
  */
 export function isEventDeclared(eventId: string): boolean {
-  return allDeclaredEventIds.has(eventId)
+  return getEventRegistryState().declaredEventIds.has(eventId)
 }
 
 /**
@@ -92,7 +156,7 @@ export function isEventDeclared(eventId: string): boolean {
  * Useful for debugging and introspection.
  */
 export function getAllDeclaredEventIds(): string[] {
-  return Array.from(allDeclaredEventIds)
+  return Array.from(getEventRegistryState().declaredEventIds)
 }
 
 /**
@@ -100,7 +164,7 @@ export function getAllDeclaredEventIds(): string[] {
  * Used by the API to return available events for workflow triggers.
  */
 export function getDeclaredEvents(): EventDefinition[] {
-  return [...allDeclaredEvents]
+  return [...getEventRegistryState().declaredEvents]
 }
 
 /**
@@ -108,8 +172,44 @@ export function getDeclaredEvents(): EventDefinition[] {
  * Used by the SSE endpoint to filter events for the DOM Event Bridge.
  */
 export function isBroadcastEvent(eventId: string): boolean {
-  const event = allDeclaredEvents.find(e => e.id === eventId)
+  const event = getEventRegistryState().declaredEvents.find(e => e.id === eventId)
   return event?.clientBroadcast === true
+}
+
+/**
+ * Check if an event should be published over the server-to-server event bridge.
+ * Browser-broadcast events remain eligible for backward compatibility, while
+ * crossProcessBroadcast supports private process coordination without SSE.
+ */
+export function isCrossProcessBroadcastEvent(eventId: string): boolean {
+  const event = getEventRegistryState().declaredEvents.find(e => e.id === eventId)
+  return event?.clientBroadcast === true || event?.crossProcessBroadcast === true
+}
+
+/**
+ * Check whether an event is reserved for private server-to-server
+ * coordination. Workflow-authored EMIT_EVENT activities must not emit these
+ * events because their payload and event id are tenant-managed input.
+ */
+export function isPrivateCrossProcessBroadcastEvent(eventId: string): boolean {
+  const event = getEventRegistryState().declaredEvents.find(e => e.id === eventId)
+  return event?.crossProcessBroadcast === true && event?.clientBroadcast !== true
+}
+
+/**
+ * Verify provenance for a private cross-process event. The module id is
+ * stamped by a declared module emitter or another trusted server-side seam;
+ * tenant-managed event payloads never participate in this decision.
+ */
+export function isPrivateCrossProcessEventEmitter(
+  eventId: string,
+  emitterModuleId: string | undefined,
+): boolean {
+  const event = getEventRegistryState().declaredEvents.find(e => e.id === eventId)
+  if (event?.crossProcessBroadcast !== true) return true
+  return typeof event.module === 'string'
+    && event.module.length > 0
+    && event.module === emitterModuleId
 }
 
 /**
@@ -117,7 +217,7 @@ export function isBroadcastEvent(eventId: string): boolean {
  * Used by the portal SSE endpoint to filter events for the Portal Event Bridge.
  */
 export function isPortalBroadcastEvent(eventId: string): boolean {
-  const event = allDeclaredEvents.find(e => e.id === eventId)
+  const event = getEventRegistryState().declaredEvents.find(e => e.id === eventId)
   return event?.portalBroadcast === true
 }
 
@@ -125,17 +225,16 @@ export function isPortalBroadcastEvent(eventId: string): boolean {
 // Bootstrap Registration (similar to searchModuleConfigs pattern)
 // =============================================================================
 
-let _registeredEventConfigs: EventModuleConfig[] | null = null
-
 /**
  * Register event module configurations globally.
  * Called during app bootstrap with configs from events.generated.ts.
  */
 export function registerEventModuleConfigs(configs: EventModuleConfig[]): void {
-  if (_registeredEventConfigs !== null && process.env.NODE_ENV === 'development') {
+  const state = getEventRegistryState()
+  if (state.registeredEventConfigs !== null && process.env.NODE_ENV === 'development') {
     logger.debug('Event module configs re-registered (this may occur during HMR)')
   }
-  _registeredEventConfigs = configs
+  state.registeredEventConfigs = configs
   for (const config of configs) {
     for (const event of config.events) {
       addDeclaredEvent(event)
@@ -148,7 +247,7 @@ export function registerEventModuleConfigs(configs: EventModuleConfig[]): void {
  * Returns empty array if not registered.
  */
 export function getEventModuleConfigs(): EventModuleConfig[] {
-  return _registeredEventConfigs ?? []
+  return getEventRegistryState().registeredEventConfigs ?? []
 }
 
 // =============================================================================
@@ -199,11 +298,15 @@ export function createModuleEvents<
   // Build set of valid event IDs for runtime validation
   const validEventIds = new Set(events.map(e => e.id))
 
-  // Build full event definitions with module added
-  const fullEvents: EventDefinition[] = events.map(e => ({
-    ...e,
-    module: moduleId,
-  }))
+  // Build full event definitions with module added and the generated CRUD
+  // payload-schema default applied, so config consumers and the global
+  // registry see the same definitions.
+  const fullEvents: EventDefinition[] = events.map(e =>
+    applyDefaultCrudPayloadSchema({
+      ...e,
+      module: moduleId,
+    }),
+  )
 
   // Register all event IDs and definitions in the global registry.
   for (const event of fullEvents) {
@@ -239,7 +342,27 @@ export function createModuleEvents<
       return
     }
 
-    await eventBus.emit(eventId, payload, emitOptions)
+    const eventDefinition = fullEvents.find((event) => event.id === eventId)
+    const isClientBroadcast = eventDefinition?.clientBroadcast === true
+    const trustedOptions = eventDefinition?.crossProcessBroadcast === true || isClientBroadcast
+      ? {
+          ...emitOptions,
+          // Browser-broadcast module emitters historically accepted scope in
+          // their typed payload. Preserve that contract at the trusted module
+          // boundary while the event bus itself relies only on options.
+          ...(isClientBroadcast && emitOptions?.tenantId === undefined
+            ? { tenantId: payload.tenantId ?? null }
+            : {}),
+          ...(isClientBroadcast && emitOptions?.organizationId === undefined
+            ? { organizationId: payload.organizationId ?? null }
+            : {}),
+          ...(isClientBroadcast && emitOptions?.organizationIds === undefined && Array.isArray(payload.organizationIds)
+            ? { organizationIds: payload.organizationIds.filter((value): value is string => typeof value === 'string') }
+            : {}),
+          emitterModuleId: moduleId,
+        }
+      : emitOptions
+    await eventBus.emit(eventId, payload, trustedOptions)
   }
 
   return {

@@ -77,10 +77,14 @@ function ensureRouteOrganizationAccess(
   organizationId: string,
   scope: Awaited<ReturnType<typeof resolveCustomersRequestContext>>['scope'],
   auth: Awaited<ReturnType<typeof resolveCustomersRequestContext>>['auth'],
-  translate: Translator,
+  notFoundMessage: string,
 ) {
+  // Existence oracle (#5504): a caller who holds the feature but whose scope
+  // excludes the record's organization is denied as not-found (the same response
+  // the caller gets for a missing record), so this cannot reveal that the record
+  // exists in an organization they cannot see.
   if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId })) {
-    throw new CrudHttpError(403, { error: translate('customers.errors.access_denied', 'Access denied') })
+    throw notFound(notFoundMessage)
   }
 }
 
@@ -132,7 +136,7 @@ async function resolveEntityRouteScope(
   if (!entity || entity.tenantId !== auth.tenantId) {
     throw notFound(translate('customers.errors.customer_not_found', 'Customer not found'))
   }
-  ensureRouteOrganizationAccess(entity.organizationId, scope, auth, translate)
+  ensureRouteOrganizationAccess(entity.organizationId, scope, auth, translate('customers.errors.customer_not_found', 'Customer not found'))
   return {
     entity,
     organizationId: entity.organizationId,
@@ -164,7 +168,7 @@ async function resolveRoleRouteScope(
   ) {
     throw notFound(translate('customers.errors.role_not_found', 'Role not found'))
   }
-  ensureRouteOrganizationAccess(role.organizationId, scope, auth, translate)
+  ensureRouteOrganizationAccess(role.organizationId, scope, auth, translate('customers.errors.role_not_found', 'Role not found'))
   return {
     role,
     organizationId: role.organizationId,

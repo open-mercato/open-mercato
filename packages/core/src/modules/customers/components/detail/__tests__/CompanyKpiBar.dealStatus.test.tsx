@@ -83,9 +83,18 @@ function tile(title: string): HTMLElement {
 const ACTIVE_DEALS = 'ACTIVE DEALS'
 const LTV = 'CUSTOMER VALUE (LTV)'
 
+// The tile values below are Intl-formatted, so the locale is pinned explicitly (#5105) instead of
+// inheriting the runner's default — CompanyKpiBar formats through the app locale, which
+// `renderWithProviders` supplies via I18nProvider.
+const EN = 'en-US'
+
+function renderBar(deals: DealSummary[], locale = EN) {
+  return renderWithProviders(<CompanyKpiBar data={buildOverview(deals)} />, { locale })
+}
+
 describe('CompanyKpiBar — deal status vocabulary (#4667)', () => {
   it('keeps a win deal out of the active total and counts it as won', () => {
-    renderWithProviders(<CompanyKpiBar data={buildOverview([CLOSED_WON_DEAL, OPEN_DEAL])} />)
+    renderBar([CLOSED_WON_DEAL, OPEN_DEAL])
 
     expect(within(tile(ACTIVE_DEALS)).getByText('PLN 1,000')).toBeInTheDocument()
     expect(within(tile(ACTIVE_DEALS)).getByText('1 pipeline')).toBeInTheDocument()
@@ -93,14 +102,14 @@ describe('CompanyKpiBar — deal status vocabulary (#4667)', () => {
   })
 
   it('also recognises the won spelling the AI stage tool persists', () => {
-    renderWithProviders(<CompanyKpiBar data={buildOverview([AI_CLOSED_WON_DEAL, OPEN_DEAL])} />)
+    renderBar([AI_CLOSED_WON_DEAL, OPEN_DEAL])
 
     expect(within(tile(ACTIVE_DEALS)).getByText('PLN 1,000')).toBeInTheDocument()
     expect(within(tile(LTV)).getByText('PLN 900')).toBeInTheDocument()
   })
 
   it('leaves the LTV tile empty while every deal is still open', () => {
-    renderWithProviders(<CompanyKpiBar data={buildOverview([OPEN_DEAL, TENANT_STAGE_DEAL])} />)
+    renderBar([OPEN_DEAL, TENANT_STAGE_DEAL])
 
     expect(within(tile(ACTIVE_DEALS)).getByText('PLN 1,700')).toBeInTheDocument()
     expect(within(tile(ACTIVE_DEALS)).getByText('2 pipelines')).toBeInTheDocument()
@@ -108,9 +117,16 @@ describe('CompanyKpiBar — deal status vocabulary (#4667)', () => {
   })
 
   it('reports an empty active total when both deals were closed through the UI', () => {
-    renderWithProviders(<CompanyKpiBar data={buildOverview([CLOSED_WON_DEAL, CLOSED_LOST_DEAL])} />)
+    renderBar([CLOSED_WON_DEAL, CLOSED_LOST_DEAL])
 
     expect(within(tile(ACTIVE_DEALS)).getByText('PLN 0')).toBeInTheDocument()
     expect(within(tile(LTV)).getByText('PLN 4,000')).toBeInTheDocument()
+  })
+
+  it('formats the tile values in the app locale rather than the runtime default', () => {
+    renderBar([CLOSED_WON_DEAL, OPEN_DEAL], 'pl-PL')
+
+    expect(within(tile(ACTIVE_DEALS)).getByText(/^1000\s+zł$/)).toBeInTheDocument()
+    expect(within(tile(LTV)).getByText(/^4000\s+zł$/)).toBeInTheDocument()
   })
 })

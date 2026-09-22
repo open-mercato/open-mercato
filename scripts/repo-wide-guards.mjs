@@ -61,6 +61,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'packages/core and packages/onboarding frontends — hardcoded status colors (#3165)',
       },
       {
+        path: 'src/modules/auth/__tests__/acl-feature-catalog.i18n.test.ts',
+        scans: 'every packages/* and apps/mercato module acl.ts — localized ACL feature catalog coverage and English title drift (#5500)',
+      },
+      {
         path: 'src/__tests__/feature-policy-authorization-coverage.test.ts',
         scans: 'server runtime roots across packages and app templates — low-level ACL authorization bypasses',
       },
@@ -79,6 +83,14 @@ export const REPO_WIDE_GUARDS = [
       {
         path: 'src/__tests__/optimistic-lock-command-coverage.test.ts',
         scans: 'every packages/*/src/modules tree — optimistic-lock command coverage',
+      },
+      {
+        path: 'src/__tests__/backend-page-route-params.test.ts',
+        scans: 'every packages/*/src/modules and apps/*/src/modules backend page — route ids read from the `params` prop rather than `useParams()`, which the /backend/[...slug] catch-all never populates with an id (#5600)',
+      },
+      {
+        path: 'src/__tests__/notification-channel-eligibility.test.ts',
+        scans: 'every module-root notification catalogue under packages and apps — explicit delivery-channel eligibility (#5495)',
       },
       {
         path: 'src/modules/__tests__/crud-indexer-config.test.ts',
@@ -216,6 +228,21 @@ export const REPO_WIDE_GUARDS = [
     ],
   },
   {
+    workspace: '@open-mercato/enterprise',
+    workspaceDir: 'packages/enterprise',
+    jestConfig: 'jest.config.cjs',
+    tests: [
+      {
+        path: 'src/modules/agent_orchestrator/__tests__/agent-taxonomy-rename.test.ts',
+        scans: 'packages/core/src/modules/workflows plus the orchestrator module — retired `informative`/`actionable` wire values after the taxonomy rename',
+      },
+      {
+        path: 'src/modules/agent_orchestrator/__tests__/agent-run-invocation-identity.test.ts',
+        scans: 'packages/core/src/modules/workflows/lib — that the activity executor and the async worker both thread `invocationId` into the agent bridge, which is what gives an agent invocation an identity instead of a creation-time guess',
+      },
+    ],
+  },
+  {
     workspace: '@open-mercato/app',
     workspaceDir: 'apps/mercato',
     jestConfig: 'jest.config.cjs',
@@ -250,6 +277,10 @@ export const REPO_WIDE_GUARDS = [
  */
 export const CROSS_PACKAGE_EXCEPTIONS = [
   {
+    path: 'packages/cli/src/lib/generators/__tests__/agent-files-extension.test.ts',
+    reason: 'Reads nothing outside packages/cli — every `packages/...` literal is joined against a per-test mkdtemp fixture root, never the repo.',
+  },
+  {
     path: 'packages/create-app/src/lib/apply-starter-preset.test.ts',
     reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
   },
@@ -262,6 +293,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
     reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
   },
   {
+    path: 'packages/create-app/src/lib/template-env-parity.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779). It compares apps/mercato/.env.example against packages/create-app/template/.env.example.',
+  },
+  {
     path: 'packages/create-app/src/lib/standalone-cache-strategy-guard.test.ts',
     reason: 'Already unfiltered — covered by the same create-app parity step (#3779).',
   },
@@ -272,6 +307,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
   {
     path: 'packages/create-app/src/lib/template-i18n-parity.test.ts',
     reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
+  },
+  {
+    path: 'packages/create-app/src/lib/template-modules-parity.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779). It reads apps/mercato/src/modules.ts and the template counterpart through the scripts/template-sync.ts transform, and it is a node:test file rather than a jest one, so it could not run under this jest-based runner anyway (#5598).',
   },
   {
     path: 'packages/create-app/src/lib/module-activation-fixtures.test.ts',

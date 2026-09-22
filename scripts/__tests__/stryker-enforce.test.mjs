@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import {
   DEFAULT_BREAK_THRESHOLD,
   DEFAULT_MIN_MUTANTS,
+  decideMissingReportOutcome,
   decideOutcome,
   isEnforcementEnabled,
   parseEnforceArgs,
@@ -101,12 +102,72 @@ test('parses the threshold and floor overrides', () => {
     reportPath: 'm.json',
     threshold: DEFAULT_BREAK_THRESHOLD,
     minMutants: DEFAULT_MIN_MUTANTS,
+    coveredFiles: [],
+    uncoveredFiles: [],
   })
   assert.deepEqual(parseEnforceArgs(['m.json', '--threshold', '85', '--min-mutants', '5']), {
     reportPath: 'm.json',
     threshold: 85,
     minMutants: 5,
+    coveredFiles: [],
+    uncoveredFiles: [],
   })
+})
+
+test('parses the partition file lists, dropping blanks and surrounding whitespace', () => {
+  const args = parseEnforceArgs([
+    'm.json',
+    '--covered',
+    'src/lib/a.ts, src/lib/b.ts,',
+    '--uncovered',
+    'src/lib/c.ts',
+  ])
+
+  assert.deepEqual(args.coveredFiles, ['src/lib/a.ts', 'src/lib/b.ts'])
+  assert.deepEqual(args.uncoveredFiles, ['src/lib/c.ts'])
+})
+
+test('a mutation run skipped for lack of coverage never fails, even when enforced', () => {
+  const outcome = decideMissingReportOutcome({
+    coveredFiles: [],
+    uncoveredFiles: ['src/lib/fresh.ts'],
+    enforce: true,
+  })
+
+  assert.equal(outcome.shouldFail, false)
+  assert.match(outcome.reason, /1 changed file\(s\) need tests/)
+  assert.match(outcome.reason, /src\/lib\/fresh\.ts/)
+})
+
+test('a report missing after Stryker did run on covered files still fails closed', () => {
+  const outcome = decideMissingReportOutcome({
+    coveredFiles: ['src/lib/tested.ts'],
+    uncoveredFiles: ['src/lib/fresh.ts'],
+    enforce: true,
+  })
+
+  assert.equal(outcome.shouldFail, true)
+  assert.match(outcome.reason, /failing closed/)
+})
+
+test('no partition information at all keeps the fail-closed rule', () => {
+  const enforced = decideMissingReportOutcome({ enforce: true })
+  const advisory = decideMissingReportOutcome({ enforce: false })
+
+  assert.equal(enforced.shouldFail, true)
+  assert.equal(advisory.shouldFail, false)
+  assert.match(advisory.reason, /nothing to enforce \(advisory\)/)
+})
+
+test('"nothing was covered" is scored exactly like "no mutants were generated"', () => {
+  const nothingCovered = decideMissingReportOutcome({
+    coveredFiles: [],
+    uncoveredFiles: ['src/lib/fresh.ts'],
+    enforce: true,
+  })
+  const nothingGenerated = decideOutcome({ files: {} }, { enforce: true })
+
+  assert.equal(nothingCovered.shouldFail, nothingGenerated.shouldFail)
 })
 
 function runEnforceCli({ args = [], env = {} } = {}) {
@@ -131,6 +192,16 @@ test('stays advisory when the report is absent and enforcement is disabled', () 
 
   assert.equal(result.status, 0)
   assert.match(result.stdout, /nothing to enforce \(advisory\)/)
+})
+
+test('the CLI passes an all-uncovered skip through without failing an enforced gate', () => {
+  const result = runEnforceCli({
+    args: ['/nonexistent/mutation.json', '--covered', '', '--uncovered', 'src/lib/fresh.ts'],
+    env: { MUTATION_ENFORCE: 'true' },
+  })
+
+  assert.equal(result.status, 0)
+  assert.match(result.stdout, /need tests/)
 })
 
 test('an absent report is missing evidence, not a pass — the two modes differ', () => {
