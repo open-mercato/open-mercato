@@ -30,7 +30,7 @@
 | 1 | 1.6 | API routes: `/api/customer-groups/memberships` CRUD + reorder command/route | group:A | done | dda675fb4 |
 | 1 | 1.7 | Admin UI: group list (drag-reorder, orphan banner mount) | group:A | done | 3dce7cceb |
 | 1 | 1.8 | Admin UI: group create/edit page (Phase 1 fields) | dispatch:standard | done | 31c78ed51 |
-| 1 | 1.9 | Membership assignment UI on customer detail page | dispatch:capable | todo | — |
+| 1 | 1.9 | Membership assignment UI on customer detail page | dispatch:capable | done | 578d0d565 |
 | 1 | 1.10 | Reconciliation CLI + `GET /api/customer-groups/reconcile` + orphan banner data wiring | group:B | todo | — |
 | 1 | 1.11 | Group picker widget → `crud-form:catalog.catalog_product_price:fields` + `crud-form:sales.sales_tax_rate:fields` | group:B | todo | — |
 | 1 | 1.12 | i18n keys — Phase 1 surfaces (en/de/es/ko/pl) | dispatch:cheap | todo | — |
