@@ -4,6 +4,7 @@ import path from 'node:path'
 import {
   MODULE_CODE_EXTENSIONS,
   SCAN_CONFIGS,
+  resolveStandaloneSourceMirrorBase,
   scanModuleDir,
   stripModuleCodeExtension,
   type ModuleRoots,
@@ -122,22 +123,23 @@ function addConventionRecords(records: string[], roots: ModuleRoots): void {
 }
 
 function addScannedRecords(records: string[], roots: ModuleRoots): void {
+  const packageBase = resolveStandaloneSourceMirrorBase(roots.pkgBase) ?? roots.pkgBase
   for (const config of CONTENT_SENSITIVE_SCAN_CONFIGS) {
     for (const scanned of scanModuleDir(roots, config)) {
-      const base = scanned.fromApp ? roots.appBase : roots.pkgBase
+      const base = scanned.fromApp ? roots.appBase : packageBase
       const filePath = path.join(base, ...config.folder.split('/'), ...scanned.relPath.split('/'))
       const record = fileRecord(filePath, base, 'content')
-      if (record) records.push(`${config.folder}:${record}`)
+      if (record) records.push(`${config.folder}:${scanned.fromApp ? 'app' : 'package'}:${record}`)
     }
   }
 
   for (const config of ROUTE_SHAPE_SCAN_CONFIGS) {
     for (const scanned of scanModuleDir(roots, config)) {
-      const base = scanned.fromApp ? roots.appBase : roots.pkgBase
+      const base = scanned.fromApp ? roots.appBase : packageBase
       const folderPath = path.join(base, ...config.folder.split('/'))
       const filePath = path.join(folderPath, ...scanned.relPath.split('/'))
       const pageRecord = fileRecord(filePath, base, hasInlinePageMetadata(filePath) ? 'content' : 'shape')
-      if (pageRecord) records.push(`${config.folder}:${pageRecord}`)
+      if (pageRecord) records.push(`${config.folder}:${scanned.fromApp ? 'app' : 'package'}:${pageRecord}`)
 
       const dir = path.dirname(filePath)
       const stem = stripModuleCodeExtension(path.basename(filePath))
@@ -148,7 +150,7 @@ function addScannedRecords(records: string[], roots: ModuleRoots): void {
         const metaPath = resolveCodeFile(dir, candidate)
         if (!metaPath) continue
         const record = fileRecord(metaPath, base, 'content')
-        if (record) records.push(`${config.folder}:meta:${record}`)
+        if (record) records.push(`${config.folder}:meta:${scanned.fromApp ? 'app' : 'package'}:${record}`)
       }
     }
   }

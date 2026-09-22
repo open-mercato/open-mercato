@@ -29,11 +29,33 @@ describe('calculateGenerateWatchStructureChecksum', () => {
     fs.rmSync(root, { recursive: true, force: true })
   })
 
-  function currentChecksum(): string {
+  function checksumModule(modulesFile: string, appBase: string, packageBase: string): string {
     return calculateGenerateWatchStructureChecksum({
-      modulesFile: path.join(appDir, 'src', 'modules.ts'),
-      moduleRoots: [{ appBase: appModule, pkgBase: pkgModule }],
+      modulesFile,
+      moduleRoots: [{ appBase, pkgBase: packageBase }],
     })
+  }
+
+  function currentChecksum(): string {
+    return checksumModule(path.join(appDir, 'src', 'modules.ts'), appModule, pkgModule)
+  }
+
+  function createStandaloneModule() {
+    const standaloneRoot = path.join(root, 'standalone')
+    const packageRoot = path.join(standaloneRoot, 'node_modules', '@open-mercato', 'core')
+    const sourceModule = path.join(packageRoot, 'src', 'modules', 'customers')
+    const distModule = path.join(packageRoot, 'dist', 'modules', 'customers')
+    const standaloneAppModule = path.join(standaloneRoot, 'src', 'modules', 'customers')
+    const modulesFile = path.join(standaloneRoot, 'src', 'modules.ts')
+    write(modulesFile, 'export const enabledModules = ["customers"]\n')
+    write(path.join(sourceModule, 'index.ts'), 'export const metadata = { id: "customers" }\n')
+    write(path.join(distModule, 'index.js'), 'export const metadata = { id: "customers" }\n')
+    return {
+      sourceModule,
+      distModule,
+      appModule: standaloneAppModule,
+      modulesFile,
+    }
   }
 
   it('ignores ordinary component edits outside generator discovery paths', () => {
@@ -114,5 +136,129 @@ describe('calculateGenerateWatchStructureChecksum', () => {
     write(path.join(appDir, 'src', 'modules.ts'), 'export const enabledModules = ["customers"]\n')
 
     expect(currentChecksum()).not.toBe(before)
+  })
+
+  it('tracks generator-relevant API route changes from a standalone source mirror', () => {
+    const standalone = createStandaloneModule()
+    const sourceRoute = path.join(standalone.sourceModule, 'api', 'records', 'route.ts')
+    const distRoute = path.join(standalone.distModule, 'api', 'records', 'route.js')
+    write(
+      sourceRoute,
+      'export const metadata = { path: "/records" }\nexport async function GET() { return null }\n',
+    )
+    write(
+      distRoute,
+      'export const metadata = { path: "/records" };\nexport async function GET() { return null; }\n',
+    )
+    const before = checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule)
+
+    write(
+      sourceRoute,
+      'export const metadata = { path: "/contacts" }\nexport async function GET() { return null }\n',
+    )
+    const afterMetadataChange = checksumModule(
+      standalone.modulesFile,
+      standalone.appModule,
+      standalone.distModule,
+    )
+    expect(afterMetadataChange).not.toBe(before)
+
+    write(
+      sourceRoute,
+      'export const metadata = { path: "/contacts" }\nexport async function POST() { return null }\n',
+    )
+    expect(checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule))
+      .not.toBe(afterMetadataChange)
+  })
+
+  it('tracks standalone source-mirror page metadata but ignores ordinary page implementation edits', () => {
+    const standalone = createStandaloneModule()
+    const sourcePage = path.join(standalone.sourceModule, 'backend', 'customers', 'people', 'page.tsx')
+    const sourceMeta = path.join(standalone.sourceModule, 'backend', 'customers', 'people', 'page.meta.ts')
+    write(sourcePage, 'export default function Page() { return null }\n')
+    write(sourceMeta, 'export const metadata = { nav: { label: "People" } }\n')
+    write(
+      path.join(standalone.distModule, 'backend', 'customers', 'people', 'page.js'),
+      'export default function Page() { return null; }\n',
+    )
+    write(
+      path.join(standalone.distModule, 'backend', 'customers', 'people', 'page.meta.js'),
+      'export const metadata = { nav: { label: "People" } };\n',
+    )
+    const before = checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule)
+
+    write(sourcePage, 'export default function Page() { return "implementation changed" }\n')
+    expect(checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule)).toBe(before)
+
+    write(sourceMeta, 'export const metadata = { nav: { label: "Contacts" } }\n')
+    expect(checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule)).not.toBe(before)
+  })
+
+  it('tracks additions and deletions enumerated from a standalone source mirror', () => {
+    const standalone = createStandaloneModule()
+    const before = checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule)
+    const sourceWorker = path.join(standalone.sourceModule, 'workers', 'sync-customers.ts')
+    write(sourceWorker, 'export default async function syncCustomers() {}\n')
+    write(
+      path.join(standalone.distModule, 'workers', 'sync-customers.js'),
+      'export default async function syncCustomers() {}\n',
+    )
+
+    expect(checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule)).not.toBe(before)
+
+    fs.rmSync(sourceWorker)
+    expect(checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule)).toBe(before)
+  })
+
+  it('fingerprints the selected app override instead of the shadowed package route', () => {
+    const standalone = createStandaloneModule()
+    const routeSource = 'export const metadata = { path: "/records" }\nexport async function GET() { return null }\n'
+    const packageRoute = path.join(standalone.sourceModule, 'api', 'records', 'route.js')
+    const appRoute = path.join(standalone.appModule, 'api', 'records', 'route.js')
+    write(packageRoute, routeSource)
+    write(path.join(standalone.distModule, 'api', 'records', 'route.js'), routeSource)
+    const beforeOverride = checksumModule(
+      standalone.modulesFile,
+      standalone.appModule,
+      standalone.distModule,
+    )
+
+    write(appRoute, routeSource)
+    const withOverride = checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule)
+    expect(withOverride).not.toBe(beforeOverride)
+
+    write(
+      packageRoute,
+      'export const metadata = { path: "/shadowed" }\nexport async function POST() { return null }\n',
+    )
+    expect(checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule))
+      .toBe(withOverride)
+
+    fs.rmSync(appRoute)
+    expect(checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule))
+      .not.toBe(withOverride)
+  })
+
+  it('keeps content-sensitive fingerprinting for dist-only installed packages', () => {
+    const standaloneRoot = path.join(root, 'dist-only')
+    const distModule = path.join(
+      standaloneRoot,
+      'node_modules',
+      '@open-mercato',
+      'core',
+      'dist',
+      'modules',
+      'customers',
+    )
+    const modulesFile = path.join(standaloneRoot, 'src', 'modules.ts')
+    const routePath = path.join(distModule, 'api', 'records', 'route.js')
+    write(modulesFile, 'export const enabledModules = ["customers"]\n')
+    write(path.join(distModule, 'index.js'), 'export const metadata = { id: "customers" }\n')
+    write(routePath, 'export const metadata = { path: "/records" };\nexport async function GET() {}\n')
+    const appModule = path.join(standaloneRoot, 'src', 'modules', 'customers')
+    const before = checksumModule(modulesFile, appModule, distModule)
+
+    write(routePath, 'export const metadata = { path: "/contacts" };\nexport async function GET() {}\n')
+    expect(checksumModule(modulesFile, appModule, distModule)).not.toBe(before)
   })
 })
