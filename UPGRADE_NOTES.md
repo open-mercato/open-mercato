@@ -57,6 +57,27 @@ for how to resolve an affected row.
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).
 
+### `catalog`'s `PricingContext` gained an optional `currencyCode` filter (opt-in, strictly safer)
+
+`PricingContext` (`@open-mercato/core/modules/catalog/lib/pricing`) gained two additive, optional
+fields: `currencyCode` and `customerGroupIds` (a set-membership replacement for the still-supported
+`customerGroupId`). Neither field is required, and omitting both leaves every existing caller's
+behavior byte-for-byte unchanged — `resolveCatalogPrice`/`selectBestPrice` never filtered by
+currency before, and still do not unless the caller opts in.
+
+**The one real behavior change, and it is opt-in only:** before this release, a caller resolving a
+price without a currency-aware context could silently match a `CatalogProductPrice` row in a
+*different* currency than intended — there was no check. If your code starts passing
+`currencyCode` in the `PricingContext`, a row that previously matched across currencies now
+correctly resolves to "no price found" instead. This is the intended fix (it closes an
+undocumented cross-currency bug), but it is a visible behavior change for whatever call site
+opts in first.
+
+**Action for module authors:** none required to keep current behavior. If you want currency-aware
+resolution, pass `currencyCode` in your `PricingContext` and audit any `CatalogProductPrice` rows
+that only differ by currency for the product/variant you resolve most often — those are the rows
+whose resolution outcome can change.
+
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 
 `Locale` in `@open-mercato/shared/lib/i18n/config` used to be a closed union literal. It is now
