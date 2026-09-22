@@ -90,3 +90,68 @@ export async function deleteCustomerGroupMembershipIfExists(
     token,
   }).catch(() => undefined);
 }
+
+export type CustomerGroupTermsFixtureInput = {
+  groupId: string;
+  priceKindId?: string | null;
+  paymentTermsDays?: number | null;
+  allowPurchaseOnAccount?: boolean;
+  defaultCreditLimit?: number | null;
+  creditCurrencyCode?: string | null;
+  approvalRequiredAbove?: number | null;
+  minOrderValue?: number | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type CustomerGroupTermsFixtureResult = {
+  id: string;
+  updatedAt: string;
+};
+
+/**
+ * Upserts (`PUT /api/customer-groups/:id/terms`) the target group's commercial
+ * terms row. Mirrors `createCustomerGroupFixture`'s shape but returns
+ * `{ id, updatedAt }` instead of a bare id — callers exercising optimistic
+ * locking need the row's `updatedAt` immediately after create/update without
+ * an extra GET round-trip.
+ */
+export async function createCustomerGroupTermsFixture(
+  request: APIRequestContext,
+  token: string,
+  input: CustomerGroupTermsFixtureInput,
+  headers: Record<string, string> = {},
+): Promise<CustomerGroupTermsFixtureResult> {
+  const { groupId, ...fields } = input;
+  const data: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (value !== undefined) data[key] = value;
+  }
+  const response = await apiRequest(request, 'PUT', `${GROUPS_PATH}/${groupId}/terms`, {
+    token,
+    data,
+    headers,
+  });
+  expect(response.status(), `create/update customer group terms fixture failed: ${response.status()}`).toBe(200);
+  const body = await readJsonSafe<{ terms?: { id?: string; updatedAt?: string } }>(response);
+  return {
+    id: expectId(body?.terms?.id, 'customer group terms fixture should return an id'),
+    updatedAt: expectId(body?.terms?.updatedAt, 'customer group terms fixture should return updatedAt'),
+  };
+}
+
+/**
+ * `CustomerGroupTerms` has no standalone DELETE endpoint — `GET/PUT
+ * /api/customer-groups/:id/terms` only (see the doc comment on that route:
+ * terms are a strict 1:1 sub-resource of a group with no independent
+ * list/create/delete semantics). Deleting the PARENT group via
+ * `deleteCustomerGroupIfExists` is what actually reclaims a terms row in
+ * tests. This no-op exists only for naming symmetry with the other
+ * `delete*IfExists` helpers so a spec's `finally` block reads consistently.
+ */
+export async function deleteCustomerGroupTermsIfExists(
+  _request: APIRequestContext,
+  _token: string | null,
+  _groupId: string | null,
+): Promise<void> {
+  return undefined;
+}
