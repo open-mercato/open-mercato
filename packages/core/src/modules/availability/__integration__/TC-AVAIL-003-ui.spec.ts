@@ -46,7 +46,7 @@ test.describe('TC-AVAIL-003: Availability admin UI', () => {
       await page.locator('[data-crud-field-id="allowBackorder"] button[role="checkbox"]').click()
       await fillControlledInput(page.locator('[data-crud-field-id="backorderLeadTimeDays"] input').first(), '5')
 
-      await page.getByRole('button', { name: /create policy/i }).click()
+      await page.getByRole('button', { name: /create policy/i }).first().click()
       await expect(page.getByText('Availability policy created', { exact: true }).first()).toBeVisible({ timeout: 15_000 })
 
       await expect
