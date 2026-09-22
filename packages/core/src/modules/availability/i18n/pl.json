@@ -1,0 +1,13 @@
+{
+  "availability.audit.create": "Utwórz politykę dostępności",
+  "availability.audit.delete": "Usuń politykę dostępności",
+  "availability.audit.update": "Zaktualizuj politykę dostępności",
+  "availability.errors.invalidCheckRequest": "Nieprawidłowe żądanie",
+  "availability.errors.productNotFound": "Nie znaleziono produktu",
+  "availability.errors.unauthorized": "Brak autoryzacji",
+  "availability.errors.variantNotFound": "Nie znaleziono wariantu",
+  "availability.policies.errors.backorderRequiresLeadTime": "Czas realizacji zamówienia oczekującego (w dniach) jest wymagany, gdy dozwolone jest zamówienie oczekujące",
+  "availability.policies.errors.duplicateTarget": "Polityka dla tej kombinacji sklep/produkt/wariant już istnieje.",
+  "availability.policies.errors.maxBelowMin": "Maksymalna ilość zamówienia nie może być mniejsza niż minimalna ilość zamówienia",
+  "availability.policies.errors.variantRequiresProduct": "Polityka na poziomie wariantu wymaga produktu"
+}

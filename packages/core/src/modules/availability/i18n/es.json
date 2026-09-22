@@ -1,0 +1,13 @@
+{
+  "availability.audit.create": "Create availability policy",
+  "availability.audit.delete": "Delete availability policy",
+  "availability.audit.update": "Update availability policy",
+  "availability.errors.invalidCheckRequest": "Invalid request",
+  "availability.errors.productNotFound": "No such product",
+  "availability.errors.unauthorized": "Unauthorized",
+  "availability.errors.variantNotFound": "No such variant",
+  "availability.policies.errors.backorderRequiresLeadTime": "Backorder lead time (days) is required when backorder is allowed",
+  "availability.policies.errors.duplicateTarget": "A policy already exists for this store/product/variant combination.",
+  "availability.policies.errors.maxBelowMin": "Maximum order quantity cannot be less than the minimum order quantity",
+  "availability.policies.errors.variantRequiresProduct": "A variant-level policy requires a product"
+}
