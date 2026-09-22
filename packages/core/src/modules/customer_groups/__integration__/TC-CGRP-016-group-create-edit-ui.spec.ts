@@ -41,6 +41,14 @@ test.describe('TC-CGRP-016: customer group create + edit round-trip via the admi
       const nameInput = page.locator('[data-crud-field-id="name"] input');
       const priorityInput = page.locator('[data-crud-field-id="priority"] input');
 
+      // The create page fetches the existing-groups list (for the Parent group
+      // picker) asynchronously after mount; that fetch resolving re-renders the
+      // form and can race a `.fill()` issued immediately after navigation,
+      // dropping the keystroke before React's onChange attaches. Wait for the
+      // Parent group combobox to leave its disabled/loading state first so every
+      // fill below lands after the page has fully settled.
+      await expect(page.locator('[data-crud-field-id="parentId"]').getByRole('combobox')).toBeEnabled();
+
       await codeInput.fill(code);
       await expect(codeInput, 'code value commits to the DOM/React state before continuing').toHaveValue(code);
       await nameInput.fill(name);
