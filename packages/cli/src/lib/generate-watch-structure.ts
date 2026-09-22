@@ -148,7 +148,14 @@ function addConventionRecords(records: string[], roots: ModuleRoots): void {
 
     const sourceFile = resolveCodeFile(packageSourceBase, relativePath)
     if (!sourceFile) {
-      records.push(`convention:missing:${relativePath}`)
+      const runtimeFile = packageSourceBase === roots.pkgBase
+        ? null
+        : resolveCodeFile(roots.pkgBase, relativePath)
+      if (runtimeFile) {
+        addFileRecord(records, 'convention:package-runtime', runtimeFile, roots.pkgBase, 'content')
+      } else {
+        records.push(`convention:missing:${relativePath}`)
+      }
       continue
     }
 

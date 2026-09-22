@@ -244,13 +244,13 @@ describe('calculateGenerateWatchStructureChecksum', () => {
     expect(checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule)).toBe(before)
   })
 
-  it('uses source-mirror authority for convention topology while tracking compiled content', () => {
+  it('tracks stale compiled entities after the source-mirror convention is deleted', () => {
     const standalone = createStandaloneModule()
-    const sourceAcl = path.join(standalone.sourceModule, 'acl.ts')
-    const distAcl = path.join(standalone.distModule, 'acl.js')
+    const sourceEntities = path.join(standalone.sourceModule, 'data', 'entities.ts')
+    const distEntities = path.join(standalone.distModule, 'data', 'entities.js')
     const before = checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule)
 
-    write(sourceAcl, 'export const features = [{ id: "customers.view" }]\n')
+    write(sourceEntities, 'export class Customer {}\n')
     const afterSourceAdd = checksumModule(
       standalone.modulesFile,
       standalone.appModule,
@@ -258,7 +258,7 @@ describe('calculateGenerateWatchStructureChecksum', () => {
     )
     expect(afterSourceAdd).not.toBe(before)
 
-    write(distAcl, 'export const features = [{ id: "customers.view" }];\n')
+    write(distEntities, 'export class Customer {}\n')
     const afterDistAdd = checksumModule(
       standalone.modulesFile,
       standalone.appModule,
@@ -266,7 +266,7 @@ describe('calculateGenerateWatchStructureChecksum', () => {
     )
     expect(afterDistAdd).not.toBe(afterSourceAdd)
 
-    write(sourceAcl, 'export const features = [{ id: "customers.manage" }]\n')
+    write(sourceEntities, 'export class CustomerAccount {}\n')
     const afterSourceEdit = checksumModule(
       standalone.modulesFile,
       standalone.appModule,
@@ -274,11 +274,24 @@ describe('calculateGenerateWatchStructureChecksum', () => {
     )
     expect(afterSourceEdit).not.toBe(afterDistAdd)
 
-    write(distAcl, 'export const features = [{ id: "customers.manage" }];\n')
-    expect(checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule))
-      .not.toBe(afterSourceEdit)
+    write(distEntities, 'export class CustomerAccount {}\n')
+    const afterDistEdit = checksumModule(
+      standalone.modulesFile,
+      standalone.appModule,
+      standalone.distModule,
+    )
+    expect(afterDistEdit).not.toBe(afterSourceEdit)
 
-    fs.rmSync(sourceAcl)
+    fs.rmSync(sourceEntities)
+    const afterSourceDelete = checksumModule(
+      standalone.modulesFile,
+      standalone.appModule,
+      standalone.distModule,
+    )
+    expect(afterSourceDelete).not.toBe(afterDistEdit)
+    expect(afterSourceDelete).not.toBe(before)
+
+    fs.rmSync(distEntities)
     expect(checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule))
       .toBe(before)
   })
