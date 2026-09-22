@@ -55,10 +55,10 @@ test('resolvePreset: empty returns 12-module list', () => {
   assert.deepEqual(result.filesToRemove, [])
 })
 
-test('resolvePreset: crm returns 22-module list extending empty (includes attachments + messages + currencies + integrations + communication_channels + channel_imap + channel_gmail + ai_assistant + search)', () => {
+test('resolvePreset: crm returns 23-module list extending empty (includes attachments + messages + currencies + progress + integrations + communication_channels + channel_imap + channel_gmail + ai_assistant + search)', () => {
   const result = resolvePreset('crm')
   assert.equal(result.isClassic, false)
-  assert.equal(result.modules.length, 22)
+  assert.equal(result.modules.length, 23)
   const ids = result.modules.map((m) => m.id)
   assert.ok(ids.includes('auth'))
   assert.ok(ids.includes('directory'))
@@ -81,6 +81,8 @@ test('resolvePreset: crm returns 22-module list extending empty (includes attach
   // hub only persists credentials through integrations and only shows connect buttons for a
   // provider module that injects into profile:communication-channels:connect (issue #6169).
   assert.ok(ids.includes('communication_channels'))
+  // progress backs communication_channels' declared `requires: ['progress']` (issue #6094)
+  assert.ok(ids.includes('progress'))
   assert.ok(ids.includes('integrations'))
   assert.ok(ids.includes('channel_imap'))
   assert.equal(result.modules.find((m) => m.id === 'channel_imap')?.from, '@open-mercato/channel-imap')
@@ -170,6 +172,7 @@ test('generateModulesTs: produces valid content for crm modules', () => {
   assert.ok(content.includes("id: 'events'"))
   assert.ok(content.includes("id: 'integrations'"))
   assert.ok(content.includes("id: 'communication_channels'"))
+  assert.ok(content.includes("id: 'progress'"))
   assert.ok(content.includes("id: 'channel_imap'"))
   assert.ok(content.includes("id: 'channel_gmail'"))
   // ai_assistant must register from its own package
@@ -252,7 +255,7 @@ test('applyStarterPreset: empty writes 12-module modules.ts and keeps example so
   }
 })
 
-test('applyStarterPreset: crm writes 22-module modules.ts and keeps example source present', () => {
+test('applyStarterPreset: crm writes 23-module modules.ts and keeps example source present', () => {
   const dir = makeTempDir()
   try {
     applyStarterPreset('crm', dir)
@@ -271,6 +274,7 @@ test('applyStarterPreset: crm writes 22-module modules.ts and keeps example sour
     // can persist credentials and the profile page has connect buttons (issue #6169)
     assert.ok(content.includes("id: 'integrations'"))
     assert.ok(content.includes("id: 'communication_channels'"))
+    assert.ok(content.includes("id: 'progress'"))
     assert.ok(content.includes("id: 'channel_imap'"))
     assert.ok(content.includes("from: '@open-mercato/channel-imap'"))
     assert.ok(content.includes("id: 'channel_gmail'"))
@@ -430,6 +434,41 @@ test('any preset enabling ai_assistant also enables search', () => {
       ids.has('search'),
       `preset "${presetId}" enables ai_assistant (Cmd+L) but not search (Cmd+K); the two palettes ship as a pair`,
     )
+  }
+})
+
+// Drift guard: `ModuleInfo.requires` is enforced by the generator at `yarn generate`
+// time (packages/cli/src/lib/generators/module-registry.ts:4222), so a preset whose
+// module set does not satisfy it produces an app that hard-fails on the very first
+// command the CLI prints. Issue #6094 is how that escaped review — no test runs the
+// generator against a non-classic preset.
+function declaredRequires(entry: ModuleEntry): string[] {
+  const indexFile = join(moduleSourceDir(entry), 'index.ts')
+  if (!existsSync(indexFile)) return []
+  const match = readFileSync(indexFile, 'utf-8').match(/requires:\s*\[([^\]]*)\]/)
+  if (!match) return []
+  return [...match[1].matchAll(/['"]([^'"]+)['"]/g)].map((m) => m[1])
+}
+
+test('every non-classic preset satisfies the declared `requires` of every module it enables', () => {
+  // Premise assertion, so a future refactor turns this red rather than vacuously green.
+  assert.deepEqual(
+    declaredRequires({ id: 'communication_channels', from: '@open-mercato/core' }),
+    ['progress'],
+  )
+
+  for (const presetId of ['empty', 'crm', 'wms']) {
+    const modules = resolvePreset(presetId).modules
+    const enabledIds = new Set(modules.map((m) => m.id))
+    for (const entry of modules) {
+      const missing = declaredRequires(entry).filter((id) => !enabledIds.has(id))
+      assert.deepEqual(
+        missing,
+        [],
+        `preset "${presetId}" enables "${entry.id}", which declares requires: [${declaredRequires(entry).join(', ')}] — ` +
+          `${missing.join(', ')} is not in the preset, so \`yarn generate\` fails with "Module dependency check failed"`,
+      )
+    }
   }
 })
 

@@ -507,6 +507,19 @@ Note: only calls ingested **after** the maps exist are encrypted. Rows written b
 
 **Action for module authors:** none required. A field or call site that already pins an explicit `locale` (date-fns `Locale` object) or `format` (`'12h' | '24h'`) keeps that value unchanged — the new default only applies where neither was set. To pin the previous English/12-hour behavior regardless of tenant locale, pass `format="12h"` to `TimePicker`, or `locale={enUS}` (from `date-fns/locale/en-US`) to `DatePicker`.
 
+### `communication_channels` now requires `progress` to be enabled (#6094)
+
+`communication_channels`'s import-history worker and its queue command (`workers/channel-import-history.ts`, `commands/queue-import-history.ts`) resolve `progressService` from the DI container, which is registered only by the `progress` module. An app that enabled `communication_channels` without `progress` previously got no build-time warning: the queue command still returned a job id and a `200`, and the worker then failed on every retry with `AwilixResolutionError: Could not resolve 'progressService'`, with no error surfaced to the user and no `progress_jobs` row to inspect.
+
+`communication_channels`'s `ModuleInfo` now declares `requires: ['progress']`, so the existing generator-enforced dependency check (already used by `sales`, `wms`, `push_notifications`, and `api_keys`) now covers it too. If your `src/modules.ts` enables `communication_channels` without `progress`, `yarn generate` now fails fast instead of shipping the silent worker failure:
+
+```
+Module dependency check failed:
+- Module "communication_channels" requires: progress
+```
+
+**Action for module authors:** add `{ id: 'progress', from: '@open-mercato/core' }` to `src/modules.ts` before `communication_channels`, then re-run `yarn generate`. `apps/mercato/src/modules.ts`, the `create-app` template's `modules.ts` (used unchanged by the `classic` preset), and the `crm` starter preset (the only other preset that enables `communication_channels`) all enable `progress` too, so this repo's own apps and freshly scaffolded apps are unaffected.
+
 ## 0.6.7 → 0.7.0 (2026-08-26)
 
 ### `PUT /api/auth/users/acl` merges omitted fields instead of clearing them (#5493)
