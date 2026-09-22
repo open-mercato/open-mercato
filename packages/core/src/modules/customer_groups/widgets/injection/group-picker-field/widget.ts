@@ -4,7 +4,7 @@ import type { InjectionFieldWidget } from '@open-mercato/shared/modules/widgets/
 // Step 1.11 — replaces the free-text `customerGroupId` UUID input on the
 // catalog price editor (and, once the sales tax-rate form is updated to pass
 // a stable `entityId` — see the module AGENTS.md gap note — the sales
-// tax-rate form) with a searchable picker sourced from `/api/customer-groups`.
+// tax-rate form) with a searchable picker sourced from `/api/customer_groups/customer-groups`.
 //
 // This is a purely additive, optional injection: no `requires` entry is
 // declared anywhere, so `catalog`/`sales` never gain a hard dependency on

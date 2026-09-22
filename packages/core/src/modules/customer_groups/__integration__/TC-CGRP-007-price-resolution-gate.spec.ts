@@ -32,8 +32,8 @@ import { fixturePriority, uniqueStamp } from './helpers';
  * `resolveGroups()` (services/customerGroupsService.ts) has no direct HTTP
  * endpoint. Per the plan's guidance for this step, this spec proves the same
  * outcome fully at the HTTP level (option "b"): it creates a real membership
- * through `POST /api/customer-groups/memberships`, then reads the group id
- * BACK via `GET /api/customer-groups/memberships?customerId=...` (the same
+ * through `POST /api/customer_groups/customer-groups/memberships`, then reads the group id
+ * BACK via `GET /api/customer_groups/customer-groups/memberships?customerId=...` (the same
  * wire response a caller would see) instead of importing/resolving the
  * `customerGroupsService` DI service directly. `PricingContext.customerGroupIds`
  * is built from that real HTTP response, then fed into the real
@@ -45,8 +45,8 @@ import { fixturePriority, uniqueStamp } from './helpers';
  * for the catalog-side fixtures (product, price-kind, currency, price rows)
  * and the `selectBestPrice` call shape.
  */
-const GROUPS_PATH = '/api/customer-groups';
-const MEMBERSHIPS_PATH = '/api/customer-groups/memberships';
+const GROUPS_PATH = '/api/customer_groups/customer-groups';
+const MEMBERSHIPS_PATH = '/api/customer_groups/customer-groups/memberships';
 const PRICES_PATH = '/api/catalog/prices';
 const PRICE_KINDS_PATH = '/api/catalog/price-kinds';
 

@@ -23,12 +23,12 @@ import { fixturePriority, uniqueStamp } from './helpers';
  * (TC-CGRP-007). What this spec proves at the HTTP level, non-racy and
  * without a DI harness, is the DATA `resolveGroups()` depends on: a customer
  * with overlapping active memberships in two groups of different priority,
- * and the `GET /api/customer-groups` list (`sortFieldMap.priority`) returning
+ * and the `GET /api/customer_groups/customer-groups` list (`sortFieldMap.priority`) returning
  * those two groups in the same descending-priority order the resolver's sort
  * comparator would produce.
  */
-const GROUPS_PATH = '/api/customer-groups';
-const MEMBERSHIPS_PATH = '/api/customer-groups/memberships';
+const GROUPS_PATH = '/api/customer_groups/customer-groups';
+const MEMBERSHIPS_PATH = '/api/customer_groups/customer-groups/memberships';
 
 test.describe('TC-CGRP-006: overlapping memberships resolve priority-ordered groups', () => {
   test('a customer in two groups sees them retrievable in descending priority order', async ({ request }) => {

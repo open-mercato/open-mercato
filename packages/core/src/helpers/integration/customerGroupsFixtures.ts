@@ -2,8 +2,8 @@ import { expect, type APIRequestContext } from '@playwright/test';
 import { apiRequest } from './api';
 import { expectId, readJsonSafe } from './generalFixtures';
 
-const GROUPS_PATH = '/api/customer-groups';
-const MEMBERSHIPS_PATH = '/api/customer-groups/memberships';
+const GROUPS_PATH = '/api/customer_groups/customer-groups';
+const MEMBERSHIPS_PATH = '/api/customer_groups/customer-groups/memberships';
 
 export type CustomerGroupFixtureInput = {
   code: string;
@@ -109,7 +109,7 @@ export type CustomerGroupTermsFixtureResult = {
 };
 
 /**
- * Upserts (`PUT /api/customer-groups/:id/terms`) the target group's commercial
+ * Upserts (`PUT /api/customer_groups/customer-groups/:id/terms`) the target group's commercial
  * terms row. Mirrors `createCustomerGroupFixture`'s shape but returns
  * `{ id, updatedAt }` instead of a bare id — callers exercising optimistic
  * locking need the row's `updatedAt` immediately after create/update without
@@ -141,7 +141,7 @@ export async function createCustomerGroupTermsFixture(
 
 /**
  * `CustomerGroupTerms` has no standalone DELETE endpoint — `GET/PUT
- * /api/customer-groups/:id/terms` only (see the doc comment on that route:
+ * /api/customer_groups/customer-groups/:id/terms` only (see the doc comment on that route:
  * terms are a strict 1:1 sub-resource of a group with no independent
  * list/create/delete semantics). Deleting the PARENT group via
  * `deleteCustomerGroupIfExists` is what actually reclaims a terms row in

@@ -16,7 +16,7 @@ function readString(value: unknown): string {
   return typeof value === 'string' ? value : ''
 }
 
-// The `/api/customer-groups` list route returns the query-index column projection
+// The `/api/customer_groups/customer-groups` list route returns the query-index column projection
 // (snake_case keys, e.g. `parent_id`, `is_default`) rather than the camelCase shape
 // other CRUD routes normalize to — see `api/customer-groups/crud.ts` `customerGroupListFields`.
 // Accept both spellings so this helper keeps working if that ever changes.

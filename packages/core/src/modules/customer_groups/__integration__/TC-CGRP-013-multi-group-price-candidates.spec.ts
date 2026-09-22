@@ -51,8 +51,8 @@ import { fixturePriority, uniqueStamp } from './helpers';
  *     LOWER-priority one (later `startsAt`) to make explicit that group
  *     `priority` plays no role in this resolution.
  */
-const GROUPS_PATH = '/api/customer-groups';
-const MEMBERSHIPS_PATH = '/api/customer-groups/memberships';
+const GROUPS_PATH = '/api/customer_groups/customer-groups';
+const MEMBERSHIPS_PATH = '/api/customer_groups/customer-groups/memberships';
 const PRICES_PATH = '/api/catalog/prices';
 const PRICE_KINDS_PATH = '/api/catalog/price-kinds';
 

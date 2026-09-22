@@ -89,7 +89,7 @@ test.describe('TC-CGRP-017: customer groups list drag-reorder wiring', () => {
 
       // Functional proof of the underlying REST contract (own-tenant path;
       // cross-tenant isolation for this same route is TC-CGRP-003).
-      const reorderResponse = await apiRequest(request, 'POST', '/api/customer-groups/reorder', {
+      const reorderResponse = await apiRequest(request, 'POST', '/api/customer_groups/customer-groups/reorder', {
         token,
         data: { ids: [secondGroupId, firstGroupId] },
       });
@@ -98,7 +98,7 @@ test.describe('TC-CGRP-017: customer groups list drag-reorder wiring', () => {
       const afterReorder = await apiRequest(
         request,
         'GET',
-        `/api/customer-groups?search=${encodeURIComponent(stamp)}&sortField=priority&sortDir=asc&pageSize=10`,
+        `/api/customer_groups/customer-groups?search=${encodeURIComponent(stamp)}&sortField=priority&sortDir=asc&pageSize=10`,
         { token },
       );
       const afterBody = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(afterReorder);

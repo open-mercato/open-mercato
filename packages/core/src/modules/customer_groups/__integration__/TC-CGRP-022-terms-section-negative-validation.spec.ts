@@ -15,7 +15,7 @@ import { fixturePriority, uniqueStamp } from './helpers';
  * (`customer_groups.groups.form.terms.errors.negative` = "Must be zero or
  * greater."). A negative value must be rejected inline BEFORE any network
  * call — `CrudForm` runs schema validation ahead of `onSubmit`, so a client
- * rejection never reaches `PUT /api/customer-groups/:id/terms`.
+ * rejection never reaches `PUT /api/customer_groups/customer-groups/:id/terms`.
  *
  * Source: .ai/specs/2026-08-14-customer-groups-and-b2b-terms.md §14 Phase 2 UI
  * paths; `.ai/runs/2026-09-22-release-2-customer-groups-visibility/PLAN.md`
@@ -47,7 +47,7 @@ test.describe('TC-CGRP-022: Commercial terms section — negative-input client-s
 
       const termsPutUrls: string[] = [];
       page.on('request', (request) => {
-        if (request.method() === 'PUT' && request.url().includes(`/api/customer-groups/${groupId}/terms`)) {
+        if (request.method() === 'PUT' && request.url().includes(`/api/customer_groups/customer-groups/${groupId}/terms`)) {
           termsPutUrls.push(request.url());
         }
       });

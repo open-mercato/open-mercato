@@ -30,7 +30,7 @@ type CustomerGroupFormValues = {
 
 async function loadCustomerGroups(errorMessage: string): Promise<CustomerGroupSummary[]> {
   const response = await readApiResultOrThrow<{ items?: unknown[] }>(
-    '/api/customer-groups?pageSize=100',
+    '/api/customer_groups/customer-groups?pageSize=100',
     undefined,
     { errorMessage, allowNullResult: true },
   )
@@ -66,7 +66,7 @@ async function submitCustomerGroupCreate(
     isDefault: values.isDefault === true,
     isActive: values.isActive !== false,
   }
-  await createCrud('customer-groups', payload)
+  await createCrud('customer_groups/customer-groups', payload)
 }
 
 export default function CreateCustomerGroupPage() {

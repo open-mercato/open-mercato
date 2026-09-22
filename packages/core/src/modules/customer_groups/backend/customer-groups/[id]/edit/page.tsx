@@ -81,7 +81,7 @@ async function submitCustomerGroupUpdate(
     isDefault: values.isDefault === true,
     isActive: values.isActive !== false,
   }
-  await updateCrud('customer-groups', payload)
+  await updateCrud('customer_groups/customer-groups', payload)
 }
 
 export default function EditCustomerGroupPage({ params }: { params?: { id?: string } }) {
@@ -104,9 +104,9 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
       setIsNotFound(false)
       try {
         const [recordCall, listCall, termsCall] = await Promise.all([
-          apiCall<CustomerGroupListResponse>(`/api/customer-groups?id=${encodeURIComponent(groupId)}`),
-          apiCall<CustomerGroupListResponse>('/api/customer-groups?pageSize=100'),
-          apiCall<CustomerGroupTermsResponse>(`/api/customer-groups/${encodeURIComponent(groupId)}/terms`),
+          apiCall<CustomerGroupListResponse>(`/api/customer_groups/customer-groups?id=${encodeURIComponent(groupId)}`),
+          apiCall<CustomerGroupListResponse>('/api/customer_groups/customer-groups?pageSize=100'),
+          apiCall<CustomerGroupTermsResponse>(`/api/customer_groups/customer-groups/${encodeURIComponent(groupId)}/terms`),
         ])
         if (!recordCall.ok) {
           if (recordCall.status === 404) {
@@ -335,7 +335,7 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
             await submitCustomerGroupUpdate(groupId, values, t)
           }}
           onDelete={async () => {
-            await deleteCrud('customer-groups', groupId, {
+            await deleteCrud('customer_groups/customer-groups', groupId, {
               errorMessage: t('customer_groups.groups.form.errors.delete', 'Failed to delete customer group'),
             })
           }}

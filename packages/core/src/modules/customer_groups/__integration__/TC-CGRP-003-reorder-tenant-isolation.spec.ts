@@ -14,7 +14,7 @@ import {
 } from './helpers';
 
 /**
- * TC-CGRP-003: `POST /api/customer-groups/reorder` tenant isolation.
+ * TC-CGRP-003: `POST /api/customer_groups/customer-groups/reorder` tenant isolation.
  * Source: .ai/specs/2026-08-14-customer-groups-and-b2b-terms.md §13.
  *
  * `commands/reorderGroups.ts` scopes its `em.find` by `{ id: { $in: parsed.ids },
@@ -42,8 +42,8 @@ import {
  * legitimately 409 one another (a real product behavior, not a bug), making a
  * fixed-value success assertion here flaky by construction.
  */
-const GROUPS_PATH = '/api/customer-groups';
-const REORDER_PATH = '/api/customer-groups/reorder';
+const GROUPS_PATH = '/api/customer_groups/customer-groups';
+const REORDER_PATH = '/api/customer_groups/customer-groups/reorder';
 
 test.describe('TC-CGRP-003: customer groups reorder tenant isolation', () => {
   test('reordering with a tenant-A group id from tenant B silently no-ops on the tenant-A row', async ({

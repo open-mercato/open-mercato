@@ -21,7 +21,7 @@ import { fixturePriority, uniqueStamp } from './helpers';
  * field (`paymentTermsDays`) on the PARENT only, and makes a real customer a
  * member of the CHILD group — mirrors the API-level proof in
  * TC-CGRP-011 (3-level) but asserts the rendered UI instead of the raw
- * `/api/customer-groups/explain-terms` JSON: the resolved value, the
+ * `/api/customer_groups/customer-groups/explain-terms` JSON: the resolved value, the
  * PARENT (not child) as the source group, the child -> parent ancestor
  * breadcrumb, and a never-set field falling back to "Tenant default".
  *

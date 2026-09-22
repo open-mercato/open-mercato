@@ -14,7 +14,7 @@ import {
 } from './helpers';
 
 /**
- * TC-CGRP-001: `/api/customer-groups` tenant isolation.
+ * TC-CGRP-001: `/api/customer_groups/customer-groups` tenant isolation.
  * Source: .ai/specs/2026-08-14-customer-groups-and-b2b-terms.md §13 — "every
  * route in §9, each asserting tenant isolation with a second-tenant fixture".
  *
@@ -26,7 +26,7 @@ import {
  * Covers GET (list + `?id=`), POST, PUT, DELETE all from the single shared
  * `makeCrudRoute` instance in `api/customer-groups/crud.ts`.
  */
-const GROUPS_PATH = '/api/customer-groups';
+const GROUPS_PATH = '/api/customer_groups/customer-groups';
 
 test.describe('TC-CGRP-001: customer groups tenant isolation', () => {
   test('a group created in tenant A is invisible and unreachable from tenant B', async ({ request }) => {

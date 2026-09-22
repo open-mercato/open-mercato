@@ -25,7 +25,7 @@ import { fixturePriority, uniqueStamp } from './helpers';
  * (`termsFieldIsSet` treats an absent row as unset for every field).
  *
  * A customer is a member of only the CHILD group.
- * `GET /api/customer-groups/explain-terms?customerId=` must resolve:
+ * `GET /api/customer_groups/customer-groups/explain-terms?customerId=` must resolve:
  *   - `paymentTermsDays.value` === the grandparent's value (not null/default)
  *   - `paymentTermsDays.sourceGroupId` === the grandparent's id (not the
  *     child's — proves the ancestor walk, not a shallow "own group only" read)
@@ -36,8 +36,8 @@ import { fixturePriority, uniqueStamp } from './helpers';
  * `sourceGroupId: null` / empty path) since it was never set anywhere in the
  * chain — proving per-field independence, not "the whole terms row inherited."
  */
-const GROUPS_PATH = '/api/customer-groups';
-const EXPLAIN_TERMS_PATH = '/api/customer-groups/explain-terms';
+const GROUPS_PATH = '/api/customer_groups/customer-groups';
+const EXPLAIN_TERMS_PATH = '/api/customer_groups/customer-groups/explain-terms';
 
 test.describe('TC-CGRP-011: Phase 2 gate — per-field terms inheritance across a 3-level hierarchy', () => {
   test('a field set only on the grandparent resolves for a child-group member with the grandparent as sourceGroupId and full ancestor path', async ({
@@ -124,9 +124,23 @@ test.describe('TC-CGRP-011: Phase 2 gate — per-field terms inheritance across 
           path: [],
         });
       }
-      expect(body?.fields?.allowPurchaseOnAccount, 'allowPurchaseOnAccount must stay at its false default').toMatchObject(
-        { value: false, sourceGroupId: null, path: [] },
-      );
+      // `allowPurchaseOnAccount` is the one non-nullable-column field (see
+      // `termsFieldIsSet` in services/customerGroupsService.ts): the grandparent's
+      // terms row exists (created above), so this field counts as "set" there even
+      // though its value is the schema default `false` — unlike the nullable fields
+      // above, a terms row can never leave just this one field unset. It therefore
+      // resolves the same way paymentTermsDays does: value from, and sourced to, the
+      // grandparent, with the same ancestor path.
+      const allowPurchaseOnAccount = body?.fields?.allowPurchaseOnAccount;
+      expect(allowPurchaseOnAccount?.value, 'allowPurchaseOnAccount resolves to its false default value').toBe(false);
+      expect(
+        allowPurchaseOnAccount?.sourceGroupId,
+        'allowPurchaseOnAccount.sourceGroupId must be the grandparent — any existing terms row defines this field, even at its default',
+      ).toBe(grandparentId);
+      expect(
+        allowPurchaseOnAccount?.path?.map((g) => g.id),
+        'allowPurchaseOnAccount.path must contain all three groups in child -> parent -> grandparent order',
+      ).toEqual([childId, parentId, grandparentId]);
     } finally {
       await deleteCustomerGroupMembershipIfExists(request, token, membershipId);
       await deleteCustomerGroupIfExists(request, token, childId);

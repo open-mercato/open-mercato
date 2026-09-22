@@ -29,8 +29,8 @@ import { fixturePriority, uniqueStamp } from './helpers';
  * sound end-to-end, even though the branch itself is exercised at the unit
  * level.
  */
-const GROUPS_PATH = '/api/customer-groups';
-const RECONCILE_PATH = '/api/customer-groups/reconcile';
+const GROUPS_PATH = '/api/customer_groups/customer-groups';
+const RECONCILE_PATH = '/api/customer_groups/customer-groups/reconcile';
 
 test.describe('TC-CGRP-009: anonymous/default-group surface has no HTTP-level errors', () => {
   test('a default group round-trips through the CRUD API and no Phase 1 endpoint errors while it exists', async ({

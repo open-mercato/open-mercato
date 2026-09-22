@@ -30,7 +30,7 @@ import { fixturePriority, uniqueStamp } from './helpers';
  * a membership whose window has clearly not started yet, one whose window
  * has clearly already closed, and one currently inside its window.
  */
-const MEMBERSHIPS_PATH = '/api/customer-groups/memberships';
+const MEMBERSHIPS_PATH = '/api/customer_groups/customer-groups/memberships';
 
 test.describe('TC-CGRP-005: membership validity window exclusion', () => {
   test('activeOnly excludes not-yet-valid and expired memberships, includes the current one', async ({

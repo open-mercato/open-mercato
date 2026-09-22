@@ -48,7 +48,7 @@ async function loadGroups(query: string | undefined, pageSize: string): Promise<
     const trimmed = (query ?? '').trim()
     if (trimmed) params.set('search', trimmed)
     const payload = await readApiResultOrThrow<{ items?: RemoteGroup[] }>(
-      `/api/customer-groups?${params.toString()}`,
+      `/api/customer_groups/customer-groups?${params.toString()}`,
       undefined,
       { fallback: { items: [] } },
     )
@@ -63,7 +63,7 @@ async function loadGroups(query: string | undefined, pageSize: string): Promise<
 async function lookupGroup(id: string): Promise<RemoteGroup | null> {
   try {
     const payload = await readApiResultOrThrow<{ items?: RemoteGroup[] }>(
-      `/api/customer-groups?ids=${encodeURIComponent(id)}&pageSize=1`,
+      `/api/customer_groups/customer-groups?ids=${encodeURIComponent(id)}&pageSize=1`,
       undefined,
       { fallback: { items: [] } },
     )
@@ -79,7 +79,7 @@ async function lookupGroup(id: string): Promise<RemoteGroup | null> {
  * Injected `crud-form:<entityId>:fields` custom field — replaces the free-text
  * `customerGroupId` UUID input on the catalog price editor and (once that host
  * form is updated to expose the field — see Step 1.11 gap note) the sales
- * tax-rate form with a searchable picker sourced from `/api/customer-groups`.
+ * tax-rate form with a searchable picker sourced from `/api/customer_groups/customer-groups`.
  *
  * A stored value that does not resolve to any group is never silently hidden —
  * it renders an explicit "Unknown group (<uuid>)" chip alongside the picker so

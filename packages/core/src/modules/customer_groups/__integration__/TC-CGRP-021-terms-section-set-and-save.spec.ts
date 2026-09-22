@@ -12,7 +12,7 @@ import { fixturePriority, uniqueStamp } from './helpers';
  * TC-CGRP-021: Phase 2 UI gate — filling in the "Commercial terms" form
  * (`components/CustomerGroupTermsSection.tsx`) through real Playwright
  * interactions, submitting, and confirming the values persist across a
- * hard reload (proving the real `PUT /api/customer-groups/:id/terms` round
+ * hard reload (proving the real `PUT /api/customer_groups/customer-groups/:id/terms` round
  * trip, not just local form state).
  *
  * Source: .ai/specs/2026-08-14-customer-groups-and-b2b-terms.md §14 Phase 2 UI

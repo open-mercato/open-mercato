@@ -99,7 +99,7 @@ test.describe('TC-CGRP-018: membership assignment from the customer detail page'
       const membershipsResponse = await apiRequest(
         request,
         'GET',
-        `/api/customer-groups/memberships?customerId=${encodeURIComponent(personId)}&pageSize=100`,
+        `/api/customer_groups/customer-groups/memberships?customerId=${encodeURIComponent(personId)}&pageSize=100`,
         { token },
       );
       expect(membershipsResponse.status()).toBe(200);

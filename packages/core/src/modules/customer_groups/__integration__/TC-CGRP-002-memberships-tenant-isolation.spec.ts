@@ -17,7 +17,7 @@ import {
 } from './helpers';
 
 /**
- * TC-CGRP-002: `/api/customer-groups/memberships` tenant isolation.
+ * TC-CGRP-002: `/api/customer_groups/customer-groups/memberships` tenant isolation.
  * Source: .ai/specs/2026-08-14-customer-groups-and-b2b-terms.md §13.
  *
  * `CustomerGroupMembership` is tenant-scoped only (mirrors `CustomerGroup`,
@@ -30,8 +30,8 @@ import {
  * `customers` module (per root AGENTS.md § Never — cross-module ORM
  * relationships), so a random uuid is a valid fixture value.
  */
-const GROUPS_PATH = '/api/customer-groups';
-const MEMBERSHIPS_PATH = '/api/customer-groups/memberships';
+const GROUPS_PATH = '/api/customer_groups/customer-groups';
+const MEMBERSHIPS_PATH = '/api/customer_groups/customer-groups/memberships';
 
 test.describe('TC-CGRP-002: customer group memberships tenant isolation', () => {
   test('a membership created in tenant A is invisible and unreachable from tenant B', async ({ request }) => {

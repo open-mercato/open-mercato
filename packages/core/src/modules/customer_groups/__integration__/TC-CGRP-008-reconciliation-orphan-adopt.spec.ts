@@ -10,7 +10,7 @@ import { uniqueStamp } from './helpers';
  * placeholders.
  * Source: .ai/specs/2026-08-14-customer-groups-and-b2b-terms.md §13, §8.2.
  *
- * `POST /api/customer-groups/reconcile/adopt` reuses
+ * `POST /api/customer_groups/customer-groups/reconcile/adopt` reuses
  * `scanOrphanedCustomerGroupReferences` + `adoptOrphanedCustomerGroups` from
  * `lib/reconcile.ts` — the exact functions the `customer_groups reconcile
  * --adopt` CLI command also calls, so this HTTP-level proof covers the CLI's
@@ -18,9 +18,9 @@ import { uniqueStamp } from './helpers';
  * TC-CGRP-004's doc comment for why it's the lightest fixture that reaches
  * the scan).
  */
-const RECONCILE_PATH = '/api/customer-groups/reconcile';
-const RECONCILE_ADOPT_PATH = '/api/customer-groups/reconcile/adopt';
-const GROUPS_PATH = '/api/customer-groups';
+const RECONCILE_PATH = '/api/customer_groups/customer-groups/reconcile';
+const RECONCILE_ADOPT_PATH = '/api/customer_groups/customer-groups/reconcile/adopt';
+const GROUPS_PATH = '/api/customer_groups/customer-groups';
 const TAX_RATES_PATH = '/api/sales/tax-rates';
 
 type OrphanRow = { groupId: string; salesTaxRateCount: number };

@@ -50,7 +50,7 @@ export default function CustomerGroupOrphansPage() {
       setError(null)
       try {
         const fallback: ReconcileResponse = { orphans: [] }
-        const call = await apiCall<ReconcileResponse>('/api/customer-groups/reconcile', undefined, { fallback })
+        const call = await apiCall<ReconcileResponse>('/api/customer_groups/customer-groups/reconcile', undefined, { fallback })
         if (!call.ok) {
           throw new Error(t('customer_groups.groups.orphans.errors.load', 'Failed to load orphaned references'))
         }
@@ -86,7 +86,7 @@ export default function CustomerGroupOrphansPage() {
     try {
       await runMutation({
         operation: async () => {
-          const call = await apiCall<AdoptResponse>('/api/customer-groups/reconcile/adopt', { method: 'POST' })
+          const call = await apiCall<AdoptResponse>('/api/customer_groups/customer-groups/reconcile/adopt', { method: 'POST' })
           if (!call.ok) {
             throw Object.assign(new Error('[internal] customer_groups.reconcile.adopt failed'), {
               status: call.status,

@@ -18,7 +18,7 @@ type ExplainTermsField = {
   path: GroupSummary[]
 }
 
-// Mirrors the `GET /api/customer-groups/explain-terms` response shape (see the
+// Mirrors the `GET /api/customer_groups/customer-groups/explain-terms` response shape (see the
 // route's own `ExplainTermsResponse`/`ExplainTermsField` types) — kept as a local
 // client-side copy since API route modules are server-only and not importable here.
 type ExplainTermsResponse = {
@@ -158,7 +158,7 @@ export function PersonGroupsExplainTerms({ customerId }: { customerId: string })
     let cancelled = false
     setLoading(true)
     setError(null)
-    apiCall<ExplainTermsResponse>(`/api/customer-groups/explain-terms?customerId=${encodeURIComponent(customerId)}`)
+    apiCall<ExplainTermsResponse>(`/api/customer_groups/customer-groups/explain-terms?customerId=${encodeURIComponent(customerId)}`)
       .then((res) => {
         if (cancelled) return
         if (res.ok && res.result) {

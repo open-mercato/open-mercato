@@ -68,7 +68,7 @@ function isValidContext(ctx: unknown): ctx is PersonGroupsTabContext {
   return typeof candidate.resourceId === 'string' && candidate.resourceId.trim().length > 0
 }
 
-// The `/api/customer-groups/memberships` list route returns the query-index column
+// The `/api/customer_groups/customer-groups/memberships` list route returns the query-index column
 // projection (snake_case keys, e.g. `group_id`, `valid_from`) rather than a camelCase
 // shape — see `api/customer-groups/memberships/crud.ts` `customerGroupMembershipListFields`.
 // Accept both spellings so this keeps working if that ever changes, mirroring
@@ -203,8 +203,8 @@ export function PersonGroupsTabWidget({
     setError(null)
     try {
       const [groupsRes, membershipsRes] = await Promise.all([
-        apiCall<{ items?: unknown[] }>('/api/customer-groups?pageSize=100'),
-        apiCall<{ items?: unknown[] }>(`/api/customer-groups/memberships?customerId=${encodeURIComponent(customerId)}&pageSize=100`),
+        apiCall<{ items?: unknown[] }>('/api/customer_groups/customer-groups?pageSize=100'),
+        apiCall<{ items?: unknown[] }>(`/api/customer_groups/customer-groups/memberships?customerId=${encodeURIComponent(customerId)}&pageSize=100`),
       ])
       if (groupsRes.ok && groupsRes.result) {
         setGroups(mapListItemsToSummaries(groupsRes.result.items))
@@ -313,7 +313,7 @@ export function PersonGroupsTabWidget({
         validUntil: values.validUntil && values.validUntil.trim().length ? values.validUntil : undefined,
       }
       try {
-        await createCrud('customer-groups/memberships', payload, {
+        await createCrud('customer_groups/customer-groups/memberships', payload, {
           errorMessage: t('customer_groups.groups.personTab.errors.assignFailed', 'Failed to assign group.'),
         })
       } catch (err) {
@@ -351,7 +351,7 @@ export function PersonGroupsTabWidget({
       try {
         await withScopedApiRequestHeaders(
           buildOptimisticLockHeader(row.updatedAt),
-          () => deleteCrud('customer-groups/memberships', row.id),
+          () => deleteCrud('customer_groups/customer-groups/memberships', row.id),
         )
       } catch (err) {
         if (!surfaceRecordConflict(err, t)) {

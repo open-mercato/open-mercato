@@ -174,11 +174,11 @@ export function CustomerGroupTermsSection({
           typeof values.approvalRequiredAbove === 'number' ? values.approvalRequiredAbove : null,
         minOrderValue: typeof values.minOrderValue === 'number' ? values.minOrderValue : null,
       }
-      // `updateCrud` PUTs to `/api/customer-groups/{groupId}/terms`, matching the
+      // `updateCrud` PUTs to `/api/customer_groups/customer-groups/{groupId}/terms`, matching the
       // upsert route (Step 2.4). `optimisticLockUpdatedAt` below is `null` on the
       // first save (no `terms` row yet), so CrudForm skips the lock header entirely —
       // mirrors the route's own "no lock check on creation" behavior.
-      const call = await updateCrud<{ terms: CustomerGroupTermsDTO }>(`customer-groups/${groupId}/terms`, payload, {
+      const call = await updateCrud<{ terms: CustomerGroupTermsDTO }>(`customer_groups/customer-groups/${groupId}/terms`, payload, {
         errorMessage: t('customer_groups.groups.form.terms.errors.save', 'Failed to save commercial terms.'),
       })
       if (call.result?.terms) onSaved(call.result.terms)

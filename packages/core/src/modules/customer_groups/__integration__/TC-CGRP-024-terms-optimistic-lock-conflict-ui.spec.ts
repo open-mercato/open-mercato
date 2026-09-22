@@ -13,7 +13,7 @@ import { fixturePriority, uniqueStamp } from './helpers';
 /**
  * TC-CGRP-024: Phase 2 UI gate — optimistic-lock conflict on the
  * "Commercial terms" form, complementing TC-CGRP-014's API-level proof
- * (`PUT /api/customer-groups/:id/terms` returns a structured 409) with the
+ * (`PUT /api/customer_groups/customer-groups/:id/terms` returns a structured 409) with the
  * real browser surface.
  *
  * `CustomerGroupTermsSection` passes `optimisticLockUpdatedAt={terms?.updatedAt}`

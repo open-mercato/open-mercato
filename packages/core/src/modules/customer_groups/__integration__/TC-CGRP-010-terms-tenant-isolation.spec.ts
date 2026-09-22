@@ -24,14 +24,14 @@ import {
  * route in §9, each asserting tenant isolation with a second-tenant fixture."
  * Mirrors TC-CGRP-001's second-tenant pattern for the two Phase 2 routes.
  *
- * `GET/PUT /api/customer-groups/:id/terms`: the route loads the GROUP first
+ * `GET/PUT /api/customer_groups/customer-groups/:id/terms`: the route loads the GROUP first
  * (`loadGroupOrThrow`, scoped by `tenantId: scope.tenantId`) before it ever
  * looks at a terms row, so a tenant-B token sending the exact tenant-A group
  * id gets a 404 from the group lookup itself — tenant B genuinely has no such
  * group, proving the group-existence check (not just the terms lookup) is
  * tenant-scoped.
  *
- * `GET /api/customer-groups/explain-terms?customerId=`: resolves via
+ * `GET /api/customer_groups/customer-groups/explain-terms?customerId=`: resolves via
  * `resolveGroups()`, which queries `CustomerGroupMembership` scoped to the
  * CALLER's own tenant. A tenant-A customerId sent with a tenant-B token has
  * zero memberships under tenant B's tenantId (even though it has real ones
@@ -39,8 +39,8 @@ import {
  * customer: zero groups, tenant-default terms, no tenant-A data anywhere in
  * the response.
  */
-const GROUPS_PATH = '/api/customer-groups';
-const EXPLAIN_TERMS_PATH = '/api/customer-groups/explain-terms';
+const GROUPS_PATH = '/api/customer_groups/customer-groups';
+const EXPLAIN_TERMS_PATH = '/api/customer_groups/customer-groups/explain-terms';
 const TERMS_FEATURES = [
   ...CUSTOMER_GROUPS_FEATURES,
   'customer_groups.terms.view',

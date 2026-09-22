@@ -14,7 +14,7 @@ import {
 import { fixturePriority, uniqueStamp } from './helpers';
 
 /**
- * TC-CGRP-014: optimistic-lock conflict on `PUT /api/customer-groups/:id/terms`
+ * TC-CGRP-014: optimistic-lock conflict on `PUT /api/customer_groups/customer-groups/:id/terms`
  * at the INTEGRATION level (real HTTP, real DB row), proving the guard the
  * unit test in `api/customer-groups/[id]/terms/__tests__/route.test.ts`
  * already covers with a mocked EntityManager.
@@ -27,13 +27,13 @@ import { fixturePriority, uniqueStamp } from './helpers';
  * body (`OPTIMISTIC_LOCK_CONFLICT_ERROR`/`_CODE`, `expectedUpdatedAt: t0`,
  * `currentUpdatedAt` advanced past t0).
  */
-const GROUPS_PATH = '/api/customer-groups';
+const GROUPS_PATH = '/api/customer_groups/customer-groups';
 
 function termsPath(groupId: string): string {
   return `${GROUPS_PATH}/${groupId}/terms`;
 }
 
-test.describe('TC-CGRP-014: optimistic-lock conflict on PUT /api/customer-groups/:id/terms', () => {
+test.describe('TC-CGRP-014: optimistic-lock conflict on PUT /api/customer_groups/customer-groups/:id/terms', () => {
   test('a stale updatedAt token is refused with 409 after a concurrent update advances the row', async ({
     request,
   }) => {

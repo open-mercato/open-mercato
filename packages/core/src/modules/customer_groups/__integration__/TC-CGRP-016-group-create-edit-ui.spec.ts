@@ -37,16 +37,35 @@ test.describe('TC-CGRP-016: customer group create + edit round-trip via the admi
       await login(page, 'admin');
       await page.goto('/backend/customer-groups/create', { waitUntil: 'domcontentloaded' });
 
-      await page.locator('[data-crud-field-id="code"] input').fill(code);
-      await page.locator('[data-crud-field-id="name"] input').fill(name);
+      const codeInput = page.locator('[data-crud-field-id="code"] input');
+      const nameInput = page.locator('[data-crud-field-id="name"] input');
+      const priorityInput = page.locator('[data-crud-field-id="priority"] input');
+
+      await codeInput.fill(code);
+      await expect(codeInput, 'code value commits to the DOM/React state before continuing').toHaveValue(code);
+      await nameInput.fill(name);
+      await expect(nameInput, 'name value commits before continuing').toHaveValue(name);
 
       const kindField = page.locator('[data-crud-field-id="kind"]');
       await kindField.getByRole('combobox').click();
       await page.getByRole('option', { name: 'b2b', exact: true }).click();
+      // Wait for the Select's own close/commit cycle to finish (the trigger's
+      // visible text switches to the selected option) before the next action —
+      // continuing immediately risks racing the Select's internal state update.
+      await expect(kindField.getByRole('combobox')).toContainText('b2b');
 
-      await page.locator('[data-crud-field-id="priority"] input').fill(String(priority));
+      await priorityInput.fill(String(priority));
+      await expect(priorityInput, 'priority value commits before continuing').toHaveValue(String(priority));
 
-      await page.getByRole('button', { name: 'Create' }).click();
+      // Re-verify every field right before submit — the form must not have reset
+      // any of them due to an intervening re-render.
+      await expect(codeInput).toHaveValue(code);
+      await expect(nameInput).toHaveValue(name);
+
+      // CrudForm renders two submit buttons for this form (a sticky-header action
+      // bound via `form="<id>"` plus the inline footer button); both submit the
+      // same form.
+      await page.getByRole('button', { name: 'Create' }).last().click();
       await page.waitForURL(/\/backend\/customer-groups(\?.*)?$/, { timeout: 20_000 });
 
       // Resolve the id created by the UI via the API (the list route's own
@@ -55,7 +74,7 @@ test.describe('TC-CGRP-016: customer group create + edit round-trip via the admi
       const listResponse = await apiRequest(
         request,
         'GET',
-        `/api/customer-groups?search=${encodeURIComponent(code)}&pageSize=10`,
+        `/api/customer_groups/customer-groups?search=${encodeURIComponent(code)}&pageSize=10`,
         { token },
       );
       expect(listResponse.status(), 'list lookup for the UI-created group should be 200').toBe(200);
@@ -78,9 +97,9 @@ test.describe('TC-CGRP-016: customer group create + edit round-trip via the admi
       await page.getByRole('menuitem', { name: /Edit/i }).first().click();
       await page.waitForURL(new RegExp(`/backend/customer-groups/${groupId}/edit$`), { timeout: 15_000 });
 
-      const nameInput = page.locator('[data-crud-field-id="name"] input');
-      await expect(nameInput).toHaveValue(name, { timeout: 15_000 });
-      await nameInput.fill(updatedName);
+      const editNameInput = page.locator('[data-crud-field-id="name"] input');
+      await expect(editNameInput).toHaveValue(name, { timeout: 15_000 });
+      await editNameInput.fill(updatedName);
 
       await page.getByRole('button', { name: /^Save$/ }).first().click();
       await page.waitForURL(/\/backend\/customer-groups(\?.*)?$/, { timeout: 20_000 });
@@ -90,7 +109,7 @@ test.describe('TC-CGRP-016: customer group create + edit round-trip via the admi
       await page.goto(`/backend/customer-groups/${groupId}/edit`, { waitUntil: 'domcontentloaded' });
       await expect(page.locator('[data-crud-field-id="name"] input')).toHaveValue(updatedName, { timeout: 15_000 });
 
-      const rereadResponse = await apiRequest(request, 'GET', `/api/customer-groups?id=${encodeURIComponent(groupId!)}`, {
+      const rereadResponse = await apiRequest(request, 'GET', `/api/customer_groups/customer-groups?id=${encodeURIComponent(groupId!)}`, {
         token,
       });
       const rereadBody = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(rereadResponse);

@@ -144,7 +144,7 @@ export default function CustomerGroupsPage() {
 
         const fallback: ResponsePayload = { items: [], total: 0, page: 1, totalPages: 1 }
         const call = await apiCall<ResponsePayload>(
-          `/api/customer-groups?${params.toString()}`,
+          `/api/customer_groups/customer-groups?${params.toString()}`,
           undefined,
           { fallback },
         )
@@ -196,7 +196,7 @@ export default function CustomerGroupsPage() {
       setRows(reordered)
 
       try {
-        const call = await apiCall('/api/customer-groups/reorder', {
+        const call = await apiCall('/api/customer_groups/customer-groups/reorder', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ids: reordered.map((row) => row.id) }),
@@ -228,7 +228,7 @@ export default function CustomerGroupsPage() {
           operation: async () => {
             const call = await withScopedApiRequestHeaders(
               buildOptimisticLockHeader(row.updated_at),
-              () => apiCall(`/api/customer-groups?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' }),
+              () => apiCall(`/api/customer_groups/customer-groups?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' }),
             )
             if (!call.ok) {
               throw Object.assign(new Error('[internal] customer_groups.delete failed'), {

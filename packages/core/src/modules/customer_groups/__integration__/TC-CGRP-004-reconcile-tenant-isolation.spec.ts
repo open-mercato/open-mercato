@@ -10,7 +10,7 @@ import {
 } from './helpers';
 
 /**
- * TC-CGRP-004: `GET /api/customer-groups/reconcile` tenant isolation.
+ * TC-CGRP-004: `GET /api/customer_groups/customer-groups/reconcile` tenant isolation.
  * Source: .ai/specs/2026-08-14-customer-groups-and-b2b-terms.md §13.
  *
  * `lib/reconcile.ts`'s `scanOrphanedCustomerGroupReferences` scopes the raw
@@ -24,7 +24,7 @@ import {
  * catalog price row which needs a product + price-kind + currency), so this
  * spec creates an orphan reference there rather than in `catalog`.
  */
-const RECONCILE_PATH = '/api/customer-groups/reconcile';
+const RECONCILE_PATH = '/api/customer_groups/customer-groups/reconcile';
 const TAX_RATES_PATH = '/api/sales/tax-rates';
 
 type OrphanRow = { groupId: string };

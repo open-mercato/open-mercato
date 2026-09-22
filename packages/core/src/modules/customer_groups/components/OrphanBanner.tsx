@@ -30,7 +30,7 @@ export function OrphanBanner() {
       setIsLoading(true)
       try {
         const fallback: ReconcileResponse = { orphans: [] }
-        const call = await apiCall<ReconcileResponse>('/api/customer-groups/reconcile', undefined, { fallback })
+        const call = await apiCall<ReconcileResponse>('/api/customer_groups/customer-groups/reconcile', undefined, { fallback })
         if (cancelled) return
         if (!call.ok) {
           setOrphanCount(null)

@@ -36,8 +36,8 @@ import { fixturePriority, uniqueStamp } from './helpers';
  * a real membership, and a real group-scoped `CatalogProductPrice` row
  * created over HTTP exactly like TC-CGRP-007.
  */
-const GROUPS_PATH = '/api/customer-groups';
-const MEMBERSHIPS_PATH = '/api/customer-groups/memberships';
+const GROUPS_PATH = '/api/customer_groups/customer-groups';
+const MEMBERSHIPS_PATH = '/api/customer_groups/customer-groups/memberships';
 const PRICES_PATH = '/api/catalog/prices';
 const PRICE_KINDS_PATH = '/api/catalog/price-kinds';
 
