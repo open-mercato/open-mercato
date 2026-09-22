@@ -19,7 +19,7 @@
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
 | 0 | 0.1 | Stack branch on PR #6268 (chore merge commit) | inline | done | 29be10b03 |
-| 0 | 0.2 | Run-folder commit (this plan) | inline | todo | — |
+| 0 | 0.2 | Run-folder commit (this plan) | inline | done | bf3893c22 |
 | 1 | 1.1 | Scaffold `customer_groups` module skeleton | inline | done | 8859f3045 |
 | 1 | 1.2 | `CustomerGroup` + `CustomerGroupMembership` entities and validators | dispatch:standard | done | 16e2a8d58 |
 | 1 | 1.3 | Generate + review Phase 1 migration | inline | done | d8e756b39 |
