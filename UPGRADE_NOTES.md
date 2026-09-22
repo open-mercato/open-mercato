@@ -22,6 +22,37 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
+## 0.8.0 → 0.8.1 (unreleased)
+
+### `encryptEntityPayload`/`encryptFields` can now throw `TenantDataEncryptionError` (`WRONG_KEY`) instead of silently corrupting data (#5951)
+
+`TenantDataEncryptionService.encryptFields` treated a field as "already encrypted" whenever it
+decrypted under the **current** tenant DEK — a deliberate anti-forgery check (#2720). Real
+ciphertext sealed under a *different* key (a DEK mid-rotation, or the PBKDF2 fallback key the KMS
+falls back to during a Vault outage) failed that check too, so it was encrypted a **second** time,
+producing a nested envelope no read path can undo, plus a lookup hash computed over ciphertext
+instead of plaintext. This is not limited to a deliberate rotation: the ORM subscriber
+re-encrypts every mapped field on `beforeUpdate`, so a transient Vault blip plus an unrelated
+column update was enough to trigger it.
+
+The write now fails closed instead. A structurally well-formed envelope (12-byte IV, 16-byte tag,
+non-empty ciphertext — `isEncryptedPayloadShape`, new additive export from
+`@open-mercato/shared/lib/encryption/aes`) that does not decrypt under the current DEK now raises
+`TenantDataEncryptionError` with code `WRONG_KEY` instead of returning a corrupted payload.
+
+**Action for module authors:** any code that calls `encryptEntityPayload`/`encryptFields`
+directly — not through `mercato entities rotate-encryption-key --old-key <key>` (which skips a
+value neither key opens and reports it in the run summary) or `backfill-system-encryption` /
+`rotate-encryption-key` run without `--old-key` (both skip such a value silently — the
+overwhelmingly common cause is a value already encrypted under the current key, and neither CLI
+has a signal to distinguish that from a value sealed under a key that is gone) — now needs to
+handle this exception explicitly if it does not already propagate uncaught errors to a place that
+surfaces them to an operator. See `apps/mercato/src/modules/example/commands/todos.ts` for the
+reference pattern (the scaffolded app template calls `encryptEntityPayload` and lets the error
+propagate). If you hit `WRONG_KEY` in production, see "Key mismatch fails the write" in
+[`apps/docs/docs/architecture/data-encryption.mdx`](apps/docs/docs/architecture/data-encryption.mdx)
+for how to resolve an affected row.
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).
@@ -506,6 +537,19 @@ Note: only calls ingested **after** the maps exist are encrypted. Rows written b
 **Who is affected.** `pl`/`de`/`es` tenants see a 24-hour clock on every `TimePicker`, and a Monday-first, localized calendar on every `DatePicker` that previously fell back to English regardless of the tenant's language. `en` and `ko` output is unchanged — both are 12-hour locales, and English was already the picker default. No API, schema, or component prop was removed.
 
 **Action for module authors:** none required. A field or call site that already pins an explicit `locale` (date-fns `Locale` object) or `format` (`'12h' | '24h'`) keeps that value unchanged — the new default only applies where neither was set. To pin the previous English/12-hour behavior regardless of tenant locale, pass `format="12h"` to `TimePicker`, or `locale={enUS}` (from `date-fns/locale/en-US`) to `DatePicker`.
+
+### `communication_channels` now requires `progress` to be enabled (#6094)
+
+`communication_channels`'s import-history worker and its queue command (`workers/channel-import-history.ts`, `commands/queue-import-history.ts`) resolve `progressService` from the DI container, which is registered only by the `progress` module. An app that enabled `communication_channels` without `progress` previously got no build-time warning: the queue command still returned a job id and a `200`, and the worker then failed on every retry with `AwilixResolutionError: Could not resolve 'progressService'`, with no error surfaced to the user and no `progress_jobs` row to inspect.
+
+`communication_channels`'s `ModuleInfo` now declares `requires: ['progress']`, so the existing generator-enforced dependency check (already used by `sales`, `wms`, `push_notifications`, and `api_keys`) now covers it too. If your `src/modules.ts` enables `communication_channels` without `progress`, `yarn generate` now fails fast instead of shipping the silent worker failure:
+
+```
+Module dependency check failed:
+- Module "communication_channels" requires: progress
+```
+
+**Action for module authors:** add `{ id: 'progress', from: '@open-mercato/core' }` to `src/modules.ts` before `communication_channels`, then re-run `yarn generate`. `apps/mercato/src/modules.ts`, the `create-app` template's `modules.ts` (used unchanged by the `classic` preset), and the `crm` starter preset (the only other preset that enables `communication_channels`) all enable `progress` too, so this repo's own apps and freshly scaffolded apps are unaffected.
 
 ## 0.6.7 → 0.7.0 (2026-08-26)
 

@@ -17,7 +17,6 @@ interface CatalogProduct {
 interface SalesChannelLike {
   id: string
   name: string
-  currencyCode?: string
   tenantId?: string
   organizationId?: string
   deletedAt?: Date | null
@@ -54,7 +53,7 @@ export async function enrichOrderPayload(
   const enriched = { ...payload }
   const warnings: string[] = []
 
-  // 1. Resolve channelId if missing, and resolve currencyCode from channel
+  // 1. Resolve channelId if missing
   if (ctx.salesChannelClass) {
     try {
       const channelWhere: Record<string, unknown> = {
@@ -74,9 +73,6 @@ export async function enrichOrderPayload(
       )
       if (channel) {
         if (!enriched.channelId) enriched.channelId = channel.id
-        if (!enriched.currencyCode && channel.currencyCode) {
-          enriched.currencyCode = channel.currencyCode
-        }
       } else {
         warnings.push('no_channel_resolved')
       }
