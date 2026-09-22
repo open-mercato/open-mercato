@@ -5,6 +5,7 @@ const DEFAULT_MAX_OCR_PAGES = 50
 const DEFAULT_OCR_PAGE_TIMEOUT_MS = 60_000
 const DEFAULT_OCR_MAX_OUTPUT_TOKENS = 4_096
 const DEFAULT_OCR_MAX_CONCURRENCY = 2
+const DEFAULT_OCR_MAX_WAIT_QUEUE = 50
 
 function parsePositiveInt(raw: string | undefined, fallback: number): number {
   if (raw === undefined || raw.trim() === '') return fallback
@@ -13,24 +14,29 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
   return Math.floor(parsed)
 }
 
-/** Cap PDF pages processed for OCR / text extraction (env: OM_OCR_MAX_PAGES). */
+/** Cap PDF pages processed for OCR / text extraction (env: OM_ATTACHMENT_OCR_MAX_PAGES). */
 export function resolveMaxOcrPages(): number {
-  return parsePositiveInt(process.env.OM_OCR_MAX_PAGES, DEFAULT_MAX_OCR_PAGES)
+  return parsePositiveInt(process.env.OM_ATTACHMENT_OCR_MAX_PAGES, DEFAULT_MAX_OCR_PAGES)
 }
 
-/** Per-page LLM OCR call timeout in ms (env: OM_OCR_PAGE_TIMEOUT_MS). */
+/** Per-page LLM OCR call timeout in ms (env: OM_ATTACHMENT_OCR_PAGE_TIMEOUT_MS). */
 export function resolveOcrPageTimeoutMs(): number {
-  return parsePositiveInt(process.env.OM_OCR_PAGE_TIMEOUT_MS, DEFAULT_OCR_PAGE_TIMEOUT_MS)
+  return parsePositiveInt(process.env.OM_ATTACHMENT_OCR_PAGE_TIMEOUT_MS, DEFAULT_OCR_PAGE_TIMEOUT_MS)
 }
 
-/** Max output tokens for a single OCR generateText call (env: OM_OCR_MAX_OUTPUT_TOKENS). */
+/** Max output tokens for a single OCR generateText call (env: OM_ATTACHMENT_OCR_MAX_OUTPUT_TOKENS). */
 export function resolveOcrMaxOutputTokens(): number {
-  return parsePositiveInt(process.env.OM_OCR_MAX_OUTPUT_TOKENS, DEFAULT_OCR_MAX_OUTPUT_TOKENS)
+  return parsePositiveInt(process.env.OM_ATTACHMENT_OCR_MAX_OUTPUT_TOKENS, DEFAULT_OCR_MAX_OUTPUT_TOKENS)
 }
 
-/** Max concurrent in-process OCR jobs (env: OM_OCR_MAX_CONCURRENCY). */
+/** Max concurrent in-process OCR jobs (env: OM_ATTACHMENT_OCR_MAX_CONCURRENCY). */
 export function resolveOcrMaxConcurrency(): number {
-  return parsePositiveInt(process.env.OM_OCR_MAX_CONCURRENCY, DEFAULT_OCR_MAX_CONCURRENCY)
+  return parsePositiveInt(process.env.OM_ATTACHMENT_OCR_MAX_CONCURRENCY, DEFAULT_OCR_MAX_CONCURRENCY)
+}
+
+/** Max waiters blocked on the in-process OCR concurrency slot (env: OM_ATTACHMENT_OCR_MAX_WAIT_QUEUE). */
+export function resolveOcrMaxWaitQueue(): number {
+  return parsePositiveInt(process.env.OM_ATTACHMENT_OCR_MAX_WAIT_QUEUE, DEFAULT_OCR_MAX_WAIT_QUEUE)
 }
 
 /** How many PDF pages to iterate given document length and the configured cap. */

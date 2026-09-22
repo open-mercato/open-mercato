@@ -119,6 +119,12 @@ The reset-confirm and reset-validate endpoints use IP-only limiting because no e
 
 On successful login, the compound counter is automatically reset so legitimate users aren't penalized for prior typos. The IP-only counter is not reset.
 
+**Attachment uploads** (handler-level, per tenant + authenticated user):
+
+| Endpoint | Key | Points | Window | Block |
+|----------|-----|--------|--------|-------|
+| `POST /api/attachments` | `tenantId:principal` | 30 | 60s | &mdash; |
+
 All limits can be overridden via environment variables (see [Configuration](#configuration)).
 
 ## 429 Response Format
@@ -207,12 +213,34 @@ When using `redis` strategy, the service reads `REDIS_URL` (already used by cach
 | `RATE_LIMIT_RESET_VALIDATE_POINTS` | `10` | Max reset-token checks per IP per window |
 | `RATE_LIMIT_RESET_VALIDATE_DURATION` | `300` | Window in seconds |
 
+**Attachment uploads:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RATE_LIMIT_ATTACHMENTS_UPLOAD_POINTS` | `30` | Max uploads per tenant+user per window |
+| `RATE_LIMIT_ATTACHMENTS_UPLOAD_DURATION` | `60` | Window in seconds |
+| `RATE_LIMIT_ATTACHMENTS_UPLOAD_BLOCK_DURATION` | &mdash; | Optional block duration after exceeding limit |
+
 **Future:**
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RATE_LIMIT_2FA_VERIFY_POINTS` | `5` | Max 2FA verification attempts |
 | `RATE_LIMIT_2FA_VERIFY_DURATION` | `300` | Window in seconds |
+
+### Attachment OCR resource bounds
+
+These variables bound LLM OCR cost amplification in the attachments module. They are **not** rate-limit keys — they cap page iteration, per-call timeouts, in-process concurrency, and the OCR wait queue.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OM_ATTACHMENT_OCR_MAX_PAGES` | `50` | Max PDF pages processed for OCR / text extraction |
+| `OM_ATTACHMENT_OCR_PAGE_TIMEOUT_MS` | `60000` | Per-page LLM OCR call timeout |
+| `OM_ATTACHMENT_OCR_MAX_OUTPUT_TOKENS` | `4096` | Max output tokens per OCR `generateText` call |
+| `OM_ATTACHMENT_OCR_MAX_CONCURRENCY` | `2` | Max concurrent in-process OCR jobs **per replica** |
+| `OM_ATTACHMENT_OCR_MAX_WAIT_QUEUE` | `50` | Max waiters blocked on the concurrency slot |
+
+Cluster-wide OCR concurrency is `OM_ATTACHMENT_OCR_MAX_CONCURRENCY ×` the number of app replicas because counters are in-process, not shared via Redis.
 
 ## Strategies
 

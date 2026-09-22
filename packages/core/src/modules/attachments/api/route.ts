@@ -285,12 +285,20 @@ export async function POST(req: Request) {
   const tenantId = auth.tenantId
 
   const container = await createRequestContainer()
+  let rateLimiterService: RateLimiterService | null = null
   try {
-    const rateLimiterService = container.resolve('rateLimiterService') as RateLimiterService | null
-    if (rateLimiterService) {
-      const principal = typeof auth.sub === 'string' && auth.sub.length > 0
-        ? auth.sub
-        : (typeof auth.userId === 'string' && auth.userId.length > 0 ? auth.userId : 'anonymous')
+    rateLimiterService = container.resolve('rateLimiterService') as RateLimiterService | null
+  } catch (error) {
+    // Fail-open: uploads proceed when the limiter cannot be resolved (minimal/test containers).
+    logger.warn('Attachment upload rate limiter unavailable; throttle skipped', { err: error })
+  }
+  if (rateLimiterService) {
+    const principal = typeof auth.sub === 'string' && auth.sub.length > 0
+      ? auth.sub
+      : (typeof auth.userId === 'string' && auth.userId.length > 0 ? auth.userId : null)
+    if (!principal) {
+      logger.warn('Attachment upload rate limit skipped: missing authenticated principal')
+    } else {
       const rateLimitResponse = await checkRateLimit(
         rateLimiterService,
         resolveAttachmentsUploadRateLimitConfig(),
@@ -299,8 +307,8 @@ export async function POST(req: Request) {
       )
       if (rateLimitResponse) return rateLimitResponse
     }
-  } catch {
-    // rateLimiterService may be absent in minimal containers; fail open on resolve miss.
+  } else {
+    logger.warn('Attachment upload rate limiter not registered; throttle skipped')
   }
 
   const contentType = req.headers.get('content-type') || ''
