@@ -20,3 +20,9 @@
 - Fixed a real bug: `[id]/page.tsx` used `useParams()` instead of the `params` prop the backend catch-all passes (issue #5600 pattern) — caught by a workspace-wide guard test, not by anything availability-scoped. The page would have hung on its loading state in production.
 - Closed an R4 gap: `policyResolution.ts`'s `resolve()` issued one query per call; `wms`'s upcoming batched provider would have called it once per item in a 200-variant batch, violating R4. Added `resolveMany()` (one batched query for the whole scope set); `resolve()` is now `resolveMany([scope])[0]`, no change to existing callers.
 - Phase 1 fully complete. Started drafting Phase 2 Step 3.1 (`wms/lib/availabilityCalculation.ts`) — code + 14 tests written and passing, not yet committed as a Step at the time of this entry.
+
+## 2026-09-22T13:30:00Z — checkpoint 3 (Steps 3.1–3.3), Phase 2 close
+- Landed all of Phase 2: batched sellable-quantity calculation, cache + balance-change invalidation, and the wms AvailabilityProvider registration.
+- Full checkpoint validation green; explicitly verified the Phase 2 gate (R1 safety-stock-once, R4 constant-query-count, hand-computed multi-location states) through the real end-to-end resolveAvailability() → wms provider path, not just the calculation unit in isolation.
+- Design note: the cache invalidation tag deliberately deviates from §6's literal per-variant tag naming in favor of the module's own established coarse-tag precedent (documented in PLAN.md decision 5).
+- Both Phase 1 and Phase 2 are now fully complete. Remaining scope: Step 4.1 (Playwright UI tests), Step 4.2 (final generate/db check + spec changelog), then the run's final gate and PR finalize.
