@@ -18,6 +18,7 @@ export const extensionPoints = defineModuleExtensionPoints({
       source: 'components/products/ProductsDataTable.tsx',
     }),
     categoriesTable: dataTableExtensionHost({ tableId: 'catalog.categories.list', source: 'components/categories/CategoriesDataTable.tsx' }),
+    pricesTable: dataTableExtensionHost({ tableId: 'catalog.prices.list', source: 'components/prices/PricesDataTable.tsx' }),
   },
 })
 
