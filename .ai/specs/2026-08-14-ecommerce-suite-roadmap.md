@@ -14,14 +14,14 @@
 
 **Key Points:**
 - Open Mercato has the back-office half of commerce (`catalog`, `sales`, `wms`, `payment_gateways`, `shipping_carriers`, `customers`, `customer_accounts`) but no selling channel. SPEC-029 tried to close the gap with one 1892-line spec covering a backend module, a public API, a checkout state machine and a complete Next.js application at once.
-- This roadmap replaces that monolith with **twelve scoped specs across seven new modules**, fixes the ownership boundaries between them, and records the architecture decisions that the individual specs must not re-litigate.
+- This roadmap replaces that monolith with **thirteen scoped specs across eight new modules**, fixes the ownership boundaries between them, and records the architecture decisions that the individual specs must not re-litigate.
 - The load-bearing correction: **the cart is a first-class, channel-agnostic module** (`cart`), not a status on a checkout session. Storefront, POS, pay links and AI agents all mutate the same cart contract; checkout consumes a cart and turns it into a `SalesOrder`.
 - **B2B is in scope from v1.** Catalog pricing already resolves `customer_id` / `customer_group_id` / quantity tiers / validity windows — the missing pieces are the `CustomerGroup` entity itself (today a dangling UUID column), credit limits, and buyer approval flow.
 
 **Scope:**
 - Module inventory, ownership boundaries and dependency direction for the ecommerce suite
-- Twelve specs: what each owns, what it must not own, and in which order they land
-- Nine architecture decisions (ADR-1 … ADR-9) binding on every downstream spec
+- Thirteen specs: what each owns, what it must not own, and in which order they land
+- Ten architecture decisions (ADR-1 … ADR-10) binding on every downstream spec
 - Phasing with explicit gating criteria
 
 **Concerns:**
@@ -86,6 +86,7 @@ All new modules live in `packages/core/src/modules/<module>/` and follow the sta
 | `customer_groups` | `CustomerGroup`, group membership, group-scoped commercial terms, credit limit and exposure, buyer approval policy | Price rows (owned by `catalog`), tax rates (owned by `sales`) |
 | `merchandising` | Storefront navigation menus, homepage/landing blocks, banners, category enrichment, curated product sets, cross/upsell rules | Product domain model, CMS pages (owned by `content`) |
 | `availability` | The `availabilityService` DI contract and its catalog-only fallback implementation | Stock movements, lots, reservations (owned by `wms`) |
+| `assisted_selling` | The buyer↔seller thread and its participants, proposal metadata and lifecycle, the AI proposing agent and its budget, per-store mode configuration, presence disclosure, commission attribution after conversion | `Cart`/`CartLine` and anything priced (owned by `cart`), order creation, the identity of either party, the buyer-facing transport itself (owned by `ecommerce`) |
 | `pricing` (optional) | A resolver registered into `catalog`'s existing resolver chain, taking over price resolution when installed | Price rows and the base resolver (both owned by `catalog`); discount effects (`promotions`); totals (`sales`) |
 
 ### 3.2 Extended existing modules
@@ -339,6 +340,33 @@ The projection itself is **not specified or built here**. This ADR fixes only it
 
 ---
 
+### ADR-10 — A proposal is a cart, and acceptance is a merge
+
+*Added 2026-09-22, when spec 13 (assisted selling) needed a way for somebody other than the buyer to put a priced basket in front of the buyer.*
+
+**Decision.** When any party other than the buyer — a sales rep, an AI agent — wants lines in a buyer's basket, it authors a **separate `Cart` carrying the role `kind: 'proposal'`** with `proposed_to_cart_id` pointing at that basket. The buyer accepts or rejects it. **Acceptance is a `cart.merge` with `strategy: 'manual'`; nobody ever writes into a cart they do not own.** The proposal is priced under the *target's* buyer context, never the author's.
+
+Three corollaries bind every spec in the suite:
+
+1. **The unit of acceptance is a cart, not a message.** A conversation — AI or human — is transport. The commitment is the proposal cart. A spec that makes a chat message the thing a buyer accepts is re-litigating this ADR.
+2. **AI and human are two actor types on one artifact, not two features.** `assistedSelling.mode: 'ai' | 'rep' | 'both' | 'off'` selects which actor types may author; the artifact, the commands, the acceptance path and the disclosure are identical for both. One code path.
+3. **Live is transport over this model, never a second model.** A real-time channel says only *that* something changed; the client re-reads state through the API. This is the same rule R4 in `storefront-app.md` already states from the client side — "the server is authoritative — the client renders session state and never derives it" — and the platform's own event bridges already enforce it by capping SSE payloads at 4 KB and replacing anything larger with a bare `{ truncated, id, entityId }`.
+
+**Rationale.** Everything the acceptance of a suggestion needs already exists in `cart`, built for guest→customer merge: `mergeSummary` for disclosure, `CartMergeLog.source_snapshot` for an append-only pre-merge record, `cart.mergeUndo` for a 15-minute reversal, and a mandatory whole-cart re-price afterwards. `CartMergeLog.strategy` even admitted `'manual'` already, with no policy able to produce it. A proposal-as-merge reuses all of it; a proposal-as-entity-family duplicates a line model, a pricing path and a totals path — and the totals path is the one ADR-2 exists to keep singular.
+
+It also settles `cart-module.md`'s Open Question 4 ("does an AI-proposed line count toward totals before confirmation") by dissolving it: an unaccepted line is not in the buyer's cart at all. The alternative — a per-line `pending` flag — would push a conditional into every totals, promotion and threshold path in the one module whose discipline is that it computes nothing itself.
+
+**Consequence.**
+- `cart` gains a **role** (`kind`), not a status: `Cart.status` is unchanged and orthogonal (`cart-module.md` §7a, rev 7).
+- `CartLine` attribution becomes `added_by_actor_type` + `added_by_actor_id`, and `CartMergeLog`'s actor becomes polymorphic — a rep is an `auth.User`, a buyer a `customer_accounts.CustomerUser`, and the two tables have no foreign key between them.
+- Acceptance is two-step — a pre-flight preview returning a short-lived token, then a confirm that re-resolves — because the price shown in a proposal and the price charged after the merge are resolved at different moments. This is the shape `storefront-customer-account.md` §7.3 already fixed for reorder preview.
+- **A merge into a scope-resolving cart must run an assortment re-visibility pass.** Without it, `cart-module.md` §6a.4's channel exemption composes with merge into a bypass of that spec's R11. This is a Critical defect in merge itself, independent of assisted selling, and it ships with `cart` Phase 3 rather than with this feature.
+- Two approval planes exist and MUST NOT be conflated. AI→employee is already implemented (`prepareMutation` + `AiPendingAction` + its confirm route) and is not re-specified; proposal→buyer is new. They are not merely conventionally separate: `getAuthFromRequest` rejects any session whose `payload.type === 'customer'`, so a buyer is structurally incapable of authenticating against the employee plane.
+
+**Rejected alternative.** Letting staff edit the buyer's cart directly, with an audit log. It is what `cart-module.md` §10.2 already forbids, and the forbidding is right: the buyer did not agree to the change, and no amount of logging turns an unagreed mutation into a proposal. Also rejected: making the chat message the unit of acceptance, which forces the buyer to re-enter what was suggested and makes transcription error a pricing error.
+
+---
+
 ## 6) Spec Breakdown
 
 | # | Spec | Status | Module(s) | Depends on |
@@ -355,6 +383,7 @@ The projection itself is **not specified or built here**. This ADR fixes only it
 | 10 | `2026-08-14-storefront-app.md` | to write | `apps/storefront`, `@open-mercato/storefront-ui` | 4, 5, 7, 8 |
 | 11 | `2026-08-21-pricing-engine.md` | written | `catalog` (admin UI + resolver hardening), `pricing` (new, optional) | — (Phase 2 is a prerequisite for its own Phase 3 only) |
 | 12 | `2026-08-21-buyer-scoped-catalog-visibility.md` | written | `packages/shared`, `customer_groups`, `ecommerce`, `cart` | 1, 3, 5 (amends all three) |
+| 13 | `2026-09-22-assisted-selling.md` | written | `assisted_selling` (new), `cart` (seam), `ecommerce` (transport), `apps/storefront` (UI) | 5 (rev 7), 4, 9, 10 |
 
 ### 6.1 What each spec must contain beyond the standard checklist
 
@@ -372,6 +401,7 @@ The projection itself is **not specified or built here**. This ADR fixes only it
 | 8 — Merchandising | Boundary against `content` module pages; per-store vs. per-channel scoping; publishing and scheduling |
 | 9 — Customer account | B2B buyer roster and approvals in the portal; order history sourced from `sales` without cross-module ORM relations |
 | 10 — Storefront app | `@open-mercato/storefront-ui` budget and CI enforcement; WCAG 2.2 AA evidence; RWD; performance targets |
+| 13 — Assisted selling | Why the proposal is a **role on `Cart`** and not an entity family, stated against ADR-10; the two approval planes and why they cannot be one; the buyer-scoped transport — which namespace owns it, why the Portal Event Bridge is not it, and the **runtime** polling fallback the CDN makes mandatory rather than optional; the guest buyer, who has no `CustomerUser` and must still be addressable; presence as a non-removable GDPR disclosure rather than a store setting; the AI actor's principal, budget and rate limit; and where commission attribution lands without `sales` gaining a column |
 
 Specs 3, 6 and 7 are rewrites/amendments of existing documents. Per `.ai/specs/AGENTS.md`, their filenames are left unchanged — renaming legacy `SPEC-*` files is a separate, explicitly-requested normalization.
 
@@ -394,7 +424,7 @@ Specs 3 and 4. Store, hostname binding, buyer-context resolver, branding, and th
 ### Phase 2 — Write side
 Specs 5 and 6. Cart with line management, price snapshots, promotion effects and `salesCalculationService` totals.
 
-**Gate:** cart totals are byte-identical to the totals of the `SalesOrder` the same cart produces; promotions apply identically on the product page and in the cart; a product outside the buyer's assortment is rejected by `cart.lines.add` as well as by the read API (spec 12 §6a).
+**Gate:** cart totals are byte-identical to the totals of the `SalesOrder` the same cart produces; promotions apply identically on the product page and in the cart; a product outside the buyer's assortment is rejected by `cart.lines.add` as well as by the read API (spec 12 §6a) **and cannot enter an enforced cart through a merge from an exempt channel** (`cart-module.md` §6a.5, R13 — added 2026-09-22; the original clause named only the add path, which a merge walks around).
 
 ### Phase 3 — Conversion
 Spec 7. Checkout funnel: addresses, delivery selection with live rates, payment, order or quote creation, purchase-on-account.
@@ -402,9 +432,11 @@ Spec 7. Checkout funnel: addresses, delivery selection with live rates, payment,
 **Gate:** end-to-end B2C purchase and B2B purchase-on-account both produce correct `SalesOrder` documents; submit is idempotent under retry and concurrent double-submit.
 
 ### Phase 4 — Experience
-Specs 8, 9 and 10. Merchandising, customer account area, and the storefront application.
+Specs 8, 9, 10 and 13. Merchandising, customer account area, the storefront application, and assisted selling.
 
-**Gate:** WCAG 2.2 AA audit passes; performance targets met; integration tests cover every API path and key UI path per `.ai/qa/AGENTS.md`.
+Spec 13 sits here because it consumes the storefront app (spec 10) it renders in, the public API (spec 4) it reads through, and the account surfaces (spec 9) an identified buyer reaches it from. Its own phasing is async-first: the proposal, the thread and polling ship before any real-time transport, so that "live" is provably a transport change and not a second model.
+
+**Gate:** WCAG 2.2 AA audit passes; performance targets met; integration tests cover every API path and key UI path per `.ai/qa/AGENTS.md`; a proposal authored by a rep on a different price kind prices identically to the buyer's own resolution.
 
 ### Cross-cutting — specs 11 and 12
 
@@ -427,6 +459,7 @@ This umbrella defines no entities. It fixes ownership only:
 | Customer group, membership, commercial terms | `customer_groups` | `customer_group_` |
 | Navigation, blocks, banners, curated sets | `merchandising` | `merchandising_` |
 | Checkout session | `@open-mercato/checkout` | `checkout_` |
+| Assisted-selling thread, participants, proposal metadata, attribution | `assisted_selling` | `assisted_selling_` |
 
 No entity may be introduced in a child spec under a prefix owned by another module.
 
@@ -444,6 +477,14 @@ This umbrella defines no endpoints. It fixes the namespaces:
 | `/api/checkout/*` | Public + optional buyer session, session bound | `@open-mercato/checkout` |
 | `/api/customer-groups/*` | `requireAuth` | `customer_groups` |
 | `/api/merchandising/*` | Admin `requireAuth`; read mirror under storefront namespace | `merchandising` |
+| `/api/assisted-selling/*` | `requireAuth`, `assisted_selling.*` features — staff and agent principals only | `assisted_selling` |
+| `/api/assisted-selling/storefront/*` | Public, **cart-token bound**, rate limited | `assisted_selling` |
+
+The buyer's half is split across three namespaces, and the split is on purpose rather than accidental:
+
+- **Proposal read, preview, accept and reject stay under `/api/cart/*`.** They are cart operations on the buyer's own basket, defined by spec 5 §7a, and moving them would give `assisted_selling` a second way to mutate a cart.
+- **The thread itself is `/api/assisted-selling/storefront/*`** — public and cart-token bound, following the same `<module>/storefront/*` convention spec 4 uses for `ecommerce`. A guest buyer has no session, so the cart token is the only credential either half can present; the token is therefore the audience key for both.
+- **The real-time transport, when it lands, is `/api/ecommerce/storefront/*`.** It is a generic buyer-scoped signal channel, not an assisted-selling feature, and it belongs to the one namespace that already resolves `StoreContext` at the edge and is already rate-limited for unauthenticated traffic.
 
 Every public namespace MUST be rate limited and MUST include the buyer-context digest in its cache key.
 
@@ -459,7 +500,7 @@ Every public namespace MUST be rate limited and MUST include the buyer-context d
 | R4 | Two checkout models diverge | **High** | `checkout`, `ecommerce` | SPEC-029 §19 is implemented by one team while Simple Checkout is implemented by another; two order-creation paths with different idempotency guarantees produce duplicate orders. | ADR-3 withdraws §19 explicitly; the SPEC-029 rewrite must state the withdrawal in its changelog | Low |
 | R5 | Oversell between browse and submit | Medium | `availability`, `cart`, `wms` | Availability is read without reservation; two buyers check out the last unit concurrently. | Availability at browse time is advisory; the authoritative check plus reservation happens at checkout submit inside the order transaction; the child specs define the reservation window | Medium — inherent to non-reserving carts; accepted, and the oversell window must be documented, not hidden |
 | R6 | Credit limit overshoot | **High** | `customer_groups`, `checkout` | Concurrent purchase-on-account orders each pass an optimistic credit check and jointly exceed the limit. | Credit exposure update inside a serializable transaction at submit, mirroring SPEC-055's budget-cap approach | Low |
-| R7 | Suite scope exceeds delivery capacity | Medium | all | Twelve specs, seven new modules. Partial delivery leaves a storefront that browses but cannot sell. | Phase gating; Phases 0–3 are the minimum shippable set; Phase 4 spec 10 can slip without invalidating the API contract | Medium |
+| R7 | Suite scope exceeds delivery capacity | Medium | all | Thirteen specs, eight new modules. Partial delivery leaves a storefront that browses but cannot sell. | Phase gating; Phases 0–3 are the minimum shippable set; Phase 4 spec 10 can slip without invalidating the API contract | Medium |
 | R8 | `packages/core` bundle growth | Low | `core` | Six new modules in core means every tenant, including non-commerce ones, carries them. | Modules are opt-in via `modules.ts`; measure and report bundle delta at each phase gate | Low — revisit as a package split if the delta is material |
 
 ---
@@ -489,6 +530,13 @@ Every public namespace MUST be rate limited and MUST include the buyer-context d
 ---
 
 ## 13) Changelog
+
+### 2026-09-22
+
+- **Added ADR-10 — a proposal is a cart, and acceptance is a merge.** Recorded here, before spec 13 was written, because §1 requires it: a child spec that needs to deviate from the decisions in §5 must amend this document first, and spec 13 deviates in a way none of ADR-1…ADR-9 anticipated. ADR-1 fixed that a cart is a module rather than a checkout status and named "AI purchasing agents" among its four consumers, but it addressed only who may *hold* a basket. Nothing in this document said what happens when a party who is not the buyer wants lines in the buyer's basket — and that is the question three separate surfaces were about to answer independently: `cart` (where the lines go), `storefront-app` (how they are shown) and a not-yet-existing module (who proposed them). Three answers to one question is how the suite got ADR-1 in the first place.
+- **Added spec 13 to §6, §6.1, §3.1, §7, §8 and §9.** A new module (`assisted_selling`), a new table prefix and a new API namespace, all of which the umbrella must own or it is not the suite's index. This is the failing the 2026-09-06 entry below recorded against specs 11 and 12 — "an implementer using this roadmap as the suite's index would not have found the write-side visibility control spec 12 rates Critical" — and repeating it would have been worse the second time. Corrected the counts with it: twelve specs → thirteen, seven new modules → eight, nine ADRs → ten, in the TLDR, the Scope block and R7.
+- **Amended the Phase 2 gate.** It required that "a product outside the buyer's assortment is rejected by `cart.lines.add` as well as by the read API", which names the add path only. `cart-module.md` §6a.4 exempts channels resolving no `StoreContext`, and a merge moves lines from such a cart into an enforced one without re-checking them — so the gate as written passed while the control it exists to prove was walkable around. The gate now names the merge path too (`cart-module.md` §6a.5, R13). That fix belongs to `cart` **Phase 3**, not to spec 13: the defect exists as soon as merge exists.
+- **Stated that the buyer's half of assisted selling gets no namespace of its own** (§9). A buyer acting on their own basket stays under `/api/cart/*` because a guest buyer has no session to present elsewhere, and the real-time transport belongs to `/api/ecommerce/storefront/*` because that is the namespace that already resolves `StoreContext` and is already rate-limited for anonymous traffic. Without this sentence the obvious reading — a new module gets a new namespace for all of its surfaces — would have put a guest-reachable endpoint behind a module whose every other route requires a staff principal.
 
 ### 2026-09-16
 - **Added ADR-9** — buyer-scoped prices bucket by `priceScopeKey`, per-customer contracts are a sparse overlay, and the two never share a key space. Recorded now, ahead of the projection spec itself, because the bucket key is the one decision in that future work that cannot be retrofitted: `storefront-public-api.md` §6.3 already defers the projection to a separate spec, but nothing in the suite constrained its shape, so any cache key or digest written in the meantime could have foreclosed it.

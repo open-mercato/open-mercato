@@ -2,11 +2,11 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (rev 2 — content pages) |
+| **Status** | Specification (rev 3 — assisted selling surfaces) |
 | **Created** | 2026-08-14 |
 | **Suite** | [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 10, Phase 4 |
 | **Deliverables** | `apps/storefront`, `@open-mercato/storefront-ui` |
-| **Depends on** | [Storefront Public API](./2026-08-14-storefront-public-api.md), [Cart Module](./2026-08-14-cart-module.md), [Checkout Funnel](./2026-03-19-checkout-simple-checkout.md), [Merchandising](./2026-08-14-storefront-merchandising.md), [Customer Account](./2026-08-14-storefront-customer-account.md) |
+| **Depends on** | [Storefront Public API](./2026-08-14-storefront-public-api.md), [Cart Module](./2026-08-14-cart-module.md), [Checkout Funnel](./2026-03-19-checkout-simple-checkout.md), [Merchandising](./2026-08-14-storefront-merchandising.md), [Customer Account](./2026-08-14-storefront-customer-account.md), [Assisted Selling](./2026-09-22-assisted-selling.md) |
 | **Carries forward** | SPEC-029 v3 §14–18 and the app half of §24 |
 
 ---
@@ -100,8 +100,11 @@ Everything commerce-specific — `ProductCard`, `VariantSelector`, `FilterSideba
 | Checkout | Client, always live | Client, always live |
 | Account | Client, always live | Client, always live |
 | Content page | Server, ISR 300s, **shared** | Server, ISR 300s, **shared** |
+| Assisted-selling tray / panel | Client, always live, lazy | Client, always live, lazy |
 
 **The rule:** anonymous responses may be shared and cached; authenticated responses are per-request and never enter a shared cache. The app reads `buyer.isAuthenticated` from `/context` at the edge and picks the path. Any CDN in front must be configured to vary on the session cookie or bypass on its presence — this is a **deployment requirement**, documented in the app README, because getting it wrong reproduces spec 4 R1 outside the platform's control.
+
+**The assisted-selling row is client-only and lazily loaded**, for a budget reason as much as a correctness one. A conversation panel is a live, authenticated-by-token surface that can never be cached, so it follows the cart and checkout rows. But it also must not exist in the catalogue bundle: §9 budgets catalogue routes at 180 kB, and the overwhelming majority of sessions never open a conversation at all. The tray and the panel are dynamically imported and mount only after `GET /thread` reports one exists — which also means no polling starts for a visitor who has no thread (assisted selling §6.2, R7 there).
 
 **Content pages are the one row that ignores the rule**, in both directions: they are cached and shared identically for anonymous and authenticated visitors, and the CDN requirement above does not apply to them. That is safe for a narrow and verifiable reason — the payload contains no buyer-dependent field at all (public API §4.6), a property asserted by that spec's contract suite rather than assumed here. The exception has to be stated explicitly, because "cached the same for a logged-in buyer" is otherwise indistinguishable from R1's failure mode on inspection, and a reader who cannot tell the two apart will eventually turn one into the other.
 
@@ -229,6 +232,36 @@ New in this revision. Renders `StorefrontPage.body` (public API §5.5), a discri
 
 The component exists so that the `format` branch lives in exactly one place. Inlining it in `pages/[slug]/page.tsx` works until a second surface — a CMS-backed landing page, a help article embedded in account — needs the same union, at which point the fallback behaviour gets reimplemented and one copy forgets the unknown-arm case.
 
+### 5.8 `ProposalTray`
+
+*Added 2026-09-22. Renders proposals addressed to this basket ([Assisted Selling](./2026-09-22-assisted-selling.md), cart spec §7a). The data model is spec 5's and spec 13's; this section is the surface only.*
+
+A dismissible tray anchored to the cart affordance, opening into a drawer. It is where "someone suggested these" lives, and it is deliberately not the cart page: a suggestion the buyer has not accepted is not in the basket, and rendering it inside the basket would say it is.
+
+- **Each proposal renders as a card with per-line accept/reject.** A checkbox per line, accepted by default, plus a whole-proposal accept and reject. Partial acceptance is the common case, not the edge case.
+- **Acceptance is two requests and the UI must show why.** `preview` returns a diff and a short-lived token; the drawer renders that diff — proposed price, price now, delta, and any line that became unavailable — and only then enables the confirm. A proposal whose prices have not moved still passes through the preview; it simply shows no deltas.
+- A `409 proposal_changed` on confirm re-renders the fresh diff in place with the new token, and says the suggestion changed while it was open. It is not an error state and must not read as one.
+- An expired proposal stays in the tray, visibly expired, with its accept controls removed rather than disabled-and-unexplained.
+- **Who proposed it is always shown** — the participant's name for a rep, and an unambiguous agent label for AI. A suggestion with no visible author is indistinguishable from the store's own merchandising, which it is not.
+- Totals shown are the proposal's own. The tray never displays a combined "your cart plus this" figure: that number does not exist until the merge re-prices, and showing a computed preview of it would be the storefront doing arithmetic, which is what ADR-2 forbids one layer down.
+- Result announced through the same `aria-live="polite"` region §5.2 uses for cart updates. A proposal arriving while the buyer is elsewhere on the page is announced once, politely, never `assertive` — it is a suggestion, not an error.
+- The drawer is a `Dialog`/`Sheet` with focus trapped and returned to the trigger; `Escape` closes; the confirm submits on `Cmd/Ctrl+Enter`.
+- Touch targets on the per-line checkboxes meet the 44×44 minimum (§7).
+
+### 5.9 `AssistedSellingPanel`
+
+*Added 2026-09-22.*
+
+The conversation itself — messages both ways, with proposals appearing inline in the timeline rather than in a parallel list.
+
+- **Mounted only when a thread exists.** `GET /thread` returning `404` renders nothing and starts no transport. An entry point to *open* a conversation appears only when the store's resolved mode permits it.
+- **Transport is SSE with a runtime fallback to polling, and the fallback is mandatory.** A CDN sits in front of this application (§3.3, R1), so the stream may be present in the browser and blocked or buffered in transit — a failure a capability check cannot see. The client degrades to polling on connection failure and on heartbeat timeout, and recovers to streaming on a later attempt. Until the stream ships (assisted selling Phase 5) the client polls only.
+- **The transport carries a signal, never content.** `{ cursor, changed, threadUpdatedAt, proposalIds }` and nothing else; the client re-reads the thread and the proposals through the API. This is R4's rule — *the server is authoritative; the client renders session state and never derives it* — applied to a second surface.
+- Polling is adaptive: 5 s while the tab is visible **and** a rep is present, 30 s while visible otherwise, suspended while hidden, backing off after a run of unchanged responses, jittered on every schedule.
+- **Presence disclosure is not a design choice and not a store setting.** See R10.
+- New messages announced through `aria-live="polite"`; the message list is a labelled region with a stable heading so a screen-reader user can navigate to it; the composer is a labelled `textarea` submitting on `Cmd/Ctrl+Enter`.
+- An unavailable AI or an absent rep produces silence, not an error banner. The buyer was never promised an answer within a deadline.
+
 ---
 
 ## 6) Design System
@@ -327,6 +360,9 @@ Structured data: `Product` with `Offer` (price, currency, availability, `priceVa
 | R7 | Cart token exposure in the client | **High** | The cart token is stored where another script can read it, or lands in a URL and leaks via referrer. | httpOnly cookie set by a server route handler; never in `localStorage`, never in a URL (cart spec R6); the app never reads the raw token in client code | Low |
 | R8 | Branding FOUC | Low | Store colours apply after hydration and the first paint is unbranded. | Branding SSR-injected into `<head>` (SPEC-029 §7.2); runtime `setProperty` reserved for the admin preview | Low |
 | R9 | A new body format renders as raw markup | Medium | A CMS replaces the page source and emits a `body.format` this storefront predates; a permissive fallback passes `value` to `dangerouslySetInnerHTML` and renders unsanitized author content, or renders a serialized object. | `ContentPageBody` switches exhaustively and falls through to a neutral fallback, never to raw `value` (§5.7); a test asserts an unknown format renders no markup originating from `value` | Low |
+| R10 | Presence rendered as a dismissible nicety | **High** | A named employee is in the buyer's conversation, able to see the basket they are proposing against, and the storefront renders that as a banner the buyer can close — or renders it only while the panel is open, so a buyer who collapsed the panel is observed with nothing on screen saying so. Under GDPR the merchant is the controller and the buyer has not been informed. | The participant list is part of the thread payload and the panel renders a rep participant's presence **persistently while that participant is present**, not as a transient toast and not only inside the open panel. It is not attached to a store setting, because [assisted selling](./2026-09-22-assisted-selling.md) §5.6 deliberately has no column that could switch it off. Asserted by test: a rep joins, the buyer's viewport shows the disclosure, and collapsing the panel does not remove it | Low |
+| R11 | Conversation surfaces inflate the catalogue bundle | Medium | The tray and panel are imported statically "because they are small", and every catalogue route carries a live-transport client component that almost no session uses. The 180 kB catalogue budget is missed and mobile LCP with it. | Both are dynamically imported and mount only after `GET /thread` reports a thread exists (§3.3); the per-route CI bundle budget of §9 covers catalogue routes and fails the build on a breach, so a future static import is caught by the existing gate rather than by a new one | Low |
+| R12 | Storefront derives proposal state the server owns | Medium | The tray computes "expired" from `expires_at` against the browser clock, or renders a combined "your cart plus this proposal" total by summing locally. The first shows a buyer an accept button the server will refuse, or hides one it would have honoured; the second shows a total that does not exist until the merge re-prices, and will differ from it. | Proposal status is rendered from the server's value and the tray shows only the proposal's own totals (§5.8) — the same rule §5.4a and §5.5 already apply to sort options and checkout steps. A test sets a client clock past `expires_at` on a proposal the server still reports live and asserts the control follows the server | Low |
 
 ---
 
@@ -350,6 +386,14 @@ Playwright, headless, against a seeded fixture store. Renumbered from SPEC-029 v
 
 **Content pages:** a published page renders at `/pages/<slug>` with its SEO metadata and appears in the sitemap; an unpublished or unknown slug renders the app's 404 rather than an error; an `html` body renders its sanitized content; a `blocks` body renders through `BlockRenderer`; an unknown `body.format` renders the fallback and no markup originating from `value` (R9); a footer menu item with `target_type: content_page` resolves to the right URL; the same page is byte-identical for an anonymous and an authenticated buyer (§3.3's exception).
 
+**Assisted selling (§5.8, §5.9):** the tray and panel are absent, and no transport starts, for a session with no thread; a proposal arriving renders in the tray with its author shown; per-line selection accepts only the selected lines and the rest are reported as declined; the preview diff renders before the confirm is enabled, including for a proposal whose prices have not moved; a `409 proposal_changed` re-renders a fresh diff in place and does not read as an error; an expired proposal stays visible with its accept controls removed; the tray never renders a combined cart-plus-proposal total; a client clock past `expires_at` does not override the server's status (R12); proposal and message arrivals announce through `aria-live="polite"` and never `assertive`; the drawer traps focus, returns it to the trigger, closes on `Escape` and confirms on `Cmd/Ctrl+Enter`; accepting from the tray is reflected in the cart and in the mini-cart without a reload.
+
+**Assisted-selling transport:** the polling client suspends while the tab is hidden and backs off after unchanged responses; **with the stream blocked in transit rather than absent from the browser, the client falls back to polling at runtime and recovers to streaming on a later attempt** — the case a capability check cannot see, and the reason the fallback is specified as runtime (§5.9); the transport response carries no message body, line or price, asserted against its shape.
+
+**Presence disclosure (R10):** a rep joining a thread produces a persistent disclosure in the buyer's viewport; collapsing the panel does not remove it; no store setting suppresses it.
+
+**Bundle (R11):** catalogue routes stay within the §9 budget with the assisted-selling surfaces present in the app, asserted by the per-route CI check.
+
 **Accessibility:** axe zero serious/critical on every route in both auth states at both widths; keyboard-only traversal of the full purchase journey; skip link on first Tab; focus returns from every dialog; 200 % zoom without horizontal scroll.
 
 **Performance:** Lighthouse CI on home, category and PDP meets §9; bundle budgets enforced per route.
@@ -371,9 +415,11 @@ Home with merchandising blocks, category, collection, PDP, search, filters, URL-
 Content pages sit here rather than in a phase of their own because they are what the sitemap and the footer navigation need in order to be complete, and both ship in this phase. They depend on public API Phase 4.
 
 ### Phase 3 — Cart
-Cart page, mini-cart, add-to-cart with quantity rules and tiers, promotion codes, price-change disclosure, merge summary.
+Cart page, mini-cart, add-to-cart with quantity rules and tiers, promotion codes, price-change disclosure, merge summary, **and the assisted-selling tray and panel (§5.8, §5.9) with their polling transport**.
 
-**Gate:** cart Playwright suite passes including merge and tier boundaries.
+The tray sits here rather than in a phase of its own because it is an acceptance surface over the merge and price-change disclosure this phase already builds — `mergeSummary` and `priceChanges` are rendered by the same code whether they arrive from a guest→customer merge or from accepting a proposal. Real-time transport and presence arrive later, with [assisted selling](./2026-09-22-assisted-selling.md) Phase 5; until then the panel polls, which is the fallback path it must retain regardless.
+
+**Gate:** cart Playwright suite passes including merge and tier boundaries; per-line proposal acceptance works end to end; no transport starts for a session without a thread; catalogue bundle budgets still pass with the surfaces present.
 
 ### Phase 4 — Checkout
 Stepper, addresses, delivery selection, payment, review, submit with all three typed error flows, confirmation, B2B approval and on-account.
@@ -475,16 +521,61 @@ Added 2026-09-16 to support the `om-mockup-prototype` click-through. Derived fro
   - AC: an **unrecognized** `format` renders the page title and a neutral fallback and reports through the error boundary; it never renders `value` as markup (§5.7, R9).
   - AC: body headings are offset so the page's own `<h1>` stays unique (§8).
 
+### Epic F — Assisted selling
+
+*Added 2026-09-22. Behaviour is specified by [Assisted Selling](./2026-09-22-assisted-selling.md) and [Cart Module](./2026-08-14-cart-module.md) §7a; these stories cover only what this application renders.*
+
+- **US-F1** — As a visitor, I want suggestions from the shop to arrive somewhere I can consider them, so that nothing is added to my basket without me agreeing to it.
+  - AC: a proposal renders in the tray (§5.8), never inside the basket — a suggestion I have not accepted is not in my basket, and showing it there would say it is.
+  - AC: the tray states who suggested it — a named person for a rep, an unambiguous agent label for AI. An unattributed suggestion is indistinguishable from the shop's own merchandising.
+  - AC: a session with no conversation sees no tray and no panel, and nothing polls on its behalf (§3.3).
+
+- **US-F2** — As a visitor, I want to take two of five suggested items and leave the rest, so that a helpful suggestion is not an all-or-nothing decision.
+  - AC: each line carries its own control, accepted by default; a whole-proposal accept and reject are also available.
+  - AC: the lines I did not take are reported back as declined — not silently dropped and not quietly added (cart §7.2).
+  - AC: my basket totals update after acceptance and the change is announced through the same `aria-live="polite"` region cart updates use (§5.2).
+
+- **US-F3** — As a visitor, I want to see what a suggestion will actually cost me before I accept it, so that the price I agree to is the price I pay.
+  - AC: confirming is preceded by a preview showing the proposed price, the price now and the difference per line — including when nothing has changed, so the step is predictable rather than an alarm (§5.8).
+  - AC: if the suggestion changes while I have it open, I am shown the new difference in place and asked again; it reads as a change, not as an error.
+  - AC: a line that became unavailable is shown as such and is not merged.
+
+- **US-F4** — As a visitor, I want to know when a person from the shop is in my conversation, so that I am never observed without being told.
+  - AC: the disclosure is persistent while that person is present and is not dismissible; collapsing the conversation panel does not remove it (R10).
+  - AC: no store configuration suppresses it — the setting does not exist.
+
+- **US-F5** — As a visitor whose connection or network blocks the live channel, I want the conversation to keep working, so that a suggestion does not silently never arrive.
+  - AC: the client falls back to polling on connection failure or heartbeat timeout and recovers to streaming later (§5.9) — the browser having `EventSource` is not evidence the stream reaches it.
+  - AC: the transport tells the client only that something changed; the client re-reads state through the API (R4).
+
+- **US-F6** — As a visitor, I want a suggestion that has gone stale to say so, so that I do not act on a price that is no longer offered.
+  - AC: an expired proposal stays in the tray, visibly expired, with its accept controls removed rather than present-and-failing.
+  - AC: expiry follows the server's status, not the browser clock (R12).
+
 ### Cross-cutting rules
 
 - Every route works at 2 columns / sheet filters below `640` and 4 columns / sidebar at `≥1024` (§7); touch targets are at least 44×44.
 - Motion is wrapped in `prefers-reduced-motion: reduce`; there are no full-page transitions, only skeletons (§6).
 - `axe-core` reports zero `serious` or `critical` violations on every route, anonymous and authenticated, at both widths (§8).
-- Server-decided sets — sort options (§5.4a), checkout steps (§5.5) — are always rendered from the response, never from a literal list in the client.
+- Server-decided sets and states — sort options (§5.4a), checkout steps (§5.5), proposal status (§5.8) — are always rendered from the response, never from a literal list or a local computation in the client.
+- Live surfaces render what the server sent and never derive session state from a signal; a transport that carries content instead of a signal is a defect, not an optimization (R4, §5.9).
 
 ---
 
 ## 17) Changelog
+
+### 2026-09-22 (rev 3) — assisted selling surfaces
+
+Adds the storefront half of [Assisted Selling](./2026-09-22-assisted-selling.md) (suite spec 13, [ADR-10](./2026-08-14-ecommerce-suite-roadmap.md#adr-10--a-proposal-is-a-cart-and-acceptance-is-a-merge)). **Surfaces only** — the data model, the proposal lifecycle and the transport contract belong to spec 13 and to cart spec §7a, and restating them here would create a second copy to drift.
+
+- **Added `ProposalTray` (§5.8) and `AssistedSellingPanel` (§5.9).** This spec had no surface at all on which a buyer could receive, weigh or accept a suggestion. That was survivable while nothing could propose one; cart rev 7 §7a makes proposals real, and a proposal with nowhere to render is a contract with no consumer — the same failure mode §5.4a was added to fix for sorting.
+- **Recorded that a suggestion is not rendered inside the basket.** The obvious placement is the cart page, and it is wrong: a line the buyer has not accepted is not in the basket, and putting it there asserts the opposite. Stated explicitly because the cheap implementation is the misleading one.
+- **Added the rendering-table row and the lazy-mount rule (§3.3).** Without it the natural implementation imports a live-transport client component into every catalogue route, for a surface almost no session uses, against a 180 kB budget — **R11**.
+- **Stated the transport rule in this document rather than assuming it.** §5.9 requires SSE with a **runtime** fallback to polling. The pattern this repo already has — `useMessages` choosing between an SSE-backed hook and a polling hook once, at module-evaluation time, on `typeof window.EventSource !== 'undefined'` — is a capability check, not a fallback. It is adequate behind an admin shell where an absent `EventSource` is the only realistic failure. It is not adequate here, because a CDN sits in front of this application (§3.3, R1) and a blocked or buffered stream is present in the browser and never delivers. Copying that pattern would have produced a surface that silently never updates for exactly the users whose networks are the problem.
+- **Added R10 — presence is a disclosure obligation, not a banner.** A dismissible or panel-scoped notice means a buyer who collapsed the panel is observed by a named employee with nothing on screen saying so. Rated High and paired with spec 13's decision to give the settings entity no column that could suppress it: the mitigation is that the switch does not exist.
+- **Added R12 — the storefront must not derive proposal state the server owns.** Computing "expired" from the browser clock, or summing a cart-plus-proposal total locally, are both the client deriving state R4 says it must not; the second is also the storefront performing arithmetic that ADR-2 keeps in one place one layer down.
+- **Added the §12 coverage blocks and Epic F (§16).** Including the assertion that a session with no thread starts no transport, and the fallback test that blocks the stream **in transit** rather than removing the API — the failure a capability check cannot see.
+- **Generalized the cross-cutting rule.** It previously covered server-decided *sets* (sort options, checkout steps); proposal status is a server-decided *state* and the same rule applies, so the bullet now names both.
 
 - **§16 user story map added.** The spec described routes, components and rules but never who wanted what, so a prototype had to infer the flow from a route tree. Six epics derived from §4–§8; no new scope. Checkout and account stories are deliberately left to the specs that own those flows. The changelog moves from §16 to §17.
 
