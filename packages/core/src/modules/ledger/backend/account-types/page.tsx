@@ -229,7 +229,7 @@ export default function LedgerAccountTypesPage() {
           }}
           actions={
             <Button asChild>
-              <Link href="/backend/ledger/account-types/create">
+              <Link href="/backend/account-types/create">
                 <Plus className="mr-2 h-4 w-4" />
                 {t('ledger.account_types.list.actions.create', 'New account type')}
               </Link>
@@ -238,7 +238,7 @@ export default function LedgerAccountTypesPage() {
           rowActions={(row) => (
             <RowActions
               items={[
-                { id: 'edit', label: t('common.edit'), href: `/backend/ledger/account-types/${row.id}` },
+                { id: 'edit', label: t('common.edit'), href: `/backend/account-types/${row.id}` },
                 { id: 'delete', label: t('common.delete'), destructive: true, onSelect: () => handleDelete(row) },
               ]}
             />
@@ -246,7 +246,7 @@ export default function LedgerAccountTypesPage() {
           emptyState={(
             <ListEmptyState
               entityName={t('ledger.account_types.list.title', 'Account Types')}
-              createHref="/backend/ledger/account-types/create"
+              createHref="/backend/account-types/create"
               createLabel={t('ledger.account_types.list.actions.create', 'New account type')}
             />
           )}

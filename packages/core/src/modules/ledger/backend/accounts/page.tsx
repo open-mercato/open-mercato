@@ -196,7 +196,7 @@ export default function LedgerAccountsPage() {
           searchPlaceholder={t('ledger.accounts.list.searchPlaceholder', 'Search accounts…')}
           actions={
             <Button asChild>
-              <Link href="/backend/ledger/accounts/create">
+              <Link href="/backend/accounts/create">
                 <Plus className="mr-2 h-4 w-4" />
                 {t('ledger.accounts.list.actions.create', 'New account')}
               </Link>
@@ -205,7 +205,7 @@ export default function LedgerAccountsPage() {
           rowActions={(row) => (
             <RowActions
               items={[
-                { id: 'edit', label: t('common.edit'), href: `/backend/ledger/accounts/${row.id}` },
+                { id: 'edit', label: t('common.edit'), href: `/backend/accounts/${row.id}` },
                 { id: 'delete', label: t('common.delete'), destructive: true, onSelect: () => handleDelete(row) },
               ]}
             />
@@ -213,7 +213,7 @@ export default function LedgerAccountsPage() {
           emptyState={(
             <ListEmptyState
               entityName={t('ledger.accounts.list.title', 'Chart of Accounts')}
-              createHref="/backend/ledger/accounts/create"
+              createHref="/backend/accounts/create"
               createLabel={t('ledger.accounts.list.actions.create', 'New account')}
             />
           )}

@@ -137,7 +137,7 @@ export default function EditLedgerAccountTypePage({ params }: { params?: { id?: 
         <PageBody>
           <RecordNotFoundState
             label={t('ledger.account_types.form.errors.notFound', 'Account type not found.')}
-            backHref="/backend/ledger/account-types"
+            backHref="/backend/account-types"
             backLabel={t('ledger.account_types.form.actions.backToList', 'Back to account types')}
           />
         </PageBody>
@@ -161,7 +161,7 @@ export default function EditLedgerAccountTypePage({ params }: { params?: { id?: 
         <CrudForm
           title={t('ledger.account_types.edit.title', 'Edit Account Type')}
           titleHeadingLevel={1}
-          backHref="/backend/ledger/account-types"
+          backHref="/backend/account-types"
           fields={[]}
           groups={groups}
           optimisticLockUpdatedAt={accountType.updatedAt}
@@ -173,7 +173,7 @@ export default function EditLedgerAccountTypePage({ params }: { params?: { id?: 
             accountGroupId: accountType.accountGroupId ?? '',
           }}
           submitLabel={t('ledger.account_types.form.action.save', 'Save changes')}
-          cancelHref="/backend/ledger/account-types"
+          cancelHref="/backend/account-types"
           onSubmit={async (values) => {
             const payload = {
               id: accountType.id,
@@ -187,7 +187,7 @@ export default function EditLedgerAccountTypePage({ params }: { params?: { id?: 
             await updateCrud('ledger/account-types', payload)
 
             flash(t('ledger.account_types.flash.updated', 'Account type updated'), 'success')
-            router.push('/backend/ledger/account-types')
+            router.push('/backend/account-types')
           }}
         />
       </PageBody>

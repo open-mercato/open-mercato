@@ -121,7 +121,7 @@ export default function EditLedgerAccountPage({ params }: { params?: { id?: stri
         <PageBody>
           <RecordNotFoundState
             label={t('ledger.accounts.form.errors.notFound', 'Account not found.')}
-            backHref="/backend/ledger/accounts"
+            backHref="/backend/accounts"
             backLabel={t('ledger.accounts.form.actions.backToList', 'Back to accounts')}
           />
         </PageBody>
@@ -145,7 +145,7 @@ export default function EditLedgerAccountPage({ params }: { params?: { id?: stri
         <CrudForm
           title={t('ledger.accounts.edit.title', 'Edit Account')}
           titleHeadingLevel={1}
-          backHref="/backend/ledger/accounts"
+          backHref="/backend/accounts"
           fields={[]}
           groups={groups}
           optimisticLockUpdatedAt={account.updatedAt}
@@ -156,7 +156,7 @@ export default function EditLedgerAccountPage({ params }: { params?: { id?: stri
             description: account.description ?? '',
           }}
           submitLabel={t('ledger.accounts.form.action.save', 'Save changes')}
-          cancelHref="/backend/ledger/accounts"
+          cancelHref="/backend/accounts"
           onSubmit={async (values) => {
             const payload = {
               id: account.id,
@@ -169,7 +169,7 @@ export default function EditLedgerAccountPage({ params }: { params?: { id?: stri
             await updateCrud('ledger/accounts', payload)
 
             flash(t('ledger.accounts.flash.updated', 'Account updated'), 'success')
-            router.push('/backend/ledger/accounts')
+            router.push('/backend/accounts')
           }}
         />
       </PageBody>

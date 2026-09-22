@@ -73,11 +73,11 @@ export default function CreateLedgerAccountPage() {
         <CrudForm
           title={t('ledger.accounts.create.title', 'Create Account')}
           titleHeadingLevel={1}
-          backHref="/backend/ledger/accounts"
+          backHref="/backend/accounts"
           fields={[]}
           groups={groups}
           submitLabel={t('ledger.accounts.form.action.create', 'Create')}
-          cancelHref="/backend/ledger/accounts"
+          cancelHref="/backend/accounts"
           onSubmit={async (values) => {
             const payload = {
               organizationId,
@@ -91,7 +91,7 @@ export default function CreateLedgerAccountPage() {
             await createCrud('ledger/accounts', payload)
 
             flash(t('ledger.accounts.flash.created', 'Account created'), 'success')
-            router.push('/backend/ledger/accounts')
+            router.push('/backend/accounts')
           }}
         />
       </PageBody>

@@ -229,7 +229,7 @@ export default function FiscalPeriodsPage() {
           }}
           actions={
             <Button asChild>
-              <Link href="/backend/ledger/fiscal-periods/create">
+              <Link href="/backend/fiscal-periods/create">
                 <Plus className="mr-2 h-4 w-4" />
                 {t('ledger.fiscal_periods.list.actions.create', 'New fiscal period')}
               </Link>
@@ -255,7 +255,7 @@ export default function FiscalPeriodsPage() {
           emptyState={(
             <ListEmptyState
               entityName={t('ledger.fiscal_periods.list.title', 'Fiscal Periods')}
-              createHref="/backend/ledger/fiscal-periods/create"
+              createHref="/backend/fiscal-periods/create"
               createLabel={t('ledger.fiscal_periods.list.actions.create', 'New fiscal period')}
             />
           )}
