@@ -94,6 +94,7 @@ function candidateFilters(scope: PolicyResolutionScope): Array<Record<string, un
   filters.push({ productId: scope.productId, variantId: null, storeId })
   filters.push({ productId: scope.productId, variantId: null, storeId: null })
   filters.push({ productId: null, variantId: null, storeId })
+  if (storeId) filters.push({ productId: null, variantId: null, storeId: null })
   return filters
 }
 
@@ -111,6 +112,11 @@ function matchChainRows(scope: PolicyResolutionScope, pool: AvailabilityPolicy[]
   rows.push(findMatch((r) => r.productId === scope.productId && !r.variantId && (r.storeId ?? null) === storeId))
   rows.push(findMatch((r) => r.productId === scope.productId && !r.variantId && (r.storeId ?? null) === null))
   rows.push(findMatch((r) => !r.productId && !r.variantId && (r.storeId ?? null) === storeId))
+  // The store-default level cascades store-specific → all-stores, same as
+  // the variant/product levels above it ("store_id null = applies to all
+  // stores in the organization", §5.1) — otherwise an org-wide default row
+  // is invisible to any query that names a concrete store.
+  if (storeId) rows.push(findMatch((r) => !r.productId && !r.variantId && (r.storeId ?? null) === null))
   return rows
 }
 

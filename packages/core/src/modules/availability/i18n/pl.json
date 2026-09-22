@@ -15,6 +15,7 @@
   "availability.check.result.policySourceId": "Zadecydowano przez",
   "availability.check.title": "Sprawdzenie dostępności",
   "availability.errors.invalidCheckRequest": "Nieprawidłowe żądanie",
+  "availability.errors.invalidPreviewRequest": "Nieprawidłowe żądanie",
   "availability.errors.productNotFound": "Nie znaleziono produktu",
   "availability.errors.unauthorized": "Brak autoryzacji",
   "availability.errors.variantNotFound": "Nie znaleziono wariantu",

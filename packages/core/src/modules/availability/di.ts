@@ -22,25 +22,32 @@ export function register(container: AppContainer) {
     const service = createPolicyResolutionService(container)
     const overrides: Record<string, CatalogOnlyPolicyOverride | null> = {}
 
-    for (const item of query.items) {
-      const resolved = await service.resolve(em, {
+    // Batched (R4): one resolveMany() call for the whole item set, not one
+    // resolve() per item — the same discipline wms's provider follows.
+    const resolved = await service.resolveMany(
+      em,
+      query.items.map((item) => ({
         tenantId: query.tenantId,
         organizationId: query.organizationId,
         storeId: query.storeId ?? null,
         productId: item.catalogProductId,
         variantId: item.catalogVariantId ?? null,
-      })
+      })),
+    )
+
+    query.items.forEach((item, index) => {
+      const policy = resolved[index]
       overrides[availabilityItemKey(item)] = {
-        isStockManaged: resolved.isStockManaged.value,
-        isActive: resolved.isActive.value,
-        preorderReleaseAt: resolved.preorderReleaseAt.value ? resolved.preorderReleaseAt.value.toISOString() : null,
+        isStockManaged: policy.isStockManaged.value,
+        isActive: policy.isActive.value,
+        preorderReleaseAt: policy.preorderReleaseAt.value ? policy.preorderReleaseAt.value.toISOString() : null,
         policySourceId:
-          resolved.preorderReleaseAt.policySourceId
-          ?? resolved.isActive.policySourceId
-          ?? resolved.isStockManaged.policySourceId
+          policy.preorderReleaseAt.policySourceId
+          ?? policy.isActive.policySourceId
+          ?? policy.isStockManaged.policySourceId
           ?? null,
       }
-    }
+    })
 
     return overrides
   })

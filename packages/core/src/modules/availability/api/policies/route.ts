@@ -5,6 +5,7 @@ import { AvailabilityPolicy } from '../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveActiveOrganizationId, organizationScopeRequiredResponse } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { availabilityPolicyCreateSchema, availabilityPolicyUpdateSchema } from '../../data/validators'
 import {
@@ -122,9 +123,16 @@ const toRow = (policy: AvailabilityPolicy): AvailabilityPolicyRow => ({
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) {
+  if (!auth || !auth.tenantId) {
     return NextResponse.json({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 }, { status: 401 })
   }
+  const organizationId = resolveActiveOrganizationId(auth)
+  // A superadmin with no organization selected legitimately sees every
+  // organization in the tenant (om_selected_org=__all__); anyone else with
+  // an unresolved scope gets the standard 400, never a 401 (that reads as an
+  // expired session to the client and redirect-loops through session
+  // refresh — see organizationScope.ts).
+  if (!organizationId && !auth.isSuperAdmin) return organizationScopeRequiredResponse()
 
   const url = new URL(req.url)
   const parsed = listQuerySchema.safeParse({
@@ -150,7 +158,7 @@ export async function GET(req: Request) {
     tenantId: auth.tenantId,
     deletedAt: null,
   }
-  if (auth.orgId) filter.organizationId = auth.orgId
+  if (organizationId) filter.organizationId = organizationId
   if (id) filter.id = id
   if (storeId) filter.storeId = storeId
   if (productId) filter.productId = productId

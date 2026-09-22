@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveActiveOrganizationId, organizationScopeRequiredResponse } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createPolicyResolutionService } from '../../../lib/policyResolution'
 
 /**
@@ -30,9 +31,10 @@ const querySchema = z.object({
 })
 
 export async function GET(req: Request) {
+  const { translate } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ error: translate('availability.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   }
   const organizationId = resolveActiveOrganizationId(auth)
   if (!organizationId) return organizationScopeRequiredResponse()
@@ -44,7 +46,10 @@ export async function GET(req: Request) {
     storeId: url.searchParams.get('storeId') ?? undefined,
   })
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
+    return NextResponse.json(
+      { error: translate('availability.errors.invalidPreviewRequest', 'Invalid request') },
+      { status: 400 },
+    )
   }
 
   const container = await createRequestContainer()

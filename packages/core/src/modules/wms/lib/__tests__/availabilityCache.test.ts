@@ -70,6 +70,22 @@ describe('computeAvailabilityCached', () => {
     expect(cache.get).toHaveBeenCalled()
   })
 
+  it('does not serve a cached result computed for a different requested quantity', async () => {
+    const em = makeEm()
+    const cache = makeCache()
+    const container = makeContainer(cache)
+    await computeAvailabilityCached(em, container, makeQuery({ items: [{ catalogProductId: 'p1', catalogVariantId: 'v1', quantity: 1 }] }))
+    expect(cache.set).toHaveBeenCalledTimes(1)
+
+    const second = await computeAvailabilityCached(
+      em,
+      container,
+      makeQuery({ items: [{ catalogProductId: 'p1', catalogVariantId: 'v1', quantity: 100 }] }),
+    )
+    expect(second.byItem['p1:v1'].isAuthoritative).toBe(true)
+    expect(cache.set).toHaveBeenCalledTimes(2)
+  })
+
   it('always computes live when bypassCache is set, never reading or writing the cache', async () => {
     const em = makeEm()
     const cache = makeCache()

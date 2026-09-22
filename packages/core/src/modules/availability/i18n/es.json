@@ -15,6 +15,7 @@
   "availability.check.result.policySourceId": "Decided by",
   "availability.check.title": "Availability Check",
   "availability.errors.invalidCheckRequest": "Invalid request",
+  "availability.errors.invalidPreviewRequest": "Invalid request",
   "availability.errors.productNotFound": "No such product",
   "availability.errors.unauthorized": "Unauthorized",
   "availability.errors.variantNotFound": "No such variant",

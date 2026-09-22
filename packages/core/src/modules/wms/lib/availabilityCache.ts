@@ -57,6 +57,7 @@ function cacheKeyForItem(query: AvailabilityQuery, item: AvailabilityQuery['item
     query.storeId ?? '',
     item.catalogProductId,
     item.catalogVariantId ?? '',
+    item.quantity,
   ].join(':')
 }
 

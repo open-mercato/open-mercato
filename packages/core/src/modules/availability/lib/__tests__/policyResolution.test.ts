@@ -103,6 +103,26 @@ describe('policy resolution chain', () => {
     expect(result.minOrderQuantity).toEqual({ value: 2, policySourceId: 'store-default' })
   })
 
+  it('falls back to the org-wide default row (store_id null) when the query names a store but no store-specific default exists', async () => {
+    const { em } = makeEm([row({ id: 'org-default', productId: null, variantId: null, storeId: null, minOrderQuantity: 4 })])
+    const service = createPolicyResolutionService(makeContainer(false))
+    const result = await service.resolve(em, scope)
+    // scope.storeId = STORE, but the only row is the org-wide default (store_id null,
+    // which §5.1 defines as "applies to all stores") — it must still decide, not the
+    // hardcoded module default.
+    expect(result.minOrderQuantity).toEqual({ value: 4, policySourceId: 'org-default' })
+  })
+
+  it('prefers a store-specific default row over the org-wide default row', async () => {
+    const { em } = makeEm([
+      row({ id: 'store-default', productId: null, variantId: null, storeId: STORE, minOrderQuantity: 2 }),
+      row({ id: 'org-default', productId: null, variantId: null, storeId: null, minOrderQuantity: 4 }),
+    ])
+    const service = createPolicyResolutionService(makeContainer(false))
+    const result = await service.resolve(em, scope)
+    expect(result.minOrderQuantity).toEqual({ value: 2, policySourceId: 'store-default' })
+  })
+
   it('falls back to the module default when no row matches at all (level 6)', async () => {
     const { em } = makeEm([])
     const service = createPolicyResolutionService(makeContainer(false))
