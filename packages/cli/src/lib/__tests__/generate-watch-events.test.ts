@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   createGenerateWatchChangeSignal,
+  resolveGenerateWatchTargets,
   type GenerateWatchTarget,
 } from '../generate-watch-events'
 
@@ -40,6 +41,100 @@ function createWatchHarness(initialTargets: GenerateWatchTarget[]) {
 }
 
 describe('createGenerateWatchChangeSignal', () => {
+  it('keeps app-module watches idle without inventing a node_modules/@app target', async () => {
+    const projectRoot = path.resolve('/virtual/standalone-app')
+    const modulesFile = path.join(projectRoot, 'src', 'modules.ts')
+    const appBase = path.join(projectRoot, 'src', 'modules', 'custom_module')
+    const impossiblePackageBase = path.join(
+      projectRoot,
+      'node_modules',
+      '@app',
+      'src',
+      'modules',
+      'custom_module',
+    )
+    const resolveSourceMirrorBase = jest.fn(() => null)
+    const targets = resolveGenerateWatchTargets({
+      modulesFile,
+      moduleRoots: [{
+        appBase,
+        pkgBase: impossiblePackageBase,
+        from: '@app',
+      }],
+      resolveSourceMirrorBase,
+    })
+
+    expect(targets).toEqual([
+      {
+        directory: path.dirname(modulesFile),
+        recursive: false,
+        fileName: path.basename(modulesFile),
+      },
+      {
+        directory: path.dirname(appBase),
+        recursive: true,
+      },
+    ])
+    expect(resolveSourceMirrorBase).not.toHaveBeenCalled()
+
+    const signal = createGenerateWatchChangeSignal({
+      getWatchTargets: () => targets,
+      directoryExists: () => true,
+      watchDirectory: () => ({ close: jest.fn() }),
+    })
+    await signal.refresh()
+    expect(signal.hasSkippedTargets?.()).toBe(false)
+    await signal.close()
+  })
+
+  it('retains missing package-module targets so idle refresh discovers them later', async () => {
+    const projectRoot = path.resolve('/virtual/standalone-app')
+    const modulesFile = path.join(projectRoot, 'src', 'modules.ts')
+    const appBase = path.join(projectRoot, 'src', 'modules', 'official_module')
+    const packageBase = path.join(
+      projectRoot,
+      'node_modules',
+      '@open-mercato',
+      'official-package',
+      'dist',
+      'modules',
+      'official_module',
+    )
+    const packageModulesDir = path.dirname(packageBase)
+    const targets = resolveGenerateWatchTargets({
+      modulesFile,
+      moduleRoots: [{
+        appBase,
+        pkgBase: packageBase,
+        from: '@open-mercato/official-package',
+      }],
+      resolveSourceMirrorBase: () => null,
+    })
+    const existing = new Set([
+      path.dirname(modulesFile),
+      path.dirname(appBase),
+    ])
+    const registered: string[] = []
+    const signal = createGenerateWatchChangeSignal({
+      getWatchTargets: () => targets,
+      directoryExists: (directory) => existing.has(directory),
+      watchDirectory: (target) => {
+        registered.push(target.directory)
+        return { close: jest.fn() }
+      },
+    })
+
+    await signal.refresh()
+    expect(signal.hasSkippedTargets?.()).toBe(true)
+    expect(registered).not.toContain(packageModulesDir)
+
+    existing.add(packageModulesDir)
+    await signal.refresh()
+    expect(signal.hasSkippedTargets?.()).toBe(false)
+    expect(registered).toContain(packageModulesDir)
+    await signal.close()
+  })
+
   it('skips missing directories without falling back and retries them on refresh', async () => {
     const present = path.resolve('./modules-present')
     const delayed = path.resolve('./modules-delayed')
