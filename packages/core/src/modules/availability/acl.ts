@@ -8,3 +8,5 @@ export const features = [
   },
   { id: 'availability.check', title: 'Run availability checks', module: 'availability' },
 ]
+
+export default features

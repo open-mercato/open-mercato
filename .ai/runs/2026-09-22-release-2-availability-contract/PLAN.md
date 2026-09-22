@@ -24,6 +24,7 @@ Source spec: `.ai/specs/2026-08-14-availability-contract.md` §13 Phases 1 and 2
 | 2 | 3.3 | wms AvailabilityProvider + registration + integration tests | inline | done | 8610d9ec4 |
 | — | 4.1 | Playwright UI integration tests | inline | done | 14aef0b2b |
 | — | 4.2 | Module registration + generate + docs wrap-up | inline | done | 7499acb38 |
+| — | 4.3-final-gate-fix | Final gate fix: acl.ts missing `export default features` (app-level typecheck only) | inline | done | 042a3c2b4 |
 
 ## Goal
 
