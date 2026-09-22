@@ -1,6 +1,10 @@
 {
+  "customer_groups.errors.group_not_found": "Nie znaleziono grupy klientów",
+  "customer_groups.errors.invalid_input": "Nieprawidłowe dane wejściowe",
+  "customer_groups.errors.load_failed": "Nie udało się wczytać warunków handlowych",
   "customer_groups.errors.membershipDuplicate": "Ten klient jest już członkiem tej grupy.",
   "customer_groups.errors.reorderConflict": "Inna zmiana wpłynęła na priorytety grup. Odśwież i spróbuj ponownie.",
+  "customer_groups.errors.save_failed": "Nie udało się zapisać warunków handlowych",
   "customer_groups.errors.tenant_required": "Wymagany jest kontekst dzierżawcy",
   "customer_groups.errors.unauthorized": "Brak autoryzacji",
   "customer_groups.groups.flash.created": "Utworzono grupę klientów",

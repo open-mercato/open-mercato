@@ -1,6 +1,10 @@
 {
+  "customer_groups.errors.group_not_found": "Grupo de clientes no encontrado",
+  "customer_groups.errors.invalid_input": "Entrada no válida",
+  "customer_groups.errors.load_failed": "No se pudieron cargar las condiciones comerciales",
   "customer_groups.errors.membershipDuplicate": "Este cliente ya es miembro de este grupo.",
   "customer_groups.errors.reorderConflict": "Otro cambio afectó las prioridades de los grupos. Vuelva a cargar e inténtelo de nuevo.",
+  "customer_groups.errors.save_failed": "No se pudieron guardar las condiciones comerciales",
   "customer_groups.errors.tenant_required": "Se requiere el contexto del inquilino",
   "customer_groups.errors.unauthorized": "No autorizado",
   "customer_groups.groups.flash.created": "Grupo de clientes creado",

@@ -1,6 +1,10 @@
 {
+  "customer_groups.errors.group_not_found": "Kundengruppe nicht gefunden",
+  "customer_groups.errors.invalid_input": "Ungültige Eingabe",
+  "customer_groups.errors.load_failed": "Konditionen konnten nicht geladen werden",
   "customer_groups.errors.membershipDuplicate": "Dieser Kunde ist bereits Mitglied dieser Gruppe.",
   "customer_groups.errors.reorderConflict": "Eine andere Änderung hat die Gruppenprioritäten beeinflusst. Laden Sie die Seite neu und versuchen Sie es erneut.",
+  "customer_groups.errors.save_failed": "Konditionen konnten nicht gespeichert werden",
   "customer_groups.errors.tenant_required": "Mandantenkontext ist erforderlich",
   "customer_groups.errors.unauthorized": "Nicht autorisiert",
   "customer_groups.groups.flash.created": "Kundengruppe erstellt",

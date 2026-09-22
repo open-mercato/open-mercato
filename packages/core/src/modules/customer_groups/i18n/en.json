@@ -1,6 +1,10 @@
 {
+  "customer_groups.errors.group_not_found": "Customer group not found",
+  "customer_groups.errors.invalid_input": "Invalid input",
+  "customer_groups.errors.load_failed": "Failed to load commercial terms",
   "customer_groups.errors.membershipDuplicate": "This customer is already a member of this group.",
   "customer_groups.errors.reorderConflict": "Another change affected group priorities. Reload and try again.",
+  "customer_groups.errors.save_failed": "Failed to save commercial terms",
   "customer_groups.errors.tenant_required": "Tenant context is required",
   "customer_groups.errors.unauthorized": "Unauthorized",
   "customer_groups.groups.flash.created": "Customer group created",

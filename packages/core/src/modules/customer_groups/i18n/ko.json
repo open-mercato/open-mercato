@@ -1,6 +1,10 @@
 {
+  "customer_groups.errors.group_not_found": "고객 그룹을 찾을 수 없습니다",
+  "customer_groups.errors.invalid_input": "잘못된 입력입니다",
+  "customer_groups.errors.load_failed": "거래 조건을 불러오지 못했습니다",
   "customer_groups.errors.membershipDuplicate": "이 고객은 이미 이 그룹의 구성원입니다.",
   "customer_groups.errors.reorderConflict": "다른 변경으로 인해 그룹 우선순위가 영향을 받았습니다. 새로고침 후 다시 시도하세요.",
+  "customer_groups.errors.save_failed": "거래 조건을 저장하지 못했습니다",
   "customer_groups.errors.tenant_required": "테넌트 컨텍스트가 필요합니다",
   "customer_groups.errors.unauthorized": "권한 없음",
   "customer_groups.groups.flash.created": "고객 그룹이 생성되었습니다",
