@@ -1489,7 +1489,7 @@ export async function run(argv = process.argv) {
       const resolver = createResolver()
       const data = await bootstrapFromAppRoot(resolver.getAppDir())
       registerCliModules(data.modules)
-      const allModules = data.modules
+      const allModules = getCliModules()
 
       const modulesToSeed = moduleFilter
         ? allModules.filter((mod) => mod.id === moduleFilter)
