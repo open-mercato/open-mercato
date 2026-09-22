@@ -105,6 +105,8 @@
   "communication_channels.profile.flash.connectedWithProvider": "Kanał połączony ({provider}).",
   "communication_channels.profile.flash.error": "Nie udało się połączyć kanału.",
   "communication_channels.profile.flash.errorWithCode": "Nie udało się połączyć kanału — {code}.",
+  "communication_channels.profile.flash.replayedState": "Ten link połączenia został już użyty — rozpocznij połączenie ponownie.",
+  "communication_channels.profile.flash.stateStoreUnavailable": "Błąd serwera uniemożliwił dokończenie połączenia. Spróbuj ponownie za chwilę.",
   "communication_channels.profile.group": "Profil",
   "communication_channels.profile.importHistory.cancel": "Anuluj",
   "communication_channels.profile.importHistory.description": "Pobierz starsze wiadomości, których kanał nie widział w momencie połączenia. Filtry zawężają wyszukiwanie po stronie serwera.",

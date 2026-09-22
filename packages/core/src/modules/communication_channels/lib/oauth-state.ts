@@ -1,4 +1,7 @@
 import crypto from 'node:crypto'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const oauthStateLogger = createLogger('communication_channels').child({ component: 'oauth-state' })
 
 /**
  * OAuth state-cookie helper for the communication_channels hub.
@@ -147,14 +150,6 @@ function getSecret(): string {
   return fallback
 }
 
-function timingSafeStringEqual(a: string, b: string): boolean {
-  if (typeof a !== 'string' || typeof b !== 'string') return false
-  const left = Buffer.from(a)
-  const right = Buffer.from(b)
-  if (left.length !== right.length) return false
-  return crypto.timingSafeEqual(left, right)
-}
-
 /** Cache key for a consumed OAuth `state` nonce. Exported for tests. */
 export function oauthStateConsumedCacheKey(tenantId: string, state: string): string {
   return `communication_channels:oauth-state:used:${tenantId}:${state}`
@@ -227,16 +222,13 @@ export function verifyOAuthState(input: {
   if (payload.expiresAt < now) {
     throw new OAuthStateError('State cookie expired', 'expired')
   }
-  if (!timingSafeStringEqual(payload.userId, input.expectedUserId)) {
+  if (payload.userId !== input.expectedUserId) {
     throw new OAuthStateError('State cookie userId mismatch', 'user_mismatch')
   }
-  if (
-    input.expectedProviderKey
-    && !timingSafeStringEqual(payload.providerKey, input.expectedProviderKey)
-  ) {
+  if (input.expectedProviderKey && payload.providerKey !== input.expectedProviderKey) {
     throw new OAuthStateError('State cookie providerKey mismatch', 'invalid_cookie')
   }
-  if (input.expectedState && !timingSafeStringEqual(payload.state, input.expectedState)) {
+  if (input.expectedState && payload.state !== input.expectedState) {
     throw new OAuthStateError('State cookie state nonce mismatch', 'invalid_cookie')
   }
   return payload
@@ -302,3 +294,29 @@ export function createOAuthState(params: {
   const cookie = encryptOAuthState(payload)
   return { payload, cookie, stateParam: state }
 }
+
+let memoryCacheStartupWarningEmitted = false
+
+/**
+ * Emit a one-time startup warning when the cache strategy is process-local.
+ * OAuth state single-use markers rely on a shared store across replicas.
+ */
+export function emitOAuthStateMemoryCacheStartupWarningIfNeeded(
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  if (memoryCacheStartupWarningEmitted) return
+  const strategy = (env.CACHE_STRATEGY ?? 'memory').trim().toLowerCase()
+  if (strategy !== 'memory') return
+  memoryCacheStartupWarningEmitted = true
+  oauthStateLogger.warn(
+    'OAuth state single-use protection uses process-local cache (CACHE_STRATEGY=memory). Multi-replica deployments MUST set CACHE_STRATEGY=redis so replay markers are shared across replicas.',
+    { context: 'startup', startup: true, cacheStrategy: strategy },
+  )
+}
+
+/** Test helper — reset the one-time startup warning latch. */
+export function resetOAuthStateMemoryCacheStartupWarningForTests(): void {
+  memoryCacheStartupWarningEmitted = false
+}
+
+emitOAuthStateMemoryCacheStartupWarningIfNeeded()

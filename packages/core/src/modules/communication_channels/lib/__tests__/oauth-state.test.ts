@@ -1,8 +1,18 @@
+const mockLoggerWarn = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: () => ({
+    child: () => ({ warn: mockLoggerWarn }),
+  }),
+}))
+
 import {
   COMMUNICATION_CHANNELS_OAUTH_STATE_COOKIE_NAME,
   COMMUNICATION_CHANNELS_OAUTH_STATE_TTL_MS,
   consumeOAuthStateOnce,
   createOAuthState,
+  emitOAuthStateMemoryCacheStartupWarningIfNeeded,
+  resetOAuthStateMemoryCacheStartupWarningForTests,
   decryptOAuthState,
   DEFAULT_OAUTH_RETURN_URL,
   encryptOAuthState,
@@ -335,6 +345,32 @@ describe('JWT_SECRET fallback key separation', () => {
     const { cookie } = createOAuthState({ userId: 'u', tenantId: 't', providerKey: 'gmail' })
     const payload = verifyOAuthState({ cookie, expectedUserId: 'u' })
     expect(payload.userId).toBe('u')
+  })
+})
+
+describe('emitOAuthStateMemoryCacheStartupWarningIfNeeded', () => {
+  beforeEach(() => {
+    resetOAuthStateMemoryCacheStartupWarningForTests()
+    mockLoggerWarn.mockClear()
+  })
+
+  it('warns once when CACHE_STRATEGY is memory (or unset)', () => {
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded({ CACHE_STRATEGY: 'memory' })
+    expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
+    expect(mockLoggerWarn.mock.calls[0][1]).toMatchObject({
+      context: 'startup',
+      startup: true,
+      cacheStrategy: 'memory',
+    })
+
+    mockLoggerWarn.mockClear()
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded({ CACHE_STRATEGY: 'memory' })
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
+  })
+
+  it('is silent when CACHE_STRATEGY is redis', () => {
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded({ CACHE_STRATEGY: 'redis' })
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
 })
 
