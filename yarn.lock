@@ -9721,6 +9721,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/webhooks@workspace:packages/webhooks"
   dependencies:
+    "@open-mercato/cache": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/queue": "workspace:*"
     "@open-mercato/shared": "workspace:*"
