@@ -42,6 +42,15 @@ collides with a module-defined key, your app's value now wins where the module's
 your own locale files for accidental collisions with module dictionaries if you rely on a
 module's translation for a key your app also happens to define.
 
+As part of this change, `apps/mercato/src/i18n/*.json` (and the mirrored `create-app` template)
+had 90 stale, drifted duplicate keys removed — mostly `inbox_ops.*` copies left over from before
+that module owned its own translations, plus a handful of `common.*`/`catalog.*` keys. Those
+duplicates had already diverged from the module's current wording in at least one locale; leaving
+them in place would have flipped several translated strings to outdated text the moment this
+precedence change landed. If you maintain a fork with its own `apps/<host>/src/i18n/*.json`, audit
+it the same way before upgrading: a key that duplicates a module key with a different value now
+silently wins, for better or for worse.
+
 ### `encryptEntityPayload`/`encryptFields` can now throw `TenantDataEncryptionError` (`WRONG_KEY`) instead of silently corrupting data (#5951)
 
 `TenantDataEncryptionService.encryptFields` treated a field as "already encrypted" whenever it
