@@ -16,3 +16,10 @@
 
 ## 2026-09-22T09:52:00Z — PLAN.md drafted
 - 26-Step plan across 3 phases (groups/membership, commercial terms, catalog-visibility) drafted from three research passes (customer_groups spec extraction, catalog-visibility spec extraction, reference-pattern survey). Committing run folder next.
+
+## 2026-09-22T10:35:00Z — checkpoint 1 (Steps 0.1..1.8)
+- Landed: module scaffold, Phase 1 entities + migration, resolveGroups(), full CRUD (groups + memberships), priority reorder, admin list (drag-reorder) + create/edit pages.
+- All checks green: typecheck, unit tests (15), codegen, migration-drift (`no changes`), package build, strict DS lint. Full detail: `checkpoint-1-checks.md`.
+- Two real gaps found and fixed as appended Steps: 1.5-fix (default-group clear-and-set) and 1.3-fix (priority unique index made soft-delete-aware — was a plain constraint, would have permanently reserved a deleted group's priority value).
+- UI/browser verification deliberately skipped this checkpoint: Phase 1's UI surface isn't feature-complete yet (membership assignment, orphan banner, group picker widget, i18n all still todo). Deferred to Step 1.14 / final gate.
+- Subagent delegations this window: entities+validators (1.2), resolveGroups+tests (1.4), CRUD routes (1.5, simplified post-hoc to drop an unneeded [id] route), create/edit page (1.8), membership CRUD+reorder+list UI (1.6+1.7 grouped).
