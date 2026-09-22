@@ -22,13 +22,35 @@
 const path = require('path')
 const Module = require('module')
 
-const ROOT = path.resolve(__dirname, '..', '..')
+const ROOT = path.resolve(__dirname, '..', '..', '..')
 
-// Mirrors jest.config.cjs's moduleNameMapper entries for
-// `^@open-mercato/shared/(.*)$` and `^#generated/(.*)$`.
+// Mirrors jest.config.cjs's moduleNameMapper entries in full (not just
+// the ones the ledger commands import directly): resolveTranslations()'s
+// own import chain (../modules/registry, app-dictionaries,
+// dictionary-cache, etc.) transitively reaches other workspace packages
+// too (confirmed by running this suite for real and hitting
+// `@open-mercato/cache` — see the README's "Verification status", now
+// updated after that run). Copying the whole table, exactly as
+// jest.config.cjs defines it, is safer than guessing which subset a given
+// command's dependency graph happens to need.
 const ALIASES = [
-  { test: /^@open-mercato\/shared\/(.*)$/, to: (m) => path.join(ROOT, 'packages/shared/src', m[1]) },
   { test: /^#generated\/(.*)$/, to: (m) => path.join(ROOT, 'packages/core/generated', m[1]) },
+  { test: /^@open-mercato\/core\/generated\/(.*)$/, to: (m) => path.join(ROOT, 'packages/core/generated', m[1]) },
+  { test: /^@open-mercato\/core\/(.*)$/, to: (m) => path.join(ROOT, 'packages/core/src', m[1]) },
+  { test: /^@open-mercato\/content\/(.*)$/, to: (m) => path.join(ROOT, 'packages/content/src', m[1]) },
+  { test: /^@open-mercato\/cli\/(.*)$/, to: (m) => path.join(ROOT, 'packages/cli/src', m[1]) },
+  { test: /^@open-mercato\/events\/(.*)$/, to: (m) => path.join(ROOT, 'packages/events/src', m[1]) },
+  { test: /^@open-mercato\/cache\/(.*)$/, to: (m) => path.join(ROOT, 'packages/cache/src', m[1]) },
+  { test: /^@open-mercato\/cache$/, to: () => path.join(ROOT, 'packages/cache/src/index.ts') },
+  { test: /^@open-mercato\/queue\/worker$/, to: () => path.join(ROOT, 'packages/queue/src/worker/runner.ts') },
+  { test: /^@open-mercato\/queue\/(.*)$/, to: (m) => path.join(ROOT, 'packages/queue/src', m[1]) },
+  { test: /^@open-mercato\/queue$/, to: () => path.join(ROOT, 'packages/queue/src/index.ts') },
+  { test: /^@open-mercato\/search\/(.*)$/, to: (m) => path.join(ROOT, 'packages/search/src', m[1]) },
+  { test: /^@open-mercato\/search$/, to: () => path.join(ROOT, 'packages/search/src/index.ts') },
+  { test: /^@open-mercato\/ai-assistant\/(.*)$/, to: (m) => path.join(ROOT, 'packages/ai-assistant/src', m[1]) },
+  { test: /^@open-mercato\/ai-assistant$/, to: () => path.join(ROOT, 'packages/ai-assistant/src/index.ts') },
+  { test: /^@open-mercato\/shared\/(.*)$/, to: (m) => path.join(ROOT, 'packages/shared/src', m[1]) },
+  { test: /^@open-mercato\/ui\/(.*)$/, to: (m) => path.join(ROOT, 'packages/ui/src', m[1]) },
 ]
 
 const originalResolveFilename = Module._resolveFilename
