@@ -302,6 +302,8 @@ The hub reads a small set of env vars; sensible defaults exist for all of them.
 | `OM_GMAIL_PUBSUB_AUDIENCE` | (none — required for Gmail push) | Expected `aud` claim in the Pub/Sub-signed JWT. Set this to the webhook URL or a stable identifier configured on the Pub/Sub push subscription. |
 | `OM_GMAIL_PUBSUB_SERVICE_ACCOUNT_EMAIL` | (none — required for Gmail push) | Expected `email` claim in the Pub/Sub JWT. Typically the service account configured on the push subscription (NOT `gmail-api-push@system.gserviceaccount.com` — that's the publisher into the topic). |
 | `OM_PUSH_RENEWAL_GMAIL_LEAD_HOURS` | `24` | Renewal lead time for `gmail.users.watch`. Lower means we renew earlier; higher means we cut closer to the 7-day expiration. |
+| `OM_IMPORT_HISTORY_MAX_SINCE_DAYS` | `3650` (10 years) | Deployment-wide ceiling on the operator-triggered "Import History" `sinceDays` field. Can only raise the ceiling, never below the `30`-day default. Per-provider ceilings (e.g. IMAP's `365`) still apply on top of this. |
+| `OM_IMPORT_HISTORY_MAX_MESSAGES` | `50000` | Deployment-wide ceiling on the operator-triggered "Import History" `maxMessages` field. Can only raise the ceiling, never below the `1000`-message default. Per-provider ceilings (e.g. IMAP's `5000`) still apply on top of this. |
 
 ## Deploy runbook
 
