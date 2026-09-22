@@ -23,7 +23,7 @@ Source spec: `.ai/specs/2026-08-14-availability-contract.md` §13 Phases 1 and 2
 | 2 | 3.2 | wms availability cache + invalidation subscriber | inline | done | 59b94a8e1 |
 | 2 | 3.3 | wms AvailabilityProvider + registration + integration tests | inline | done | 8610d9ec4 |
 | — | 4.1 | Playwright UI integration tests | inline | done | 14aef0b2b |
-| — | 4.2 | Module registration + generate + docs wrap-up | inline | todo | — |
+| — | 4.2 | Module registration + generate + docs wrap-up | inline | done | 7499acb38 |
 
 ## Goal
 
