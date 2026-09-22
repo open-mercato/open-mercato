@@ -156,19 +156,41 @@ describe('calculateGenerateWatchStructureChecksum', () => {
       sourceRoute,
       'export const metadata = { path: "/contacts" }\nexport async function GET() { return null }\n',
     )
-    const afterMetadataChange = checksumModule(
+    const afterSourceMetadata = checksumModule(
       standalone.modulesFile,
       standalone.appModule,
       standalone.distModule,
     )
-    expect(afterMetadataChange).not.toBe(before)
+    expect(afterSourceMetadata).not.toBe(before)
+
+    write(
+      distRoute,
+      'export const metadata = { path: "/contacts" };\nexport async function GET() { return null; }\n',
+    )
+    const afterDistMetadata = checksumModule(
+      standalone.modulesFile,
+      standalone.appModule,
+      standalone.distModule,
+    )
+    expect(afterDistMetadata).not.toBe(afterSourceMetadata)
 
     write(
       sourceRoute,
       'export const metadata = { path: "/contacts" }\nexport async function POST() { return null }\n',
     )
+    const afterSourceMethod = checksumModule(
+      standalone.modulesFile,
+      standalone.appModule,
+      standalone.distModule,
+    )
+    expect(afterSourceMethod).not.toBe(afterDistMetadata)
+
+    write(
+      distRoute,
+      'export const metadata = { path: "/contacts" };\nexport async function POST() { return null; }\n',
+    )
     expect(checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule))
-      .not.toBe(afterMetadataChange)
+      .not.toBe(afterSourceMethod)
   })
 
   it('tracks standalone source-mirror page metadata but ignores ordinary page implementation edits', () => {
@@ -191,7 +213,19 @@ describe('calculateGenerateWatchStructureChecksum', () => {
     expect(checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule)).toBe(before)
 
     write(sourceMeta, 'export const metadata = { nav: { label: "Contacts" } }\n')
-    expect(checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule)).not.toBe(before)
+    const afterSourceMetadata = checksumModule(
+      standalone.modulesFile,
+      standalone.appModule,
+      standalone.distModule,
+    )
+    expect(afterSourceMetadata).not.toBe(before)
+
+    write(
+      path.join(standalone.distModule, 'backend', 'customers', 'people', 'page.meta.js'),
+      'export const metadata = { nav: { label: "Contacts" } };\n',
+    )
+    expect(checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule))
+      .not.toBe(afterSourceMetadata)
   })
 
   it('tracks additions and deletions enumerated from a standalone source mirror', () => {
@@ -208,6 +242,45 @@ describe('calculateGenerateWatchStructureChecksum', () => {
 
     fs.rmSync(sourceWorker)
     expect(checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule)).toBe(before)
+  })
+
+  it('uses source-mirror authority for convention topology while tracking compiled content', () => {
+    const standalone = createStandaloneModule()
+    const sourceAcl = path.join(standalone.sourceModule, 'acl.ts')
+    const distAcl = path.join(standalone.distModule, 'acl.js')
+    const before = checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule)
+
+    write(sourceAcl, 'export const features = [{ id: "customers.view" }]\n')
+    const afterSourceAdd = checksumModule(
+      standalone.modulesFile,
+      standalone.appModule,
+      standalone.distModule,
+    )
+    expect(afterSourceAdd).not.toBe(before)
+
+    write(distAcl, 'export const features = [{ id: "customers.view" }];\n')
+    const afterDistAdd = checksumModule(
+      standalone.modulesFile,
+      standalone.appModule,
+      standalone.distModule,
+    )
+    expect(afterDistAdd).not.toBe(afterSourceAdd)
+
+    write(sourceAcl, 'export const features = [{ id: "customers.manage" }]\n')
+    const afterSourceEdit = checksumModule(
+      standalone.modulesFile,
+      standalone.appModule,
+      standalone.distModule,
+    )
+    expect(afterSourceEdit).not.toBe(afterDistAdd)
+
+    write(distAcl, 'export const features = [{ id: "customers.manage" }];\n')
+    expect(checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule))
+      .not.toBe(afterSourceEdit)
+
+    fs.rmSync(sourceAcl)
+    expect(checksumModule(standalone.modulesFile, standalone.appModule, standalone.distModule))
+      .toBe(before)
   })
 
   it('fingerprints the selected app override instead of the shadowed package route', () => {
