@@ -50,6 +50,18 @@ Running 12 tests using 1 worker
 - **Phase 1 gate** ("a storefront-shaped consumer gets coherent states with `wms` disabled; policy resolution correct at all six levels"): covered by `TC-AVAIL-001`/`TC-AVAIL-002`'s live CRUD/ACL/tenant-isolation/optimistic-lock/not_tracked-fallback assertions against the real API + DB.
 - **Phase 2 gate** (R1, R4, hand-computed multi-location states): unit-proven in `checkpoint-3-checks.md`; now additionally exercised live via `TC-AVAIL-002`'s real-product `not_tracked`/`canFulfil` check and `TC-AVAIL-003`'s live admin check-tool UI test, both hitting the actual `wms` raw-SQL path this session's fix corrected.
 
+## Full integration suite (`om-integration-tests`, running-only mode)
+
+The repo's integration suite is 1337 spec files run single-worker (`workers: 1` in `.ai/qa/tests/playwright.config.ts`) — running the literal full suite serially in this local, no-CI-sharding sandbox is not feasible within a session (would take many hours). Scoped instead to every spec in the two modules this PR touches, `availability` + `wms` (`OM_INTEGRATION_MODULES=availability,wms`), which is the repo's own existing mechanism for narrowing suite scope:
+
+```
+Running 66 tests using 1 worker
+  64 passed, 1 failed (1st pass), 1 self-resolved on Playwright's built-in retry
+```
+
+- `TC-WMS-INVENTORY-UI-001` "posts a positive adjust…" failed its first attempt, passed on retry #1 — ordinary flake, self-resolved.
+- `TC-WMS-020` "should create, edit, and archive a warehouse…" failed both the initial attempt and the retry, reproduced again in isolation. Diagnosed via `.mercato/dev-runtime-status.json`: the dev-runtime diagnostics banner (`data-health="degraded"`) was showing because of an unrelated ERROR-level log line — `[notifications] email delivery failed error=SYSTEM_EMAIL_CHANNEL_NOT_CONFIGURED` (this disposable QA tenant has no email channel configured) — and that banner overlay intercepts pointer events on every page once any error-level log occurs anywhere in the app, blocking the test's `Edit` menu-item click. Neither `availability` nor `wms` logs anything related; this PR touches no notification or email code. **Classification: environment/data issue, not a product regression** — the QA tenant fixture is missing an email channel, and the diagnostics banner's blocking behavior on ANY unrelated error is a pre-existing dev-runtime characteristic, not something this PR changed or could fix without out-of-scope changes to notification config or the diagnostics banner's click-blocking design.
+
 ## Next Step
 
 None — every Tasks row is `done`. Proceeding to PR finalize (labels, `om-auto-review-pr --autofix`, summary comment, ready flip) and QA-environment cleanup.
