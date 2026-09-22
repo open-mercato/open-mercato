@@ -30,3 +30,9 @@
 - Decision: do NOT edit `sales/` to fix this — it's outside the hard catalog/sales off-limits constraint for this PR. Flagged as a follow-up needing an explicit ask; noted in the Step 1.11 commit message and PR body.
 - Also fixed a real bug found during review of the adopt logic: priority assignment floored at 0 per step, which would assign duplicate priorities (crashing the batch) once a tenant's minimum priority was within ~10 of zero. Fixed by allowing negative priorities for these always-inactive placeholder rows; added a regression test.
 - Also reconciled a genuine concurrent-agent file collision on `widgets/injection-table.ts` (Step 1.9's tab mapping and Step 1.11's field-widget mapping both targeted the same new file) — merged manually, verified via `yarn generate` that both widgets register correctly.
+
+## 2026-09-22T13:35:00Z — resumed after provider rate-limit interruption
+- Session hit a rate limit mid-dispatch of Step 2.6; resumed after reset (2:30pm Europe/Warsaw).
+- Recovered Step 1.13's completed work from a "cezar autosave (run finalize)" commit — reviewed for quality (9 Playwright integration tests + fixtures, high quality, real second-tenant fixtures, TC-CGRP-007 correctly implements the literal Phase 1 acceptance gate), amended with a proper message, pushed as 51dff0108.
+- Step 2.6's first dispatch attempt failed instantly on the same rate limit before writing anything — clean re-dispatch, no recovery needed.
+- Integration tests confirmed syntactically valid and discoverable (playwright --list, 9/9 found) but not executed end-to-end this session — no dev server/DB was stood up. Deferred to the final gate.

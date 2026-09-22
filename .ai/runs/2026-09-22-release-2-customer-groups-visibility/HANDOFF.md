@@ -1,30 +1,30 @@
 # Handoff — 2026-09-22-release-2-customer-groups-visibility
 
-**Last updated:** 2026-09-22T10:35:00Z
+**Last updated:** 2026-09-22T13:35:00Z
 **Branch:** feat/release-2-customer-groups-visibility
 **PR:** https://github.com/open-mercato/open-mercato/pull/6338 (draft)
-**Current phase/step:** Phase 1, Step 1.9 (next todo row)
-**Last commit:** c2d483322 — feat(customer_groups): add group list admin page with drag-reorder
+**Current phase/step:** Phase 2, Step 2.6 (next todo row)
+**Last commit:** 51dff0108 — test(customer_groups): add Phase 1 integration test suite (TC-CGRP-001..009)
 
 ## What just happened
-- Checkpoint 1 complete: Steps 0.1 through 1.8 landed and verified (typecheck, unit tests, codegen, migration-drift check, package build, strict DS lint all clean — see `checkpoint-1-checks.md`).
-- customer_groups module scaffolded; `CustomerGroup`/`CustomerGroupMembership` entities + migration; `resolveGroups()` service; full CRUD for groups + memberships; priority reorder command/route; admin list page (drag-reorder) and create/edit pages.
-- Two real gaps found mid-implementation and fixed as appended Steps: default-group clear-and-set semantics (1.5-fix) and a non-partial priority unique index that would have permanently blocked reuse of a deleted group's priority value (1.3-fix).
+- Session was interrupted by a provider rate limit mid-Step 2.6 dispatch; resumed after reset.
+- Recovered a "cezar autosave (run finalize)" commit that had captured Step 1.13's completed work (9 Playwright integration tests + fixtures) — reviewed for quality (high), amended with a proper commit message, filled in the real SHA, pushed.
+- Step 2.6 (explain-terms panel) failed instantly on the rate limit before writing any files — nothing to recover, safe to re-dispatch fresh.
+- All of Phase 1 (1.1–1.14 minus 1.14 itself) and Phase 2 through 2.5 are now committed and pushed. 23 of 26 planned Steps done.
 
 ## Next concrete action
-- Step 1.9: membership assignment UI/section on the customer detail page (in `customers` module's person detail — needs research into the right widget-injection/section host, see `packages/core/AGENTS.md` § Widget Injection).
-- Then Group B (1.10 reconciliation CLI + orphan banner data + 1.11 group-picker widget injected into `catalog`/`sales` CrudForms — hard constraint: never edit `catalog`/`sales` files directly, ship as an injected widget only).
-- Then 1.12 (i18n sweep for every `t('customer_groups...', 'fallback')` call already in the code), 1.13/1.14 (Phase 1 integration tests — API tenant isolation + behavioral cases, then UI paths).
+- Re-dispatch Step 2.6 (explain-terms panel on customer detail page — extends `person-groups-tab.tsx`, needs a new `GET /api/customer-groups/explain-terms?customerId=` route since `resolveTerms()` has no HTTP surface yet).
+- Then 2.7 (i18n for Phase 2 surfaces — 2.5's terms section already added its own keys; 2.6 will need its own too), 2.8/2.9 (Phase 2 integration tests, mirroring 1.13's pattern), then Phase 3 (3.1–3.3, catalog-visibility library — independent of everything else, could be dispatched any time), 1.14 (Phase 1 UI integration tests — still pending, can run any time), then the final gate (step 9 of the skill: full validation.commands + full integration suite + DS pass), label normalization (step 10, MANDATORY `blocked` not `review`), review pass (step 11), summary (step 12), flip to ready (step 13).
 
 ## Blockers / open questions
-- None blocking. Logged (not blocking): the pricing.ts group-priority tie-break is deliberately unimplemented (see PLAN.md Risks); the drag-reorder full-row-lift limitation is an accepted "Ask First" primitive boundary (see checkpoint-1-checks.md).
+- None new. Still logged (not blocking): pricing.ts group-priority tie-break deliberately unimplemented; sales tax-rate group picker ships inert (needs a follow-up `sales/` ask); drag-reorder full-row-lift is an accepted DataTable primitive limitation.
 
 ## Environment caveats
-- Dev runtime runnable: not attempted yet this run (no Docker `app` container; would need a disposable local Postgres per repo memory notes). UI verification deferred to Step 1.14/final gate once the Phase 1 UI surface is feature-complete.
-- Browser / UI checks: skipped this checkpoint, reason recorded in `checkpoint-1-checks.md`.
-- Database/migration state: `customer_groups` migration + snapshot are self-consistent (`yarn db:generate` reports "no changes"). No migrations applied to any real DB.
+- Dev runtime runnable: not attempted this run. Postgres is running locally with several reusable `om_qa_*` databases from prior sessions, but no dev server has been started and no `.env`/QA env has been bootstrapped in this worktree yet.
+- Integration tests (Step 1.13) are written and confirmed syntactically valid/discoverable (`playwright test --list`, 9/9 found) but NOT executed end-to-end — no live dev server + DB was set up for that step. The final gate (step 9) is the designated point for the authoritative full-suite run.
+- Browser/UI checks: not yet attempted for any step.
 
 ## Worktree
 - Path: /Users/bernard/workspace/open-mercato/.ai/cezar/worktrees/18501eb5-8b15-41ac-929d-0633b3aa3903
 - Created this run: no (pre-existing cezar worktree, reused)
-- node_modules: installed this run (`yarn install`); `yarn build:packages` has been run multiple times and is current.
+- node_modules: installed; `yarn build:packages` current as of the last checkpoint.
