@@ -16,7 +16,7 @@ Source spec: `.ai/specs/2026-08-14-availability-contract.md` §13 Phases 1 and 2
 | 1 | 2.4 | policy commands + CRUD API route + tests | inline | done | 6b9e5e926 |
 | 1 | 2.5 | admin check API route + tests | inline | done | 67f5dd809 |
 | 1 | 2.6 | setup.ts + di.ts + i18n | inline | done | b5b5afdb7 |
-| 1 | 2.7 | backend UI — policy list/create/edit | inline | todo | — |
+| 1 | 2.7 | backend UI — policy list/create/edit | inline | done | 860befad1 |
 | 1 | 2.8 | backend UI — admin check tool | inline | todo | — |
 | 2 | 3.1 | wms sellable-quantity calculation + tests (R1, R4) | inline | todo | — |
 | 2 | 3.2 | wms availability cache + invalidation subscriber | inline | todo | — |
