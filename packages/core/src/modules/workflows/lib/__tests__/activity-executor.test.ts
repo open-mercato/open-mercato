@@ -2139,18 +2139,18 @@ describe('Activity Executor (Unit Tests)', () => {
     })
 
     test('should abort SEND_EMAIL when its timeout elapses (#5148)', async () => {
-      let completed = false
+      let cancelled = false
       let capturedSignal: AbortSignal | undefined
       const mockEmailService = {
         send: jest.fn().mockImplementation((opts: { signal?: AbortSignal }) => {
           capturedSignal = opts.signal
           return new Promise((_resolve, reject) => {
             const timerId = setTimeout(() => {
-              completed = true
               _resolve({ messageId: 'late' })
             }, 500)
             opts.signal?.addEventListener('abort', () => {
               clearTimeout(timerId)
+              cancelled = true
               reject(new DOMException('The operation was aborted', 'AbortError'))
             })
           })
@@ -2174,7 +2174,7 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.success).toBe(false)
       expect(result.error).toMatch(/timeout after 20ms|aborted/i)
       expect(capturedSignal?.aborted).toBe(true)
-      expect(completed).toBe(false)
+      expect(cancelled).toBe(true)
     })
 
     test('should time out waiting for EMIT_EVENT when its timeout elapses (#5148)', async () => {
@@ -2261,18 +2261,18 @@ describe('Activity Executor (Unit Tests)', () => {
     })
 
     test('should abort EXECUTE_FUNCTION when its timeout elapses (#5148)', async () => {
-      let completed = false
+      let cancelled = false
       let capturedSignal: AbortSignal | undefined
       const mockFunction = jest.fn().mockImplementation(
         (_args: unknown, _ctx: unknown, signal?: AbortSignal) =>
           new Promise((_resolve, reject) => {
             capturedSignal = signal
             const timerId = setTimeout(() => {
-              completed = true
               _resolve({ ok: true })
             }, 500)
             signal?.addEventListener('abort', () => {
               clearTimeout(timerId)
+              cancelled = true
               reject(new DOMException('The operation was aborted', 'AbortError'))
             })
           })
@@ -2296,7 +2296,7 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.error).toMatch(/timeout after 20ms|aborted/i)
       expect(capturedSignal?.aborted).toBe(true)
       expect(mockFunction).toHaveBeenCalledWith({}, expect.anything(), expect.any(AbortSignal))
-      expect(completed).toBe(false)
+      expect(cancelled).toBe(true)
     })
   })
 
