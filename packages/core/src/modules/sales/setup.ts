@@ -2,10 +2,6 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { SalesSettings, SalesDocumentSequence, SalesTaxRate } from './data/entities'
 import { DEFAULT_ORDER_NUMBER_FORMAT, DEFAULT_QUOTE_NUMBER_FORMAT } from './lib/documentNumberTokens'
-import { seedSalesStatusDictionaries, seedSalesAdjustmentKinds } from './lib/dictionaries'
-import { seedSalesChannelsToggle } from './lib/salesChannelsToggleSeed'
-import { ensureExampleShippingMethods, ensureExamplePaymentMethods } from './seed/examples-data'
-import { seedSalesExamples } from './seed/examples'
 
 type SeedScope = { tenantId: string; organizationId: string }
 
@@ -111,6 +107,11 @@ export const setup: ModuleSetupConfig = {
   },
 
   async seedDefaults({ em, tenantId, organizationId }) {
+    // These implementations are only needed during explicit seeding; static imports
+    // would evaluate their heavy dependency graphs during every module bootstrap.
+    const { seedSalesStatusDictionaries, seedSalesAdjustmentKinds } = await import('./lib/dictionaries')
+    const { ensureExampleShippingMethods, ensureExamplePaymentMethods } = await import('./seed/examples-data')
+    const { seedSalesChannelsToggle } = await import('./lib/salesChannelsToggleSeed')
     const scope = { tenantId, organizationId }
     await seedSalesTaxRates(em, scope)
     await seedSalesStatusDictionaries(em, scope)
@@ -121,6 +122,8 @@ export const setup: ModuleSetupConfig = {
   },
 
   async seedExamples({ em, container, tenantId, organizationId }) {
+    // The demo-data graph is needed only when example seeding is explicitly requested.
+    const { seedSalesExamples } = await import('./seed/examples')
     const scope = { tenantId, organizationId }
     await seedSalesExamples(em, container, scope)
   },
