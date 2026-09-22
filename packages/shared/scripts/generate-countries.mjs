@@ -4,11 +4,18 @@
  * language-subtag-registry into a small TypeScript module so the published
  * package never imports the registry JSON at runtime (Node ESM requires
  * `with { type: 'json' }`, which esbuild strips when bundle:false).
+ *
+ * Usage:
+ *   node packages/shared/scripts/generate-countries.mjs         # write when drifted
+ *   node packages/shared/scripts/generate-countries.mjs --check # exit 1 on drift
  */
 import { createRequire } from 'node:module'
-import { writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import process from 'node:process'
+
+const checkMode = process.argv.includes('--check')
 
 const packageDir = fileURLToPath(new URL('..', import.meta.url))
 const require = createRequire(join(packageDir, 'package.json'))
@@ -47,5 +54,22 @@ const lines = [
 ]
 
 const outPath = join(packageDir, 'src/lib/location/countries.generated.ts')
-writeFileSync(outPath, lines.join('\n'), 'utf8')
-console.log(`[generate-countries] wrote ${countries.length} countries → ${outPath}`)
+const content = lines.join('\n')
+
+if (checkMode) {
+  if (!existsSync(outPath)) {
+    console.error(`[generate-countries] missing ${outPath}`)
+    process.exit(1)
+  }
+  const existing = readFileSync(outPath, 'utf8')
+  if (existing !== content) {
+    console.error(`[generate-countries] drift detected in ${outPath}`)
+    process.exit(1)
+  }
+  console.log(`[generate-countries] check passed (${countries.length} countries)`)
+} else if (existsSync(outPath) && readFileSync(outPath, 'utf8') === content) {
+  console.log(`[generate-countries] up to date (${countries.length} countries)`)
+} else {
+  writeFileSync(outPath, content, 'utf8')
+  console.log(`[generate-countries] wrote ${countries.length} countries → ${outPath}`)
+}

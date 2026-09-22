@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   COUNTRY_PRIORITY,
@@ -8,6 +8,10 @@ import {
   resolveCountryName,
 } from '../countries'
 
+const PACKAGE_ROOT = join(__dirname, '..', '..', '..', '..')
+const DIST_COUNTRIES = join(PACKAGE_ROOT, 'dist/lib/location/countries.js')
+const DIST_GENERATED = join(PACKAGE_ROOT, 'dist/lib/location/countries.generated.js')
+
 describe('ISO_COUNTRIES', () => {
   it('does not import language-subtag-registry at runtime (Node ESM / production)', () => {
     const source = readFileSync(join(__dirname, '../countries.ts'), 'utf8')
@@ -16,6 +20,16 @@ describe('ISO_COUNTRIES', () => {
     expect(generated).toMatch(/AUTO-GENERATED/)
     expect(generated).toMatch(/code: "PL"/)
     expect(generated).toMatch(/code: "DE"/)
+
+    expect(existsSync(DIST_COUNTRIES)).toBe(true)
+    expect(existsSync(DIST_GENERATED)).toBe(true)
+    const distCountries = readFileSync(DIST_COUNTRIES, 'utf8')
+    const distGenerated = readFileSync(DIST_GENERATED, 'utf8')
+    expect(distCountries).not.toMatch(/language-subtag-registry/)
+    expect(distGenerated).not.toMatch(/language-subtag-registry/)
+    expect(distCountries).toMatch(/from "\.\/countries\.generated\.js"/)
+    expect(distGenerated).toMatch(/code: "PL"/)
+    expect(distGenerated).toMatch(/code: "DE"/)
   })
 
   it('includes Kosovo, which the language-subtag registry does not list', () => {
