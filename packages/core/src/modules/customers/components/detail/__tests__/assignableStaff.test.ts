@@ -171,6 +171,13 @@ describe('fetchAssignableStaffMembersPage', () => {
     })
   })
 
+  it('propagates network failures from the auth users fallback — not a silent empty roster', async () => {
+    readApiResultOrThrowMock.mockRejectedValueOnce(httpError(404))
+    apiCallMock.mockRejectedValueOnce(new Error('Network down'))
+
+    await expect(fetchAssignableStaffMembersPage('', { page: 1, pageSize: 100 })).rejects.toThrow('Network down')
+  })
+
   it('propagates non-404 failures from the staff endpoint (e.g. forbidden, server error)', async () => {
     readApiResultOrThrowMock.mockRejectedValueOnce(httpError(403))
     await expect(fetchAssignableStaffMembersPage('', { pageSize: 100 })).rejects.toMatchObject({ status: 403 })

@@ -64,6 +64,11 @@ function isAssignableEndpointMissing(error: unknown): boolean {
   )
 }
 
+function isAuthUsersFallbackDegradableHttpError(error: unknown): boolean {
+  const status = (error as { status?: unknown })?.status
+  return typeof status === 'number' && status >= 400 && status < 500
+}
+
 function mapStaffItems(rawItems: Array<Record<string, unknown>>): AssignableStaffMember[] {
   const deduped = new Map<string, AssignableStaffMember>()
 
@@ -192,10 +197,12 @@ async function fetchAssignableUsersFallback(
     // apiCall rethrows AbortError — preserve it so callers can distinguish
     // cancellation from an empty roster.
     if (err && typeof err === 'object' && (err as { name?: unknown }).name === 'AbortError') throw err
-    // Let 5xx surface; only swallow auth/missing errors (4xx).
-    const status = (err as { status?: unknown })?.status
-    if (typeof status === 'number' && status >= 500) throw err
-    call = null
+    // HTTP 4xx from apiFetch (rare) degrades to an empty roster; network/5xx propagate.
+    if (isAuthUsersFallbackDegradableHttpError(err)) {
+      call = null
+    } else {
+      throw err
+    }
   }
 
   if (!call) {
@@ -203,7 +210,7 @@ async function fetchAssignableUsersFallback(
   }
   // 5xx: backend is down — propagate so operators get a signal rather than silent empty pickers.
   if (!call.ok && call.status >= 500) {
-    throw Object.assign(new Error(`Auth users lookup failed (${call.status})`), { status: call.status })
+    throw Object.assign(new Error(`[internal] Auth users lookup failed (${call.status})`), { status: call.status })
   }
   // 401/403/404: permission not granted or endpoint gone — degrade to empty roster.
   if (!call.ok) {
