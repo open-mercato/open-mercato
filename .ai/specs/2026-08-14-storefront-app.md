@@ -105,6 +105,14 @@ Everything commerce-specific — `ProductCard`, `VariantSelector`, `FilterSideba
 
 **Content pages are the one row that ignores the rule**, in both directions: they are cached and shared identically for anonymous and authenticated visitors, and the CDN requirement above does not apply to them. That is safe for a narrow and verifiable reason — the payload contains no buyer-dependent field at all (public API §4.6), a property asserted by that spec's contract suite rather than assumed here. The exception has to be stated explicitly, because "cached the same for a logged-in buyer" is otherwise indistinguishable from R1's failure mode on inspection, and a reader who cannot tell the two apart will eventually turn one into the other.
 
+### 3.3a Field mode (offline), added 2026-09-22
+
+Resolves §14 Open Question 4. Full design: [Offline Field Mode](./2026-09-22-offline-field-mode.md).
+
+None of the rows above are exempted for a disconnected buyer, and none of them is what field mode is. A buyer with no signal gets a **separate, fully client-rendered route subtree** (`/field/*`) layered over a server-built, buyer-priced offline pack — not this table's server-first rendering extended to work without a server, which §2.3 already established cannot be done honestly for a buyer-aware page. The distinction matters because it is exactly the mistake this spec's own §2.2 rejected once already, in the other direction: SPEC-029 v3 tried to solve UI reuse by reimplementing everything twice; a naive "offline mode" would solve connectivity by pretending one rendering strategy covers both cases.
+
+`/field/*` is precached by a service worker scoped to its own shell only — it registers no fetch interception for `/products`, `/categories`, `/search`, or any other row in the table above, so R1's isolation guarantee is untouched by field mode's existence. It carries its own JS budget (§9) rather than counting against catalogue or checkout, and its components are commerce-specific and live in the app (§5.8), consistent with ADR-8.
+
 ### 3.4 Data layer
 
 ```typescript
@@ -145,6 +153,11 @@ apps/storefront/src/app/
 │   └── company/{page,buyers,approvals,credit,price-list}.tsx   (B2B)
 ├── (auth)/{login,register,forgot-password,reset-password}/page.tsx
 ├── pages/[slug]/page.tsx         static pages via /pages/:slug (public API §4.7)
+├── field/                        Field mode — client-only, precached subtree (§3.3a)
+│   ├── page.tsx                  Enable / pack status / last-synced-at
+│   ├── catalog/{page,[handle]}.tsx   Browse the offline pack
+│   ├── cart/page.tsx             The local outbox, reviewed like a cart
+│   └── sync/page.tsx             Reconciliation screen, shown on reconnect
 ├── sitemap.ts  ·  robots.ts      per store, from the public API
 ├── not-found.tsx  ·  error.tsx  ·  global-error.tsx
 ```
@@ -229,6 +242,14 @@ New in this revision. Renders `StorefrontPage.body` (public API §5.5), a discri
 
 The component exists so that the `format` branch lives in exactly one place. Inlining it in `pages/[slug]/page.tsx` works until a second surface — a CMS-backed landing page, a help article embedded in account — needs the same union, at which point the fallback behaviour gets reimplemented and one copy forgets the unknown-arm case.
 
+### 5.8 Field mode components
+
+Added 2026-09-22, resolving §14 Open Question 4. Full behavioural spec: [Offline Field Mode](./2026-09-22-offline-field-mode.md) §3–§6. These are app-level, commerce-specific components under `field/` (§4) — not additions to `@open-mercato/storefront-ui`, per ADR-8.
+
+`OfflinePackStatus` — enable/disable, last-synced-at, the "prices as of `generatedAt`, offline" banner (offline spec §3.2), and the local passcode/biometric gate prompt (offline spec §6). `OfflineCatalog` / `OfflineProductCard` — browse the pack; renders `priceTiers` and `quantityRules` from the pack entry, never recomputed. `OutboxReview` — the local queue, reviewed like `CartLine`s before a connection exists to submit them. `SyncReconciliation` — shown on reconnect; renders the replay result through the **same** `PriceDisplay` (§5.3), `priceChanges` and merge-summary surfaces the cart page already uses for a guest→customer merge (§12), per the offline spec's explicit rule against a second reconciliation screen — it is not a new visual pattern, only a new trigger for the existing one.
+
+None of these four components render inside `/field/*` at any URL outside that subtree, and none of the catalogue, PDP, cart or checkout components (§5.1–§5.7) import from `field/` — the boundary in §3.3a is structural, not a convention.
+
 ---
 
 ## 6) Design System
@@ -296,7 +317,10 @@ A gate, not a phase.
 | TTFB, cached anonymous | < 200 ms |
 | JS, first load, catalogue routes | < 180 kB gzipped |
 | JS, first load, checkout | < 250 kB gzipped |
+| JS, `/field/*` precached shell | < 220 kB gzipped, added 2026-09-22 |
 | `@open-mercato/storefront-ui` | < 45 kB gzipped |
+
+`/field/*`'s budget is separate from, not additive to, the catalogue and checkout rows: it is a route-level chunk a normal buyer never downloads, so it does not count against either of them — but it must ship everything it needs in one precached shell rather than fetching pieces on demand, since it cannot lazy-load a chunk it doesn't already have once the device is offline (Offline Field Mode §3.4).
 
 Techniques: `priority` on the first four product images; explicit aspect ratios on every image container; server components by default with client boundaries only where interaction demands them; route-level code splitting so checkout weight never loads on the catalogue; fonts self-hosted with `font-display: swap` and preloaded.
 
@@ -327,6 +351,7 @@ Structured data: `Product` with `Offer` (price, currency, availability, `priceVa
 | R7 | Cart token exposure in the client | **High** | The cart token is stored where another script can read it, or lands in a URL and leaks via referrer. | httpOnly cookie set by a server route handler; never in `localStorage`, never in a URL (cart spec R6); the app never reads the raw token in client code | Low |
 | R8 | Branding FOUC | Low | Store colours apply after hydration and the first paint is unbranded. | Branding SSR-injected into `<head>` (SPEC-029 §7.2); runtime `setProperty` reserved for the admin preview | Low |
 | R9 | A new body format renders as raw markup | Medium | A CMS replaces the page source and emits a `body.format` this storefront predates; a permissive fallback passes `value` to `dangerouslySetInnerHTML` and renders unsanitized author content, or renders a serialized object. | `ContentPageBody` switches exhaustively and falls through to a neutral fallback, never to raw `value` (§5.7); a test asserts an unknown format renders no markup originating from `value` | Low |
+| R10 | Field mode's service worker reintroduces R1 | **High** | A scoped-for-`/field/*` service worker is later broadened, deliberately or by a careless edit, into a generic cache-first strategy that intercepts `/products` or `/categories` — the exact buyer-aware-pricing leak R1 exists to prevent, delivered through a mechanism R1's own mitigations don't cover. | Precache scope is structurally limited to the `/field/*` shell (§3.3a); a test asserts the registered service worker intercepts no route outside that subtree. Full risk detail and the pack/outbox threat model: [Offline Field Mode](./2026-09-22-offline-field-mode.md) §9 | Low |
 
 ---
 
@@ -349,6 +374,8 @@ Playwright, headless, against a seeded fixture store. Renumbered from SPEC-029 v
 **Buyer isolation:** an anonymous request following an authenticated one for the same URL returns anonymous prices (R1); structured data on an authenticated page carries no price (R2).
 
 **Content pages:** a published page renders at `/pages/<slug>` with its SEO metadata and appears in the sitemap; an unpublished or unknown slug renders the app's 404 rather than an error; an `html` body renders its sanitized content; a `blocks` body renders through `BlockRenderer`; an unknown `body.format` renders the fallback and no markup originating from `value` (R9); a footer menu item with `target_type: content_page` resolves to the right URL; the same page is byte-identical for an anonymous and an authenticated buyer (§3.3's exception).
+
+**Field mode:** service worker intercepts no route outside `/field/*` (R10); the offline pack is unreadable without the local passcode/biometric gate even with the device unlocked; a replay against an expired cart transparently lands in a new one; reconciliation renders through the existing `PriceDisplay`/`priceChanges`/merge-summary surfaces, not a second screen. Full suite: [Offline Field Mode](./2026-09-22-offline-field-mode.md) §10.
 
 **Accessibility:** axe zero serious/critical on every route in both auth states at both widths; keyboard-only traversal of the full purchase journey; skip link on first Tab; focus returns from every dialog; 200 % zoom without horizontal scroll.
 
@@ -397,7 +424,7 @@ Full axe sweep, manual accessibility pass, Lighthouse CI, bundle budgets, cross-
 1. **Distribution** — the roadmap decided `apps/storefront` in the monorepo. Whether it *also* ships as a `create-app` preset (per `packages/create-app` template-sync rules) is unresolved; if so, the template-sync checklist applies from Phase 1.
 2. **Image transformation** — spec 4 Open Question 4. Responsive `srcset` needs width variants; whether `storage-s3` provides them is unverified and blocks the LCP budget if it does not.
 3. **Analytics and consent** — no analytics is specified. A real storefront needs GA4 or equivalent behind a consent banner, and consent interacts with `consent_flags` in checkout and promotions. Out of scope, and a real gap before a production launch.
-4. **PWA / offline** — the roadmap listed offline as a non-goal. Whether a service worker for asset caching alone is worth it is unaddressed.
+4. ~~**PWA / offline** — the roadmap listed offline as a non-goal. Whether a service worker for asset caching alone is worth it is unaddressed.~~ **Resolved 2026-09-22.** This question's own premise does not hold — the word "offline" does not appear anywhere in `2026-08-14-ecommerce-suite-roadmap.md` prior to [ADR-10](./2026-08-14-ecommerce-suite-roadmap.md#adr-10--field-mode-assembles-offline-commits-online); there was no non-goal here to reverse, only an open question the roadmap had never actually foreclosed. Recorded as a discrepancy in this spec's own changelog rather than silently corrected. The resolution itself: offline is scoped as **field mode**, a client-only route subtree (`/field/*`) over a server-built, buyer-priced offline pack — not a service worker for asset caching, and not "the app works offline." Full design in [Offline Field Mode](./2026-09-22-offline-field-mode.md); see §3.3a and §5.8 below for what that adds to this spec's own surface.
 
 ---
 
@@ -415,6 +442,7 @@ Full axe sweep, manual accessibility pass, Lighthouse CI, bundle budgets, cross-
 | API consumption | Only public endpoints; no privileged surface reachable from the app |
 | Content pages | Read through `GET /pages/:slug`; the `content` module is never imported, so the source stays swappable. Body HTML is sanitized by the API and not re-sanitized here (§5.7); an unknown `body.format` degrades rather than rendering raw markup |
 | Dialog UX | `Cmd/Ctrl+Enter` submits, `Escape` cancels, per root `AGENTS.md` |
+| Field mode | A separate client-only subtree (`/field/*`) over a server-built offline pack, not this spec's server-first rendering extended offline (§3.3a); own bundle budget (§9); full spec: [Offline Field Mode](./2026-09-22-offline-field-mode.md) |
 | Integration coverage | §12, shipping in the same change |
 
 ---
@@ -485,6 +513,11 @@ Added 2026-09-16 to support the `om-mockup-prototype` click-through. Derived fro
 ---
 
 ## 17) Changelog
+
+### 2026-09-22 — field mode
+- **Resolved §14 Open Question 4.** The question as written said "the roadmap listed offline as a non-goal" — that non-goal does not exist: the word "offline" appears nowhere in `2026-08-14-ecommerce-suite-roadmap.md` prior to today's ADR-10. This is recorded here as a discrepancy in the prior draft, not silently fixed by rewording the question away; nothing was reversed, because nothing had actually been decided against offline before now.
+- Added §3.3a (field mode as a separate client-only route subtree, not this spec's rendering table extended offline), a `field/` entry to the route tree (§4), §5.8 (`OfflinePackStatus`, `OfflineCatalog`/`OfflineProductCard`, `OutboxReview`, `SyncReconciliation` — reusing §5.3's `PriceDisplay` and the existing merge-summary surface rather than a new screen), a `/field/*` budget row (§9), R10 (§11 — the service-worker-scope-creep risk), a Field mode test-coverage block (§12), and a Field mode row in §15.
+- Full design — the offline pack, the intent outbox, device-at-rest protection, and POS as the contract's second consumer — lives in the new [Offline Field Mode](./2026-09-22-offline-field-mode.md) spec, per that document's own architecture decision (roadmap ADR-10) that reading and writing offline are two independently-risked halves and must not be specified inside this app spec.
 
 - **§16 user story map added.** The spec described routes, components and rules but never who wanted what, so a prototype had to infer the flow from a route tree. Six epics derived from §4–§8; no new scope. Checkout and account stories are deliberately left to the specs that own those flows. The changelog moves from §16 to §17.
 

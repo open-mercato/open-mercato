@@ -21,7 +21,7 @@
 **Scope:**
 - Module inventory, ownership boundaries and dependency direction for the ecommerce suite
 - Twelve specs: what each owns, what it must not own, and in which order they land
-- Nine architecture decisions (ADR-1 … ADR-9) binding on every downstream spec
+- Ten architecture decisions (ADR-1 … ADR-10) binding on every downstream spec
 - Phasing with explicit gating criteria
 
 **Concerns:**
@@ -97,7 +97,7 @@ All new modules live in `packages/core/src/modules/<module>/` and follow the sta
 | `wms` | Registers the concrete `availabilityService` implementation backed by `InventoryBalance` / `InventoryReservation` |
 | `catalog` | Admin UI for customer/group/quantity-scoped price rows (the data model already supports them) |
 | `sales` | Order creation entrypoint used by checkout; purchase-on-account payment method |
-| `packages/shared` | Two dependency-free contracts consumed across the suite: `lib/availability/` (base availability query/result types, provider registry, catalog-only fallback) and `lib/catalog-visibility/` (`AssortmentScope`, `EffectiveAssortmentScope`, and the pure `matchesOne`/`matchesScope`/`unionScopes`/`intersectScopes` combinators) |
+| `packages/shared` | Three dependency-free contracts consumed across the suite: `lib/availability/` (base availability query/result types, provider registry, catalog-only fallback), `lib/catalog-visibility/` (`AssortmentScope`, `EffectiveAssortmentScope`, and the pure `matchesOne`/`matchesScope`/`unionScopes`/`intersectScopes` combinators), and `lib/offline/` (offline-pack manifest and outbox-intent types plus the pure `reconcileOfflineReplay` function — spec 14, ADR-10) |
 
 ### 3.3 New application
 
@@ -339,6 +339,28 @@ The projection itself is **not specified or built here**. This ADR fixes only it
 
 ---
 
+### ADR-10 — Field mode assembles offline, commits online
+
+*Added 2026-09-22.*
+
+**Decision.** Offline "field mode" — a buyer composing an order while disconnected, then syncing on reconnect — splits into two independently-risked halves that MUST be specified separately: a server-built, buyer-priced **offline pack** for reading, and a client-side **intent outbox** for writing. Neither half is a new module. The pack and outbox contract — manifest shape, outbox intent shape, and the reconciliation function that diffs one against the other — lives in `packages/shared`, not in `apps/storefront`. No offline checkout exists anywhere in the suite: every commit — price, tax, credit, stock — happens online, and the outbox replays through `cart.lines.bulkAdd`, a command that already exists.
+
+**Rationale.** Treating "offline" as one PWA feature is the standard way these projects fail, because its two halves have unrelated failure modes. The read half is ADR-7's cross-buyer price-disclosure risk (R1, storefront-public-api §11 / storefront-app §11) at its most literal: a naive service-worker cache of `/products` has no notion of buyer identity, and the device itself becomes the leak — worse than a CDN misconfiguration, because it can be picked up by anyone. The write half is ADR-2's no-client-arithmetic rule under a much longer staleness window (hours to days offline, versus the 30-minute budget cart spec §5.2 trigger 4 assumes) — the outbox has to hold *intent*, never a price or a total, or a stale offline session becomes a promise the server cannot keep. A single spec covering both would under-review one of them.
+
+`packages/shared` rather than `apps/storefront` because POS has the identical problem, today parked as an explicit non-goal (`SPEC-022-2026-02-07-pos-module.md:36`, *"Offline mode and sync (Phase 3)"*). A contract that lands inside the storefront app guarantees POS's eventual Phase 3 invents an incompatible second sync engine for the same problem.
+
+**Consequence.**
+- The pack is keyed on `BuyerContext`'s named scope components (`assortmentScopeHash`, `priceScopeKey`, `customerOverlayId`, ADR-7 amended) — never a whole-context digest — exactly like every other cached surface in the suite.
+- Because replay always re-resolves `BuyerContext` online before mutating the cart, a stale or wrong-identity pack can produce a bad offline *preview* but never an unauthorized *purchase* — the write path's existing checks (cart spec §6a.1) run against the fresh scope regardless of what the offline pack believed.
+- Reconciliation on reconnect reuses the cart's existing `priceChanges` / `warnings` / `mergeSummary` response envelope (cart spec §7.2, §10.1) rather than a second reconciliation screen.
+- This spec (14) amends no other child spec's contract. It is additive: two new `ecommerce` read endpoints and one new settings key.
+
+**Rejected alternative.** A generic service-worker cache-first strategy across the whole storefront — the common PWA pattern — rejected for the same reason SPEC-029's zero-shared-UI stance and a naive ISR cache were both rejected elsewhere in this roadmap: it solves a problem this suite does not have (a static site) while reintroducing one it already closed (buyer-aware pricing leaking through a cache keyed on the wrong thing).
+
+**Child spec.** [`2026-09-22-offline-field-mode.md`](./2026-09-22-offline-field-mode.md), spec 14 in §6.
+
+---
+
 ## 6) Spec Breakdown
 
 | # | Spec | Status | Module(s) | Depends on |
@@ -355,6 +377,9 @@ The projection itself is **not specified or built here**. This ADR fixes only it
 | 10 | `2026-08-14-storefront-app.md` | to write | `apps/storefront`, `@open-mercato/storefront-ui` | 4, 5, 7, 8 |
 | 11 | `2026-08-21-pricing-engine.md` | written | `catalog` (admin UI + resolver hardening), `pricing` (new, optional) | — (Phase 2 is a prerequisite for its own Phase 3 only) |
 | 12 | `2026-08-21-buyer-scoped-catalog-visibility.md` | written | `packages/shared`, `customer_groups`, `ecommerce`, `cart` | 1, 3, 5 (amends all three) |
+| 14 | `2026-09-22-offline-field-mode.md` | written | `packages/shared` (contract, new), `ecommerce` (two read endpoints), `apps/storefront` (client route subtree) | 4, 5, 10 — amends none; POS (SPEC-022 §3) named as a second, non-suite consumer |
+
+Row 13 is intentionally unassigned — reserved for POS's own offline/sync spec (`SPEC-022-2026-02-07-pos-module.md` §3, today parked as a Phase 3 non-goal), which will consume spec 14's `packages/shared` contract but is not part of this suite's numbered breakdown.
 
 ### 6.1 What each spec must contain beyond the standard checklist
 
@@ -372,6 +397,7 @@ The projection itself is **not specified or built here**. This ADR fixes only it
 | 8 — Merchandising | Boundary against `content` module pages; per-store vs. per-channel scoping; publishing and scheduling |
 | 9 — Customer account | B2B buyer roster and approvals in the portal; order history sourced from `sales` without cross-module ORM relations |
 | 10 — Storefront app | `@open-mercato/storefront-ui` budget and CI enforcement; WCAG 2.2 AA evidence; RWD; performance targets |
+| 14 — Offline field mode | Reading (server-built offline pack) and writing (client-side intent outbox) specified as two independently-risked halves, never as one PWA feature (ADR-10); pack keyed on named `BuyerContext` components, never a whole-context digest; write replay reuses `cart.lines.bulkAdd`'s existing partial-success and `Idempotency-Key` contract (cart spec §6a.1, §8.2) and reconciliation reuses `mergeSummary`/`priceChanges` (cart spec §7.2) rather than a second screen; POS (SPEC-022 §3, Phase 3 non-goal) named as the contract's second consumer with cash, register session and hardware explicitly excluded |
 
 Specs 3, 6 and 7 are rewrites/amendments of existing documents. Per `.ai/specs/AGENTS.md`, their filenames are left unchanged — renaming legacy `SPEC-*` files is a separate, explicitly-requested normalization.
 
@@ -489,6 +515,12 @@ Every public namespace MUST be rate limited and MUST include the buyer-context d
 ---
 
 ## 13) Changelog
+
+### 2026-09-22
+- **Added ADR-10** — offline "field mode" splits into a server-built, buyer-priced offline pack (read) and a client-side intent outbox (write), specified separately because the two have unrelated failure modes; no offline checkout anywhere in the suite. Recorded now, alongside its child spec, so the contract lands in `packages/shared` (per ADR-10's own rationale) rather than inside `apps/storefront`, where POS's eventual Phase 3 offline spec (`SPEC-022-2026-02-07-pos-module.md` §3) would have had to either depend on the storefront app or reinvent the contract.
+- Added spec 14 (`2026-09-22-offline-field-mode.md`) to §6 and §6.1. Row 13 is deliberately left open, reserved for POS's own offline/sync spec, which is not part of this suite's numbered breakdown but consumes spec 14's contract.
+- §3.2's `packages/shared` row updated from "two dependency-free contracts" to "three" — `lib/offline/` joins `lib/availability/` and `lib/catalog-visibility/`. Left uncorrected, the row would have understated the package the moment spec 14 landed, the same class of staleness §6.1's own history in this changelog already fixes twice over.
+- TLDR's ADR count corrected (nine → ten).
 
 ### 2026-09-16
 - **Added ADR-9** — buyer-scoped prices bucket by `priceScopeKey`, per-customer contracts are a sparse overlay, and the two never share a key space. Recorded now, ahead of the projection spec itself, because the bucket key is the one decision in that future work that cannot be retrofitted: `storefront-public-api.md` §6.3 already defers the projection to a separate spec, but nothing in the suite constrained its shape, so any cache key or digest written in the meantime could have foreclosed it.
