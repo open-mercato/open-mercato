@@ -23,7 +23,7 @@
 | 1 | 1.1 | Scaffold `customer_groups` module skeleton | inline | done | 8859f3045 |
 | 1 | 1.2 | `CustomerGroup` + `CustomerGroupMembership` entities and validators | dispatch:standard | done | 16e2a8d58 |
 | 1 | 1.3 | Generate + review Phase 1 migration | inline | done | d8e756b39 |
-| 1 | 1.4 | `customerGroupsService.resolveGroups()` + unit tests | dispatch:capable | todo | — |
+| 1 | 1.4 | `customerGroupsService.resolveGroups()` + unit tests | dispatch:capable | done | 3effc1830 |
 | 1 | 1.5 | API routes: `/api/customer-groups` CRUD | dispatch:standard | todo | — |
 | 1 | 1.6 | API routes: `/api/customer-groups/memberships` CRUD + reorder command/route | group:A | todo | — |
 | 1 | 1.7 | Admin UI: group list (drag-reorder, orphan banner mount) | group:A | todo | — |
