@@ -1415,7 +1415,7 @@ export function CycleCountWizardDialog({
                     </p>
                   ) : null}
                   {scopeEstimateError ? (
-                    <p className="mt-1 text-xs text-status-warning-fg">{scopeEstimateError}</p>
+                    <p className="mt-1 text-xs text-status-warning-text">{scopeEstimateError}</p>
                   ) : null}
                 </FormField>
 
@@ -1487,7 +1487,7 @@ export function CycleCountWizardDialog({
                 ) : null}
 
                 {!scopeQueueLoading && scopeQueueError ? (
-                  <p className="text-xs text-status-warning-fg">{scopeQueueError}</p>
+                  <p className="text-xs text-status-warning-text">{scopeQueueError}</p>
                 ) : null}
 
                 {!scopeQueueLoading && scopeQueueReady && isQueueActive && !isQueueComplete ? (
@@ -1527,7 +1527,7 @@ export function CycleCountWizardDialog({
 
                 {isQueueComplete ? (
                   <div className="rounded-lg border border-status-success-border bg-status-success-bg px-4 py-3">
-                    <p className="text-sm font-semibold text-status-success-fg">
+                    <p className="text-sm font-semibold text-status-success-text">
                       {t(
                         'wms.backend.inventory.cycleCount.steps.counting.queueComplete',
                         'All {total} items counted — session complete',
@@ -1741,7 +1741,7 @@ export function CycleCountWizardDialog({
                           </p>
                         ) : null}
                         {balanceError ? (
-                          <p className="mt-1 text-xs text-status-warning-fg">{balanceError}</p>
+                          <p className="mt-1 text-xs text-status-warning-text">{balanceError}</p>
                         ) : null}
                       </SummaryPanel>
                     ) : null}
@@ -1972,7 +1972,7 @@ export function CycleCountWizardDialog({
                 </Button>
               ) : null}
               {finishConfirmPending ? (
-                <p className="order-first text-xs text-status-warning-fg sm:order-none sm:self-center">
+                <p className="order-first text-xs text-status-warning-text sm:order-none sm:self-center">
                   {t(
                     'wms.backend.inventory.cycleCount.steps.counting.finishWarning',
                     '{remaining} item(s) still in scope — confirm to finish early.',

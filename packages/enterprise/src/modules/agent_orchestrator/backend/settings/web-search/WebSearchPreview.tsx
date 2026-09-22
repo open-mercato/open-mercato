@@ -122,7 +122,7 @@ export function WebSearchPreview() {
           </Button>
         </div>
 
-        {error ? <p className="text-sm text-status-error-fg">{error}</p> : null}
+        {error ? <p className="text-sm text-status-error-text">{error}</p> : null}
 
         {rows.length > 0 ? (
           <div className="space-y-3">

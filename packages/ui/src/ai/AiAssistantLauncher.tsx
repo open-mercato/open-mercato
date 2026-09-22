@@ -670,7 +670,7 @@ function AiAssistantLauncherContent({
           </div>
           {agentsError ? (
             <div
-              className="border-t border-status-error-border bg-status-error-bg px-3 py-1.5 text-[11px] text-status-error-foreground"
+              className="border-t border-status-error-border bg-status-error-bg px-3 py-1.5 text-[11px] text-status-error-text"
               data-ai-launcher-error=""
             >
               <Loader2 className="mr-1 inline size-3 animate-spin" aria-hidden />

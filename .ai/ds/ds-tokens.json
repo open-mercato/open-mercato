@@ -1070,6 +1070,21 @@
         "type": "COLOR"
       }
     },
+    "destructive-foreground": {
+      "kind": "color",
+      "light": "oklch(1 0 0)",
+      "dark": "oklch(0.145 0 0)",
+      "hex": {
+        "light": "#ffffff",
+        "dark": "#0a0a0a"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-destructive-foreground",
+      "figma": {
+        "name": "destructive-foreground",
+        "type": "COLOR"
+      }
+    },
     "file-format-blue": {
       "kind": "color",
       "light": "#4f46e5",
