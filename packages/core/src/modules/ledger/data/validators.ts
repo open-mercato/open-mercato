@@ -83,3 +83,35 @@ export const reverseJournalEntrySchema = z.object({
 })
 
 export type ReverseJournalEntryInput = z.infer<typeof reverseJournalEntrySchema>
+
+
+// `createFiscalPeriod` input. `isLocked` is never settable on create — it
+// always starts `false` (see API Contracts).
+export const createFiscalPeriodSchema = z
+  .object({
+    organizationId: z.uuid(),
+    tenantId: z.uuid(),
+    startDate: z.coerce.date(),
+    endDate: z.coerce.date(),
+  })
+  .refine((data) => data.endDate.getTime() >= data.startDate.getTime(), {
+    message: 'endDate must not be before startDate.',
+    path: ['endDate'],
+  })
+
+export type CreateFiscalPeriodInput = z.infer<typeof createFiscalPeriodSchema>
+
+// `lockFiscalPeriod` / `unlockFiscalPeriod` input. The expected `updatedAt`
+// version is not a schema field — per the spec it travels as the
+// `x-om-ext-optimistic-lock-expected-updated-at` request header, read by
+// `enforceCommandOptimisticLockWithGuards` (see commands/fiscalPeriods.ts).
+export const lockFiscalPeriodSchema = z.object({
+  id: z.uuid(),
+  organizationId: z.uuid(),
+  tenantId: z.uuid(),
+})
+
+export type LockFiscalPeriodInput = z.infer<typeof lockFiscalPeriodSchema>
+
+export const unlockFiscalPeriodSchema = lockFiscalPeriodSchema
+export type UnlockFiscalPeriodInput = z.infer<typeof unlockFiscalPeriodSchema>
