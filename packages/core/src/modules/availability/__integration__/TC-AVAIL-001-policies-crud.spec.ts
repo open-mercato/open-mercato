@@ -56,7 +56,7 @@ test.describe('TC-AVAIL-001: Availability policy CRUD, ACL, tenant isolation, op
     const token = await getAuthToken(request, 'admin')
     const { tenantId, organizationId } = getTokenContext(token)
     const stamp = Date.now()
-    const productId = `00000000-0000-4000-8000-${String(stamp).padStart(12, '0')}`
+    const productId = `00000000-0000-4000-8000-${String(stamp).slice(-12).padStart(12, '0')}`
 
     let policyId: string | null = null
     try {
@@ -113,7 +113,7 @@ test.describe('TC-AVAIL-001: Availability policy CRUD, ACL, tenant isolation, op
     const { tenantId, organizationId } = getTokenContext(adminToken)
     const employeeToken = await getAuthToken(request, 'employee')
     const stamp = Date.now()
-    const productId = `00000000-0000-4000-8000-${String(stamp).padStart(12, '0')}`
+    const productId = `00000000-0000-4000-8000-${String(stamp).slice(-12).padStart(12, '0')}`
 
     const viewResponse = await apiRequest(request, 'GET', POLICIES_API_BASE, { token: employeeToken })
     expect(viewResponse.status(), 'employee GET should be allowed by availability.policies.view').toBe(200)
@@ -130,7 +130,7 @@ test.describe('TC-AVAIL-001: Availability policy CRUD, ACL, tenant isolation, op
     const { tenantId: tenantAId, organizationId: orgAId } = getTokenContext(adminToken)
     const superadminToken = await getAuthToken(request, 'superadmin')
     const stamp = Date.now()
-    const productId = `00000000-0000-4000-8000-${String(stamp).padStart(12, '0')}`
+    const productId = `00000000-0000-4000-8000-${String(stamp).slice(-12).padStart(12, '0')}`
 
     let policyAId: string | null = null
     let tenantBId: string | null = null
@@ -180,7 +180,7 @@ test.describe('TC-AVAIL-001: Availability policy CRUD, ACL, tenant isolation, op
     const token = await getAuthToken(request, 'admin')
     const { tenantId, organizationId } = getTokenContext(token)
     const stamp = Date.now()
-    const productId = `00000000-0000-4000-8000-${String(stamp).padStart(12, '0')}`
+    const productId = `00000000-0000-4000-8000-${String(stamp).slice(-12).padStart(12, '0')}`
 
     let policyId: string | null = null
     try {

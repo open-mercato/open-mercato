@@ -18,6 +18,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { availabilityItemKey } from '@open-mercato/shared/lib/availability'
 import type { AvailabilityItemResult, AvailabilityQuery, AvailabilityResult, AvailabilityState } from '@open-mercato/shared/lib/availability'
 import { tryResolve } from './tryResolve'
+import { buildSqlInClause } from './sqlInClause'
 
 type Resolver = { resolve: <T = unknown>(name: string) => T }
 
@@ -74,18 +75,20 @@ async function loadBalanceAggregates(
   const result = new Map<string, number>()
   if (variantIds.length === 0) return result
 
-  const params: unknown[] = [organizationId, tenantId, variantIds]
+  const variantClause = buildSqlInClause('b.catalog_variant_id', variantIds)
+  const params: unknown[] = [organizationId, tenantId, ...variantClause.params]
   let locationClause = ''
   if (locationIds && locationIds.length > 0) {
-    locationClause = ' and b.location_id = any(?)'
-    params.push(locationIds)
+    const locationIn = buildSqlInClause('b.location_id', locationIds)
+    locationClause = ` and ${locationIn.sql}`
+    params.push(...locationIn.params)
   }
 
   const sql = `
     select b.catalog_variant_id,
            sum(coalesce(b.quantity_on_hand, 0) - coalesce(b.quantity_reserved, 0) - coalesce(b.quantity_allocated, 0)) as aggregate_available
     from wms_inventory_balances b
-    where b.organization_id = ? and b.tenant_id = ? and b.catalog_variant_id = any(?) and b.deleted_at is null
+    where b.organization_id = ? and b.tenant_id = ? and ${variantClause.sql} and b.deleted_at is null
       ${locationClause}
     group by b.catalog_variant_id
   `
@@ -104,13 +107,20 @@ async function loadProfiles(
   productIds: string[],
 ): Promise<ProfileRow[]> {
   if (variantIds.length === 0 && productIds.length === 0) return []
+  const variantClause = buildSqlInClause('catalog_variant_id', variantIds)
+  const productClause = buildSqlInClause('catalog_product_id', productIds)
   const sql = `
     select catalog_product_id, catalog_variant_id, safety_stock, reorder_point
     from wms_product_inventory_profiles
     where organization_id = ? and tenant_id = ? and deleted_at is null
-      and (catalog_variant_id = any(?) or (catalog_product_id = any(?) and catalog_variant_id is null))
+      and (${variantClause.sql} or (${productClause.sql} and catalog_variant_id is null))
   `
-  return em.getConnection().execute<ProfileRow[]>(sql, [organizationId, tenantId, variantIds, productIds])
+  return em.getConnection().execute<ProfileRow[]>(sql, [
+    organizationId,
+    tenantId,
+    ...variantClause.params,
+    ...productClause.params,
+  ])
 }
 
 async function loadActiveVariantsForProducts(
@@ -120,12 +130,13 @@ async function loadActiveVariantsForProducts(
   productIds: string[],
 ): Promise<VariantRow[]> {
   if (productIds.length === 0) return []
+  const productClause = buildSqlInClause('product_id', productIds)
   const sql = `
     select id, product_id
     from catalog_product_variants
-    where organization_id = ? and tenant_id = ? and product_id = any(?) and is_active = true and deleted_at is null
+    where organization_id = ? and tenant_id = ? and ${productClause.sql} and is_active = true and deleted_at is null
   `
-  return em.getConnection().execute<VariantRow[]>(sql, [organizationId, tenantId, productIds])
+  return em.getConnection().execute<VariantRow[]>(sql, [organizationId, tenantId, ...productClause.params])
 }
 
 function findProfile(profiles: ProfileRow[], productId: string, variantId: string | null): ProfileRow | null {

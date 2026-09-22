@@ -43,7 +43,7 @@ test.describe('TC-AVAIL-003: Availability admin UI', () => {
       await expect(preview).toBeVisible({ timeout: 15_000 })
       await expect(preview).toContainText('module default', { timeout: 15_000 })
 
-      await page.locator('[data-crud-field-id="allowBackorder"] input').first().click()
+      await page.locator('[data-crud-field-id="allowBackorder"] button[role="checkbox"]').click()
       await fillControlledInput(page.locator('[data-crud-field-id="backorderLeadTimeDays"] input').first(), '5')
 
       await page.getByRole('button', { name: /create policy/i }).click()
@@ -132,7 +132,7 @@ test.describe('TC-AVAIL-003: Availability admin UI', () => {
       await bumpRecordViaApi(page.request, token, POLICIES_API_BASE, { id: policyId, lowStockThreshold: 9 })
 
       await fillControlledInput(thresholdInput, '4')
-      await page.getByRole('button', { name: /save changes/i }).click()
+      await page.getByRole('button', { name: /save changes/i }).first().click()
 
       await expectConflictBanner(page)
     } finally {
