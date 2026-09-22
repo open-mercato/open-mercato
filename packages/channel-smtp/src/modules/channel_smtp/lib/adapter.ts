@@ -8,6 +8,8 @@ import type {
   NormalizedInboundMessage,
   SendMessageInput,
   SendMessageResult,
+  ValidateCredentialsInput,
+  ValidateCredentialsResult,
   VerifyWebhookInput,
 } from '@open-mercato/core/modules/communication_channels/lib/adapter'
 import {
@@ -19,6 +21,7 @@ import {
 import { smtpCapabilities } from '../capabilities'
 import { smtpCredentialsSchema } from './credentials'
 import { credentialsToConnection, getSmtpTransport, type SmtpAttachment } from './transport'
+import { validateSmtpCredentials } from './validate-credentials'
 
 function attachmentsFromMeta(value: unknown): SmtpAttachment[] | undefined {
   if (!Array.isArray(value)) return undefined
@@ -48,7 +51,11 @@ class SmtpChannelAdapter implements ChannelAdapter {
   async sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
     const credentials = smtpCredentialsSchema.parse(input.credentials)
     const meta = (input.metadata ?? {}) as Record<string, unknown>
-    const to = Array.isArray(meta.to) ? (meta.to as string[]) : []
+    // `convertOutbound` hands us an array, but the hub's test-send route calls
+    // `sendMessage` directly with the operator's raw `to` string. Normalizing
+    // here keeps both callers working; `toAddressList` also splits the
+    // comma/semicolon-separated form system email supports.
+    const to = toAddressList(meta.to).map(sanitizeHeaderValue)
     if (to.length === 0) {
       return { externalMessageId: '', status: 'failed', error: '[internal] Email send requires at least one recipient' }
     }
@@ -68,16 +75,42 @@ class SmtpChannelAdapter implements ChannelAdapter {
         ...(stringOrUndefined(meta.replyTo) ? { replyTo: stringOrUndefined(meta.replyTo) } : {}),
         ...(attachments?.length ? { attachments } : {}),
       })
+      const externalMessageId = info.messageId || `smtp:${Date.now()}`
+      const accepted = info.accepted ?? []
+      const rejected = info.rejected ?? []
+      const metadata = {
+        ...(info.response ? { response: info.response } : {}),
+        ...(info.accepted ? { accepted } : {}),
+        ...(rejected.length ? { rejected } : {}),
+      }
+      // The relay resolves the send once it accepts *any* recipient, so a
+      // partial rejection would otherwise be reported as an unqualified
+      // success and silently drop mail. Report it as a failure carrying the
+      // message identity and the accepted/rejected split, so a retry can skip
+      // the recipients that already landed instead of resending to everyone.
+      if (rejected.length > 0) {
+        return {
+          externalMessageId,
+          conversationId: input.conversationId,
+          status: 'failed',
+          error: `SMTP_SEND_PARTIALLY_REJECTED: relay rejected ${rejected.join(', ')}`,
+          metadata,
+        }
+      }
       return {
-        externalMessageId: info.messageId || `smtp:${Date.now()}`,
+        externalMessageId,
         conversationId: input.conversationId,
         status: 'sent',
-        metadata: info.response ? { response: info.response } : undefined,
+        metadata: Object.keys(metadata).length ? metadata : undefined,
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
       return { externalMessageId: '', status: 'failed', error: `SMTP_SEND_FAILED: ${message}` }
     }
+  }
+
+  async validateCredentials(input: ValidateCredentialsInput): Promise<ValidateCredentialsResult> {
+    return validateSmtpCredentials(input.credentials)
   }
 
   async verifyWebhook(_input: VerifyWebhookInput): Promise<InboundMessage> {

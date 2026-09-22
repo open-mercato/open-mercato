@@ -39,6 +39,14 @@ export interface SmtpMessage {
 export interface SmtpSendInfo {
   messageId?: string
   response?: string
+  /**
+   * Nodemailer resolves the send as soon as the relay accepts *at least one*
+   * recipient, reporting the split in `accepted`/`rejected`. Both are carried
+   * through so the adapter can qualify a partial delivery instead of reporting
+   * an unqualified success.
+   */
+  accepted?: string[]
+  rejected?: string[]
 }
 
 /**
@@ -84,6 +92,22 @@ async function createTransporter(connection: SmtpConnection): Promise<Transporte
   })
 }
 
+/**
+ * Nodemailer reports `accepted`/`rejected` as addresses or `{ address }`
+ * objects depending on how the envelope was built; flatten both to plain
+ * strings so the adapter has one shape to reason about.
+ */
+function toAddressStrings(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  return value.map((entry) => {
+    if (typeof entry === 'string') return entry
+    if (entry && typeof entry === 'object' && 'address' in entry) {
+      return String((entry as { address: unknown }).address)
+    }
+    return String(entry)
+  })
+}
+
 class NodemailerTransport implements SmtpTransport {
   async send(connection: SmtpConnection, message: SmtpMessage): Promise<SmtpSendInfo> {
     const transporter = await createTransporter(connection)
@@ -97,7 +121,11 @@ class NodemailerTransport implements SmtpTransport {
         ...(message.replyTo ? { replyTo: message.replyTo } : {}),
         ...(message.attachments?.length ? { attachments: message.attachments } : {}),
       })) as SmtpSendInfo
-      return info
+      return {
+        ...info,
+        ...(toAddressStrings(info.accepted) ? { accepted: toAddressStrings(info.accepted) } : {}),
+        ...(toAddressStrings(info.rejected) ? { rejected: toAddressStrings(info.rejected) } : {}),
+      }
     } finally {
       // Close on every path: a failed send (bad password, unreachable relay —
       // the common case) would otherwise leak the socket pool.

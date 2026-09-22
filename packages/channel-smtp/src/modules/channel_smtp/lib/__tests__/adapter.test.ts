@@ -90,6 +90,83 @@ describe('SmtpChannelAdapter.sendMessage', () => {
     }))
   })
 
+  it('accepts the raw recipient string the hub test-send route passes straight to sendMessage', async () => {
+    const { sent } = stubTransport()
+    const result = await getSmtpChannelAdapter().sendMessage({
+      credentials,
+      scope,
+      content: { text: 'Test message from Open Mercato' },
+      metadata: { to: 'someone@example.com', subject: 'Test send', testSend: true },
+    })
+
+    expect(result.status).toBe('sent')
+    expect(sent[0].message.to).toEqual(['someone@example.com'])
+  })
+
+  it('splits the comma-separated recipient form system email supports', async () => {
+    const { sent } = stubTransport()
+    await getSmtpChannelAdapter().sendMessage({
+      credentials,
+      scope,
+      content: { text: 'Body' },
+      metadata: { to: 'one@example.com, two@example.com', subject: 'Welcome' },
+    })
+
+    expect(sent[0].message.to).toEqual(['one@example.com', 'two@example.com'])
+  })
+
+  it('reports a partial recipient rejection as failed, keeping the message id and the split', async () => {
+    stubTransport({
+      async send() {
+        return {
+          messageId: '<partial@example.com>',
+          response: '250 OK',
+          accepted: ['one@example.com'],
+          rejected: ['two@example.com'],
+        }
+      },
+    })
+    const result = await getSmtpChannelAdapter().sendMessage({
+      credentials,
+      scope,
+      content: { text: 'Body' },
+      metadata: { to: 'one@example.com, two@example.com', subject: 'Welcome' },
+    })
+
+    expect(result.status).toBe('failed')
+    expect(result.externalMessageId).toBe('<partial@example.com>')
+    expect(result.error).toContain('two@example.com')
+    expect(result.metadata).toEqual(expect.objectContaining({
+      accepted: ['one@example.com'],
+      rejected: ['two@example.com'],
+    }))
+  })
+
+  it('reports a fully accepted multi-recipient send as sent and carries the accepted list', async () => {
+    stubTransport({
+      async send() {
+        return {
+          messageId: '<all@example.com>',
+          response: '250 OK',
+          accepted: ['one@example.com', 'two@example.com'],
+          rejected: [],
+        }
+      },
+    })
+    const result = await getSmtpChannelAdapter().sendMessage({
+      credentials,
+      scope,
+      content: { text: 'Body' },
+      metadata: { to: ['one@example.com', 'two@example.com'], subject: 'Welcome' },
+    })
+
+    expect(result.status).toBe('sent')
+    expect(result.metadata).toEqual(expect.objectContaining({
+      accepted: ['one@example.com', 'two@example.com'],
+    }))
+    expect(result.metadata).not.toHaveProperty('rejected')
+  })
+
   it('fails without sending when there is no recipient or no subject', async () => {
     const { sent } = stubTransport()
     const adapter = getSmtpChannelAdapter()
