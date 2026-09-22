@@ -53,14 +53,20 @@ type JournalEntryRow = {
   tenantId: string
 }
 
+// `type: 'date'` MikroORM properties can come back as a plain string
+// rather than a `Date` instance (same caveat the `staff` module's
+// timesheet report routes already guard against) — format defensively.
+const formatDateOnly = (value: Date | string): string =>
+  value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10)
+
 const toRow = (entry: JournalEntry): JournalEntryRow => ({
   id: String(entry.id),
   sequenceNumber: Number(entry.sequenceNumber),
   postedAt: entry.postedAt.toISOString(),
-  operationDate: entry.operationDate.toISOString().slice(0, 10),
+  operationDate: formatDateOnly(entry.operationDate),
   documentType: entry.documentType ?? null,
   documentNumber: entry.documentNumber ?? null,
-  documentDate: entry.documentDate ? entry.documentDate.toISOString().slice(0, 10) : null,
+  documentDate: entry.documentDate ? formatDateOnly(entry.documentDate) : null,
   description: String(entry.description),
   type: String(entry.type),
   currencyId: String(entry.currencyId),

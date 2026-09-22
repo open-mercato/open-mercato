@@ -107,7 +107,9 @@ export default function EditLedgerAccountPage({ params }: { params?: { id?: stri
     return (
       <Page>
         <PageBody>
-          <DataLoader label={t('ledger.accounts.form.loading', 'Loading account…')} />
+          <DataLoader isLoading loadingMessage={t('ledger.accounts.form.loading', 'Loading account…')}>
+            <></>
+          </DataLoader>
         </PageBody>
       </Page>
     )

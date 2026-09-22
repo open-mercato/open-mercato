@@ -70,10 +70,16 @@ type FiscalPeriodRow = {
   tenantId: string
 }
 
+// `type: 'date'` MikroORM properties can come back as a plain string
+// rather than a `Date` instance (same caveat the `staff` module's
+// timesheet report routes already guard against) — format defensively.
+const formatDateOnly = (value: Date | string): string =>
+  value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10)
+
 const toRow = (period: FiscalPeriod): FiscalPeriodRow => ({
   id: String(period.id),
-  startDate: period.startDate.toISOString().slice(0, 10),
-  endDate: period.endDate.toISOString().slice(0, 10),
+  startDate: formatDateOnly(period.startDate),
+  endDate: formatDateOnly(period.endDate),
   isLocked: !!period.isLocked,
   createdAt: period.createdAt ? period.createdAt.toISOString() : null,
   updatedAt: period.updatedAt ? period.updatedAt.toISOString() : null,

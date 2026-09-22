@@ -9,6 +9,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 import { JournalEntry, JournalEntryLine } from '../data/entities'
 import { reverseJournalEntrySchema, type ReverseJournalEntryInput } from '../data/validators'
 import { runPostJournalEntry, withPostingTransaction, type JournalEntryPostCore, type PostJournalEntryResult } from './postJournalEntry'
@@ -59,7 +60,7 @@ function buildReversalCore(
   original: JournalEntry,
   originalLines: JournalEntryLine[],
   input: ReverseJournalEntryInput,
-  translate: (key: string, fallback: string, vars?: Record<string, unknown>) => string,
+  translate: TranslateWithFallbackFn,
 ): JournalEntryPostCore {
   return {
     organizationId: input.organizationId,

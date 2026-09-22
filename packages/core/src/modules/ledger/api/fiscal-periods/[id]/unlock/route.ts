@@ -20,7 +20,7 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import type { FiscalPeriodDto } from '../../../commands/fiscalPeriods'
+import type { FiscalPeriodDto } from '../../../../commands/fiscalPeriods'
 
 const logger = createLogger('ledger').child({ component: 'api/fiscal-periods/unlock' })
 

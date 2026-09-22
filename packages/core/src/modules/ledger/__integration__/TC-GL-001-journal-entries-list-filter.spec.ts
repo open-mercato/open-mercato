@@ -75,11 +75,11 @@ test.describe('TC-GL-001: journal-entries list/filter/403', () => {
       const email = `qa-gl-001-${randomUUID().slice(0, 8)}@acme.com`;
       userId = await createUserFixture(request, adminToken, {
         email,
-        password: 'secret',
+        password: 'Valid1!Pass',
         organizationId,
         roles: [roleId],
       });
-      const restrictedToken = await getAuthToken(request, email, 'secret');
+      const restrictedToken = await getAuthToken(request, email, 'Valid1!Pass');
 
       const res = await apiRequest(request, 'GET', '/api/ledger/journal-entries', { token: restrictedToken });
       expect(res.status(), 'GET without ledger.entries.view should return 403').toBe(403);

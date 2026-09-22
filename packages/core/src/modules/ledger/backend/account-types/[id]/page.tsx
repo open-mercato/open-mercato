@@ -123,7 +123,9 @@ export default function EditLedgerAccountTypePage({ params }: { params?: { id?: 
     return (
       <Page>
         <PageBody>
-          <DataLoader label={t('ledger.account_types.form.loading', 'Loading account type…')} />
+          <DataLoader isLoading loadingMessage={t('ledger.account_types.form.loading', 'Loading account type…')}>
+            <></>
+          </DataLoader>
         </PageBody>
       </Page>
     )

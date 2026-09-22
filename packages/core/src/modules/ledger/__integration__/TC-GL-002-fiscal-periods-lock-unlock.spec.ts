@@ -210,11 +210,11 @@ test.describe('TC-GL-002: fiscal-periods lock/unlock 200/409/403', () => {
       const email = `qa-gl-002d-${randomUUID().slice(0, 8)}@acme.com`;
       userId = await createUserFixture(request, superadminToken, {
         email,
-        password: 'secret',
+        password: 'Valid1!Pass',
         organizationId,
         roles: [roleId],
       });
-      const restrictedToken = await getAuthToken(request, email, 'secret');
+      const restrictedToken = await getAuthToken(request, email, 'Valid1!Pass');
 
       const lockRes = await apiRequest(request, 'POST', `/api/ledger/fiscal-periods/${periodId}/lock`, {
         token: restrictedToken,
