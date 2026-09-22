@@ -32,7 +32,7 @@
 | 1 | 1.8 | Admin UI: group create/edit page (Phase 1 fields) | dispatch:standard | done | 31c78ed51 |
 | 1 | 1.9 | Membership assignment UI on customer detail page | dispatch:capable | done | 578d0d565 |
 | 1 | 1.10 | Reconciliation CLI + `GET /api/customer-groups/reconcile` + orphan banner data wiring | group:B | done | b493cc279 |
-| 1 | 1.11 | Group picker widget → `crud-form:catalog.catalog_product_price:fields` + `crud-form:sales.sales_tax_rate:fields` | group:B | todo | — |
+| 1 | 1.11 | Group picker widget → `crud-form:catalog.catalog_product_price:fields` + `crud-form:sales.sales_tax_rate:fields` | group:B | done | 87691ea81 |
 | 1 | 1.12 | i18n keys — Phase 1 surfaces (en/de/es/ko/pl) | dispatch:cheap | todo | — |
 | 1 | 1.13 | Integration tests: Phase 1 API routes + behavioral cases | dispatch:capable | todo | — |
 | 1 | 1.14 | Integration tests: Phase 1 UI paths | dispatch:capable | todo | — |
