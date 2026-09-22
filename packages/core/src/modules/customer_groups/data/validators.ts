@@ -131,3 +131,13 @@ export const customerGroupMembershipDeleteSchema = z.object({
 })
 
 export type CustomerGroupMembershipDeleteInput = z.infer<typeof customerGroupMembershipDeleteSchema>
+
+// Drag-reorder payload for the admin group list (Step 1.7): an ordered array of
+// `CustomerGroup` ids. The reorder command rewrites `priority` in gaps of 10
+// following this order — see spec R4 mitigation note.
+export const customerGroupReorderSchema = z.object({
+  tenantId: uuid(),
+  ids: z.array(uuid()).min(1),
+})
+
+export type CustomerGroupReorderInput = z.infer<typeof customerGroupReorderSchema>
