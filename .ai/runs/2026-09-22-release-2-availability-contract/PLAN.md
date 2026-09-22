@@ -10,7 +10,7 @@ Source spec: `.ai/specs/2026-08-14-availability-contract.md` §13 Phases 1 and 2
 |-------|------|-------|------|--------|--------|
 | 1 | 1.1 | shared/availability: types + provider registry + resolveAvailability | inline | done | 612b946c5 |
 | 1 | 1.2 | shared/availability: catalog-only fallback provider + barrel + tests | inline | done | 492b0c18e |
-| 1 | 2.1 | availability module skeleton (index/acl/events) | inline | todo | — |
+| 1 | 2.1 | availability module skeleton (index/acl/events) | inline | done | 0497c1115 |
 | 1 | 2.2 | AvailabilityPolicy entity + validators + migration | inline | todo | — |
 | 1 | 2.3 | policyResolution.ts — 6-level chain + tests | inline | todo | — |
 | 1 | 2.4 | policy commands + CRUD API route + tests | inline | todo | — |
@@ -69,6 +69,7 @@ Implement Phase 1 (base availability contract, catalog-only fallback, `Availabil
 
 **Step 2.1 — availability module skeleton**
 - `packages/core/src/modules/availability/index.ts` (`ejectable: true`, no hard `requires`), `acl.ts` (§8.1 features), `events.ts` (`availability.policy.created/.updated/.deleted` only — decision non-goal).
+- **Ordering note (not a scope change):** module registration (`apps/mercato/src/modules.ts` + create-app template mirror) moved here from Step 4.2, because `yarn generate`/`yarn db:generate` resolve modules from `apps/mercato/src/modules.ts`'s `enabledModules` — later Steps need the module registered to generate entity ids and migrations. Step 4.2 keeps the final full `yarn generate` + `yarn db:generate` no-op check and the spec changelog update.
 
 **Step 2.2 — AvailabilityPolicy entity + validators + migration**
 - `data/entities.ts`: `AvailabilityPolicy` per §5.1 (all columns, `updated_at` for optimistic locking, unique constraint on `(tenant_id, organization_id, store_id, product_id, variant_id)` among non-deleted rows, `variant_id` non-null requires `product_id` non-null enforced at validation layer).
@@ -119,9 +120,8 @@ Implement Phase 1 (base availability contract, catalog-only fallback, `Availabil
 **Step 4.1 — Playwright UI integration tests**
 - Policy list/create/edit (resolution-chain preview live update, optimistic-lock conflict bar, view-only role), admin check tool (all US-B1/US-B2 ACs) — per `.ai/qa/AGENTS.md` conventions.
 
-**Step 4.2 — Module registration + generate + docs wrap-up**
-- Add `{ id: 'availability', from: '@open-mercato/core' }` to `apps/mercato/src/modules.ts` and `packages/create-app/template/src/modules.ts`.
-- `yarn generate`; `yarn db:generate` no-op check.
+**Step 4.2 — Final generate/migration no-op check + docs wrap-up**
+- Module registration happened in Step 2.1 (ordering note above). Here: final full `yarn generate` + `yarn db:generate` no-op check across the whole branch.
 - Update `.ai/specs/2026-08-14-availability-contract.md` changelog: Phase 1 + Phase 2 implemented, Phase 3 remains open (do not move to `implemented/`).
 
 ## Risks
