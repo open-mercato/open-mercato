@@ -55,10 +55,10 @@ test('resolvePreset: empty returns 12-module list', () => {
   assert.deepEqual(result.filesToRemove, [])
 })
 
-test('resolvePreset: crm returns 19-module list extending empty (includes attachments + messages + currencies + communication_channels + ai_assistant + search)', () => {
+test('resolvePreset: crm returns 23-module list extending empty (includes attachments + messages + currencies + progress + integrations + communication_channels + channel_imap + channel_gmail + ai_assistant + search)', () => {
   const result = resolvePreset('crm')
   assert.equal(result.isClassic, false)
-  assert.equal(result.modules.length, 19)
+  assert.equal(result.modules.length, 23)
   const ids = result.modules.map((m) => m.id)
   assert.ok(ids.includes('auth'))
   assert.ok(ids.includes('directory'))
@@ -77,8 +77,17 @@ test('resolvePreset: crm returns 19-module list extending empty (includes attach
   assert.ok(ids.includes('events'))
   // currencies backs deals KPI/aggregate base-currency + FX lookups
   assert.ok(ids.includes('currencies'))
-  // communication_channels backs CRM email + /backend/profile/communication-channels
+  // communication_channels backs CRM email + /backend/profile/communication-channels, but the
+  // hub only persists credentials through integrations and only shows connect buttons for a
+  // provider module that injects into profile:communication-channels:connect (issue #6169).
   assert.ok(ids.includes('communication_channels'))
+  // progress backs communication_channels' declared `requires: ['progress']` (issue #6094)
+  assert.ok(ids.includes('progress'))
+  assert.ok(ids.includes('integrations'))
+  assert.ok(ids.includes('channel_imap'))
+  assert.equal(result.modules.find((m) => m.id === 'channel_imap')?.from, '@open-mercato/channel-imap')
+  assert.ok(ids.includes('channel_gmail'))
+  assert.equal(result.modules.find((m) => m.id === 'channel_gmail')?.from, '@open-mercato/channel-gmail')
   // ai_assistant must be included so customers AI widgets can register
   // (issue #1849 — CRM mode must enable AI assistant module)
   assert.ok(ids.includes('ai_assistant'))
@@ -161,7 +170,11 @@ test('generateModulesTs: produces valid content for crm modules', () => {
   assert.ok(content.includes("id: 'notifications'"))
   assert.ok(content.includes("id: 'dashboards'"))
   assert.ok(content.includes("id: 'events'"))
+  assert.ok(content.includes("id: 'integrations'"))
   assert.ok(content.includes("id: 'communication_channels'"))
+  assert.ok(content.includes("id: 'progress'"))
+  assert.ok(content.includes("id: 'channel_imap'"))
+  assert.ok(content.includes("id: 'channel_gmail'"))
   // ai_assistant must register from its own package
   assert.ok(content.includes("id: 'ai_assistant'"))
   assert.ok(content.includes("from: '@open-mercato/ai-assistant'"))
@@ -242,7 +255,7 @@ test('applyStarterPreset: empty writes 12-module modules.ts and keeps example so
   }
 })
 
-test('applyStarterPreset: crm writes 19-module modules.ts and keeps example source present', () => {
+test('applyStarterPreset: crm writes 23-module modules.ts and keeps example source present', () => {
   const dir = makeTempDir()
   try {
     applyStarterPreset('crm', dir)
@@ -257,7 +270,15 @@ test('applyStarterPreset: crm writes 19-module modules.ts and keeps example sour
     assert.ok(content.includes("id: 'notifications'"))
     assert.ok(content.includes("id: 'dashboards'"))
     assert.ok(content.includes("id: 'events'"))
+    // integrations + a connect-widget provider must register so the Communications Hub
+    // can persist credentials and the profile page has connect buttons (issue #6169)
+    assert.ok(content.includes("id: 'integrations'"))
     assert.ok(content.includes("id: 'communication_channels'"))
+    assert.ok(content.includes("id: 'progress'"))
+    assert.ok(content.includes("id: 'channel_imap'"))
+    assert.ok(content.includes("from: '@open-mercato/channel-imap'"))
+    assert.ok(content.includes("id: 'channel_gmail'"))
+    assert.ok(content.includes("from: '@open-mercato/channel-gmail'"))
     // ai_assistant must register so customers AI widgets work in the CRM preset
     // (regression coverage for issue #1849)
     assert.ok(content.includes("id: 'ai_assistant'"))
@@ -412,6 +433,78 @@ test('any preset enabling ai_assistant also enables search', () => {
     assert.ok(
       ids.has('search'),
       `preset "${presetId}" enables ai_assistant (Cmd+L) but not search (Cmd+K); the two palettes ship as a pair`,
+    )
+  }
+})
+
+// Drift guard: `ModuleInfo.requires` is enforced by the generator at `yarn generate`
+// time (packages/cli/src/lib/generators/module-registry.ts:4222), so a preset whose
+// module set does not satisfy it produces an app that hard-fails on the very first
+// command the CLI prints. Issue #6094 is how that escaped review — no test runs the
+// generator against a non-classic preset.
+function declaredRequires(entry: ModuleEntry): string[] {
+  const indexFile = join(moduleSourceDir(entry), 'index.ts')
+  if (!existsSync(indexFile)) return []
+  const match = readFileSync(indexFile, 'utf-8').match(/requires:\s*\[([^\]]*)\]/)
+  if (!match) return []
+  return [...match[1].matchAll(/['"]([^'"]+)['"]/g)].map((m) => m[1])
+}
+
+test('every non-classic preset satisfies the declared `requires` of every module it enables', () => {
+  // Premise assertion, so a future refactor turns this red rather than vacuously green.
+  assert.deepEqual(
+    declaredRequires({ id: 'communication_channels', from: '@open-mercato/core' }),
+    ['progress'],
+  )
+
+  for (const presetId of ['empty', 'crm', 'wms']) {
+    const modules = resolvePreset(presetId).modules
+    const enabledIds = new Set(modules.map((m) => m.id))
+    for (const entry of modules) {
+      const missing = declaredRequires(entry).filter((id) => !enabledIds.has(id))
+      assert.deepEqual(
+        missing,
+        [],
+        `preset "${presetId}" enables "${entry.id}", which declares requires: [${declaredRequires(entry).join(', ')}] — ` +
+          `${missing.join(', ')} is not in the preset, so \`yarn generate\` fails with "Module dependency check failed"`,
+      )
+    }
+  }
+})
+
+// Drift guard: a preset that enables `communication_channels` without also enabling
+// `integrations` (which registers `integrationCredentialsService`) and at least one module
+// that injects a connect button into the profile page's spot ships an app where the
+// Communications Hub renders with no way to ever connect a channel — that silent gap is how
+// issue #6169 escaped review.
+
+const CONNECT_SPOT = 'profile:communication-channels:connect'
+
+function moduleInjectsIntoSpot(entry: ModuleEntry, spotId: string): boolean {
+  const injectionTable = join(moduleSourceDir(entry), 'widgets', 'injection-table.ts')
+  return existsSync(injectionTable) && readFileSync(injectionTable, 'utf-8').includes(`'${spotId}'`)
+}
+
+test('any preset enabling communication_channels also enables integrations and a connect-widget provider', () => {
+  // The guard is only meaningful while a real provider really does inject a connect button;
+  // assert that premise so a future refactor turns this test red rather than vacuously green.
+  assert.ok(
+    moduleInjectsIntoSpot({ id: 'channel_imap', from: '@open-mercato/channel-imap' }, CONNECT_SPOT),
+    `expected channel_imap to inject a connect button into "${CONNECT_SPOT}"`,
+  )
+
+  for (const presetId of ['empty', 'crm', 'wms']) {
+    const modules = resolvePreset(presetId).modules
+    const ids = new Set(modules.map((m) => m.id))
+    if (!ids.has('communication_channels')) continue
+    assert.ok(
+      ids.has('integrations'),
+      `preset "${presetId}" enables communication_channels but not integrations — the hub can't persist channel credentials without integrationCredentialsService`,
+    )
+    const providers = modules.filter((m) => moduleInjectsIntoSpot(m, CONNECT_SPOT)).map((m) => m.id)
+    assert.ok(
+      providers.length > 0,
+      `preset "${presetId}" enables communication_channels but no enabled module injects a connect button into "${CONNECT_SPOT}" — the profile page has no way to connect a channel`,
     )
   }
 })
