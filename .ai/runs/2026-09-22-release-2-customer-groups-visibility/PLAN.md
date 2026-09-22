@@ -46,7 +46,7 @@
 | 2 | 2.8 | Integration tests: Phase 2 API routes + behavioral cases (incl. deprecated single-value equivalence) | dispatch:capable | done | 2e86faf01 |
 | 2 | 2.9 | Integration tests: Phase 2 UI paths | dispatch:capable | todo | — |
 | 3 | 3.1 | `packages/shared/src/lib/catalog-visibility/` types + pure functions + AGENTS.md library row | dispatch:capable | done | 60be3aede |
-| 3 | 3.2 | `customerGroupsService.resolveAssortmentScope()` + remove `ResolvedTerms.assortmentScope` | dispatch:standard | todo | — |
+| 3 | 3.2 | `customerGroupsService.resolveAssortmentScope()` + remove `ResolvedTerms.assortmentScope` | dispatch:standard | done | b8bec53c9 |
 | 3 | 3.3 | Unit tests: §11 pure-function matrix (incl. R2 disjoint-dimension fixture + distributive law) + `resolveAssortmentScope` multi-group tests | dispatch:capable | todo | — |
 
 ## Goal

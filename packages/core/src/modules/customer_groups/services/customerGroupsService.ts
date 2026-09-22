@@ -1,4 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { unionScopes } from '@open-mercato/shared/lib/catalog-visibility'
+import type { AssortmentScope, EffectiveAssortmentScope } from '@open-mercato/shared/lib/catalog-visibility'
 import { CustomerGroup, CustomerGroupMembership, CustomerGroupTerms } from '../data/entities'
 
 export type GroupResolution = {
@@ -76,9 +78,36 @@ export type ResolveTermsInput = {
   groupIds?: string[]
 }
 
+// Same shape as `ResolveGroupsInput` — `resolveAssortmentScope` delegates straight to
+// `resolveGroups()` and adds no extra inputs of its own. Aliased rather than reused
+// directly so a future assortment-specific input (e.g. a channel id, once Phase 2 of
+// catalog-visibility composes channel scope too) doesn't ripple through `resolveGroups`'s
+// own signature.
+export type ResolveAssortmentScopeInput = ResolveGroupsInput
+
+export type ResolvedAssortmentScope = {
+  scope: EffectiveAssortmentScope
+  sourceGroupIds: string[]
+  // Always `null` in Phase 1 — `CustomerAssortmentOverride` (per-customer override table)
+  // is Phase 4 scope (spec §14 non-goals) and does not exist yet. Never read from anywhere;
+  // this is a fixed literal until that phase lands.
+  sourceCustomerOverrideId: string | null
+}
+
 export interface CustomerGroupsService {
   resolveGroups(input: ResolveGroupsInput): Promise<GroupResolution>
   resolveTerms(input: ResolveTermsInput): Promise<ResolvedTerms>
+  resolveAssortmentScope(input: ResolveAssortmentScopeInput): Promise<ResolvedAssortmentScope>
+}
+
+// Phase 1's `CustomerGroup` entity has no `assortment_scope`-shaped column yet — the spec's
+// full field list places it on `CustomerGroupTerms`, but that was deliberately withheld from
+// this PR's Step 2.1 entity (Phase 5 scope, spec §14 non-goals). Every matching group
+// therefore contributes an unrestricted (`null`) own-scope for now. Once a real column
+// exists, replace this stub's body with a read of it — `resolveAssortmentScope`'s
+// `unionScopes` composition below needs no changes to start returning real restrictions.
+function groupOwnAssortmentScope(_groupId: string): AssortmentScope | null {
+  return null
 }
 
 function toGroupSummary(group: CustomerGroup): GroupResolution['groups'][number] {
@@ -260,6 +289,12 @@ export class DefaultCustomerGroupsService implements CustomerGroupsService {
     }
 
     return result
+  }
+
+  async resolveAssortmentScope(input: ResolveAssortmentScopeInput): Promise<ResolvedAssortmentScope> {
+    const { groupIds } = await this.resolveGroups(input)
+    const scope = unionScopes(groupIds.map((groupId) => groupOwnAssortmentScope(groupId)))
+    return { scope, sourceGroupIds: groupIds, sourceCustomerOverrideId: null }
   }
 
   private async loadAncestorChain(
