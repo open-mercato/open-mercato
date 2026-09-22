@@ -251,6 +251,28 @@ The predicate is per entity type for the same reason `persistsSharedCursor` is: 
 
 Do not infer the answer from `persistsSharedCursor`. Where a cursor is stored and whether restarting from scratch is meaningful are independent facts — an entity type kept out of the shared row can still have a genuine beginning — and both are yours to state.
 
+### The page size an operator did not choose
+
+A control that applies still has to start somewhere. **Batch size** starts at 100, which is a safe number for a source paged over HTTP and a starving one for a batch you apply across parallel workers — and core has no way to tell the two apart. Say so:
+
+```ts
+const adapter: DataSyncAdapter = {
+  providerKey: 'my_provider',
+  direction: 'import',
+  supportedEntities: ['orders.feed', 'orders.backfill'],
+  defaultBatchSize: (entityType) => (entityType === 'orders.backfill' ? 500 : undefined),
+  // ...
+}
+```
+
+Return `undefined` — or omit the hook — to keep core's 100. The declaration applies wherever a run starts without naming a page size: the dashboard's card, the integration page's schedule row, a recurring schedule, **Retry**, and any provider route of your own that calls `startDataSyncRun`.
+
+It is a default, not a ceiling. An explicit `batchSize` on the run request still wins, so an operator can page smaller for one run; what you set is what they get when they choose nothing. The value is clamped to the same `1..1000` the run API accepts, and anything that is not a positive integer is ignored rather than fatal — an adapter must not be able to make itself unstartable over its page size.
+
+`GET /api/data_sync/options` ships the resolved values as a sparse `defaultBatchSizes` map, which the dashboard uses to seed the field, so the operator sees the number their run will actually use before they start it.
+
+One thing the declaration cannot recover: the run row does not record the page size a run used, so **Retry** re-resolves your default rather than replaying the original value. A retry of a run started with an explicit `batchSize` therefore gets your default, not that value.
+
 ## Shared cursor vs run-scoped cursor
 
 Every committed batch advances the cursor on the run row (`sync_runs.cursor`) so a redelivered job resumes exactly where it stopped. By default the engine also mirrors that cursor into the shared `sync_cursors` row — one row per `(integration, entityType, direction, organization, tenant)` — which is what the next incremental run starts from.

@@ -53,6 +53,11 @@ import {
   type StartControlMap,
 } from '../../lib/start-controls'
 import {
+  DATA_SYNC_DEFAULT_BATCH_SIZE,
+  declaredDefaultBatchSize,
+  type DefaultBatchSizeMap,
+} from '../../lib/default-batch-size'
+import {
   RunParameterFields,
   buildDefaultRunParameterValues,
   buildRetryFailureMessage,
@@ -94,6 +99,7 @@ type SyncOption = {
   supportedEntities: string[]
   runParameters?: RunParameter[]
   startControls?: StartControlMap
+  defaultBatchSizes?: DefaultBatchSizeMap
   hasCredentials: boolean
   isEnabled: boolean
   settingsPath: string
@@ -133,9 +139,6 @@ type SyncScheduleEditorState = {
 }
 
 const DEFAULT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-
-/** Matches `runSyncSchema`'s own default, so omitting the field submits this value. */
-const DEFAULT_BATCH_SIZE = '100'
 
 /**
  * Keeps the batch size input at its own narrow width without leaving a phantom
@@ -183,7 +186,7 @@ export default function SyncRunsDashboardPage() {
   const [selectedIntegrationId, setSelectedIntegrationId] = React.useState('')
   const [selectedEntityType, setSelectedEntityType] = React.useState('')
   const [selectedDirection, setSelectedDirection] = React.useState<'import' | 'export'>('import')
-  const [batchSize, setBatchSize] = React.useState(DEFAULT_BATCH_SIZE)
+  const [batchSize, setBatchSize] = React.useState(String(DATA_SYNC_DEFAULT_BATCH_SIZE))
   const [fullSync, setFullSync] = React.useState(false)
   const [paramValues, setParamValues] = React.useState<Record<string, RunParameterFormValue>>({})
   const [scheduleEditor, setScheduleEditor] = React.useState<SyncScheduleEditorState>(() => buildDefaultScheduleState(''))
@@ -289,6 +292,13 @@ export default function SyncRunsDashboardPage() {
     [selectedIntegration, selectedEntityType],
   )
 
+  // Before an entity is chosen the state is '', which the map does not declare,
+  // so the field shows core's default — the unselected form as it is today.
+  const defaultBatchSize = React.useMemo(
+    () => declaredDefaultBatchSize(selectedIntegration?.defaultBatchSizes, selectedEntityType),
+    [selectedIntegration, selectedEntityType],
+  )
+
   React.useEffect(() => {
     setParamValues(buildDefaultRunParameterValues(runParameters))
   }, [runParameters])
@@ -299,9 +309,13 @@ export default function SyncRunsDashboardPage() {
     if (!startControls.fullSync) setFullSync(false)
   }, [startControls.fullSync])
 
+  // Seeds the field with the page size this entity type would get anyway, so the
+  // form no longer submits a number nobody chose. Re-seeding on every entity
+  // change also discards a value the operator set for a different one — the same
+  // reason the `fullSync` reset above exists.
   React.useEffect(() => {
-    if (!startControls.batchSize) setBatchSize(DEFAULT_BATCH_SIZE)
-  }, [startControls.batchSize])
+    setBatchSize(String(defaultBatchSize))
+  }, [defaultBatchSize, selectedIntegrationId, selectedEntityType])
 
   const updateParamValue = React.useCallback((key: string, value: RunParameterFormValue) => {
     setParamValues((current) => ({ ...current, [key]: value }))
@@ -423,8 +437,9 @@ export default function SyncRunsDashboardPage() {
     if (!selectedIntegration || !selectedEntityType) return
 
     const parameters = buildRunParametersPayload(runParameters, paramValues)
-    // A control the adapter declared inapplicable is left out entirely, so
-    // `runSyncSchema`'s defaults supply exactly what the rendered form sends.
+    // A control the adapter declared inapplicable is left out entirely, so the
+    // request carries exactly what the rendered form shows — and an omitted
+    // `batchSize` reaches the adapter's declared default rather than core's.
     const requestBody: Record<string, unknown> = {
       integrationId: selectedIntegration.integrationId,
       entityType: selectedEntityType,

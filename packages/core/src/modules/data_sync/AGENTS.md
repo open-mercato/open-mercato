@@ -112,6 +112,7 @@ interface DataSyncAdapter {
   getMapping(input: { entityType: string; scope: TenantScope }): Promise<DataMapping>
   persistsSharedCursor?(entityType: string): boolean
   supportsStartControl?(control: 'fullSync' | 'batchSize', entityType: string): boolean
+  defaultBatchSize?(entityType: string): number | undefined
   validateConnection?(input: {
     entityType: string
     credentials: Record<string, unknown>
@@ -223,6 +224,40 @@ response.
 Do not derive applicability from `persistsSharedCursor` — where a cursor is
 stored and whether restarting from scratch is meaningful are independent facts,
 and both belong to the adapter to state.
+
+### Default batch size
+
+A control that applies still needs a starting value, and **Batch size** starts at
+100 for every adapter — a safe number for a source paged over HTTP, a starving
+one for a batch applied across parallel workers. Which it is, only the adapter
+knows:
+
+```typescript
+defaultBatchSize: (entityType) => (entityType === 'orders.backfill' ? 500 : undefined),
+```
+
+`undefined` — or no declaration — keeps core's 100. The declaration is clamped to
+the `1..1000` the run API accepts, and a value that is not a positive integer
+is ignored rather than fatal.
+
+It resolves in **`lib/start-run.ts`**, not in the callers: every start path funnels
+through `startDataSyncRun`, so the run route, Retry, the scheduled worker and any
+provider route that enqueues a run all get the same answer, and a future start
+path cannot forget to ask. `api/options.ts` ships the same values as a sparse
+`defaultBatchSizes` map so the dashboard can seed its field; `lib/default-batch-size.ts`
+owns both halves, and a hook that throws is treated as *not declared* for the same
+reason `supportsStartControl`'s is treated as *applies*.
+
+**A default, not a ceiling.** `batchSize` on the run request still wins, so this
+sets what an operator gets when they choose nothing — never what they may choose.
+The run route therefore parses `runSyncRequestSchema`, whose `batchSize` is
+`.optional()`, and not the deprecated `runSyncSchema`, whose `.default(100)`
+cannot tell "the operator asked for 100" from "nobody named a page size" — only
+the second may be answered here. Any future start path MUST leave it undefined
+rather than pass a number of its own.
+
+Retry is the known gap: the run row does not record the page size a run used, so
+a retry re-resolves the adapter's default instead of replaying an explicit value.
 
 If the sync provider needs bootstrap credentials, mappings, locales, channels, or other default sync settings after a fresh install, implement a provider-owned env preset flow:
 
