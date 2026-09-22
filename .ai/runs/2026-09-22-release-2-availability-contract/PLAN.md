@@ -25,6 +25,7 @@ Source spec: `.ai/specs/2026-08-14-availability-contract.md` §13 Phases 1 and 2
 | — | 4.1 | Playwright UI integration tests | inline | done | 14aef0b2b |
 | — | 4.2 | Module registration + generate + docs wrap-up | inline | done | 7499acb38 |
 | — | 4.3-final-gate-fix | Final gate fix: acl.ts missing `export default features` (app-level typecheck only) | inline | done | 042a3c2b4 |
+| — | 4.4-live-qa-fixes | Live QA against a real disposable Postgres + dev server: fixed a genuine `wms` bug (raw-SQL `= any(?)` array binding fails under MikroORM's `.execute()`, same class as the staff/dashboards precedent — replaced with per-value `IN (...)` via a new local `sqlInClause.ts`) plus 3 test-only bugs (invalid 37-char UUID from unguarded `Date.now()` padding, wrong checkbox selector, two "Save changes"/"Create policy" submit buttons needing `.first()`) | inline | done | 4ca260eb3, e51d13b41 |
 
 ## Goal
 
