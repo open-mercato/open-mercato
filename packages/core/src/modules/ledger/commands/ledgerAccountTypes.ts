@@ -13,8 +13,10 @@ import { JournalEntryLine, LedgerAccount, LedgerAccountType } from '../data/enti
 import {
   ledgerAccountTypeCreateSchema,
   ledgerAccountTypeUpdateSchema,
+  ledgerAccountTypeDeleteSchema,
   type LedgerAccountTypeCreateInput,
   type LedgerAccountTypeUpdateInput,
+  type LedgerAccountTypeDeleteInput,
 } from '../data/validators'
 
 const LEDGER_ACCOUNT_TYPE_ENTITY_ID = 'ledger:ledger_account_type'
@@ -61,6 +63,26 @@ async function accountTypeHasPostedEntries(
     accountId: { $in: accountIds },
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
+  })
+  return count > 0
+}
+
+/**
+ * Whether another `LedgerAccountType` still names `accountTypeId` as its
+ * `parentAccountTypeId` — the second half of `deleteLedgerAccountType`'s
+ * blocking condition (see spec: "delete blocked once posted entries OR
+ * named as another type's parentAccountTypeId").
+ */
+async function accountTypeReferencedAsParent(
+  em: EntityManager,
+  accountTypeId: string,
+  scope: Scope,
+): Promise<boolean> {
+  const count = await em.count(LedgerAccountType, {
+    parentAccountTypeId: accountTypeId,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    deletedAt: null,
   })
   return count > 0
 }
@@ -210,5 +232,67 @@ const updateLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeUpdateInpu
   },
 }
 
+/**
+ * `deleteLedgerAccountType` — soft delete (`deletedAt`). Blocked when any
+ * account of this type has posted entries, or when another account type
+ * still names this one as its `parentAccountTypeId` (see
+ * accountTypeReferencedAsParent).
+ */
+const deleteLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeDeleteInput, { ledgerAccountTypeId: string }> = {
+  id: 'ledger.deleteLedgerAccountType',
+  async execute(rawInput, ctx) {
+    const parsed = ledgerAccountTypeDeleteSchema.parse(rawInput ?? {})
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+
+    const record = await em.findOne(LedgerAccountType, { id: parsed.id, deletedAt: null })
+    if (!record) throw notFound('Ledger account type not found.')
+    ensureTenantScope(ctx, record.tenantId)
+    ensureOrganizationScope(ctx, record.organizationId)
+    const scope: Scope = { organizationId: record.organizationId, tenantId: record.tenantId }
+
+    if (await accountTypeHasPostedEntries(em, record.id, scope)) {
+      throw conflict('This account type cannot be deleted because an account of this type has posted entries.')
+    }
+    if (await accountTypeReferencedAsParent(em, record.id, scope)) {
+      throw conflict('This account type cannot be deleted because another account type still lists it as its parent.')
+    }
+
+    await runCrudCommandWrite({
+      ctx,
+      em,
+      entityId: LEDGER_ACCOUNT_TYPE_ENTITY_ID,
+      action: 'deleted',
+      scope,
+      events: ledgerAccountTypeCrudEvents,
+      indexer: ledgerAccountTypeCrudIndexer,
+      sideEffect: () => ({
+        entity: record,
+        identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
+      }),
+      phases: [
+        () => {
+          record.deletedAt = new Date()
+          record.updatedAt = new Date()
+          em.persist(record)
+        },
+      ],
+    })
+
+    return { ledgerAccountTypeId: record.id }
+  },
+  buildLog: async ({ input, result, ctx }) => {
+    if (!result) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('ledger.audit.deleteLedgerAccountType', 'Delete ledger account type'),
+      resourceKind: 'ledger.ledger_account_type',
+      resourceId: result.ledgerAccountTypeId,
+      tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
+      organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    }
+  },
+}
+
 registerCommand(createLedgerAccountTypeCommand)
 registerCommand(updateLedgerAccountTypeCommand)
+registerCommand(deleteLedgerAccountTypeCommand)

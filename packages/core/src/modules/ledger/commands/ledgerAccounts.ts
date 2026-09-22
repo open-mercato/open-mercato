@@ -13,8 +13,10 @@ import { JournalEntryLine, LedgerAccount } from '../data/entities'
 import {
   ledgerAccountCreateSchema,
   ledgerAccountUpdateSchema,
+  ledgerAccountDeleteSchema,
   type LedgerAccountCreateInput,
   type LedgerAccountUpdateInput,
+  type LedgerAccountDeleteInput,
 } from '../data/validators'
 
 // Plain string, matching this module's own `encryption.ts` entityId
@@ -190,5 +192,65 @@ const updateLedgerAccountCommand: CommandHandler<LedgerAccountUpdateInput, { led
   },
 }
 
+/**
+ * `deleteLedgerAccount` — soft delete (`deletedAt`). Blocked when the
+ * account has any posted `JournalEntryLine`, matching the same
+ * `accountHasPostedEntries` check `updateLedgerAccount` uses for its
+ * `accountTypeId`-immutability guard (see spec's Queries/API section:
+ * "delete blocked once posted entries exist").
+ */
+const deleteLedgerAccountCommand: CommandHandler<LedgerAccountDeleteInput, { ledgerAccountId: string }> = {
+  id: 'ledger.deleteLedgerAccount',
+  async execute(rawInput, ctx) {
+    const parsed = ledgerAccountDeleteSchema.parse(rawInput ?? {})
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+
+    const record = await em.findOne(LedgerAccount, { id: parsed.id, deletedAt: null })
+    if (!record) throw notFound('Ledger account not found.')
+    ensureTenantScope(ctx, record.tenantId)
+    ensureOrganizationScope(ctx, record.organizationId)
+    const scope: Scope = { organizationId: record.organizationId, tenantId: record.tenantId }
+
+    if (await accountHasPostedEntries(em, record.id, scope)) {
+      throw conflict('This account cannot be deleted because it has posted journal entries.')
+    }
+
+    await runCrudCommandWrite({
+      ctx,
+      em,
+      entityId: LEDGER_ACCOUNT_ENTITY_ID,
+      action: 'deleted',
+      scope,
+      events: ledgerAccountCrudEvents,
+      indexer: ledgerAccountCrudIndexer,
+      sideEffect: () => ({
+        entity: record,
+        identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
+      }),
+      phases: [
+        () => {
+          record.deletedAt = new Date()
+          record.updatedAt = new Date()
+          em.persist(record)
+        },
+      ],
+    })
+
+    return { ledgerAccountId: record.id }
+  },
+  buildLog: async ({ input, result, ctx }) => {
+    if (!result) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('ledger.audit.deleteLedgerAccount', 'Delete ledger account'),
+      resourceKind: 'ledger.ledger_account',
+      resourceId: result.ledgerAccountId,
+      tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
+      organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    }
+  },
+}
+
 registerCommand(createLedgerAccountCommand)
 registerCommand(updateLedgerAccountCommand)
+registerCommand(deleteLedgerAccountCommand)

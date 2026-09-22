@@ -143,6 +143,17 @@ export const ledgerAccountUpdateSchema = z.object({
 
 export type LedgerAccountUpdateInput = z.infer<typeof ledgerAccountUpdateSchema>
 
+// `deleteLedgerAccount` input. Soft-delete only (`deletedAt`); blocked at
+// the command layer when the account has posted entries (see
+// commands/ledgerAccounts.ts).
+export const ledgerAccountDeleteSchema = z.object({
+  id: z.uuid(),
+  organizationId: z.uuid().optional(),
+  tenantId: z.uuid().optional(),
+})
+
+export type LedgerAccountDeleteInput = z.infer<typeof ledgerAccountDeleteSchema>
+
 // `createLedgerAccountType` / `updateLedgerAccountType` input.
 export const ledgerAccountTypeCreateSchema = z.object({
   organizationId: z.uuid(),
@@ -171,3 +182,15 @@ export const ledgerAccountTypeUpdateSchema = z.object({
 })
 
 export type LedgerAccountTypeUpdateInput = z.infer<typeof ledgerAccountTypeUpdateSchema>
+
+// `deleteLedgerAccountType` input. Soft-delete only; blocked at the
+// command layer when any account of this type has posted entries, or when
+// another account type still names this one as its `parentAccountTypeId`
+// (see commands/ledgerAccountTypes.ts).
+export const ledgerAccountTypeDeleteSchema = z.object({
+  id: z.uuid(),
+  organizationId: z.uuid().optional(),
+  tenantId: z.uuid().optional(),
+})
+
+export type LedgerAccountTypeDeleteInput = z.infer<typeof ledgerAccountTypeDeleteSchema>
