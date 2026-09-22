@@ -38,6 +38,7 @@ import { resolveListCountCap } from '@open-mercato/shared/lib/query/count-cap'
 import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
+import { createBoundedTtlMemo } from '@open-mercato/shared/lib/query/bounded-ttl-memo'
 
 const logger = createLogger('query_index').child({ component: 'engine' })
 
@@ -81,6 +82,24 @@ function markAutoReindexScheduled(key: string, debounceMs: number, now: number):
   autoReindexScheduledAt.delete(key)
   autoReindexScheduledAt.set(key, now)
   return true
+}
+
+/** Only `true` is cached: a cached `false` would keep routing to the fallback engine after a migration creates the table. */
+const baseTableExistsCache = createBoundedTtlMemo<true>({
+  ttlEnv: 'OM_QUERY_INDEX_BASE_TABLE_EXISTS_CACHE_MS',
+  maxEntriesEnv: 'OM_QUERY_INDEX_BASE_TABLE_EXISTS_CACHE_MAX_ENTRIES',
+  defaultTtlMs: 3_600_000,
+  defaultMaxEntries: 1_000,
+})
+
+/** Test-only: the module-scoped memo would otherwise leak state across specs. */
+export function clearBaseTableExistsCache(): void {
+  baseTableExistsCache.clear()
+}
+
+/** Test-only: entry count of the table-existence memo, for the cap regression test. */
+export function baseTableExistsCacheSize(): number {
+  return baseTableExistsCache.size()
 }
 
 function buildFilterableCustomFieldJoins(
@@ -2162,13 +2181,16 @@ export class HybridQueryEngine implements QueryEngine {
   }
 
   private async tableExists(table: string): Promise<boolean> {
+    if (baseTableExistsCache.get(table)) return true
     const db = this.getDb() as any
     const exists = await db
       .selectFrom('information_schema.tables')
       .select(sql<number>`1`.as('one'))
       .where('table_name', '=', table)
       .executeTakeFirst()
-    return !!exists
+    const present = !!exists
+    if (present) baseTableExistsCache.set(table, true)
+    return present
   }
 
   private async resolveAvailableCustomFieldKeys(entityIds: string[], tenantId: string | null): Promise<string[]> {
