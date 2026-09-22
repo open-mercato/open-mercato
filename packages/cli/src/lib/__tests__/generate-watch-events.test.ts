@@ -59,7 +59,7 @@ describe('createGenerateWatchChangeSignal', () => {
       moduleRoots: [{
         appBase,
         pkgBase: impossiblePackageBase,
-        from: '@app',
+        watchPackageBase: false,
       }],
       resolveSourceMirrorBase,
     })
@@ -87,6 +87,48 @@ describe('createGenerateWatchChangeSignal', () => {
     await signal.close()
   })
 
+  it('retains the real package fallback target for app modules in monorepo mode', () => {
+    const projectRoot = path.resolve('/virtual/monorepo')
+    const modulesFile = path.join(projectRoot, 'apps', 'mercato', 'src', 'modules.ts')
+    const appBase = path.join(
+      projectRoot,
+      'apps',
+      'mercato',
+      'src',
+      'modules',
+      'custom_module',
+    )
+    const packageBase = path.join(
+      projectRoot,
+      'packages',
+      'core',
+      'src',
+      'modules',
+      'custom_module',
+    )
+    const resolveSourceMirrorBase = jest.fn(() => null)
+
+    const targets = resolveGenerateWatchTargets({
+      modulesFile,
+      moduleRoots: [{
+        appBase,
+        pkgBase: packageBase,
+        watchPackageBase: true,
+      }],
+      resolveSourceMirrorBase,
+    })
+
+    expect(targets).toContainEqual({
+      directory: path.dirname(appBase),
+      recursive: true,
+    })
+    expect(targets).toContainEqual({
+      directory: path.dirname(packageBase),
+      recursive: true,
+    })
+    expect(resolveSourceMirrorBase).toHaveBeenCalledWith(packageBase)
+  })
+
   it('retains missing package-module targets so idle refresh discovers them later', async () => {
     const projectRoot = path.resolve('/virtual/standalone-app')
     const modulesFile = path.join(projectRoot, 'src', 'modules.ts')
@@ -106,7 +148,7 @@ describe('createGenerateWatchChangeSignal', () => {
       moduleRoots: [{
         appBase,
         pkgBase: packageBase,
-        from: '@open-mercato/official-package',
+        watchPackageBase: true,
       }],
       resolveSourceMirrorBase: () => null,
     })

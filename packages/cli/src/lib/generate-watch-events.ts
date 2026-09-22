@@ -28,7 +28,7 @@ export type GenerateWatchChangeSignalOptions = {
 export type GenerateWatchModuleTarget = {
   appBase: string
   pkgBase: string
-  from?: string
+  watchPackageBase: boolean
 }
 
 export function resolveGenerateWatchTargets(options: {
@@ -44,7 +44,7 @@ export function resolveGenerateWatchTargets(options: {
 
   for (const roots of options.moduleRoots) {
     targets.push({ directory: path.dirname(roots.appBase), recursive: true })
-    if (roots.from === '@app') continue
+    if (!roots.watchPackageBase) continue
 
     targets.push({ directory: path.dirname(roots.pkgBase), recursive: true })
     const sourceMirror = options.resolveSourceMirrorBase(roots.pkgBase)

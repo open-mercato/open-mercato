@@ -839,11 +839,15 @@ async function createGenerateWatchRuntime(quiet = false) {
     const moduleRoots: Array<{
       appBase: string
       pkgBase: string
-      from?: string
+      watchPackageBase: boolean
     }> = []
+    const watchAppPackageFallbacks = resolver.isMonorepo()
     for (const entry of resolver.loadEnabledModules()) {
       const roots = resolver.getModulePaths(entry)
-      moduleRoots.push({ ...roots, from: entry.from })
+      moduleRoots.push({
+        ...roots,
+        watchPackageBase: entry.from !== '@app' || watchAppPackageFallbacks,
+      })
     }
     return {
       modulesFile: resolver.getModulesConfigPath(),
