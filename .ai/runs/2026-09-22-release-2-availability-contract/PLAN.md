@@ -13,7 +13,7 @@ Source spec: `.ai/specs/2026-08-14-availability-contract.md` §13 Phases 1 and 2
 | 1 | 2.1 | availability module skeleton (index/acl/events) | inline | done | 0497c1115 |
 | 1 | 2.2 | AvailabilityPolicy entity + validators + migration | inline | done | e225f5ffd |
 | 1 | 2.3 | policyResolution.ts — 6-level chain + tests | inline | done | 37c4994aa |
-| 1 | 2.4 | policy commands + CRUD API route + tests | inline | todo | — |
+| 1 | 2.4 | policy commands + CRUD API route + tests | inline | done | 6b9e5e926 |
 | 1 | 2.5 | admin check API route + tests | inline | todo | — |
 | 1 | 2.6 | setup.ts + di.ts + i18n | inline | todo | — |
 | 1 | 2.7 | backend UI — policy list/create/edit | inline | todo | — |
