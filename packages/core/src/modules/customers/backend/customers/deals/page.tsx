@@ -731,9 +731,9 @@ export default function CustomersDealsPage() {
         header: t('customers.deals.list.columns.title'),
         meta: {
           alwaysVisible: true,
-          columnChooserGroup: 'Basic Info',
+          columnChooserGroup: t('customers.columnGroups.basicInfo', 'Basic Info'),
           filterKey: 'title',
-          filterGroup: 'Deal',
+          filterGroup: t('customers.columnGroups.deal', 'Deal'),
           maxWidth: '280px',
         },
         cell: ({ row }) => (
@@ -757,9 +757,9 @@ export default function CustomersDealsPage() {
         meta: {
           filterType: 'select' as const,
           filterOptions: dictionaryOptions.dealStatuses,
-          columnChooserGroup: 'Basic Info',
+          columnChooserGroup: t('customers.columnGroups.basicInfo', 'Basic Info'),
           filterKey: 'status',
-          filterGroup: 'Deal',
+          filterGroup: t('customers.columnGroups.deal', 'Deal'),
         },
         cell: ({ row }) => {
           const status = row.original.status
@@ -776,9 +776,9 @@ export default function CustomersDealsPage() {
         meta: {
           filterType: 'select' as const,
           filterOptions: dictionaryOptions.pipelineStages,
-          columnChooserGroup: 'Pipeline',
+          columnChooserGroup: t('customers.columnGroups.pipeline', 'Pipeline'),
           filterKey: 'pipeline_stage',
-          filterGroup: 'Deal',
+          filterGroup: t('customers.columnGroups.deal', 'Deal'),
         },
         cell: ({ row }) => {
           const stage = row.original.pipelineStage
@@ -791,9 +791,9 @@ export default function CustomersDealsPage() {
         accessorKey: 'pipelineId',
         header: t('customers.deals.list.columns.pipeline', 'Pipeline'),
         meta: {
-          columnChooserGroup: 'Pipeline',
+          columnChooserGroup: t('customers.columnGroups.pipeline', 'Pipeline'),
           filterKey: 'pipeline_id',
-          filterGroup: 'Deal',
+          filterGroup: t('customers.columnGroups.deal', 'Deal'),
           maxWidth: '220px',
         },
         cell: ({ row }) => {
@@ -806,9 +806,9 @@ export default function CustomersDealsPage() {
         header: t('customers.deals.list.columns.value'),
         meta: {
           filterType: 'number' as const,
-          columnChooserGroup: 'Financial',
+          columnChooserGroup: t('customers.columnGroups.financial', 'Financial'),
           filterKey: 'value_amount',
-          filterGroup: 'Deal',
+          filterGroup: t('customers.columnGroups.deal', 'Deal'),
         },
         cell: ({ row }) => {
           const amount = formatGroupedAmount(row.original.valueAmount ?? null)
@@ -827,9 +827,9 @@ export default function CustomersDealsPage() {
         header: t('customers.deals.list.columns.probability'),
         meta: {
           filterType: 'number' as const,
-          columnChooserGroup: 'Financial',
+          columnChooserGroup: t('customers.columnGroups.financial', 'Financial'),
           filterKey: 'probability',
-          filterGroup: 'Deal',
+          filterGroup: t('customers.columnGroups.deal', 'Deal'),
         },
         cell: ({ row }) => {
           const value = row.original.probability
@@ -843,9 +843,9 @@ export default function CustomersDealsPage() {
         accessorKey: 'expectedCloseAt',
         header: t('customers.deals.list.columns.expectedClose'),
         meta: {
-          columnChooserGroup: 'Dates',
+          columnChooserGroup: t('customers.columnGroups.dates', 'Dates'),
           filterKey: 'expected_close_at',
-          filterGroup: 'Activity',
+          filterGroup: t('customers.columnGroups.activity', 'Activity'),
           filterIconName: 'calendar',
         },
         cell: ({ row }) => {
@@ -884,11 +884,11 @@ export default function CustomersDealsPage() {
         accessorKey: 'ownerUserId',
         header: t('customers.deals.list.columns.owner', 'Owner'),
         meta: {
-          columnChooserGroup: 'CRM',
+          columnChooserGroup: t('customers.columnGroups.crm', 'CRM'),
           filterType: 'select',
           filterOptions: resolvedOwnerFilterOptions,
           filterLoadOptions: loadOwnerFilterOptions,
-          filterGroup: 'CRM',
+          filterGroup: t('customers.columnGroups.crm', 'CRM'),
           filterIconName: 'user-round',
           filterKey: 'owner_user_id',
         },
@@ -908,9 +908,9 @@ export default function CustomersDealsPage() {
         accessorKey: 'companies',
         header: t('customers.deals.list.columns.companies'),
         meta: {
-          columnChooserGroup: 'Associations',
+          columnChooserGroup: t('customers.columnGroups.associations', 'Associations'),
           filterable: false,
-          filterGroup: 'CRM',
+          filterGroup: t('customers.columnGroups.crm', 'CRM'),
           filterIconName: 'building-2',
           maxWidth: '220px',
           tooltipContent: (row: DealRow) =>
@@ -939,9 +939,9 @@ export default function CustomersDealsPage() {
         accessorKey: 'people',
         header: t('customers.deals.list.columns.people'),
         meta: {
-          columnChooserGroup: 'Associations',
+          columnChooserGroup: t('customers.columnGroups.associations', 'Associations'),
           filterable: false,
-          filterGroup: 'CRM',
+          filterGroup: t('customers.columnGroups.crm', 'CRM'),
           filterIconName: 'user-round',
           maxWidth: '220px',
           tooltipContent: (row: DealRow) =>
@@ -978,9 +978,9 @@ export default function CustomersDealsPage() {
         accessorKey: 'updatedAt',
         header: t('customers.deals.list.columns.updatedAt'),
         meta: {
-          columnChooserGroup: 'Dates',
+          columnChooserGroup: t('customers.columnGroups.dates', 'Dates'),
           filterKey: 'updated_at',
-          filterGroup: 'Activity',
+          filterGroup: t('customers.columnGroups.activity', 'Activity'),
           filterIconName: 'calendar',
         },
         cell: ({ row }) => (
