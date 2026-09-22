@@ -22,6 +22,32 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
+## 0.8.0 → 0.8.1 (unreleased)
+
+### `yarn mercato <module> <command>` exits with the code the command signalled (#5936)
+
+The CLI's module-command dispatcher discarded the executed command's exit signal: unless the command *threw*, the process exited `0`. A command that detected a failure and signalled it the idiomatic Node way — assigning `process.exitCode` without throwing — reported success to the shell, so `$?` lied to every script, CI step and `&&` chain built around the CLI. The dispatcher now wraps the command in the CLI's existing `runWithCapturedExitCode` helper and returns the captured code, which is what the built-in `umes inspect` and `umes check` commands already did.
+
+No command, flag, or output line changes — the `🚀 Running …`, `⏱️ Done in …ms` and `💥 Failed: …` lines are byte-identical, so anything parsing CLI output is unaffected, and `BACKWARD_COMPATIBILITY.md` §13 (CLI Commands) is not touched. What changes is the process **exit status** on paths that were previously reported as success.
+
+**The first-party commands whose observable exit status changes** are the ones that already set `process.exitCode` on their failure paths, each of which writes an error to stderr immediately before doing so:
+
+| command family | now exits non-zero when |
+|---|---|
+| `mercato auth setup` | `2` for an invalid `--orgSlug`, missing required arguments, a rejected password policy, or a required derived-user password; `1` for an existing org slug or an existing user |
+| `mercato gateway_stripe …` | `1` for a missing Stripe env preset, or any error while applying it |
+| `mercato sync_akeneo …` | `1` for a missing Akeneo env preset, or any error while applying it |
+| `mercato ai_assistant mcp:ensure-api-key` | `1` when required arguments are missing |
+| `mercato ai_assistant test-tools` | `1` when the tool test report contains at least one failure |
+| `mercato tillio configure-from-env` | `1` for missing `--tenantId`/`--organizationId`, a blocked provisioning result, or any error while applying the env preset |
+| `mercato seeds encrypt` / `decrypt` / `load` | `1` for missing `--in`/`--out`, or a scope that cannot be resolved for `load` |
+| `mercato agent_orchestrator eval` | `2` for missing required arguments or an invalid `--repeat`; `1` or `2` when `--gate` is set and the gate cannot run or fails |
+| `mercato agent_orchestrator token-usage` | `2` for missing `--dir`/`--agent`, an unknown agent id, a directory with no `AGENT.md`, or a manifest with no baked token usage |
+
+Concretely: `mercato auth setup --orgSlug 'Bad Slug!'` printed a validation error and exited `0` before; it now exits `2`.
+
+**Action for operators:** audit any bootstrap, deployment or CI script that chains CLI invocations with `&&`, checks `$?`, or uses `set -e`. A script of the shape `yarn mercato auth setup … && yarn mercato entities install …` that has been silently tolerating a swallowed failure will now stop at the first step. That is the intended behaviour — the failure was always real — but the stop is new, so plan for it rather than discovering it during an upgrade. Custom module commands are affected the same way: one that assigns `process.exitCode` without throwing now propagates it, and one that signals failure by throwing keeps working exactly as before.
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).
