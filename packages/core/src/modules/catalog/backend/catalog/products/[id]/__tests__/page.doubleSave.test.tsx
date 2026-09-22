@@ -24,6 +24,9 @@ jest.mock('@open-mercato/ui/backend/Page', () => ({
   PageBody: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }))
 
+// The page reads `useLocale` as well as `useT`; this mock replaces the whole
+// module, so omitting either one renders the page as `undefined is not a
+// function` rather than exercising it.
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => mockTranslate,
   useLocale: () => 'en-US',
