@@ -2,12 +2,12 @@
 
 import * as React from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { toZonedTime } from 'date-fns-tz'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import type { InteractionSummary } from './types'
+import { isSameDay, toLocalZonedDate } from '../../lib/localDay'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -23,23 +23,6 @@ interface ActivitiesDayStripProps {
    * activity list rendered alongside it (issue #1809 — E1 status filter alignment).
    */
   events?: InteractionSummary[]
-}
-
-const USER_TIMEZONE = (() => {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-  } catch {
-    return 'UTC'
-  }
-})()
-
-// Project a UTC ISO timestamp to the user's local timezone before comparing
-// "same day" (issue #1809 — E3). The browser's `new Date(iso)` treats the
-// instant correctly, but `getDate()/getMonth()/getFullYear()` reflect the
-// user's local day, so for activities scheduled at e.g. 23:30 local on a UTC
-// boundary the day-strip and list now agree.
-function toLocalZonedDate(value: string | Date): Date {
-  return toZonedTime(value, USER_TIMEZONE)
 }
 
 const VISIBLE_DAYS = 5
@@ -82,10 +65,6 @@ function endOfDay(date: Date): Date {
   const next = new Date(date)
   next.setHours(23, 59, 59, 999)
   return next
-}
-
-function isSameDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
 }
 
 function isWeekend(date: Date): boolean {

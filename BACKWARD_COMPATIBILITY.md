@@ -37,6 +37,7 @@ The following file names, their expected export names, and their role in module 
 | `index.ts` | `metadata: ModuleInfo` | MUST NOT rename export or change `ModuleInfo` shape in a breaking way |
 | `acl.ts` | `features: Array<{id,title,module}>` | MUST NOT change array item shape; may add optional fields |
 | `setup.ts` | `setup: ModuleSetupConfig` | MUST NOT remove hooks (`onTenantCreated`, `seedDefaults`, `seedExamples`, `defaultRoleFeatures`); may add optional hooks |
+| `runtime.ts` | `runtime: ModuleRuntime` (or default export) | MUST NOT change `ModuleRuntime` required members (`start`) or the `ModuleRuntimeContext` / `ModuleRuntimeHandle` shape; may add optional fields and additional `ModuleRuntimeRole` values |
 | `ce.ts` | `entities: CustomEntitySpec[]` | MUST NOT change `CustomEntitySpec` required fields; may add optional fields |
 | `search.ts` | `searchConfig: SearchModuleConfig` | MUST NOT change `SearchEntityConfig` required fields; may add optional fields |
 | `events.ts` | `eventsConfig` via `createModuleEvents()` | MUST NOT change `EventDefinition` required fields (`id`, `label`); may add optional fields |
@@ -99,6 +100,8 @@ These exported types are consumed by module developers. Required fields MUST NOT
 - `ModuleOverrides`: `overrides.ai.agents`, `overrides.ai.tools`, and `overrides.ai.extensions` shapes are STABLE; other domain keys are reserved by the unified override contract and may be wired additively. `nav` was wired 2026-07-30 under that clause (see [spec](.ai/specs/2026-07-30-nav-group-order-override-domain.md)): `overrides.nav.groupOrder` **prepends** sidebar nav group ids ahead of the built-in `defaultGroupOrder`, and ids it does not name keep their existing position. It is a default applied *beneath* role and per-user sidebar preferences, so an operator's own arrangement still wins. With no override configured, group ordering is byte-identical to before — that guarantee MUST hold for any future change to this domain.
 - `ModulesRegisteredListener` (`@open-mercato/shared/lib/modules/registry`): added 2026-08-12 as `(modules: Module[]) => void | PromiseLike<void>` (see [spec](.ai/specs/2026-08-12-module-registry-registration-listeners.md)). The listener MUST keep receiving the reconciled module list, and the return type MUST NOT be narrowed back to `void` — a subscriber returning a promise is supported and its rejection is observed and logged rather than escaping into bootstrap.
 - `WorkerMeta`: `queue` — MUST NOT remove
+- `TelemetryProvider` (`@open-mercato/telemetry`): `name`, `supports`, `start`, `shutdown`, `runInSpan`, `activeSpan`, `activeTraceContext`, `inject`, `runInRemoteSpan`, `emitLog`, `recordMetric` — MUST NOT remove. `reportError?()` was added 2026-09-08 as an additive OPTIONAL method (see [spec](.ai/specs/2026-09-08-error-reporting-policy.md)); it **MUST stay optional** — third parties implement this interface and a required method would break every existing provider. The facade calls it as `provider.reportError?.(…)` *in addition to* the span/log/metric path, so a provider that omits it loses nothing.
+- `ReportErrorContext` (`@open-mercato/telemetry`) and the `reportError` context of `TelemetryRuntime` (`@open-mercato/shared/lib/telemetry/runtime`): `module?` and `attributes?` — MUST NOT remove. `code?: string` was added 2026-09-08 as an additive optional field carrying the enumerated `module.reason` fingerprint the backend groups on; it MUST stay optional so existing callers (the API dispatcher, the CRUD factory) keep compiling and keep emitting exactly what they emit today. `om.errors` gains an `error.code` label only when a caller supplies one — the same attribute name the span and the log record use, so one query works against all three.
 - `RefreshCredentialsInput` (communication_channels hub): `channelId`, `credentials`, `scope` — MUST NOT remove. `oauthClient?` was added 2026-05-27 as an additive optional field (see [Spec A](.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md)). The legacy `credentials._client` read path in the Gmail adapter is **deprecated and slated for removal in the next minor release** — pass OAuth client config via `RefreshCredentialsInput.oauthClient` instead.
 - `OAuthClientConfig` (communication_channels hub): added 2026-05-27 with `clientId` required; optional `clientSecret`, `tenantId`, `scopes`. New optional fields may be added; required `clientId` MUST NOT be removed.
 - `BackendChromePayload`: `groups`, `settingsSections`, `settingsPathPrefixes`, `profileSections`, `profilePathPrefixes`, `grantedFeatures`, `roles` — MUST NOT remove. `currentOrganization?` (`BackendChromeCurrentOrganization | null`) was added 2026-07-30 as an additive optional field (see [spec](.ai/specs/2026-07-30-backend-chrome-current-organization.md)); it is `null` under an all-organizations selection, when no organization is in scope, and when the lookup fails, so consumers MUST treat `null` as "unknown" rather than "no organization". `brand?` is **unchanged** and remains the branding channel — it populates only when the organization has a `logoUrl`, and `currentOrganization` does not supersede it.
@@ -372,6 +375,22 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 
 ---
 
+## Encrypt Path Rejects Wrong-Key Ciphertext (2026-09-11)
+
+`TenantDataEncryptionService.encryptFields` treats "already encrypted" as "decrypts under the current DEK" — a deliberate anti-forgery choice ([#2720](https://github.com/open-mercato/open-mercato/issues/2720)). Real ciphertext sealed under a *different* key failed that check too and was encrypted a second time, producing a nested envelope that no read path can undo, plus a lookup hash computed over ciphertext ([#5951](https://github.com/open-mercato/open-mercato/issues/5951)). That write is now rejected:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Import path / exports (`@open-mercato/shared/lib/encryption/aes`) | New export `isEncryptedPayloadShape(value)` — a key-free structural check (`<iv>:<ct>:<tag>:v1` with a 12-byte IV, 16-byte tag and non-empty ciphertext). Explicitly NOT an "is this encrypted" oracle; the shape is forgeable | ✓ ADDITIVE (new export, nothing removed or renamed) |
+| Function behaviour (`encryptEntityPayload` / `encryptFields`) | A field holding a structurally well-formed envelope that does not decrypt under the current DEK now raises `TenantDataEncryptionError` with code `WRONG_KEY`, where it previously returned a payload containing a nested envelope. Signature, return type and every other input keep their byte-identical historical behaviour | ⚠️ Behaviour change on one previously-corrupting path. `WRONG_KEY` was already declared in `TenantDataEncryptionErrorCode` and emitted nowhere, so no existing handler changes meaning. Regression-tested in `tenantDataEncryptionService.test.ts` |
+| Encryption-at-rest guarantee (#2720) | Unchanged. Nothing is ever stored verbatim: a forgery whose shape is not length-valid (the check is length-based, not content-based) still fails the structural check and is encrypted as ordinary plaintext, and a length-valid one is rejected rather than persisted | ✓ Preserved (pinned by the retained `#2720` test cases) |
+| CLI behaviour (`mercato entities rotate-encryption-key`, `… backfill-system-encryption`) | A row whose ciphertext opens under neither `--old-key` nor the current tenant key is reported and skipped instead of rewritten; the backfill no longer passes already-encrypted columns to the encrypt path. Rows that rotated or backfilled successfully before are unaffected | ✓ Behaviour-preserving for every row that succeeded before; a row that was previously corrupted is now skipped instead — `rotate-encryption-key --old-key` reports it in the run summary, while `backfill-system-encryption` and `rotate-encryption-key` without `--old-key` skip it silently (see UPGRADE_NOTES.md) |
+| DB schema, API routes, event IDs, ACL features, DI names | No change | ✓ n/a |
+
+**Migration path for existing modules**: no action required. Operationally, a write touching a record whose encrypted field is sealed under a stale key now fails loudly until the rotation is finished (`mercato entities rotate-encryption-key --old-key …`) or the sealing DEK is restored — a deliberate trade of availability for integrity, since the previous outcome was silent, undetectable corruption. This change does not repair envelopes that were already nested before the upgrade.
+
+---
+
 ## Module Registry Registration Listeners (2026-08-12)
 
 [`.ai/specs/2026-08-12-module-registry-registration-listeners.md`](.ai/specs/2026-08-12-module-registry-registration-listeners.md) adds a public subscription to the module registry so a cache derived from the module list can drop what it built from an incomplete one ([#5103](https://github.com/open-mercato/open-mercato/issues/5103)). **All changes are additive** and pass the contract-surface checks above:
@@ -415,3 +434,52 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 **Why the deprecation protocol does not apply.** The protocol exists to give downstream authors a bridge release. Here the request shape being removed *is* the vulnerability: both values it compared are disclosed by the server, so a bridge would keep the passkey second factor bypassable for a minor version in both login MFA and sudo step-up. A security fix that leaves the hole open is not a fix.
 
 **Migration path.** Send `startAuthentication()` output as `payload.response`. The first-party `PasskeyChallengeVerify` component already does, so shipped UIs are unaffected. Credentials enrolled through the setup path's client-supplied `publicKey` shortcut are **not** reliably rendered unusable by this change — depending on what the client supplied, such a row holds either a key nobody can sign with or a keypair the enroller controls, and the second kind produces assertions this change accepts. That shortcut is a separate open surface (#5296); operator-facing remediation is in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
+
+## Data Sync Start Control Applicability (2026-09-02)
+
+[`.ai/specs/2026-09-02-data-sync-adapter-start-controls.md`](.ai/specs/2026-09-02-data-sync-adapter-start-controls.md) lets a `DataSyncAdapter` declare, per entity type, which of the Data Sync dashboard's manual-start controls apply, so the dashboard stops offering controls that cannot mean anything for the selected entity type. **All changes are additive** and pass the contract-surface checks above:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Type definitions (§2) | New optional method `DataSyncAdapter.supportsStartControl?(control, entityType)`; new exported type `DataSyncStartControl = 'fullSync' \| 'batchSize'` | ✓ ADDITIVE (optional member, new type — same shape as the `persistsSharedCursor` and `runParameters` additions before it) |
+| Import paths (§4) | New module `data_sync/lib/start-controls.ts` exporting `resolveStartControlMap`, `applicableStartControls`, `StartControlMap`, `StartControlApplicability`, `DATA_SYNC_START_CONTROLS` | ✓ ADDITIVE (new path; nothing moved or re-exported) |
+| API route URLs (§7) | `GET /api/data_sync/options` items gain a `startControls` object; `POST /api/data_sync/run` is unchanged and keeps honouring `fullSync` and `batchSize` whatever an adapter declares | ✓ ADDITIVE (new optional response field, no request-shape change) |
+| Auto-discovery, function signatures, event IDs, widget spot IDs, DB schema, DI names, ACL features, notification IDs, CLI commands, generated files | No change | ✓ n/a |
+
+**Contract commitments**: only an explicit `false` removes a control, so an adapter that declares nothing — or whose predicate returns anything else — renders the same form and sends the same request body as before. A predicate that throws is treated as *applies*, because `api/options.ts` resolves every registered adapter in one response and one broken predicate must not take the dashboard down for the rest. The `startControls` map is sparse and keyed only by the adapter's own `supportedEntities`; a missing entry means every control applies, so a client that ignores the field behaves exactly as today. The declaration governs what the dashboard **offers**, never what the run API **accepts** — that separation MUST hold for any future change here, or an API client posting `fullSync: true` would silently stop getting a full run.
+
+**Migration path for existing adapters**: none. The method is optional and defaults to prior behaviour.
+
+## Error Reporting Policy (2026-09-08)
+
+Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-error-reporting-policy.md). Every change is additive; no existing path emits less than it did before.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| `TelemetryProvider` | Optional `reportError?()` added, called in addition to the span/log/metric path. MUST stay optional — third parties implement this interface | ✓ ADDITIVE |
+| `ReportErrorContext` / `TelemetryRuntime['reportError']` context | Optional `code?: string` fingerprint added | ✓ ADDITIVE |
+| `data_sync.run.completed` payload | Optional `createdCount`, `updatedCount`, `skippedCount`, `failedCount` added; no existing field changed (§5 permits additive payload fields) | ✓ ADDITIVE |
+| `integration_logs` rows at `level: 'error'` | Also reported to the active telemetry backend (message, `code`, ids — never `payload`). With telemetry off, one global lookup and no behaviour change | ✓ ADDITIVE |
+| `queue` failure paths, `data_sync` engine | Existing `logger.error` lines keep their text and gain a `reportError` call with a `code` | ✓ ADDITIVE |
+| `reportError`'s `code` | A value that is not shaped `module.reason` is dropped rather than published, so it cannot become an unbounded, unredacted metric label. No in-repo caller passes one; a caller that did reported exactly as one passing no `code`, which is the pre-PR behaviour | ✓ ADDITIVE |
+| `integration_logs` message text for the payment status poller and the Stripe webhook processor | The failure cause moves from `payload` **into** the message (`Payment status polling failed: {cause}`), because the payload is deliberately never reported. `payload` keeps the same fields | ✓ ADDITIVE (row content, no schema or field change) |
+| `integration_logs.code` for the payment status poller | Previously `null`, now `payment_gateways.status_poll_failed`, so it groups apart from the `integrations.log_error` catch-all. The column and its API field already existed | ✓ ADDITIVE (a value where there was none) |
+| `IntegrationLogError` (`core:integrations`), `SyncRunPartialFailureError` (`core:data_sync`) | New exported error classes | ✓ ADDITIVE |
+| API route URLs, response schemas, database schema, event IDs, ACL features, DI names, CLI commands, env vars | No change — the policy adds no configuration | ✓ n/a |
+
+**Operator note — terminal queue failures.** Not a contract break, but visible in an alert rule: on the **local** strategy a job's final attempt previously emitted both `queue.job_failed` and `queue.job_exhausted`; it now emits only `queue.job_exhausted`, matching the `async` strategy. An alert thresholding on `queue.job_failed` alone stops seeing terminal failures — page on `queue.job_exhausted`.
+
+**Volume note for operators.** Reported error *volume* rises where errors were previously only recorded: an integration that writes 115 error rows now also reports 115 errors, grouped by `error.code` at the backend. This is deliberate — see the spec's §S3 — and the controls are the collector's filtering/sampling and the backend's own quotas, not a framework switch.
+
+## Customers Quick-Create Injection Spot Bridge (2026-09-16)
+
+[`.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md`](.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md) binds the sales document form's Person/Company quick-create dialogs to the customers module's declared `crud-form:customers.person` / `…company` hosts. The dialogs previously had no `injectionSpotId`, so `CrudForm` auto-derived `crud-form:customers.customer_entity` (§6, FROZEN) there instead.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Widget Injection Spot IDs (§6) | `CrudForm` gains an additive `legacyInjectionSpotId?: string` prop. When set, its header/body/field widgets are dual-published alongside the primary `injectionSpotId`'s — `crud-form:customers.customer_entity` stays live on these two dialogs via the bridge, so nothing that already targets it stops rendering | ✓ ADDITIVE (bridge, not a removal — see Deprecation Protocol steps 1–3) |
+| Widget Injection Spot IDs (§6) | The two dialogs now also publish `crud-form:customers.person` / `…company` (previously published only by the person/company detail pages) | ✓ ADDITIVE ("MAY add new spot IDs to new or existing pages") |
+| Context passed to widgets at `crud-form:customers.person` / `…company` | These hosts' widgets now also mount with `operation: 'create'` and no `recordId` on the two quick-create dialogs, for the first time — previously always `operation: 'update'` with a concrete `recordId` | Disclosed in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) "Action for module authors"; not itself a contract surface change (§6 permits "new optional context fields", and `operation`/`recordId` were always part of the injection context shape) |
+| Type definitions (§2) | New optional `CrudForm` prop `legacyInjectionSpotId?: string` | ✓ ADDITIVE |
+
+**Deprecation window.** `legacyInjectionSpotId` is scoped to these two call sites and intended for removal after at least one minor version (Deprecation Protocol step 1), tracked in the spec's Changelog and in `UPGRADE_NOTES.md`. No maintainer waiver was needed — nothing is removed by this change.

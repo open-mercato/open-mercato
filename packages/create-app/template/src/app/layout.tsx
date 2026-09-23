@@ -4,7 +4,7 @@ import '@/lib/i18n/register-dictionary-loader'
 import { AppProviders } from '@/components/AppProviders'
 
 import { THEME_INIT_SCRIPT } from '@open-mercato/ui/theme/theme-init-script'
-import { detectLocale, loadDictionary } from '@open-mercato/shared/lib/i18n/server'
+import { detectLocale, loadDictionary, resolveSupportedLocalesForRequest } from '@open-mercato/shared/lib/i18n/server'
 import { resolveForcedLocale } from '@open-mercato/shared/lib/i18n/locale'
 import { resolveDevRuntimeLayoutConfig } from '@open-mercato/shared/lib/dev-runtime/layout'
 import { DevRuntimeDiagnosticsBanner } from '@open-mercato/ui/backend/dev/DevRuntimeDiagnosticsBanner'
@@ -23,7 +23,10 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const locale = await detectLocale()
+  // Resolved server-side (the tenant's Settings selection needs a container and
+  // the app registry) and handed to the client provider, which can read neither.
+  const supportedLocales = await resolveSupportedLocalesForRequest()
+  const locale = await detectLocale({ supportedLocales })
   const dict = await loadDictionary(locale)
   const localeLocked = resolveForcedLocale(process.env) !== null
   const demoModeEnabled = process.env.DEMO_MODE !== 'false'
@@ -38,7 +41,7 @@ export default async function RootLayout({
       </head>
       <body className="antialiased" suppressHydrationWarning data-gramm="false">
         <script id="om-theme-init" dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
-        <AppProviders locale={locale} dict={dict} localeLocked={localeLocked} demoModeEnabled={demoModeEnabled} noticeBarsEnabled={noticeBarsEnabled}>
+        <AppProviders locale={locale} dict={dict} localeLocked={localeLocked} supportedLocales={supportedLocales} demoModeEnabled={demoModeEnabled} noticeBarsEnabled={noticeBarsEnabled}>
           {devRuntime.enabled ? <DevRuntimeReporter /> : null}
           {devRuntime.bannerEnabled ? <DevRuntimeDiagnosticsBanner /> : null}
           {children}

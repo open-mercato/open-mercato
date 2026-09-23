@@ -15,6 +15,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { WorkflowDefinition, WorkflowInstance } from '../../../../data/entities'
 import { serializeCodeWorkflowDefinition } from '../../serialize'
+import { workflowDefinitionResetResponseSchema, workflowErrorSchema } from '../../../openapi'
 import { getCodeWorkflow } from '../../../../lib/code-registry'
 import { invalidateTriggerCache } from '../../../../lib/event-trigger-service'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -222,6 +223,7 @@ export const openApi = {
         {
           status: 200,
           description: 'Workflow definition reset to code version',
+          schema: workflowDefinitionResetResponseSchema,
           example: {
             data: {
               id: 'code:checkout-flow',
@@ -238,6 +240,7 @@ export const openApi = {
         {
           status: 400,
           description: 'Definition is not a code-based override',
+          schema: workflowErrorSchema,
           example: {
             error: 'This workflow definition is not a code-based override and cannot be reset',
           },
@@ -245,6 +248,7 @@ export const openApi = {
         {
           status: 404,
           description: 'Workflow definition not found',
+          schema: workflowErrorSchema,
           example: {
             error: 'Workflow definition not found',
           },
@@ -252,6 +256,7 @@ export const openApi = {
         {
           status: 409,
           description: 'Cannot reset - active workflow instances exist',
+          schema: workflowErrorSchema,
           example: {
             error: 'Cannot reset workflow definition with 3 active instance(s)',
           },

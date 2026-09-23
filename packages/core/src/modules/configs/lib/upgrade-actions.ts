@@ -21,6 +21,12 @@ export type UpgradeActionDefinition = {
   ctaKey: string
   successKey: string
   loadingKey?: string
+  /**
+   * Modules that must be enabled for this action to be offered/executed.
+   * Mirrors `InjectionWidgetMetadata.requiredModules` — omit for actions
+   * owned by `configs` itself.
+   */
+  requiredModules?: string[]
   run: (ctx: UpgradeActionContext) => Promise<void>
 }
 
@@ -119,11 +125,32 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     ctaKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.cta',
     successKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.success',
     loadingKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.loading',
+    requiredModules: ['payment_gateways'],
     run: async ({ container, tenantId, organizationId }) => {
       const { registerSessionInitializationPruneSchedule } = await import(
         '@open-mercato/core/modules/payment_gateways/setup'
       )
       await registerSessionInitializationPruneSchedule(container, { tenantId, organizationId })
+    },
+  },
+  {
+    id: 'phone_calls.seed-call-encryption-maps',
+    version: '0.7.1',
+    messageKey: 'phone_calls.config.upgradeActions.encryptionMaps.message',
+    ctaKey: 'phone_calls.config.upgradeActions.encryptionMaps.cta',
+    successKey: 'phone_calls.config.upgradeActions.encryptionMaps.success',
+    loadingKey: 'phone_calls.config.upgradeActions.encryptionMaps.loading',
+    // `Migration20260822120000` backfills these maps, but only for scopes that had active maps when
+    // it ran. A tenant that upgraded with encryption disabled and turned it on afterwards is left
+    // without a map, so ingest writes call PII as plaintext with nothing to signal it. This is the
+    // heal for that case, and the same re-assert path devices exposes for its own map.
+    // Lazy-imported so configs stays decoupled from phone_calls/entities (mirrors the devices action).
+    run: async ({ em, tenantId, organizationId }) => {
+      const [{ default: phoneCallsEncryptionMaps }, { upsertEncryptionMapSpecs }] = await Promise.all([
+        import('@open-mercato/core/modules/phone_calls/encryption'),
+        import('@open-mercato/core/modules/entities/cli'),
+      ])
+      await upsertEncryptionMapSpecs(em, tenantId, organizationId ?? null, phoneCallsEncryptionMaps)
     },
   },
 ]

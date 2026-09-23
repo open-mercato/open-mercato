@@ -94,6 +94,13 @@ describe('resolveRelevantAgenticFiles', () => {
     ])
   })
 
+  it('resolves github-copilot existing files', () => {
+    expect(loadActualModule().resolveRelevantAgenticFiles('github-copilot')).toEqual([
+      '.github/copilot-instructions.md',
+      '.vscode/mcp.json.example',
+    ])
+  })
+
   it('falls back to the full known file list when no tool is provided', () => {
     expect(loadActualModule().resolveRelevantAgenticFiles()).toEqual([
       'CLAUDE.md',
@@ -101,6 +108,8 @@ describe('resolveRelevantAgenticFiles', () => {
       '.mcp.json.example',
       '.codex/mcp.json.example',
       '.cursor/hooks.json',
+      '.github/copilot-instructions.md',
+      '.vscode/mcp.json.example',
     ])
   })
 
@@ -111,6 +120,8 @@ describe('resolveRelevantAgenticFiles', () => {
       '.mcp.json.example',
       '.codex/mcp.json.example',
       '.cursor/hooks.json',
+      '.github/copilot-instructions.md',
+      '.vscode/mcp.json.example',
     ])
   })
 })
