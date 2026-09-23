@@ -19,7 +19,12 @@
 module.exports = {
   default: {
     requireModule: [
-      'tsx/cjs',
+      // Was `tsx/cjs` — swapped for a hand-written TypeScript-compiler-based
+      // require hook (PR #6340 review, M8 follow-up): esbuild's decorator
+      // transform (what `tsx` uses) is incompatible with
+      // `@mikro-orm/decorators`, see `cucumber-ts-register.cjs`'s own doc
+      // comment and the module README's "Verification status" section.
+      require.resolve('./cucumber-ts-register.cjs'),
       require.resolve('./cucumber-module-aliases.cjs'),
     ],
     require: [
