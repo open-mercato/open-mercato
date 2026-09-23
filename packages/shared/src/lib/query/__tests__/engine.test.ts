@@ -350,6 +350,61 @@ describe('BasicQueryEngine (Kysely)', () => {
     expect(baseCall._ops.orderBys[1]).toEqual(['users.id', 'asc'])
   })
 
+  test('an encrypted base sort combined with a cf: sort still orders by the cf value, and the __sort alias never leaks into returned rows (#5674)', async () => {
+    const fakeDb = createFakeKysely({
+      users: [
+        // '1' and '2' decrypt to the same email — only the cf:vip tiebreak can
+        // put them in the right relative order. '3' decrypts to a later email
+        // so it sorts last regardless of its cf:vip value.
+        { id: '1', tenant_id: 't1', organization_id: 'org1', email: 'cipher-1', cf_vip__sort: 'b' },
+        { id: '2', tenant_id: 't1', organization_id: 'org1', email: 'cipher-2', cf_vip__sort: 'a' },
+        { id: '3', tenant_id: 't1', organization_id: 'org1', email: 'cipher-3', cf_vip__sort: 'z' },
+      ],
+      'information_schema.columns': [
+        { table_name: 'users', column_name: 'id' },
+        { table_name: 'users', column_name: 'tenant_id' },
+        { table_name: 'users', column_name: 'organization_id' },
+        { table_name: 'users', column_name: 'deleted_at' },
+        { table_name: 'users', column_name: 'email' },
+      ],
+    })
+    const emailById: Record<string, string> = {
+      '1': 'dup@example.com',
+      '2': 'dup@example.com',
+      '3': 'zzz@example.com',
+    }
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => ['email'],
+        decryptEntityPayload: async (_entityId, payload) => ({
+          email: emailById[String(payload.id)],
+        }),
+      }),
+    )
+
+    const result = await engine.query('auth:user', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id', 'email'],
+      sort: [{ field: 'email', dir: SortDir.Asc }, { field: 'cf:vip', dir: SortDir.Asc }],
+      page: { page: 1, pageSize: 3 },
+    })
+
+    // Before the fix, `sortRowsInMemory` read `cf:vip` through candidates that
+    // never included the dedicated `cf_vip__sort` projection alias, so the value
+    // came back `undefined` and the cf: sort silently dropped out of the
+    // ordering — '1' and '2' would then only tie-break by `id`.
+    expect(result.items.map((item: any) => item.id)).toEqual(['2', '1', '3'])
+    // The synthetic sort alias is internal-only — it must never leak into a
+    // returned row as a phantom custom field `vip__sort` (#5674 review).
+    for (const item of result.items) {
+      expect(item).not.toHaveProperty('cf_vip__sort')
+    }
+  })
+
   test('a cf sort that resolves to no definition is dropped, not ordered by', async () => {
     const fakeDb = createFakeKysely()
     const engine = new BasicQueryEngine({} as any, () => fakeDb as any)

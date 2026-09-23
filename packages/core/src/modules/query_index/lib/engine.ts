@@ -35,6 +35,7 @@ import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionConte
 import { warnOnCiphertextLikeFallback } from '@open-mercato/shared/lib/query/ciphertext-search-warning'
 import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from '@open-mercato/shared/lib/query/encrypted-sort'
 import { resolveListCountCap } from '@open-mercato/shared/lib/query/count-cap'
+import { resolveCfDefIndexOrgCandidates } from '@open-mercato/shared/lib/crud/custom-field-definition-index'
 import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
@@ -765,7 +766,12 @@ export class HybridQueryEngine implements QueryEngine {
         resolvedSorts.filter((sort) => sort.field.startsWith('cf:')).map((sort) => sort.field.slice(3))
       ))
       const cfSortKinds = cfSortKeys.length
-        ? await this.resolveCustomFieldSortKinds(indexSources.map((source) => String(source.entityId)), opts.tenantId ?? null, cfSortKeys)
+        ? await this.resolveCustomFieldSortKinds(
+            indexSources.map((source) => String(source.entityId)),
+            opts.tenantId ?? null,
+            resolveCfDefIndexOrgCandidates(opts.organizationIds, fallbackOrgId),
+            cfSortKeys,
+          )
         : new Map<string, string>()
 
       // ────────────────────────────────────────────────────────────────
@@ -1176,7 +1182,20 @@ export class HybridQueryEngine implements QueryEngine {
             if (textExpr) {
               const direction = sql.raw(coerceSortDirection(s.dir))
               const kind = cfSortKinds.get(fieldName.slice(3))
-              const sortExpr = kind && NUMERIC_CF_SORT_KINDS.has(kind) ? sql`(${textExpr})::numeric` : textExpr
+              let sortExpr: RawBuilder<unknown> = textExpr
+              if (kind && NUMERIC_CF_SORT_KINDS.has(kind)) {
+                const jsonExpr = this.buildCfJsonExprSql(fieldName, indexSources)
+                // The index doc does not guarantee a numeric scalar for a
+                // numeric-kind field (ciphertext on an encrypted field, a JSON
+                // array from a multi-value/duplicated-row source, or a stale
+                // value from before the kind changed) — casting unconditionally
+                // turns one bad row into a 500 for the whole list. Only cast
+                // when the doc value is actually a JSON number; anything else
+                // sorts as NULL, same as an unset field (#5674 review).
+                sortExpr = jsonExpr
+                  ? sql`CASE WHEN jsonb_typeof(${jsonExpr}) = 'number' THEN (${textExpr})::numeric END`
+                  : textExpr
+              }
               next = next.orderBy(sql`${sortExpr} ${direction} NULLS LAST`)
             }
           } else {
@@ -2243,16 +2262,20 @@ export class HybridQueryEngine implements QueryEngine {
 
   /**
    * Resolve the declared `kind` for a set of `cf:` sort keys so `applySort` can
-   * cast numeric kinds instead of ordering by jsonb text (#5674). A tenant-scoped
-   * definition wins over a global one for the same key.
+   * cast numeric kinds instead of ordering by jsonb text (#5674). A same-org
+   * definition wins over a tenant-wide one, which wins over a global one, for
+   * the same key — a same-key definition scoped to a *different* organization
+   * in the tenant never gets to decide the kind (#5674 review).
    */
   private async resolveCustomFieldSortKinds(
     entityIds: string[],
     tenantId: string | null,
+    organizationIds: string[],
     keys: string[]
   ): Promise<Map<string, string>> {
     if (!entityIds.length || !keys.length) return new Map()
-    const cacheKey = `${this.customFieldKeysCacheKey(entityIds, tenantId)}|${keys.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(',')}`
+    const sortedOrgIds = organizationIds.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+    const cacheKey = `${this.customFieldKeysCacheKey(entityIds, tenantId)}|org:${sortedOrgIds.join(',')}|${keys.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(',')}`
     const now = Date.now()
     const cached = this.customFieldKindCache.get(cacheKey)
     if (cached && cached.expiresAt > now) return new Map(cached.value)
@@ -2260,7 +2283,7 @@ export class HybridQueryEngine implements QueryEngine {
     const db = this.getDb() as any
     const rows = await db
       .selectFrom('custom_field_defs')
-      .select(['key', 'kind', 'tenant_id'])
+      .select(['key', 'kind', 'organization_id', 'tenant_id'])
       .where('entity_id', 'in', entityIds)
       .where('key', 'in', keys)
       .where('is_active', '=', true)
@@ -2268,18 +2291,27 @@ export class HybridQueryEngine implements QueryEngine {
         eb('tenant_id', '=', tenantId),
         eb('tenant_id', 'is', null),
       ]))
-      .execute() as Array<{ key: unknown; kind: unknown; tenant_id: unknown }>
+      .where((eb: any) => sortedOrgIds.length
+        ? eb.or([
+            eb('organization_id', 'is', null),
+            eb('organization_id', 'in', sortedOrgIds),
+          ])
+        : eb('organization_id', 'is', null))
+      .execute() as Array<{ key: unknown; kind: unknown; organization_id: unknown; tenant_id: unknown }>
 
-    const result = new Map<string, string>()
+    const winners = new Map<string, { kind: string; specificity: number }>()
     for (const row of rows) {
       const key = typeof row.key === 'string' ? row.key : String(row.key)
       const kind = typeof row.kind === 'string' ? row.kind : null
       if (!kind) continue
-      const isTenantScoped = row.tenant_id != null
-      // A tenant-scoped definition overrides a global one for the same key;
-      // otherwise keep whichever was resolved first.
-      if (!result.has(key) || isTenantScoped) result.set(key, kind)
+      // Org-scoped beats tenant-wide beats global for the same key; rows from
+      // an unrelated org were already excluded by the WHERE clause above.
+      const specificity = row.organization_id != null ? 2 : row.tenant_id != null ? 1 : 0
+      const existing = winners.get(key)
+      if (!existing || specificity >= existing.specificity) winners.set(key, { kind, specificity })
     }
+    const result = new Map<string, string>()
+    for (const [key, entry] of winners) result.set(key, entry.kind)
     if (this.customFieldKeysTtlMs > 0) {
       this.customFieldKindCache.set(cacheKey, { expiresAt: now + this.customFieldKeysTtlMs, value: new Map(result) })
     }

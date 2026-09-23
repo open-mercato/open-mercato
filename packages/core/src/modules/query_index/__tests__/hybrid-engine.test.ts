@@ -458,6 +458,39 @@ describe('HybridQueryEngine', () => {
     expect(dataChain!.orderBys[dataChain!.orderBys.length - 1]).toEqual(['b.id', SortDir.Asc])
   })
 
+  test('guards a numeric-kind cf sort cast with jsonb_typeof so a non-numeric doc value (ciphertext, a multi-value array) sorts as NULL instead of raising 22P02 (#5674)', async () => {
+    const db = createFakeKysely({
+      baseTable: 'todos', hasIndexAny: true, baseCount: 3, indexCount: 3,
+      customFieldKinds: { priority: 'float' },
+    })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+
+    await engine.query('example:todo', {
+      fields: ['id'],
+      sort: [{ field: 'cf:priority', dir: SortDir.Asc }],
+      organizationId: 'org1',
+      tenantId: 't1',
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    const dataChain = (db._chains as ChainLog[]).find((c) => c.table === 'todos' && c.orderBys.length > 0)
+    expect(dataChain).toBeTruthy()
+    const serialized = JSON.stringify(dataChain!.orderBys.flat().map((arg: any) =>
+      typeof arg?.toOperationNode === 'function' ? arg.toOperationNode() : arg,
+    ))
+    // Not an unconditional `(...)::numeric` — a guarded CASE that only casts
+    // when the doc value's jsonb type is actually a number. An encrypted
+    // numeric field's ciphertext (`jsonb_typeof` = 'string') or a multi-value
+    // source's JSON array (`jsonb_typeof` = 'array') falls through to NULL
+    // instead of raising Postgres 22P02 for the whole list request.
+    expect(serialized).toContain('jsonb_typeof')
+    expect(serialized).toContain("'number'")
+    expect(serialized).toContain('::numeric')
+  })
+
   test('keeps ordering a text-kind cf sort as text, still with a trailing id tiebreak', async () => {
     const db = createFakeKysely({
       baseTable: 'todos', hasIndexAny: true, baseCount: 3, indexCount: 3,
