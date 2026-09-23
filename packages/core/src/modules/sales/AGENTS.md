@@ -6,8 +6,7 @@ Use the sales module for orders, quotes, invoices, shipments, and payments. This
 
 1. **MUST use `salesCalculationService` from DI** for document math.
 2. **MUST follow document flow**: Quote → Order → Invoice — no skipping steps
-3. **MUST use `selectBestPrice`** from catalog pricing helpers.
-4. **MUST scope all documents to a channel** — channel selection affects pricing, numbering, and visibility
+3. **MUST scope all documents to a channel** — channel selection affects pricing, numbering, and visibility
 
 ## Ask First
 
@@ -51,7 +50,7 @@ const calcService = container.resolve('salesCalculationService')
 
 - Dispatches `sales.line.calculate.*` / `sales.document.calculate.*` events
 - Register line/totals calculators or override via DI
-- For catalog pricing: use `selectBestPrice`, `resolvePriceVariantId` from catalog module
+- **Not yet wired:** no code here calls catalog's `selectBestPrice`/`catalogPricingService` — lines are priced directly, not resolved from `CatalogProductPrice`. Out of scope for the pricing-engine spec; future wiring routes through `catalogPricingService` — never reimplement pricing inline.
 
 ## Data Model Constraints
 
