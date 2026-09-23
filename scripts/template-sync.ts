@@ -178,6 +178,10 @@ const SYNC_DEPENDENCY_KEYS = [
 ] as const
 const SYNC_INTERNAL_PACKAGE_KEYS = [
   '@open-mercato/checkout',
+  // The template enables `agent_orchestrator` behind OM_ENABLE_ENTERPRISE_MODULES_AGENTS,
+  // so the dependency must track the monorepo version or a scaffolded app fails
+  // module resolution the moment the flag is flipped.
+  '@open-mercato/enterprise',
   '@open-mercato/gateway-stripe',
   '@open-mercato/sync-akeneo',
 ] as const
@@ -297,6 +301,28 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // ('one more template module still fits the root budget with its inline index
   // intact'), and #4983 for the discussion.
   // { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
+  },
+  availability: {
+    source: `  // Availability contract, policy module, and provider registry (Phase 1+2).
+  // Ships with the scaffold but stays commented out in the template until
+  // standalone-harness coverage lands: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/availability/index.md in context.required, so enabling it
+  // here trips packages/create-app/src/lib/module-facts-build.test.ts ('every
+  // module fact-sheet a scaffold ships is required by at least one catalog
+  // case'). Run the om-refresh-standalone-harness skill to add that coverage,
+  // then enable it in the template.
+  { id: 'availability', from: '@open-mercato/core' },`,
+    template: `  // Availability contract, policy module, and provider registry (Phase 1+2).
+  // Ships with the scaffold but stays commented out in the template until
+  // standalone-harness coverage lands: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/availability/index.md in context.required, so enabling it
+  // here trips packages/create-app/src/lib/module-facts-build.test.ts ('every
+  // module fact-sheet a scaffold ships is required by at least one catalog
+  // case'). Run the om-refresh-standalone-harness skill to add that coverage,
+  // then enable it in the template.
+  // { id: 'availability', from: '@open-mercato/core' },`,
   },
 }
 
