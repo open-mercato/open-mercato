@@ -154,28 +154,55 @@ section claimed, but still short of a green run — please don't read
 this as "confirmed passing" until that last issue is resolved and the
 suite has actually finished a run.
 
+**Update (2026-09-23):** that issue is resolved, and this suite has
+finished a run — `npm run test:bdd` now passes end to end (19
+scenarios, 0 pending; see the account-type/account-scenarios
+subsection below for a second gap that was still open at the time this
+paragraph was written, since also resolved). The fix was to actually
+swap `cucumber.config.cjs`'s `requireModule` from `tsx/cjs` to a
+hand-written TypeScript-compiler-based require hook
+(`cucumber-ts-register.cjs`, using `ts.transpileModule` via the
+`typescript-js` alias — the same approach
+`scripts/jest-mikroorm-transformer.cjs` already uses for OM-13's Jest
+suite) rather than appending it alongside `tsx/cjs`, which is as far as
+the abandoned first attempt described two paragraphs up got.
+
 ### Verification status: account-type / account scenarios
 
-`account_type_immutability.feature` and `delete_blocking.feature` go
-further: their step definitions are all deliberately `'pending'` (no
+**Update (2026-09-23):** resolved.
+`packages/core/generated/entities.ids.generated.ts` exists in this
+checkout (confirmed by listing `packages/core/generated/`), so
+`commands/ledgerAccounts.ts`/`commands/ledgerAccountTypes.ts` load
+without error, and `account_type_immutability.steps.ts`/
+`delete_blocking.steps.ts` are now wired to the real
+`ledger.updateLedgerAccountType` / `ledger.updateLedgerAccount` /
+`ledger.deleteLedgerAccount` / `ledger.deleteLedgerAccountType`
+commands, the same way the other five feature files' step definitions
+call their real commands. All 19 scenarios across all 7 feature files
+now pass; none are `pending` any more.
+
+(Kept below for the record — this was accurate when these two feature
+files were first written, before `#generated/entities.ids.generated`
+existed in this checkout.)
+
+`account_type_immutability.feature` and `delete_blocking.feature` originally
+went further: their step definitions were all deliberately `'pending'` (no
 logic at all), because `commands/ledgerAccounts.ts` and
 `commands/ledgerAccountTypes.ts` both import
 `#generated/entities.ids.generated` at module top level (for
 `CrudIndexerConfig.entityType`), and — concretely confirmed by listing
-`packages/core/generated/` in this checkout — that generated file does
-not exist until `npx tsx` (via `yarn generate`, per OM-15) produces it.
-`require`-ing either command module as-is would throw before any step
-even ran. Once OM-15 (or an equivalent `yarn generate` run) exists, these
-two feature files' scenarios should be wired up the same way the other
-three are — the Gherkin itself does not need to change, only the step
-definitions.
+`packages/core/generated/` in this checkout at the time — that generated
+file did not exist. `require`-ing either command module as-is would have
+thrown before any step even ran.
 
-### What would remove these gaps
+### What this doesn't verify
 
-A real `yarn install && yarn generate` (and ideally `yarn build`) in an
-environment that can actually run this monorepo's full toolchain, then
-`npm run test:bdd`. Whoever picks that up next should treat a failure at
-that point as genuinely informative — this suite has been designed
-against the real source, not hand-waved, but "designed against the real
-source" and "confirmed green" are different claims, and only the first
-one is being made here.
+`npm run test:bdd` exercises every command against the hand-written
+`FakeEntityManager` in `support/world.ts`, not a real Postgres database —
+see "Step definitions call real command handlers, not reimplementations"
+above for what that does and does not cover. A real
+`yarn install && yarn generate && yarn build` followed by an
+integration-test run against actual Postgres (OM-14) is still the
+stronger verification, and worth doing before this BDD pattern is
+extended to another module; this suite passing green is not a
+substitute for that.

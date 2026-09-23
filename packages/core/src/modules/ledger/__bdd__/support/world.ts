@@ -171,6 +171,29 @@ export function activeEmOrNew(): FakeEntityManager {
   return activeEm
 }
 
+// Same cross-file-sharing need as `activeEm` above, but for a single
+// fixture id rather than the whole fake store: `delete_blocking.steps.ts`
+// defines "a ledger account has a posted entry" once (Cucumber matches
+// step text globally, so it isn't redefined in
+// `account_type_immutability.steps.ts`, which also uses this exact
+// Given for its own reclassification scenario) and needs to hand the
+// seeded account's id to whichever file's When step runs next.
+let activeLedgerAccountId: string | null = null
+
+export function setActiveLedgerAccountId(id: string): string {
+  activeLedgerAccountId = id
+  return id
+}
+
+export function activeLedgerAccountIdOrThrow(): string {
+  if (!activeLedgerAccountId) {
+    throw new Error(
+      'BDD world: no active ledger account id set — the step definition must run a ledger-account Given first.',
+    )
+  }
+  return activeLedgerAccountId
+}
+
 // Without this, `activeEm` (a plain module-level variable) would survive
 // from one scenario into the next in the same `cucumber-js` process — a
 // scenario whose own first Given uses `activeEmOrNew()` (rather than
@@ -180,6 +203,7 @@ export function activeEmOrNew(): FakeEntityManager {
 // be safe from.
 Before(function () {
   activeEm = null
+  activeLedgerAccountId = null
 })
 
 // `emitCrudSideEffects`'s only real dependency (see
