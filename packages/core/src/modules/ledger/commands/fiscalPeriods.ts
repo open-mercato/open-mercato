@@ -64,6 +64,7 @@ const createFiscalPeriodCommand: CommandHandler<CreateFiscalPeriodInput, { fisca
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const scope: Scope = { organizationId: input.organizationId, tenantId: input.tenantId }
+    const { translate } = await resolveTranslations()
 
     // The overlap check below is check-then-insert: without serializing it,
     // two concurrent creates for the same (organizationId, tenantId) can
@@ -83,7 +84,7 @@ const createFiscalPeriodCommand: CommandHandler<CreateFiscalPeriodInput, { fisca
 
       const overlapping = await findOverlappingFiscalPeriod(trx, scope, input.startDate, input.endDate)
       if (overlapping) {
-        throw conflict('This date range overlaps an existing fiscal period for this organization.')
+        throw conflict(translate('ledger.errors.fiscalPeriodOverlap', 'This date range overlaps an existing fiscal period for this organization.'))
       }
 
       const now = new Date()
@@ -136,6 +137,7 @@ async function toggleFiscalPeriodLock(
 
   const em = (ctx.container.resolve('em') as EntityManager).fork()
   const scope: Scope = { organizationId: input.organizationId, tenantId: input.tenantId }
+  const { translate } = await resolveTranslations()
 
   // `PESSIMISTIC_WRITE` (`for update`), inside an explicit transaction so
   // the lock actually holds across the read and the flush below — this is
@@ -164,7 +166,7 @@ async function toggleFiscalPeriodLock(
         resourceId: input.id,
         request: ctx.request ?? null,
       })
-      throw notFound('Fiscal period not found.')
+      throw notFound(translate('ledger.errors.fiscalPeriodNotFound', 'Fiscal period not found.'))
     }
 
     await enforceCommandOptimisticLockWithGuards(ctx.container, {

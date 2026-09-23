@@ -7,6 +7,7 @@ import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -43,6 +44,28 @@ const TYPE_BADGE_VARIANT: Record<JournalEntryRow['type'], 'default' | 'secondary
   OPENING: 'secondary',
   CLOSING: 'secondary',
   REVERSAL: 'destructive',
+}
+
+/**
+ * Translates a journal entry's `type` for display (PR #6340 review, m1) —
+ * the type badge and filter options previously showed the raw
+ * NORMAL/OPENING/CLOSING/REVERSAL enum value untranslated. Written as a
+ * switch over literal key strings (not a template-literal lookup) so the
+ * repo's `i18n-check-usage` key-extraction scan can find each key.
+ */
+function journalEntryTypeLabel(type: JournalEntryRow['type'], t: TranslateFn): string {
+  switch (type) {
+    case 'NORMAL':
+      return t('ledger.journal_entries.type.normal', 'Normal')
+    case 'OPENING':
+      return t('ledger.journal_entries.type.opening', 'Opening')
+    case 'CLOSING':
+      return t('ledger.journal_entries.type.closing', 'Closing')
+    case 'REVERSAL':
+      return t('ledger.journal_entries.type.reversal', 'Reversal')
+    default:
+      return type
+  }
 }
 
 export default function JournalEntriesPage() {
@@ -109,7 +132,9 @@ export default function JournalEntriesPage() {
       {
         accessorKey: 'type',
         header: t('ledger.journal_entries.list.columns.type', 'Type'),
-        cell: ({ row }) => <Badge variant={TYPE_BADGE_VARIANT[row.original.type]}>{row.original.type}</Badge>,
+        cell: ({ row }) => (
+          <Badge variant={TYPE_BADGE_VARIANT[row.original.type]}>{journalEntryTypeLabel(row.original.type, t)}</Badge>
+        ),
       },
       {
         accessorKey: 'description',
@@ -159,10 +184,10 @@ export default function JournalEntriesPage() {
         type: 'select',
         options: [
           { label: t('ledger.journal_entries.list.filters.all', 'All'), value: '' },
-          { label: 'NORMAL', value: 'NORMAL' },
-          { label: 'OPENING', value: 'OPENING' },
-          { label: 'CLOSING', value: 'CLOSING' },
-          { label: 'REVERSAL', value: 'REVERSAL' },
+          { label: t('ledger.journal_entries.type.normal', 'Normal'), value: 'NORMAL' },
+          { label: t('ledger.journal_entries.type.opening', 'Opening'), value: 'OPENING' },
+          { label: t('ledger.journal_entries.type.closing', 'Closing'), value: 'CLOSING' },
+          { label: t('ledger.journal_entries.type.reversal', 'Reversal'), value: 'REVERSAL' },
         ],
       },
     ],

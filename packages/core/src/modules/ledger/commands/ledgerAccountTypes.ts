@@ -8,6 +8,7 @@ import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared
 import { conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 import { E } from '#generated/entities.ids.generated'
 import { JournalEntryLine, LedgerAccount, LedgerAccountGroup, LedgerAccountType } from '../data/entities'
 import {
@@ -92,14 +93,21 @@ async function accountTypeReferencedAsParent(
  * belongs to a different organization/tenant. Not checked before (PR
  * #6340 review, M5).
  */
-async function requireExistingAccountGroup(em: EntityManager, accountGroupId: string, scope: Scope): Promise<void> {
+async function requireExistingAccountGroup(
+  em: EntityManager,
+  accountGroupId: string,
+  scope: Scope,
+  translate: TranslateWithFallbackFn,
+): Promise<void> {
   const group = await em.findOne(LedgerAccountGroup, {
     id: accountGroupId,
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
   })
   if (!group) {
-    throw conflict('The specified account group does not exist for this organization.')
+    throw conflict(
+      translate('ledger.errors.accountGroupNotFoundForOrg', 'The specified account group does not exist for this organization.'),
+    )
   }
 }
 
@@ -116,9 +124,10 @@ async function requireValidParentAccountType(
   parentAccountTypeId: string,
   selfId: string | null,
   scope: Scope,
+  translate: TranslateWithFallbackFn,
 ): Promise<void> {
   if (selfId !== null && parentAccountTypeId === selfId) {
-    throw conflict('An account type cannot be its own parent.')
+    throw conflict(translate('ledger.errors.accountTypeSelfParent', 'An account type cannot be its own parent.'))
   }
   const parent = await em.findOne(LedgerAccountType, {
     id: parentAccountTypeId,
@@ -127,14 +136,16 @@ async function requireValidParentAccountType(
     deletedAt: null,
   })
   if (!parent) {
-    throw conflict('The specified parent account type does not exist for this organization.')
+    throw conflict(
+      translate('ledger.errors.parentAccountTypeNotFoundForOrg', 'The specified parent account type does not exist for this organization.'),
+    )
   }
   if (selfId === null) return
 
   let cursor: string | null = parent.parentAccountTypeId ?? null
   for (let hops = 0; cursor !== null && hops < 100; hops += 1) {
     if (cursor === selfId) {
-      throw conflict('This parent account type would create a cycle.')
+      throw conflict(translate('ledger.errors.parentAccountTypeCycle', 'This parent account type would create a cycle.'))
     }
     const ancestor: LedgerAccountType | null = await em.findOne(LedgerAccountType, {
       id: cursor,
@@ -154,6 +165,7 @@ const createLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeCreateInpu
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const scope: Scope = { organizationId: parsed.organizationId, tenantId: parsed.tenantId }
+    const { translate } = await resolveTranslations()
 
     const existing = await em.findOne(LedgerAccountType, {
       slug: parsed.slug,
@@ -162,14 +174,14 @@ const createLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeCreateInpu
       deletedAt: null,
     })
     if (existing) {
-      throw conflict('An account type with this slug already exists for this organization.')
+      throw conflict(translate('ledger.errors.accountTypeSlugTaken', 'An account type with this slug already exists for this organization.'))
     }
 
     if (parsed.parentAccountTypeId) {
-      await requireValidParentAccountType(em, parsed.parentAccountTypeId, null, scope)
+      await requireValidParentAccountType(em, parsed.parentAccountTypeId, null, scope, translate)
     }
     if (parsed.accountGroupId) {
-      await requireExistingAccountGroup(em, parsed.accountGroupId, scope)
+      await requireExistingAccountGroup(em, parsed.accountGroupId, scope, translate)
     }
 
     let record!: LedgerAccountType
@@ -228,7 +240,8 @@ const updateLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeUpdateInpu
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
     const record = await em.findOne(LedgerAccountType, { id: parsed.id, deletedAt: null })
-    if (!record) throw notFound('Ledger account type not found.')
+    const { translate } = await resolveTranslations()
+    if (!record) throw notFound(translate('ledger.errors.accountTypeNotFound', 'Ledger account type not found.'))
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
     const scope: Scope = { organizationId: record.organizationId, tenantId: record.tenantId }
@@ -241,7 +254,7 @@ const updateLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeUpdateInpu
         deletedAt: null,
         id: { $ne: record.id },
       })
-      if (existing) throw conflict('An account type with this slug already exists for this organization.')
+      if (existing) throw conflict(translate('ledger.errors.accountTypeSlugTaken', 'An account type with this slug already exists for this organization.'))
     }
 
     const changesNormalBalance = parsed.normalBalance !== undefined && parsed.normalBalance !== record.normalBalance
@@ -251,18 +264,21 @@ const updateLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeUpdateInpu
     if (changesNormalBalance || changesAccountGroup) {
       if (await accountTypeHasPostedEntries(em, record.id, scope)) {
         throw conflict(
-          'normalBalance and accountGroupId cannot be changed once an account of this type has posted entries.',
+          translate(
+            'ledger.errors.accountTypeAttributesImmutableAfterPosting',
+            'normalBalance and accountGroupId cannot be changed once an account of this type has posted entries.',
+          ),
         )
       }
     }
 
     if (changesAccountGroup && parsed.accountGroupId) {
-      await requireExistingAccountGroup(em, parsed.accountGroupId, scope)
+      await requireExistingAccountGroup(em, parsed.accountGroupId, scope, translate)
     }
 
     if (parsed.parentAccountTypeId !== undefined && parsed.parentAccountTypeId !== record.parentAccountTypeId) {
       if (parsed.parentAccountTypeId !== null) {
-        await requireValidParentAccountType(em, parsed.parentAccountTypeId, record.id, scope)
+        await requireValidParentAccountType(em, parsed.parentAccountTypeId, record.id, scope, translate)
       }
     }
 
@@ -320,16 +336,27 @@ const deleteLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeDeleteInpu
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
     const record = await em.findOne(LedgerAccountType, { id: parsed.id, deletedAt: null })
-    if (!record) throw notFound('Ledger account type not found.')
+    const { translate } = await resolveTranslations()
+    if (!record) throw notFound(translate('ledger.errors.accountTypeNotFound', 'Ledger account type not found.'))
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
     const scope: Scope = { organizationId: record.organizationId, tenantId: record.tenantId }
 
     if (await accountTypeHasPostedEntries(em, record.id, scope)) {
-      throw conflict('This account type cannot be deleted because an account of this type has posted entries.')
+      throw conflict(
+        translate(
+          'ledger.errors.accountTypeHasPostedEntriesCannotDelete',
+          'This account type cannot be deleted because an account of this type has posted entries.',
+        ),
+      )
     }
     if (await accountTypeReferencedAsParent(em, record.id, scope)) {
-      throw conflict('This account type cannot be deleted because another account type still lists it as its parent.')
+      throw conflict(
+        translate(
+          'ledger.errors.accountTypeReferencedAsParentCannotDelete',
+          'This account type cannot be deleted because another account type still lists it as its parent.',
+        ),
+      )
     }
 
     await runCrudCommandWrite({

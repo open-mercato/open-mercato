@@ -38,15 +38,21 @@ async function loadOriginalEntry(
   em: EntityManager,
   journalEntryId: string,
   scope: Scope,
+  translate: TranslateWithFallbackFn,
 ): Promise<{ entry: JournalEntry; lines: JournalEntryLine[] }> {
   const entry = await em.findOne(JournalEntry, {
     id: journalEntryId,
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
   })
-  if (!entry) throw notFound('Journal entry not found.')
+  if (!entry) throw notFound(translate('ledger.errors.journalEntryNotFound', 'Journal entry not found.'))
   if (entry.type === 'REVERSAL') {
-    throw conflict('This journal entry is itself a reversal and cannot be reversed. Reverse the original entry instead.')
+    throw conflict(
+      translate(
+        'ledger.errors.cannotReverseAReversal',
+        'This journal entry is itself a reversal and cannot be reversed. Reverse the original entry instead.',
+      ),
+    )
   }
   const existingReversal = await em.findOne(JournalEntry, {
     organizationId: scope.organizationId,
@@ -55,7 +61,7 @@ async function loadOriginalEntry(
     referenceId: entry.id,
   })
   if (existingReversal) {
-    throw conflict('This journal entry has already been reversed.')
+    throw conflict(translate('ledger.errors.journalEntryAlreadyReversed', 'This journal entry has already been reversed.'))
   }
   const lines = await em.find(JournalEntryLine, {
     journalEntryId: entry.id,
@@ -130,7 +136,7 @@ const reverseJournalEntryCommand: CommandHandler<ReverseJournalEntryInput, PostJ
     const scope: Scope = { organizationId: input.organizationId, tenantId: input.tenantId }
 
     const result = await withPostingTransaction(ctx, async (em) => {
-      const { entry: original, lines: originalLines } = await loadOriginalEntry(em, input.journalEntryId, scope)
+      const { entry: original, lines: originalLines } = await loadOriginalEntry(em, input.journalEntryId, scope, translate)
       const core = buildReversalCore(original, originalLines, input, translate)
       // Reuses `postJournalEntry`'s own validated path — same fiscal-period
       // lock check (against the reversal's own `operationDate`), same
