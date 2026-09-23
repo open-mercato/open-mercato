@@ -2352,6 +2352,7 @@
   "customers.people.form.twitterUrl": "X / Twitter",
   "customers.people.form.twitterUrl.placeholder": "https://x.com/example",
   "customers.people.form.updateSuccess": "연락처가 업데이트되었습니다.",
+  "customers.people.form.websiteUrl.invalid": "올바른 URL을 입력하세요 (예: https://example.com)",
   "customers.people.list.actions.delete": "삭제",
   "customers.people.list.actions.new": "새 연락처",
   "customers.people.list.actions.openInNewTab": "새 탭에서 열기",

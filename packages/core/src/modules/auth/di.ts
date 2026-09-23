@@ -40,25 +40,25 @@ export function register(container: AppContainer) {
   // Register or override core auth service
   container.register({ authService: asClass(AuthService).scoped() })
   container.register({
-    authPrincipalService: asFunction(function authPrincipalServiceFactory(em: EntityManager) {
+    authPrincipalService: asFunction(function authPrincipalServiceFactory(cradle: { em: EntityManager }) {
       return new DefaultAuthPrincipalService(
-        em,
+        cradle.em,
         resolveOptionalOrganizationHierarchyService(container),
       )
-    }).scoped(),
+    }).scoped().proxy(),
   })
   // Resolve optional infrastructure lazily so Auth still works when Directory
   // is disabled and in lean CLI/test containers without a CacheStrategy.
   // Setting `OM_RBAC_DEFAULT_CACHE=on` opts into the in-process fallback;
   // an explicitly registered cache always wins.
   container.register({
-    rbacService: asFunction(function rbacServiceFactory(em: EntityManager) {
+    rbacService: asFunction(function rbacServiceFactory(cradle: { em: EntityManager }) {
       const configuredCache = resolveOptionalCache(container)
       return new RbacService(
-        em,
+        cradle.em,
         configuredCache ?? (isRbacDefaultCacheEnabled() ? createRbacFallbackCache() : undefined),
         resolveOptionalOrganizationHierarchyService(container),
       )
-    }).scoped(),
+    }).scoped().proxy(),
   })
 }
