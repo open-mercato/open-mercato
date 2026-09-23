@@ -53,7 +53,8 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
   'auth:Role': { status: 'enabled', resourceKind: 'auth.role', reason: 'enabled — presence + CRUD decorator (floor + record_locks); ACL routes versioned separately.' },
 
   // --- customer_groups ---
-  'customer_groups:CustomerGroup': { status: 'enabled', resourceKind: 'customer.group', reason: 'enabled — CRUD decorator (floor + record_locks); resourceKind auto-derived from the ORM entity class (no explicit events/actions config on the route). Terms sub-resource is a hand-written route (see optimistic-lock-command-coverage); memberships are a junction table.' },
+  'customer_groups:CustomerGroup': { status: 'enabled', resourceKind: 'customer.groups.group', reason: 'enabled — CRUD decorator (floor + record_locks); resourceKind derived from the route events config (`customer_groups.group`). Terms sub-resource is a hand-written route (see optimistic-lock-command-coverage); memberships are a junction table.' },
+  'customer_groups:CustomerGroupTerms': { status: 'exempt', resourceKind: '', reason: 'OSS-floor-only — terms are written by the hand-written `customer-groups/[id]/terms` PUT route (no makeCrudRoute decorator surface), which enforces the synchronous OSS `enforceCommandOptimisticLock` updated_at floor and surfaces the conflict on the shared banner; allowlisted in optimistic-lock-command-coverage. Enterprise record_locks migration deferred.' },
 
   // --- catalog ---
   'catalog:CatalogProduct': { status: 'enabled', resourceKind: 'catalog.product', reason: 'enabled — presence mount + CRUD decorator (floor + record_locks).' },
@@ -139,9 +140,6 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
   // --- notifications ---
   'notifications:NotificationTypeOverride': { status: 'exempt', resourceKind: '', reason: 'OSS-floor-only — a tenant-scoped operator override edited only via the custom `PATCH /api/notifications/types` handler (no makeCrudRoute decorator surface), which enforces the synchronous OSS `enforceCommandOptimisticLock` updated_at floor and 409s a stale write on the shared conflict banner. Enterprise record_locks migration deferred.' },
   'notifications:NotificationPreference': { status: 'exempt', resourceKind: '', reason: 'OSS-floor-only — per-(user, type, channel) preference rows a user edits only for themselves (not a shared collaborative-edit surface); written via the idempotent `setPreferences` upsert, which is last-writer-wins by design. Carries updated_at for the OSS floor; tenant/org record_locks enrichment is not engaged.' },
-
-  // --- availability ---
-  'availability:AvailabilityPolicy': { status: 'enabled', resourceKind: 'availability.policy', reason: 'enabled — standard makeCrudRoute entity (floor + record_locks); CrudForm edit page auto-derives the lock header from initialValues.updatedAt; no dedicated presence mount.' },
 }
 
 /**
