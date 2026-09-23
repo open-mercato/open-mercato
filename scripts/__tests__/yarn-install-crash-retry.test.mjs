@@ -77,7 +77,7 @@ function runRetryScript(stubPath) {
   return spawnSync('bash', [RETRY_SCRIPT, stubPath], {
     encoding: 'utf8',
     // Keep the suite fast: the wrapper's backoff is only there to space out real retries.
-    env: { ...process.env, YARN_CRASH_RETRY_SLEEP: '0' },
+    env: { ...process.env, INSTALL_CRASH_RETRY_SLEEP: '0' },
   })
 }
 
@@ -115,11 +115,11 @@ test('the install wrapper gives up after the configured attempts when the crash 
 
     const result = spawnSync('bash', [RETRY_SCRIPT, stubPath], {
       encoding: 'utf8',
-      env: { ...process.env, YARN_CRASH_RETRY_SLEEP: '0', YARN_CRASH_MAX_ATTEMPTS: '3' },
+      env: { ...process.env, INSTALL_CRASH_RETRY_SLEEP: '0', INSTALL_CRASH_MAX_ATTEMPTS: '3' },
     })
 
     assert.equal(result.status, 1, 'a crash that never clears must still fail the job')
-    assert.equal(readAttempts(), 3, 'the wrapper must stop at YARN_CRASH_MAX_ATTEMPTS rather than looping forever')
+    assert.equal(readAttempts(), 3, 'the wrapper must stop at INSTALL_CRASH_MAX_ATTEMPTS rather than looping forever')
   })
 })
 
@@ -137,26 +137,38 @@ test('the install wrapper does not retry an --immutable lockfile violation', () 
   })
 })
 
-test('the install wrapper does not retry a YN0001 exception that yarn itself reported', () => {
+test('the install wrapper does not retry when yarn already reported a failure before crashing', () => {
   withStub((dir) => {
-    // Yarn prefixes every line it prints — including the stack of a YN0001 exception —
-    // with the diagnostic code. That prefix is what separates a reported error from a
-    // crash, so a stack frame into yarn.js must not be enough to trigger a retry.
+    // Real Yarn 4.17.1 output (reproduced against an unreachable tarball dependency
+    // through `corepack yarn install`): a reported YN0001 connection failure that
+    // *also* trips the same onCancel/p-cancelable race afterwards. Yarn does not
+    // prefix continuation lines with the diagnostic code — only the first line of
+    // a reported error carries it — so the crash pattern alone cannot tell this
+    // apart from a bare internal crash. The `YN0000: ... Failed with errors`
+    // marker, printed once yarn has finished reporting, is what does.
     const { stubPath, readAttempts } = writeStub(dir, {
       lines: [
-        '➤ YN0001: Error: Command failed with exit code 1',
-        'YN0001:     at ChildProcess.<anonymous> (/home/runner/.cache/node/corepack/v1/yarn/4.17.1/yarn.js:390:1234)',
+        '➤ YN0001: │ Error [ERR_SOCKET_CLOSED_BEFORE_CONNECTION]: Socket closed before the connection was established',
+        '    at TLSSocket.onClose (node:net:1243:10)',
+        '    at TLSSocket.emit (node:events:519:28)',
+        '➤ YN0000: · Failed with errors in 0s 80ms',
+        '/home/runner/.cache/node/corepack/v1/yarn/4.17.1/yarn.js:141',
+        'Error: The `onCancel` handler was attached after the promise settled.',
+        '    at c (/home/runner/.cache/node/corepack/v1/yarn/4.17.1/yarn.js:141:21119)',
+        '    at listOnTimeout (node:internal/timers:685:17)',
+        '',
+        'Node.js v24.20.0',
       ],
       exitCode: 1,
     })
 
     const result = runRetryScript(stubPath)
 
-    assert.equal(result.status, 1, 'a yarn-reported exception must fail fast')
+    assert.equal(result.status, 1, 'a yarn-reported failure must fail fast even though it also crashes afterwards')
     assert.equal(
       readAttempts(),
       1,
-      'the crash signal is an UNPREFIXED stack frame; a YN0001-prefixed one is a reported error'
+      'the `Failed with errors` marker means yarn already reported the real cause; retrying would only reproduce it'
     )
   })
 })
