@@ -1,13 +1,14 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { HybridQueryEngine, coerceSortDirection } from '../../query_index/lib/engine'
+import { HybridQueryEngine, coerceSortDirection, clearBaseTableExistsCache } from '../../query_index/lib/engine'
 import { BasicQueryEngine, clearEncryptedLikeFieldsCache } from '@open-mercato/shared/lib/query/engine'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import { clearSearchTokenPresenceCache } from '@open-mercato/shared/lib/search/availability'
 
-// The token-presence answer is cached process-wide (TTL); without clearing it,
-// probe-count assertions would observe hits from earlier tests in this file.
+// The token-presence and base-table-existence answers are cached process-wide (TTL); without
+// clearing them, probe-count assertions would observe hits from earlier tests in this file.
 beforeEach(() => {
   clearSearchTokenPresenceCache()
+  clearBaseTableExistsCache()
 })
 
 jest.mock('@open-mercato/shared/lib/logger', () => {

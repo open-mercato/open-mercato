@@ -470,6 +470,12 @@ export async function setupInitialTenant(
     }
   }
 
+  // Custom roles are often created inside onTenantCreated hooks, so they did not
+  // exist yet when ensureDefaultRoleAcls ran above and were skipped there. Sync
+  // again now that the hooks have had a chance to create them — idempotent, same
+  // pattern as the `mercato auth sync-role-acls` CLI command.
+  await ensureCustomRoleAcls(em, tenantId, resolvedModules)
+
   return {
     tenantId,
     organizationId,

@@ -39,6 +39,7 @@ import { resolveListCountCap } from '@open-mercato/shared/lib/query/count-cap'
 import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
+import { createBoundedTtlMemo } from '@open-mercato/shared/lib/query/bounded-ttl-memo'
 
 const logger = createLogger('query_index').child({ component: 'engine' })
 
@@ -82,6 +83,24 @@ function markAutoReindexScheduled(key: string, debounceMs: number, now: number):
   autoReindexScheduledAt.delete(key)
   autoReindexScheduledAt.set(key, now)
   return true
+}
+
+/** Only `true` is cached: a cached `false` would keep routing to the fallback engine after a migration creates the table. */
+const baseTableExistsCache = createBoundedTtlMemo<true>({
+  ttlEnv: 'OM_QUERY_INDEX_BASE_TABLE_EXISTS_CACHE_MS',
+  maxEntriesEnv: 'OM_QUERY_INDEX_BASE_TABLE_EXISTS_CACHE_MAX_ENTRIES',
+  defaultTtlMs: 3_600_000,
+  defaultMaxEntries: 1_000,
+})
+
+/** Test-only: the module-scoped memo would otherwise leak state across specs. */
+export function clearBaseTableExistsCache(): void {
+  baseTableExistsCache.clear()
+}
+
+/** Test-only: entry count of the table-existence memo, for the cap regression test. */
+export function baseTableExistsCacheSize(): number {
+  return baseTableExistsCache.size()
 }
 
 function buildFilterableCustomFieldJoins(
@@ -531,11 +550,10 @@ export class HybridQueryEngine implements QueryEngine {
         // `ignoreRuntimeHealth` asks the on-disk question -- a column holds ciphertext even while
         // the KMS is down -- so an outage keeps encrypted columns on the token path (#4622).
         // `organizationId: null` is deliberate, not an omission: the service then unions in every
-        // organization's map (`fetchAllOrganizationFieldNames`), so a field any org encrypts stays
-        // on the token path -- a wider set fails safe. Passing the request's org instead would
-        // silently break encrypted-column search for orgs without their own map. That union is an
-        // uncached `encryption_maps` read, which `resolveEncryptedLikeFieldSet` memoizes per
-        // (entity, tenant) behind a short TTL so it costs one round-trip per minute, not per request.
+        // organization's map, so a field any org encrypts stays on the token path -- a wider set
+        // fails safe. Passing the request's org instead would silently break encrypted-column
+        // search for orgs without their own map. The service caches that union (#5949), and the
+        // TTL cache in `resolveEncryptedLikeFieldSet` keeps even the lookup off the request path.
         try {
           const encryptionService = this.getEncryptionService()
           const readEncryptedFieldNames = encryptionService?.getEncryptedFieldNames?.bind(encryptionService)
@@ -2180,13 +2198,16 @@ export class HybridQueryEngine implements QueryEngine {
   }
 
   private async tableExists(table: string): Promise<boolean> {
+    if (baseTableExistsCache.get(table)) return true
     const db = this.getDb() as any
     const exists = await db
       .selectFrom('information_schema.tables')
       .select(sql<number>`1`.as('one'))
       .where('table_name', '=', table)
       .executeTakeFirst()
-    return !!exists
+    const present = !!exists
+    if (present) baseTableExistsCache.set(table, true)
+    return present
   }
 
   private async resolveAvailableCustomFieldKeys(entityIds: string[], tenantId: string | null): Promise<string[]> {
