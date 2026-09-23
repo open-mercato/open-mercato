@@ -9,7 +9,7 @@ import { conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
-import { JournalEntryLine, LedgerAccount, LedgerAccountType } from '../data/entities'
+import { JournalEntryLine, LedgerAccount, LedgerAccountGroup, LedgerAccountType } from '../data/entities'
 import {
   ledgerAccountTypeCreateSchema,
   ledgerAccountTypeUpdateSchema,
@@ -87,6 +87,64 @@ async function accountTypeReferencedAsParent(
   return count > 0
 }
 
+/**
+ * Rejects an `accountGroupId` that doesn't exist, is soft-deleted, or
+ * belongs to a different organization/tenant. Not checked before (PR
+ * #6340 review, M5).
+ */
+async function requireExistingAccountGroup(em: EntityManager, accountGroupId: string, scope: Scope): Promise<void> {
+  const group = await em.findOne(LedgerAccountGroup, {
+    id: accountGroupId,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+  })
+  if (!group) {
+    throw conflict('The specified account group does not exist for this organization.')
+  }
+}
+
+/**
+ * Rejects a `parentAccountTypeId` that doesn't exist, is soft-deleted,
+ * belongs to a different organization/tenant, names the type itself (only
+ * reachable on update — see the equivalent note on `LedgerAccount`'s
+ * `requireValidParentAccount`), or would close a cycle through the
+ * existing parent chain. `selfId` is `null` on create. PR #6340 review,
+ * M5.
+ */
+async function requireValidParentAccountType(
+  em: EntityManager,
+  parentAccountTypeId: string,
+  selfId: string | null,
+  scope: Scope,
+): Promise<void> {
+  if (selfId !== null && parentAccountTypeId === selfId) {
+    throw conflict('An account type cannot be its own parent.')
+  }
+  const parent = await em.findOne(LedgerAccountType, {
+    id: parentAccountTypeId,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    deletedAt: null,
+  })
+  if (!parent) {
+    throw conflict('The specified parent account type does not exist for this organization.')
+  }
+  if (selfId === null) return
+
+  let cursor: string | null = parent.parentAccountTypeId ?? null
+  for (let hops = 0; cursor !== null && hops < 100; hops += 1) {
+    if (cursor === selfId) {
+      throw conflict('This parent account type would create a cycle.')
+    }
+    const ancestor: LedgerAccountType | null = await em.findOne(LedgerAccountType, {
+      id: cursor,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+    })
+    cursor = ancestor?.parentAccountTypeId ?? null
+  }
+}
+
 const createLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeCreateInput, { ledgerAccountTypeId: string }> = {
   id: 'ledger.createLedgerAccountType',
   async execute(rawInput, ctx) {
@@ -105,6 +163,13 @@ const createLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeCreateInpu
     })
     if (existing) {
       throw conflict('An account type with this slug already exists for this organization.')
+    }
+
+    if (parsed.parentAccountTypeId) {
+      await requireValidParentAccountType(em, parsed.parentAccountTypeId, null, scope)
+    }
+    if (parsed.accountGroupId) {
+      await requireExistingAccountGroup(em, parsed.accountGroupId, scope)
     }
 
     let record!: LedgerAccountType
@@ -188,6 +253,16 @@ const updateLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeUpdateInpu
         throw conflict(
           'normalBalance and accountGroupId cannot be changed once an account of this type has posted entries.',
         )
+      }
+    }
+
+    if (changesAccountGroup && parsed.accountGroupId) {
+      await requireExistingAccountGroup(em, parsed.accountGroupId, scope)
+    }
+
+    if (parsed.parentAccountTypeId !== undefined && parsed.parentAccountTypeId !== record.parentAccountTypeId) {
+      if (parsed.parentAccountTypeId !== null) {
+        await requireValidParentAccountType(em, parsed.parentAccountTypeId, record.id, scope)
       }
     }
 

@@ -9,7 +9,7 @@ import { conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
-import { JournalEntryLine, LedgerAccount } from '../data/entities'
+import { JournalEntryLine, LedgerAccount, LedgerAccountType } from '../data/entities'
 import {
   ledgerAccountCreateSchema,
   ledgerAccountUpdateSchema,
@@ -55,6 +55,72 @@ async function accountHasPostedEntries(em: EntityManager, accountId: string, sco
   return count > 0
 }
 
+/**
+ * Rejects an `accountTypeId` that doesn't exist, is soft-deleted, or
+ * belongs to a different organization/tenant. Neither `create` nor
+ * `update` checked this before — `accountTypeId` was stored verbatim from
+ * the input (PR #6340 review, M5).
+ */
+async function requireExistingAccountType(em: EntityManager, accountTypeId: string, scope: Scope): Promise<void> {
+  const accountType = await em.findOne(LedgerAccountType, {
+    id: accountTypeId,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    deletedAt: null,
+  })
+  if (!accountType) {
+    throw conflict('The specified account type does not exist for this organization.')
+  }
+}
+
+/**
+ * Rejects a `parentAccountId` that doesn't exist, is soft-deleted, belongs
+ * to a different organization/tenant, names the account itself (only
+ * possible on update — a brand-new account's server-generated id can't
+ * appear in its own create payload), or would close a cycle through the
+ * existing parent chain (also only reachable via update, since a newly
+ * created leaf can't yet be any other account's ancestor). `selfId` is
+ * `null` on create. PR #6340 review, M5.
+ */
+async function requireValidParentAccount(
+  em: EntityManager,
+  parentAccountId: string,
+  selfId: string | null,
+  scope: Scope,
+): Promise<void> {
+  if (selfId !== null && parentAccountId === selfId) {
+    throw conflict('An account cannot be its own parent.')
+  }
+  const parent = await em.findOne(LedgerAccount, {
+    id: parentAccountId,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    deletedAt: null,
+  })
+  if (!parent) {
+    throw conflict('The specified parent account does not exist for this organization.')
+  }
+  if (selfId === null) return
+
+  // Walk the candidate parent's own ancestor chain looking for `selfId`.
+  // Bounded rather than recursive-until-null: a cycle already present in
+  // the data (which this same guard is here to prevent, but which could
+  // in principle exist from before this guard shipped) would otherwise
+  // loop forever instead of surfacing as a conflict.
+  let cursor: string | null = parent.parentAccountId ?? null
+  for (let hops = 0; cursor !== null && hops < 100; hops += 1) {
+    if (cursor === selfId) {
+      throw conflict('This parent account would create a cycle.')
+    }
+    const ancestor: LedgerAccount | null = await em.findOne(LedgerAccount, {
+      id: cursor,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+    })
+    cursor = ancestor?.parentAccountId ?? null
+  }
+}
+
 const createLedgerAccountCommand: CommandHandler<LedgerAccountCreateInput, { ledgerAccountId: string }> = {
   id: 'ledger.createLedgerAccount',
   async execute(rawInput, ctx) {
@@ -73,6 +139,11 @@ const createLedgerAccountCommand: CommandHandler<LedgerAccountCreateInput, { led
     })
     if (existing) {
       throw conflict('An account with this slug already exists for this organization.')
+    }
+
+    await requireExistingAccountType(em, parsed.accountTypeId, scope)
+    if (parsed.parentAccountId) {
+      await requireValidParentAccount(em, parsed.parentAccountId, null, scope)
     }
 
     let record!: LedgerAccount
@@ -149,6 +220,13 @@ const updateLedgerAccountCommand: CommandHandler<LedgerAccountUpdateInput, { led
     if (parsed.accountTypeId !== undefined && parsed.accountTypeId !== record.accountTypeId) {
       if (await accountHasPostedEntries(em, record.id, scope)) {
         throw conflict('accountTypeId cannot be changed once this account has posted entries.')
+      }
+      await requireExistingAccountType(em, parsed.accountTypeId, scope)
+    }
+
+    if (parsed.parentAccountId !== undefined && parsed.parentAccountId !== record.parentAccountId) {
+      if (parsed.parentAccountId !== null) {
+        await requireValidParentAccount(em, parsed.parentAccountId, record.id, scope)
       }
     }
 
