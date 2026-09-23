@@ -1,11 +1,10 @@
 Feature: Fiscal period locking blocks posting
   As an accountant closing a period
-  I want postJournalEntry to reject any entry whose operation date falls
-  inside a locked fiscal period, and to reject one with no covering period
-  at all
+  I want any entry whose operation date falls inside a locked fiscal
+  period to be rejected, and one with no covering period at all to be
+  rejected too
   So that a closed accounting period stays immutable and no entry is ever
-  posted "into the void" (spec: .ai/specs/2026-08-18-general-ledger-core-engine.md,
-  Invariants + Edge Cases & Failure Scenarios)
+  posted "into the void"
 
   Scenario: Posting into a locked period is rejected
     Given a fiscal period from "2026-01-01" to "2026-01-31" that is locked

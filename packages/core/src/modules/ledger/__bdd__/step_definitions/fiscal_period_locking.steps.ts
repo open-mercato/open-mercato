@@ -8,8 +8,9 @@
 import { Given, When, Then } from '@cucumber/cucumber'
 import assert from 'node:assert'
 import '../../commands/postJournalEntry'
-import { FiscalPeriod } from '../../data/entities'
-import { buildCommandContext, executeCommand, FakeEntityManager, newId, ORG_ID, TENANT_ID, captureRejection } from '../support/world'
+import { FiscalPeriod, LedgerAccount } from '../../data/entities'
+import { Currency } from '@open-mercato/core/modules/currencies/data/entities'
+import { activeEmOrNew, buildCommandContext, executeCommand, FakeEntityManager, newId, ORG_ID, TENANT_ID, captureRejection, setActiveEm } from '../support/world'
 import type { PostJournalEntryResult } from '../../commands/postJournalEntry'
 
 const CASH_ACCOUNT_ID = newId()
@@ -19,6 +20,20 @@ const CURRENCY_ID = newId()
 let em: FakeEntityManager
 let outcome: PostJournalEntryResult | null
 let rejection: unknown
+
+// `requireValidPostingReferences` (postJournalEntry.ts, PR #6340 review M5)
+// checks the currency and every line's account actually exist before any
+// post reaches persistence. Called from all three Given steps below,
+// including the two whose scenarios reject before ever reaching that check
+// — harmless there, but required for "Posting into an open period
+// succeeds" to actually succeed rather than fail on an unrelated "currency
+// not found". Idempotent enough for a fake store: reseeding into an em
+// `activeEmOrNew()` already returned just adds a second, identical row.
+function seedPostingFixtures(target: FakeEntityManager): void {
+  target.seed(Currency, { id: CURRENCY_ID, organizationId: ORG_ID, tenantId: TENANT_ID, code: 'PLN', name: 'Polish Zloty', deletedAt: null })
+  target.seed(LedgerAccount, { id: CASH_ACCOUNT_ID, organizationId: ORG_ID, tenantId: TENANT_ID, slug: 'cash', accountTypeId: newId(), deletedAt: null })
+  target.seed(LedgerAccount, { id: REVENUE_ACCOUNT_ID, organizationId: ORG_ID, tenantId: TENANT_ID, slug: 'revenue', accountTypeId: newId(), deletedAt: null })
+}
 
 function balancedInput(operationDate: string) {
   return {
@@ -35,7 +50,8 @@ function balancedInput(operationDate: string) {
 }
 
 Given('a fiscal period from {string} to {string} that is locked', function (start: string, end: string) {
-  em = new FakeEntityManager()
+  em = setActiveEm(new FakeEntityManager())
+  seedPostingFixtures(em)
   em.seed(FiscalPeriod, {
     id: newId(),
     organizationId: ORG_ID,
@@ -47,8 +63,15 @@ Given('a fiscal period from {string} to {string} that is locked', function (star
   })
 })
 
+// Shared with `journal_entry_reversal.feature`, which uses this same step
+// text as a SECOND Given, layered onto the em its own first Given already
+// created — `activeEmOrNew()` picks that one up instead of starting a
+// fresh, disconnected fake store (found while wiring the double-reversal
+// scenarios: the two features used to define this step identically in two
+// files, which is an ambiguous-step error the moment both load together).
 Given('a fiscal period from {string} to {string} that is open', function (start: string, end: string) {
-  em = new FakeEntityManager()
+  em = activeEmOrNew()
+  seedPostingFixtures(em)
   em.seed(FiscalPeriod, {
     id: newId(),
     organizationId: ORG_ID,
@@ -61,7 +84,8 @@ Given('a fiscal period from {string} to {string} that is open', function (start:
 })
 
 Given('no fiscal period exists for {string}', function (_operationDate: string) {
-  em = new FakeEntityManager()
+  em = setActiveEm(new FakeEntityManager())
+  seedPostingFixtures(em)
 })
 
 When('I post a balanced journal entry dated {string}', async function (operationDate: string) {

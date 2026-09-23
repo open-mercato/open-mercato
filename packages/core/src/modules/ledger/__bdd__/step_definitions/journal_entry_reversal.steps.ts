@@ -7,13 +7,22 @@
 // asserting it is checked against the REVERSAL's own operation date, not
 // the original entry's (per the spec's "Design decisions" section this
 // feature file quotes).
+//
+// Seeds a `Currency` and both `LedgerAccount`s used by the original entry:
+// `requireValidPostingReferences` (PR #6340 review M5) checks both exist
+// before any post/reversal reaches persistence, so without these every
+// scenario here — including the original, already-approved one — would
+// fail on "currency not found"/"account not found" rather than exercising
+// the reversal logic at all. Found while wiring the two new
+// double-reversal scenarios below; fixed here rather than left broken.
 import { Given, When, Then } from '@cucumber/cucumber'
 import assert from 'node:assert'
 import '../../commands/postJournalEntry'
 import '../../commands/reverseJournalEntry'
-import { FiscalPeriod, JournalEntry, JournalEntryLine } from '../../data/entities'
+import { FiscalPeriod, JournalEntry, JournalEntryLine, LedgerAccount } from '../../data/entities'
+import { Currency } from '@open-mercato/core/modules/currencies/data/entities'
 import type { PostJournalEntryResult } from '../../commands/postJournalEntry'
-import { buildCommandContext, executeCommand, FakeEntityManager, newId, ORG_ID, TENANT_ID, captureRejection } from '../support/world'
+import { buildCommandContext, executeCommand, FakeEntityManager, newId, ORG_ID, TENANT_ID, captureRejection, setActiveEm } from '../support/world'
 
 const CASH_ACCOUNT_ID = newId()
 const REVENUE_ACCOUNT_ID = newId()
@@ -21,6 +30,7 @@ const CURRENCY_ID = newId()
 
 let em: FakeEntityManager
 let originalEntryId: string
+let reversalEntryId: string
 let outcome: PostJournalEntryResult | null
 let rejection: unknown
 
@@ -29,8 +39,12 @@ Given(
   function (amount: string, debitAccountLabel: string, creditAccountLabel: string) {
     void debitAccountLabel
     void creditAccountLabel
-    em = new FakeEntityManager()
+    em = setActiveEm(new FakeEntityManager())
     originalEntryId = newId()
+
+    em.seed(Currency, { id: CURRENCY_ID, organizationId: ORG_ID, tenantId: TENANT_ID, code: 'PLN', name: 'Polish Zloty', deletedAt: null })
+    em.seed(LedgerAccount, { id: CASH_ACCOUNT_ID, organizationId: ORG_ID, tenantId: TENANT_ID, slug: 'cash', accountTypeId: newId(), deletedAt: null })
+    em.seed(LedgerAccount, { id: REVENUE_ACCOUNT_ID, organizationId: ORG_ID, tenantId: TENANT_ID, slug: 'revenue', accountTypeId: newId(), deletedAt: null })
 
     // The original's own period: seeded as *locked* only after the fact —
     // it was open when the original was posted, and has since been closed,
@@ -92,32 +106,51 @@ Given(
   },
 )
 
-Given('a fiscal period from {string} to {string} that is open', function (start: string, end: string) {
-  em.seed(FiscalPeriod, {
-    id: newId(),
-    organizationId: ORG_ID,
-    tenantId: TENANT_ID,
-    startDate: new Date(start),
-    endDate: new Date(end),
-    isLocked: false,
-    deletedAt: null,
-  })
+// "Given a fiscal period from {string} to {string} that is open" is
+// deliberately NOT defined here — it already exists, globally, in
+// `fiscal_period_locking.steps.ts`. Cucumber matches step text across
+// every step-definition file; this file used to redefine it verbatim,
+// which is an ambiguous-step error the moment both files load together
+// (found while wiring the new double-reversal scenarios below).
+
+Given('that entry has already been reversed, dated {string}', async function (operationDate: string) {
+  const ctx = buildCommandContext(em)
+  const first = await executeCommand<PostJournalEntryResult>(
+    'ledger.reverseJournalEntry',
+    { organizationId: ORG_ID, tenantId: TENANT_ID, journalEntryId: originalEntryId, operationDate },
+    ctx,
+  )
+  reversalEntryId = first.journalEntryId
 })
 
 When('I reverse that entry with operation date {string}', async function (operationDate: string) {
   outcome = null
   rejection = null
   const ctx = buildCommandContext(em)
-  const input = {
-    organizationId: ORG_ID,
-    tenantId: TENANT_ID,
-    journalEntryId: originalEntryId,
-    operationDate,
-  }
-  const err = await captureRejection(async () => {
+  const input = { organizationId: ORG_ID, tenantId: TENANT_ID, journalEntryId: originalEntryId, operationDate }
+  rejection = await captureRejection(async () => {
     outcome = await executeCommand<PostJournalEntryResult>('ledger.reverseJournalEntry', input, ctx)
   })
-  rejection = err
+})
+
+When('I try to reverse that reversal entry', async function () {
+  outcome = null
+  rejection = null
+  const ctx = buildCommandContext(em)
+  const input = { organizationId: ORG_ID, tenantId: TENANT_ID, journalEntryId: reversalEntryId, operationDate: '2026-05-20' }
+  rejection = await captureRejection(async () => {
+    outcome = await executeCommand<PostJournalEntryResult>('ledger.reverseJournalEntry', input, ctx)
+  })
+})
+
+When('I try to reverse the original entry again', async function () {
+  outcome = null
+  rejection = null
+  const ctx = buildCommandContext(em)
+  const input = { organizationId: ORG_ID, tenantId: TENANT_ID, journalEntryId: originalEntryId, operationDate: '2026-05-20' }
+  rejection = await captureRejection(async () => {
+    outcome = await executeCommand<PostJournalEntryResult>('ledger.reverseJournalEntry', input, ctx)
+  })
 })
 
 Then('the reversal succeeds as a new REVERSAL entry with inverted lines referencing the original', async function () {
@@ -142,4 +175,18 @@ Then('the reversal succeeds as a new REVERSAL entry with inverted lines referenc
   assert.strictEqual(cashLine!.credit, '100.00')
   assert.strictEqual(revenueLine!.debit, '100.00')
   assert.strictEqual(revenueLine!.credit, '0')
+})
+
+Then('the attempt is rejected because a reversal cannot itself be reversed', function () {
+  assert.ok(rejection, 'expected reverseJournalEntry to reject, but it succeeded')
+  const err = rejection as { status?: number; body?: { error?: string } }
+  assert.strictEqual(err.status, 409)
+  assert.match(String(err.body?.error), /itself a reversal/i)
+})
+
+Then('the attempt is rejected because the entry has already been reversed', function () {
+  assert.ok(rejection, 'expected reverseJournalEntry to reject, but it succeeded')
+  const err = rejection as { status?: number; body?: { error?: string } }
+  assert.strictEqual(err.status, 409)
+  assert.match(String(err.body?.error), /already been reversed/i)
 })

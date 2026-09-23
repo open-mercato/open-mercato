@@ -13,6 +13,7 @@
 // persistence layer) — but written as plain closures over a `Map` instead
 // of `jest.fn()` mocks, since Cucumber has no bundled mocking library.
 import { randomUUID } from 'crypto'
+import { Before } from '@cucumber/cucumber'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { commandRegistry } from '@open-mercato/shared/lib/commands'
 
@@ -113,21 +114,73 @@ export class FakeEntityManager {
     return this
   }
 
-  getConnection() {
-    return {
-      execute: async (sql: string, params: unknown[]): Promise<{ next_value: string }[]> => {
-        if (!sql.includes('journal_entry_sequence')) {
-          throw new Error(`FakeEntityManager.getConnection().execute(): unhandled raw SQL — ${sql}`)
-        }
-        const [organizationId, tenantId] = params as [string, string]
-        const key = `${organizationId}:${tenantId}`
-        const current = this.sequenceCounters.get(key) ?? 1
-        this.sequenceCounters.set(key, current + 1)
-        return [{ next_value: String(current) }]
-      },
+  /**
+   * `claimNextSequenceNumber` (postJournalEntry.ts) calls `em.execute(...)`
+   * directly — never `em.getConnection().execute(...)` — specifically so
+   * the statement joins the caller's transaction context (PR #6340 review
+   * M2). This fake mirrors that exact call shape; `getConnection().execute`
+   * below is kept only because it was the original (pre-M2) call site and
+   * nothing has needed it removed.
+   */
+  async execute<T = unknown>(sql: string, params: unknown[]): Promise<T> {
+    return this.rawExecute(sql, params) as Promise<T>
+  }
+
+  private async rawExecute(sql: string, params: unknown[]): Promise<{ next_value: string }[]> {
+    if (!sql.includes('journal_entry_sequence')) {
+      throw new Error(`FakeEntityManager.execute(): unhandled raw SQL — ${sql}`)
     }
+    const [organizationId, tenantId] = params as [string, string]
+    const key = `${organizationId}:${tenantId}`
+    const current = this.sequenceCounters.get(key) ?? 1
+    this.sequenceCounters.set(key, current + 1)
+    return [{ next_value: String(current) }]
+  }
+
+  getConnection() {
+    return { execute: (sql: string, params: unknown[]) => this.rawExecute(sql, params) }
   }
 }
+
+// Test setup only — lets a step definition shared across feature files
+// (e.g. "a fiscal period from {string} to {string} that is open", reused
+// by both `fiscal_period_locking.feature` and
+// `journal_entry_reversal.feature`) find whichever `FakeEntityManager` the
+// running scenario's own first Given already created, regardless of which
+// step-definition FILE that Given lives in — each file still keeps its own
+// local `em` variable for its own subsequent steps, but that variable and
+// the "active" one below are the same object, because every Given that
+// creates a fresh em registers it here in the same call.
+let activeEm: FakeEntityManager | null = null
+
+export function setActiveEm(em: FakeEntityManager): FakeEntityManager {
+  activeEm = em
+  return em
+}
+
+/**
+ * Returns the scenario's active `FakeEntityManager`, creating and
+ * registering a fresh one if no earlier Given has set one up yet. This
+ * lets one step definition work both as a scenario's first/only fixture
+ * step (nothing active yet — starts a new fake store) and as a later step
+ * layered onto an em an earlier Given in a different file already created
+ * (something is already active — seeds into that one instead).
+ */
+export function activeEmOrNew(): FakeEntityManager {
+  if (!activeEm) activeEm = new FakeEntityManager()
+  return activeEm
+}
+
+// Without this, `activeEm` (a plain module-level variable) would survive
+// from one scenario into the next in the same `cucumber-js` process — a
+// scenario whose own first Given uses `activeEmOrNew()` (rather than
+// `setActiveEm(new FakeEntityManager())`) could then silently inherit a
+// previous scenario's fake store instead of starting isolated, which is
+// exactly the kind of cross-scenario leakage BDD scenarios are supposed to
+// be safe from.
+Before(function () {
+  activeEm = null
+})
 
 // `emitCrudSideEffects`'s only real dependency (see
 // `packages/shared/src/lib/commands/helpers.ts`) — a synchronous call, no
@@ -165,7 +218,15 @@ export function buildCommandContext(em: FakeEntityManager): CommandRuntimeContex
     transactionalEm: em as unknown as CommandRuntimeContext['transactionalEm'],
     auth: undefined,
     organizationScope: undefined,
-    selectedOrganizationId: ORG_ID,
+    // Was `ORG_ID` — but `ensureOrganizationScope` only truly no-ops when
+    // this is falsy; a fixed non-null value makes it compare every
+    // command's real `input.organizationId` against this constant and
+    // reject anything else with 403 Forbidden (found while wiring the
+    // sequence-numbering scenarios, which correctly post under more than
+    // one organization). `undefined` is what this comment always claimed
+    // and what the Jest-side fake (`commands/__tests__/support/fakeEntityManager.ts`)
+    // already uses for the same case.
+    selectedOrganizationId: undefined,
     organizationIds: null,
     request: null,
   } as unknown as CommandRuntimeContext

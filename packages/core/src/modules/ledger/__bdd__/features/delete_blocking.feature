@@ -1,17 +1,13 @@
 Feature: Delete blocking for accounts and account types with posted entries
-  As the ledger module itself
-  I want deleteLedgerAccount and deleteLedgerAccountType to refuse a
-  soft-delete when the record still has posted journal entry lines (or,
-  for an account type, is still named as another type's parent)
+  As an accountant maintaining the chart of accounts
+  I want a soft-delete to be refused when the record still has posted
+  journal entry lines (or, for an account type, is still named as
+  another type's parent)
   So that a chart-of-accounts record backing real accounting history can
-  never disappear out from under it (spec: Queries/API section, "delete
-  blocked once posted entries exist")
+  never disappear out from under it
 
-  # NOT YET WIRED TO REAL COMMAND EXECUTION — same reason as
-  # `account_type_immutability.feature`: `commands/ledgerAccounts.ts` and
-  # `commands/ledgerAccountTypes.ts` both import
-  # `#generated/entities.ids.generated` at module top level, which does not
-  # exist in this repo until `yarn generate` runs. See `../README.md`.
+  # Not yet wired to a real run — same reason as
+  # account_type_immutability.feature; see ../README.md.
 
   Scenario: Deleting an account with posted entries is rejected
     Given a ledger account has a posted entry
