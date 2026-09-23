@@ -260,7 +260,7 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
       document.body.style.removeProperty('overflow')
       document.body.style.removeProperty('pointer-events')
     }
-  }, [open, editData])
+  }, [open, editData, isEditing])
 
   // Update the Reminder default when the activity type changes in create mode.
   // Skipped in edit mode (the persisted value wins), and gated by `open` to

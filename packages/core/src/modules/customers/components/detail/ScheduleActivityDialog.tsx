@@ -431,7 +431,7 @@ export function ScheduleActivityDialog({
         body: state.description.trim() || null,
         status: 'planned',
         date: trimmedDate || null,
-        time: timeForPayload || null,
+        time: trimmedDate ? timeForPayload || null : null,
         phoneNumber: state.activityType === 'call' ? phoneNumberForPayload : undefined,
         // Only tasks expose the priority control, so other types leave the column
         // untouched rather than clearing it on a type switch (#5943).
