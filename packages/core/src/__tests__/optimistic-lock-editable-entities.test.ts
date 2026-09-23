@@ -83,6 +83,7 @@ const moduleEntities: Record<string, string[]> = {
   ],
   messages: ['Message'],
   notifications: ['NotificationTypeOverride', 'NotificationPreference'],
+  availability: ['AvailabilityPolicy'],
 }
 
 function readEntitySource(moduleId: string): string {
