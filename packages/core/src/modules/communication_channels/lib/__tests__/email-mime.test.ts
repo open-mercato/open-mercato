@@ -401,7 +401,10 @@ describe('normalizeMimeInbound', () => {
 
     it('ignores a MIME Date header far in the future', () => {
       const fallbackDate = new Date('2026-05-28T10:00:09.000Z')
-      const result = normalize({ ...baseParsed, date: '2031-01-01T00:00:00.000Z' }, { fallbackDate })
+      // Computed relative to the real clock (not a fixed literal) so this stays
+      // well beyond the 24h future-skew threshold no matter when the suite runs.
+      const farFutureDate = new Date(Date.now() + 5 * 365 * 24 * 60 * 60 * 1000).toISOString()
+      const result = normalize({ ...baseParsed, date: farFutureDate }, { fallbackDate })
       expect(result.timestamp).toEqual(fallbackDate)
     })
 
