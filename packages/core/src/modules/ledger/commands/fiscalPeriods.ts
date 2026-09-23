@@ -3,13 +3,17 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { LockMode } from '@mikro-orm/core'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
 import {
   enforceCommandOptimisticLockWithGuards,
   enforceRecordGoneIsConflict,
 } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { E } from '#generated/entities.ids.generated'
 import { FiscalPeriod } from '../data/entities'
 import {
   createFiscalPeriodSchema,
@@ -23,6 +27,25 @@ import {
 const FISCAL_PERIOD_RESOURCE_KIND = 'ledger.fiscal_period'
 
 type Scope = { organizationId: string; tenantId: string }
+
+// PR #6340 review, m14: create/lock/unlock previously emitted no event at
+// all, unlike this module's other entities. Both toggleFiscalPeriodLock
+// arms emit 'updated' — see the events.ts declaration's own comment for
+// why there's no separate locked/unlocked pair.
+const ledgerFiscalPeriodCrudEvents: CrudEventsConfig<FiscalPeriod> = {
+  module: 'ledger',
+  entity: 'fiscal_period',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
+
+const ledgerFiscalPeriodCrudIndexer: CrudIndexerConfig<FiscalPeriod> = {
+  entityType: E.ledger.fiscal_period,
+}
 
 /**
  * `FiscalPeriod` rows for one organization must not overlap (added
@@ -77,7 +100,7 @@ const createFiscalPeriodCommand: CommandHandler<CreateFiscalPeriodInput, { fisca
     // concurrent creates for the same scope queue up rather than
     // interleave. `pg_advisory_xact_lock` auto-releases at commit/rollback,
     // so nothing to clean up on either path.
-    const periodId = await em.transactional(async (trx) => {
+    const period = await em.transactional(async (trx) => {
       await trx.execute('select pg_advisory_xact_lock(hashtextextended(?, 0))', [
         `ledger.fiscal_period:${scope.organizationId}:${scope.tenantId}`,
       ])
@@ -88,7 +111,7 @@ const createFiscalPeriodCommand: CommandHandler<CreateFiscalPeriodInput, { fisca
       }
 
       const now = new Date()
-      const period = trx.create(FiscalPeriod, {
+      const created = trx.create(FiscalPeriod, {
         id: randomUUID(),
         organizationId: input.organizationId,
         tenantId: input.tenantId,
@@ -98,12 +121,24 @@ const createFiscalPeriodCommand: CommandHandler<CreateFiscalPeriodInput, { fisca
         createdAt: now,
         updatedAt: now,
       })
-      trx.persist(period)
+      trx.persist(created)
       await trx.flush()
-      return period.id
+      return created
     })
 
-    return { fiscalPeriodId: periodId }
+    // PR #6340 review, m14: emit after the transaction commits, mirroring
+    // this module's other create commands (see ledgerAccounts.ts /
+    // ledgerAccountTypes.ts) — fiscal periods previously emitted nothing.
+    emitCrudSideEffects({
+      dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
+      action: 'created',
+      entity: period,
+      identifiers: { id: period.id, organizationId: period.organizationId, tenantId: period.tenantId },
+      events: ledgerFiscalPeriodCrudEvents,
+      indexer: ledgerFiscalPeriodCrudIndexer,
+    })
+
+    return { fiscalPeriodId: period.id }
   },
   buildLog: async ({ input, result, ctx }) => {
     if (!result) return null
@@ -146,7 +181,9 @@ async function toggleFiscalPeriodLock(
   // share` lock on the same row, so a concurrent post and a concurrent
   // lock/unlock now serialize against each other instead of one reading a
   // stale `isLocked` value before the other commits.
-  return em.transactional(async (trx) => {
+  let record!: FiscalPeriod
+
+  const dto = await em.transactional(async (trx) => {
     const period = await trx.findOne(
       FiscalPeriod,
       {
@@ -180,8 +217,24 @@ async function toggleFiscalPeriodLock(
     period.updatedAt = new Date()
     await trx.flush()
 
+    record = period
+
     return { id: period.id, isLocked: period.isLocked, updatedAt: period.updatedAt.toISOString() }
   })
+
+  // PR #6340 review, m14: emit after the transaction commits — see the
+  // module-level comment on ledgerFiscalPeriodCrudEvents for why both lock
+  // and unlock emit 'updated' rather than a separate locked/unlocked pair.
+  emitCrudSideEffects({
+    dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
+    action: 'updated',
+    entity: record,
+    identifiers: { id: record.id, organizationId: scope.organizationId, tenantId: scope.tenantId },
+    events: ledgerFiscalPeriodCrudEvents,
+    indexer: ledgerFiscalPeriodCrudIndexer,
+  })
+
+  return dto
 }
 
 const lockFiscalPeriodCommand: CommandHandler<LockFiscalPeriodInput, FiscalPeriodDto> = {

@@ -57,6 +57,14 @@ const events = [
     entity: 'ledger_account_type',
     category: 'crud',
   },
+
+  // `fiscal_period` has no delete command (Phase 1 — see the module's
+  // Design decisions), so only created/updated are declared; lock/unlock
+  // both emit `updated`, since a lock toggle is a change to the record,
+  // not a distinct lifecycle stage (PR #6340 review, m14 — these three
+  // commands previously emitted nothing at all).
+  { id: 'ledger.fiscal_period.created', label: 'Fiscal Period Created', entity: 'fiscal_period', category: 'crud' },
+  { id: 'ledger.fiscal_period.updated', label: 'Fiscal Period Updated', entity: 'fiscal_period', category: 'crud' },
 ] as const
 
 export const eventsConfig = createModuleEvents({
