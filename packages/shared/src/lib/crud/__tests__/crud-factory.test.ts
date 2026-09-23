@@ -34,6 +34,7 @@ import {
   type TelemetryRuntime,
 } from '@open-mercato/shared/lib/telemetry/runtime'
 import { z } from 'zod'
+import { NotFoundError as MikroOrmNotFoundError, ValidationError as MikroOrmValidationError } from '@mikro-orm/core'
 
 // Keep the real custom-field helpers but spy on the definition loader so we can
 // assert the factory skips the second DB round-trip when the query engine has
@@ -928,9 +929,88 @@ describe('CRUD Factory', () => {
     const res = await route.POST(new Request('http://x/api/example/todos', { method: 'POST', body: JSON.stringify({ title: 'Exhausted', is_done: true, cf_priority: 3 }), headers: { 'content-type': 'application/json' } }))
     expect(res.status).toBe(503)
     expect(res.headers.get('Retry-After')).toBe('2')
+    const body = await res.json()
+    expect(body.code).toBe('DATABASE_UNAVAILABLE')
+    expect(typeof body.requestId).toBe('string')
+    expect(res.headers.get('x-request-id')).toBe(body.requestId)
     // The failed write is still rolled back — no created event/index leaks out.
     expect(Object.values(db)).toHaveLength(0)
     expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()
+  })
+
+  it('echoes an inbound x-request-id on the 503 transient-DB response', async () => {
+    setRecordCustomFields.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('sorry, too many clients already'), { code: '53300' })
+    })
+    const res = await route.POST(new Request('http://x/api/example/todos', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Exhausted', is_done: true, cf_priority: 3 }),
+      headers: { 'content-type': 'application/json', 'x-request-id': 'req-fixed-503' },
+    }))
+    expect(res.status).toBe(503)
+    const body = await res.json()
+    expect(body.requestId).toBe('req-fixed-503')
+    expect(res.headers.get('x-request-id')).toBe('req-fixed-503')
+  })
+
+  it('returns DATABASE_ERROR for an unmapped Postgres SQLSTATE without leaking driver detail', async () => {
+    setRecordCustomFields.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('relation "missing_table" does not exist'), { code: '42P01' })
+    })
+    const res = await route.POST(new Request('http://x/api/example/todos', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Undefined table', is_done: true, cf_priority: 3 }),
+      headers: { 'content-type': 'application/json' },
+    }))
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.code).toBe('DATABASE_ERROR')
+    expect(typeof body.requestId).toBe('string')
+    expect(JSON.stringify(body)).not.toContain('42P01')
+    expect(JSON.stringify(body)).not.toContain('missing_table')
+  })
+
+  it('returns PERSISTENCE_ERROR for a MikroORM ValidationError with no Postgres SQLSTATE', async () => {
+    setRecordCustomFields.mockImplementationOnce(async () => {
+      throw new MikroOrmValidationError('entity failed validation')
+    })
+    const res = await route.POST(new Request('http://x/api/example/todos', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Invalid entity', is_done: true, cf_priority: 3 }),
+      headers: { 'content-type': 'application/json' },
+    }))
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.code).toBe('PERSISTENCE_ERROR')
+    expect(typeof body.requestId).toBe('string')
+  })
+
+  it('returns PERSISTENCE_ERROR for a MikroORM NotFoundError with no Postgres SQLSTATE', async () => {
+    setRecordCustomFields.mockImplementationOnce(async () => {
+      throw new MikroOrmNotFoundError('entity not found')
+    })
+    const res = await route.POST(new Request('http://x/api/example/todos', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Missing entity', is_done: true, cf_priority: 3 }),
+      headers: { 'content-type': 'application/json' },
+    }))
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.code).toBe('PERSISTENCE_ERROR')
+  })
+
+  it('does not misclassify a Node system error code as a database error', async () => {
+    setRecordCustomFields.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:80'), { code: 'ECONNREFUSED' })
+    })
+    const res = await route.POST(new Request('http://x/api/example/todos', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Unrelated socket failure', is_done: true, cf_priority: 3 }),
+      headers: { 'content-type': 'application/json' },
+    }))
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.code).toBe('INTERNAL_ERROR')
   })
 
   it('returns a correlated 409 without leaking the constraint name when a handler hits a foreign key violation', async () => {
@@ -1364,6 +1444,7 @@ describe('CRUD Factory', () => {
       error: 'Internal server error',
       message: 'Something went wrong. Please try again later.',
       requestId: expect.any(String),
+      code: 'INTERNAL_ERROR',
     })
   })
 
@@ -1403,6 +1484,7 @@ describe('CRUD Factory', () => {
       error: 'Internal server error',
       message: 'Something went wrong. Please try again later.',
       requestId: expect.any(String),
+      code: 'INTERNAL_ERROR',
     })
   })
 
@@ -1541,7 +1623,7 @@ describe('CRUD Factory', () => {
       expect(body.requestId).toMatch(/^[A-Za-z0-9-]{36}$/)
     })
 
-    it('reports the error to telemetry with the same requestId', async () => {
+    it('reports the error to telemetry with the same requestId and a groupable code', async () => {
       commandBus.execute.mockRejectedValue(new Error('boom'))
 
       const res = await postWithRequestId('req-fixed-123')
@@ -1551,12 +1633,17 @@ describe('CRUD Factory', () => {
       expect(reportError).toHaveBeenCalledTimes(1)
       expect(reportError).toHaveBeenCalledWith(
         expect.any(Error),
-        { module: 'crud', attributes: { requestId: 'req-fixed-123', errorName: 'Error' } },
+        {
+          module: 'crud',
+          code: 'crud.internal_error',
+          attributes: { requestId: 'req-fixed-123', errorName: 'Error', code: 'INTERNAL_ERROR', pgCode: undefined },
+        },
       )
     })
 
-    // The 503/422 branches deliberately stay outside this change (issue #5608) — lock that
-    // in so a later refactor cannot quietly widen the correlation id across every branch.
+    // The 422 interceptor-rejection branch deliberately stays outside this change (issue
+    // #5608) — lock that in so a later refactor cannot quietly widen the correlation id
+    // across every branch. The 503 transient-DB branch gained requestId/code separately.
     it('leaves the interceptor-rejection branch without a requestId', async () => {
       commandBus.execute.mockRejectedValue(
         new CommandInterceptorError('Missing required fields: VAT id', { status: 422 }),

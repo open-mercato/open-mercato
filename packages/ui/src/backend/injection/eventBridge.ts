@@ -45,6 +45,10 @@ export function useEventBridge(): void {
   useEffect(() => {
     let mounted = true
 
+    function isPageVisible(): boolean {
+      return document.visibilityState !== 'hidden'
+    }
+
     function isDuplicate(eventPayload: AppEventPayload): boolean {
       const key = `${eventPayload.id}:${JSON.stringify(eventPayload.payload ?? {})}`
       const lastSeen = recentEvents.current.get(key)
@@ -70,7 +74,7 @@ export function useEventBridge(): void {
     }
 
     function connect() {
-      if (!mounted) return
+      if (!mounted || !isPageVisible()) return
       if (sourceRef.current) return
 
       try {
@@ -121,13 +125,13 @@ export function useEventBridge(): void {
             reconnectPending.current = true
           }
           disconnect()
-          if (mounted) scheduleReconnect()
+          if (mounted && isPageVisible()) scheduleReconnect()
         }
       } catch {
         if (hasEverConnected.current) {
           reconnectPending.current = true
         }
-        if (mounted) scheduleReconnect()
+        if (mounted && isPageVisible()) scheduleReconnect()
       }
     }
 
@@ -156,10 +160,25 @@ export function useEventBridge(): void {
       }, delay)
     }
 
+    function handleVisibilityChange() {
+      if (!isPageVisible()) {
+        if (hasEverConnected.current) reconnectPending.current = true
+        disconnect()
+        if (reconnectTimer.current) {
+          clearTimeout(reconnectTimer.current)
+          reconnectTimer.current = null
+        }
+        return
+      }
+      connect()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
     connect()
 
     return () => {
       mounted = false
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
       disconnect()
       if (reconnectTimer.current) {
         clearTimeout(reconnectTimer.current)

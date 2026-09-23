@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { appVersion } from '@open-mercato/shared/lib/version'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { getEnabledModuleIds } from '@open-mercato/shared/security/enabledModulesRegistry'
 import { UpgradeActionRun } from '../data/entities'
 import { actionsUpToVersion, findUpgradeAction, type UpgradeActionDefinition } from '../lib/upgrade-actions'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -17,6 +18,18 @@ export function isUpgradeActionsEnabled(): boolean {
 
 export function getCurrentVersion(): string {
   return appVersion
+}
+
+/**
+ * An action with no `requiredModules` is owned by `configs` itself and is
+ * always available. Fails closed when the module registry is empty/unavailable,
+ * mirroring `isDocumentEntityRegistryModuleEnabled`.
+ */
+function isActionModuleEnabled(definition: UpgradeActionDefinition): boolean {
+  const required = definition.requiredModules
+  if (!Array.isArray(required) || required.length === 0) return true
+  const enabledModuleIds = new Set(getEnabledModuleIds())
+  return required.every((moduleId) => enabledModuleIds.has(moduleId))
 }
 
 export async function listPendingUpgradeActions(
@@ -37,7 +50,9 @@ export async function listPendingUpgradeActions(
     version: { $in: versions },
   })
   const completed = new Set(runs.map((run) => `${run.version}::${run.actionId}`))
-  return definitions.filter((definition) => !completed.has(`${definition.version}::${definition.id}`))
+  return definitions
+    .filter((definition) => !completed.has(`${definition.version}::${definition.id}`))
+    .filter(isActionModuleEnabled)
 }
 
 export async function executeUpgradeAction(
@@ -53,7 +68,7 @@ export async function executeUpgradeAction(
     throw new Error('UPGRADE_ACTIONS_DISABLED')
   }
   const definition = findUpgradeAction(actionId, version)
-  if (!definition) {
+  if (!definition || !isActionModuleEnabled(definition)) {
     throw new Error('UPGRADE_ACTION_NOT_AVAILABLE')
   }
   const em = container.resolve<EntityManager>('em')
