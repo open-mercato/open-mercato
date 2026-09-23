@@ -1285,6 +1285,51 @@ describe('HybridQueryEngine custom-field kind resolution (#5968)', () => {
     expect(byId['row-b'].cf_code).toBe('123')
   })
 
+  test("falls back to the query's own organizationId when a row carries no organization_id column (re-review M1)", async () => {
+    const encryptedForOrgA = await encryptCustomFieldValue('123', 'tenant-1', kindService, new Map())
+
+    const db = createFakeKysely({
+      baseTable: 'customer_entities',
+      hasIndexAny: true,
+      baseCount: 1,
+      indexCount: 1,
+      // Two organizations override the same key with colliding kinds — the ordering
+      // ensures the lowest-priority/most-recently-updated definition would win if the
+      // row's scope collapsed to "no organization" instead of falling back to the
+      // query's own organizationId.
+      customFieldDefs: [
+        { entity_id: 'customers:customer_entity', key: 'code', kind: 'integer', organization_id: 'org-a', tenant_id: 'tenant-1', updated_at: '2026-01-01T00:00:00.000Z' },
+        { entity_id: 'customers:customer_entity', key: 'code', kind: 'text', organization_id: 'org-b', tenant_id: 'tenant-1', updated_at: '2026-02-01T00:00:00.000Z' },
+      ],
+      rows: {
+        customer_entities: [
+          { id: 'row-a', tenant_id: 'tenant-1', cf_code: encryptedForOrgA },
+        ],
+      },
+    })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }), undefined, () => kindService)
+
+    // `fields` deliberately omits `organization_id`, so the fetched row carries no
+    // organization scope of its own — only `opts.organizationId` (`fallbackOrgId`)
+    // disambiguates which organization's `kind` definition applies.
+    const result = await engine.query('customers:customer_entity', {
+      fields: ['id', 'cf:code'],
+      includeCustomFields: true,
+      tenantId: 'tenant-1',
+      organizationId: 'org-a',
+      page: { page: 1, pageSize: 50 },
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    // org-a's field is `integer`: the stored string round-trips through JSON.parse.
+    // Before the fallback fix this decrypted as the verbatim string "123", borrowing
+    // org-b's `text` kind (or whichever definition sorted last) instead.
+    expect((result.items[0] as any).cf_code).toBe(123)
+  })
+
   test('a failing custom_field_defs lookup fails open and keeps the legacy no-kind decrypt behavior', async () => {
     const encrypted = await encryptCustomFieldValue('123', 'tenant-1', kindService, new Map())
     const db = createFakeKysely({

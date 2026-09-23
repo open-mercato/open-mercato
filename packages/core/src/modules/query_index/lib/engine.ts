@@ -1242,8 +1242,9 @@ export class HybridQueryEngine implements QueryEngine {
 
       const dekKeyCache = new Map<string | null, string | null>()
       // Resolved lazily and only once per query, then memoized per scope: rows of one
-      // organization share a kind map, and a query whose rows carry no encrypted custom
-      // fields never pays for the lookup.
+      // organization share a kind map. `resolveCustomFieldKinds()` still runs for every
+      // row once encryption is active, but the underlying `custom_field_defs` lookup is
+      // TTL-cached, so a warm cache adds no extra query.
       let customFieldKinds: Promise<CustomFieldKindMapResolver> | null = null
       const resolveCustomFieldKinds = (): Promise<CustomFieldKindMapResolver> => {
         if (!customFieldKinds) {
@@ -1278,7 +1279,7 @@ export class HybridQueryEngine implements QueryEngine {
             // organization-specific definition can never type another organization's value.
             const cfScope = {
               tenantId: (next?.tenant_id ?? next?.tenantId ?? opts.tenantId ?? null) as string | null,
-              organizationId: (next?.organization_id ?? next?.organizationId ?? null) as string | null,
+              organizationId: (next?.organization_id ?? next?.organizationId ?? fallbackOrgId ?? null) as string | null,
             }
             const resolveKinds = await resolveCustomFieldKinds()
             next = await decryptIndexDocCustomFields(
