@@ -317,11 +317,14 @@ export const PHONE_COUNTRIES: PhoneCountry[] = RAW_PHONE_COUNTRIES
 
 /**
  * Translation key holding a country's display name, e.g.
- * `ui.inputs.phoneNumberField.country.PL`. Locale files only need entries for
- * the countries whose platform-provided name a deployment wants to change.
+ * `ui.inputs.phoneNumberField.countryName.PL`. Locale files only need entries
+ * for the countries whose platform-provided name a deployment wants to
+ * change. This is a distinct namespace from
+ * `ui.inputs.phoneNumberField.country` (the picker's trigger label) so a
+ * nested locale file can hold both.
  */
 export function phoneCountryLabelKey(iso2: string): string {
-  return `ui.inputs.phoneNumberField.country.${iso2.toUpperCase()}`
+  return `ui.inputs.phoneNumberField.countryName.${iso2.toUpperCase()}`
 }
 
 const regionDisplayNamesByLocale = new Map<string, Intl.DisplayNames | null>()

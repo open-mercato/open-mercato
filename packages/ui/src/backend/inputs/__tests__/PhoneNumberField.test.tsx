@@ -163,12 +163,12 @@ describe('PhoneNumberField country name localization', () => {
   const poland = PHONE_COUNTRIES.find((country) => country.iso2 === 'PL') as PhoneCountry
 
   it('builds the translation key from the ISO 3166-1 alpha-2 code', () => {
-    expect(phoneCountryLabelKey('pl')).toBe('ui.inputs.phoneNumberField.country.PL')
+    expect(phoneCountryLabelKey('pl')).toBe('ui.inputs.phoneNumberField.countryName.PL')
   })
 
   it('prefers a locale-file entry over every other source', () => {
     const withOverride: TranslateFn = (key, fallback) =>
-      key === 'ui.inputs.phoneNumberField.country.PL' ? 'Rzeczpospolita Polska' : englishOnly(key, fallback)
+      key === 'ui.inputs.phoneNumberField.countryName.PL' ? 'Rzeczpospolita Polska' : englishOnly(key, fallback)
 
     expect(resolvePhoneCountryLabel(poland, withOverride, 'pl')).toBe('Rzeczpospolita Polska')
   })
