@@ -104,6 +104,15 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'workflows', from: '@open-mercato/core' },
   { id: 'search', from: '@open-mercato/search' },
   { id: 'currencies', from: '@open-mercato/core' },
+  // General Ledger core engine (PR #6340). Ships with the scaffold but stays
+  // disabled in the template for the same reason as `availability` above: no
+  // case in packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/ledger/index.md in context.required, so enabling it
+  // here trips packages/create-app/src/lib/module-facts-build.test.ts ('every
+  // module fact-sheet a scaffold ships is required by at least one catalog
+  // case'). Run the om-refresh-standalone-harness skill to add that coverage,
+  // then enable it in the template (PR #6340 review, m12).
+  // { id: 'ledger', from: '@open-mercato/core' },
   { id: 'planner', from: '@open-mercato/core' },
   { id: 'resources', from: '@open-mercato/core' },
   { id: 'staff', from: '@open-mercato/core' },
