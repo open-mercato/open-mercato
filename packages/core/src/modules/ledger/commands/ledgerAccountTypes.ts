@@ -69,6 +69,25 @@ async function accountTypeHasPostedEntries(
 }
 
 /**
+ * Whether any `LedgerAccount` still names `accountTypeId` as its
+ * `accountTypeId` — deleting the type out from under an unposted account
+ * would leave that account pointing at a soft-deleted type, which nothing
+ * else checks for (PR #6340 review, m4). Distinct from
+ * `accountTypeHasPostedEntries` above: that one only cares whether any of
+ * those accounts have posted entries; this one blocks the delete whenever
+ * *any* non-deleted account of this type still exists, posted or not.
+ */
+async function accountTypeStillInUse(em: EntityManager, accountTypeId: string, scope: Scope): Promise<boolean> {
+  const count = await em.count(LedgerAccount, {
+    accountTypeId,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    deletedAt: null,
+  })
+  return count > 0
+}
+
+/**
  * Whether another `LedgerAccountType` still names `accountTypeId` as its
  * `parentAccountTypeId` — the second half of `deleteLedgerAccountType`'s
  * blocking condition (see spec: "delete blocked once posted entries OR
@@ -347,6 +366,14 @@ const deleteLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeDeleteInpu
         translate(
           'ledger.errors.accountTypeHasPostedEntriesCannotDelete',
           'This account type cannot be deleted because an account of this type has posted entries.',
+        ),
+      )
+    }
+    if (await accountTypeStillInUse(em, record.id, scope)) {
+      throw conflict(
+        translate(
+          'ledger.errors.accountTypeStillInUseCannotDelete',
+          'This account type cannot be deleted because an account still uses it.',
         ),
       )
     }

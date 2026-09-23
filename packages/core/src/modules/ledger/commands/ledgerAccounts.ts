@@ -82,6 +82,22 @@ async function requireExistingAccountType(
 }
 
 /**
+ * Whether another `LedgerAccount` still names `accountId` as its
+ * `parentAccountId` — deleting an account out from under a child would
+ * leave that child pointing at a soft-deleted parent, which nothing else
+ * checks for (PR #6340 review, m4).
+ */
+async function accountHasChildren(em: EntityManager, accountId: string, scope: Scope): Promise<boolean> {
+  const count = await em.count(LedgerAccount, {
+    parentAccountId: accountId,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    deletedAt: null,
+  })
+  return count > 0
+}
+
+/**
  * Rejects a `parentAccountId` that doesn't exist, is soft-deleted, belongs
  * to a different organization/tenant, names the account itself (only
  * possible on update — a brand-new account's server-generated id can't
@@ -308,6 +324,11 @@ const deleteLedgerAccountCommand: CommandHandler<LedgerAccountDeleteInput, { led
     if (await accountHasPostedEntries(em, record.id, scope)) {
       throw conflict(
         translate('ledger.errors.accountHasPostedEntriesCannotDelete', 'This account cannot be deleted because it has posted journal entries.'),
+      )
+    }
+    if (await accountHasChildren(em, record.id, scope)) {
+      throw conflict(
+        translate('ledger.errors.accountHasChildrenCannotDelete', 'This account cannot be deleted because another account still lists it as its parent.'),
       )
     }
 
