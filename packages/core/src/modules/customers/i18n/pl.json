@@ -458,6 +458,7 @@
   "customers.changelog.previous": "Poprzednie",
   "customers.changelog.showing": "Pokazano {{shown}} z {{total}} wpisów",
   "customers.changelog.showingWithPeriod": "Pokazano {{shown}} z {{total}} wpisów · ostatnie {{days}} dni",
+  "customers.changelog.source.agent": "Agent",
   "customers.changelog.source.api": "API",
   "customers.changelog.source.system": "System",
   "customers.changelog.source.ui": "UI",
@@ -2351,6 +2352,7 @@
   "customers.people.form.twitterUrl": "X / Twitter",
   "customers.people.form.twitterUrl.placeholder": "https://x.com/przyklad",
   "customers.people.form.updateSuccess": "Osoba została zaktualizowana.",
+  "customers.people.form.websiteUrl.invalid": "Podaj prawidłowy adres URL (np. https://example.com)",
   "customers.people.list.actions.delete": "Usuń",
   "customers.people.list.actions.new": "Nowa osoba",
   "customers.people.list.actions.openInNewTab": "Otwórz w nowej karcie",
@@ -2874,5 +2876,8 @@
   "customers.workPlan.customerTodos.table.state.empty": "Brak zadań klientów.",
   "customers.workPlan.customerTodos.table.state.noMatches": "Brak zadań spełniających filtry.",
   "customers.workPlan.customerTodos.table.title": "Zadania związane z klientami",
+  "customers.workflows.commands.companies.update": "Aktualizuj firmę",
+  "customers.workflows.commands.deals.update": "Aktualizuj szansę sprzedaży",
+  "customers.workflows.commands.people.update": "Aktualizuj osobę",
   "notifications.categories.customers": "Klienci"
 }

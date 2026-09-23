@@ -106,9 +106,14 @@ for (const relPath of SUPERVISOR_FILES) {
   test(`${relPath} clears child state before opening each runtime generation`, () => {
     const source = read(relPath)
 
+    // Each entry is the function that actually spawns a runtime child. The
+    // monorepo path spawns from inside `runAppLifecycle`'s restart loop rather
+    // than from `launchMonorepoAppDev`, so every restart re-opens a generation
+    // and must clear the previous child's state first — assert it where the
+    // spawn lives, not where the launch is merely kicked off.
     for (const launcher of [
       'function launchStandaloneDev(options = {}) {',
-      'function launchMonorepoAppDev() {',
+      'async function runAppLifecycle() {',
     ]) {
       const start = source.indexOf(launcher)
       assert.notEqual(start, -1, `missing ${launcher}`)

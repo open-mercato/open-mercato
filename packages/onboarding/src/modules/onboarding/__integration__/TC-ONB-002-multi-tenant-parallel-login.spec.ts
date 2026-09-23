@@ -68,11 +68,19 @@ async function readPreparationState(requestId: string): Promise<{
   });
 }
 
+// Budget the wait from what the chain can actually take, not from a round number. Deferred
+// provisioning runs every module's `seedExamples` sequentially under its own
+// SEED_EXAMPLES_TIMEOUT_MS (15s) cap — a dozen such modules ship today, so one chain's
+// worst case is ~180s, and this test drives two of them concurrently on a shared CI runner
+// under V8 coverage. The old 60s deadline asserted a bound the implementation never offered
+// and expired mid-chain (the lease was still being renewed one second before it fired).
+const PREPARATION_DEADLINE_MS = 180_000;
+
 async function waitForPreparationComplete(
   request: APIRequestContext,
   tenant: OnboardingTenant,
 ): Promise<void> {
-  const deadline = Date.now() + 60_000;
+  const deadline = Date.now() + PREPARATION_DEADLINE_MS;
   let lastState: Awaited<ReturnType<typeof readPreparationState>> | null = null;
   while (Date.now() < deadline) {
     // Drive the same recovery the real preparing page provides: it polls the
@@ -84,8 +92,11 @@ async function waitForPreparationComplete(
     if (lastState.preparation_completed_at && !lastState.preparation_started_at) return;
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
-  expect(lastState?.preparation_started_at, 'deferred preparation lease should be cleared after completion').toBeNull();
+  // Completion first: a chain that simply has not finished yet still holds a freshly renewed
+  // lease, so asserting the lease first reports "lease should be cleared" for what is really
+  // "preparation never completed" — the misdiagnosis this ordering avoids.
   expect(lastState?.preparation_completed_at, 'workspace preparation should complete').toBeTruthy();
+  expect(lastState?.preparation_started_at, 'deferred preparation lease should be cleared after completion').toBeNull();
 }
 
 async function submitOnboarding(request: APIRequestContext, tenant: OnboardingTenant): Promise<void> {
@@ -164,7 +175,10 @@ test.describe('TC-ONB-002: multi-tenant onboarding parallel login', () => {
   }) => {
     // Two full onboardings + parallel browser logins + DB-polled preparation
     // far exceed the 20s suite default (house pattern: TC-AI-AGENT-SETTINGS-005).
-    test.setTimeout(120_000);
+    // The dominant term is PREPARATION_DEADLINE_MS; the rest is onboarding submission,
+    // two browser verifies and two browser logins, so budget it with room to spare
+    // rather than letting the test die before its own poll can reach its deadline.
+    test.setTimeout(PREPARATION_DEADLINE_MS + 120_000);
     const unique = randomUUID().slice(0, 8);
     const tenants: OnboardingTenant[] = [1, 2].map((index) => ({
       email: `qa-onboarding-parallel-${unique}-${index}@example.test`,
