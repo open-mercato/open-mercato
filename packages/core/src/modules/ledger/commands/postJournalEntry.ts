@@ -20,20 +20,27 @@
 
 import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { FiscalPeriod, JournalEntry, JournalEntryLine, type JournalEntryType } from '../data/entities'
+import { FiscalPeriod, JournalEntry, JournalEntryLine, LedgerAccount, type JournalEntryType } from '../data/entities'
 import { postJournalEntrySchema, type PostJournalEntryInput } from '../data/validators'
+import { Currency } from '@open-mercato/core/modules/currencies/data/entities'
 import { emitLedgerEvent } from '../events'
 
 export type PostJournalEntryResult = { journalEntryId: string; sequenceNumber: number }
 
 type Scope = { organizationId: string; tenantId: string }
 
-type TranslateFn = (key: string, fallback: string) => string
+type TranslateFn = (key: string, fallback: string, params?: Record<string, unknown>) => string
+// Widened from the original (key, fallback) => string: resolveTranslations()'s
+// translate() is really a TranslateWithFallbackFn (see
+// packages/shared/src/lib/i18n/translate.ts) and already supports a params
+// bag for {placeholder} interpolation — requireValidPostingReferences (M5)
+// is this file's first caller that needs it.
 
 /**
  * Detects the deferred `journal_entry_line_balanced` constraint trigger
@@ -62,12 +69,25 @@ function isBalanceTriggerViolation(err: unknown): boolean {
  * `sales/services/salesDocumentNumberGenerator.ts` uses for
  * `SalesDocumentSequence` (see Design decisions — this module's own
  * `JournalEntrySequence` is modeled identically, corrected 2026-09-18).
- * Placeholders use `?` (knex-style) to match `getConnection().execute()`'s
- * calling convention elsewhere in this repo; the spec's own quoted SQL
- * uses native `$1`/`$2` placeholders, translated here for consistency.
+ * Placeholders use `?` (knex-style) to match this repo's other raw-SQL
+ * call sites; the spec's own quoted SQL uses native `$1`/`$2`
+ * placeholders, translated here for consistency.
+ *
+ * Uses `em.execute(...)` — never `em.getConnection().execute(...)`.
+ * `SqlEntityManager.execute` resolves `context.getTransactionContext()`
+ * and forwards it as the connection's `ctx` argument, so the statement
+ * joins whatever transaction `em` is currently inside. Going through
+ * `getConnection().execute(sql, params)` directly skips that resolution
+ * (its `ctx` parameter is left `undefined`), so the statement runs and
+ * commits on the raw pool client immediately — independently of the
+ * caller's transaction. A post that later fails validation, hits the
+ * deferred balance trigger at commit, or is inside a caller's outer
+ * transaction that rolls back would still have burned a sequence number,
+ * breaking the gap-free numbering this module promises (art. 14 ust. 2
+ * Ustawy o rachunkowości). Fixed 2026-09-23 per PR #6340 review, M2.
  */
 async function claimNextSequenceNumber(em: EntityManager, scope: Scope): Promise<number> {
-  const rows = await em.getConnection().execute<{ next_value: string }[]>(
+  const rows = await em.execute<{ next_value: string }[]>(
     `
       insert into journal_entry_sequence (id, organization_id, tenant_id, next_value, created_at)
       values (gen_random_uuid(), ?, ?, 2, now())
@@ -89,6 +109,16 @@ async function claimNextSequenceNumber(em: EntityManager, scope: Scope): Promise
  * `operationDate` at all, or when the covering period `isLocked`. Keyed on
  * `operationDate` (the business event date, art. 20 ust. 1 UoR) — never
  * `postedAt` (corrected 2026-09-18, see Design decisions).
+ *
+ * Reads the covering period with `PESSIMISTIC_READ` (`for share`), always
+ * called from inside `withPostingTransaction`'s transaction. Without this,
+ * under READ COMMITTED, a post that reads the period as "unlocked" can
+ * still commit after a concurrent `lockFiscalPeriod` commits — a posting
+ * lands in a period an operator believed was already closed (PR #6340
+ * review, M4). `for share` (not `for update`) is enough here: posting
+ * doesn't need to block other concurrent posts against the same period,
+ * only to block a concurrent lock/unlock of it — `toggleFiscalPeriodLock`
+ * takes the conflicting `for update` lock (see fiscalPeriods.ts).
  */
 async function requireCoveringUnlockedFiscalPeriod(
   em: EntityManager,
@@ -96,13 +126,17 @@ async function requireCoveringUnlockedFiscalPeriod(
   operationDate: Date,
   translate: TranslateFn,
 ): Promise<void> {
-  const period = await em.findOne(FiscalPeriod, {
-    organizationId: scope.organizationId,
-    tenantId: scope.tenantId,
-    deletedAt: null,
-    startDate: { $lte: operationDate },
-    endDate: { $gte: operationDate },
-  })
+  const period = await em.findOne(
+    FiscalPeriod,
+    {
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+      startDate: { $lte: operationDate },
+      endDate: { $gte: operationDate },
+    },
+    { lockMode: LockMode.PESSIMISTIC_READ },
+  )
   if (!period) {
     throw new CrudHttpError(422, {
       error: translate(
@@ -161,6 +195,54 @@ type PostRunResult = PostJournalEntryResult & { lines: JournalEntryLine[] }
  * `reverseJournalEntry` can post its `REVERSAL` entry through the exact
  * same validated path instead of duplicating it.
  */
+/**
+ * Rejects a post whose `currencyId` or any line's `accountId` doesn't
+ * exist, is soft-deleted, or belongs to a different organization/tenant
+ * (PR #6340 review, M5). Without this, lines were persisted pointing at
+ * deleted accounts or another tenant's account id, with no FK to catch it
+ * — and the delete-once-posted guards in `ledgerAccounts.ts` could be
+ * bypassed after the fact by posting against an account id that was never
+ * real to begin with. Runs before `claimNextSequenceNumber`, so a request
+ * that fails this check never burns a sequence number.
+ */
+async function requireValidPostingReferences(
+  em: EntityManager,
+  scope: Scope,
+  input: JournalEntryPostCore,
+  translate: TranslateFn,
+): Promise<void> {
+  const currency = await em.findOne(Currency, {
+    id: input.currencyId,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    deletedAt: null,
+  })
+  if (!currency) {
+    throw new CrudHttpError(422, {
+      error: translate('ledger.errors.currencyNotFound', 'The specified currency does not exist for this organization.'),
+    })
+  }
+
+  const accountIds = [...new Set(input.lines.map((line) => line.accountId))]
+  const accounts = await em.find(LedgerAccount, {
+    id: { $in: accountIds },
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    deletedAt: null,
+  })
+  const foundIds = new Set(accounts.map((account) => account.id))
+  const missing = accountIds.filter((id) => !foundIds.has(id))
+  if (missing.length > 0) {
+    throw new CrudHttpError(422, {
+      error: translate(
+        'ledger.errors.accountNotFound',
+        'One or more journal entry lines reference an account that does not exist for this organization: {ids}.',
+        { ids: missing.join(', ') },
+      ),
+    })
+  }
+}
+
 export async function runPostJournalEntry(
   em: EntityManager,
   input: JournalEntryPostCore,
@@ -168,6 +250,7 @@ export async function runPostJournalEntry(
 ): Promise<PostRunResult> {
   const scope: Scope = { organizationId: input.organizationId, tenantId: input.tenantId }
   await requireCoveringUnlockedFiscalPeriod(em, scope, input.operationDate, translate)
+  await requireValidPostingReferences(em, scope, input, translate)
 
   const sequenceNumber = await claimNextSequenceNumber(em, scope)
   const entryId = randomUUID()
@@ -240,6 +323,25 @@ export async function withPostingTransaction<T>(
   return rootEm.transactional((trx) => operation(trx))
 }
 
+/**
+ * Whether `ctx` composed this call inside a caller-supplied transaction
+ * (`ctx.transactionalEm`, e.g. Accounts Payable's `postVendorInvoice`
+ * wrapping its own write and this posting into one atomic transaction) —
+ * as opposed to `withPostingTransaction` opening and fully committing its
+ * own fresh transaction. `postJournalEntryCommand`/
+ * `reverseJournalEntryCommand` use this to decide whether it's safe to
+ * emit `ledger.journal_entry.posted` right after `withPostingTransaction`
+ * returns: when composed, that caller's outer transaction is still open at
+ * that point, so emitting here would fire the event before the write is
+ * actually durable, and a subsequent rollback would leave subscribers
+ * having reacted to a posting and sequence number that never happened (PR
+ * #6340 review, M7). In the composed case, the caller becomes responsible
+ * for emitting the event itself, after its own commit.
+ */
+export function isComposedPostingCall(ctx: CommandRuntimeContext): boolean {
+  return Boolean(ctx.transactionalEm)
+}
+
 async function emitPostedEvent(input: JournalEntryPostCore, result: PostRunResult): Promise<void> {
   await emitLedgerEvent('ledger.journal_entry.posted', {
     journalEntryId: result.journalEntryId,
@@ -272,8 +374,14 @@ const postJournalEntryCommand: CommandHandler<PostJournalEntryInput, PostJournal
     const result = await withPostingTransaction(ctx, (em) => runPostJournalEntry(em, input, translate))
 
     // Emitted after commit, per the spec — this is the only way another
-    // module (e.g. Posting Rules Engine) may react to a posting.
-    void emitPostedEvent(input, result).catch(() => undefined)
+    // module (e.g. Posting Rules Engine) may react to a posting. Only
+    // fired here when this call opened (and therefore already fully
+    // committed) its own transaction — see isComposedPostingCall's doc
+    // comment. A composing caller (ctx.transactionalEm set) must emit this
+    // event itself once its own outer transaction commits.
+    if (!isComposedPostingCall(ctx)) {
+      void emitPostedEvent(input, result).catch(() => undefined)
+    }
 
     return { journalEntryId: result.journalEntryId, sequenceNumber: result.sequenceNumber }
   },
