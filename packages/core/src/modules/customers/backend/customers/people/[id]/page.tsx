@@ -40,7 +40,7 @@ import {
   InlineDictionaryEditor,
 } from '../../../../components/detail/InlineEditors'
 import { DetailFieldsSection, type DetailFieldConfig } from '@open-mercato/ui/backend/detail'
-import { isValidSocialUrl } from '@open-mercato/core/modules/customers/lib/detailHelpers'
+import { isValidSocialUrl, isDetailNotFoundStatus } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import type { ActivitySummary, DealSummary, TagSummary, TodoLinkSummary } from '../../../../components/detail/types'
 import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -299,7 +299,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       )
       setData(payload as PersonOverview)
     } catch (err) {
-      if ((err as { status?: number }).status === 404) {
+      if (isDetailNotFoundStatus((err as { status?: number }).status)) {
         setIsNotFound(true)
       } else {
         const message = err instanceof Error ? err.message : t('customers.people.detail.error.load')

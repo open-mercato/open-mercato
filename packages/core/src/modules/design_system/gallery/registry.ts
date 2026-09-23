@@ -1,3 +1,4 @@
+/// <reference path="./assets/images.d.ts" />
 import * as React from 'react'
 import {
   Palette,
@@ -17,12 +18,12 @@ import {
   Bell,
   CalendarClock,
   Mail,
+  LibraryBig,
 } from 'lucide-react'
 import type { GalleryFamily } from './types'
 
 const familyIcon = (Icon: typeof Palette) => React.createElement(Icon, { className: 'size-4', 'aria-hidden': true })
 
-/** The DS Figma file id — every `figmaNodeId` in gallery entries points into this file. */
 export const DS_FIGMA_FILE = 'qCq9z6q1if0mpoRstV5OEA'
 
 /** Base of the deep links into the monorepo DS docs (`.ai/ui-components.md`). */
@@ -30,11 +31,6 @@ export const DS_DOCS_URL = 'https://github.com/open-mercato/open-mercato/blob/ma
 
 /** Route of the gallery backend page; used for section-nav hrefs and deep links. */
 export const GALLERY_BASE_PATH = '/backend/design-system'
-
-/** Builds a Figma deep link for a `nodeId` in `<page>:<node>` format. */
-export function figmaNodeUrl(nodeId: string): string {
-  return `https://www.figma.com/design/${DS_FIGMA_FILE}/?node-id=${nodeId.replace(':', '-')}`
-}
 
 /**
  * Family manifest. Each family's entries live in `entries/<family>.tsx` and are
@@ -148,5 +144,11 @@ export const galleryFamilies: GalleryFamily[] = [
     labelKey: 'design_system.families.messages',
     icon: familyIcon(Mail),
     load: () => import('./entries/messages'),
+  },
+  {
+    id: 'library',
+    labelKey: 'design_system.families.library',
+    icon: familyIcon(LibraryBig),
+    load: () => import('./entries/library'),
   },
 ]

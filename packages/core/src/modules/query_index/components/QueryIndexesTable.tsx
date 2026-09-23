@@ -526,7 +526,8 @@ export default function QueryIndexesTable() {
   return (
     <>
       <DataTable
-        title={t('query_index.nav.queryIndexes')}
+      title={t('query_index.nav.queryIndexes')}
+      titleHeadingLevel={1}
         actions={(
           <>
             <Button
