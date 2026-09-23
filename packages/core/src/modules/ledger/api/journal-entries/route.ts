@@ -129,7 +129,7 @@ export async function GET(req: Request) {
     const params = organizationId ? [accountId, auth.tenantId, organizationId] : [accountId, auth.tenantId]
     const accountHasLine = raw(
       (alias) =>
-        `exists (select 1 from journal_entry_line jel where jel.journal_entry_id = ${alias}.id and jel.account_id = ? and jel.tenant_id = ?${organizationId ? ' and jel.organization_id = ?' : ''})`,
+        `exists (select 1 from journal_entry_lines jel where jel.journal_entry_id = ${alias}.id and jel.account_id = ? and jel.tenant_id = ?${organizationId ? ' and jel.organization_id = ?' : ''})`,
       params,
     )
     filter.$and = filter.$and || []

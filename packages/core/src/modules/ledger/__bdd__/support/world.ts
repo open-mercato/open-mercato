@@ -7,7 +7,7 @@
 // actually make: `find` / `findOne` / `count` / `create` / `persist` /
 // `flush` / `fork` / `begin` / `commit` / `rollback`, plus the one raw-SQL
 // escape hatch `commands/postJournalEntry.ts`'s `claimNextSequenceNumber`
-// uses for the `journal_entry_sequence` table. It is modeled directly on
+// uses for the `journal_entry_sequences` table. It is modeled directly on
 // `currencies/commands/__tests__/scope.test.ts`'s own `buildEm()` helper —
 // same shape, same intent (exercise the real command against a fake
 // persistence layer) — but written as plain closures over a `Map` instead
@@ -71,7 +71,7 @@ export class FakeEntityManager {
   }
 
   /**
-   * Test setup only — pre-sets `journal_entry_sequence.next_value` for a
+   * Test setup only — pre-sets `journal_entry_sequences.next_value` for a
    * scope, so a scenario that seeds an already-"posted" original entry
    * (e.g. for a reversal scenario) doesn't collide with the sequence
    * number a real `postJournalEntry` call allocates next.

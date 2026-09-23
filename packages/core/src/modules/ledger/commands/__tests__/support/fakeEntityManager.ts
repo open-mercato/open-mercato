@@ -7,7 +7,7 @@
 // here because three command files under test need overlapping behavior
 // (`findOne`/`create`/`persist`/`flush`/`fork`/`transactional`, plus the
 // one raw-SQL call `postJournalEntry.ts` makes for
-// `journal_entry_sequence`), where the currencies tests each only needed
+// `journal_entry_sequences`), where the currencies tests each only needed
 // their own single command file's narrower surface.
 export {}
 

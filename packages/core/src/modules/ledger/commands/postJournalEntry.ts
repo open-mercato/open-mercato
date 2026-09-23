@@ -43,7 +43,7 @@ type TranslateFn = (key: string, fallback: string, params?: Record<string, unkno
 // is this file's first caller that needs it.
 
 /**
- * Detects the deferred `journal_entry_line_balanced` constraint trigger
+ * Detects the deferred `journal_entry_lines_balanced` constraint trigger
  * (see migrations) firing at commit — a plain Postgres exception (SQLSTATE
  * P0001), not a constraint-name-bearing violation like
  * `isUniqueViolation` checks for. This is the last-resort integrity guard:
@@ -89,10 +89,10 @@ function isBalanceTriggerViolation(err: unknown): boolean {
 async function claimNextSequenceNumber(em: EntityManager, scope: Scope): Promise<number> {
   const rows = await em.execute<{ next_value: string }[]>(
     `
-      insert into journal_entry_sequence (id, organization_id, tenant_id, next_value, created_at)
+      insert into journal_entry_sequences (id, organization_id, tenant_id, next_value, created_at)
       values (gen_random_uuid(), ?, ?, 2, now())
       on conflict (organization_id, tenant_id)
-      do update set next_value = journal_entry_sequence.next_value + 1
+      do update set next_value = journal_entry_sequences.next_value + 1
       returning next_value - 1 as next_value
     `,
     [scope.organizationId, scope.tenantId],
@@ -290,14 +290,14 @@ export async function runPostJournalEntry(
 
   try {
     await em.flush()
-    // `journal_entry_line_balanced` is `deferrable initially deferred`, so
+    // `journal_entry_lines_balanced` is `deferrable initially deferred`, so
     // it fires at COMMIT, not at `flush()` — the try/catch below never saw
     // it, and the raw, untranslated Postgres error reached the caller (PR
     // #6340 review, m5). Forcing the deferred check to run now, still
     // inside this transaction and still inside this try, makes it
     // catchable here instead of escaping past `withPostingTransaction`'s
     // commit.
-    await em.execute('set constraints "journal_entry_line_balanced" immediate')
+    await em.execute('set constraints "journal_entry_lines_balanced" immediate')
   } catch (err) {
     if (isBalanceTriggerViolation(err)) {
       throw new CrudHttpError(500, {

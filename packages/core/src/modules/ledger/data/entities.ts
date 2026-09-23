@@ -12,9 +12,9 @@ export type JournalEntryType = 'NORMAL' | 'OPENING' | 'CLOSING' | 'REVERSAL'
  * See `.ai/specs/2026-08-18-general-ledger-core-engine.md` § Data Models
  * → FiscalPeriod.
  */
-@Entity({ tableName: 'fiscal_period' })
+@Entity({ tableName: 'fiscal_periods' })
 @Index({
-  name: 'fiscal_period_scope_idx',
+  name: 'fiscal_periods_scope_idx',
   properties: ['organizationId', 'tenantId'],
 })
 export class FiscalPeriod {
@@ -54,13 +54,13 @@ export class FiscalPeriod {
  * `setup.ts`'s `seedDefaults`; never created/edited by a tenant through
  * any command, hence no `updatedAt`.
  */
-@Entity({ tableName: 'ledger_account_group' })
+@Entity({ tableName: 'ledger_account_groups' })
 @Index({
-  name: 'ledger_account_group_scope_idx',
+  name: 'ledger_account_groups_scope_idx',
   properties: ['organizationId', 'tenantId'],
 })
 @Unique({
-  name: 'ledger_account_group_scope_code_unique',
+  name: 'ledger_account_groups_scope_code_unique',
   properties: ['organizationId', 'tenantId', 'jurisdiction', 'code'],
 })
 export class LedgerAccountGroup {
@@ -97,13 +97,13 @@ export class LedgerAccountGroup {
  * applied here to every reference, including same-module ones, for the
  * same reason).
  */
-@Entity({ tableName: 'ledger_account_type' })
+@Entity({ tableName: 'ledger_account_types' })
 @Index({
-  name: 'ledger_account_type_scope_idx',
+  name: 'ledger_account_types_scope_idx',
   properties: ['organizationId', 'tenantId'],
 })
 @Unique({
-  name: 'ledger_account_type_scope_slug_unique',
+  name: 'ledger_account_types_scope_slug_unique',
   properties: ['organizationId', 'tenantId', 'slug'],
 })
 export class LedgerAccountType {
@@ -150,13 +150,13 @@ export class LedgerAccountType {
  * Design decisions). `accountTypeId` is immutable once the account has
  * posted entries — enforced by `updateLedgerAccount`.
  */
-@Entity({ tableName: 'ledger_account' })
+@Entity({ tableName: 'ledger_accounts' })
 @Index({
-  name: 'ledger_account_scope_idx',
+  name: 'ledger_accounts_scope_idx',
   properties: ['organizationId', 'tenantId'],
 })
 @Unique({
-  name: 'ledger_account_scope_slug_unique',
+  name: 'ledger_accounts_scope_slug_unique',
   properties: ['organizationId', 'tenantId', 'slug'],
 })
 export class LedgerAccount {
@@ -207,25 +207,25 @@ export class LedgerAccount {
  * FK-id to `currencies.Currency.id` — no `Currency` entity ships with
  * this module (see Design decisions).
  */
-@Entity({ tableName: 'journal_entry' })
+@Entity({ tableName: 'journal_entries' })
 @Index({
-  name: 'journal_entry_scope_idx',
+  name: 'journal_entries_scope_idx',
   properties: ['organizationId', 'tenantId'],
 })
 @Index({
-  name: 'journal_entry_operation_date_idx',
+  name: 'journal_entries_operation_date_idx',
   properties: ['organizationId', 'operationDate'],
 })
 @Index({
-  name: 'journal_entry_posted_at_idx',
+  name: 'journal_entries_posted_at_idx',
   properties: ['organizationId', 'postedAt'],
 })
 @Index({
-  name: 'journal_entry_reference_idx',
+  name: 'journal_entries_reference_idx',
   properties: ['organizationId', 'referenceType', 'referenceId'],
 })
 @Unique({
-  name: 'journal_entry_sequence_unique',
+  name: 'journal_entries_sequence_unique',
   properties: ['tenantId', 'organizationId', 'sequenceNumber'],
 })
 export class JournalEntry {
@@ -303,21 +303,21 @@ export class JournalEntry {
  * `@Check` below enforces the per-line "exactly one side populated"
  * invariant that a trigger isn't needed for.
  */
-@Entity({ tableName: 'journal_entry_line' })
+@Entity({ tableName: 'journal_entry_lines' })
 @Index({
-  name: 'journal_entry_line_scope_idx',
+  name: 'journal_entry_lines_scope_idx',
   properties: ['organizationId', 'tenantId'],
 })
 @Index({
-  name: 'journal_entry_line_entry_idx',
+  name: 'journal_entry_lines_entry_idx',
   properties: ['organizationId', 'journalEntryId'],
 })
 @Index({
-  name: 'journal_entry_line_account_idx',
+  name: 'journal_entry_lines_account_idx',
   properties: ['organizationId', 'accountId'],
 })
 @Check({
-  name: 'journal_entry_line_one_sided_chk',
+  name: 'journal_entry_lines_one_sided_chk',
   expression: `("debit" = 0 OR "credit" = 0) AND ("debit" > 0 OR "credit" > 0)`,
 })
 export class JournalEntryLine {
@@ -370,9 +370,9 @@ export class JournalEntryLine {
  * (needed for the `ON CONFLICT` target) rather than a composite primary
  * key. A pure counter — never soft-deleted or optimistically locked.
  */
-@Entity({ tableName: 'journal_entry_sequence' })
+@Entity({ tableName: 'journal_entry_sequences' })
 @Unique({
-  name: 'journal_entry_sequence_scope_unique',
+  name: 'journal_entry_sequences_scope_unique',
   properties: ['organizationId', 'tenantId'],
 })
 export class JournalEntrySequence {
