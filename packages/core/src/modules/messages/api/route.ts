@@ -22,6 +22,7 @@ import {
   composeSourceHintSchema,
   resolveComposeSourceChannelType,
 } from '../lib/composeSourceChannelType'
+import { resolveMessageActionData } from '../lib/actions'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
 import { getMessageType } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
@@ -382,7 +383,7 @@ export async function GET(req: Request) {
         if (!message) return null
         const body = typeof message.body === 'string' ? message.body : ''
         const bodyPreview = body.substring(0, 150) + (body.length > 150 ? '...' : '')
-        const actionData = message.actionData ?? null
+        const actionData = resolveMessageActionData(message)
         return {
           ...(senderMetaById.get(row.sender_user_id)
             ? {
@@ -469,8 +470,17 @@ export async function POST(req: Request) {
         sourceHint.data,
       )
     : undefined
-  const { sourceChannelType: _clientSuppliedChannelType, ...clientBody } =
-    (body ?? {}) as Record<string, unknown>
+  // `inboundFromChannel` and `sentAt` are likewise server-only (#6093, #6095):
+  // channel ingest sets them so an inbound message can be addressed to the
+  // conversation's assignee and stamped with the provider's receive time, but
+  // a request body must not be able to waive the recipients rule or backdate
+  // a message with them.
+  const {
+    sourceChannelType: _clientSuppliedChannelType,
+    inboundFromChannel: _clientSuppliedInboundFlag,
+    sentAt: _clientSuppliedSentAt,
+    ...clientBody
+  } = (body ?? {}) as Record<string, unknown>
   const input = composeMessageSchema.parse({
     ...clientBody,
     ...(sourceChannelType ? { sourceChannelType } : {}),

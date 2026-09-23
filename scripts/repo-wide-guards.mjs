@@ -166,6 +166,10 @@ export const REPO_WIDE_GUARDS = [
         path: 'src/modules/__tests__/cli-registry-boundary.test.ts',
         scans: 'packages/ and apps/ — runtime files reading the CLI-only module registry',
       },
+      {
+        path: 'src/lib/di/__tests__/di-injection-mode.test.ts',
+        scans: 'every di.ts and container.ts under packages/ and apps/ — argument-taking asFunction registrations that skip .proxy(), which CLASSIC injection resolves by parameter name and a bundler may rename. The registrations it guards live in core, enterprise and app modules rather than in shared, so the turbo filter never selects this workspace for the PRs that can break them (#5861).',
+      },
     ],
   },
   {
@@ -228,6 +232,21 @@ export const REPO_WIDE_GUARDS = [
     ],
   },
   {
+    workspace: '@open-mercato/enterprise',
+    workspaceDir: 'packages/enterprise',
+    jestConfig: 'jest.config.cjs',
+    tests: [
+      {
+        path: 'src/modules/agent_orchestrator/__tests__/agent-taxonomy-rename.test.ts',
+        scans: 'packages/core/src/modules/workflows plus the orchestrator module — retired `informative`/`actionable` wire values after the taxonomy rename',
+      },
+      {
+        path: 'src/modules/agent_orchestrator/__tests__/agent-run-invocation-identity.test.ts',
+        scans: 'packages/core/src/modules/workflows/lib — that the activity executor and the async worker both thread `invocationId` into the agent bridge, which is what gives an agent invocation an identity instead of a creation-time guess',
+      },
+    ],
+  },
+  {
     workspace: '@open-mercato/app',
     workspaceDir: 'apps/mercato',
     jestConfig: 'jest.config.cjs',
@@ -262,6 +281,10 @@ export const REPO_WIDE_GUARDS = [
  */
 export const CROSS_PACKAGE_EXCEPTIONS = [
   {
+    path: 'packages/cli/src/lib/generators/__tests__/agent-files-extension.test.ts',
+    reason: 'Reads nothing outside packages/cli — every `packages/...` literal is joined against a per-test mkdtemp fixture root, never the repo.',
+  },
+  {
     path: 'packages/create-app/src/lib/apply-starter-preset.test.ts',
     reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
   },
@@ -274,6 +297,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
     reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
   },
   {
+    path: 'packages/create-app/src/lib/template-env-parity.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779). It compares apps/mercato/.env.example against packages/create-app/template/.env.example.',
+  },
+  {
     path: 'packages/create-app/src/lib/standalone-cache-strategy-guard.test.ts',
     reason: 'Already unfiltered — covered by the same create-app parity step (#3779).',
   },
@@ -284,6 +311,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
   {
     path: 'packages/create-app/src/lib/template-i18n-parity.test.ts',
     reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
+  },
+  {
+    path: 'packages/create-app/src/lib/template-modules-parity.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779). It reads apps/mercato/src/modules.ts and the template counterpart through the scripts/template-sync.ts transform, and it is a node:test file rather than a jest one, so it could not run under this jest-based runner anyway (#5598).',
   },
   {
     path: 'packages/create-app/src/lib/module-activation-fixtures.test.ts',

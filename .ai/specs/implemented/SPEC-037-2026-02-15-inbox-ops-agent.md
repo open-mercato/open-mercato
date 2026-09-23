@@ -1771,7 +1771,7 @@ No parallel provider stack is introduced for InboxOps. The worker reuses the exi
 | **LLM extraction times out** | Mark email as `failed`. User can re-extract via button. |
 | **Webhook provider is down** | Emails queue in provider. Provider retries on recovery. |
 | **LLM payload field name variations** | Enrichment normalizes common LLM variations: `email`/`emailAddress`, `id`/`matchedId`/`matchedContactId`, `type`/`kind`/`matchedType`. Ensures consistent downstream processing regardless of LLM output drift. |
-| **Missing currency code in order** | Enrichment falls back to the sales channel's default currency when `currencyCode` is absent from LLM output. |
+| **Missing currency code in order** | `SalesChannel` has no default-currency field, so enrichment cannot fall back to one; a missing `currencyCode` from LLM output remains a blocking `no_currency_resolved` discrepancy until the user edits the order/quote proposal to supply a currency (removed in #6272 / #6298 — see spec changelog). |
 | **Duplicate contact creation** | `create_contact` execution checks existing contacts by email before creating. Returns existing entity ID if found, preventing duplicates. |
 | **Contact resolution by name+type** | `log_activity` and `draft_reply` fall back to name-based contact lookup (via query engine) when email match fails. Scoped by `contactType` (person/company). |
 | **Line item without productId** | `update_order` matches line items by normalized product name when `lineItemId` is missing from LLM output. |
@@ -1913,6 +1913,10 @@ No parallel provider stack is introduced for InboxOps. The worker reuses the exi
 ---
 
 ## Changelog
+
+### 2026-09-21
+
+- **Removed the unfollowable channel-currency fallback** (#6272 / #6298): `SalesChannel` never had a default-currency field, so the documented "falls back to the sales channel's default currency" edge case (section 19) never actually ran — every currency-less LLM extraction hit the unfollowable "configure a sales channel with a default currency" advice. Removed the dead `channel.currencyCode` read in `payloadEnrichment.ts`, the dead `resolveChannelCurrency()` helper in `executionHelpers.ts`, and its unused wiring in `sales/inbox-actions.ts`. Reworded the `inbox_ops.discrepancy.desc.no_currency` copy (all 5 locales plus the `ActionCard.tsx` fallback default) to only ask for a currency code on the order. Updated the section 19 edge-case row to match: missing currency now stays a blocking `no_currency_resolved` discrepancy until the user supplies one.
 
 ### 2026-02-23
 
