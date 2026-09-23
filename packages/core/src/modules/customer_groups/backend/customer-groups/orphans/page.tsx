@@ -3,7 +3,9 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { CheckCircle2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -152,9 +154,13 @@ export default function CustomerGroupOrphansPage() {
         </div>
 
         {orphans.length === 0 ? (
-          <p className="rounded-md border border-border bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
-            {t('customer_groups.groups.orphans.empty', 'No orphaned references')}
-          </p>
+          <EmptyState
+            size="sm"
+            variant="subtle"
+            icon={<CheckCircle2 className="h-5 w-5" aria-hidden />}
+            title={t('customer_groups.groups.orphans.empty', 'No orphaned references')}
+            className="border border-dashed border-border"
+          />
         ) : (
           <div className="space-y-4">
             {orphans.map((orphan) => (

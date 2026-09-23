@@ -147,7 +147,13 @@ function ExplainTermsRow({
   )
 }
 
-export function PersonGroupsExplainTerms({ customerId }: { customerId: string }) {
+export function PersonGroupsExplainTerms({
+  customerId,
+  refreshKey = 0,
+}: {
+  customerId: string
+  refreshKey?: number
+}) {
   const t = useT()
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -182,7 +188,7 @@ export function PersonGroupsExplainTerms({ customerId }: { customerId: string })
     return () => {
       cancelled = true
     }
-  }, [customerId, t])
+  }, [customerId, refreshKey, t])
 
   const priceKindId = data?.fields.priceKindId.value
   React.useEffect(() => {

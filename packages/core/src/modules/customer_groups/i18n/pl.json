@@ -49,8 +49,8 @@
   "customer_groups.groups.form.field.name": "Nazwa",
   "customer_groups.groups.form.field.namePlaceholder": "np. Partnerzy hurtowi",
   "customer_groups.groups.form.field.parent": "Grupa nadrzędna",
+  "customer_groups.groups.form.field.parentCycle": "Grupy nie można przenieść pod jedną z jej własnych podgrup.",
   "customer_groups.groups.form.field.parentDepthWarning": "Ta grupa nadrzędna jest już mocno zagnieżdżona — ta grupa znajdzie się na poziomie hierarchii 5 lub głębszym.",
-  "customer_groups.groups.form.field.parentNone": "Brak grupy nadrzędnej (poziom najwyższy)",
   "customer_groups.groups.form.field.parentPlaceholder": "Brak grupy nadrzędnej (poziom najwyższy)",
   "customer_groups.groups.form.field.priority": "Priorytet",
   "customer_groups.groups.form.field.priorityHelp": "Liczba całkowita, 0 lub więcej. Grupy o wyższym priorytecie są preferowane przy ustalaniu cen/warunków.",
@@ -63,6 +63,7 @@
   "customer_groups.groups.form.terms.empty.description": "Ta grupa korzysta obecnie z warunków handlowych odziedziczonych po grupie nadrzędnej lub z domyślnych ustawień dzierżawcy. Ustaw jawne warunki, aby je zastąpić dla tej grupy.",
   "customer_groups.groups.form.terms.empty.title": "Nie ustawiono warunków — dziedziczone z grupy nadrzędnej / ustawień domyślnych dzierżawcy",
   "customer_groups.groups.form.terms.errors.currencyLength": "Użyj maksymalnie 4 znaków.",
+  "customer_groups.groups.form.terms.errors.load": "Nie udało się wczytać warunków handlowych.",
   "customer_groups.groups.form.terms.errors.negative": "Musi być równe zero lub większe.",
   "customer_groups.groups.form.terms.errors.save": "Nie udało się zapisać warunków handlowych.",
   "customer_groups.groups.form.terms.field.allowPurchaseOnAccount": "Zezwól na zakup na konto",
@@ -104,6 +105,7 @@
   "customer_groups.groups.list.flash.deleted": "Usunięto grupę klientów",
   "customer_groups.groups.list.flash.reorderError": "Nie udało się zapisać nowej kolejności",
   "customer_groups.groups.list.flash.reordered": "Zaktualizowano kolejność grup",
+  "customer_groups.groups.list.reorderUnavailable": "Zmiana kolejności przez przeciąganie jest wyłączona, ponieważ grup jest więcej, niż mieści się na jednej stronie. Edytuj grupę, aby zmienić jej priorytet.",
   "customer_groups.groups.list.searchPlaceholder": "Szukaj grup…",
   "customer_groups.groups.list.status.active": "Aktywna",
   "customer_groups.groups.list.status.inactive": "Nieaktywna",
@@ -175,5 +177,6 @@
   "customer_groups.nav.group": "Grupy klientów",
   "customer_groups.widgets.groupPicker.label": "Grupa klientów",
   "customer_groups.widgets.groupPicker.placeholder": "Szukaj grup klientów…",
+  "customer_groups.widgets.groupPicker.priority": "Priorytet {priority}",
   "customer_groups.widgets.groupPicker.unknownGroup": "Nieznana grupa ({id})"
 }

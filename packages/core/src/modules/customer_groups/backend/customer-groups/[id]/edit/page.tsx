@@ -11,7 +11,6 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
 import { customerGroupKindValues } from '../../../../data/validators'
 import {
-  collectDescendantIds,
   findDefaultConflict,
   mapListItemsToSummaries,
   mapListItemToSummary,
@@ -88,12 +87,15 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
   const groupId = params?.id ?? ''
   const t = useT()
   const [initialValues, setInitialValues] = React.useState<CustomerGroupFormValues | null>(null)
-  const [groups, setGroups] = React.useState<CustomerGroupSummary[]>([])
+  const [defaultGroups, setDefaultGroups] = React.useState<CustomerGroupSummary[]>([])
   const [loading, setLoading] = React.useState<boolean>(true)
   const [error, setError] = React.useState<string | null>(null)
   const [isNotFound, setIsNotFound] = React.useState<boolean>(false)
   // `undefined` = not fetched yet, `null` = confirmed no terms row for this group.
   const [terms, setTerms] = React.useState<CustomerGroupTermsDTO | null | undefined>(undefined)
+  // A failed terms GET must never read as "no terms": saving from the empty state
+  // would then skip the optimistic-lock header and overwrite the existing row.
+  const [termsAccess, setTermsAccess] = React.useState<'ok' | 'forbidden' | 'error'>('ok')
 
   React.useEffect(() => {
     if (!groupId) return
@@ -103,9 +105,9 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
       setError(null)
       setIsNotFound(false)
       try {
-        const [recordCall, listCall, termsCall] = await Promise.all([
+        const [recordCall, defaultsCall, termsCall] = await Promise.all([
           apiCall<CustomerGroupListResponse>(`/api/customer_groups/customer-groups?id=${encodeURIComponent(groupId)}`),
-          apiCall<CustomerGroupListResponse>('/api/customer_groups/customer-groups?pageSize=100'),
+          apiCall<CustomerGroupListResponse>('/api/customer_groups/customer-groups?isDefault=true&pageSize=2'),
           apiCall<CustomerGroupTermsResponse>(`/api/customer_groups/customer-groups/${encodeURIComponent(groupId)}/terms`),
         ])
         if (!recordCall.ok) {
@@ -135,10 +137,16 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
           isActive: record.isActive === true || record.is_active === true,
           updatedAt: (record.updatedAt as string | undefined) ?? (record.updated_at as string | undefined) ?? null,
         })
-        if (listCall.ok) {
-          setGroups(mapListItemsToSummaries(listCall.result?.items))
+        if (defaultsCall.ok) {
+          setDefaultGroups(mapListItemsToSummaries(defaultsCall.result?.items))
         }
-        setTerms(termsCall.ok ? (termsCall.result?.terms ?? null) : null)
+        if (termsCall.ok) {
+          setTermsAccess('ok')
+          setTerms(termsCall.result?.terms ?? null)
+        } else {
+          setTermsAccess(termsCall.status === 403 ? 'forbidden' : 'error')
+          setTerms(undefined)
+        }
       } catch (err) {
         if (!cancelled) {
           const fallback = t('customer_groups.groups.form.errors.load', 'Failed to load customer group')
@@ -154,11 +162,6 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
       cancelled = true
     }
   }, [groupId, t])
-
-  const excludeIds = React.useMemo(() => {
-    if (!groupId) return new Set<string>()
-    return collectDescendantIds(groupId, groups).add(groupId)
-  }, [groupId, groups])
 
   const fields = React.useMemo<CrudField[]>(
     () => [
@@ -204,9 +207,7 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
             value={value}
             setValue={setValue}
             disabled={disabled}
-            groups={groups}
-            excludeIds={excludeIds}
-            isLoading={loading}
+            excludeId={groupId}
           />
         ),
       },
@@ -222,14 +223,14 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
       },
       {
         id: 'isDefault',
-        label: t('customer_groups.groups.form.field.isDefault', 'Default group'),
+        label: '',
         type: 'custom',
         component: ({ value, setValue, disabled }) => (
           <CustomerGroupDefaultField
             value={value}
             setValue={setValue}
             disabled={disabled}
-            conflictGroupName={findDefaultConflict(groups, groupId)?.name ?? null}
+            conflictGroupName={findDefaultConflict(defaultGroups, groupId)?.name ?? null}
           />
         ),
       },
@@ -239,7 +240,7 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
         type: 'checkbox',
       },
     ],
-    [t, groups, excludeIds, loading, groupId],
+    [t, defaultGroups, groupId],
   )
 
   const groupConfig = React.useMemo<CrudFormGroup[]>(
@@ -341,12 +342,19 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
           }}
           deleteRedirect={`/backend/customer-groups?flash=${encodeURIComponent(t('customer_groups.groups.flash.deleted', 'Customer group deleted'))}&type=success`}
         />
-        <CustomerGroupTermsSection
-          groupId={groupId}
-          terms={terms}
-          loading={loading}
-          onSaved={setTerms}
-        />
+        {termsAccess === 'forbidden' ? null : (
+          <CustomerGroupTermsSection
+            groupId={groupId}
+            terms={terms}
+            loading={loading}
+            loadError={
+              termsAccess === 'error'
+                ? t('customer_groups.groups.form.terms.errors.load', 'Failed to load commercial terms.')
+                : null
+            }
+            onSaved={setTerms}
+          />
+        )}
       </PageBody>
     </Page>
   )

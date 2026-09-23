@@ -49,8 +49,8 @@
   "customer_groups.groups.form.field.name": "이름",
   "customer_groups.groups.form.field.namePlaceholder": "예: Wholesale Partners",
   "customer_groups.groups.form.field.parent": "상위 그룹",
+  "customer_groups.groups.form.field.parentCycle": "그룹을 자신의 하위 그룹 아래로 이동할 수 없습니다.",
   "customer_groups.groups.form.field.parentDepthWarning": "이 상위 그룹은 이미 깊이 중첩되어 있습니다 — 이 그룹은 계층 깊이 5 이상에 위치하게 됩니다.",
-  "customer_groups.groups.form.field.parentNone": "상위 그룹 없음(최상위)",
   "customer_groups.groups.form.field.parentPlaceholder": "상위 그룹 없음(최상위)",
   "customer_groups.groups.form.field.priority": "우선순위",
   "customer_groups.groups.form.field.priorityHelp": "0 이상의 정수입니다. 가격/조건을 해석할 때 우선순위가 높은 그룹이 우선 적용됩니다.",
@@ -63,6 +63,7 @@
   "customer_groups.groups.form.terms.empty.description": "이 그룹은 현재 상위 그룹 또는 테넌트 기본값에서 상속된 상거래 조건을 사용합니다. 이 그룹에 대해 재정의하려면 명시적인 조건을 설정하세요.",
   "customer_groups.groups.form.terms.empty.title": "설정된 조건 없음 — 상위 그룹/테넌트 기본값을 상속함",
   "customer_groups.groups.form.terms.errors.currencyLength": "최대 4자까지 사용하세요.",
+  "customer_groups.groups.form.terms.errors.load": "거래 조건을 불러오지 못했습니다.",
   "customer_groups.groups.form.terms.errors.negative": "0 이상이어야 합니다.",
   "customer_groups.groups.form.terms.errors.save": "상거래 조건을 저장하지 못했습니다.",
   "customer_groups.groups.form.terms.field.allowPurchaseOnAccount": "외상 구매 허용",
@@ -104,6 +105,7 @@
   "customer_groups.groups.list.flash.deleted": "고객 그룹이 삭제되었습니다",
   "customer_groups.groups.list.flash.reorderError": "새 순서를 저장할 수 없습니다",
   "customer_groups.groups.list.flash.reordered": "그룹 순서가 업데이트되었습니다",
+  "customer_groups.groups.list.reorderUnavailable": "그룹이 한 페이지에 모두 표시되지 않아 끌어서 순서 변경이 꺼져 있습니다. 우선순위를 바꾸려면 그룹을 편집하세요.",
   "customer_groups.groups.list.searchPlaceholder": "그룹 검색…",
   "customer_groups.groups.list.status.active": "활성",
   "customer_groups.groups.list.status.inactive": "비활성",
@@ -175,5 +177,6 @@
   "customer_groups.nav.group": "고객 그룹",
   "customer_groups.widgets.groupPicker.label": "고객 그룹",
   "customer_groups.widgets.groupPicker.placeholder": "고객 그룹 검색…",
+  "customer_groups.widgets.groupPicker.priority": "우선순위 {priority}",
   "customer_groups.widgets.groupPicker.unknownGroup": "알 수 없는 그룹({id})"
 }

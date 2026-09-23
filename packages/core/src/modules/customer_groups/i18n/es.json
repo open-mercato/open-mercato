@@ -49,8 +49,8 @@
   "customer_groups.groups.form.field.name": "Nombre",
   "customer_groups.groups.form.field.namePlaceholder": "p. ej., Socios mayoristas",
   "customer_groups.groups.form.field.parent": "Grupo principal",
+  "customer_groups.groups.form.field.parentCycle": "Un grupo no se puede mover bajo uno de sus propios subgrupos.",
   "customer_groups.groups.form.field.parentDepthWarning": "Este grupo principal ya está muy anidado — este grupo quedaría en el nivel de jerarquía 5 o más profundo.",
-  "customer_groups.groups.form.field.parentNone": "Sin grupo principal (nivel superior)",
   "customer_groups.groups.form.field.parentPlaceholder": "Sin grupo principal (nivel superior)",
   "customer_groups.groups.form.field.priority": "Prioridad",
   "customer_groups.groups.form.field.priorityHelp": "Número entero, 0 o superior. Los grupos con mayor prioridad se prefieren al resolver precios/condiciones.",
@@ -63,6 +63,7 @@
   "customer_groups.groups.form.terms.empty.description": "Este grupo utiliza actualmente las condiciones comerciales heredadas de su grupo principal o de los valores predeterminados del inquilino. Establezca condiciones explícitas para anularlas en este grupo.",
   "customer_groups.groups.form.terms.empty.title": "No se han establecido condiciones — se heredan del grupo principal o de los valores predeterminados del inquilino",
   "customer_groups.groups.form.terms.errors.currencyLength": "Use hasta 4 caracteres.",
+  "customer_groups.groups.form.terms.errors.load": "No se pudieron cargar las condiciones comerciales.",
   "customer_groups.groups.form.terms.errors.negative": "Debe ser cero o superior.",
   "customer_groups.groups.form.terms.errors.save": "No se pudieron guardar las condiciones comerciales.",
   "customer_groups.groups.form.terms.field.allowPurchaseOnAccount": "Permitir compra a crédito",
@@ -104,6 +105,7 @@
   "customer_groups.groups.list.flash.deleted": "Grupo de clientes eliminado",
   "customer_groups.groups.list.flash.reorderError": "No se pudo guardar el nuevo orden",
   "customer_groups.groups.list.flash.reordered": "Orden de grupos actualizado",
+  "customer_groups.groups.list.reorderUnavailable": "Reordenar arrastrando está desactivado porque hay más grupos de los que caben en una página. Edita un grupo para cambiar su prioridad.",
   "customer_groups.groups.list.searchPlaceholder": "Buscar grupos…",
   "customer_groups.groups.list.status.active": "Activo",
   "customer_groups.groups.list.status.inactive": "Inactivo",
@@ -175,5 +177,6 @@
   "customer_groups.nav.group": "Grupos de clientes",
   "customer_groups.widgets.groupPicker.label": "Grupo de clientes",
   "customer_groups.widgets.groupPicker.placeholder": "Buscar grupos de clientes…",
+  "customer_groups.widgets.groupPicker.priority": "Prioridad {priority}",
   "customer_groups.widgets.groupPicker.unknownGroup": "Grupo desconocido ({id})"
 }

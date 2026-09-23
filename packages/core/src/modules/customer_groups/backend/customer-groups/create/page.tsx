@@ -28,9 +28,9 @@ type CustomerGroupFormValues = {
   isActive?: boolean
 }
 
-async function loadCustomerGroups(errorMessage: string): Promise<CustomerGroupSummary[]> {
+async function loadDefaultGroups(errorMessage: string): Promise<CustomerGroupSummary[]> {
   const response = await readApiResultOrThrow<{ items?: unknown[] }>(
-    '/api/customer_groups/customer-groups?pageSize=100',
+    '/api/customer_groups/customer-groups?isDefault=true&pageSize=1',
     undefined,
     { errorMessage, allowNullResult: true },
   )
@@ -71,21 +71,17 @@ async function submitCustomerGroupCreate(
 
 export default function CreateCustomerGroupPage() {
   const t = useT()
-  const [groups, setGroups] = React.useState<CustomerGroupSummary[]>([])
-  const [groupsLoading, setGroupsLoading] = React.useState<boolean>(true)
+  const [defaultGroups, setDefaultGroups] = React.useState<CustomerGroupSummary[]>([])
 
   React.useEffect(() => {
     let cancelled = false
     const errorMessage = t('customer_groups.groups.form.errors.loadGroups', 'Failed to load customer groups')
-    loadCustomerGroups(errorMessage)
+    loadDefaultGroups(errorMessage)
       .then((items) => {
-        if (!cancelled) setGroups(items)
+        if (!cancelled) setDefaultGroups(items)
       })
       .catch(() => {
-        if (!cancelled) setGroups([])
-      })
-      .finally(() => {
-        if (!cancelled) setGroupsLoading(false)
+        if (!cancelled) setDefaultGroups([])
       })
     return () => {
       cancelled = true
@@ -136,8 +132,6 @@ export default function CreateCustomerGroupPage() {
             value={value}
             setValue={setValue}
             disabled={disabled}
-            groups={groups}
-            isLoading={groupsLoading}
           />
         ),
       },
@@ -153,14 +147,14 @@ export default function CreateCustomerGroupPage() {
       },
       {
         id: 'isDefault',
-        label: t('customer_groups.groups.form.field.isDefault', 'Default group'),
+        label: '',
         type: 'custom',
         component: ({ value, setValue, disabled }) => (
           <CustomerGroupDefaultField
             value={value}
             setValue={setValue}
             disabled={disabled}
-            conflictGroupName={findDefaultConflict(groups)?.name ?? null}
+            conflictGroupName={findDefaultConflict(defaultGroups)?.name ?? null}
           />
         ),
       },
@@ -170,7 +164,7 @@ export default function CreateCustomerGroupPage() {
         type: 'checkbox',
       },
     ],
-    [t, groups, groupsLoading],
+    [t, defaultGroups],
   )
 
   const groupConfig = React.useMemo<CrudFormGroup[]>(

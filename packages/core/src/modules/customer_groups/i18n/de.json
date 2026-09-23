@@ -49,8 +49,8 @@
   "customer_groups.groups.form.field.name": "Name",
   "customer_groups.groups.form.field.namePlaceholder": "z. B. Großhandelspartner",
   "customer_groups.groups.form.field.parent": "Übergeordnete Gruppe",
+  "customer_groups.groups.form.field.parentCycle": "Eine Gruppe kann nicht unter eine ihrer eigenen Untergruppen verschoben werden.",
   "customer_groups.groups.form.field.parentDepthWarning": "Diese übergeordnete Gruppe ist bereits tief verschachtelt — diese Gruppe würde auf Hierarchieebene 5 oder tiefer landen.",
-  "customer_groups.groups.form.field.parentNone": "Keine übergeordnete Gruppe (oberste Ebene)",
   "customer_groups.groups.form.field.parentPlaceholder": "Keine übergeordnete Gruppe (oberste Ebene)",
   "customer_groups.groups.form.field.priority": "Priorität",
   "customer_groups.groups.form.field.priorityHelp": "Ganzzahl, 0 oder größer. Gruppen mit höherer Priorität werden bei der Ermittlung von Preisen/Konditionen bevorzugt.",
@@ -63,6 +63,7 @@
   "customer_groups.groups.form.terms.empty.description": "Diese Gruppe verwendet derzeit die von der übergeordneten Gruppe oder den Mandanten-Standardwerten geerbten Handelskonditionen. Legen Sie explizite Konditionen fest, um sie für diese Gruppe zu überschreiben.",
   "customer_groups.groups.form.terms.empty.title": "Keine Konditionen festgelegt — geerbt von übergeordneter Gruppe / Mandanten-Standardwerten",
   "customer_groups.groups.form.terms.errors.currencyLength": "Verwenden Sie bis zu 4 Zeichen.",
+  "customer_groups.groups.form.terms.errors.load": "Handelskonditionen konnten nicht geladen werden.",
   "customer_groups.groups.form.terms.errors.negative": "Muss null oder größer sein.",
   "customer_groups.groups.form.terms.errors.save": "Handelskonditionen konnten nicht gespeichert werden.",
   "customer_groups.groups.form.terms.field.allowPurchaseOnAccount": "Kauf auf Rechnung erlauben",
@@ -104,6 +105,7 @@
   "customer_groups.groups.list.flash.deleted": "Kundengruppe gelöscht",
   "customer_groups.groups.list.flash.reorderError": "Die neue Reihenfolge konnte nicht gespeichert werden",
   "customer_groups.groups.list.flash.reordered": "Gruppenreihenfolge aktualisiert",
+  "customer_groups.groups.list.reorderUnavailable": "Neu sortieren per Drag-and-drop ist deaktiviert, weil mehr Gruppen vorhanden sind, als auf eine Seite passen. Bearbeite eine Gruppe, um ihre Priorität zu ändern.",
   "customer_groups.groups.list.searchPlaceholder": "Gruppen durchsuchen …",
   "customer_groups.groups.list.status.active": "Aktiv",
   "customer_groups.groups.list.status.inactive": "Inaktiv",
@@ -175,5 +177,6 @@
   "customer_groups.nav.group": "Kundengruppen",
   "customer_groups.widgets.groupPicker.label": "Kundengruppe",
   "customer_groups.widgets.groupPicker.placeholder": "Kundengruppen durchsuchen …",
+  "customer_groups.widgets.groupPicker.priority": "Priorität {priority}",
   "customer_groups.widgets.groupPicker.unknownGroup": "Unbekannte Gruppe ({id})"
 }

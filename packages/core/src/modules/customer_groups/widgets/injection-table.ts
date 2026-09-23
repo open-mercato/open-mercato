@@ -1,26 +1,11 @@
 import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/injection'
 
-// Same widget, two spots — mirrors
-// `packages/core/src/modules/wms/widgets/injection-table.ts` mapping
-// `wms.injection.catalog-inventory-profile` to both
-// `crud-form:catalog.product:fields` and
-// `crud-form:catalog.catalog_product_variant:fields`.
-//
-// `crud-form:sales.sales_tax_rate:fields` is declared for spec compliance but
-// currently INERT: `sales/components/TaxRatesSettings.tsx` renders its
-// `CrudForm` without an `entityId`, so that host never resolves this spot at
-// all (see the widget's own doc comment). This module never edits that sales
-// file per the hard "catalog/sales off-limits" constraint on this task; wiring
-// `entityId={E.sales.sales_tax_rate}` + a `customerGroupId` field there is a
-// follow-up that needs an explicit ask (it touches `sales/`).
+// Replaces the free-text `customerGroupId` input on the catalog price editor.
+// The sales tax-rate form is intentionally not targeted: `TaxRatesSettings`
+// renders its `CrudForm` without an `entityId`, so a
+// `crud-form:sales.sales_tax_rate:fields` entry would never resolve.
 export const injectionTable: ModuleInjectionTable = {
   'crud-form:catalog.catalog_product_price:fields': [
-    {
-      widgetId: 'customer_groups.injection.group-picker-field',
-      priority: 100,
-    },
-  ],
-  'crud-form:sales.sales_tax_rate:fields': [
     {
       widgetId: 'customer_groups.injection.group-picker-field',
       priority: 100,
