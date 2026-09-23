@@ -381,7 +381,7 @@ describe('create redo scope isolation', () => {
   /**
    * The segments are in the caller's own scope, so the segment query alone cannot
    * reject this — only the entry lookup's tenant/organization filter can. Drop either
-   * predicate from `beforeRestore` and the foreign row's `deletedAt` is read and the
+   * predicate from the redo's `findRow` and the foreign row's `deletedAt` is read and the
    * segments come back, failing this test. That makes the assertion falsifiable, which
    * the segment-scoped variant was not.
    */
@@ -399,5 +399,108 @@ describe('create redo scope isolation', () => {
 
     expect(inScopeSegment.deletedAt).toBe(cascadeInstant)
     expect(inScopeSegment.endedAt).toBe(cascadeInstant)
+  })
+})
+
+/**
+ * The cascade queries segments, and a query issued while the entry already carries a
+ * pending scalar change can make the later flush drop that change silently
+ * (`packages/core/AGENTS.md` → `withAtomicFlush`; SPEC-018). Each case records the
+ * entry's `deletedAt` at the moment the segment query runs: it must still be the
+ * pre-mutation value, proving every query precedes the entry's own mutation.
+ */
+function recordEntryStateAtSegmentQueries(entry: EntryRow): Array<Date | null> {
+  const observed: Array<Date | null> = []
+  const tableImplementation = mockFindWithDecryption.getMockImplementation()
+  mockFindWithDecryption.mockImplementation(async (...args: unknown[]) => {
+    const where = args[2] as Record<string, unknown> | undefined
+    if (where && 'timeEntryId' in where) observed.push(entry.deletedAt)
+    return tableImplementation ? tableImplementation(...args) : []
+  })
+  return observed
+}
+
+describe('segment queries run before the entry is mutated', () => {
+  it('delete: queries the segments before stamping the entry', async () => {
+    const { deleteEntry } = await loadCommands()
+    const entry = makeEntry()
+    installWorld(entry, [makeSegment({ id: 'seg-a' })])
+    const observed = recordEntryStateAtSegmentQueries(entry)
+    const { ctx } = makeCtx(entry)
+
+    await deleteEntry.execute({ id: ENTRY_ID }, ctx)
+
+    expect(observed).toEqual([null])
+    expect(entry.deletedAt).toBeInstanceOf(Date)
+  })
+
+  it('start_timer undo: queries the segments before stamping the entry', async () => {
+    const { startTimer } = await loadCommands()
+    const entry = makeEntry()
+    installWorld(entry, [makeSegment({ id: 'seg-a' })])
+    const observed = recordEntryStateAtSegmentQueries(entry)
+    const { ctx } = makeCtx(entry)
+
+    await startTimer.undo({ ctx, logEntry: { payload: { undo: { after: snapshotOf(entry) } } } })
+
+    expect(observed).toEqual([null])
+    expect(entry.deletedAt).toBeInstanceOf(Date)
+  })
+
+  it('create undo: queries the segments before stamping the entry', async () => {
+    const { createEntry } = await loadCommands()
+    const entry = makeEntry({ source: 'manual' })
+    installWorld(entry, [makeSegment({ id: 'seg-a' })])
+    const observed = recordEntryStateAtSegmentQueries(entry)
+    const { ctx } = makeCtx(entry)
+
+    await createEntry.undo({ ctx, logEntry: { payload: { undo: { after: snapshotOf(entry) } } } })
+
+    expect(observed).toEqual([null])
+    expect(entry.deletedAt).toBeInstanceOf(Date)
+  })
+
+  it('delete undo: restores the segments before restoring the entry', async () => {
+    const { deleteEntry } = await loadCommands()
+    const entry = makeEntry()
+    installWorld(entry, [makeSegment({ id: 'seg-a' })])
+    const { ctx } = makeCtx(entry)
+    const result = await deleteEntry.execute({ id: ENTRY_ID }, ctx)
+    const log = await deleteEntry.buildLog({ result, snapshots: { before: snapshotOf(makeEntry()) } })
+    const cascadeInstant = entry.deletedAt as Date
+    const observed = recordEntryStateAtSegmentQueries(entry)
+
+    await deleteEntry.undo({ ctx, logEntry: { payload: log?.payload } })
+
+    expect(observed).toEqual([cascadeInstant])
+    expect(entry.deletedAt).toBeNull()
+  })
+
+  it('create redo: issues no entry lookup after it has restored the segments', async () => {
+    // Here the entry is read before anything changes either way; the hazard was the
+    // row lookup `restoreCreatedRow` ran AFTER a `beforeRestore` hook had already
+    // revived the segments. Record each segment's state at every entry lookup.
+    const { createEntry } = await loadCommands()
+    const entry = makeEntry({ source: 'manual' })
+    const segment = makeSegment({ id: 'seg-a' })
+    installWorld(entry, [segment])
+    const { ctx, em } = makeCtx(entry)
+    const snapshot = snapshotOf(entry)
+    await createEntry.undo({ ctx, logEntry: { payload: { undo: { after: snapshot } } } })
+    const cascadeInstant = entry.deletedAt as Date
+
+    const segmentStateAtEntryLookups: Array<Date | null> = []
+    const entryLookup = em.findOne.getMockImplementation()
+    em.findOne.mockImplementation(async (...args: unknown[]) => {
+      segmentStateAtEntryLookups.push(segment.deletedAt)
+      return entryLookup ? entryLookup(...(args as [unknown, Record<string, unknown>])) : null
+    })
+
+    await createEntry.redo({ input: {}, ctx, logEntry: { payload: { undo: { after: snapshot } } } })
+
+    expect(segmentStateAtEntryLookups.length).toBeGreaterThan(0)
+    expect(segmentStateAtEntryLookups.every((state) => state === cascadeInstant)).toBe(true)
+    expect(segment.deletedAt).toBeNull()
+    expect(entry.deletedAt).toBeNull()
   })
 })

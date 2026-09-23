@@ -32,7 +32,7 @@ import {
 import { staffTimeEntryCrudEvents } from '../../../../lib/crud'
 import { emitStaffEvent } from '../../../../events'
 import { invalidateStaffTimeEntryCache } from '../../../../lib/timesheets/timeEntryCacheInvalidation'
-import { softDeleteSegmentsForEntry } from '../../../../lib/timesheets/timeEntrySegmentCascade'
+import { findLiveSegmentsForEntries, markSegmentsDeleted } from '../../../../lib/timesheets/timeEntrySegmentCascade'
 import {
   STAFF_TIME_TRACKING_RESOURCE_KINDS,
   runStaffMutationGuardAfterSuccess,
@@ -389,6 +389,18 @@ export async function POST(req: Request) {
 
       const existingMap = new Map(existingEntries.map((entry) => [entry.id, entry]))
 
+      // Zeroing a cell cascades to the entry's segments. Their read happens here,
+      // once for every zeroed row, because the loop below dirties entries as it
+      // goes and no query may follow a pending scalar change on this manager.
+      const zeroedEntryIds = resolvedRows
+        .filter(({ entry }) => entry.durationMinutes === 0 && entry.id && existingMap.has(entry.id))
+        .map(({ entry }) => entry.id as string)
+      const segmentsByZeroedEntry = await findLiveSegmentsForEntries(
+        trx,
+        zeroedEntryIds,
+        { tenantId, organizationId },
+      )
+
       for (const { entry, task, timeProjectId } of resolvedRows) {
         const project = projectsById.get(timeProjectId) ?? null
         // Both branches read the five fields the schema has always accepted
@@ -403,7 +415,7 @@ export async function POST(req: Request) {
             // own segments, and this route does not filter them out.
             const deletedAt = new Date()
             existing.deletedAt = deletedAt
-            await softDeleteSegmentsForEntry(trx, existing.id, { tenantId, organizationId }, deletedAt)
+            markSegmentsDeleted(segmentsByZeroedEntry.get(existing.id) ?? [], deletedAt)
             deleted++
             changes.push({ action: 'deleted', entity: existing })
           } else {

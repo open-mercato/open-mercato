@@ -21,6 +21,12 @@ export type TimeEntrySegmentCascadeScope = {
  *
  * Neither function flushes — both participate in the caller's transaction, so the
  * entry and its segments commit or roll back together.
+ *
+ * Both functions query before they mutate, so callers MUST invoke them before
+ * dirtying any entity on the same `EntityManager` — including the entry itself.
+ * A query issued while scalar changes are pending can drop them silently
+ * (`packages/core/AGENTS.md` → `withAtomicFlush`; SPEC-018). Set the entry's own
+ * `deletedAt` after the cascade returns, not before.
  */
 export async function softDeleteSegmentsForEntry(
   em: EntityManager,
@@ -28,11 +34,29 @@ export async function softDeleteSegmentsForEntry(
   scope: TimeEntrySegmentCascadeScope,
   deletedAt: Date,
 ): Promise<number> {
+  const segmentsByEntry = await findLiveSegmentsForEntries(em, [timeEntryId], scope)
+  return markSegmentsDeleted(segmentsByEntry.get(timeEntryId) ?? [], deletedAt)
+}
+
+/**
+ * The read half of `softDeleteSegmentsForEntry`, for callers that soft-delete
+ * several entries in one pass: load every entry's live segments with one query
+ * up front, then mark each set with `markSegmentsDeleted` — no query runs after
+ * the first mutation.
+ */
+export async function findLiveSegmentsForEntries(
+  em: EntityManager,
+  timeEntryIds: string[],
+  scope: TimeEntrySegmentCascadeScope,
+): Promise<Map<string, StaffTimeEntrySegment[]>> {
+  const segmentsByEntry = new Map<string, StaffTimeEntrySegment[]>()
+  if (timeEntryIds.length === 0) return segmentsByEntry
+
   const segments = await findWithDecryption(
     em,
     StaffTimeEntrySegment,
     {
-      timeEntryId,
+      timeEntryId: timeEntryIds.length === 1 ? timeEntryIds[0] : { $in: timeEntryIds },
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       deletedAt: null,
@@ -42,12 +66,21 @@ export async function softDeleteSegmentsForEntry(
   )
 
   for (const segment of segments) {
+    const bucket = segmentsByEntry.get(segment.timeEntryId)
+    if (bucket) bucket.push(segment)
+    else segmentsByEntry.set(segment.timeEntryId, [segment])
+  }
+  return segmentsByEntry
+}
+
+/** The write half of `softDeleteSegmentsForEntry`; pure, never queries. */
+export function markSegmentsDeleted(segments: StaffTimeEntrySegment[], deletedAt: Date): number {
+  for (const segment of segments) {
     // An open segment left behind reads as work still running against an entry
     // that no longer exists; closing it at the delete instant removes that shape.
     if (!segment.endedAt) segment.endedAt = deletedAt
     segment.deletedAt = deletedAt
   }
-
   return segments.length
 }
 

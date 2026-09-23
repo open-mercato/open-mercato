@@ -165,6 +165,9 @@ beforeEach(() => {
         Object.entries(where).every(([field, expected]) => {
           const actual = (row as unknown as Record<string, unknown>)[field]
           if (expected === null) return actual === null
+          if (expected && typeof expected === 'object' && '$in' in expected) {
+            return (expected as { $in: unknown[] }).$in.includes(actual)
+          }
           return actual === expected
         }),
       )
@@ -199,6 +202,38 @@ describe('bulk save: zeroing an entry cascades to its segments', () => {
 
     expect(inScope.deletedAt).toBe(entry.deletedAt)
     expect(foreign.deletedAt).toBeNull()
+  })
+
+  test('reads the segments before it dirties any entry', async () => {
+    // A query issued while an entry carries a pending scalar change can make the
+    // transaction's flush drop that change silently (SPEC-018), so the cascade's
+    // read has to land before the loop starts mutating rows.
+    segments = [makeSegment({ id: 'seg-a' })]
+    const entryStateAtSegmentQuery: Array<Date | null> = []
+    const tableImplementation = mockFindWithDecryption.getMockImplementation()
+    mockFindWithDecryption.mockImplementation(async (...args: unknown[]) => {
+      const where = args[2] as Record<string, unknown>
+      if ('timeEntryId' in where) entryStateAtSegmentQuery.push(entry.deletedAt)
+      return tableImplementation ? tableImplementation(...args) : []
+    })
+
+    const { POST } = await import('../bulk/route')
+    await POST(bulkRequest(0))
+
+    expect(entryStateAtSegmentQuery).toEqual([null])
+    expect(entry.deletedAt).toBeInstanceOf(Date)
+  })
+
+  test('issues no segment query when no cell is zeroed', async () => {
+    segments = [makeSegment({ id: 'seg-a' })]
+
+    const { POST } = await import('../bulk/route')
+    await POST(bulkRequest(45))
+
+    const segmentQueries = mockFindWithDecryption.mock.calls.filter(
+      ([, , where]) => 'timeEntryId' in (where as Record<string, unknown>),
+    )
+    expect(segmentQueries).toHaveLength(0)
   })
 
   test('leaves segments alone when the entry is updated rather than zeroed', async () => {

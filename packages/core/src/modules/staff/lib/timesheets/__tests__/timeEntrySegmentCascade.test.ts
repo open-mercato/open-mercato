@@ -7,7 +7,12 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn((...args: unknown[]) => mockFindWithDecryption(...args)),
 }))
 
-import { restoreSegmentsForEntry, softDeleteSegmentsForEntry } from '../timeEntrySegmentCascade'
+import {
+  findLiveSegmentsForEntries,
+  markSegmentsDeleted,
+  restoreSegmentsForEntry,
+  softDeleteSegmentsForEntry,
+} from '../timeEntrySegmentCascade'
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ORG_ID = '22222222-2222-4222-8222-222222222222'
@@ -53,6 +58,9 @@ function installTable(rows: SegmentRow[]): void {
         const actual = (row as unknown as Record<string, unknown>)[field]
         if (expected === null) return actual === null
         if (expected instanceof Date) return actual instanceof Date && actual.getTime() === expected.getTime()
+        if (expected && typeof expected === 'object' && '$in' in expected) {
+          return (expected as { $in: unknown[] }).$in.includes(actual)
+        }
         return actual === expected
       }),
     ),
@@ -191,5 +199,52 @@ describe('restoreSegmentsForEntry', () => {
     installTable([unrelated])
 
     await expect(restoreSegmentsForEntry(em, ENTRY_ID, SCOPE, deletedAt)).resolves.toBe(0)
+  })
+})
+
+describe('findLiveSegmentsForEntries', () => {
+  it('issues no query for an empty id list', async () => {
+    installTable([makeSegment({ id: 'a' })])
+    const grouped = await findLiveSegmentsForEntries(em, [], SCOPE)
+    expect(grouped.size).toBe(0)
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
+  })
+
+  it('loads several entries in one scoped query and groups the live rows by entry', async () => {
+    const first = makeSegment({ id: 'a' })
+    const second = makeSegment({ id: 'b', timeEntryId: OTHER_ENTRY_ID })
+    const preDeleted = makeSegment({ id: 'c', deletedAt: new Date('2026-08-26T12:00:00.000Z') })
+    const otherOrg = makeSegment({ id: 'd', organizationId: OTHER_ORG_ID })
+    installTable([first, second, preDeleted, otherOrg])
+
+    const grouped = await findLiveSegmentsForEntries(em, [ENTRY_ID, OTHER_ENTRY_ID], SCOPE)
+
+    expect(mockFindWithDecryption).toHaveBeenCalledTimes(1)
+    expect(mockFindWithDecryption.mock.calls[0][2]).toEqual({
+      timeEntryId: { $in: [ENTRY_ID, OTHER_ENTRY_ID] },
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      deletedAt: null,
+    })
+    expect(grouped.get(ENTRY_ID)).toEqual([first])
+    expect(grouped.get(OTHER_ENTRY_ID)).toEqual([second])
+  })
+})
+
+describe('markSegmentsDeleted', () => {
+  it('stamps each segment and closes only the open ones, without querying', () => {
+    const deletedAt = new Date('2026-08-26T16:42:11.000Z')
+    const alreadyEndedAt = new Date('2026-08-26T11:00:00.000Z')
+    const open = makeSegment({ id: 'a' })
+    const closed = makeSegment({ id: 'b', endedAt: alreadyEndedAt })
+
+    const count = markSegmentsDeleted([open, closed] as never, deletedAt)
+
+    expect(count).toBe(2)
+    expect(open.deletedAt).toBe(deletedAt)
+    expect(open.endedAt).toBe(deletedAt)
+    expect(closed.deletedAt).toBe(deletedAt)
+    expect(closed.endedAt).toBe(alreadyEndedAt)
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
   })
 })

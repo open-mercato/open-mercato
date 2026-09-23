@@ -987,15 +987,15 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
       // An entry created manually can still accrue segments afterwards — the
       // segments API adds them, and `start_timer_existing` opens one. Undoing the
       // create must take them with it, on the same instant so `redo` can reverse
-      // exactly this set.
+      // exactly this set. The cascade queries, so it runs before the entry is dirtied.
       const deletedAt = new Date()
-      entry.deletedAt = deletedAt
       await softDeleteSegmentsForEntry(
         em,
         entry.id,
         { tenantId: entry.tenantId, organizationId: entry.organizationId },
         deletedAt,
       )
+      entry.deletedAt = deletedAt
       await em.flush()
 
       await emitCrudUndoSideEffects({
@@ -1015,25 +1015,30 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
     buildResult: (entity) => ({ timeEntryId: entity.id }),
     events: staffTimeEntryCrudEvents,
     indexer: timeEntryCrudIndexer,
-    // Runs while the row is still soft-deleted, so the entry's own `deletedAt` is
-    // the instant `undo` cascaded on — no payload field needed to carry it. Mutations
-    // here share the redo's EntityManager and flush with the row restore.
-    beforeRestore: async ({ em, snapshot }) => {
+    // Locates the row `restoreCreatedRow` revives, and restores the segments the undo
+    // cascaded while the row is still soft-deleted — its own `deletedAt` is the
+    // instant the undo stamped, so no payload field needs to carry it. Done here
+    // rather than in `beforeRestore` so both queries (entry, then segments) run
+    // before any mutation: `restoreCreatedRow` only clears the entry's `deletedAt`
+    // after this returns, and one flush then commits the entry and its segments.
+    findRow: async ({ em, id, snapshot }) => {
       // Scope is spelled out rather than taken from `scopedStaffSnapshotWhere` so both
       // keys are always applied: that helper omits `tenantId` or `organizationId`
       // whenever the snapshot's value is falsy, which would silently widen this lookup.
       const softDeleted = await em.findOne(StaffTimeEntry, {
-        id: snapshot.id,
+        id,
         tenantId: snapshot.tenantId,
         organizationId: snapshot.organizationId,
       })
-      if (!softDeleted?.deletedAt) return
-      await restoreSegmentsForEntry(
-        em,
-        snapshot.id,
-        { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
-        softDeleted.deletedAt,
-      )
+      if (softDeleted?.deletedAt) {
+        await restoreSegmentsForEntry(
+          em,
+          id,
+          { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
+          softDeleted.deletedAt,
+        )
+      }
+      return softDeleted
     },
   }),
 }
@@ -1209,15 +1214,16 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
     if (entry) {
       // `execute` created the entry and opened a work segment on it, so undoing the
       // start has to retire both. Cascading on the same instant keeps the segment
-      // from outliving its parent as a still-running orphan.
+      // from outliving its parent as a still-running orphan. The cascade queries,
+      // so it runs before the entry is dirtied.
       const deletedAt = new Date()
-      entry.deletedAt = deletedAt
       await softDeleteSegmentsForEntry(
         em,
         entry.id,
         { tenantId: entry.tenantId, organizationId: entry.organizationId },
         deletedAt,
       )
+      entry.deletedAt = deletedAt
       await em.flush()
 
       await emitCrudUndoSideEffects({
@@ -2102,16 +2108,17 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
 
     // The entry and every segment it owns are stamped with ONE instant, and that
     // instant is what `undo` restores on. Matching on it is what keeps undo from
-    // resurrecting a segment the user had deleted individually beforehand.
+    // resurrecting a segment the user had deleted individually beforehand. The
+    // cascade queries, so it runs before the entry is dirtied.
     const deletedAt = new Date()
-    entry.deletedAt = deletedAt
-    entry.updatedAt = deletedAt
     await softDeleteSegmentsForEntry(
       em,
       entry.id,
       { tenantId: entry.tenantId, organizationId: entry.organizationId },
       deletedAt,
     )
+    entry.deletedAt = deletedAt
+    entry.updatedAt = deletedAt
     await em.flush()
 
     await emitCrudSideEffects({
@@ -2150,6 +2157,20 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let entry = await em.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
+
+    // Absent on logs written before the cascade existed. Those deletes never
+    // touched segments, so restoring none is the correct outcome, not a fallback.
+    // Runs before the entry is re-created or restored below, because the restore
+    // queries and no query may follow a pending scalar change on this manager.
+    if (payload?.segmentsDeletedAt) {
+      await restoreSegmentsForEntry(
+        em,
+        before.id,
+        { tenantId: before.tenantId, organizationId: before.organizationId },
+        new Date(payload.segmentsDeletedAt),
+      )
+    }
+
     if (!entry) {
       entry = em.create(StaffTimeEntry, {
         id: before.id,
@@ -2195,17 +2216,6 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
       entry.source = (before.source ?? 'manual') as StaffTimeEntrySource
       entry.deletedAt = null
       entry.updatedAt = new Date()
-    }
-
-    // Absent on logs written before the cascade existed. Those deletes never
-    // touched segments, so restoring none is the correct outcome, not a fallback.
-    if (payload?.segmentsDeletedAt) {
-      await restoreSegmentsForEntry(
-        em,
-        before.id,
-        { tenantId: before.tenantId, organizationId: before.organizationId },
-        new Date(payload.segmentsDeletedAt),
-      )
     }
 
     await em.flush()

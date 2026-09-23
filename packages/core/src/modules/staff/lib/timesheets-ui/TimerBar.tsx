@@ -98,6 +98,7 @@ function DefaultTimerBar({
   const descriptionRef = useRef(description)
   const persistedDescriptionRef = useRef(persistedDescription)
   const startRequestedRef = useRef(false)
+  const pendingNoteSaveRef = useRef<Promise<boolean> | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const hasSeededRef = useRef(false)
@@ -319,16 +320,10 @@ function DefaultTimerBar({
     }
   }
 
-  const saveRunningDescription = useCallback(async () => {
-    if (!activeEntryId) return true
-
-    const normalizedDescription = description.trim()
-    const normalizedPersistedDescription = persistedDescription.trim()
-    if (normalizedDescription === normalizedPersistedDescription) return true
-
+  const persistRunningDescription = useCallback(async (entryId: string, normalizedDescription: string) => {
     setIsSavingDescription(true)
     try {
-      const notesPayload = { id: activeEntryId, notes: normalizedDescription || null }
+      const notesPayload = { id: entryId, notes: normalizedDescription || null }
       await runMutation({
         operation: () =>
           apiCallOrThrow('/api/staff/timesheets/time-entries', {
@@ -339,7 +334,7 @@ function DefaultTimerBar({
         context: {
           formId: TIMER_MUTATION_CONTEXT_ID,
           resourceKind: 'staff.timesheets.time_entry',
-          resourceId: activeEntryId,
+          resourceId: entryId,
           staffMemberId,
           action: 'timer-notes',
           retryLastMutation,
@@ -357,7 +352,25 @@ function DefaultTimerBar({
     } finally {
       setIsSavingDescription(false)
     }
-  }, [activeEntryId, description, persistedDescription, runMutation, staffMemberId, retryLastMutation, t])
+  }, [runMutation, staffMemberId, retryLastMutation, t])
+
+  const saveRunningDescription = useCallback((): Promise<boolean> => {
+    // Clicking Stop right after editing the note fires the input's blur save and
+    // then `handleStop`'s own save, both closing over the same not-yet-updated
+    // baseline. Joining the save already in flight keeps that to one write.
+    if (pendingNoteSaveRef.current) return pendingNoteSaveRef.current
+    if (!activeEntryId) return Promise.resolve(true)
+
+    const normalizedDescription = description.trim()
+    const normalizedPersistedDescription = persistedDescription.trim()
+    if (normalizedDescription === normalizedPersistedDescription) return Promise.resolve(true)
+
+    const pending = persistRunningDescription(activeEntryId, normalizedDescription).finally(() => {
+      pendingNoteSaveRef.current = null
+    })
+    pendingNoteSaveRef.current = pending
+    return pending
+  }, [activeEntryId, description, persistedDescription, persistRunningDescription])
 
   useEffect(() => {
     if (!hasPendingNoteSync || !isRunning || !activeEntryId) return
