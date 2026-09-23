@@ -559,7 +559,10 @@ describe('ingestInboundMessageCommand — provider timestamp (#6095)', () => {
         isActive: true,
         providerKey: 'gmail',
         channelType: 'email',
-        userId: 'u-1',
+        // Real UUID (#6106): this flows into `recipients[0].userId` as the
+        // channel-owner fallback assignee, which the messages validator
+        // requires to be a UUID.
+        userId: '550e8400-e29b-41d4-a716-446655440077',
       } as never) // channel
       .mockResolvedValueOnce(null as never) // conversation → create
       .mockResolvedValueOnce(null as never) // mapping → create
