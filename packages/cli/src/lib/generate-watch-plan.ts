@@ -159,7 +159,7 @@ export function planGenerateWatchChanges(
   if (reasons.size > 0) {
     return {
       mode: 'full', groups: [...GROUP_ORDER], registryOutputs: [],
-      changes: orderedChanges, reasons: [...reasons].sort(),
+      changes: orderedChanges, reasons: [...reasons].sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
     }
   }
   return {

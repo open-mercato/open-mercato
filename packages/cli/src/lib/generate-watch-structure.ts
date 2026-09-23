@@ -487,7 +487,7 @@ export function collectGenerateWatchStructureSnapshot(options: GenerateWatchStru
   for (const record of collector.records.values()) {
     if (record.category !== 'configuration') knownInputs.set(record.path, record)
   }
-  for (const input of [...new Set(options.additionalInputs ?? [])].sort()) {
+  for (const input of [...new Set(options.additionalInputs ?? [])].sort((left, right) => left < right ? -1 : left > right ? 1 : 0)) {
     const known = knownInputs.get(input)
     if (known) {
       if (known.category !== 'api-route') {
@@ -519,7 +519,7 @@ export function collectGenerateWatchStructureSnapshot(options: GenerateWatchStru
     }
   }
   const records = new Map([...collector.records].sort(([left], [right]) => left.localeCompare(right)))
-  const fullReasons = [...collector.fullReasons].sort()
+  const fullReasons = [...collector.fullReasons].sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
   return {
     checksum: checksum(JSON.stringify([[...records.values()], fullReasons])),
     records,
@@ -532,7 +532,7 @@ export function diffGenerateWatchStructureSnapshots(
   next: GenerateWatchSnapshot,
 ): GenerateWatchChange[] {
   const changes: GenerateWatchChange[] = []
-  for (const key of [...new Set([...previous.records.keys(), ...next.records.keys()])].sort()) {
+  for (const key of [...new Set([...previous.records.keys(), ...next.records.keys()])].sort((left, right) => left < right ? -1 : left > right ? 1 : 0)) {
     const before = previous.records.get(key)
     const after = next.records.get(key)
     if (before && after && before.fingerprint === after.fingerprint && before.path === after.path
