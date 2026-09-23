@@ -151,6 +151,31 @@ out of scope for Phase 1 (Poland-only), to be designed when USA/other-
 jurisdiction support is actually built. See Module Setup below for the
 resulting `seedDefaults` hook.
 
+**Checked the module's fiscal-year and chart-of-accounts shape against
+a real "polityka rachunkowości" (accounting policy) template, per
+@lchrusciel's second review link (PR #5663, 2026-09-01) — flagged as
+unaddressed by an independent review on 2026-09-17, resolved
+2026-09-23.** The specific gofin.pl document linked in review wasn't
+reachable programmatically (blocked); checked instead against an
+equivalent, current example covering the same statutory provisions a
+Polish company's accounting-policy resolution must state
+("Przykładowe zapisy w polityce rachunkowości", pit.pl). Two points
+check out: (1) *rok obrotowy* (fiscal year) is defined there as either
+the calendar year or any 12 consecutive full calendar months, with
+shorter *okresy sprawozdawcze* (reporting periods) nested inside it —
+`FiscalPeriod.startDate`/`endDate` are plain, tenant-defined dates with
+no calendar-year or calendar-month assumption baked in, so both an
+arbitrary fiscal year and sub-year reporting periods are already
+representable with no schema change. (2) the *zakładowy plan kont*
+(company chart of accounts) it describes uses three-digit synthetic
+account numbers organized by *zespoły* (account groups) — e.g. zespół
+4 for costs by type, zespół 5 for costs by function — which is exactly
+`LedgerAccountGroup`'s own PL seed data (zespoły 0–8, see above) and
+the zespół 4/5 distinction this document already relies on elsewhere
+(see Posting Rules Engine's reclassification need, Out of scope). The
+source doesn't cover journal-entry recording or period-closing
+mechanics at all, so there was nothing further to check there.
+
 **`accountGroupId` is immutable once any account of that type has
 posted entries — same guard as `normalBalance`.** Enforced by
 `updateLedgerAccountType`, same check as the `normalBalance` guard
@@ -1634,7 +1659,7 @@ spec — see Design decisions and Changelog.
 | `currencies/AGENTS.md` | MUST NOT reinvent currency/exchange-rate storage | Compliant | No `Currency` entity in this module; `currencyId` is an FK-id to the existing `currencies.Currency` |
 | `BACKWARD_COMPATIBILITY.md` | Database schema additive-only | Compliant | New tables only; no existing schema touched |
 | `packages/core/AGENTS.md` → Encryption | GDPR-relevant fields declared in `<module>/encryption.ts`, read via `findWithDecryption` | Compliant | `contractorSnapshot` (PII: name/NIP/bank account) declared in new `ledger/encryption.ts` — see Design decisions and File Manifest |
-| `packages/events/AGENTS.md` | Cross-module side effects only via declared events + subscribers; upstream module MUST NOT import/resolve a downstream consumer | Compliant | `ledger.journal_entry.posted` (ephemeral) declared in new `events.ts`; `ledger` has no subscribers of its own and no knowledge of any consumer (e.g. Posting Rules Engine) — see Architecture → Events |
+| `packages/events/AGENTS.md` | Cross-module side effects only via declared events + subscribers; upstream module MUST NOT import/resolve a downstream consumer | Compliant | `ledger.journal_entry.posted` declared in new `events.ts` — persistence is the *subscriber's* choice (`metadata.persistent`), not the event's (**corrected 2026-09-23**: this row previously said "ephemeral", stale since the 2026-09-18 M2 fix); `ledger` has no subscribers of its own and no knowledge of any consumer (e.g. Posting Rules Engine) — see Architecture → Events |
 | `packages/core/AGENTS.md` → API Routes | All API route files MUST export `openApi` | Compliant (fixed 2026-09-07) | `api/openapi.ts` added to File Manifest and Implementation Plan step 7; every route, including the read-only `journal-entries` list and the custom lock/unlock routes, exports `openApi` — gap found by an independent review, absent from every earlier draft/round |
 | `packages/core/AGENTS.md` → Database Entities | Standard column contract includes `deleted_at` for soft delete | Compliant (fixed 2026-09-07) | `deletedAt` added to `FiscalPeriod`/`LedgerAccount`/`LedgerAccountType`; `LedgerAccount`/`LedgerAccountType` delete is now specified as a soft delete via `makeCrudRoute`, blocked once posted — gap found by an independent review |
 | `.ai/specs/AGENTS.md` | Never leave stale endpoints, entities, or assumptions in an updated spec; keep specs implementation-accurate | Compliant (fixed 2026-09-07) | `periodId`/`accountId` `journal-entries` filters now documented as resolving via `FiscalPeriod`'s date range / a `JournalEntryLine` join rather than nonexistent `JournalEntry` columns; the `sales-invoice-gl-posting.md` cross-reference (5 instances in this file, 1 in `2026-09-06-contractor-registry.md`, 1 in `2026-08-18-general-ledger-implementation-guide.md`) corrected to state it is planned, not yet drafted — gap found by an independent review |
@@ -2375,3 +2400,20 @@ detail still waits on `#6038`, same as before this update.
   with zero lines, so only the balance half (`SUM(debit) =
   SUM(credit)`) has a database backstop. Updated Data Models,
   Testing Strategy.
+
+### 2026-09-23 (closing @matgren's remaining inherited-feedback items)
+
+- Resolved the outdated @lchrusciel review thread ("focus on CoA and
+  Journal entries only") on GitHub — no content change needed, per
+  @matgren's note that it was superseded by the 2026-09-03 stakeholder
+  reversal already recorded in the changelog.
+- Checked the fiscal-year and chart-of-accounts design against a real
+  Polish accounting-policy template, closing @lchrusciel's second
+  review link, which an independent review had flagged as never
+  addressed. See Design decisions (new paragraph, after the
+  `jurisdiction: 'PL'` decision).
+- Fixed a stale Compliance Matrix row: the `packages/events/AGENTS.md`
+  row still said `ledger.journal_entry.posted` was "(ephemeral)" —
+  the Final Compliance Report table was last touched 2026-09-10, before
+  the 2026-09-18 M2 fix corrected that language everywhere else in the
+  document. Synced the row to match Architecture → Events.
