@@ -118,6 +118,7 @@ type PersonRow = {
   organizationId?: string | null
   source?: string | null
   ownerUserId?: string | null
+  createdAt?: string | null
 } & Record<string, unknown>
 
 type PeopleResponse = {
@@ -165,6 +166,7 @@ function mapApiItem(item: Record<string, unknown>): PersonRow | null {
   const nextInteractionColor = typeof item.next_interaction_color === 'string' ? item.next_interaction_color : null
   const organizationId = typeof item.organization_id === 'string' ? item.organization_id : null
   const source = typeof item.source === 'string' ? item.source : null
+  const createdAt = typeof item.created_at === 'string' ? item.created_at : null
   const customFields: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(item)) {
     if (key.startsWith('cf_')) {
@@ -195,6 +197,7 @@ function mapApiItem(item: Record<string, unknown>): PersonRow | null {
     nextInteractionColor,
     organizationId,
     source,
+    createdAt,
     ...customFields,
   }, item)
 }
@@ -710,6 +713,22 @@ export default function CustomersPeoplePage() {
               </div>
             )
             : <span className="text-muted-foreground text-sm">{t('customers.people.list.noValue')}</span>,
+      },
+      {
+        accessorKey: 'createdAt',
+        header: t('customers.people.list.columns.createdAt', 'Created'),
+        meta: {
+          columnChooserGroup: 'Dates',
+          filterKey: 'created_at',
+          filterType: 'date' as const,
+          filterGroup: 'Activity',
+          filterIconName: 'calendar',
+        },
+        cell: ({ row }) => (
+          <span className="text-sm">
+            {formatDate(row.original.createdAt, t('customers.people.list.noValue'))}
+          </span>
+        ),
       },
       {
         accessorKey: 'source',

@@ -111,6 +111,7 @@ type CompanyRow = {
   organizationId?: string | null
   source?: string | null
   ownerUserId?: string | null
+  createdAt?: string | null
 } & Record<string, unknown>
 
 type CompaniesResponse = {
@@ -158,6 +159,7 @@ function mapApiItem(item: Record<string, unknown>): CompanyRow | null {
   const nextInteractionColor = typeof item.next_interaction_color === 'string' ? item.next_interaction_color : null
   const organizationId = typeof item.organization_id === 'string' ? item.organization_id : null
   const source = typeof item.source === 'string' ? item.source : null
+  const createdAt = typeof item.created_at === 'string' ? item.created_at : null
   const ownerUserId = typeof item.owner_user_id === 'string' ? item.owner_user_id : null
   const customFields: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(item)) {
@@ -187,6 +189,7 @@ function mapApiItem(item: Record<string, unknown>): CompanyRow | null {
     organizationId,
     source,
     ownerUserId,
+    createdAt,
     ...customFields,
   }, item)
 }
@@ -704,6 +707,22 @@ export default function CustomersCompaniesPage() {
               </div>
             )
             : noValue,
+      },
+      {
+        accessorKey: 'createdAt',
+        header: t('customers.companies.list.columns.createdAt', 'Created'),
+        meta: {
+          columnChooserGroup: 'Dates',
+          filterKey: 'created_at',
+          filterType: 'date' as const,
+          filterGroup: 'Activity',
+          filterIconName: 'calendar',
+        },
+        cell: ({ row }) => (
+          <span className="text-sm">
+            {formatDate(row.original.createdAt, t('customers.companies.list.noValue'))}
+          </span>
+        ),
       },
       {
         accessorKey: 'source',
