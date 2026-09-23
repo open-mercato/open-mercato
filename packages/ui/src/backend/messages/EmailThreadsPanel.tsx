@@ -110,12 +110,12 @@ export function EmailThreadsPanel({
   )
 
   return (
-    <div className={cn('flex flex-col gap-4', className)}>
-      <div className="flex items-center justify-between gap-2">
+    <div className={cn('@container min-w-0 flex flex-col gap-4', className)}>
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
         <div className="text-sm text-muted-foreground">
           {t('ui.email.threads.count', '{count} conversations', { count: threads.length })}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {onRefresh ? (
             <Button
               type="button"
@@ -161,9 +161,9 @@ export function EmailThreadsPanel({
           )}
         />
       ) : (
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid min-w-0 gap-4 @3xl:grid-cols-3">
           {/* Master: thread list */}
-          <div className="md:col-span-1">
+          <div className="min-w-0 @3xl:col-span-1">
             <ul className="max-h-96 divide-y divide-border overflow-y-auto rounded-md border border-border">
               {threads.map((thread) => {
                 const isSelected = thread.threadKey === selectedKey
@@ -179,16 +179,16 @@ export function EmailThreadsPanel({
                       )}
                       aria-current={isSelected}
                     >
-                      <div className="flex items-baseline justify-between gap-2">
-                        <span className="truncate text-sm font-medium text-foreground">
+                      <div className="flex min-w-0 flex-col items-start gap-1">
+                        <span className="min-w-0 max-w-full break-words text-sm font-medium text-foreground">
                           {thread.subject || t('ui.email.threads.noSubject', '(no subject)')}
                         </span>
-                        <span className="shrink-0 text-xs text-muted-foreground">
+                        <span className="min-w-0 max-w-full break-words text-xs text-muted-foreground">
                           {formatWhen(thread.lastMessageAt)}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-xs text-muted-foreground">
+                      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                        <span className="min-w-0 flex-1 break-words text-xs text-muted-foreground">
                           {thread.participants.join(', ') ||
                             t('ui.email.threads.unknownParticipant', 'Unknown sender')}
                         </span>
@@ -209,11 +209,11 @@ export function EmailThreadsPanel({
           </div>
 
           {/* Detail: conversation */}
-          <div className="md:col-span-2">
+          <div className="min-w-0 @3xl:col-span-2">
             {selected ? (
-              <div className="flex flex-col gap-3 rounded-md border border-border p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className="text-base font-semibold text-foreground">
+              <div className="flex min-w-0 flex-col gap-3 rounded-md border border-border p-4">
+                <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+                  <h3 className="min-w-0 flex-1 break-words text-base font-semibold text-foreground">
                     {selected.subject || t('ui.email.threads.noSubject', '(no subject)')}
                   </h3>
                   {canCompose && onReply ? (
@@ -261,27 +261,29 @@ function EmailMessageCard({
     : message.fromEmail ?? t('ui.email.threads.unknownParticipant', 'Unknown sender')
   return (
     <div
-      className={`rounded-md border border-border p-3 ${isOutbound ? 'bg-accent' : 'bg-muted'}`}
+      className={`min-w-0 rounded-md border border-border p-3 ${isOutbound ? 'bg-accent' : 'bg-muted'}`}
     >
-      <div className="mb-2 flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          {isOutbound ? (
-            <ArrowUpRight className="h-3.5 w-3.5" />
-          ) : (
-            <ArrowDownLeft className="h-3.5 w-3.5" />
-          )}
-          <span className="font-medium text-foreground">
-            {isOutbound ? t('ui.email.threads.you', 'You') : fromLabel}
-          </span>
+      <div className="mb-2 flex min-w-0 flex-wrap items-start justify-between gap-x-3 gap-y-1">
+        <div className="grid min-w-0 flex-1 basis-64 gap-1 text-xs text-muted-foreground">
+          <div className="flex min-w-0 items-start gap-2">
+            {isOutbound ? (
+              <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
+            ) : (
+              <ArrowDownLeft className="h-3.5 w-3.5 shrink-0" />
+            )}
+            <span className="min-w-0 break-words font-medium text-foreground">
+              {isOutbound ? t('ui.email.threads.you', 'You') : fromLabel}
+            </span>
+          </div>
           {message.to.length > 0 ? (
-            <span className="truncate">
+            <span className="min-w-0 break-words">
               {t('ui.email.threads.toLabel', 'to {recipients}', {
                 recipients: message.to.join(', '),
               })}
             </span>
           ) : null}
         </div>
-        <span className="shrink-0 text-xs text-muted-foreground">{formatWhen(message.sentAt)}</span>
+        <span className="min-w-0 max-w-full break-words text-xs text-muted-foreground">{formatWhen(message.sentAt)}</span>
       </div>
       <div className="whitespace-pre-wrap break-words text-sm text-foreground">
         {message.bodyText || t('ui.email.threads.noBody', '(no content)')}

@@ -191,7 +191,8 @@ export function FeatureTogglesTable() {
   return (
     <>
       <DataTable
-        title={t('feature_toggles.global.help.title', 'Feature Toggles')}
+      title={t('feature_toggles.global.help.title', 'Feature Toggles')}
+      titleHeadingLevel={1}
       disableRowClick
       actions={
         <Button asChild>

@@ -6,6 +6,7 @@
  * - POST /api/workflows/definitions - Create workflow definition
  */
 
+import { randomUUID } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -16,11 +17,23 @@ import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/direc
 import { WorkflowDefinition } from '../../data/entities'
 import {
   createWorkflowDefinitionInputSchema,
+  createWorkflowDefinitionInputCheckedSchema,
   type CreateWorkflowDefinitionApiInput,
 } from '../../data/validators'
 import { serializeWorkflowDefinition, serializeCodeWorkflowDefinition } from './serialize'
+import {
+  workflowDefinitionListResponseSchema,
+  workflowDefinitionMutationResponseSchema,
+  workflowErrorSchema,
+} from '../openapi'
 import { invalidateTriggerCache } from '../../lib/event-trigger-service'
+import { normalizeDefinitionValidationIssues } from '../../lib/definition-error-body'
 import { getAllCodeWorkflows } from '../../lib/code-registry'
+import {
+  authorizeWorkflowGrantChange,
+  normalizeGrantedFeatures,
+  syncWorkflowDefinitionPrincipal,
+} from '../../lib/definition-grant'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
@@ -30,7 +43,10 @@ export const metadata = {
   requireFeatures: ['workflows.definitions.view'],
 }
 
+// Post-versioning the unique constraint is (workflow_id, version, tenant_id);
+// the legacy name is still matched so the check survives a partially-migrated DB.
 const WORKFLOW_ID_TENANT_UNIQUE_CONSTRAINT = 'workflow_definitions_workflow_id_tenant_id_unique'
+const WORKFLOW_ID_VERSION_TENANT_UNIQUE_CONSTRAINT = 'workflow_definitions_workflow_id_version_tenant_id_unique'
 
 function isWorkflowIdUniqueConstraintError(error: unknown): boolean {
   if (!error || typeof error !== 'object') {
@@ -43,15 +59,15 @@ function isWorkflowIdUniqueConstraintError(error: unknown): boolean {
   const message = typeof value.message === 'string' ? value.message : ''
   const detail = typeof value.detail === 'string' ? value.detail : ''
 
-  if (constraint === WORKFLOW_ID_TENANT_UNIQUE_CONSTRAINT) {
+  if (constraint === WORKFLOW_ID_TENANT_UNIQUE_CONSTRAINT || constraint === WORKFLOW_ID_VERSION_TENANT_UNIQUE_CONSTRAINT) {
     return true
   }
 
-  if (code === '23505' && detail.includes('(workflow_id, tenant_id)')) {
+  if (code === '23505' && (detail.includes('(workflow_id, tenant_id)') || detail.includes('(workflow_id, version, tenant_id)'))) {
     return true
   }
 
-  return message.includes(WORKFLOW_ID_TENANT_UNIQUE_CONSTRAINT)
+  return message.includes(WORKFLOW_ID_TENANT_UNIQUE_CONSTRAINT) || message.includes(WORKFLOW_ID_VERSION_TENANT_UNIQUE_CONSTRAINT)
 }
 
 /**
@@ -77,6 +93,10 @@ export async function GET(request: NextRequest) {
     const enabled = searchParams.get('enabled')
     const workflowId = searchParams.get('workflowId')
     const search = searchParams.get('search')
+    const kind = searchParams.get('kind')
+    const lifecycle = searchParams.get('lifecycle')
+    const versionParam = searchParams.get('version')
+    const version = versionParam !== null && /^\d+$/.test(versionParam) ? parseInt(versionParam, 10) : null
     const limit = parseInt(searchParams.get('limit') || '50')
     const offset = parseInt(searchParams.get('offset') || '0')
 
@@ -93,6 +113,18 @@ export async function GET(request: NextRequest) {
 
     if (workflowId) {
       where.workflowId = workflowId
+    }
+
+    if (kind) {
+      where.kind = kind
+    }
+
+    if (lifecycle) {
+      where.lifecycle = lifecycle
+    }
+
+    if (version !== null) {
+      where.version = version
     }
 
     if (search) {
@@ -122,6 +154,10 @@ export async function GET(request: NextRequest) {
     const codeOnly = getAllCodeWorkflows()
       .filter((cw) => !shadowed.has(cw.workflowId))
       .filter((cw) => {
+        // Code-based definitions are always kind=workflow / lifecycle=published.
+        if (kind && kind !== 'workflow') return false
+        if (lifecycle && lifecycle !== 'published') return false
+        if (version !== null && cw.version !== version) return false
         if (searchLower) {
           const matches =
             cw.workflowId.toLowerCase().includes(searchLower) ||
@@ -213,12 +249,12 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
 
     // Validate input
-    const validation = createWorkflowDefinitionInputSchema.safeParse(body)
+    const validation = createWorkflowDefinitionInputCheckedSchema.safeParse(body)
     if (!validation.success) {
       return NextResponse.json(
         {
           error: 'Validation failed',
-          details: validation.error.issues,
+          details: normalizeDefinitionValidationIssues(validation.error),
         },
         { status: 400 }
       )
@@ -226,11 +262,21 @@ export async function POST(request: NextRequest) {
 
     const input: CreateWorkflowDefinitionApiInput = validation.data
 
-    // workflow_id is unique per tenant; check upfront to return 409 instead of DB error.
+    // New definitions default to strict interpolation (spec §3.6). The default
+    // lives on the create path only — a schema-level default would flip
+    // existing lenient definitions on their next full-body update.
+    const definitionData = input.definition.interpolation
+      ? input.definition
+      : { ...input.definition, interpolation: 'strict' as const }
+
+    // Create always mints version 1. A workflowId that already exists (any
+    // version) is a conflict — new versions are produced via the publish flow,
+    // not by re-creating. orderBy keeps the existence check deterministic now
+    // that multiple versions can coexist.
     const existing = await em.findOne(WorkflowDefinition, {
       workflowId: input.workflowId,
       tenantId,
-    })
+    }, { orderBy: { version: 'DESC' } })
 
     if (existing) {
       return NextResponse.json(
@@ -241,20 +287,47 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create workflow definition
+    const grantedFeatures = normalizeGrantedFeatures(input.grantedFeatures)
+    const grantFailure = await authorizeWorkflowGrantChange(rbacService, {
+      userId: auth.sub,
+      scope: { tenantId, organizationId },
+      requested: grantedFeatures,
+      current: [],
+    })
+    if (grantFailure) {
+      return NextResponse.json(grantFailure.body, { status: grantFailure.status })
+    }
+
+    // Create workflow definition.
+    //
+    // The PK is minted up front (MikroORM does not generate UUIDs client-side)
+    // so the execution principal — whose identity key is the definition id — can
+    // be provisioned BEFORE the row claiming the grant is persisted. A failed
+    // provisioning then leaves no definition pointing at a principal that does
+    // not exist.
+    //
+    // `createdBy` is recorded here for the first time. It was never set on this
+    // path, which silently disabled the definition-author fallback CALL_API and
+    // INVOKE_AGENT rely on for event-triggered runs.
     const definition = em.create(WorkflowDefinition, {
+      id: randomUUID(),
       workflowId: input.workflowId,
       workflowName: input.workflowName,
       description: input.description,
       version: input.version,
-      definition: input.definition,
+      definition: definitionData,
       metadata: input.metadata,
       enabled: input.enabled ?? true,
+      grantedFeatures: grantedFeatures.length ? grantedFeatures : null,
       tenantId,
       organizationId,
+      createdBy: auth.sub,
+      updatedBy: auth.sub,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
+
+    await syncWorkflowDefinitionPrincipal(container, definition)
 
     await em.persist(definition).flush()
 
@@ -302,6 +375,7 @@ export const openApi = {
         {
           status: 200,
           description: 'List of workflow definitions with pagination',
+          schema: workflowDefinitionListResponseSchema,
           example: {
             data: [
               {
@@ -439,6 +513,7 @@ export const openApi = {
         {
           status: 201,
           description: 'Workflow definition created successfully',
+          schema: workflowDefinitionMutationResponseSchema,
           example: {
             data: {
               id: '123e4567-e89b-12d3-a456-426614174000',
@@ -494,13 +569,14 @@ export const openApi = {
         {
           status: 400,
           description: 'Validation error - invalid workflow structure',
+          schema: workflowErrorSchema,
           example: {
             error: 'Validation failed',
             details: [
               {
-                code: 'invalid_type',
-                message: 'Workflow must have at least START and END steps',
                 path: ['definition', 'steps'],
+                code: 'custom',
+                message: 'Workflow must have at least START and END steps',
               },
             ],
           },
@@ -508,6 +584,7 @@ export const openApi = {
         {
           status: 409,
           description: 'Conflict - workflow with same ID and version already exists',
+          schema: workflowErrorSchema,
           example: {
             error: 'Workflow definition with ID "checkout-flow" and version 1 already exists',
           },
@@ -517,105 +594,3 @@ export const openApi = {
   },
 }
 
-// Full OpenAPI documentation (kept for reference but not used by type system)
-export const _openApiDetailedDocs = {
-  get: {
-    summary: 'List workflow definitions',
-    description: 'Get a list of workflow definitions with optional filters',
-    tags: ['Workflows'],
-    parameters: [
-      {
-        name: 'enabled',
-        in: 'query',
-        description: 'Filter by enabled status',
-        schema: { type: 'boolean' },
-      },
-      {
-        name: 'workflowId',
-        in: 'query',
-        description: 'Filter by workflow ID',
-        schema: { type: 'string' },
-      },
-      {
-        name: 'search',
-        in: 'query',
-        description: 'Search in workflow ID and name',
-        schema: { type: 'string' },
-      },
-      {
-        name: 'limit',
-        in: 'query',
-        description: 'Number of results to return',
-        schema: { type: 'integer', default: 50 },
-      },
-      {
-        name: 'offset',
-        in: 'query',
-        description: 'Offset for pagination',
-        schema: { type: 'integer', default: 0 },
-      },
-    ],
-    responses: {
-      200: {
-        description: 'List of workflow definitions',
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              properties: {
-                data: {
-                  type: 'array',
-                  items: { $ref: '#/components/schemas/WorkflowDefinition' },
-                },
-                pagination: {
-                  type: 'object',
-                  properties: {
-                    total: { type: 'integer' },
-                    limit: { type: 'integer' },
-                    offset: { type: 'integer' },
-                    hasMore: { type: 'boolean' },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  },
-  post: {
-    summary: 'Create workflow definition',
-    description: 'Create a new workflow definition',
-    tags: ['Workflows'],
-    requestBody: {
-      required: true,
-      content: {
-        'application/json': {
-          schema: { $ref: '#/components/schemas/CreateWorkflowDefinition' },
-        },
-      },
-    },
-    responses: {
-      201: {
-        description: 'Workflow definition created',
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              properties: {
-                data: { $ref: '#/components/schemas/WorkflowDefinition' },
-                message: { type: 'string' },
-              },
-            },
-          },
-        },
-      },
-      400: {
-        description: 'Validation error',
-      },
-      409: {
-        description: 'Workflow definition already exists',
-      },
-    },
-  },
-}

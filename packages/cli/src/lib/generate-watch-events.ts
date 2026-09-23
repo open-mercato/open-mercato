@@ -25,6 +25,37 @@ export type GenerateWatchChangeSignalOptions = {
   onSkippedDirectory?: (directory: string) => void
 }
 
+export type GenerateWatchModuleTarget = {
+  appBase: string
+  pkgBase: string
+  watchPackageBase: boolean
+}
+
+export function resolveGenerateWatchTargets(options: {
+  modulesFile: string
+  moduleRoots: GenerateWatchModuleTarget[]
+  resolveSourceMirrorBase: (packageBase: string) => string | null
+}): GenerateWatchTarget[] {
+  const targets: GenerateWatchTarget[] = [{
+    directory: path.dirname(options.modulesFile),
+    recursive: false,
+    fileName: path.basename(options.modulesFile),
+  }]
+
+  for (const roots of options.moduleRoots) {
+    targets.push({ directory: path.dirname(roots.appBase), recursive: true })
+    if (!roots.watchPackageBase) continue
+
+    targets.push({ directory: path.dirname(roots.pkgBase), recursive: true })
+    const sourceMirror = options.resolveSourceMirrorBase(roots.pkgBase)
+    if (sourceMirror) {
+      targets.push({ directory: path.dirname(sourceMirror), recursive: true })
+    }
+  }
+
+  return targets
+}
+
 function targetKey(target: GenerateWatchTarget): string {
   return JSON.stringify([
     path.resolve(target.directory),
