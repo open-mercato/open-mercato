@@ -38,6 +38,13 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev.mjs',
   },
   {
+    // `scripts/dev.mjs` imports this for its MCP lifecycle, so a scaffolded app
+    // fails to boot `yarn dev` without it (template-script-targets.test.ts).
+    sourceFile: path.join(ROOT, 'scripts', 'dev-mcp.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-mcp.mjs'),
+    rel: 'scripts/dev-mcp.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'scripts', 'dev-memory-sampler.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-memory-sampler.mjs'),
     rel: 'scripts/dev-memory-sampler.mjs',
@@ -71,6 +78,41 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     sourceFile: path.join(ROOT, 'scripts', 'dev-splash-state.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash-state.mjs'),
     rel: 'scripts/dev-splash-state.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-state.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-state.mjs'),
+    rel: 'scripts/dev-runtime-state.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-config.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-config.mjs'),
+    rel: 'scripts/dev-runtime-config.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-probe.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-probe.mjs'),
+    rel: 'scripts/dev-runtime-probe.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-diagnostics.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-diagnostics.mjs'),
+    rel: 'scripts/dev-runtime-diagnostics.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-supervisor.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-supervisor.mjs'),
+    rel: 'scripts/dev-runtime-supervisor.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-gateway.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-gateway.mjs'),
+    rel: 'scripts/dev-runtime-gateway.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-actions.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-actions.mjs'),
+    rel: 'scripts/dev-runtime-actions.mjs',
   },
   {
     sourceFile: path.join(ROOT, 'scripts', 'dev-splash-coding-flow.mjs'),
@@ -124,8 +166,6 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
   },
 ] as const
 export const TEMPLATE_ONLY_RELATIVE_FILES = new Set<string>([
-  'app/api/healthz/__tests__/route.test.ts',
-  'app/api/healthz/route.ts',
   'modules/auth/__integration__/TC-AUTH-001.spec.ts',
   'modules/auth/__integration__/helpers/auth.ts',
 ])
@@ -138,13 +178,22 @@ const SYNC_DEPENDENCY_KEYS = [
 ] as const
 const SYNC_INTERNAL_PACKAGE_KEYS = [
   '@open-mercato/checkout',
+  // The template enables `agent_orchestrator` behind OM_ENABLE_ENTERPRISE_MODULES_AGENTS,
+  // so the dependency must track the monorepo version or a scaffolded app fails
+  // module resolution the moment the flag is flipped.
+  '@open-mercato/enterprise',
   '@open-mercato/gateway-stripe',
   '@open-mercato/sync-akeneo',
 ] as const
 // Modules whose source ships in every scaffold but must stay runtime-disabled there.
 // The monorepo dev app keeps them enabled for QA; the template copy strips their
 // `enabledModules` registrations (see the disabled-by-default delivery contract).
-const TEMPLATE_DISABLED_MODULE_IDS = ['design_system', 'example'] as const
+// `seeds` loads an AES-256-GCM blob whose key arrives out of band; a fresh scaffold ships
+// neither the ciphertext nor OM_SEED_KEY, so its CLI would be inert. It stays enabled in
+// apps/mercato for the maintainers' own seeding flow and out of the template until shipping
+// it to every scaffolded app is a deliberate maintainer call (it needs an evaluation-catalog
+// case before module-facts-build.test.ts will accept it).
+const TEMPLATE_DISABLED_MODULE_IDS = ['design_system', 'example', 'seeds'] as const
 const ENABLED_MODULES_DECLARATION = 'export const enabledModules: ModuleEntry[] = ['
 const EXAMPLE_CUSTOMERS_SYNC_GUARD = "if (enabledModules.some((entry) => entry.id === 'example')) {"
 
@@ -252,6 +301,28 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // ('one more template module still fits the root budget with its inline index
   // intact'), and #4983 for the discussion.
   // { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
+  },
+  availability: {
+    source: `  // Availability contract, policy module, and provider registry (Phase 1+2).
+  // Ships with the scaffold but stays commented out in the template until
+  // standalone-harness coverage lands: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/availability/index.md in context.required, so enabling it
+  // here trips packages/create-app/src/lib/module-facts-build.test.ts ('every
+  // module fact-sheet a scaffold ships is required by at least one catalog
+  // case'). Run the om-refresh-standalone-harness skill to add that coverage,
+  // then enable it in the template.
+  { id: 'availability', from: '@open-mercato/core' },`,
+    template: `  // Availability contract, policy module, and provider registry (Phase 1+2).
+  // Ships with the scaffold but stays commented out in the template until
+  // standalone-harness coverage lands: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/availability/index.md in context.required, so enabling it
+  // here trips packages/create-app/src/lib/module-facts-build.test.ts ('every
+  // module fact-sheet a scaffold ships is required by at least one catalog
+  // case'). Run the om-refresh-standalone-harness skill to add that coverage,
+  // then enable it in the template.
+  // { id: 'availability', from: '@open-mercato/core' },`,
   },
 }
 

@@ -41,7 +41,6 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 jest.mock('../../../guards', () => ({
-  resolveUserFeatures: jest.fn(() => ['staff.leave_requests.send']),
   runStaffMutationGuards: jest.fn((...args: unknown[]) => mockRunStaffMutationGuards(...args)),
   runStaffMutationGuardAfterSuccess: jest.fn((...args: unknown[]) => mockRunStaffMutationGuardAfterSuccess(...args)),
 }))
@@ -95,7 +94,6 @@ describe('staff team-members self route mutation guard', () => {
         operation: 'create',
         requestMethod: 'POST',
       }),
-      expect.any(Array),
     )
     expect(mockExecute).not.toHaveBeenCalled()
     expect(mockRunStaffMutationGuardAfterSuccess).not.toHaveBeenCalled()
