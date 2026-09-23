@@ -1691,7 +1691,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         if (Array.isArray(payload)) return
         const items = Array.isArray((payload as any).items) ? (payload as any).items : []
         const tags = new Set<string>()
-        const scopeOrgIds = collectScopeOrganizationIds(ctx)
+        const scopeOrgIds = ormCfg.orgField ? collectScopeOrganizationIds(ctx) : [null]
         const crudSegment = deriveCrudSegmentTag(resourceKind, request)
         for (const target of resourceTargets) {
           for (const tag of buildCollectionTags(target, tenantForScope, scopeOrgIds)) {
