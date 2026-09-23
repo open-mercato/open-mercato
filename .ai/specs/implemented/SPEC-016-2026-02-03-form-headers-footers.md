@@ -195,6 +195,8 @@ export type FormHeaderEditProps = FormHeaderBaseProps & {
   mode?: 'edit'
   /** Small title next to the back link */
   title?: string
+  /** Semantic title level; defaults to 2 for section-level compatibility */
+  titleHeadingLevel?: 1 | 2
   /** Structured action buttons (Delete/Cancel/Save) */
   actions?: FormActionButtonsProps
   /** Custom right-side content (overrides `actions`) */
@@ -228,6 +230,11 @@ export type FormHeaderDetailProps = FormHeaderBaseProps & {
 
 export type FormHeaderProps = FormHeaderEditProps | FormHeaderDetailProps
 ```
+
+`CrudForm` forwards the same additive `titleHeadingLevel?: 1 | 2` prop to its
+edit-mode `FormHeader`. The default remains `2` so dialogs and composed
+sections preserve the historical heading level. A create/edit page whose form
+title is the page title must opt into `titleHeadingLevel={1}` explicitly.
 
 **Edit mode layout:**
 
@@ -546,6 +553,9 @@ These pages have custom inline header JSX that must be replaced with `<FormHeade
 None at this time. The component APIs are designed to handle all existing patterns found in the codebase.
 
 ## Changelog
+
+### 2026-08-25
+- Added explicit `titleHeadingLevel` semantics to edit-mode `FormHeader` and `CrudForm`; retained the historical `h2` default and made page-level `h1` usage opt-in.
 
 ### 2026-02-04
 - Added `utilityActions` slot for icon-only actions in `FormHeader` detail mode

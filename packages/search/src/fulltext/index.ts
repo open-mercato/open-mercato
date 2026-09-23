@@ -4,6 +4,7 @@ export type {
   FullTextSearchQuery,
   FullTextSearchHit,
   DocumentLookupKey,
+  ListDocumentIdsOptions,
   IndexStats,
   FullTextSearchDriverConfig,
   FullTextSearchDriver,

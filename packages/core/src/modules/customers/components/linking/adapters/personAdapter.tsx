@@ -40,6 +40,7 @@ type PersonAdapterOptions = {
   addNew?: LinkEntityAdapter<PersonDetails, PersonLinkSettings>['addNew']
   showLinkSettings?: boolean
   roleOptions?: Array<{ id: string; label: string }>
+  allFilterLabel?: string
   headerIcon?: React.ReactNode
 }
 
@@ -217,7 +218,7 @@ export function createPersonLinkAdapter(
     roleOptions.length > 0
       ? {
           options: [
-            { id: 'all', label: 'All' },
+            { id: 'all', label: options.allFilterLabel ?? 'All' },
             ...roleOptions.map((role) => ({ id: role.id, label: role.label })),
           ],
           defaultId: 'all',

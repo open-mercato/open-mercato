@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
+import { createTestCustomer, type TestCustomerFixture } from './fixtures';
+
+export const integrationMeta = {
+  dependsOnModules: ['customers'],
+};
 
 /**
  * TC-STAFF-012: Time Projects + Employee Assignment via API
@@ -13,6 +18,7 @@ test.describe('TC-STAFF-012: Time Projects + Employee Assignment via API', () =>
 
     let token: string | null = null;
     let staffMemberId: string | null = null;
+    let customer: TestCustomerFixture | null = null;
     let projectId: string | null = null;
 
     try {
@@ -25,10 +31,19 @@ test.describe('TC-STAFF-012: Time Projects + Employee Assignment via API', () =>
       staffMemberId = selfBody.member?.id ?? null;
       expect(staffMemberId, 'Staff member id should be present in self response').toBeTruthy();
 
+      // Create the customer the project belongs to (US-B1: a project always names one)
+      customer = await createTestCustomer(request, token, { displayName: `${projectName} Customer` });
+
       // Step 1: Create a time project
       const createProjectResponse = await apiRequest(request, 'POST', '/api/staff/timesheets/time-projects', {
         token,
-        data: { name: projectName, code: projectCode, projectType: 'internal', status: 'active' },
+        data: {
+          name: projectName,
+          code: projectCode,
+          customerId: customer.id,
+          projectType: 'internal',
+          status: 'active',
+        },
       });
       expect(createProjectResponse.ok(), 'POST /api/staff/timesheets/time-projects should succeed').toBeTruthy();
       const createProjectBody = (await createProjectResponse.json()) as { id?: string | null };
@@ -63,6 +78,9 @@ test.describe('TC-STAFF-012: Time Projects + Employee Assignment via API', () =>
     } finally {
       if (token && projectId) {
         await apiRequest(request, 'DELETE', `/api/staff/timesheets/time-projects?id=${encodeURIComponent(projectId)}`, { token }).catch(() => {});
+      }
+      if (customer) {
+        await customer.cleanup();
       }
     }
   });

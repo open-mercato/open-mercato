@@ -9,6 +9,7 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: 'bg-primary text-primary-foreground shadow-xs hover:bg-primary-hover',
+        'primary-filled': 'bg-status-info-solid text-status-info-solid-foreground shadow-xs hover:bg-status-info-solid/90',
         /* Destructive is quiet by design: red text on a calm surface. A wall
            of solid red buttons trains users to ignore red. The filled form is
            `destructive-solid`, reserved for the single point-of-no-return
@@ -16,7 +17,7 @@ const buttonVariants = cva(
         destructive:
           'border border-destructive bg-background text-destructive shadow-xs hover:bg-destructive/10 aria-invalid:ring-destructive dark:aria-invalid:ring-destructive',
         'destructive-solid':
-          'bg-destructive text-white shadow-xs hover:bg-destructive/90 aria-invalid:ring-destructive dark:aria-invalid:ring-destructive',
+          'bg-status-error-solid text-status-error-solid-foreground shadow-xs hover:shadow-md aria-invalid:ring-destructive',
         'destructive-outline':
           'border border-destructive bg-background text-destructive shadow-xs hover:bg-destructive/10',
         'destructive-soft':
@@ -58,4 +59,3 @@ export function Button({
 }
 
 export { buttonVariants }
-
