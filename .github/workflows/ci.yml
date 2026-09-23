@@ -659,6 +659,15 @@ jobs:
         with:
           name: build-artifacts
 
+      - name: Check CLASSIC DI injection survives bundling
+        # Reads packages/*/dist, so it must stay after the artifact download.
+        # Awilix CLASSIC resolves a factory's dependencies by PARAMETER NAME, and
+        # esbuild renames a parameter that shadows an enclosing binding — so a
+        # registration can be correct in source, pass under ts-jest, and still
+        # throw AwilixResolutionError in the published package. Source-level
+        # checks cannot see this; only the built artefact can.
+        run: yarn check:classic-di-injection
+
       - name: Check dependency version conflicts
         run: yarn check:dep-versions
 
