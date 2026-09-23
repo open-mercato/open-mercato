@@ -428,6 +428,68 @@ describe('ScheduleActivityDialog', () => {
     })
   })
 
+  describe('entityId on edit (regression #6050)', () => {
+    const ACTIVITY_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+
+    function lastSavedPayload() {
+      const requestInit = apiCallOrThrowMock.mock.calls.at(-1)?.[1] as { body?: string } | undefined
+      return JSON.parse(String(requestInit?.body ?? '{}')) as Record<string, unknown>
+    }
+
+    it('pins the payload to editData.entityId instead of the currently-selected entity prop', async () => {
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="company-2"
+          entityType="company"
+          editData={{ id: ACTIVITY_ID, interactionType: 'meeting', title: 'Quarterly review', entityId: 'person-1' }}
+        />,
+      )
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ }))
+      })
+
+      expect(lastSavedPayload().entityId).toBe('person-1')
+    })
+
+    it('falls back to the entityId prop on edit when editData has no entityId', async () => {
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+          editData={{ id: ACTIVITY_ID, interactionType: 'meeting', title: 'Quarterly review' }}
+        />,
+      )
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ }))
+      })
+
+      expect(lastSavedPayload().entityId).toBe('person-1')
+    })
+
+    it('uses the entityId prop when creating a new activity', async () => {
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+        />,
+      )
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Save activity$/ }))
+      })
+
+      expect(lastSavedPayload().entityId).toBe('person-1')
+    })
+  })
+
   it('shows Save note button when creating a new note activity', () => {
     mockScheduleState = createScheduleState({
       activityType: 'note' as const,

@@ -303,4 +303,86 @@ describe('customers.interactions.update — re-linking to a different CRM record
     ).rejects.toMatchObject({ status: 422 })
     expect(interaction.entity).toBe(current)
   })
+
+  describe('undo', () => {
+    function buildSnapshot(entityId: string): Record<string, unknown> {
+      return {
+        interaction: {
+          id: INTERACTION_ID,
+          organizationId: ORG_ID,
+          tenantId: TENANT_ID,
+          entityId,
+          entityKind: 'company',
+          dealId: null,
+          interactionType: 'task',
+          title: 'Follow up',
+          body: null,
+          status: 'planned',
+          scheduledAt: new Date('2026-05-01T10:00:00.000Z'),
+          occurredAt: null,
+          priority: null,
+          authorUserId: null,
+          ownerUserId: null,
+          appearanceIcon: null,
+          appearanceColor: null,
+          source: null,
+          durationMinutes: null,
+          location: null,
+          allDay: null,
+          recurrenceRule: null,
+          recurrenceEnd: null,
+          participants: null,
+          reminderMinutes: null,
+          visibility: null,
+          linkedEntities: null,
+          guestPermissions: null,
+        },
+        custom: {},
+      }
+    }
+
+    it('moves the interaction back to the original entity and recomputes both projections', async () => {
+      const original = createEntity(CURRENT_ENTITY_ID, 'company')
+      const movedTo = createEntity(TARGET_ENTITY_ID, 'person')
+      // The interaction currently sits where the re-link left it (TARGET_ENTITY_ID) —
+      // undo must move it back to the entity captured in the `before` snapshot.
+      const interaction = createInteraction(movedTo)
+      const { ctx, emitCalls, recomputedEntityIds } = createHarness(interaction, [original, movedTo])
+
+      const logEntry = {
+        commandPayload: {
+          undo: {
+            before: buildSnapshot(CURRENT_ENTITY_ID),
+            after: buildSnapshot(TARGET_ENTITY_ID),
+          },
+        },
+      }
+
+      await handler().undo!({ input: {}, ctx, logEntry: logEntry as never })
+
+      expect(interaction.entity).toBe(original)
+      expect(recomputedEntityIds).toEqual(expect.arrayContaining([CURRENT_ENTITY_ID, TARGET_ENTITY_ID]))
+      expect(nextInteractionTargets(emitCalls).sort()).toEqual([CURRENT_ENTITY_ID, TARGET_ENTITY_ID].sort())
+    })
+
+    it('recomputes only the original entity when the interaction was never re-linked', async () => {
+      const current = createEntity(CURRENT_ENTITY_ID, 'company')
+      const interaction = createInteraction(current)
+      const { ctx, emitCalls, recomputedEntityIds } = createHarness(interaction, [current])
+
+      const logEntry = {
+        commandPayload: {
+          undo: {
+            before: buildSnapshot(CURRENT_ENTITY_ID),
+            after: buildSnapshot(CURRENT_ENTITY_ID),
+          },
+        },
+      }
+
+      await handler().undo!({ input: {}, ctx, logEntry: logEntry as never })
+
+      expect(recomputedEntityIds).toEqual([CURRENT_ENTITY_ID])
+      expect(nextInteractionTargets(emitCalls)).toEqual([CURRENT_ENTITY_ID])
+    })
+  })
 })
