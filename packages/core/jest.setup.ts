@@ -86,19 +86,6 @@ if (typeof globalThis.Response === 'undefined') {
   (globalThis as any).Response = MockResponse
 }
 
-// jsdom doesn't implement ResizeObserver. `DataTable`'s `TruncatedCell` instantiates
-// one in an effect, so any test that renders a `DataTable` with a truncating column
-// needs a stub. Provide a no-op global mock instead of forcing every test file to
-// ship its own (mirrors the same stub in packages/ui/jest.setup.ts).
-if (typeof globalThis.ResizeObserver === 'undefined') {
-  class ResizeObserverStub {
-    observe(): void {}
-    unobserve(): void {}
-    disconnect(): void {}
-  }
-  (globalThis as any).ResizeObserver = ResizeObserverStub
-}
-
 // Mock window.location.reload globally for all tests
 if (typeof window !== 'undefined' && window.location) {
   try {
