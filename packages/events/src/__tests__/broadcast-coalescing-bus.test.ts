@@ -17,6 +17,8 @@ createModuleEvents({
   events: [
     { id: 'coalesce_test.bulk.created', label: 'Bulk Created', clientBroadcast: true, broadcastCoalescing: true },
     { id: 'coalesce_test.plain.created', label: 'Plain Created', clientBroadcast: true },
+    { id: 'coalesce_test.recipient.created', label: 'Recipient Created', clientBroadcast: true, broadcastCoalescing: true },
+    { id: 'coalesce_test.portal.created', label: 'Portal Created', portalBroadcast: true, broadcastCoalescing: true },
   ] as const,
 })
 
@@ -153,6 +155,102 @@ describe('event bus browser-delivery coalescing', () => {
     expect(registered).toEqual(expect.arrayContaining(['SIGTERM', 'SIGINT', 'beforeExit']))
   })
 
+  it('never delivers one recipient user\'s payload under another recipient user\'s key', async () => {
+    const bus = createEventBus({ resolve, queueStrategy: 'local' })
+    const seen: Array<{ recipientUserId: string; id: string }> = []
+    unregisterTap = registerGlobalEventTap((_event, payload) => {
+      const data = payload as { id: string; recipientUserId: string }
+      seen.push({ recipientUserId: data.recipientUserId, id: data.id })
+    })
+
+    // Same tenant/org for both users — options carry no recipient dimension at
+    // all, so only the payload-derived union in the coalescing key can keep
+    // these two audiences from suppressing each other.
+    const users = ['user-a', 'user-b']
+    for (let round = 0; round < 5; round += 1) {
+      for (const recipientUserId of users) {
+        await bus.emit(
+          'coalesce_test.recipient.created',
+          { id: `${recipientUserId}-${round}`, tenantId: 'tenant-1', organizationId: 'org-1', recipientUserId },
+          { tenantId: 'tenant-1', organizationId: 'org-1' },
+        )
+      }
+    }
+    await wait(INTERVAL_MS * 2)
+
+    for (const recipientUserId of users) {
+      const forUser = seen.filter((entry) => entry.recipientUserId === recipientUserId)
+      expect(forUser.length).toBeGreaterThanOrEqual(2)
+      expect(forUser[forUser.length - 1].id).toBe(`${recipientUserId}-4`)
+      for (const entry of forUser) {
+        expect(entry.id.startsWith(`${recipientUserId}-`)).toBe(true)
+      }
+    }
+  })
+
+  it('never delivers one recipient role\'s payload under another recipient role\'s key', async () => {
+    const bus = createEventBus({ resolve, queueStrategy: 'local' })
+    const seen: Array<{ recipientRoleId: string; id: string }> = []
+    unregisterTap = registerGlobalEventTap((_event, payload) => {
+      const data = payload as { id: string; recipientRoleId: string }
+      seen.push({ recipientRoleId: data.recipientRoleId, id: data.id })
+    })
+
+    const roles = ['role-a', 'role-b']
+    for (let round = 0; round < 5; round += 1) {
+      for (const recipientRoleId of roles) {
+        await bus.emit(
+          'coalesce_test.recipient.created',
+          { id: `${recipientRoleId}-${round}`, tenantId: 'tenant-1', organizationId: 'org-1', recipientRoleId },
+          { tenantId: 'tenant-1', organizationId: 'org-1' },
+        )
+      }
+    }
+    await wait(INTERVAL_MS * 2)
+
+    for (const recipientRoleId of roles) {
+      const forRole = seen.filter((entry) => entry.recipientRoleId === recipientRoleId)
+      expect(forRole.length).toBeGreaterThanOrEqual(2)
+      expect(forRole[forRole.length - 1].id).toBe(`${recipientRoleId}-4`)
+      for (const entry of forRole) {
+        expect(entry.id.startsWith(`${recipientRoleId}-`)).toBe(true)
+      }
+    }
+  })
+
+  it('never delivers one tenant\'s payload under another tenant\'s key for a portal-only event', async () => {
+    const bus = createEventBus({ resolve, queueStrategy: 'local' })
+    const seen: Array<{ tenantId: string; id: string }> = []
+    unregisterTap = registerGlobalEventTap((_event, payload) => {
+      const data = payload as { id: string; tenantId: string }
+      seen.push({ tenantId: data.tenantId, id: data.id })
+    })
+
+    // A portal-only broadcast has no `clientBroadcast`, so `resolveCrossProcessEmitOptions`
+    // never promotes payload scope into options for it — the coalescing key can
+    // only be correct here if it reads tenantId straight off the payload, the
+    // way this test never passes it in `options` at all.
+    const tenants = ['tenant-a', 'tenant-b']
+    for (let round = 0; round < 5; round += 1) {
+      for (const tenantId of tenants) {
+        await bus.emit(
+          'coalesce_test.portal.created',
+          { id: `${tenantId}-${round}`, tenantId },
+        )
+      }
+    }
+    await wait(INTERVAL_MS * 2)
+
+    for (const tenantId of tenants) {
+      const forTenant = seen.filter((entry) => entry.tenantId === tenantId)
+      expect(forTenant.length).toBeGreaterThanOrEqual(2)
+      expect(forTenant[forTenant.length - 1].id).toBe(`${tenantId}-4`)
+      for (const entry of forTenant) {
+        expect(entry.id.startsWith(`${tenantId}-`)).toBe(true)
+      }
+    }
+  })
+
   it('restores per-record browser delivery when the interval is disabled', async () => {
     process.env.OM_BROADCAST_COALESCE_INTERVAL_MS = '0'
     const bus = createEventBus({ resolve, queueStrategy: 'local' })
@@ -171,5 +269,31 @@ describe('event bus browser-delivery coalescing', () => {
 
     expect(tappedIds).toHaveLength(10)
     expect(publishCrossProcessEventMock).toHaveBeenCalledTimes(10)
+  })
+
+  it('restores the develop dispatch order (pg_notify publish after inline) when the interval is disabled', async () => {
+    process.env.OM_BROADCAST_COALESCE_INTERVAL_MS = '0'
+    const bus = createEventBus({ resolve, queueStrategy: 'local' })
+    const order: string[] = []
+    bus.on('coalesce_test.bulk.created', async () => {
+      order.push('inline')
+    })
+    publishCrossProcessEventMock.mockImplementationOnce(async () => {
+      order.push('publish')
+    })
+
+    // On the non-coalesced path (and on develop before this feature existed),
+    // the pg_notify publish that reaches other processes always ran AFTER inline
+    // in-memory delivery. The coalesced path bundles it with the tap dispatch
+    // instead, ahead of inline delivery — `OM_BROADCAST_COALESCE_INTERVAL_MS=0`
+    // promises to fully restore the develop order, not merely the per-record
+    // delivery count.
+    await bus.emit(
+      'coalesce_test.bulk.created',
+      { id: 'product-0', tenantId: 'tenant-1', organizationId: 'org-1' },
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
+
+    expect(order).toEqual(['inline', 'publish'])
   })
 })

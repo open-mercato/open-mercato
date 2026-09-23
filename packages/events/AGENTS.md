@@ -198,6 +198,7 @@ Every emit of a `clientBroadcast: true` event costs a serialized `pg_notify` rou
 - **When to declare it:** only when browser consumers react to the fact that something changed (a list refetch), never to each occurrence. A consumer that must see every record — a per-record toast, a running tally — MUST NOT have its event opted in; suppressed payloads are dropped, not merged.
 - MUST NOT combine with `crossProcessBroadcast` — delaying private coordination would let another process serve stale data. `createModuleEvents` throws on that declaration, and on `broadcastCoalescing` without a browser sink.
 - `isCoalescedBroadcastEvent(eventId)` reports the resolved decision. `progress.job.updated` keeps its own service-local throttle (`OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS`) and is not affected.
+- `registerGlobalEventTap` is not a browser-only sink — it is a public export that any process-local listener can use (integration-test event capture included), not just the two SSE endpoints. For an opted-in event, every tap sees the same coalesced, trailing-flush-guaranteed stream the browser does, never a call per record. Do not rely on a global tap to observe every occurrence of an event that declares `broadcastCoalescing: true`.
 
 ### Private cross-process coordination
 

@@ -117,6 +117,13 @@ async function main(): Promise<void> {
   // Flush spans/logs for commands that return (workers block forever and flush via
   // their own shutdown handler instead).
   await flushTelemetry()
+  // A returning command (seed, import, reindex) ends on this explicit exit, which
+  // Node skips `beforeExit` for — the same natural-exit path the broadcast-coalescer
+  // shutdown hook relies on to flush a burst's trailing browser delivery. `run()`
+  // above has already bootstrapped the app (and with it the event bus), so this
+  // import is not the module the early bootstrap-mode guards avoid loading.
+  const { flushPendingBroadcasts } = await import('@open-mercato/events')
+  await flushPendingBroadcasts()
   process.exit(code ?? 0)
 }
 

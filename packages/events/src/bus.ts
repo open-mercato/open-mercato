@@ -11,7 +11,11 @@ import {
   isCrossProcessBroadcastEvent,
   isPrivateCrossProcessEventEmitter,
 } from '@open-mercato/shared/modules/events'
-import { flushPendingBroadcasts, submitBroadcast } from './broadcast-coalescer'
+import {
+  flushPendingBroadcasts,
+  resolveBroadcastCoalesceIntervalMs,
+  submitBroadcast,
+} from './broadcast-coalescer'
 import {
   inferModuleIdFromResourceId,
   withModuleResourceUsage,
@@ -97,30 +101,79 @@ function resolveCrossProcessEmitOptions(
   }
 }
 
+function collectStringScopes(input: unknown): string[] {
+  if (!Array.isArray(input)) return []
+  const values: string[] = []
+  for (const value of input) {
+    if (typeof value !== 'string') continue
+    const trimmed = value.trim()
+    if (!trimmed) continue
+    values.push(trimmed)
+  }
+  return values
+}
+
+// Sorted so an audience keys identically however the caller ordered it, and
+// explicitly comparator-ed per the #3620 guard.
+function sortScopes(scopes: Set<string>): string[] {
+  return Array.from(scopes).sort((left, right) => left.localeCompare(right))
+}
+
 /**
  * Coalescing key for the browser dispatch of one event.
  *
- * Scope is part of the key by necessity, not for granularity: a key of event id
- * alone would let a burst in one tenant suppress another tenant's delivery and
- * then deliver the first tenant's payload in its place.
+ * Built from the raw union of every dimension the SSE audience filter
+ * (`matchesAudience` in `events/api/stream/route.ts`) reads — tenant,
+ * organization, recipient user and recipient role — taken from BOTH the
+ * trusted `options` and the payload, without calling `resolveCrossProcessEmitOptions`
+ * or any other resolver. Those resolvers pick one source to trust for delivery
+ * semantics; the key instead has to key on every dimension a connection can be
+ * filtered by, or one audience's emit would silently replace another
+ * audience's pending delivery — recipient/role targeting and a portal-only
+ * event (which carries no trusted `options` scope at all) included.
+ *
+ * Scope is part of the key by necessity, not for granularity: a key with no
+ * scope segments would let a burst in one tenant suppress another tenant's
+ * delivery and then deliver the first tenant's payload in its place.
  */
-function buildBroadcastCoalesceKey(event: string, options?: EmitOptions): string {
-  const tenantId = typeof options?.tenantId === 'string' ? options.tenantId.trim() : ''
+function buildBroadcastCoalesceKey(event: string, payload: EventPayload, options?: EmitOptions): string {
+  const data = (payload ?? {}) as Record<string, unknown>
+
+  const tenantId = normalizePayloadScope(options?.tenantId) ?? normalizePayloadScope(data.tenantId) ?? ''
+
   const organizationScopes = new Set<string>()
-  if (typeof options?.organizationId === 'string' && options.organizationId.trim().length > 0) {
-    organizationScopes.add(options.organizationId.trim())
+  const optionsOrganizationId = normalizePayloadScope(options?.organizationId)
+  if (optionsOrganizationId) organizationScopes.add(optionsOrganizationId)
+  for (const organizationId of collectStringScopes(options?.organizationIds)) {
+    organizationScopes.add(organizationId)
   }
-  if (Array.isArray(options?.organizationIds)) {
-    for (const organizationId of options.organizationIds) {
-      if (typeof organizationId !== 'string') continue
-      const trimmed = organizationId.trim()
-      if (trimmed) organizationScopes.add(trimmed)
-    }
+  const payloadOrganizationId = normalizePayloadScope(data.organizationId)
+  if (payloadOrganizationId) organizationScopes.add(payloadOrganizationId)
+  for (const organizationId of collectStringScopes(data.organizationIds)) {
+    organizationScopes.add(organizationId)
   }
-  // Sorted so a multi-organization audience keys identically however the caller
-  // ordered it, and explicitly comparator-ed per the #3620 guard.
-  const sortedScopes = Array.from(organizationScopes).sort((left, right) => left.localeCompare(right))
-  return `${event}::${tenantId}::${sortedScopes.join(',')}`
+
+  const recipientUserScopes = new Set<string>()
+  const recipientUserId = normalizePayloadScope(data.recipientUserId)
+  if (recipientUserId) recipientUserScopes.add(recipientUserId)
+  for (const userId of collectStringScopes(data.recipientUserIds)) {
+    recipientUserScopes.add(userId)
+  }
+
+  const recipientRoleScopes = new Set<string>()
+  const recipientRoleId = normalizePayloadScope(data.recipientRoleId)
+  if (recipientRoleId) recipientRoleScopes.add(recipientRoleId)
+  for (const roleId of collectStringScopes(data.recipientRoleIds)) {
+    recipientRoleScopes.add(roleId)
+  }
+
+  return [
+    event,
+    tenantId,
+    sortScopes(organizationScopes).join(','),
+    sortScopes(recipientUserScopes).join(','),
+    sortScopes(recipientRoleScopes).join(','),
+  ].join('::')
 }
 
 function getGlobalEventTaps(): Set<GlobalEventTap> {
@@ -208,15 +261,37 @@ function registerProducerShutdownHook(): void {
  * a short-lived emitter — a CLI import, a one-shot script — reaches a natural
  * exit with the tail still queued and no signal ever fired. `beforeExit` runs
  * exactly when the loop has drained, which is precisely that case.
+ *
+ * `createEventBus` calls this in every process that bootstraps DI — the app,
+ * every worker, and every `mercato` CLI command — so a bare `process.once`
+ * listener here would take away Node's default SIGINT/SIGTERM exit process-wide:
+ * once ANY listener is registered for a signal, Node stops exiting on it, and
+ * this listener only flushes, never exits. A one-shot CLI command (seed,
+ * import, reindex) with no graceful-shutdown handler of its own would then
+ * swallow the first Ctrl+C or SIGTERM and keep running until SIGKILL. The
+ * per-signal handler below flushes, then restores the default behavior itself
+ * — by re-raising the signal — but only when it was the last listener
+ * (`once` already removed itself before this body runs): a process with its
+ * own graceful-shutdown handler (the queue worker, `mercato server`) keeps
+ * that handler in charge of the actual exit, and this hook just adds the flush
+ * alongside it.
  */
 function registerBroadcastCoalescerShutdownHook(): void {
   if ((globalThis as Record<string, unknown>)[BROADCAST_COALESCER_SHUTDOWN_KEY]) return
-  const shutdown = () => {
-    void flushPendingBroadcasts().catch(() => {})
+  const handleSignal = (signal: NodeJS.Signals) => {
+    void flushPendingBroadcasts()
+      .catch(() => {})
+      .finally(() => {
+        if (process.listenerCount(signal) === 0) {
+          process.kill(process.pid, signal)
+        }
+      })
   }
-  process.once('SIGTERM', shutdown)
-  process.once('SIGINT', shutdown)
-  process.once('beforeExit', shutdown)
+  process.once('SIGTERM', () => handleSignal('SIGTERM'))
+  process.once('SIGINT', () => handleSignal('SIGINT'))
+  process.once('beforeExit', () => {
+    void flushPendingBroadcasts().catch(() => {})
+  })
   ;(globalThis as Record<string, unknown>)[BROADCAST_COALESCER_SHUTDOWN_KEY] = true
 }
 
@@ -525,15 +600,20 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
       }
     }
 
-    // The two sinks that exist only so browsers see the change: the global taps
-    // (which both SSE endpoints subscribe through) and the pg_notify publish that
-    // reaches connections held by other processes. Neither carries domain meaning,
-    // so an opted-in event may coalesce them without touching subscriber, webhook
-    // or queue semantics below.
+    // Global taps are not a browser-only sink — `registerGlobalEventTap` is a
+    // public export that any process-local listener can use (the create-app
+    // template's qa-events route captures events for integration tests through
+    // it, and third-party modules can too), not just the two SSE endpoints. What
+    // both taps and the SSE bridges have in common is that neither carries domain
+    // meaning on its own, so an opted-in event may coalesce this dispatch — and
+    // with it every tap's delivery — without touching subscriber, webhook or
+    // queue semantics below. A tap on a coalesced event sees the same suppressed,
+    // trailing-flush-guaranteed stream the browser does, not one call per record.
     const coalesceBrowserDelivery = isCoalescedBroadcastEvent(event)
+      && resolveBroadcastCoalesceIntervalMs() > 0
     if (coalesceBrowserDelivery) {
       await submitBroadcast(
-        buildBroadcastCoalesceKey(event, resolveCrossProcessEmitOptions(event, payload, options) ?? options),
+        buildBroadcastCoalesceKey(event, payload, options),
         async () => {
           await runGlobalTaps()
           await publishToOtherProcesses()
