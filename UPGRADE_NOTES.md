@@ -81,6 +81,42 @@ propagate). If you hit `WRONG_KEY` in production, see "Key mismatch fails the wr
 [`apps/docs/docs/architecture/data-encryption.mdx`](apps/docs/docs/architecture/data-encryption.mdx)
 for how to resolve an affected row.
 
+### The company create form publishes `crud-form:customers.company`, and bridges the entity-derived spot (#5875)
+
+`packages/core/src/modules/customers/backend/customers/companies/create/page.tsx` rendered its
+`CrudForm` without an `injectionSpotId`. `CrudForm` therefore fell back to deriving the injection
+host from the first entry of `entityIds`, which on that page is `E.customers.customer_entity`, so
+the create form published `crud-form:customers.customer_entity` (and its
+`crud-form:customers.customer_entity:fields` child). The company **edit** surface passes the
+module's declared host explicitly, so the two surfaces of the same logical form addressed
+different spots and a widget registered against the declared company host reached editing but
+never creation. The create page now passes `injectionSpotId={extensionPoints.hosts.companyForm.spotId}`,
+so both surfaces publish `crud-form:customers.company` and its `:fields` child.
+
+**This is an additive change — no action required for existing widgets.** Rather than remove
+`crud-form:customers.customer_entity` (§6, FROZEN) as a live surface on this page, the page also
+passes `legacyInjectionSpotId={crudFormExtensionSpotId('customers.customer_entity')}` — the same
+`CrudForm` bridge prop #6017 introduced for the sales quick-create dialogs, which dual-publishes a
+prior spot id's header, body, and field widgets alongside the primary one. Any widget still
+targeting `crud-form:customers.customer_entity` or its `:fields` child keeps rendering here,
+unchanged.
+
+No other frozen surface is touched: `entityIds` still drives custom-field resolution and the
+component-replacement handle, `CrudForm`'s fallback spot resolution is unchanged for every other
+host, the context shape published at the surviving spots is unchanged, and no prop, API route,
+event or database column changes.
+
+**Deprecation window.** `legacyInjectionSpotId` on this page is intended to be removed after at
+least one minor version, in step with the same bridge on the #6017 sales dialogs. Until then, no
+action is required from module authors targeting either the legacy id or the declared host.
+
+**Action for module authors — none required to keep current behavior.** Widgets already
+registered against `crud-form:customers.company` need no change and now additionally render during
+company creation — including the `customer_accounts` portal-users group, which finds no `recordId`
+in create mode and renders its empty state. The bridge also keeps the shipped `example` module's
+`example.injection.customer-priority-field` field widget rendering on this page exactly as before,
+via the dual-published `:fields` child.
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).
@@ -385,29 +421,6 @@ yarn mercato query_index rebuild-all # equivalent when driving query_index direc
 Records whose indexed text contains none of these characters produce byte-identical hashes before and after, so a reindex is only required where the bug actually applied — but reindexing everything is harmless and is the simpler operational choice. Installations running Meilisearch may not have noticed the bug in global search (its own normalizer handles `ł` correctly), yet the backend users-list filter routes through the token path regardless, so the reindex still applies.
 
 **Action for module authors:** none, unless you persisted `tokenizeText` output outside `search_tokens`. If you did, recompute it; comparing a stored pre-fix token against a freshly computed one will not match for affected text.
-
-### The company create form publishes `crud-form:customers.company`, not the entity-derived spot (#5875)
-
-`packages/core/src/modules/customers/backend/customers/companies/create/page.tsx` rendered its `CrudForm` without an `injectionSpotId`. `CrudForm` therefore fell back to deriving the injection host from the first entry of `entityIds`, which on that page is `E.customers.customer_entity`, so the create form published `crud-form:customers.customer_entity` (and its `crud-form:customers.customer_entity:fields` child). The company **edit** surface passes the module's declared host explicitly, so the two surfaces of the same logical form addressed different spots and a widget registered against the declared company host reached editing but never creation. The create page now passes `injectionSpotId={extensionPoints.hosts.companyForm.spotId}`, so both surfaces publish `crud-form:customers.company` and its `:fields` child.
-
-**This is a breaking change under `BACKWARD_COMPATIBILITY.md` §6, accepted for this release without a bridge.** §6 ("Widget Injection Spot IDs — FROZEN") says a change MUST NOT remove an existing spot ID from a page, and that is exactly what this does: the company create page stops publishing `crud-form:customers.customer_entity` and its `:fields` child. The removal is accepted rather than bridged because the id was never a *declared* host — no `extension-points.ts` entry ever named it, it existed only as a byproduct of `CrudForm` deriving a spot from the first entry in `entityIds` — and because the deprecation protocol's dual-publish bridge is not reachable without changing `CrudForm` itself: the `:fields` child is resolved internally from the resolved spot id, and the `aliases`/`fallbacks` fields on a host declaration are consumed by the facts generator only, so declaring one would make the tooling agree while widgets still went dark. The migration below is therefore required rather than optional, and is the whole of the upgrade path. #5882 removes the same id from the person create surfaces under the same reasoning; one maintainer waiver covers both.
-
-No *other* frozen surface is touched: `entityIds` still drives custom-field resolution and the component-replacement handle, `CrudForm`'s fallback spot resolution is unchanged for every other host, the context shape published at the surviving spots is unchanged, and no prop, API route, event or database column changes.
-
-The practical consequence is that a widget which relied on the entity-derived id to reach *company* creation no longer renders there. This affected shipped example code: the `example` module aliases `example.injection.customer-priority-field` onto `crud-form:customers.customer_entity:fields`, so that person-oriented field was reaching the company create form as a side effect of two pages sharing one fallback id. It no longer does, which is the intended end state.
-
-**Action for module authors — required if you target the legacy id.** If one of your widgets targets `crud-form:customers.customer_entity` or `crud-form:customers.customer_entity:fields` and you want it on the company create form, add the canonical key alongside your existing one in your `widgets/injection-table.ts` — the same consumer-side aliasing that `packages/core/src/modules/customer_accounts/widgets/injection-table.ts` already uses to map one widget onto both `customers.company` and `crud-form:customers.company`:
-
-```ts
-export const injectionTable: ModuleInjectionTable = {
-  'crud-form:customers.customer_entity:fields': [myWidget],
-  'crud-form:customers.company:fields': [myWidget],
-}
-```
-
-Keep the old key **only** if you also target one of the two surfaces that still publish it: the "Create person" and "Create company" quick dialogs on the sales document form (`packages/core/src/modules/sales/components/documents/SalesDocumentForm.tsx`), which render an embedded `CrudForm` with the same entity ids and no explicit host. Once #5882 lands, those two dialogs are the only remaining publishers of `crud-form:customers.customer_entity` anywhere — the person create page and the "Add new person" dialog are bound to the declared person host there, and the legacy v1 detail pages publish their own declared `customers.*.detail:details` hosts rather than a derived `crud-form:*` spot. If you do not target the sales quick dialogs, drop the old key.
-
-Widgets already registered against `crud-form:customers.company` need no change and now additionally render during company creation — including the `customer_accounts` portal-users group, which finds no `recordId` in create mode and renders its empty state.
 
 ### `AlertDescription` renders a `<div>` instead of a `<p>` (#5487)
 

@@ -10,6 +10,7 @@ import { E } from '#generated/entities.ids.generated'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { crudFormExtensionSpotId } from '@open-mercato/shared/modules/widgets/extension-points'
 import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import {
   buildCompanyPayload,
@@ -18,6 +19,8 @@ import {
   createCompanyFormSchema,
   type CompanyFormValues,
 } from '../../../../components/formConfig'
+
+const COMPANY_CREATE_LEGACY_INJECTION_SPOT_ID = crudFormExtensionSpotId('customers.customer_entity')
 
 export default function CreateCompanyPage() {
   const t = useT()
@@ -41,6 +44,7 @@ export default function CreateCompanyPage() {
           groups={groups}
           initialValues={{ addresses: [] as CompanyFormValues['addresses'] }}
           injectionSpotId={extensionPoints.hosts.companyForm.spotId}
+          legacyInjectionSpotId={COMPANY_CREATE_LEGACY_INJECTION_SPOT_ID}
           entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
           submitLabel={t('customers.companies.form.submit')}
           cancelHref={returnTo ?? '/backend/customers/companies'}

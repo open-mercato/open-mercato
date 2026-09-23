@@ -10,6 +10,7 @@ import CreateCompanyPage from '../page'
 
 type CapturedCrudFormProps = {
   injectionSpotId?: string
+  legacyInjectionSpotId?: string
   entityIds?: string[]
 }
 
@@ -65,6 +66,12 @@ describe('company create page injection host', () => {
 
     expect(typeof props.injectionSpotId).toBe('string')
     expect(props.injectionSpotId).not.toBe('crud-form:customers.customer_entity')
+  })
+
+  it('bridges the previously auto-derived legacy spot id so its widgets keep rendering', () => {
+    const props = renderCreatePage()
+
+    expect(props.legacyInjectionSpotId).toBe('crud-form:customers.customer_entity')
   })
 
   it('exposes the same field-widget slot that the company edit surface exposes', () => {
