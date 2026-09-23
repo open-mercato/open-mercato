@@ -95,9 +95,9 @@ if run_command_with_cli_recovery "${MIGRATE_COMMAND}" "${LOG_FILE}"; then
   rm -f "${LOG_FILE}"
   sync_role_acls
   exit 0
+else
+  STATUS=$?
+  cat "${LOG_FILE}"
+  rm -f "${LOG_FILE}"
+  exit "${STATUS}"
 fi
-
-STATUS=$?
-cat "${LOG_FILE}"
-rm -f "${LOG_FILE}"
-exit "${STATUS}"

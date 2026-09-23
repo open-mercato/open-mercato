@@ -111,6 +111,7 @@ interface DataSyncAdapter {
   getInitialCursor?(input: { entityType: string; scope: TenantScope }): Promise<string | null>
   getMapping(input: { entityType: string; scope: TenantScope }): Promise<DataMapping>
   persistsSharedCursor?(entityType: string): boolean
+  supportsStartControl?(control: 'fullSync' | 'batchSize', entityType: string): boolean
   validateConnection?(input: {
     entityType: string
     credentials: Record<string, unknown>
@@ -190,6 +191,39 @@ against the defaults, not against `undefined`. A default that violates its own
 declaration skips the scheduled run with a logged error instead of starting it
 with a half-applied set.
 
+### Start controls
+
+The dashboard's "Run once now" card also renders two controls the framework owns
+— **Run as full sync** and **Batch size**. Whether either is meaningful for an
+entity type is adapter knowledge, so an adapter may declare it per entity type:
+
+```typescript
+supportsStartControl: (control, entityType) =>
+  !(control === 'fullSync' && entityType.endsWith('.backfill')),
+```
+
+Only an explicit `false` removes a control; an adapter that declares nothing —
+or returns nothing — keeps today's form exactly. Return `false` where the
+operator's choice reaches the adapter and changes nothing observable: an entity
+type whose cursor carries identity, so an inherited cursor is discarded and the
+run starts from the top whichever way `fullSync` is set; or one whose paging the
+source fixes, so `batchSize` is read and ignored.
+
+`api/options.ts` evaluates the predicate across `supportedEntities` and ships the
+result as `startControls` — a **sparse** map, so an entity type with no
+restriction is omitted and an adapter that declares nothing serializes to `{}`.
+`lib/start-controls.ts` owns both halves (`resolveStartControlMap` server-side,
+`applicableStartControls` in the dashboard); a predicate that throws is treated
+as *applies*, because the options route resolves every registered adapter in one
+response.
+
+**This governs what the dashboard offers, never what the API accepts.**
+`POST /api/data_sync/run` keeps honouring both fields, so a client posting
+`fullSync: true` still gets a `null` start cursor whatever the adapter declares.
+Do not derive applicability from `persistsSharedCursor` — where a cursor is
+stored and whether restarting from scratch is meaningful are independent facts,
+and both belong to the adapter to state.
+
 If the sync provider needs bootstrap credentials, mappings, locales, channels, or other default sync settings after a fresh install, implement a provider-owned env preset flow:
 
 - read env vars in the provider package
@@ -207,6 +241,7 @@ If the sync provider needs bootstrap credentials, mappings, locales, channels, o
 - **Resume**: Retry reads the last successful cursor, resumes from there
 - **Progress**: Linked to `ProgressJob` via `progressJobId` for `ProgressTopBar` display
 - **Cancellation**: The engine polls `progressService.isCancellationRequested()` in the batch handler AND on the heartbeat tick while a batch is still in flight, aborting `StreamImportInput.signal` / `StreamExportInput.signal`. Adapters SHOULD honour the signal wherever the work is divisible (per page, per record, around a long flush) and `return` — with the `return` ABOVE the `yield`, never below it, or the engine commits a cursor for a half-applied page. Adapters that ignore the signal keep the old between-batches behavior.
+- **Error reporting**: Every `level: 'error'` row the engine writes is also reported to the active telemetry backend, grouped by a `code`. A `failed` import item MAY carry `data.errorCode` (a stable `module.reason` token, never an interpolated string) alongside `data.errorMessage`; the engine ENFORCES that shape — it is a metric label, so an interpolated value would blow up cardinality and, unlike attributes, would egress unredacted — and substitutes `data_sync.item_failed` for anything else, including a missing value. A run that finishes with `failedCount > 0` additionally reports one `data_sync.run_partial_failure` summary, independent of `adapter.operationalTelemetry` — that flag decides how chatty the operational log is, never whether a failure is observable. Policy: [`error-reporting.mdx`](../../../../../apps/docs/docs/framework/runtime/error-reporting.mdx)
 - **Tracing**: The engine emits one **root** span per batch (`data_sync.import.batch` / `data_sync.export.batch`) linked back to the run, covering the adapter's read *and* the engine's bookkeeping. Adapters MUST NOT hand-roll their own batch span — they cannot root it, so a multi-day run would ride on the single sampling decision taken for the request that triggered it. Inner spans an adapter creates nest under the batch span normally. The final read — the one that finds the stream drained — is traced as `data_sync.import.drain` / `data_sync.export.drain`, so N batches emit exactly N `*.batch` spans plus one `*.drain`.
 - **Stream shape**: The engine drives the adapter's async iterator explicitly (`batch-stream.ts`) so the span wraps `next()`, where a generator does its real work before yielding. Closing follows the language's own `IteratorClose` rules, so `finally` blocks in an adapter generator behave exactly as under `for await`: no `return()` when the stream exhausts or `next()` throws (already closed), `return()` with its failure surfaced on an early stop, and `return()` with its failure swallowed when the engine's own handler threw (that error wins). Keep cleanup in `finally`.
 
@@ -223,7 +258,7 @@ If the sync provider needs bootstrap credentials, mappings, locales, channels, o
 | Event ID | Emitted When |
 |---|---|
 | `data_sync.run.started` | Sync run begins processing |
-| `data_sync.run.completed` | Sync run finishes successfully |
+| `data_sync.run.completed` | Sync run finishes successfully (payload carries `createdCount`/`updatedCount`/`skippedCount`/`failedCount`) |
 | `data_sync.run.failed` | Sync run fails |
 | `data_sync.run.cancelled` | Sync run is cancelled |
 
@@ -253,7 +288,7 @@ Data sync providers can leverage the **Unified Module Extension System (UMES)** 
 
 - `ProgressTopBar` and sync-run detail pages use `progress.job.*` SSE updates for live progress.
 - Create `ProgressJob` in `run`/`retry` endpoints; start/update/complete/fail in `sync-engine`.
-- The engine heartbeats (`touchJobHeartbeat`, forked-EM) on a timer while an adapter batch is being produced, because batches can outlast the 60s stale-job sweep — keep the `withHeartbeat` wrapper around `streamImport`/`streamExport` when touching the batch loops.
+- The engine heartbeats (`touchJobHeartbeat`, forked-EM) on a timer for the whole life of the batch stream — while an adapter batch is being produced AND while the per-batch consumer body commits progress, refreshes coverage snapshots and writes logs — because either side can outlast the 60s stale-job sweep. Keep the `withHeartbeat` wrapper around `streamImport`/`streamExport` when touching the batch loops, and keep its interval armed once per stream rather than restarted per read. Because that interval now fires during the consumer body, where `commitBatchProgress` holds the shared `EntityManager` inside `em.begin()`/`em.commit()`, **every callback on this timer MUST use a forked EM** — both `touchJobHeartbeat` and the `isCancellationRequested` poll do. Adding a third tick callback that reads on the shared EM would interleave with that open transaction, and the tick swallows its own errors, so the damage would surface somewhere else entirely.
 - On redelivery the progress counter is seeded from the progress job's own `processedCount` (`progressService.getJob`), mirroring how `committedBatches` resumes — never reset it to zero (`updateProgress` writes absolute counts) and never seed it from the run's `created/updated/skipped/failed` columns: those count emitted items, while progress counts source records (`batch.processedCount`), and adapters may emit several items per source record.
 - Include `progressJob` details in run detail response.
 - SSE DOM bridge forwards only events with `clientBroadcast: true`.

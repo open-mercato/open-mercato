@@ -17,7 +17,7 @@ import path from 'node:path'
 import os from 'node:os'
 import ts from 'typescript-js'
 import type { PackageResolver, ModuleEntry } from '../../resolver'
-import { generateModuleRegistry, generateModuleRegistryApp } from '../module-registry'
+import { generateModuleRegistry, generateModuleRegistryApp, generateModuleRegistryCli } from '../module-registry'
 
 /** Properties both registry variants must agree on, per module. */
 const SHARED_PROPERTIES = [
@@ -33,6 +33,7 @@ const SHARED_PROPERTIES = [
   'features',
   'customEntities',
   'setup',
+  'runtime',
   'defaultEncryptionMaps',
   'integrations',
   'bundles',
@@ -102,6 +103,10 @@ function scaffoldFixture(): ModuleEntry[] {
   )
   touchFile(pkgModulePath('orders', 'acl.ts'), "export const features = ['orders.view', 'orders.create']\n")
   touchFile(pkgModulePath('orders', 'setup.ts'), "export const setup = { defaultRoleFeatures: ['orders.view'] }\n")
+  touchFile(
+    pkgModulePath('orders', 'runtime.ts'),
+    "export const runtime = { roles: ['worker'], start: async () => ({ stop: async () => {} }) }\n",
+  )
   touchFile(
     pkgModulePath('orders', 'encryption.ts'),
     "export const defaultEncryptionMaps = [{ entityId: 'orders:sales_order', fields: [{ field: 'customer_email' }] }]\nexport default defaultEncryptionMaps\n",
@@ -190,8 +195,10 @@ describe('module registry variant parity', () => {
     const resolver = createMockResolver(scaffoldFixture())
     const mainResult = await generateModuleRegistry({ resolver, quiet: true })
     const appResult = await generateModuleRegistryApp({ resolver, quiet: true })
+    const cliResult = await generateModuleRegistryCli({ resolver, quiet: true })
     expect(mainResult.errors).toEqual([])
     expect(appResult.errors).toEqual([])
+    expect(cliResult.errors).toEqual([])
 
     mainVariant = parseModulePropertiesById(readGenerated('modules.generated.ts'), 'modules.generated.ts')
     runtimeVariant = parseModulePropertiesById(
@@ -234,6 +241,26 @@ describe('module registry variant parity', () => {
 
   it('omits every optional property for the bare module', () => {
     expect(restrictTo(mainVariant.get('bare')!, SHARED_PROPERTIES)).toEqual(['customFieldSets', 'id', 'info'])
+  })
+
+  // The worker wiring reads `getCliModules()` — modules.cli.generated.ts — while the web tier
+  // reads the app and bootstrap registries. A convention file that reaches only some of them is a
+  // runtime that starts in some processes and not others, with nothing to say so.
+  it('emits the module runtime in every registry a process can read', () => {
+    const registryFiles = [
+      'modules.generated.ts',
+      'modules.runtime.generated.ts',
+      'modules.app.generated.ts',
+      'modules.bootstrap.generated.ts',
+      'modules.cli.generated.ts',
+    ]
+
+    const carriesRuntime = registryFiles.map((fileName) => {
+      const byId = parseModulePropertiesById(readGenerated(fileName), fileName)
+      return [fileName, byId.get('orders')?.has('runtime'), byId.get('bare')?.has('runtime')]
+    })
+
+    expect(carriesRuntime).toEqual(registryFiles.map((fileName) => [fileName, true, false]))
   })
 
   describe('known, intentional divergences', () => {

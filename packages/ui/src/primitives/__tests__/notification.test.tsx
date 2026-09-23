@@ -7,10 +7,10 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { Notification } from '../notification'
 
 describe('Notification primitive', () => {
-  it('renders the underlying Alert at size="default" (rounded-xl)', () => {
+  it('uses the underlying default Alert radius token', () => {
     const { container } = render(<Notification title="Test" />)
     const alert = container.querySelector('[data-slot="notification"]')
-    expect(alert).toHaveClass('rounded-xl')
+    expect(alert).toHaveClass('rounded-alert')
   })
 
   it('marks the root with data-slot="notification" (overrides Alert data-slot via spread)', () => {
