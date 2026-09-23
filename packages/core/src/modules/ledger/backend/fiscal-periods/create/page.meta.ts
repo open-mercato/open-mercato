@@ -7,7 +7,7 @@ export const metadata = {
   pageGroupKey: 'ledger.nav.group',
   navHidden: true,
   breadcrumb: [
-    { label: 'Fiscal Periods', labelKey: 'ledger.fiscal_periods.page.title', href: '/backend/ledger/fiscal-periods' },
+    { label: 'Fiscal Periods', labelKey: 'ledger.fiscal_periods.page.title', href: '/backend/fiscal-periods' },
     { label: 'Create', labelKey: 'ledger.fiscal_periods.create.title' },
   ],
 }

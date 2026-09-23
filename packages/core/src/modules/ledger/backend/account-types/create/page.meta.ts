@@ -7,7 +7,7 @@ export const metadata = {
   pageGroupKey: 'ledger.nav.group',
   navHidden: true,
   breadcrumb: [
-    { label: 'Account Types', labelKey: 'ledger.account_types.page.title', href: '/backend/ledger/account-types' },
+    { label: 'Account Types', labelKey: 'ledger.account_types.page.title', href: '/backend/account-types' },
     { label: 'Create', labelKey: 'ledger.account_types.create.title' },
   ],
 }
