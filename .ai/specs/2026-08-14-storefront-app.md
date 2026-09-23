@@ -503,6 +503,40 @@ Added 2026-09-16 to support the `om-mockup-prototype` click-through. Derived fro
   - AC: an **unrecognized** `format` renders the page title and a neutral fallback and reports through the error boundary; it never renders `value` as markup (§5.7, R9).
   - AC: body headings are offset so the page's own `<h1>` stays unique (§8).
 
+### Epic F — Field mode (offline), added 2026-09-23
+
+Full behavioural spec: [Offline Field Mode](./2026-09-22-offline-field-mode.md). The actor is a buyer assembling an order without a network connection.
+
+- **US-F1** — As a buyer on a device that may be shared, I want to explicitly enable field mode and see what will be stored locally and for how long before anything downloads, so that I can decide the tradeoff rather than have it decided for me.
+  - AC: `OfflinePackPolicy.enabled` is off by default; enabling requires an explicit confirm step naming what is stored and the TTL (offline spec §6, §8).
+  - AC: the enable/status screen shows `last-synced-at` and the pack `generatedAt` timestamp once a pack exists.
+  - AC: disabling field mode purges the local pack (offline spec §6).
+
+- **US-F2** — As a buyer returning to an already-enabled device, I want to pass a local passcode or biometric gate every time I open field mode, so that someone else holding the unlocked device still cannot read my prices.
+  - AC: the gate is presented on every app open, not once per session (offline spec §6).
+  - AC: a device unlocked at the OS level is not sufficient on its own — failing or dismissing the gate blocks pack access entirely.
+  - AC: where no platform authenticator is available, an app-level PIN prompt is offered instead of silently skipping the gate.
+
+- **US-F3** — As a buyer with no signal, I want to browse the catalogue I downloaded earlier with the same prices, tiers and quantity rules it had when I last synced, so that I can plan an order without a page pretending to be live.
+  - AC: a persistent "prices as of `generatedAt`, offline" banner is visible for as long as the device has no connection (offline spec §3.2).
+  - AC: price tiers and quantity rules render exactly as carried in the pack entry; nothing is recomputed on the client (offline spec §3.2, ADR-2).
+  - AC: a product outside the downloaded pack's scope renders as unavailable in field mode, not as a dead link.
+
+- **US-F4** — As a buyer offline, I want to add items to a local queue and review it like a cart, so that I can compose and adjust an order before I have a connection to submit it.
+  - AC: the outbox lists each queued intent with quantity and the price shown at queue time, editable and removable before sync (offline spec §3.3, §4.2).
+  - AC: the queue is capped at 200 lines; reaching the cap blocks further offline adds with a visible message, never a silent drop (offline spec §9 R7).
+  - AC: the outbox persists across an app reload or relaunch while still offline (offline spec §10).
+
+- **US-F5** — As a buyer reconnecting, I want my queued items replayed into my real cart and to see exactly what happened to each one, so that I am never surprised by a price or availability difference between what I saw offline and what actually landed.
+  - AC: the reconciliation screen classifies every intent as accepted, quantity-adjusted, or rejected, reusing the cart's existing `priceChanges`/`warnings`/`mergeSummary` surfaces rather than a second screen (offline spec §2.3, §3.3, §5.8).
+  - AC: replay re-resolves the buyer's context online before mutating the cart, so a stale or wrong-identity pack can change what the buyer previewed but never what they purchase (offline spec §9 R5).
+  - AC: no route under `/field/*` reaches checkout without a live connectivity check (offline spec §3.3).
+
+- **US-F6** — As a buyer done with field mode on a device, I want my locally stored catalogue cleared — explicitly or automatically — so that handing the device to someone else doesn't hand over my priced catalogue with it.
+  - AC: a visible "Clear field data" control purges the local pack on demand (offline spec §6).
+  - AC: logout, TTL expiry, and a resolved-identity mismatch each purge the pack automatically, without user action (offline spec §6, §9 R1/R5).
+  - AC: clearing or expiring the pack never deletes a non-empty outbox — the two have independent lifetimes (offline spec §6, §9 R8).
+
 ### Cross-cutting rules
 
 - Every route works at 2 columns / sheet filters below `640` and 4 columns / sidebar at `≥1024` (§7); touch targets are at least 44×44.
@@ -513,6 +547,9 @@ Added 2026-09-16 to support the `om-mockup-prototype` click-through. Derived fro
 ---
 
 ## 17) Changelog
+
+### 2026-09-23 — field mode user stories
+- **§16 Epic F added.** Field mode (§3.3a, §5.8) shipped without user stories, unlike every other epic in §16 — added six stories (US-F1–US-F6) covering opt-in enablement, the local passcode/biometric gate, offline browsing, the outbox, reconnect reconciliation, and data purge, derived from the offline spec's own §3, §5.8, §6, §9 and §10 with no new scope. Written to support an `om-mockup-prototype` click-through of `/field/*`, the same purpose §16 itself was added for.
 
 ### 2026-09-22 — field mode
 - **Resolved §14 Open Question 4.** The question as written said "the roadmap listed offline as a non-goal" — that non-goal does not exist: the word "offline" appears nowhere in `2026-08-14-ecommerce-suite-roadmap.md` prior to today's ADR-10. This is recorded here as a discrepancy in the prior draft, not silently fixed by rewording the question away; nothing was reversed, because nothing had actually been decided against offline before now.
