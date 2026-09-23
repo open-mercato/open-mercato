@@ -293,6 +293,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
     reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
   },
   {
+    path: 'packages/create-app/src/lib/template-env-parity.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779). It compares apps/mercato/.env.example against packages/create-app/template/.env.example.',
+  },
+  {
     path: 'packages/create-app/src/lib/standalone-cache-strategy-guard.test.ts',
     reason: 'Already unfiltered — covered by the same create-app parity step (#3779).',
   },

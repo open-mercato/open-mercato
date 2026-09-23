@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/core'
 import { CustomFieldDef } from '../data/entities'
+import { createVisibleDefinitionScopeClause } from './definition-scope-where'
 
 export type ScopedCustomFieldDefsOptions = {
   entityId: string
@@ -19,25 +20,15 @@ export async function loadScopedCustomFieldDefs(
   em: EntityManager,
   opts: ScopedCustomFieldDefsOptions,
 ): Promise<Map<string, CustomFieldDef>> {
-  const organizationId = opts.organizationId ?? null
-  const tenantId = opts.tenantId ?? null
   const defs = await em.find(CustomFieldDef, {
     entityId: opts.entityId,
     isActive: true,
     deletedAt: null,
-    $and: [
-      {
-        $or: organizationId === null
-          ? [{ organizationId: null }]
-          : [{ organizationId }, { organizationId: null }],
-      },
-      {
-        $or: tenantId === null
-          ? [{ tenantId: null }]
-          : [{ tenantId }, { tenantId: null }],
-      },
-    ],
-  } as any)
+    ...createVisibleDefinitionScopeClause({
+      organizationId: opts.organizationId,
+      tenantId: opts.tenantId,
+    }),
+  })
 
   const byKey = new Map<string, CustomFieldDef>()
   for (const def of defs) {
