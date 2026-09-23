@@ -1,9 +1,23 @@
+import { randomInt } from 'node:crypto';
 import { expect, type APIRequestContext } from '@playwright/test';
 import { apiRequest } from './api';
 import { expectId, readJsonSafe } from './generalFixtures';
 
 const GROUPS_PATH = '/api/customer_groups/customer-groups';
 const MEMBERSHIPS_PATH = '/api/customer_groups/customer-groups/memberships';
+
+/**
+ * `CustomerGroup.priority` is unique per tenant among live rows (partial
+ * unique index `customer_groups_tenant_priority_unique`), and integration
+ * specs share one admin tenant. A fixed default would collide with any live
+ * group already holding that value, so callers that do not care about the
+ * exact priority get a random value from a band no product flow writes
+ * (reorder writes 10, 20, ...; the TC-CGRP `fixturePriority` band is
+ * 2,000,000-2,999,999).
+ */
+export function uniqueCustomerGroupPriority(): number {
+  return 3_000_000 + randomInt(0, 1_000_000_000);
+}
 
 export type CustomerGroupFixtureInput = {
   code: string;
@@ -26,7 +40,7 @@ export async function createCustomerGroupFixture(
       code: input.code,
       name: input.name,
       kind: input.kind ?? 'b2c',
-      priority: input.priority ?? 100,
+      priority: input.priority ?? uniqueCustomerGroupPriority(),
       isDefault: input.isDefault ?? false,
       isActive: input.isActive ?? true,
       ...(input.parentId ? { parentId: input.parentId } : {}),

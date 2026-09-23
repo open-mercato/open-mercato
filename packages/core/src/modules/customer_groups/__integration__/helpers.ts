@@ -137,3 +137,31 @@ export async function cleanupSecondTenantActor(
   await deleteOrganizationIfExists(request, superadminToken, actor.organizationId);
   await deleteTenantIfExists(request, superadminToken, actor.tenantId);
 }
+
+const CUSTOMER_GROUPS_PATH = '/api/customer_groups/customer-groups';
+
+/**
+ * Creating or updating a group with `isDefault: true` clears every other
+ * default group in the tenant (clear-and-set, see `api/customer-groups/crud.ts`).
+ * Specs that create a default group in the shared admin tenant snapshot the
+ * pre-existing default with this helper and hand it to `restoreDefaultGroup`
+ * in `finally`, so the tenant's real default survives the run.
+ */
+export async function findDefaultGroupId(request: APIRequestContext, token: string): Promise<string | null> {
+  const response = await apiRequest(request, 'GET', `${CUSTOMER_GROUPS_PATH}?isDefault=true&pageSize=100`, { token });
+  expect(response.status(), 'listing the tenant default group should be 200').toBe(200);
+  const body = await readJsonSafe<{ items?: Array<{ id?: string }> }>(response);
+  return (body?.items ?? []).find((item) => typeof item.id === 'string')?.id ?? null;
+}
+
+export async function restoreDefaultGroup(
+  request: APIRequestContext,
+  token: string | null,
+  groupId: string | null,
+): Promise<void> {
+  if (!token || !groupId) return;
+  await apiRequest(request, 'PUT', CUSTOMER_GROUPS_PATH, {
+    token,
+    data: { id: groupId, isDefault: true },
+  }).catch(() => undefined);
+}
