@@ -27,7 +27,8 @@ describe('catalog search config', () => {
         product_type: 'configurable',
         is_active: true,
       },
-    } as any)
+      customFields: {},
+    })
 
     expect(presenter.subtitle).toBe('TSHIRT-001 · Konfigurowalny')
   })
@@ -43,7 +44,8 @@ describe('catalog search config', () => {
         product_type: 'unknown_type',
         is_active: true,
       },
-    } as any)
+      customFields: {},
+    })
 
     expect(presenter.subtitle).toBe('WIDGET-001 · unknown_type')
   })
