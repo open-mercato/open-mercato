@@ -3,7 +3,6 @@
 import * as React from "react";
 import { extensionPoints } from "@open-mercato/core/modules/catalog/extension-points";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { ZodType } from "zod";
 import { Page, PageBody } from "@open-mercato/ui/backend/Page";
 import {
   CrudForm,
@@ -41,7 +40,7 @@ import {
   apiCall,
   readApiResultOrThrow,
 } from "@open-mercato/ui/backend/utils/apiCall";
-import { useT } from "@open-mercato/shared/lib/i18n/context";
+import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
 import { E } from "#generated/entities.ids.generated";
 import {
   ProductMediaManager,
@@ -60,7 +59,7 @@ import {
   type ProductUnitConversionDraft,
   type ProductUnitPriceReferenceUnit,
   type ProductUnitRoundingMode,
-  productFormSchema,
+  buildLocaleAwareProductFormSchema,
   createInitialProductFormValues,
   createVariantDraft,
   buildOptionValuesKey,
@@ -100,9 +99,6 @@ import {
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('catalog')
-
-const productFormTypedSchema =
-  productFormSchema as unknown as ZodType<ProductFormValues>;
 
 type VariantPriceRequest = {
   variantDraftId: string;
@@ -233,6 +229,11 @@ function readInboxProductDraft(): InboxProductDraft | null {
 
 export default function CreateCatalogProductPage() {
   const t = useT();
+  const locale = useLocale();
+  const productFormTypedSchema = React.useMemo(
+    () => buildLocaleAwareProductFormSchema(locale),
+    [locale],
+  );
   const router = useRouter();
   const searchParams = useSearchParams();
   const fromInboxAction = searchParams.get("fromInboxAction");
