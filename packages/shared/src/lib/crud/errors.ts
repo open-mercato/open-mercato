@@ -105,10 +105,10 @@ export function assertFound<T>(value: T | null | undefined, message: string): T 
  * route boundary, passing the `translate` the route already resolved, instead of forwarding
  * `err.body` directly.
  */
-export function translateCrudErrorBody(
-  body: Record<string, any>,
+export function translateCrudErrorBody<T extends Record<string, unknown>>(
+  body: T,
   translate: (key: string, fallback?: string) => string,
-): Record<string, any> {
+): T {
   if (typeof body?.error !== 'string') return body
   return { ...body, error: translate(body.error, body.error) }
 }
