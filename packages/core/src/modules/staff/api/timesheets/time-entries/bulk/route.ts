@@ -32,6 +32,7 @@ import {
 import { staffTimeEntryCrudEvents } from '../../../../lib/crud'
 import { emitStaffEvent } from '../../../../events'
 import { invalidateStaffTimeEntryCache } from '../../../../lib/timesheets/timeEntryCacheInvalidation'
+import { softDeleteSegmentsForEntry } from '../../../../lib/timesheets/timeEntrySegmentCascade'
 import {
   STAFF_TIME_TRACKING_RESOURCE_KINDS,
   runStaffMutationGuardAfterSuccess,
@@ -397,7 +398,12 @@ export async function POST(req: Request) {
         if (entry.id && existingMap.has(entry.id)) {
           const existing = existingMap.get(entry.id)!
           if (entry.durationMinutes === 0) {
-            existing.deletedAt = new Date()
+            // Zeroing a grid cell soft-deletes the entry, so it carries the same
+            // cascade obligation as the delete command — a timer-created entry can
+            // own segments, and this route does not filter them out.
+            const deletedAt = new Date()
+            existing.deletedAt = deletedAt
+            await softDeleteSegmentsForEntry(trx, existing.id, { tenantId, organizationId }, deletedAt)
             deleted++
             changes.push({ action: 'deleted', entity: existing })
           } else {

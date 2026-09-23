@@ -191,6 +191,7 @@ describe('STAFF_TIME_TRACKING_RESOURCE_KINDS is the single source for the custom
 describe('the custom time-tracking routes run API interceptors', () => {
   const INTERCEPTED_ROUTES = [
     ['access-requests'],
+    ['my-preferences'],
     ['my-projects'],
     ['my-projects', '[projectId]'],
     ['my-work'],

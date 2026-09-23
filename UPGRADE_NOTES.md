@@ -1471,6 +1471,22 @@ Phase 1 of the workflows UX redesign (`.ai/specs/2026-07-26-workflows-ux-redesig
 
 Activity types themselves are now registry-driven (`registerActivityType` in `packages/core/src/modules/workflows/lib/activity-registry.ts`); see `apps/docs/docs/framework/workflows/extending.mdx` for the new extension recipe. Existing STABLE executor exports are unchanged.
 
+### `TimeReportingSettings.lastProjectId` deprecated in favour of a shared staff timesheet preference (#3750)
+
+The Time Reporting dashboard widget used to remember the member's last-used project privately, in its own widget settings (`TimeReportingSettings.lastProjectId`, persisted by the dashboard host into `dashboard_layouts.layout_json`). The timesheets page's `TimerBar` had no memory at all, so the product's two timer surfaces disagreed about the same fact.
+
+That memory now lives in a `staff`-owned store shared by both surfaces:
+
+- Table `staff_timesheet_preferences`, one row per `(organization_id, tenant_id, staff_member_id)`.
+- `GET` / `PUT /api/staff/timesheets/my-preferences` — self-scoped (there is no member parameter), gated on `staff.timesheets.manage_own`, and written on a **successful timer start only**.
+
+`TimeReportingSettings.lastProjectId` is **retained and still dual-written** for at least one minor version:
+
+- **Read**: the shared preference wins; the legacy setting is a read-through fallback used only when the shared value is null. Members whose only memory is the legacy setting keep it, and the next successful start writes it through to the shared store.
+- **Write**: a successful start **from the dashboard widget** writes both stores, so rolling this change back leaves that member's widget default intact. A start from the timesheets-page `TimerBar` writes the shared store **only** — the legacy field belongs to the widget's own settings and the `TimerBar` has no access to them. A member who only ever starts timers from the timesheets page therefore has no legacy value to roll back to, and after a rollback the widget would fall back to whatever `lastProjectId` it last wrote itself (possibly nothing). That is a one-click cost, not data loss: the shared row survives the rollback and is read again on roll-forward.
+
+**Action for downstream:** none required during the deprecation window. Module authors reading `TimeReportingSettings.lastProjectId` directly should move to `GET /api/staff/timesheets/my-preferences` (or the `useTimesheetPreference` hook in `packages/core/src/modules/staff/lib/timesheets-ui/`) before the field is removed. Authors who *write* it should note that the shared preference now takes precedence on read, so a write to the legacy field alone will not change what the widget preselects for a member who already has a shared row.
+
 ### Scheduler queue targets now deliver one flat payload contract in both execution modes (#4221)
 
 The local scheduler used to wrap a scheduled queue target's configured `targetPayload` in an undocumented envelope (`{ scheduleId, scheduleName, scopeType, tenantId, organizationId, payload: { …targetPayload }, triggeredAt }`), while the asynchronous execute-schedule worker already spread `targetPayload` onto the worker payload root. Both paths now build their payload through one scheduler-owned helper (`packages/scheduler/src/modules/scheduler/lib/queueTargetPayload.ts`) and deliver the documented flat contract:

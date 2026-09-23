@@ -1052,3 +1052,31 @@ export class StaffTimeReportEvent {
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 }
+
+@Entity({ tableName: 'staff_timesheet_preferences' })
+@Index({ name: 'staff_timesheet_preferences_unique_idx', properties: ['organizationId', 'tenantId', 'staffMemberId'], options: { unique: true, where: 'deleted_at IS NULL' } })
+export class StaffTimesheetPreference {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'staff_member_id', type: 'uuid' })
+  staffMemberId!: string
+
+  @Property({ name: 'last_project_id', type: 'uuid', nullable: true })
+  lastProjectId?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
