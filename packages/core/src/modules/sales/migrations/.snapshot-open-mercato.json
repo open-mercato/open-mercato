@@ -6232,6 +6232,26 @@
           "keyName": "sales_payment_allocations_scope_idx",
           "primary": false,
           "unique": false
+        },
+        {
+          "columnNames": [
+            "order_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "sales_payment_allocations_order_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
+            "invoice_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "sales_payment_allocations_invoice_idx",
+          "primary": false,
+          "unique": false
         }
       ],
       "checks": [],

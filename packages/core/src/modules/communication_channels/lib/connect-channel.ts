@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../data/entities'
 import type { ChannelAdapter } from './adapter'
@@ -44,6 +45,14 @@ export interface CreateConnectedChannelRowArgs {
    * the adapter's push capability (push-capable → null, polling-only → 300).
    */
   pollIntervalSeconds?: number | null
+  /**
+   * The identifier was reported by the adapter itself (not sniffed from the
+   * credential bag). Rows this user created for the same provider before the
+   * adapter reported one carry `external_identifier = NULL` and would never match
+   * the heal key, so the newest such row is adopted instead of inserting another
+   * one next to it.
+   */
+  adoptUnidentifiedChannel?: boolean
 }
 
 /**
@@ -160,6 +169,46 @@ export async function createConnectedChannelRow(
       applyConnectionState(existing)
       await em.flush()
       return existing
+    }
+  }
+
+  if (args.adoptUnidentifiedChannel && effectiveExternalIdentifier && !isTenantWidePush) {
+    const unidentified = (await findWithDecryption(
+      em,
+      CommunicationChannel,
+      { tenantId: scope.tenantId, userId, providerKey, externalIdentifier: null, deletedAt: null },
+      { orderBy: { createdAt: 'desc' } },
+      dscope,
+    )) as CommunicationChannel[]
+    const [adopted, ...superseded] = unidentified
+    if (adopted) {
+      // Per-user credentials are stored once per provider, so every older
+      // identifier-less row is a duplicate of the adopted one. Left active, a
+      // stuck `requires_reauth` duplicate would keep its reauth banner forever.
+      const inheritsPrimary = superseded.some((duplicate) => duplicate.isPrimary)
+      // Postgres checks the partial `communication_channels_one_primary_per_user_uq`
+      // index per statement and one flush does not order the SET-false before
+      // the SET-true, so the old primary is cleared in its own phase (each phase
+      // flushes) before the adopted row takes the flag, inside one transaction.
+      await withAtomicFlush(
+        em,
+        [
+          () => {
+            for (const duplicate of superseded) {
+              duplicate.isActive = false
+              duplicate.isPrimary = false
+              duplicate.status = 'disconnected'
+              duplicate.lastError = 'superseded_by_reconnect'
+            }
+          },
+          () => {
+            applyConnectionState(adopted)
+            if (inheritsPrimary) adopted.isPrimary = true
+          },
+        ],
+        { transaction: true },
+      )
+      return adopted
     }
   }
 

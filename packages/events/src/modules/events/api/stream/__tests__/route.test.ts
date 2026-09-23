@@ -122,6 +122,24 @@ describe('SSE event stream — abort listener hygiene', () => {
     try { await reader.cancel() } catch {}
   })
 
+  it('sends a heartbeat message that EventSource delivers to the client watchdog', async () => {
+    jest.useFakeTimers()
+    const { req } = makeTrackedRequest()
+    const response = await GET(req)
+    const reader = response.body!.getReader()
+    try {
+      await reader.read()
+      jest.advanceTimersByTime(30_000)
+      const { value } = await reader.read()
+      const frame = new TextDecoder().decode(value)
+      expect(frame).toBe(':heartbeat\ndata: :heartbeat\n\n')
+      expect(frame.split('\n').filter(line => line.startsWith('data: ')).map(line => line.slice(6)).join('\n')).toBe(':heartbeat')
+    } finally {
+      await reader.cancel()
+      jest.useRealTimers()
+    }
+  })
+
   it('uses trusted organization scope when the payload omits it', async () => {
     const { req } = makeTrackedRequest()
     const res = await GET(req)

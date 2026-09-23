@@ -34,6 +34,13 @@ type LinkChannelMessagePayload = {
   organizationId?: string | null
   providerKey?: string | null
   direction?: 'inbound' | 'outbound' | null
+  /**
+   * The provider's own receive/send time, carried by the hub on the event
+   * (#6095). An ISO string when the event rode the queue, a Date for an
+   * in-process emit. Absent on events enqueued before the field existed and on
+   * adapters that supply no timestamp.
+   */
+  providerTimestamp?: string | Date | null
 }
 
 type SubscriberContext = {
@@ -87,6 +94,17 @@ export default async function handler(
 
   const metaJson = (link.channelMetadata ?? null) as Record<string, unknown> | null
   const payloadJson = (link.channelPayload ?? null) as Record<string, unknown> | null
+
+  // ── (1b) Resolve when the email actually happened ─────────────────────
+  //
+  // `link.createdAt` is when the hub ingested the message, which for a history
+  // import is the import minute, not the day the mail arrived (#6095). The hub
+  // carries the provider's own timestamp on the event payload, so take it from
+  // there: reading the communication_channels ExternalMessage row here would
+  // cross the storage boundary (Cross-Module Coupling in AGENTS.md) and add a
+  // peer-table query per event. Resolved once and threaded through every branch
+  // below so the address-match and threading-inheritance paths agree.
+  const occurredAt = resolveOccurredAt(payload, link)
 
   // ── (2) Resolve the channel to get its owner userId ───────────────────
   //
@@ -172,7 +190,7 @@ export default async function handler(
   // Early exit: no addresses AND no hint → nothing to link.
   if (normalized.length === 0 && !crmPersonId) {
     // Before giving up, try threading-inheritance (TC-CRM-EMAIL-005).
-    await handleThreadingInheritance(em, link, linkId, tenantId, organizationId, channelUserId, metaJson, payloadJson)
+    await handleThreadingInheritance(em, link, linkId, tenantId, organizationId, channelUserId, metaJson, payloadJson, occurredAt)
     return
   }
 
@@ -183,7 +201,7 @@ export default async function handler(
 
   if (personIdSet.size === 0) {
     // Try threading-inheritance before giving up.
-    await handleThreadingInheritance(em, link, linkId, tenantId, organizationId, channelUserId, metaJson, payloadJson)
+    await handleThreadingInheritance(em, link, linkId, tenantId, organizationId, channelUserId, metaJson, payloadJson, occurredAt)
     return
   }
 
@@ -211,7 +229,6 @@ export default async function handler(
         ? (payloadJson!.text as string)
         : null
 
-  const occurredAt = link.createdAt instanceof Date ? link.createdAt : new Date()
   const providerKey =
     typeof link.providerKey === 'string' ? (link.providerKey as string) : null
 
@@ -257,6 +274,7 @@ async function handleThreadingInheritance(
   channelUserId: string | null,
   metaJson: Record<string, unknown> | null,
   payloadJson: Record<string, unknown> | null,
+  occurredAt: Date,
 ): Promise<void> {
   // ── Primary: inherit Person(s) from the hub's authoritative thread ──────
   //
@@ -325,7 +343,6 @@ async function handleThreadingInheritance(
           : typeof metaJson?.bodyText === 'string'
             ? (metaJson.bodyText as string)
             : null
-      const occurredAt = _link.createdAt instanceof Date ? (_link.createdAt as Date) : new Date()
       const providerKey = typeof _link.providerKey === 'string' ? (_link.providerKey as string) : null
       await persistInteractions(em, threadPersonIds, {
         linkId,
@@ -420,7 +437,6 @@ async function handleThreadingInheritance(
   const inheritedMeta = (link.channelMetadata ?? null) as Record<string, unknown> | null
   const subject =
     typeof inheritedMeta?.subject === 'string' ? (inheritedMeta.subject as string) : null
-  const occurredAt = link.createdAt instanceof Date ? (link.createdAt as Date) : new Date()
   const providerKey =
     typeof link.providerKey === 'string' ? (link.providerKey as string) : null
 
@@ -443,6 +459,33 @@ async function handleThreadingInheritance(
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
+
+/**
+ * When the linked email happened, for `CustomerInteraction.occurredAt` (#6095).
+ *
+ * Preference order:
+ *   1. `payload.providerTimestamp` — the provider's own receive/send time, put
+ *      on the hub event by ingest / delivery;
+ *   2. `MessageChannelLink.createdAt` — the ingest time, the only date this
+ *      handler knew before #6095, and the compatibility path for events that
+ *      were enqueued before the field existed;
+ *   3. now, for a link row with no usable `createdAt` (test stubs).
+ */
+function resolveOccurredAt(
+  payload: LinkChannelMessagePayload,
+  link: Record<string, unknown>,
+): Date {
+  const ingestedAt = link.createdAt instanceof Date ? link.createdAt : new Date()
+  const carried = payload.providerTimestamp
+  if (carried instanceof Date) {
+    return Number.isNaN(carried.getTime()) ? ingestedAt : carried
+  }
+  if (typeof carried === 'string' && carried) {
+    const parsed = new Date(carried)
+    if (!Number.isNaN(parsed.getTime())) return parsed
+  }
+  return ingestedAt
+}
 
 interface InteractionData {
   linkId: string
