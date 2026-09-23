@@ -138,12 +138,20 @@ const composeMessageBaseSchema = z.object({
   sendViaEmail: z.boolean().optional().default(false),
   parentMessageId: z.string().uuid().optional(),
   isDraft: z.boolean().optional().default(false),
+  /**
+   * When the message was actually sent, if the caller knows better than "now"
+   * (#6095). Channel ingest sets it to the provider's timestamp so an imported
+   * mailbox keeps its real chronology instead of collapsing onto the import
+   * minute. Server-only: the HTTP route strips any client-sent value, so a
+   * browser caller cannot backdate a message. Ignored for drafts.
+   */
+  sentAt: z.coerce.date().optional(),
 })
 
 type ComposeMessageRefinementValue = Omit<
   z.infer<typeof composeMessageBaseSchema>,
-  'sourceChannelType'
-> & { sourceChannelType?: string }
+  'sourceChannelType' | 'sentAt'
+> & { sourceChannelType?: string; sentAt?: Date }
 
 function refineComposeMessage(value: ComposeMessageRefinementValue, ctx: z.RefinementCtx): void {
   const isDraft = value.isDraft ?? false
@@ -213,23 +221,24 @@ function refineComposeMessage(value: ComposeMessageRefinementValue, ctx: z.Refin
 }
 
 /**
- * Full compose contract, including the server-resolved `sourceChannelType` and
- * the ingest-only `inboundFromChannel`. Used by the `messages.messages.compose`
- * command and by the HTTP route AFTER it has resolved the channel type itself.
+ * Full compose contract, including the server-resolved `sourceChannelType`,
+ * the ingest-only `inboundFromChannel`, and the server-supplied `sentAt`. Used
+ * by the `messages.messages.compose` command and by the HTTP route AFTER it
+ * has resolved the channel type itself.
  */
 export const composeMessageSchema = composeMessageBaseSchema.superRefine(refineComposeMessage)
 
 /**
  * Client-facing compose contract — the same rules minus the server-only fields:
- * `sourceChannelType` is never accepted from a request body (#4975) and neither
- * is `inboundFromChannel` (#6093). Published in OpenAPI so the documented
- * request shape matches what `POST /api/messages` actually reads: the route
- * discards any client-sent value for these, resolves the real channel type from
- * the referenced conversation or parent message, and only then validates
- * against {@link composeMessageSchema}.
+ * `sourceChannelType` is never accepted from a request body (#4975), neither is
+ * `inboundFromChannel` (#6093) nor `sentAt` (#6095). Published in OpenAPI so the
+ * documented request shape matches what `POST /api/messages` actually reads:
+ * the route discards any client-sent value for these, resolves the real
+ * channel type from the referenced conversation or parent message, and only
+ * then validates against {@link composeMessageSchema}.
  */
 export const composeMessageRequestSchema = composeMessageBaseSchema
-  .omit({ sourceChannelType: true, inboundFromChannel: true })
+  .omit({ sourceChannelType: true, inboundFromChannel: true, sentAt: true })
   .superRefine(refineComposeMessage)
 
 export const updateDraftSchema = z.object({

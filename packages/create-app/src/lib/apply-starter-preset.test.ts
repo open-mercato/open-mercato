@@ -109,7 +109,7 @@ test('resolvePreset: crm returns 23-module list extending empty (includes attach
 test('resolvePreset: wms returns empty plus the WMS dependency chain', () => {
   const result = resolvePreset('wms')
   assert.equal(result.isClassic, false)
-  assert.equal(result.modules.length, 19)
+  assert.equal(result.modules.length, 20)
   const ids = result.modules.map((m) => m.id)
   assert.deepEqual(ids, [
     'auth',
@@ -125,6 +125,7 @@ test('resolvePreset: wms returns empty plus the WMS dependency chain', () => {
     'search',
     'attachments',
     'customers',
+    'progress',
     'dictionaries',
     'feature_toggles',
     'catalog',
@@ -301,7 +302,7 @@ test('applyStarterPreset: wms writes the WMS dependency chain and keeps example 
   try {
     applyStarterPreset('wms', dir)
     const content = readFileSync(join(dir, 'src', 'modules.ts'), 'utf-8')
-    for (const moduleId of ['customers', 'dictionaries', 'feature_toggles', 'catalog', 'sales', 'wms', 'currencies']) {
+    for (const moduleId of ['customers', 'progress', 'dictionaries', 'feature_toggles', 'catalog', 'sales', 'wms', 'currencies']) {
       assert.ok(content.includes(`id: '${moduleId}'`))
     }
     // catalog's product media manager uploads through POST /api/attachments, which only
