@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { PackageResolver } from '../resolver'
-import { calculateStructureChecksum, createGeneratorResult, type GeneratorResult, writeGeneratedFile } from '../utils'
+import { calculateChecksum, createGeneratorResult, type GeneratorResult, writeGeneratedFile } from '../utils'
 
 export interface WebResearchAdaptersOptions {
   resolver: PackageResolver
@@ -45,7 +45,8 @@ function readManifest(packageJsonPath: string): DiscoveredAdapter | null {
   return { packageName, adapterId, sourceRoot: path.dirname(packageJsonPath) }
 }
 
-function scanDirectory(root: string, results: Map<string, DiscoveredAdapter>): void {
+function scanDirectory(root: string, manifestPaths: string[], directoryPaths: string[]): void {
+  directoryPaths.push(root)
   if (!fs.existsSync(root)) return
   let entries: fs.Dirent[]
   try {
@@ -59,12 +60,32 @@ function scanDirectory(root: string, results: Map<string, DiscoveredAdapter>): v
     const child = path.join(root, entry.name)
     // Scoped packages nest one level deeper (`@scope/name`).
     if (entry.name.startsWith('@')) {
-      scanDirectory(child, results)
+      scanDirectory(child, manifestPaths, directoryPaths)
       continue
     }
-    const discovered = readManifest(path.join(child, 'package.json'))
-    if (discovered && !results.has(discovered.packageName)) results.set(discovered.packageName, discovered)
+    manifestPaths.push(path.join(child, 'package.json'))
   }
+}
+
+/**
+ * Shares candidate discovery with generation. Directory paths must be watched
+ * nonrecursively; package implementations are not registry inputs. Missing
+ * manifests are retained so declaring an adapter in an existing package is seen.
+ */
+export function getWebResearchAdapterWatchInputs(
+  resolver: PackageResolver,
+): { manifestPaths: string[]; directoryPaths: string[] } {
+  const appDir = resolver.getAppDir()
+  const repoRoot = path.resolve(appDir, '..', '..')
+  const manifestPaths: string[] = []
+  const directoryPaths: string[] = []
+  const scanRoots = [
+    path.join(repoRoot, 'packages'),
+    path.join(repoRoot, 'node_modules'),
+    path.join(appDir, 'node_modules'),
+  ]
+  for (const root of scanRoots) scanDirectory(root, manifestPaths, directoryPaths)
+  return { manifestPaths, directoryPaths }
 }
 
 function identifierFor(index: number): string {
@@ -85,15 +106,12 @@ export async function generateWebResearchAdapters(
   const outFile = path.join(outputDir, 'web-research-adapters.generated.ts')
   const checksumFile = path.join(outputDir, 'web-research-adapters.checksum')
 
-  const appDir = resolver.getAppDir()
-  const repoRoot = path.resolve(appDir, '..', '..')
+  const { manifestPaths } = getWebResearchAdapterWatchInputs(resolver)
   const discovered = new Map<string, DiscoveredAdapter>()
-  const scanRoots = [
-    path.join(repoRoot, 'packages'),
-    path.join(repoRoot, 'node_modules'),
-    path.join(appDir, 'node_modules'),
-  ]
-  for (const root of scanRoots) scanDirectory(root, discovered)
+  for (const manifestPath of manifestPaths) {
+    const adapter = readManifest(manifestPath)
+    if (adapter && !discovered.has(adapter.packageName)) discovered.set(adapter.packageName, adapter)
+  }
 
   const adapters = [...discovered.values()].sort((left, right) =>
     left.packageName.localeCompare(right.packageName),
@@ -124,7 +142,9 @@ ${entries}
     outFile,
     checksumFile,
     content,
-    structureChecksum: calculateStructureChecksum(adapters.map((adapter) => adapter.sourceRoot)),
+    // Discovery rereads candidate manifests on every run; adapter implementations
+    // cannot affect these static imports, so do not walk their package trees.
+    structureChecksum: calculateChecksum(JSON.stringify(adapters)),
     result,
     quiet,
   })

@@ -89,6 +89,8 @@ describe('generateModulePackageSources', () => {
     const pinnedTime = new Date(Date.now() - 60_000)
     fs.utimesSync(outFile, pinnedTime, pinnedTime)
     fs.utimesSync(checksumFile, pinnedTime, pinnedTime)
+    const outputMtimeBefore = fs.statSync(outFile).mtimeMs
+    const checksumMtimeBefore = fs.statSync(checksumFile).mtimeMs
 
     fs.writeFileSync(path.join(packageRoot, 'src', 'unrelated-runtime.ts'), 'export const unrelated = true\n')
     const result = await generateModulePackageSources({ resolver, quiet: true })
@@ -96,8 +98,8 @@ describe('generateModulePackageSources', () => {
     expect(result.filesWritten).toEqual([])
     expect(result.filesUnchanged).toEqual([outFile])
     expect(fs.readFileSync(outFile, 'utf8')).toBe(outputBefore)
-    expect(fs.statSync(outFile).mtimeMs).toBe(pinnedTime.getTime())
-    expect(fs.statSync(checksumFile).mtimeMs).toBe(pinnedTime.getTime())
+    expect(fs.statSync(outFile).mtimeMs).toBe(outputMtimeBefore)
+    expect(fs.statSync(checksumFile).mtimeMs).toBe(checksumMtimeBefore)
     expect(readChecksumRecord(checksumFile)).toEqual(checksumBefore)
   })
 
@@ -123,12 +125,13 @@ describe('generateModulePackageSources', () => {
     const initialStructure = readChecksumRecord(checksumFile)?.structure
     const pinnedTime = new Date(Date.now() - 60_000)
     fs.utimesSync(outFile, pinnedTime, pinnedTime)
+    const outputMtimeBefore = fs.statSync(outFile).mtimeMs
 
     await generateModulePackageSources({ resolver: alternateResolver, quiet: true })
     const alternateStructure = readChecksumRecord(checksumFile)?.structure
     expect(alternateStructure).not.toBe(initialStructure)
     expect(fs.readFileSync(outFile, 'utf8')).toBe(outputBefore)
-    expect(fs.statSync(outFile).mtimeMs).toBe(pinnedTime.getTime())
+    expect(fs.statSync(outFile).mtimeMs).toBe(outputMtimeBefore)
 
     const packageJsonPath = path.join(packageRoot, 'package.json')
     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as Record<string, unknown>
@@ -140,7 +143,7 @@ describe('generateModulePackageSources', () => {
     expect(result.filesWritten).toEqual([])
     expect(result.filesUnchanged).toEqual([outFile])
     expect(fs.readFileSync(outFile, 'utf8')).toBe(outputBefore)
-    expect(fs.statSync(outFile).mtimeMs).toBe(pinnedTime.getTime())
+    expect(fs.statSync(outFile).mtimeMs).toBe(outputMtimeBefore)
   })
 
   it('keeps official package validation as the source inclusion gate', async () => {

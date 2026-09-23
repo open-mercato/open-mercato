@@ -6,10 +6,11 @@ import {
   resolveGenerateWatchTargets,
   type GenerateWatchTarget,
 } from '../generate-watch-events'
+import type { GenerateWatchSnapshot } from '../generate-watch-plan'
 
 type RegisteredWatcher = {
   target: GenerateWatchTarget
-  onChange: () => void
+  onChange: (fileName?: string) => void
   onError: () => void
   close: jest.Mock
 }
@@ -19,7 +20,7 @@ function createWatchHarness(initialTargets: GenerateWatchTarget[]) {
   const registered: RegisteredWatcher[] = []
   const watchDirectory = jest.fn((
     target: GenerateWatchTarget,
-    onChange: () => void,
+    onChange: (fileName?: string) => void,
     onError: () => void,
   ) => {
     const watcher = { target, onChange, onError, close: jest.fn() }
@@ -172,7 +173,8 @@ describe('createGenerateWatchChangeSignal', () => {
 
     existing.add(packageModulesDir)
     await signal.refresh()
-    expect(signal.hasSkippedTargets?.()).toBe(false)
+    // Its possible source mirror remains missing and must stay discoverable.
+    expect(signal.hasSkippedTargets?.()).toBe(true)
     expect(registered).toContain(packageModulesDir)
     await signal.close()
   })
@@ -321,5 +323,124 @@ describe('createGenerateWatchChangeSignal', () => {
     await signal.close()
     await signal.close()
     expect(registered[0].close).toHaveBeenCalledTimes(1)
+  })
+
+  it('tracks a not-yet-installed source mirror and observes partial missing-root recovery', async () => {
+    const packageBase = path.resolve('/virtual/node_modules/example/dist/modules/orders')
+    const sourceModules = path.resolve('/virtual/node_modules/example/src/modules')
+    const targets = resolveGenerateWatchTargets({
+      modulesFile: '/virtual/src/modules.ts',
+      moduleRoots: [{ appBase: '/virtual/src/modules/orders', pkgBase: packageBase, watchPackageBase: true }],
+      resolveSourceMirrorBase: () => null,
+      additionalInputs: ['/virtual/package.json'],
+    })
+    const existing = new Set(['/virtual/src', path.dirname(packageBase)])
+    const watchers: GenerateWatchTarget[] = []
+    const signal = createGenerateWatchChangeSignal({
+      getWatchTargets: () => targets,
+      directoryExists: (directory) => existing.has(directory),
+      watchDirectory: (target) => { watchers.push(target); return { close: jest.fn() } },
+    })
+    await signal.refresh()
+    const baselineVersion = signal.currentVersion()
+    existing.add(sourceModules)
+    await signal.refresh()
+    expect(watchers).toContainEqual({ directory: sourceModules, recursive: true })
+    expect(signal.currentVersion()).toBeGreaterThan(baselineVersion)
+    expect(signal.hasSkippedTargets?.()).toBe(true)
+    expect(targets).toContainEqual({ directory: '/virtual', recursive: false, fileName: 'package.json' })
+    await signal.close()
+  })
+
+  it('reports only unattributed events newer than the acknowledged version', async () => {
+    const { signal, registered } = createWatchHarness([{ directory: './modules', recursive: true }])
+    await signal.refresh()
+    registered[0].onChange('orders/di.ts')
+    expect(signal.fullGenerationReasonSince?.(0)).toBeUndefined()
+    registered[0].onChange()
+    expect(signal.fullGenerationReasonSince?.(1)).toBeDefined()
+    expect(signal.fullGenerationReasonSince?.(2)).toBeUndefined()
+    await signal.close()
+    registered[0].onChange()
+    registered[0].onError()
+    expect(signal.currentVersion()).toBe(2)
+    expect(signal.usesPollingFallback()).toBe(false)
+  })
+
+  it('never opens subscriptions when an asynchronous target lookup completes after close', async () => {
+    let resolveTargets!: (targets: GenerateWatchTarget[]) => void
+    const pendingTargets = new Promise<GenerateWatchTarget[]>((resolve) => { resolveTargets = resolve })
+    const watchDirectory = jest.fn(() => ({ close: jest.fn() }))
+    const signal = createGenerateWatchChangeSignal({
+      getWatchTargets: () => pendingTargets,
+      directoryExists: () => true,
+      watchDirectory,
+    })
+    const refreshing = signal.refresh()
+    await signal.close()
+    resolveTargets([{ directory: './modules', recursive: true }])
+    await refreshing
+    expect(watchDirectory).not.toHaveBeenCalled()
+    expect(signal.currentVersion()).toBe(0)
+  })
+
+  it('subscribes to discovered external helpers and package entity metadata without watching its own outputs', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-discovered-watch-'))
+    const appSource = path.join(root, 'app', 'src')
+    const outputDir = path.join(root, 'app', '.mercato', 'generated')
+    const packageRoot = path.join(root, 'node_modules', 'fixture')
+    const packageGenerated = path.join(packageRoot, 'generated')
+    const helper = path.join(root, 'external', 'helper.ts')
+    const missingHelper = path.join(root, 'future', 'nested', 'helper')
+    const entityFields = path.join(packageGenerated, 'entities', 'customer', 'index.ts')
+    const ownOutput = path.join(outputDir, 'modules.generated.ts')
+    for (const directory of [appSource, outputDir, path.dirname(helper), path.dirname(entityFields)]) {
+      fs.mkdirSync(directory, { recursive: true })
+    }
+    for (const file of [helper, entityFields, ownOutput]) fs.writeFileSync(file, 'export const value = 1')
+    const discoveredPaths = [helper, missingHelper, packageGenerated, entityFields, ownOutput]
+    const snapshot: GenerateWatchSnapshot = {
+      checksum: 'fixture',
+      fullReasons: [],
+      records: new Map(discoveredPaths.map((file) => [file, {
+        key: file, path: file, category: 'unknown', fingerprint: 'fixture',
+      }])),
+    }
+    const registered: GenerateWatchTarget[] = []
+    const signal = createGenerateWatchChangeSignal({
+      getWatchTargets: () => resolveGenerateWatchTargets({
+        modulesFile: path.join(appSource, 'modules.ts'),
+        moduleRoots: [],
+        resolveSourceMirrorBase: () => null,
+        appSourceDir: appSource,
+        outputDir,
+        snapshot,
+        additionalDirectories: [path.dirname(packageRoot)],
+      }),
+      watchDirectory: (target) => {
+        registered.push(target)
+        return { close: jest.fn() }
+      },
+    })
+    try {
+      await signal.refresh()
+      expect(registered).toEqual(expect.arrayContaining([
+        { directory: appSource, recursive: true },
+        { directory: path.dirname(helper), recursive: false, fileName: 'helper.ts' },
+        { directory: packageGenerated, recursive: true },
+        { directory: path.dirname(packageRoot), recursive: false },
+        { directory: root, recursive: false },
+      ]))
+      expect(registered.some((target) => target.directory === outputDir)).toBe(false)
+      expect(registered.some((target) => target.directory === packageRoot && target.recursive)).toBe(false)
+      const version = signal.currentVersion()
+      fs.mkdirSync(path.dirname(missingHelper), { recursive: true })
+      await signal.refresh()
+      expect(registered).toContainEqual({ directory: path.dirname(missingHelper), recursive: false })
+      expect(signal.currentVersion()).toBeGreaterThan(version)
+    } finally {
+      await signal.close()
+      fs.rmSync(root, { recursive: true, force: true })
+    }
   })
 })

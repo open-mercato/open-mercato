@@ -1,13 +1,10 @@
 /**
  * In-process generate watcher.
  *
- * Coalesces filesystem events on a configurable interval, then verifies them
- * with the existing structural fingerprint before invoking the generator.
- * If filesystem watching is unavailable, it falls back to fingerprint polling.
- * The polling loop is identical to the legacy standalone watcher; the only
- * difference is that it now runs inside whatever process calls it
- * (typically `mercato server dev`), so the dev runtime no longer needs a
- * sidecar `mercato generate watch` Node process.
+ * Coalesces filesystem events before comparing the current module structure
+ * with the last successfully generated snapshot. A failed generation retries
+ * the full suite without waiting for another event. Capturing before generation
+ * leaves edits made during a run dirty for the next serial poll.
  *
  * Contract preserved from the prior standalone watcher:
  *   - Default debounce/fallback poll interval 1000 ms (minimum 250 ms).
@@ -16,12 +13,16 @@
  *   - Generator errors are logged but never crash the watcher.
  *   - The polling timer uses `.unref()` so it never blocks process exit.
  */
+import { planGenerateWatchChanges } from './generate-watch-plan'
+import type { GenerateWatchPlan, GenerateWatchSnapshot } from './generate-watch-plan'
 
 export type GenerateWatcherLogger = Pick<Console, 'log' | 'error'>
 
 export type GenerateWatcherChangeSignal = {
   /** Monotonic event generation. Changes indicate that a checksum may be stale. */
   currentVersion(): number
+  /** Explain events without a usable filename since a captured event version. */
+  fullGenerationReasonSince?(version: number): string | undefined
   /** Refresh filesystem subscriptions after module configuration changes. */
   refresh(): Promise<void> | void
   /** Whether configured roots are missing and should be retried on idle polls. */
@@ -40,13 +41,18 @@ export type GenerateWatcherOptions = {
   computeStructureChecksum: () => Promise<string> | string
   /** Optional event signal that avoids full checksum work during idle polls. */
   changeSignal?: GenerateWatcherChangeSignal
+  /** Opt in to category-aware planning; legacy checksum-only callers stay valid. */
+  incremental?: {
+    capture(): Promise<GenerateWatchSnapshot> | GenerateWatchSnapshot
+    plan(previous: GenerateWatchSnapshot, next: GenerateWatchSnapshot): GenerateWatchPlan
+  }
   /**
    * Function that performs the actual regeneration work. Called once on
    * startup (unless `skipInitial`) and again whenever the checksum changes.
    * The `reason` argument is suitable for logging (`'initial'`,
-   * `'structure change'`, `'queued change'`).
+   * `'structure change'`, `'retry after failed generation'`).
    */
-  runGenerators: (reason: string) => Promise<void>
+  runGenerators: (reason: string, plan?: GenerateWatchPlan) => Promise<void>
   /** Poll interval in milliseconds. Defaults to 1000. Clamped to >= 250. */
   pollMs?: number
   /** Skip the initial regeneration on startup. Defaults to false. */
@@ -84,130 +90,148 @@ export function startInProcessGenerateWatcher(
   const logger = options.logger ?? console
   const quiet = options.quiet === true
   const pollMs = resolvePollMs(options.pollMs)
-  const skipInitial = options.skipInitial === true
-  const { changeSignal, computeStructureChecksum, runGenerators } = options
-
+  const { changeSignal, computeStructureChecksum, runGenerators, incremental } = options
   let stopping = false
-  let pollTimer: ReturnType<typeof setTimeout> | null = null
-  let running = false
-  let pendingReason: string | null = null
-  let previousChecksum = ''
+  let pollTimer: NodeJS.Timeout | null = null
+  let previousChecksum: string | undefined
+  let previousSnapshot: GenerateWatchSnapshot | undefined
   let observedChangeVersion = -1
-  let doneResolve: (() => void) | null = null
-  const done = new Promise<void>((resolve) => {
-    doneResolve = resolve
-  })
+  let retryReason: string | undefined
+  let doneResolve: () => void = () => {}
+  const done = new Promise<void>((resolve) => { doneResolve = resolve })
 
-  async function runOnce(reason: string): Promise<void> {
-    if (running) {
-      pendingReason = reason
+  async function captureAndGenerate(initial: boolean, refreshSubscriptions = true): Promise<void> {
+    // This version belongs to the candidate, not to the state after generation.
+    const changeVersion = changeSignal?.currentVersion() ?? 0
+    const candidate = incremental ? await incremental.capture() : undefined
+    const checksum = candidate?.checksum ?? await computeStructureChecksum()
+    if (stopping) return
+    if (refreshSubscriptions) await changeSignal?.refresh()
+    if (stopping) return
+
+    const skipInitial = initial && options.skipInitial === true
+    const changed = checksum !== previousChecksum
+    const uncertain = Boolean(candidate?.fullReasons.length)
+    const eventReason = changeSignal?.fullGenerationReasonSince?.(observedChangeVersion)
+    const shouldGenerate = !skipInitial && (initial || retryReason || changed || uncertain || eventReason)
+    if (shouldGenerate) {
+      let plan: GenerateWatchPlan | undefined
+      if (incremental && candidate) {
+        const fallbackReason = initial
+          ? 'initial generation'
+          : retryReason
+            ?? (!previousSnapshot
+              ? 'no successful snapshot'
+              : changeSignal?.usesPollingFallback()
+                ? 'filesystem watching unavailable; polling fallback'
+                : eventReason)
+        const candidatePlan = previousSnapshot ? incremental.plan(previousSnapshot, candidate) : undefined
+        plan = fallbackReason
+          ? planGenerateWatchChanges(candidatePlan?.changes ?? [], [fallbackReason, ...candidate.fullReasons])
+          : candidatePlan
+      }
+      if (plan?.mode !== 'none') {
+        const reason = initial ? 'initial' : retryReason ?? 'structure change'
+        if (!quiet) {
+          const detail = plan
+            ? `; categories=${[...new Set(plan.changes.map((change) => change.category))].join(',') || 'all'}; groups=${plan.groups.join(',')}${plan.reasons.length ? `; reasons=${plan.reasons.join('; ')}` : ''}`
+            : ''
+          logger.log(`[generate:watch] Regenerating (${reason}${detail})...`)
+        }
+        try {
+          // Do not add an undefined argument to the legacy callback contract.
+          if (plan) await runGenerators(reason, plan)
+          else await runGenerators(reason)
+        } catch (error) {
+          retryReason = 'retry after failed generation'
+          const message = error instanceof Error ? error.message : String(error)
+          logger.error(`[generate:watch] Generation failed: ${message}`)
+          return
+        }
+        // A successful bundle can discover new external dependencies to watch.
+        if (incremental && !stopping) await changeSignal?.refresh()
+        if (!quiet) logger.log('[generate:watch] Generators completed.')
+      }
+    }
+    // Only successful generation (or a verified no-op) acknowledges this input.
+    if (uncertain) {
+      retryReason = 'retry after uncertain structure snapshot'
       return
     }
-    running = true
+    previousChecksum = checksum
+    previousSnapshot = candidate
+    observedChangeVersion = changeVersion
+    retryReason = undefined
+  }
+
+  async function poll(): Promise<void> {
     try {
-      if (!quiet) {
-        logger.log(`[generate:watch] Regenerating (${reason})...`)
+      if (stopping) return
+      const eventGatedIdle = !retryReason
+        && previousChecksum !== undefined
+        && changeSignal
+        && !changeSignal.usesPollingFallback()
+        && changeSignal.currentVersion() === observedChangeVersion
+      if (eventGatedIdle) {
+        if (!changeSignal.hasSkippedTargets?.()) return
+        await changeSignal.refresh()
+        if (stopping) return
+        // New roots may appear while other optional roots remain absent.
+        if (changeSignal.currentVersion() === observedChangeVersion
+          && changeSignal.hasSkippedTargets?.()) return
       }
-      await runGenerators(reason)
-      if (!quiet) {
-        logger.log('[generate:watch] Generators completed.')
-      }
+      await captureAndGenerate(false, !eventGatedIdle)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      logger.error(`[generate:watch] Generation failed: ${message}`)
+      logger.error(`[generate:watch] Poll cycle failed: ${message}`)
     } finally {
-      running = false
-      if (pendingReason && !stopping) {
-        const queued = pendingReason
-        pendingReason = null
-        await runOnce(queued)
-      }
+      scheduleNext()
     }
   }
 
   function scheduleNext(): void {
     if (stopping) return
     pollTimer = setTimeout(() => {
-      void (async () => {
-        if (stopping) return
-        try {
-          const changeVersion = changeSignal?.currentVersion() ?? 0
-          const eventGatedIdle = Boolean(
-            changeSignal
-            && !changeSignal.usesPollingFallback()
-            && changeVersion === observedChangeVersion
-          )
-          let refreshedSkippedTargets = false
-          if (eventGatedIdle) {
-            if (!changeSignal?.hasSkippedTargets?.()) return
-            await changeSignal.refresh()
-            refreshedSkippedTargets = true
-            if (changeSignal.hasSkippedTargets?.()) return
-          }
-          const nextChecksum = await computeStructureChecksum()
-          observedChangeVersion = changeVersion
-          if (!refreshedSkippedTargets) {
-            await changeSignal?.refresh()
-          }
-          if (nextChecksum !== previousChecksum) {
-            previousChecksum = nextChecksum
-            await runOnce('structure change')
-          }
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          logger.error(`[generate:watch] Poll cycle failed: ${message}`)
-        } finally {
-          if (!stopping) scheduleNext()
-        }
-      })()
+      pollTimer = null
+      activeCycle = poll()
     }, pollMs)
     pollTimer.unref?.()
   }
 
-  void (async () => {
+  let activeCycle = (async () => {
     try {
       await changeSignal?.refresh()
-      const initialChangeVersion = changeSignal?.currentVersion() ?? 0
-      if (!skipInitial) {
-        await runOnce('initial')
-      }
-      previousChecksum = await computeStructureChecksum()
-      observedChangeVersion = initialChangeVersion
-      if (!quiet) {
-        if (skipInitial) {
+      if (stopping) return
+      await captureAndGenerate(true, Boolean(incremental))
+      if (!quiet && !stopping) {
+        if (options.skipInitial) {
           logger.log('[generate:watch] Skipping initial regeneration and watching the current generated state.')
         }
         logger.log(`[generate:watch] Watching structural module files with a ${pollMs}ms debounce (in-process).`)
       }
-      scheduleNext()
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       logger.error(`[generate:watch] Initial setup failed: ${message}`)
-      // Even if the initial bootstrap fails, schedule polling so a later
-      // checksum recovery still picks up the next change on disk.
+    } finally {
       scheduleNext()
     }
   })()
 
   async function close(): Promise<void> {
-    if (stopping) {
-      await done
-      return
-    }
+    if (stopping) return done
     stopping = true
     if (pollTimer) {
       clearTimeout(pollTimer)
       pollTimer = null
     }
-    await changeSignal?.close()
-    if (doneResolve) {
+    try {
+      await changeSignal?.close()
+    } finally {
+      // Let any active suite finish before a replacement watcher can start.
+      await activeCycle
       doneResolve()
-      doneResolve = null
     }
   }
 
-  return {
-    done,
-    close,
-  }
+  return { done, close }
 }

@@ -34,13 +34,13 @@ CLI watcher, source/distribution snapshot discovery, generator selection and reg
 - [x] 1.2 Refine existing specification and dependency contracts
 
 ### Phase 2: Implementation
-- [ ] 2.1 Add classified snapshots with deletion detection
-- [ ] 2.2 Add safe generator plans and selective registry emission
-- [ ] 2.3 Integrate watcher execution and fallback recovery
-- [ ] 2.4 Narrow checksum work and add plan logs
+- [x] 2.1 Add classified snapshots with deletion detection
+- [x] 2.2 Add safe generator plans and selective registry emission
+- [x] 2.3 Integrate watcher execution and fallback recovery
+- [x] 2.4 Narrow checksum work and add plan logs
 
 ### Phase 3: Verification
-- [ ] 3.1 Prove incremental and full generation parity
+- [x] 3.1 Prove incremental and full generation parity
 - [ ] 3.2 Run configured validation and resolve review findings
 
 ### Phase 4: Delivery
