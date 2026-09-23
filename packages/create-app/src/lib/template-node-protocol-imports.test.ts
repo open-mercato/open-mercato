@@ -18,6 +18,13 @@ test('standalone template turbopack resolveAlias rewrites node: builtins used by
       `expected turbopack.resolveAlias to rewrite node:${name} to ${name}`,
     )
   }
+
+  for (const key of Object.keys(resolveAlias)) {
+    assert.ok(
+      !key.startsWith('node:node:'),
+      `expected resolveAlias not to double-prefix a builtin already reported with its own node: prefix (got ${key})`,
+    )
+  }
 })
 
 test('standalone template webpack config rewrites node: requests to bare specifiers on the server target', () => {

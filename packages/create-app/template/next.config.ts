@@ -6,17 +6,19 @@ import { telemetryServerExternalPackages } from '@open-mercato/telemetry/nextjs-
 const isDevelopment = process.env.NODE_ENV !== 'production'
 const allowedDevOrigins = isDevelopment ? resolveAllowedDevOrigins() : []
 
-// `transpilePackages` below makes webpack/Turbopack process these packages'
-// TypeScript source as first-party bundled code instead of treating them as
-// opaque node_modules externals. That skips the default server-target
-// externalization that normally resolves `node:`-prefixed builtin imports
-// (e.g. `node:crypto` in @open-mercato/core's auth token hashing) for free —
-// webpack throws UnhandledSchemeError and Turbopack hangs indefinitely. The
-// bare specifier form (`crypto`) is unaffected, so rewrite `node:<name>` to
-// `<name>` for every Node builtin rather than editing every affected import.
+// Defensive hardening (refs #6132): `transpilePackages` below makes
+// webpack/Turbopack process these packages' TypeScript source as first-party
+// bundled code instead of treating them as opaque node_modules externals,
+// which can skip the default server-target externalization for `node:`
+// -prefixed builtin imports (e.g. `node:crypto` in @open-mercato/core's auth
+// token hashing) in some bundler/version combinations — webpack would throw
+// UnhandledSchemeError and Turbopack would hang. The bare specifier form
+// (`crypto`) is unaffected, so rewrite `node:<name>` to `<name>` for every
+// Node builtin rather than editing every affected import. This is a no-op
+// when the bundler already resolves `node:` imports correctly.
 const nodeProtocolResolveAlias = Object.fromEntries(
   builtinModules
-    .filter((name) => !name.startsWith('_'))
+    .filter((name) => !name.startsWith('_') && !name.startsWith('node:'))
     .map((name) => [`node:${name}`, name]),
 )
 
