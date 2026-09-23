@@ -55,6 +55,7 @@ export type FakeEm = {
   fork: jest.Mock
   transactional: jest.Mock
   getConnection: jest.Mock
+  execute: jest.Mock
 }
 
 /**
@@ -134,6 +135,13 @@ export function buildFakeEm(opts: { throwOnNextFlush?: unknown } = {}): FakeEm {
     // across N concurrent `postJournalEntry` invocations, not just the
     // first one's.
     getConnection: jest.fn(() => ({ execute: connectionExecute })),
+    // `postJournalEntry.ts`'s `claimNextSequenceNumber` calls
+    // `em.execute(...)` directly (PR #6340 review's M2 fix — joins the
+    // active transaction, which `em.getConnection().execute(...)` does
+    // not). Same underlying mock as `getConnection().execute` above, so
+    // a test can assert on whichever call path the code under test
+    // actually takes.
+    execute: connectionExecute,
   }
   return em
 }

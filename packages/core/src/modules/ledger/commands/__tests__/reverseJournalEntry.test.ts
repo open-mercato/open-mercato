@@ -7,7 +7,8 @@
 // `operationDate`, not the original entry's.
 export {}
 
-import { FiscalPeriod, JournalEntry, JournalEntryLine } from '../../data/entities'
+import { FiscalPeriod, JournalEntry, JournalEntryLine, LedgerAccount } from '../../data/entities'
+import { Currency } from '@open-mercato/core/modules/currencies/data/entities'
 import { buildFakeCtx, buildFakeEm } from './support/fakeEntityManager'
 
 const registerCommand = jest.fn()
@@ -105,6 +106,12 @@ function seedOriginalEntry(em: ReturnType<typeof buildFakeEm>) {
     contractorSnapshot: null,
   })
   em.seedSequenceCounter({ organizationId: ORG, tenantId: TENANT }, 2)
+  // The reversal re-posts through the same `requireValidPostingReferences`
+  // path as a fresh entry (PR #6340 review's M5 fix) — needs the original
+  // entry's currency/accounts to resolve as real, scoped, non-deleted rows.
+  em.seed(Currency, { id: CURRENCY, organizationId: ORG, tenantId: TENANT, deletedAt: null })
+  em.seed(LedgerAccount, { id: CASH_ACCOUNT, organizationId: ORG, tenantId: TENANT, deletedAt: null })
+  em.seed(LedgerAccount, { id: REVENUE_ACCOUNT, organizationId: ORG, tenantId: TENANT, deletedAt: null })
 }
 
 function seedOpenPeriod(em: ReturnType<typeof buildFakeEm>, id: string, start: string, end: string) {

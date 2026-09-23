@@ -10,7 +10,8 @@
 // of its logic.
 export {}
 
-import { FiscalPeriod } from '../../data/entities'
+import { FiscalPeriod, LedgerAccount } from '../../data/entities'
+import { Currency } from '@open-mercato/core/modules/currencies/data/entities'
 import { buildFakeCtx, buildFakeEm } from './support/fakeEntityManager'
 
 const registerCommand = jest.fn()
@@ -84,6 +85,21 @@ function seedLockedPeriod(em: ReturnType<typeof buildFakeEm>, start: string, end
   })
 }
 
+/**
+ * Seeds the `Currency` and `LedgerAccount` rows `balancedInput()`'s ids
+ * reference — required since PR #6340 review's M5 fix
+ * (`requireValidPostingReferences`) now rejects a post whose currency or
+ * any line's account doesn't resolve to a real, scoped, non-deleted
+ * record. Only the tests that exercise a real successful post need this;
+ * the ones that reject earlier (zod validation, fiscal-period checks)
+ * never reach `requireValidPostingReferences`.
+ */
+function seedCurrencyAndAccounts(em: ReturnType<typeof buildFakeEm>) {
+  em.seed(Currency, { id: CURRENCY, organizationId: ORG, tenantId: TENANT, deletedAt: null })
+  em.seed(LedgerAccount, { id: CASH_ACCOUNT, organizationId: ORG, tenantId: TENANT, deletedAt: null })
+  em.seed(LedgerAccount, { id: REVENUE_ACCOUNT, organizationId: ORG, tenantId: TENANT, deletedAt: null })
+}
+
 describe('ledger.postJournalEntry', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -94,6 +110,7 @@ describe('ledger.postJournalEntry', () => {
     const command = loadPostJournalEntry()
     const em = buildFakeEm()
     seedOpenPeriod(em, '2026-02-01', '2026-02-28')
+    seedCurrencyAndAccounts(em)
     const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
 
     const result = await command.execute(balancedInput(), ctx)
@@ -187,6 +204,7 @@ describe('ledger.postJournalEntry', () => {
     )
     const em = buildFakeEm({ throwOnNextFlush: triggerError })
     seedOpenPeriod(em, '2026-02-01', '2026-02-28')
+    seedCurrencyAndAccounts(em)
     const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
 
     await expect(command.execute(balancedInput(), ctx)).rejects.toMatchObject({
@@ -199,6 +217,7 @@ describe('ledger.postJournalEntry', () => {
     const command = loadPostJournalEntry()
     const em = buildFakeEm()
     seedOpenPeriod(em, '2026-02-01', '2026-02-28')
+    seedCurrencyAndAccounts(em)
     const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
 
     const CONCURRENT_POSTS = 5
@@ -214,9 +233,12 @@ describe('ledger.postJournalEntry', () => {
     // a single `INSERT ... ON CONFLICT ... RETURNING` statement, not a
     // separate SELECT followed by an UPDATE — checked across every one of
     // the concurrent calls, not just the first.
-    const connection = em.getConnection.mock.results[0]?.value as { execute: jest.Mock }
-    expect(connection.execute.mock.calls).toHaveLength(CONCURRENT_POSTS)
-    for (const call of connection.execute.mock.calls) {
+    // `claimNextSequenceNumber` now calls `em.execute(...)` directly (PR
+    // #6340 review's M2 fix), not `em.getConnection().execute(...)` — assert
+    // on `em.execute` itself rather than a connection obtained via
+    // `getConnection()`, which this path no longer calls.
+    expect(em.execute.mock.calls).toHaveLength(CONCURRENT_POSTS)
+    for (const call of em.execute.mock.calls) {
       const sql = call[0] as string
       expect(sql).toMatch(/insert into journal_entry_sequence/i)
       expect(sql).toMatch(/on conflict/i)
