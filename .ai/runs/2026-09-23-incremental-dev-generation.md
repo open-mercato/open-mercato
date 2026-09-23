@@ -30,8 +30,8 @@ CLI watcher, source/distribution snapshot discovery, generator selection and reg
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Measurement and design
-- [ ] 1.1 Measure current watcher and generator baseline
-- [ ] 1.2 Refine existing specification and dependency contracts
+- [x] 1.1 Measure current watcher and generator baseline
+- [x] 1.2 Refine existing specification and dependency contracts
 
 ### Phase 2: Implementation
 - [ ] 2.1 Add classified snapshots with deletion detection
@@ -45,3 +45,11 @@ CLI watcher, source/distribution snapshot discovery, generator selection and reg
 
 ### Phase 4: Delivery
 - [ ] 4.1 Publish verified implementation and release claim
+
+## Baseline evidence — 2026-09-23
+
+- Runner: local Node 24.13.1; Docker daemon unavailable.
+- Current app: full `yarn generate` reported 10.437s (12.14s command wall); repeat direct CLI reported 9.358s (9.61s wall), with unchanged outputs.
+- Both current-app runs used the existing OpenAPI static fallback after a JSON import-attribute failure; these are not successful bundled/cache-hit measurements.
+- Disposable source-TS and compiled-JS filesystem fixtures: 28 real watcher latency samples, median 246.93ms, p95 289.71ms. Full-suite baseline passed API/page/entity/DI add/change/delete, same-byte no-op and burst scenarios. Fixture OpenAPI uses static fallback; no Next/browser readiness or structural invalidation is measured.
+- Specification amendment records dependency ownership, source/runtime lag, failure retries, conservative fallback and generated-byte parity requirements. Implementation and final gates remain pending.

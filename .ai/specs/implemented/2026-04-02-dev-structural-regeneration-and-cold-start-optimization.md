@@ -703,3 +703,153 @@ Interpretation:
 - **Commands**: Passed
 - **Risks**: Passed
 - **Verdict**: Approved
+
+## Implementation Design Amendment — 2026-09-23 — Issue #2205
+
+**Status: In progress; implementation verification and incremental measurements pending.**
+
+This amendment completes the targeted watch-generation portion of Part A for [issue #2205](https://github.com/open-mercato/open-mercato/issues/2205). Earlier implementation reports and measurements above remain historical records, not evidence that this amendment has passed verification. The existing spec stays in place; this work does not reopen the cold-start, warmup, bootstrap, or environment-restart projects and does not require a duplicate design-only spec PR.
+
+### Problem, Scope, and Baseline
+
+The existing watcher detects structural changes but still invokes the full generator suite. Broad module-root structure checksums also react to unrelated mtimes. Content-gated writers avoid some writes but do not avoid discovery, metadata loading, rendering, or unrelated generator execution.
+
+Scope is the CLI watch pipeline used by standalone `mercato generate watch` and embedded dev orchestration: authoritative snapshots, dependency planning, selected suite/output execution, scoped cleanup, and failure recovery. No product UI, HTTP contract, database schema, runtime registration semantics, production dependency, or new CLI command is introduced. Explicit `yarn generate` / full generation remains the compatibility and recovery path; the optional historical `generate changed` helper is not required.
+
+The current-app full-generation baseline supplied for this implementation is:
+
+| Context / measurement | Observed baseline |
+|---|---|
+| Runtime and revision | Node `24.13.1`; `origin/develop` at `8e520bb` |
+| Command | `yarn generate` |
+| CLI-reported generation time | `10.437s` |
+| Wall time including command overhead | `12.14s` |
+| API paths | `577` |
+| Artifacts refreshed | `361` |
+| OpenAPI mode | Static fallback after a JSON import-attribute error |
+
+These are full-generation observations, **not measured incremental speedups**. Static fallback and a successful bundled/cached OpenAPI run are not equivalent workloads. Final results must state the OpenAPI mode, interval, fixture/current-app scope, changed output inventory, and whether timing includes snapshotting, generation, invalidation, or command-launch overhead.
+
+### Architecture and State Transition
+
+`advisory filesystem events → module-qualified source/runtime snapshots → union-of-keys add/change/delete diff → pure dependency planner → selected suite/output groups → acknowledge baseline only after success`
+
+1. Events request reconciliation; an event filename is not the source of truth. Keep debounce/coalescing and serialized execution. Same-byte rewrites and irrelevant events must not regenerate merely because an mtime changed.
+2. Capture resolver-derived module identity, configured order and roots, plus normalized input paths, presence and relevant content/shape fingerprints. Qualify keys by module and source/runtime role so equal relative paths in different modules or source/dist trees cannot overwrite each other. Include absent convention candidates where additions or deletion revealing a lower-priority override matter.
+3. Diff the union of old and new keys. Missing old entries are additions, missing new entries are deletions, and changed fingerprints are edits; a rename is a deletion plus addition. Retain both prior and current identity information when planning deletions.
+4. A pure planner consumes snapshots/deltas and returns either selected generator/output groups or full fallback with a reason. It performs no writes. `generate-watch-plan.ts` owns the shared snapshot/plan contract. No delta produces no generation; uncertain input ownership never produces a silent no-op.
+5. Execute selected suite members in existing dependency order. Registry selection is optional `outputGroups`: `main`, `runtime`, `app`, `bootstrap`, `cli`, `frontend-routes`, `backend-routes`, `api-routes`, `commands`, `i18n`, `supervisor`, `enabled-ids`, `bootstrap-registrations`, `plugins`, and existing `registry.*` extension IDs. Omitted selection preserves full behavior; an explicitly empty selection requests no registry outputs.
+6. A selected aggregate still uses all enabled modules in their original order, not just changed modules. Gate unrelated rendering, writes, extension side effects, and safely avoidable discovery; do not claim that a write filter alone makes scanning incremental.
+7. Acknowledge only the snapshot represented by a successfully completed plan. On partial failure retain the last successful baseline and dirty/retry state, including when no new filesystem event arrives. Reconcile changes arriving during capture or execution on a later serialized cycle; never acknowledge them implicitly as part of an earlier run.
+8. Source and resolved runtime trees are distinct inputs. In standalone/compiled-package mode a source event can precede the `dist/` update. Do not lose the later runtime change or treat an unchanged old `dist/` read as completion of the source change. Preserve resolver precedence and support app-local source, package source mirrors, and compiled `.js`/`.jsx` conventions.
+
+Missing baseline/required output ownership, ambiguous inputs, module/config/resolver changes, unsupported plugin dependency knowledge, or filesystem read errors require conservative full fallback. A read failure is not evidence of deletion. Full generation failures remain failures and must be retried rather than acknowledged.
+
+### Registry Dependency Map
+
+The following map records the audited generator dependencies that the planner must preserve. Abbreviations: MAIN = `modules.generated.ts`, RUN = `modules.runtime.generated.ts`, APP = `modules.app.generated.ts`, BOOT = `modules.bootstrap.generated.ts`, CLI = `modules.cli.generated.ts`. Rows describe semantic dependencies; import-counter byte coupling is addressed separately below. Extension IDs use the existing `registry.` prefix.
+
+| Input family | Selected output groups / dependent outputs | Important boundary |
+|---|---|---|
+| API handlers, `api/**/route.*`, legacy method directories | MAIN, RUN, `api-routes`; OpenAPI suite member | API group owns compatibility manifest, metadata, shard index and all API shards. No intrinsic entities, DI, search, subscriber, or worker dependency. |
+| Frontend pages and matching metadata | MAIN, RUN, APP, `frontend-routes` | Preserve existing page metadata resolution and override rules. |
+| Backend pages and matching metadata | MAIN, RUN, APP, `backend-routes` | Includes metadata/shard family and cross-module collision/app-shadow checks. |
+| `cli.*` | MAIN, CLI | Scheduler CLI presence also selects `supervisor`; the CLI alias itself is constant. |
+| `commands/**` | `commands` / `command-loaders.generated.ts` | Preserve static ID extraction and global duplicate diagnostics; `commands/interceptors.*` also selects `registry.command-interceptors`. |
+| `subscribers/**` | MAIN, RUN, APP, BOOT, CLI | Metadata is serialized, so this is not only a filename list; subscriber alias text is constant. |
+| `workers/**` | MAIN, RUN, APP, BOOT, CLI, `supervisor`, `i18n` | Preserve on-job-abandoned helper imports, including the existing incidental i18n byte dependency. |
+| `widgets/dashboard/**/widget.*` | MAIN, APP, BOOT, CLI, `registry.dashboard-widgets` | RUN intentionally excludes dashboard widgets. |
+| Injection widgets and injection table | `registry.injection-widgets` | Rebuild both widget and table outputs together; IDs/reference validation are coupled across modules. |
+| `index.*`, `setup.*`, `runtime.*`, `encryption.*`, `integration.*`, `acl.*`, `ce.*`, `data/extensions.*`, `data/fields.*` | MAIN, RUN, APP, BOOT, CLI | Preserve global `metadata.requires`, ACL/UMES validation, and custom-field composition. |
+| `vector.*` | CLI | Not the search registry convention. |
+| `i18n/<locale>.json` | MAIN, RUN, APP, CLI, `i18n` | Include locale shard/loaders reconciliation; BOOT excludes translations. Value-only JSON edits can yield identical generated imports. |
+| Enabled-module order/topology, import roots, options | Full fallback | Includes enabled IDs, supervisor, plugins, aliases and global ownership/validation. |
+| `data/entities.*`, `di.*` | Separate suite members below | No direct registry discovery dependency; do not confuse entities with `data/extensions.*` or custom fields. |
+
+Built-in extension granularity remains the existing extension boundary:
+
+| Extension ID suffix | Input conventions | Output/dependency scope |
+|---|---|---|
+| `search` | `search.*` | Search registry only |
+| `notifications` | `notifications.*`, client/handler conventions, `widgets/payments/client.*` | Notifications, client, handlers, payments-client outputs |
+| `messages` | `message-types.*`, `message-objects.*` | Types, objects, shared messages-client output |
+| `ai-tools`, `ai-agents` | Corresponding convention file | Corresponding registry |
+| `agent-files` | `agents/**` and associated assets | Direct manifest and Docker/OpenCode agent/skill writes and pruning; never invoke for unrelated API/page changes |
+| `events`, `analytics`, `translatable-fields`, `workflows` | `events.*`, `analytics.*`, `translations.*`, `workflows.*`, respectively | Corresponding registry **and MAIN import contribution** |
+| `enrichers`, `guards` | `data/enrichers.*`, `data/guards.*` | Corresponding registry |
+| `interceptors` | `api/interceptors.*` | Interceptor registry and global UMES diagnostics; classify exact convention before broad API paths |
+| `component-overrides` | `widgets/components.*` | Component registry and global UMES diagnostics |
+| `inbox-actions` | `inbox-actions.*` | Inbox-action registry |
+| `command-interceptors` | `commands/interceptors.*` | Interceptor registry plus command-loader overlap |
+| `page-middleware` | `frontend/middleware.*`, `backend/middleware.*` | Both middleware outputs under the existing group |
+| `dashboard-widgets`, `injection-widgets` | Widget conventions above | Coupled outputs/aggregate dependencies above |
+
+Programmatic `applyWorkerOverrides` / `applyCliOverrides` usage anywhere in app source can affect supervisor generation. Imported metadata helpers can affect serialized metadata. These exceptional inputs must be captured or treated conservatively; a broad page/API path classification alone does not prove supervisor or metadata independence.
+
+### Other Suite Dependencies and Checksums
+
+| Generator | Inputs requiring reconciliation | Output scope |
+|---|---|---|
+| Entity IDs | Entity candidates in `app/data → package/data → app/db → package/db`; within each, `entities.override → entities → schema`, preserving extension precedence; standalone package-generated metadata | App IDs, per-entity field modules and field registry; existing monorepo package outputs and stale-entity cleanup |
+| Entity registry | Same candidate selection, namespace imports, entity content for duplicate diagnostics; standalone source mirrors used by diagnostics | `entities.generated.ts` and checksum |
+| DI | `di.*` presence/selection, enabled-module ordering and import roots; content for existing diagnostics | `di.generated.ts` and checksum |
+| Package sources | Configured package identity/resolution, package manifests, presence of both source and dist module directories | `module-package-sources.css` and checksum; ordinary source content does not change CSS globs |
+| Web research adapters | Candidate package discovery/manifests across existing roots, package-name precedence and adapter declaration | Adapter registry/checksum; watch candidate manifests, not only already-enabled adapters |
+| OpenAPI | API discovery/content, prior successful transitive input manifest, module/config/lock/tsconfig/package inputs and existing environment fingerprint | OpenAPI document/checksum/input manifest; run after upstream generated dependencies |
+
+Snapshots and plans, not broad mtime hashes, decide which work runs. Narrow checksum inputs must retain real discovery/config/dependency inputs; hashing entire adapter or module trees unnecessarily couples unrelated writes. OpenAPI dependencies are not confined to `/api/**`: generated registries, entity IDs, validators and helper files can be transitive inputs. Missing/unusable dependency knowledge falls back conservatively. Static fallback must remain non-cacheable; changing internal checksum structure values is not a change to public generated TypeScript/JSON/CSS contracts.
+
+### Ownership, Failure Recovery, and Migration & Backward Compatibility
+
+- Keep existing CLI names, arguments, generator exports/result shapes, discovery conventions, extension precedence, app overrides, registry exports, and generated paths. No user migration is required. Full explicit generation retains default byte parity and original ordering/renderers.
+- Every selected public output must match the bytes from full generation over the same inputs. An **untouched** aggregate may retain different local import identifier numbers from a hypothetical full rescan because legacy scans share global counters; do not rewrite it solely to renumber identifiers when bindings and exports remain equivalent. This exception does not permit selected-output byte drift or semantic registration differences.
+- Rebuild a selected route-kind family in full because global shard ordering can rename later shards. Delete stale API shards only within API ownership, backend shards only within backend ownership, and locales only after a complete selected i18n scan. Preserve deletion reporting needed for post-generation invalidation.
+- Plugin declarations (`generators.*`), arbitrary plugin conventions, plugin load uncertainty, or missing/untrusted ownership require full fallback unless complete dependency knowledge is available. Do not reconcile `.generator-plugin-outputs.json` using a selected subset: that would delete valid unselected plugin files. Preserve full ownership and bootstrap registration behavior.
+- Existing content-comparison writers and best-effort structural invalidation remain authoritative. The invalidation post-step can touch unrelated generated mtimes after changed bytes/deletions; “generator not invoked” does not guarantee “mtime unchanged.” Byte-identical no-op generation must retain the existing no-invalidation behavior.
+- Earlier atomic-write/rollback text describes original intent, not the current writer implementation: existing helpers use direct writes. This amendment does **not** claim transactional rollback or that all prior outputs survive a partial failure. Retained baseline plus retry repairs partially updated output; changing writer atomicity is outside this issue.
+- Rollback is to use the existing full generator execution path; no schema/data rollback or compatibility bridge is needed.
+
+### Risks & Impact Review
+
+| Scenario | Severity / affected area | Mitigation | Residual risk |
+|---|---|---|---|
+| Missed/coalesced event or deletion leaves stale output | High / watch correctness | Snapshot union diff, explicit absence, later reconciliation, scoped stale-output cleanup | Depends on authoritative input coverage |
+| Source event consumed before compiled runtime catches up | High / standalone development | Separate source/runtime identities; retain later runtime delta | Package build latency still determines readiness |
+| New delta arrives during generation, or a later generator fails | High / generated consistency | Serialize; acknowledge represented snapshot only after success; preserve dirty retry state without requiring another event | Partial files can be visible until repair |
+| Plugin subset pruning deletes another plugin's output | High / third-party modules | Conservative full fallback and complete ownership reconciliation | Opaque plugins limit achievable speedup |
+| Metadata helper/config change bypasses a path-only classifier | High / metadata, supervisor, OpenAPI | Track known dependency inputs; unknown/ambiguous cases use full fallback | Conservative fallback can remain expensive |
+| Import-counter drift mistaken for semantic change | Medium / parity checks | Preserve full counters and selected bytes; permit equivalent untouched local aliases only | Artifact comparison must distinguish these cases explicitly |
+| Generated writes trigger repeated work | Medium / watch stability | Exclude owned outputs as event roots where appropriate; content-authoritative snapshots and existing invalidation semantics | Real transitive generated inputs may legitimately require reconciliation |
+
+### CLI Filesystem Integration Acceptance Matrix
+
+No product API or UI is changed; issue acceptance is exercised through the real CLI filesystem/watch surface, with temporary module fixtures and actual generator callbacks. HTTP/browser cold-start measurements above are not substitutes for this matrix.
+
+| Scenario | Required observable result |
+|---|---|
+| API-only add/edit/delete/rename | API registry/manifests/OpenAPI reflect current inputs; unrelated entities/DI/search are not invoked absent a proven indirect dependency |
+| Frontend/backend page or metadata change | Correct selected page family and aggregate bytes; preserve collisions, overrides and the other route-kind shards |
+| Search/DI/entity/command/locale convention changes | Owned suite/groups update; command IDs/interceptor overlap, locale deletion and entity fallback precedence remain correct |
+| Two modules with the same relative filename | Independent deltas; neither snapshot entry masks the other |
+| Same-byte rewrite / unrelated filesystem event | Reconciliation without unnecessary generation |
+| Burst changes and changes during a running generation | Coalesced serialized work reaches the latest state, with no lost delta |
+| Forced partial failure, then success without another event | Baseline stays unacknowledged on failure; retry repairs outputs |
+| Source change followed later by compiled runtime change | Standalone output ultimately reflects the new runtime tree |
+| Config/module/plugin/ambiguous/read-error input | Conservative full fallback; no false deletion or success acknowledgement |
+| Full default versus selected generation | Default full public bytes unchanged; selected public bytes/inventory match full output; only documented untouched identifier numbering may differ |
+| Deletion cleanup and structural invalidation | Only owned stale shards/locales/plugin files removed; existing changed-output invalidation semantics retained |
+
+### Implementation Plan and Evidence Status
+
+1. **Snapshot/planner phase:** add shared module-qualified snapshots and pure union-diff/dependency planning while retaining full fallback.
+2. **Selective generation phase:** wire optional group selection through existing registry/suite execution, preserve aggregate ordering and validation, narrow safe discovery/checksum work, and scope cleanup.
+3. **Runtime reconciliation phase:** integrate both watch entrypoints with success-only acknowledgement, retained failure retries, source/runtime lag handling, and later-event reconciliation.
+4. **Verification phase:** execute the filesystem matrix, full/selected parity checks, and reproducible event-to-generated-ready measurements; record commands, workload, OpenAPI mode and outcomes here before marking complete.
+
+**Current compliance/evidence status:** design boundaries and backward-compatibility requirements are documented; implementation remains in progress. No final incremental timing, completed integration matrix, passing validation gate, or merge-readiness verdict is asserted by this amendment.
+
+### Changelog — 2026-09-23
+
+- Added the issue #2205 in-progress design amendment for snapshot-authoritative targeted watch regeneration, suite/output dependencies, source/dist reconciliation, conservative fallbacks, retry/ownership rules, and parity requirements.
+- Recorded the supplied current-app full baseline separately from pending incremental measurements; preserved historical sections and their dated outcomes.
+- Additional supplied repeat baseline, **before source rebuild**: `CACHE_STRATEGY=memory node packages/cli/dist/bin.js generate all` under Node 24 reported `9.358s` CLI time and `9.61s` command wall time after the initial full run. Outputs were unchanged and structural invalidation was skipped; `584` route files were detected. The same JSON import-attribute error forced non-cacheable OpenAPI static fallback. This is a qualified repeated full-generation observation, not a normal successful cached-OpenAPI run or evidence of incremental performance.
