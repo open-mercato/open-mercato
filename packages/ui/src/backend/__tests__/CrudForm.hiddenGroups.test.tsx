@@ -5,7 +5,7 @@ jest.setTimeout(15000)
 // stable id. Hiding is presentation-only — the fields of a hidden group keep their
 // values and are still submitted, so a smaller form can never silently clear data.
 let injectedGroupWidgets: unknown[] = []
-let injectedFieldWidgets: Array<{ fields: unknown[] }> = []
+let injectedFieldWidgets: Array<{ metadata: { id: string }; fields: unknown[] }> = []
 const fetchCustomFieldFormStructureMock = jest.fn()
 const buildFormFieldFromCustomFieldDefMock = jest.fn()
 
@@ -282,6 +282,7 @@ describe('CrudForm hiddenGroupIds', () => {
       // it must not block submit either.
       injectedFieldWidgets = [
         {
+          metadata: { id: 'test.injected-only-field' },
           fields: [
             {
               id: 'injectedOnly',
