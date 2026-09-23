@@ -2352,6 +2352,7 @@
   "customers.people.form.twitterUrl": "X / Twitter",
   "customers.people.form.twitterUrl.placeholder": "https://x.com/przyklad",
   "customers.people.form.updateSuccess": "Osoba została zaktualizowana.",
+  "customers.people.form.websiteUrl.invalid": "Podaj prawidłowy adres URL (np. https://example.com)",
   "customers.people.list.actions.delete": "Usuń",
   "customers.people.list.actions.new": "Nowa osoba",
   "customers.people.list.actions.openInNewTab": "Otwórz w nowej karcie",

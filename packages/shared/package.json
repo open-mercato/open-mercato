@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/shared",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,6 +12,10 @@
   },
   "exports": {
     ".": "./dist/index.js",
+    "./lib/availability": {
+      "types": "./src/lib/availability/index.ts",
+      "default": "./dist/lib/availability/index.js"
+    },
     "./lib/openapi": {
       "types": "./src/lib/openapi/index.ts",
       "default": "./dist/lib/openapi/index.js"
