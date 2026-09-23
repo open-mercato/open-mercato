@@ -24,11 +24,13 @@ export type SearchConfig = {
    * nothing (`08`) drops the predicate entirely and matches every row) — a deployment that hits
    * that gap before #5383 lands can opt in here.
    *
-   * Per-word ANDing (see lib/search/containment) is what keeps the opt-in behavior a strict
-   * improvement over the single-literal ILIKE #4622 originally introduced: the token subquery
-   * matched a value carrying every token in any order with anything between them, so
-   * `?search=Warehouse 1757` must keep matching `Warehouse A 1757`. A single verbatim
-   * `ILIKE '%Warehouse 1757%'` would not, and TC-RESO-009 pins that as required behavior.
+   * Per-word ANDing (see lib/search/containment) is a trade-off, not a strict improvement, over
+   * the single-literal ILIKE #4622 originally introduced: the token subquery matched a value
+   * carrying every token in any order with anything between them, so `?search=Warehouse 1757`
+   * must keep matching `Warehouse A 1757` — a single verbatim `ILIKE '%Warehouse 1757%'` would
+   * not, and TC-RESO-009 pins that as required behavior. The same word-order independence also
+   * widens multi-word document-number searches: `?search=ZK 1/2026` now also matches
+   * `ZK 11/2026` and `1/2026 ZK`, where the old single-literal ILIKE matched neither.
    *
    * Set `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=true` to opt into declared-column ILIKE
    * ahead of #5383 — worth doing when the #5803 wrong-record symptom is hit in practice. Leaving it

@@ -1153,7 +1153,7 @@ export class BasicQueryEngine implements QueryEngine {
       // apply here: `buildColumnOpExpression` below keeps a multi-word `like`/`ilike` leaf as one
       // literal pattern, so an OR-grouped search (e.g. `customers/api/people`'s multi-field
       // fallback) loses word-order independence on Basic while the Hybrid engine's OR groups
-      // apply the split. Pre-existing divergence between the two engines, tracked as a follow-up.
+      // apply the split. Pre-existing divergence between the two engines; not tracked by an issue.
       //
       // The count shape never populates cfValueExprByKey (it joins no cf tables), so
       // its applicability test is key resolution itself — the same condition that

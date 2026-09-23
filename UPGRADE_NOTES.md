@@ -174,6 +174,12 @@ expanded tokens even where the fragment was not a contiguous substring of the st
 Containment matches only real substrings. Fuzzy, typo-tolerant search belongs on `SearchService`
 (`/api/search`, `/api/search/global`), which is unaffected by this change.
 
+A second capability widens: multi-word terms such as document numbers containing a space now also
+match values holding the words non-contiguously or in another order — `?search=ZK 1/2026` also
+matches `ZK 11/2026` and `1/2026 ZK`, where the previous single-literal ILIKE matched neither. This
+is the same word-order independence the `Warehouse 12` example above relies on; it is a trade-off,
+not a strict improvement, over the single-literal behavior this switch previously had.
+
 Encrypted-column search is unchanged in both settings, and no schema, route, or response shape moved.
 
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
