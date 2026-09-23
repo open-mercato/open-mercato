@@ -2,10 +2,11 @@ import { z } from 'zod'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { CrudHttpError, conflict } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, badRequest, conflict } from '@open-mercato/shared/lib/crud/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CustomerGroupMembership } from '../../../data/entities'
+import { CustomerGroup, CustomerGroupMembership } from '../../../data/entities'
+import { emitCustomerGroupsEvent } from '../../../events'
 import {
   customerGroupMembershipCreateSchema,
   customerGroupMembershipUpdateSchema,
@@ -134,6 +135,43 @@ async function assertMembershipUnique(
   }
 }
 
+// `groupId` is a plain uuid column (no FK, see data/entities.ts), so nothing else stops
+// a membership pointing at a deleted group or at another tenant's group.
+export async function assertMembershipGroupExists(
+  em: EntityManager,
+  scope: { tenantId: string },
+  groupId: string,
+  translate: (key: string, fallback?: string) => string,
+): Promise<void> {
+  const existing = await em.count(CustomerGroup, { id: groupId, tenantId: scope.tenantId, deletedAt: null })
+  if (existing === 0) {
+    throw badRequest(
+      translate('customer_groups.errors.membershipGroupNotFound', 'The selected customer group does not exist.'),
+    )
+  }
+}
+
+// Spec §10: `membership.added` / `.removed` MUST fire so buyer-context and price caches
+// keyed on the customer are invalidated. The declared ids are not the factory's
+// `created`/`deleted` shape, so they are emitted from the hooks instead of `events:`.
+export async function emitMembershipEvent(
+  eventId: 'customer_groups.membership.added' | 'customer_groups.membership.removed',
+  membership: Pick<CustomerGroupMembership, 'id' | 'tenantId' | 'organizationId' | 'groupId' | 'customerId'>,
+): Promise<void> {
+  const organizationId = membership.organizationId ?? null
+  await emitCustomerGroupsEvent(
+    eventId,
+    {
+      id: membership.id,
+      tenantId: membership.tenantId,
+      organizationId,
+      groupId: membership.groupId,
+      customerId: membership.customerId,
+    },
+    { persistent: true, tenantId: membership.tenantId, organizationId },
+  )
+}
+
 const customerGroupMembershipListFields = [
   'id',
   'organization_id',
@@ -213,7 +251,11 @@ export const customerGroupMembershipCrud = makeCrudRoute<
       if (!result.success) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const { translate } = await resolveTranslations()
+      await assertMembershipGroupExists(em, scope, result.data.groupId, translate)
       await assertMembershipUnique(em, scope, result.data.groupId, result.data.customerId, null, translate)
+    },
+    afterCreate: async (entity) => {
+      await emitMembershipEvent('customer_groups.membership.added', entity as CustomerGroupMembership)
     },
     beforeUpdate: async (input, ctx) => {
       const scope = scopeFromContext(ctx)
@@ -231,7 +273,16 @@ export const customerGroupMembershipCrud = makeCrudRoute<
       const nextGroupId = parsed.groupId ?? existing.groupId
       const nextCustomerId = parsed.customerId ?? existing.customerId
       const { translate } = await resolveTranslations()
+      if (parsed.groupId !== undefined && parsed.groupId !== existing.groupId) {
+        await assertMembershipGroupExists(em, scope, parsed.groupId, translate)
+      }
       await assertMembershipUnique(em, scope, nextGroupId, nextCustomerId, existing.id, translate)
+    },
+    afterDelete: async (id, ctx) => {
+      const scope = scopeFromContext(ctx)
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const removed = await em.findOne(CustomerGroupMembership, { id, tenantId: scope.tenantId })
+      if (removed) await emitMembershipEvent('customer_groups.membership.removed', removed)
     },
   },
 })

@@ -110,6 +110,44 @@ function groupOwnAssortmentScope(_groupId: string): AssortmentScope | null {
   return null
 }
 
+async function loadGroupCached(
+  em: EntityManager,
+  groupId: string,
+  tenantId: string,
+  cache: Map<string, CustomerGroup | null>,
+): Promise<CustomerGroup | null> {
+  if (cache.has(groupId)) return cache.get(groupId) ?? null
+  const group = await em.findOne(CustomerGroup, { id: groupId, tenantId, deletedAt: null })
+  cache.set(groupId, group)
+  return group
+}
+
+/**
+ * One group's ancestor chain — self first, then parent, grandparent, ... up to
+ * `MAX_ANCESTOR_DEPTH` — as loaded, non-deleted, same-tenant entities. The walk
+ * stops at the first id that does not resolve (soft-deleted, other tenant, or
+ * dangling `parentId`): a missing group is never part of the chain, so its terms
+ * row can never be inherited. Shared by `resolveTerms` and the explain-terms route
+ * so the resolved value and the explained ancestor path always come from the SAME
+ * chain. `cache` lets callers reuse group rows across several chains.
+ */
+export async function loadCustomerGroupAncestorChain(
+  em: EntityManager,
+  groupId: string,
+  tenantId: string,
+  cache: Map<string, CustomerGroup | null> = new Map(),
+): Promise<CustomerGroup[]> {
+  const chain: CustomerGroup[] = []
+  let currentId: string | null = groupId
+  while (currentId && chain.length < MAX_ANCESTOR_DEPTH) {
+    const group = await loadGroupCached(em, currentId, tenantId, cache)
+    if (!group) break
+    chain.push(group)
+    currentId = group.parentId ?? null
+  }
+  return chain
+}
+
 function toGroupSummary(group: CustomerGroup): GroupResolution['groups'][number] {
   return { id: group.id, code: group.code, name: group.name, kind: group.kind, priority: group.priority }
 }
@@ -267,7 +305,8 @@ export class DefaultCustomerGroupsService implements CustomerGroupsService {
     const termsCache = new Map<string, CustomerGroupTerms | null>()
     const chains: string[][] = []
     for (const groupId of groupIds) {
-      chains.push(await this.loadAncestorChain(groupId, input.tenantId, groupCache))
+      const chain = await loadCustomerGroupAncestorChain(this.em, groupId, input.tenantId, groupCache)
+      chains.push(chain.map((group) => group.id))
     }
 
     const result = tenantDefaultTerms()
@@ -295,34 +334,6 @@ export class DefaultCustomerGroupsService implements CustomerGroupsService {
     const { groupIds } = await this.resolveGroups(input)
     const scope = unionScopes(groupIds.map((groupId) => groupOwnAssortmentScope(groupId)))
     return { scope, sourceGroupIds: groupIds, sourceCustomerOverrideId: null }
-  }
-
-  private async loadAncestorChain(
-    groupId: string,
-    tenantId: string,
-    groupCache: Map<string, CustomerGroup | null>,
-  ): Promise<string[]> {
-    const chain: string[] = []
-    let currentId: string | null = groupId
-    let depth = 0
-    while (currentId && depth < MAX_ANCESTOR_DEPTH) {
-      chain.push(currentId)
-      const group = await this.loadGroup(currentId, tenantId, groupCache)
-      currentId = group?.parentId ?? null
-      depth += 1
-    }
-    return chain
-  }
-
-  private async loadGroup(
-    groupId: string,
-    tenantId: string,
-    cache: Map<string, CustomerGroup | null>,
-  ): Promise<CustomerGroup | null> {
-    if (cache.has(groupId)) return cache.get(groupId) ?? null
-    const group = await this.em.findOne(CustomerGroup, { id: groupId, tenantId, deletedAt: null })
-    cache.set(groupId, group)
-    return group
   }
 
   private async loadTerms(

@@ -1,12 +1,14 @@
 import { z } from 'zod'
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, badRequest, conflict } from '@open-mercato/shared/lib/crud/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
-import { CustomerGroup } from '../../data/entities'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { CustomerGroup, CustomerGroupTerms } from '../../data/entities'
 import {
+  CUSTOMER_GROUP_MAX_ANCESTOR_DEPTH,
   customerGroupCreateSchema,
   customerGroupUpdateSchema,
   type CustomerGroupCreateInput,
@@ -104,17 +106,154 @@ function applyCustomerGroupUpdate(entity: CustomerGroup, input: CustomerGroupUpd
   if (hasOwn(input, 'metadata')) entity.metadata = input.metadata ?? null
 }
 
+type Translate = (key: string, fallback?: string) => string
+
 // "At most one is_default per tenant" (spec §5.1) has a DB-level backstop (the
 // partial unique index `customer_groups_tenant_default_unique` in data/entities.ts)
 // but that only throws a raw unique-violation on conflict — it does not implement
 // the spec's actual UX ("enabling this will replace it"). Clear-and-set semantics:
-// before saving a row with `isDefault: true`, unset every other default group for
-// the tenant in one bulk statement, so the new default always wins cleanly instead
-// of racing the unique index.
+// unset every other default group for the tenant in one bulk statement, so the new
+// default always wins cleanly instead of racing the unique index. Callers MUST only
+// run this once the write is known to be valid (see `applyToEntity` / `afterCreate`
+// below), otherwise a rejected request would still wipe the tenant's default.
 export async function clearOtherDefaultGroups(em: EntityManager, tenantId: string, excludeId?: string): Promise<void> {
   const where: Record<string, unknown> = { tenantId, isDefault: true, deletedAt: null }
   if (excludeId) where.id = { $ne: excludeId }
-  await em.nativeUpdate(CustomerGroup, where, { isDefault: false })
+  await em.nativeUpdate(CustomerGroup, where, { isDefault: false, updatedAt: new Date() })
+}
+
+// `makeCrudRoute`'s create transaction wraps only the insert, so a new default group is
+// inserted with `isDefault: false` and promoted here, after the insert committed, in its
+// own transaction: clear the previous default first, then set the new one, so the
+// partial unique index is never violated and a failed create never touches the old
+// default.
+export async function promoteDefaultGroup(em: EntityManager, tenantId: string, groupId: string, now: Date): Promise<void> {
+  await em.transactional(async (tem) => {
+    await clearOtherDefaultGroups(tem, tenantId, groupId)
+    await tem.nativeUpdate(CustomerGroup, { id: groupId, tenantId, deletedAt: null }, { isDefault: true, updatedAt: now })
+  })
+}
+
+// Terms of a deleted group must stop resolving; soft-deleting them (rather than leaving
+// them to be filtered by the group join) keeps `customer_group_terms_group_unique` free
+// for a future group and keeps every terms reader correct without a join.
+export async function softDeleteGroupTerms(em: EntityManager, tenantId: string, groupId: string): Promise<void> {
+  const now = new Date()
+  await em.nativeUpdate(CustomerGroupTerms, { tenantId, groupId, deletedAt: null }, { deletedAt: now, updatedAt: now })
+}
+
+export type CustomerGroupNode = { id: string; parentId?: string | null }
+export type CustomerGroupParentIssue = 'notFound' | 'self' | 'cycle' | 'tooDeep'
+
+function measureSubtreeHeight(groups: CustomerGroupNode[], rootId: string): number {
+  const childrenByParent = new Map<string, string[]>()
+  for (const group of groups) {
+    if (!group.parentId) continue
+    const children = childrenByParent.get(group.parentId) ?? []
+    children.push(group.id)
+    childrenByParent.set(group.parentId, children)
+  }
+  const seen = new Set<string>([rootId])
+  let level = [rootId]
+  let height = 0
+  while (level.length) {
+    height += 1
+    const next: string[] = []
+    for (const id of level) {
+      for (const childId of childrenByParent.get(id) ?? []) {
+        if (seen.has(childId)) continue
+        seen.add(childId)
+        next.push(childId)
+      }
+    }
+    level = next
+  }
+  return height
+}
+
+// Spec §5.1: `parent_id` must reference a live group of the same tenant, must not form
+// a cycle, and the resulting hierarchy depth is capped — counting the new parent's
+// ancestor chain plus the (moved) group's own subtree, so re-parenting a group with
+// children cannot push a descendant past the cap either. `groups` is every live group
+// of the tenant; `groupId` is null on create.
+export function findParentAssignmentIssue(
+  groups: CustomerGroupNode[],
+  groupId: string | null,
+  parentId: string,
+  maxDepth: number = CUSTOMER_GROUP_MAX_ANCESTOR_DEPTH,
+): CustomerGroupParentIssue | null {
+  if (groupId && parentId === groupId) return 'self'
+  const byId = new Map(groups.map((group) => [group.id, group]))
+  if (!byId.has(parentId)) return 'notFound'
+  const visited = new Set<string>()
+  let currentId: string | null = parentId
+  let chainLength = 0
+  while (currentId) {
+    if (currentId === groupId || visited.has(currentId)) return 'cycle'
+    visited.add(currentId)
+    chainLength += 1
+    currentId = byId.get(currentId)?.parentId ?? null
+  }
+  const subtreeHeight = groupId ? measureSubtreeHeight(groups, groupId) : 1
+  return chainLength + subtreeHeight > maxDepth ? 'tooDeep' : null
+}
+
+const parentIssueMessages: Record<CustomerGroupParentIssue, { key: string; fallback: string }> = {
+  notFound: { key: 'customer_groups.errors.parentNotFound', fallback: 'The selected parent group does not exist.' },
+  self: { key: 'customer_groups.errors.parentSelf', fallback: 'A group cannot be its own parent.' },
+  cycle: {
+    key: 'customer_groups.errors.parentCycle',
+    fallback: 'The selected parent is a descendant of this group, which would create a cycle.',
+  },
+  tooDeep: {
+    key: 'customer_groups.errors.parentTooDeep',
+    fallback: 'This parent would make the group hierarchy deeper than 5 levels.',
+  },
+}
+
+export type CustomerGroupWriteCheck = {
+  tenantId: string
+  groupId: string | null
+  code?: string
+  priority?: number
+  parentId?: string | null
+}
+
+// `code` and live `priority` are unique per tenant (spec §5.1, partial unique indexes in
+// data/entities.ts). A raw unique violation would reach `makeCrudRoute`'s generic 500
+// branch, so they are pre-checked with a translated 409 — the same pattern as
+// `assertMembershipUnique` in `memberships/crud.ts`. Only fields present in `check` are
+// validated, so an update that leaves a field unchanged skips its query.
+export async function assertCustomerGroupWriteAllowed(
+  em: EntityManager,
+  check: CustomerGroupWriteCheck,
+  translate: Translate,
+): Promise<void> {
+  const { tenantId, groupId } = check
+  if (check.code !== undefined) {
+    const where: FilterQuery<CustomerGroup> = { tenantId, code: check.code, deletedAt: null }
+    if (groupId) where.id = { $ne: groupId }
+    if ((await em.count(CustomerGroup, where)) > 0) {
+      throw conflict(translate('customer_groups.errors.codeDuplicate', 'A customer group with this code already exists.'))
+    }
+  }
+  if (check.priority !== undefined) {
+    const where: FilterQuery<CustomerGroup> = { tenantId, priority: check.priority, deletedAt: null }
+    if (groupId) where.id = { $ne: groupId }
+    if ((await em.count(CustomerGroup, where)) > 0) {
+      throw conflict(
+        translate('customer_groups.errors.priorityDuplicate', 'Another customer group already uses this priority.'),
+      )
+    }
+  }
+  if (check.parentId) {
+    const groups = await em.find(CustomerGroup, { tenantId, deletedAt: null })
+    const issue = findParentAssignmentIssue(groups, groupId, check.parentId)
+    if (issue) {
+      const message = parentIssueMessages[issue]
+      throw badRequest(translate(message.key, message.fallback))
+    }
+  }
 }
 
 const customerGroupListFields = [
@@ -180,35 +319,72 @@ export const customerGroupCrud = makeCrudRoute<RawCustomerGroupInput, RawCustome
       return filters
     },
   },
+  // Emits `customer_groups.group.created|updated|deleted` (the factory composes
+  // `${module}.${entity}.${action}`), matching the ids declared in `events.ts`.
+  events: { module: 'customer_groups', entity: 'group', persistent: true },
   create: {
     schema: rawBodySchema,
-    mapToEntity: (input, ctx) => toCustomerGroupEntityData(parseCreateInput(input, ctx)),
+    // Always inserted as non-default; `afterCreate` promotes it (see `promoteDefaultGroup`).
+    mapToEntity: (input, ctx) => ({ ...toCustomerGroupEntityData(parseCreateInput(input, ctx)), isDefault: false }),
   },
   update: {
     schema: rawBodySchema,
     getId: (input) => (typeof input.id === 'string' ? input.id : ''),
-    applyToEntity: (entity, input, ctx) => {
-      applyCustomerGroupUpdate(entity as CustomerGroup, parseUpdateInput(input, ctx))
+    // Runs inside the factory's update transaction, after the record was found in the
+    // caller's tenant — so validation and the default reassignment commit or roll back
+    // together with the write. Reads/bulk updates happen before any scalar mutation.
+    applyToEntity: async (entity, input, ctx) => {
+      const group = entity as CustomerGroup
+      const parsed = parseUpdateInput(input, ctx)
+      const em = ctx.container.resolve('em') as EntityManager
+      const { translate } = await resolveTranslations()
+      const nextParentId = hasOwn(parsed, 'parentId') ? parsed.parentId ?? null : undefined
+      await assertCustomerGroupWriteAllowed(
+        em,
+        {
+          tenantId: group.tenantId,
+          groupId: group.id,
+          code: parsed.code !== undefined && parsed.code !== group.code ? parsed.code : undefined,
+          priority: parsed.priority !== undefined && parsed.priority !== group.priority ? parsed.priority : undefined,
+          parentId: nextParentId !== undefined && nextParentId !== (group.parentId ?? null) ? nextParentId : undefined,
+        },
+        translate,
+      )
+      if (parsed.isDefault === true) await clearOtherDefaultGroups(em, group.tenantId, group.id)
+      applyCustomerGroupUpdate(group, parsed)
     },
     response: () => ({ ok: true }),
   },
   del: { idFrom: 'query', softDelete: true, response: () => ({ ok: true }) },
   hooks: {
-    // Raw JSON bodies carry `isDefault` as an actual boolean (not a query-string
-    // token), so this checks the value directly rather than via parseBooleanToken
-    // (which only parses strings and would otherwise always read null here).
     beforeCreate: async (input, ctx) => {
-      if ((input as RawCustomerGroupInput).isDefault === true) {
-        const em = ctx.container.resolve('em') as EntityManager
-        await clearOtherDefaultGroups(em, scopeFromContext(ctx).tenantId)
-      }
+      const scope = scopeFromContext(ctx)
+      const result = customerGroupCreateSchema.safeParse({ ...input, ...scope })
+      if (!result.success) return
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const { translate } = await resolveTranslations()
+      await assertCustomerGroupWriteAllowed(
+        em,
+        {
+          tenantId: scope.tenantId,
+          groupId: null,
+          code: result.data.code,
+          priority: result.data.priority,
+          parentId: result.data.parentId ?? null,
+        },
+        translate,
+      )
     },
-    beforeUpdate: async (input, ctx) => {
-      const raw = input as RawCustomerGroupInput
-      if (raw.isDefault === true && typeof raw.id === 'string') {
-        const em = ctx.container.resolve('em') as EntityManager
-        await clearOtherDefaultGroups(em, scopeFromContext(ctx).tenantId, raw.id)
-      }
+    afterCreate: async (entity, ctx) => {
+      const group = entity as CustomerGroup
+      if (parseCreateInput(ctx.input, ctx).isDefault !== true) return
+      const now = new Date()
+      await promoteDefaultGroup(ctx.container.resolve('em') as EntityManager, group.tenantId, group.id, now)
+      group.isDefault = true
+      group.updatedAt = now
+    },
+    afterDelete: async (id, ctx) => {
+      await softDeleteGroupTerms(ctx.container.resolve('em') as EntityManager, scopeFromContext(ctx).tenantId, id)
     },
   },
 })

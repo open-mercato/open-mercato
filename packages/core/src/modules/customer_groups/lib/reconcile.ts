@@ -16,6 +16,9 @@ import { CustomerGroup } from '../data/entities'
 // - `sales/data/entities.ts` — `SalesTaxRate` maps to table `sales_tax_rates`.
 const CATALOG_PRICE_TABLE = 'catalog_product_variant_prices'
 const SALES_TAX_RATE_TABLE = 'sales_tax_rates'
+// This module's own table (`CustomerGroup`'s `@Entity({ tableName })`), referenced
+// from the raw orphan-scan SQL's `NOT EXISTS` probe.
+const CUSTOMER_GROUP_TABLE = 'customer_groups'
 
 const SAMPLE_LIMIT = 5
 
@@ -33,20 +36,50 @@ export type ScanOrphanedCustomerGroupsScope = {
   tenantId?: string | null
 }
 
-type ReferencingRow = { id: string; customer_group_id: string; tenant_id: string | null }
+type OrphanAggregateRow = {
+  group_id: string
+  ref_count: number | string
+  sample_ids: string[] | null
+  tenant_id: string | null
+}
 
-async function selectReferencingRows(
+type OrphanAggregate = { count: number; sampleIds: string[]; tenantId: string | null }
+
+// One aggregate row per orphaned `customer_group_id` in `table`, computed entirely in
+// SQL so the scan's cost to this process is bounded by the number of distinct orphan
+// ids — never by the number of referencing price/tax rows (the admin list's orphan
+// banner runs this scan on every page load). The `NOT EXISTS` probe deliberately has
+// no `deleted_at` filter: a soft-deleted group still "exists" for FK resolution.
+// `SAMPLE_LIMIT` is a module constant, not caller input, so inlining it in the array
+// slice is safe; the tenant id is always bound as a parameter.
+async function selectOrphanAggregates(
   em: EntityManager,
   table: string,
   tenantId: string | null | undefined,
-): Promise<ReferencingRow[]> {
+): Promise<Map<string, OrphanAggregate>> {
   const conn = em.getConnection()
-  const sql = tenantId
-    ? `select id, customer_group_id, tenant_id from ${table} where customer_group_id is not null and tenant_id = ?`
-    : `select id, customer_group_id, tenant_id from ${table} where customer_group_id is not null`
+  const tenantFilter = tenantId ? ' and t.tenant_id = ?' : ''
+  const sql =
+    `select t.customer_group_id as group_id, count(*)::int as ref_count, ` +
+    `(array_agg(t.id::text order by t.id))[1:${SAMPLE_LIMIT}] as sample_ids, ` +
+    `min(t.tenant_id::text) as tenant_id ` +
+    `from ${table} t ` +
+    `where t.customer_group_id is not null${tenantFilter} ` +
+    `and not exists (select 1 from ${CUSTOMER_GROUP_TABLE} g where g.id = t.customer_group_id) ` +
+    `group by t.customer_group_id ` +
+    `order by t.customer_group_id`
   const params = tenantId ? [tenantId] : []
   const rows = await conn.execute(sql, params)
-  return (Array.isArray(rows) ? rows : []) as ReferencingRow[]
+  const aggregates = new Map<string, OrphanAggregate>()
+  for (const row of (Array.isArray(rows) ? rows : []) as OrphanAggregateRow[]) {
+    const groupId = String(row.group_id)
+    aggregates.set(groupId, {
+      count: Number(row.ref_count) || 0,
+      sampleIds: Array.isArray(row.sample_ids) ? row.sample_ids.slice(0, SAMPLE_LIMIT).map(String) : [],
+      tenantId: row.tenant_id ?? null,
+    })
+  }
+  return aggregates
 }
 
 /**
@@ -55,54 +88,29 @@ async function selectReferencingRows(
  * NO matching row in `customer_groups` (any row, including soft-deleted ones —
  * a soft-deleted group still "exists" for FK-resolution purposes; only a value
  * that never — or no longer — resolves to any `customer_groups` row counts as
- * orphaned).
+ * orphaned). Counts, samples (first `SAMPLE_LIMIT` ids by id order) and the
+ * referencing tenant are aggregated in SQL, one query per referencing table.
  */
 export async function scanOrphanedCustomerGroupReferences(
   em: EntityManager,
   scope: ScanOrphanedCustomerGroupsScope = {},
 ): Promise<OrphanCustomerGroupReference[]> {
-  const [priceRows, taxRows] = await Promise.all([
-    selectReferencingRows(em, CATALOG_PRICE_TABLE, scope.tenantId),
-    selectReferencingRows(em, SALES_TAX_RATE_TABLE, scope.tenantId),
+  const [priceAggregates, taxAggregates] = await Promise.all([
+    selectOrphanAggregates(em, CATALOG_PRICE_TABLE, scope.tenantId),
+    selectOrphanAggregates(em, SALES_TAX_RATE_TABLE, scope.tenantId),
   ])
 
-  const referencedGroupIds = new Set<string>()
-  for (const row of priceRows) referencedGroupIds.add(row.customer_group_id)
-  for (const row of taxRows) referencedGroupIds.add(row.customer_group_id)
-  if (!referencedGroupIds.size) return []
-
-  const existingGroups = await em.find(CustomerGroup, { id: { $in: Array.from(referencedGroupIds) } })
-  const existingGroupIds = new Set(existingGroups.map((group) => group.id))
-  const orphanGroupIds = Array.from(referencedGroupIds).filter((id) => !existingGroupIds.has(id))
-  if (!orphanGroupIds.length) return []
-  const orphanGroupIdSet = new Set(orphanGroupIds)
-
-  const priceRowsByGroup = new Map<string, ReferencingRow[]>()
-  for (const row of priceRows) {
-    if (!orphanGroupIdSet.has(row.customer_group_id)) continue
-    const list = priceRowsByGroup.get(row.customer_group_id) ?? []
-    list.push(row)
-    priceRowsByGroup.set(row.customer_group_id, list)
-  }
-  const taxRowsByGroup = new Map<string, ReferencingRow[]>()
-  for (const row of taxRows) {
-    if (!orphanGroupIdSet.has(row.customer_group_id)) continue
-    const list = taxRowsByGroup.get(row.customer_group_id) ?? []
-    list.push(row)
-    taxRowsByGroup.set(row.customer_group_id, list)
-  }
-
-  return orphanGroupIds.map((groupId) => {
-    const priceRowsForGroup = priceRowsByGroup.get(groupId) ?? []
-    const taxRowsForGroup = taxRowsByGroup.get(groupId) ?? []
-    const tenantId = priceRowsForGroup[0]?.tenant_id ?? taxRowsForGroup[0]?.tenant_id ?? null
+  const orphanGroupIds = new Set<string>([...priceAggregates.keys(), ...taxAggregates.keys()])
+  return Array.from(orphanGroupIds).map((groupId) => {
+    const price = priceAggregates.get(groupId)
+    const tax = taxAggregates.get(groupId)
     return {
       groupId,
-      tenantId,
-      catalogPriceCount: priceRowsForGroup.length,
-      salesTaxRateCount: taxRowsForGroup.length,
-      sampleCatalogPriceIds: priceRowsForGroup.slice(0, SAMPLE_LIMIT).map((row) => row.id),
-      sampleSalesTaxRateIds: taxRowsForGroup.slice(0, SAMPLE_LIMIT).map((row) => row.id),
+      tenantId: price?.tenantId ?? tax?.tenantId ?? null,
+      catalogPriceCount: price?.count ?? 0,
+      salesTaxRateCount: tax?.count ?? 0,
+      sampleCatalogPriceIds: price?.sampleIds ?? [],
+      sampleSalesTaxRateIds: tax?.sampleIds ?? [],
     }
   })
 }

@@ -1,4 +1,4 @@
-import { DefaultCustomerGroupsService } from '../services/customerGroupsService'
+import { DefaultCustomerGroupsService, loadCustomerGroupAncestorChain } from '../services/customerGroupsService'
 import { CustomerGroup, CustomerGroupMembership, CustomerGroupTerms } from '../data/entities'
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
@@ -86,7 +86,7 @@ function createEm(options: {
   const groupsById = new Map(groups.map((group) => [group.id, group]))
   const termsByGroupId = new Map((options.terms ?? []).map((terms) => [terms.groupId, terms]))
 
-  const find = jest.fn(async (entity: unknown, where: any) => {
+  const find = jest.fn(async (entity: unknown, where: { id?: { $in?: string[] } }) => {
     if (entity === CustomerGroupMembership) return options.memberships ?? []
     if (entity === CustomerGroup) {
       const ids: string[] = where.id?.$in ?? []
@@ -95,13 +95,13 @@ function createEm(options: {
     throw new Error(`unexpected em.find call for ${String(entity)}`)
   })
 
-  const findOne = jest.fn(async (entity: unknown, where: any) => {
+  const findOne = jest.fn(async (entity: unknown, where: { id?: string; isDefault?: boolean; groupId?: string }) => {
     if (entity === CustomerGroup) {
       if (where.isDefault) return options.defaultGroup ?? null
-      return groupsById.get(where.id) ?? null
+      return groupsById.get(where.id ?? '') ?? null
     }
     if (entity === CustomerGroupTerms) {
-      return termsByGroupId.get(where.groupId) ?? null
+      return termsByGroupId.get(where.groupId ?? '') ?? null
     }
     throw new Error(`unexpected em.findOne call for ${String(entity)}`)
   })
@@ -121,7 +121,7 @@ describe('DefaultCustomerGroupsService.resolveTerms', () => {
       makeTerms({ groupId: GRANDPARENT_ID, paymentTermsDays: 30 }),
     ]
     const em = createEm({ memberships, groups, terms })
-    const service = new DefaultCustomerGroupsService(em as any)
+    const service = new DefaultCustomerGroupsService(em as never)
 
     const result = await service.resolveTerms({ customerId: CUSTOMER_ID, tenantId: TENANT_ID })
 
@@ -135,7 +135,7 @@ describe('DefaultCustomerGroupsService.resolveTerms', () => {
     const priceKindId = '99999999-9999-4999-8999-999999999999'
     const terms = [makeTerms({ groupId: CHILD_ID, priceKindId })]
     const em = createEm({ memberships, groups, terms })
-    const service = new DefaultCustomerGroupsService(em as any)
+    const service = new DefaultCustomerGroupsService(em as never)
 
     const result = await service.resolveTerms({ customerId: CUSTOMER_ID, tenantId: TENANT_ID })
 
@@ -155,7 +155,7 @@ describe('DefaultCustomerGroupsService.resolveTerms', () => {
     const priceKindId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
     const terms = [makeTerms({ groupId: LOW_PRIORITY_GROUP_ID, priceKindId })]
     const em = createEm({ memberships, groups, terms })
-    const service = new DefaultCustomerGroupsService(em as any)
+    const service = new DefaultCustomerGroupsService(em as never)
 
     const result = await service.resolveTerms({ customerId: CUSTOMER_ID, tenantId: TENANT_ID })
 
@@ -165,7 +165,7 @@ describe('DefaultCustomerGroupsService.resolveTerms', () => {
 
   it('resolves to tenant defaults, every source null, when the customer has no matching group', async () => {
     const em = createEm({ memberships: [] })
-    const service = new DefaultCustomerGroupsService(em as any)
+    const service = new DefaultCustomerGroupsService(em as never)
 
     const result = await service.resolveTerms({ customerId: CUSTOMER_ID, tenantId: TENANT_ID })
 
@@ -194,7 +194,7 @@ describe('DefaultCustomerGroupsService.resolveTerms', () => {
     ]
     const terms = [makeTerms({ groupId: CHILD_ID }), makeTerms({ groupId: PARENT_ID })]
     const em = createEm({ memberships, groups, terms })
-    const service = new DefaultCustomerGroupsService(em as any)
+    const service = new DefaultCustomerGroupsService(em as never)
 
     const result = await service.resolveTerms({ customerId: CUSTOMER_ID, tenantId: TENANT_ID })
 
@@ -226,7 +226,7 @@ describe('DefaultCustomerGroupsService.resolveTerms', () => {
       }),
     ]
     const em = createEm({ defaultGroup, groups: [defaultGroup], terms })
-    const service = new DefaultCustomerGroupsService(em as any)
+    const service = new DefaultCustomerGroupsService(em as never)
 
     const result = await service.resolveTerms({ customerId: null, tenantId: TENANT_ID })
 
@@ -240,7 +240,7 @@ describe('DefaultCustomerGroupsService.resolveTerms', () => {
 
   it('resolves an anonymous customer straight to tenant defaults when no default group exists', async () => {
     const em = createEm({ defaultGroup: null })
-    const service = new DefaultCustomerGroupsService(em as any)
+    const service = new DefaultCustomerGroupsService(em as never)
 
     const result = await service.resolveTerms({ customerId: null, tenantId: TENANT_ID })
 
@@ -273,7 +273,7 @@ describe('DefaultCustomerGroupsService.resolveTerms', () => {
       makeTerms({ groupId: GRANDPARENT_ID, paymentTermsDays: 45 }),
     ]
     const em = createEm({ memberships, groups, terms })
-    const service = new DefaultCustomerGroupsService(em as any)
+    const service = new DefaultCustomerGroupsService(em as never)
 
     const result = await service.resolveTerms({ customerId: CUSTOMER_ID, tenantId: TENANT_ID })
 
@@ -293,12 +293,80 @@ describe('DefaultCustomerGroupsService.resolveTerms', () => {
     const priceKindId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
     const terms = [makeTerms({ groupId: CHILD_ID, priceKindId })]
     const em = createEm({ groups, terms })
-    const service = new DefaultCustomerGroupsService(em as any)
+    const service = new DefaultCustomerGroupsService(em as never)
 
     const result = await service.resolveTerms({ customerId: CUSTOMER_ID, tenantId: TENANT_ID, groupIds: [CHILD_ID] })
 
     expect(result.priceKindId).toBe(priceKindId)
     expect(result.sources.priceKindId).toBe(CHILD_ID)
     expect(em.find).not.toHaveBeenCalled()
+  })
+  it('stops the ancestor walk at a soft-deleted parent, so its surviving terms row is never inherited', async () => {
+    const memberships = [makeMembership({ id: 'm-child', groupId: CHILD_ID })]
+    // PARENT_ID is soft-deleted: `findOne(..., { deletedAt: null })` no longer returns
+    // it (it is left out of `groups`), but its terms row was never deleted.
+    const groups = [makeGroup({ id: CHILD_ID, code: 'child', name: 'Child', priority: 10, parentId: PARENT_ID })]
+    const terms = [makeTerms({ groupId: PARENT_ID, paymentTermsDays: 60, allowPurchaseOnAccount: true })]
+    const em = createEm({ memberships, groups, terms })
+    const service = new DefaultCustomerGroupsService(em as never)
+
+    const result = await service.resolveTerms({ customerId: CUSTOMER_ID, tenantId: TENANT_ID })
+
+    expect(result.paymentTermsDays).toBeNull()
+    expect(result.sources.paymentTermsDays).toBeNull()
+    expect(result.allowPurchaseOnAccount).toBe(false)
+    expect(result.sources.allowPurchaseOnAccount).toBeNull()
+    expect(em.findOne).not.toHaveBeenCalledWith(CustomerGroupTerms, expect.objectContaining({ groupId: PARENT_ID }))
+  })
+
+  it('ignores a caller-supplied group id that no longer resolves (soft-deleted)', async () => {
+    const terms = [makeTerms({ groupId: CHILD_ID, paymentTermsDays: 15 })]
+    const em = createEm({ groups: [], terms })
+    const service = new DefaultCustomerGroupsService(em as never)
+
+    const result = await service.resolveTerms({ customerId: CUSTOMER_ID, tenantId: TENANT_ID, groupIds: [CHILD_ID] })
+
+    expect(result.paymentTermsDays).toBeNull()
+    expect(result.sources.paymentTermsDays).toBeNull()
+  })
+})
+
+describe('loadCustomerGroupAncestorChain', () => {
+  it('returns self then ancestors, tenant- and deletion-scoped', async () => {
+    const groups = [
+      makeGroup({ id: CHILD_ID, parentId: PARENT_ID }),
+      makeGroup({ id: PARENT_ID, parentId: GRANDPARENT_ID }),
+      makeGroup({ id: GRANDPARENT_ID, parentId: null }),
+    ]
+    const em = createEm({ groups })
+
+    const chain = await loadCustomerGroupAncestorChain(em as never, CHILD_ID, TENANT_ID)
+
+    expect(chain.map((group) => group.id)).toEqual([CHILD_ID, PARENT_ID, GRANDPARENT_ID])
+    expect(em.findOne).toHaveBeenCalledWith(CustomerGroup, { id: PARENT_ID, tenantId: TENANT_ID, deletedAt: null })
+  })
+
+  it('stops before a missing (soft-deleted) parent instead of including its id', async () => {
+    const groups = [
+      makeGroup({ id: CHILD_ID, parentId: PARENT_ID }),
+      makeGroup({ id: GRANDPARENT_ID, parentId: null }),
+    ]
+    const em = createEm({ groups })
+
+    const chain = await loadCustomerGroupAncestorChain(em as never, CHILD_ID, TENANT_ID)
+
+    expect(chain.map((group) => group.id)).toEqual([CHILD_ID])
+  })
+
+  it('caps a cyclic parent graph at the depth limit', async () => {
+    const groups = [
+      makeGroup({ id: CHILD_ID, parentId: PARENT_ID }),
+      makeGroup({ id: PARENT_ID, parentId: CHILD_ID }),
+    ]
+    const em = createEm({ groups })
+
+    const chain = await loadCustomerGroupAncestorChain(em as never, CHILD_ID, TENANT_ID)
+
+    expect(chain).toHaveLength(5)
   })
 })
