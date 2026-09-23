@@ -7,6 +7,20 @@ const moneyStringSchema = z
   .string()
   .regex(/^\d+(\.\d{1,4})?$/, 'Amount must be a non-negative decimal with at most 4 decimal places.')
 
+// Converts a `moneyStringSchema`-shaped decimal string (non-negative, at
+// most 4 fractional digits) to an exact integer count of ten-thousandths,
+// for balance comparisons. `Number(...)` loses precision once a sum
+// approaches 1e13 (0.0001 falls below double precision there), so an
+// unbalanced entry could otherwise pass this check and only be caught by
+// the DB trigger (PR #6340 review, m7) — BigInt arithmetic has no such
+// ceiling.
+function toMinorUnits(amount: string | undefined): bigint {
+  if (!amount) return 0n
+  const [whole, fraction = ''] = amount.split('.')
+  const paddedFraction = `${fraction}0000`.slice(0, 4)
+  return BigInt(whole) * 10000n + BigInt(paddedFraction)
+}
+
 // One line of a journal entry. Mirrors the DB's
 // `journal_entry_line_one_sided_chk` check constraint at the application
 // layer (see migrations) — exactly one of `debit`/`credit` may be
@@ -21,9 +35,9 @@ export const journalEntryLineInputSchema = z
   })
   .refine(
     (line) => {
-      const debit = Number(line.debit ?? '0')
-      const credit = Number(line.credit ?? '0')
-      return (debit === 0 || credit === 0) && (debit > 0 || credit > 0)
+      const debit = toMinorUnits(line.debit)
+      const credit = toMinorUnits(line.credit)
+      return (debit === 0n || credit === 0n) && (debit > 0n || credit > 0n)
     },
     { message: 'Each journal entry line must have exactly one side (debit or credit) greater than zero.' },
   )
@@ -56,9 +70,9 @@ export const postJournalEntrySchema = z
   })
   .refine(
     (data) => {
-      const totalDebit = data.lines.reduce((sum, line) => sum + Number(line.debit ?? '0'), 0)
-      const totalCredit = data.lines.reduce((sum, line) => sum + Number(line.credit ?? '0'), 0)
-      return Math.abs(totalDebit - totalCredit) < 0.00005
+      const totalDebit = data.lines.reduce((sum, line) => sum + toMinorUnits(line.debit), 0n)
+      const totalCredit = data.lines.reduce((sum, line) => sum + toMinorUnits(line.credit), 0n)
+      return totalDebit === totalCredit
     },
     { message: 'Journal entry is not balanced: total debits must equal total credits.', path: ['lines'] },
   )
