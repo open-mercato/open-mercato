@@ -10,7 +10,7 @@ import {
   createOrganizationFixture,
   deleteOrganizationIfExists,
 } from '@open-mercato/core/helpers/integration/authFixtures';
-import { getTokenContext, deleteGeneralEntityIfExists } from '@open-mercato/core/helpers/integration/generalFixtures';
+import { getTokenContext, deleteGeneralEntityIfExists, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 import {
   createCurrencyFixture,
   generateUniqueCurrencyCode,
@@ -26,11 +26,11 @@ import {
 
 /**
  * TC-GL-001: `GET /api/ledger/journal-entries` — listing, filtering by
- * periodId/accountId, and 403 without `ledger.entries.view` (OM-14).
+ * periodId/accountId, and 403 without `ledger.entries.view`.
  *
- * Scope per the OM-14 ticket and the spec's own Testing Strategy
- * ("Integration: `GET /api/ledger/journal-entries` returns filtered results
- * and 403s without `ledger.entries.view`") — see
+ * Scope per the spec's own Testing Strategy ("Integration: `GET
+ * /api/ledger/journal-entries` returns filtered results and 403s without
+ * `ledger.entries.view`") — see
  * `.ai/specs/2026-08-18-general-ledger-core-engine.md`.
  *
  * `postJournalEntry` has no HTTP route in Phase 1 (API Contracts: "No
@@ -39,15 +39,15 @@ import {
  * journal entries this spec reads back are seeded directly in the database
  * via `seedJournalEntryInDb` rather than posted through the command — see
  * that helper's doc comment. Balance/period-lock/reversal/sequence-
- * concurrency behavior of the command itself is covered by the OM-13 unit
- * suite and the OM-174 BDD scenarios, not here.
+ * concurrency behavior of the command itself is covered by this module's
+ * unit test suite and BDD scenarios, not here.
  */
 
 const randomSlug = (prefix: string) => `${prefix}-${randomUUID().slice(0, 8)}`;
 
 async function createTenant(request: APIRequestContext, token: string, name: string): Promise<string> {
   const response = await apiRequest(request, 'POST', '/api/directory/tenants', { token, data: { name } });
-  const body = (await response.json().catch(() => null)) as { id?: string } | null;
+  const body = await readJsonSafe<{ id?: string }>(response);
   expect(response.status(), 'POST /api/directory/tenants should return 201').toBe(201);
   const id = body?.id;
   expect(typeof id === 'string' && id.length > 0).toBeTruthy();
@@ -103,6 +103,10 @@ test.describe('TC-GL-001: journal-entries list/filter/403', () => {
     let revenueAccountId: string | null = null;
     let entryInPeriodAId: string | null = null;
     let entryInPeriodBId: string | null = null;
+    // Hoisted out of `try` (rather than a `const` declared inside it) so the
+    // `finally` block's cleanup calls can also send the same scoped cookies
+    // — see the m11 fix note on those calls below.
+    let headers: Record<string, string> = {};
 
     try {
       tenantId = await createTenant(request, superadminToken, `QA TC-GL-001 Tenant ${stamp}`);
@@ -111,11 +115,14 @@ test.describe('TC-GL-001: journal-entries list/filter/403', () => {
         tenantId,
       });
       const scope = { tenantId, organizationId };
-      const headers = scopedHeaders(scope);
+      headers = scopedHeaders(scope);
 
       currencyId = await createCurrencyFixture(request, superadminToken, {
         code: generateUniqueCurrencyCode(),
         name: 'QA TC-GL-001 Currency',
+        organizationId,
+        tenantId,
+        headers,
       });
 
       // Two disjoint, non-overlapping fiscal periods — operationDate then
@@ -217,16 +224,25 @@ test.describe('TC-GL-001: journal-entries list/filter/403', () => {
       expect(listAllIds, 'unfiltered listing should include the period-A entry').toContain(entryInPeriodAId);
       expect(listAllIds, 'unfiltered listing should include the period-B entry').toContain(entryInPeriodBId);
     } finally {
+      // PR #6340 review, m11: the fixtures above were created under the
+      // QA tenant/org's own scope (via `headers`'s selected-tenant/org
+      // cookies) — deleting them through superadminToken WITHOUT those same
+      // headers resolves `ctx.selectedOrganizationId` to superadmin's own
+      // home org instead (see api/accounts/route.ts), so the delete
+      // silently no-ops against the wrong scope and the fixture leaks.
       await deleteJournalEntryInDb(entryInPeriodAId);
       await deleteJournalEntryInDb(entryInPeriodBId);
-      await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/accounts', cashAccountId);
-      await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/accounts', revenueAccountId);
-      await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/account-types', accountTypeId);
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/accounts', cashAccountId, { headers });
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/accounts', revenueAccountId, { headers });
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/account-types', accountTypeId, { headers });
       // FiscalPeriod ships no DELETE route in Phase 1 (spec's Design decisions);
       // the rows are left behind but scoped to this test's own throwaway
       // organization, which is deleted below.
-      await deleteCurrenciesEntityIfExists(request, superadminToken, '/api/currencies/currencies', currencyId);
+      await deleteCurrenciesEntityIfExists(request, superadminToken, '/api/currencies/currencies', currencyId, { headers });
       await deleteOrganizationIfExists(request, superadminToken, organizationId);
+      // Same leak as above: `createTenant` never had a matching cleanup call,
+      // leaving a throwaway tenant behind after every run of this test.
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', tenantId);
     }
   });
 });

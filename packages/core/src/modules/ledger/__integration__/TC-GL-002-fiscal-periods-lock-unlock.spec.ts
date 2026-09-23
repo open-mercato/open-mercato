@@ -12,15 +12,16 @@ import {
 } from '@open-mercato/core/helpers/integration/authFixtures';
 import { OPTIMISTIC_LOCK_HEADER_NAME, OPTIMISTIC_LOCK_CONFLICT_CODE } from '@open-mercato/shared/lib/crud/optimistic-lock-headers';
 import { createFiscalPeriodFixture, getFiscalPeriod } from '@open-mercato/core/helpers/integration/ledgerFixtures';
+import { deleteGeneralEntityIfExists, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 
 /**
  * TC-GL-002: `POST /api/ledger/fiscal-periods/:id/lock` / `.../unlock` —
  * 200 (success), 409 (optimistic-lock conflict), 403 (missing
- * `ledger.periods.manage`) (OM-14).
+ * `ledger.periods.manage`).
  *
- * Scope per the OM-14 ticket and the spec's own Testing Strategy ("the
- * fiscal-periods lock/unlock routes return 200 / 409 (stale updated_at) / 403
- * (missing ledger.periods.manage) as specified in API Contracts") — see
+ * Scope per the spec's own Testing Strategy ("the fiscal-periods
+ * lock/unlock routes return 200 / 409 (stale updated_at) / 403 (missing
+ * ledger.periods.manage) as specified in API Contracts") — see
  * `.ai/specs/2026-08-18-general-ledger-core-engine.md`.
  *
  * Each test creates its own fiscal period (`FiscalPeriod` ships no DELETE
@@ -34,7 +35,7 @@ const randomSlug = (prefix: string) => `${prefix}-${randomUUID().slice(0, 8)}`;
 
 async function createTenant(request: APIRequestContext, token: string, name: string): Promise<string> {
   const response = await apiRequest(request, 'POST', '/api/directory/tenants', { token, data: { name } });
-  const body = (await response.json().catch(() => null)) as { id?: string } | null;
+  const body = await readJsonSafe<{ id?: string }>(response);
   expect(response.status(), 'POST /api/directory/tenants should return 201').toBe(201);
   const id = body?.id;
   expect(typeof id === 'string' && id.length > 0).toBeTruthy();
@@ -93,6 +94,9 @@ test.describe('TC-GL-002: fiscal-periods lock/unlock 200/409/403', () => {
       expect(unlockBody.isLocked).toBe(false);
     } finally {
       await deleteOrganizationIfExists(request, superadminToken, organizationId);
+      // PR #6340 review, m11: createTenant() had no matching cleanup call,
+      // leaking a throwaway tenant on every run of this test.
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', tenantId);
     }
   });
 
@@ -133,6 +137,7 @@ test.describe('TC-GL-002: fiscal-periods lock/unlock 200/409/403', () => {
       expect(after.isLocked, 'a 409 conflict must not lock the period').toBe(false);
     } finally {
       await deleteOrganizationIfExists(request, superadminToken, organizationId);
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', tenantId);
     }
   });
 
@@ -177,6 +182,7 @@ test.describe('TC-GL-002: fiscal-periods lock/unlock 200/409/403', () => {
       expect(after.isLocked, 'a 409 conflict must not unlock the period').toBe(true);
     } finally {
       await deleteOrganizationIfExists(request, superadminToken, organizationId);
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', tenantId);
     }
   });
 
@@ -233,6 +239,7 @@ test.describe('TC-GL-002: fiscal-periods lock/unlock 200/409/403', () => {
       await deleteUserIfExists(request, superadminToken, userId);
       await deleteRoleIfExists(request, superadminToken, roleId);
       await deleteOrganizationIfExists(request, superadminToken, organizationId);
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', tenantId);
     }
   });
 });
