@@ -760,7 +760,7 @@ through the module configuration screen.
 | `events.ts` | Create | Two events (see Events) |
 | `commands/paymentBatches.ts` | Create | `createPaymentBatch`, `updatePaymentBatch`, `confirmPaymentBatch`, `markPaymentBatchSent`, `cancelPaymentBatch` |
 | `lib/whitelistCheck.ts` | Create | Local `tryResolve` wrapper around `contractorBankWhitelistCheck`, fail-closed policy |
-| `lib/vendorInvoiceQueries.ts` | Create | Direct `entityManager` queries against `accounts_payable.VendorInvoice` (or a call to a thin query command, if that's decided at code review — see Design decisions) |
+| `lib/vendorInvoiceQueries.ts` | Create | Direct `entityManager` queries against `accounts_payable.VendorInvoice` — the "thin query command" alternative was closed, not left open for code review (**synced 2026-09-23**, see Alternatives considered) |
 | `api/openapi.ts` | Create | `openApi` exports for every `accounts_payable_payments` route |
 | `api/payments/route.ts` | Create | `PaymentBatch` CRUD (`makeCrudRoute`) |
 | `api/payments/[id]/lines/route.ts`, `.../confirm/route.ts`, `.../send/route.ts`, `.../cancel/route.ts` | Create | Custom guarded write routes |
@@ -1213,3 +1213,10 @@ before being fixed, not accepted on the review's word alone:
 - Updated the Final Compliance Report (Compliance Matrix, Internal
   Consistency Check, Non-Compliant Items, Verdict) to record all of
   the above.
+
+### 2026-09-23 (closing a loose end from PR #5962's review round)
+
+- The File Manifest's `lib/vendorInvoiceQueries.ts` row still hedged
+  "or a call to a thin query command, if that's decided at code
+  review" even though the Alternatives-considered table explicitly
+  closed that door in the 2026-09-08 fix. Synced the row to match.

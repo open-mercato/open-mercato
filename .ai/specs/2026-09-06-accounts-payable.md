@@ -754,6 +754,10 @@ async seedDefaults({ em, tenantId, organizationId }) {
   (`accounts_payable.liabilityAccountId`, the full `totalGross` amount
   — `ModuleConfigService`, see Data Models — **the same configuration
   value that `accounts_payable_payments` reads later**), with
+  `currencyId: invoice.currencyId` (**added 2026-09-23** — an earlier
+  draft listed every other field this call passes but omitted the one
+  GL's `postJournalEntry` requires on every entry; VendorInvoice's own
+  `currencyId` is the obvious, and only, source for it here),
   `referenceType: 'accounts_payable:vendor_invoice'`,
   `referenceId: invoice.id`, `operationDate: invoice.invoiceDate`,
   `documentType: 'external_foreign'` (a vendor invoice is a dowód
@@ -1734,3 +1738,13 @@ changes what `postVendorInvoice` sends downstream.
 - No structural changes to Architecture/Data Models/Commands from this
   pass — Steps 1-3 of `financial-spec-writing-process` only; Step 4
   (structure) was already satisfied by the existing document.
+
+### 2026-09-23 (closing two loose ends from PR #5962's review round)
+
+- `postVendorInvoice`'s described `ledger.postJournalEntry` call listed
+  every other argument (net/VAT/liability lines, `referenceType`/
+  `referenceId`, `operationDate`, `documentType`, `documentNumber`) but
+  never named `currencyId`, which GL requires on every entry. Added
+  `currencyId: invoice.currencyId` — the review's own aside noted this
+  gap, but the 2026-09-08 fix commit's summary didn't list it among
+  what it closed.
