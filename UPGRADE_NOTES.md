@@ -24,6 +24,34 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### `customers` now requires `progress` to be enabled (#6302)
+
+`customers`'s deal bulk-update workers and lib (`lib/bulkDeals.ts`,
+`workers/deals-bulk-update-owner.ts`, `workers/deals-bulk-update-stage.ts`) resolve
+`progressService` from the DI container, which is registered only by the `progress` module. An
+app that enabled `customers` without `progress` previously got no build-time warning: the bulk
+deal-update API routes still returned a job id and a `200`, and the worker then failed on every
+retry with `AwilixResolutionError: Could not resolve 'progressService'`, with no error surfaced
+to the user and no `progress_jobs` row to inspect — the same silent-failure class as
+`communication_channels` (#6094).
+
+`customers`'s `ModuleInfo` now declares `requires: ['progress']`, so the existing
+generator-enforced dependency check (already used by `sales`, `wms`, `push_notifications`,
+`api_keys`, and `communication_channels`) now covers it too. If your `src/modules.ts` enables
+`customers` without `progress`, `yarn generate` now fails fast instead of shipping the silent
+worker failure:
+
+```
+Module dependency check failed:
+- Module "customers" requires: progress
+```
+
+**Action for module authors:** add `{ id: 'progress', from: '@open-mercato/core' }` to
+`src/modules.ts` before `customers`, then re-run `yarn generate`. `apps/mercato/src/modules.ts`
+and the `create-app` template already enable `progress`, so this repo's own apps and freshly
+scaffolded `classic`/`crm` apps are unaffected; the `wms` starter preset has been updated to add
+`progress` alongside `customers` for the same reason.
+
 ### `encryptEntityPayload`/`encryptFields` can now throw `TenantDataEncryptionError` (`WRONG_KEY`) instead of silently corrupting data (#5951)
 
 `TenantDataEncryptionService.encryptFields` treated a field as "already encrypted" whenever it
