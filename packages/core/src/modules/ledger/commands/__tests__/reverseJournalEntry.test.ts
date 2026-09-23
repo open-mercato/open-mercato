@@ -232,4 +232,55 @@ describe('ledger.reverseJournalEntry', () => {
     const reversalEntry = (em.tables.get('JournalEntry') ?? []).find((e) => e.id === result.journalEntryId)
     expect(reversalEntry?.description).toBe('Reversal of journal entry #1')
   })
+
+  // PR #6340 review, M3 ("Coverage gaps"): the review's own M3 finding
+  // asked for "a guard, ideally backed by a partial unique index, plus a
+  // test" — this covers the double-reversal case the guard added to
+  // `loadOriginalEntry` exists to reject, on top of the application-layer
+  // guard already exercised indirectly by every other test in this file
+  // passing with a single reversal.
+  it('rejects reversing an entry that has already been reversed', async () => {
+    const command = loadReverseJournalEntry()
+    const em = buildFakeEm()
+    seedOriginalEntry(em)
+    seedOpenPeriod(em, 'period-may-open', '2026-05-01', '2026-05-31')
+    seedOpenPeriod(em, 'period-june-open', '2026-06-01', '2026-06-30')
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
+
+    await command.execute(
+      { organizationId: ORG, tenantId: TENANT, journalEntryId: ORIGINAL_ENTRY_ID, operationDate: '2026-05-15' },
+      ctx,
+    )
+
+    await expect(
+      command.execute(
+        { organizationId: ORG, tenantId: TENANT, journalEntryId: ORIGINAL_ENTRY_ID, operationDate: '2026-06-15' },
+        ctx,
+      ),
+    ).rejects.toMatchObject({ status: 409, body: { error: expect.stringMatching(/already been reversed/i) } })
+  })
+
+  it('rejects reversing a REVERSAL entry itself', async () => {
+    const command = loadReverseJournalEntry()
+    const em = buildFakeEm()
+    seedOriginalEntry(em)
+    seedOpenPeriod(em, 'period-may-open', '2026-05-01', '2026-05-31')
+    seedOpenPeriod(em, 'period-june-open', '2026-06-01', '2026-06-30')
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
+
+    const firstReversal = await command.execute(
+      { organizationId: ORG, tenantId: TENANT, journalEntryId: ORIGINAL_ENTRY_ID, operationDate: '2026-05-15' },
+      ctx,
+    )
+
+    await expect(
+      command.execute(
+        { organizationId: ORG, tenantId: TENANT, journalEntryId: firstReversal.journalEntryId, operationDate: '2026-06-15' },
+        ctx,
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      body: { error: expect.stringMatching(/itself a reversal/i) },
+    })
+  })
 })

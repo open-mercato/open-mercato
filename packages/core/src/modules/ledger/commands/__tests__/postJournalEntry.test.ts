@@ -22,7 +22,19 @@ jest.mock('@open-mercato/shared/lib/commands', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: jest.fn().mockResolvedValue({
-    translate: (_key: string, fallback?: string) => fallback ?? _key,
+    // Mirrors `createFallbackTranslator`'s real `{key}`/`{{key}}`
+    // interpolation (packages/shared/src/lib/i18n/translate.ts) — needed
+    // since M5's accountNotFound message interpolates `{ids}` into its
+    // own fallback text rather than pre-baking the value via a JS
+    // template literal.
+    translate: (_key: string, fallback?: string, params?: Record<string, unknown>) => {
+      const text = fallback ?? _key
+      if (!params) return text
+      return text.replace(/\{\{(\w+)\}\}|\{(\w+)\}/g, (_match: string, doubleKey?: string, singleKey?: string) => {
+        const paramKey = doubleKey ?? singleKey
+        return paramKey && paramKey in params ? String(params[paramKey]) : _match
+      })
+    },
   }),
 }))
 
@@ -195,6 +207,62 @@ describe('ledger.postJournalEntry', () => {
       status: 422,
       body: { error: expect.stringMatching(/no fiscal period/i) },
     })
+  })
+
+  // PR #6340 review, M5 ("Coverage gaps"): the review flagged "no tests for
+  // ... posting to an out-of-scope or deleted account" alongside the M5
+  // finding itself — these three cover currencyId, a missing accountId,
+  // and a soft-deleted accountId, and confirm the sequence allocator
+  // (em.execute) is never reached, matching the fix's own doc comment
+  // ("a request that fails this check never burns a sequence number").
+  it('rejects posting when the currency does not exist for the organization', async () => {
+    const command = loadPostJournalEntry()
+    const em = buildFakeEm()
+    seedOpenPeriod(em, '2026-02-01', '2026-02-28')
+    em.seed(LedgerAccount, { id: CASH_ACCOUNT, organizationId: ORG, tenantId: TENANT, deletedAt: null })
+    em.seed(LedgerAccount, { id: REVENUE_ACCOUNT, organizationId: ORG, tenantId: TENANT, deletedAt: null })
+    // Deliberately no Currency seeded.
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
+
+    await expect(command.execute(balancedInput(), ctx)).rejects.toMatchObject({
+      status: 422,
+      body: { error: expect.stringMatching(/currency/i) },
+    })
+    expect(em.execute).not.toHaveBeenCalled()
+  })
+
+  it('rejects posting when a line references an account that does not exist for the organization', async () => {
+    const command = loadPostJournalEntry()
+    const em = buildFakeEm()
+    seedOpenPeriod(em, '2026-02-01', '2026-02-28')
+    em.seed(Currency, { id: CURRENCY, organizationId: ORG, tenantId: TENANT, deletedAt: null })
+    em.seed(LedgerAccount, { id: CASH_ACCOUNT, organizationId: ORG, tenantId: TENANT, deletedAt: null })
+    // REVENUE_ACCOUNT deliberately not seeded.
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
+
+    await expect(command.execute(balancedInput(), ctx)).rejects.toMatchObject({
+      status: 422,
+      body: { error: expect.stringMatching(new RegExp(REVENUE_ACCOUNT)) },
+    })
+    expect(em.execute).not.toHaveBeenCalled()
+  })
+
+  it('rejects posting when a line references a soft-deleted account', async () => {
+    const command = loadPostJournalEntry()
+    const em = buildFakeEm()
+    seedOpenPeriod(em, '2026-02-01', '2026-02-28')
+    em.seed(Currency, { id: CURRENCY, organizationId: ORG, tenantId: TENANT, deletedAt: null })
+    em.seed(LedgerAccount, { id: CASH_ACCOUNT, organizationId: ORG, tenantId: TENANT, deletedAt: null })
+    // REVENUE_ACCOUNT exists, but soft-deleted — must be treated the same
+    // as not existing, not silently accepted because a row is present.
+    em.seed(LedgerAccount, { id: REVENUE_ACCOUNT, organizationId: ORG, tenantId: TENANT, deletedAt: new Date('2026-01-01') })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
+
+    await expect(command.execute(balancedInput(), ctx)).rejects.toMatchObject({
+      status: 422,
+      body: { error: expect.stringMatching(/account/i) },
+    })
+    expect(em.execute).not.toHaveBeenCalled()
   })
 
   it('translates a deferred balance-trigger violation at commit into a readable error', async () => {
