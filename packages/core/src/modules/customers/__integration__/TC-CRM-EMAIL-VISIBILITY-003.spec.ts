@@ -112,6 +112,27 @@ async function fetchInteractionIds(
   return ids
 }
 
+/** Full message DTOs for this Person, so attribution fields can be asserted. */
+async function fetchThreadMessages(
+  request: APIRequestContext,
+  token: string,
+  personId: string,
+): Promise<Array<Record<string, unknown>>> {
+  const resp = await apiRequest(
+    request,
+    'GET',
+    `/api/customers/people/${encodeURIComponent(personId)}/email-threads`,
+    { token },
+  )
+  expect(resp.ok(), `GET /email-threads should succeed (got ${resp.status()})`).toBeTruthy()
+  const body = await readJsonSafe<{ threads?: Array<{ messages?: Array<Record<string, unknown>> }> }>(resp)
+  const out: Array<Record<string, unknown>> = []
+  for (const thread of body?.threads ?? []) {
+    for (const message of thread.messages ?? []) out.push(message)
+  }
+  return out
+}
+
 async function getShareState(
   request: APIRequestContext,
   token: string,
@@ -405,6 +426,27 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-003: owner-initiated conversation sharing
             'the private-email count must drop to 0 once the conversation is readable',
           ).toBe(0);
         }
+
+        // Attribution: the shared message must be credited to its AUTHOR.
+        // Outbound email carries no `from` header, so before this contract the
+        // UI keyed the sender label on direction alone and showed a teammate
+        // their colleague's email as if they had sent it themselves.
+        const bMessages = await fetchThreadMessages(request, userBToken, personId);
+        const bShared = bMessages.find((m) => m.id === priv.linkId);
+        expect(bShared, 'User B should receive the shared message DTO').toBeTruthy();
+        expect(
+          bShared?.authoredByViewer,
+          "the shared email was written by User A, so it must NOT be credited to User B",
+        ).toBe(false);
+        expect(
+          typeof bShared?.authorName === 'string' && (bShared?.authorName as string).length > 0,
+          'User B should see a name for the colleague who sent it',
+        ).toBe(true);
+
+        // The author's own view still reads as their own message.
+        const aMessages = await fetchThreadMessages(request, userAToken, personId);
+        const aOwn = aMessages.find((m) => m.id === priv.linkId);
+        expect(aOwn?.authoredByViewer, "User A authored it, so it is theirs").toBe(true);
 
         // B now sees who shared it.
         const bStateShared = await getShareState(request, userBToken, personId);

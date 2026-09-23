@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
@@ -16,12 +16,12 @@ import {
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import { CustomerEntity } from '../../../../data/entities'
-import { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { EmailConversationShareSetCommandInput } from '../../../../data/validators'
 import {
   canShareConversation,
   listSharesForPerson,
 } from '../../../../lib/conversationShares'
+import { resolveUserNames } from '../../../../lib/userNames'
 import { invalidatePersonDetailCache } from '../../../../lib/personDetailCacheTags'
 
 export const metadata = {
@@ -244,33 +244,6 @@ export async function PUT(req: Request, context: RouteContext): Promise<Response
   await invalidatePersonDetailCache(container, tenantId, organizationId)
 
   return NextResponse.json({ ok: true, changed: result.changed, shared: body.shared })
-}
-
-async function resolveUserNames(
-  em: EntityManager,
-  tenantId: string,
-  organizationId: string | null,
-  userIds: string[],
-): Promise<Map<string, string>> {
-  const names = new Map<string, string>()
-  const unique = Array.from(new Set(userIds.filter((id) => typeof id === 'string' && id)))
-  if (unique.length === 0) return names
-  try {
-    const users = (await findWithDecryption(
-      em,
-      User,
-      { id: { $in: unique } } as never,
-      undefined,
-      { tenantId, organizationId },
-    )) as Array<{ id: string; name?: string | null; email?: string | null }>
-    for (const user of Array.isArray(users) ? users : []) {
-      const label = user.name?.trim() || user.email?.trim() || null
-      if (label) names.set(user.id, label)
-    }
-  } catch {
-    /* best effort — the badge falls back to a generic label without a name */
-  }
-  return names
 }
 
 export const openApi = {

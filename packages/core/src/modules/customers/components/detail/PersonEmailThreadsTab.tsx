@@ -212,6 +212,10 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
         direction: 'outbound',
         fromName: null,
         fromEmail: channel?.externalIdentifier ?? null,
+        // The viewer just composed this one, so it renders as "You" before the
+        // server round-trip replaces it with the persisted message.
+        authoredByViewer: true,
+        authorName: null,
         to: values.to,
         cc: values.cc ?? [],
         subject: values.subject,

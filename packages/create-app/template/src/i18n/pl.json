@@ -985,6 +985,7 @@
   "ui.email.threads.status.retry": "Ponów",
   "ui.email.threads.status.sending": "Wysyłanie…",
   "ui.email.threads.status.sent": "Wysłano",
+  "ui.email.threads.teammate": "Członek zespołu",
   "ui.email.threads.toLabel": "do {recipients}",
   "ui.email.threads.unknownParticipant": "Nieznany nadawca",
   "ui.email.threads.you": "Ty",

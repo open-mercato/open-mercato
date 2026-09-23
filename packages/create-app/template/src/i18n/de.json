@@ -985,6 +985,7 @@
   "ui.email.threads.status.retry": "Erneut versuchen",
   "ui.email.threads.status.sending": "Wird gesendet…",
   "ui.email.threads.status.sent": "Gesendet",
+  "ui.email.threads.teammate": "Ein Teammitglied",
   "ui.email.threads.toLabel": "an {recipients}",
   "ui.email.threads.unknownParticipant": "Unbekannter Absender",
   "ui.email.threads.you": "Sie",
