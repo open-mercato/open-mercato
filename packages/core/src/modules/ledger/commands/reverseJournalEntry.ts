@@ -11,6 +11,7 @@ import { conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 import { JournalEntry, JournalEntryLine } from '../data/entities'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { reverseJournalEntrySchema, type ReverseJournalEntryInput } from '../data/validators'
 import { isComposedPostingCall, runPostJournalEntry, withPostingTransaction, type JournalEntryPostCore, type PostJournalEntryResult } from './postJournalEntry'
 import { emitLedgerEvent } from '../events'
@@ -63,11 +64,23 @@ async function loadOriginalEntry(
   if (existingReversal) {
     throw conflict(translate('ledger.errors.journalEntryAlreadyReversed', 'This journal entry has already been reversed.'))
   }
-  const lines = await em.find(JournalEntryLine, {
-    journalEntryId: entry.id,
-    organizationId: scope.organizationId,
-    tenantId: scope.tenantId,
-  })
+  // `JournalEntryLine.contractorSnapshot` is encrypted at rest
+  // (encryption.ts) and gets copied verbatim into the reversal's own
+  // lines below — reading it through plain `em.find` skipped decryption,
+  // so the copy would depend on how MikroORM happens to surface an
+  // encrypted column rather than going through the documented decryption
+  // path (PR #6340 review, m9).
+  const lines = await findWithDecryption(
+    em,
+    JournalEntryLine,
+    {
+      journalEntryId: entry.id,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+    },
+    undefined,
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
   return { entry, lines }
 }
 
