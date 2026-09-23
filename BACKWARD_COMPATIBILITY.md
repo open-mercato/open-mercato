@@ -470,3 +470,16 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 **Operator note — terminal queue failures.** Not a contract break, but visible in an alert rule: on the **local** strategy a job's final attempt previously emitted both `queue.job_failed` and `queue.job_exhausted`; it now emits only `queue.job_exhausted`, matching the `async` strategy. An alert thresholding on `queue.job_failed` alone stops seeing terminal failures — page on `queue.job_exhausted`.
 
 **Volume note for operators.** Reported error *volume* rises where errors were previously only recorded: an integration that writes 115 error rows now also reports 115 errors, grouped by `error.code` at the backend. This is deliberate — see the spec's §S3 — and the controls are the collector's filtering/sampling and the backend's own quotas, not a framework switch.
+
+## Customers Quick-Create Injection Spot Bridge (2026-09-16)
+
+[`.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md`](.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md) binds the sales document form's Person/Company quick-create dialogs to the customers module's declared `crud-form:customers.person` / `…company` hosts. The dialogs previously had no `injectionSpotId`, so `CrudForm` auto-derived `crud-form:customers.customer_entity` (§6, FROZEN) there instead.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Widget Injection Spot IDs (§6) | `CrudForm` gains an additive `legacyInjectionSpotId?: string` prop. When set, its header/body/field widgets are dual-published alongside the primary `injectionSpotId`'s — `crud-form:customers.customer_entity` stays live on these two dialogs via the bridge, so nothing that already targets it stops rendering | ✓ ADDITIVE (bridge, not a removal — see Deprecation Protocol steps 1–3) |
+| Widget Injection Spot IDs (§6) | The two dialogs now also publish `crud-form:customers.person` / `…company` (previously published only by the person/company detail pages) | ✓ ADDITIVE ("MAY add new spot IDs to new or existing pages") |
+| Context passed to widgets at `crud-form:customers.person` / `…company` | These hosts' widgets now also mount with `operation: 'create'` and no `recordId` on the two quick-create dialogs, for the first time — previously always `operation: 'update'` with a concrete `recordId` | Disclosed in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) "Action for module authors"; not itself a contract surface change (§6 permits "new optional context fields", and `operation`/`recordId` were always part of the injection context shape) |
+| Type definitions (§2) | New optional `CrudForm` prop `legacyInjectionSpotId?: string` | ✓ ADDITIVE |
+
+**Deprecation window.** `legacyInjectionSpotId` is scoped to these two call sites and intended for removal after at least one minor version (Deprecation Protocol step 1), tracked in the spec's Changelog and in `UPGRADE_NOTES.md`. No maintainer waiver was needed — nothing is removed by this change.

@@ -84,6 +84,49 @@ for how to resolve an affected row.
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).
 
+### The sales document quick-create dialogs publish the declared customers hosts (#6017)
+
+The "Create person" and "Create company" quick dialogs on the sales document form
+(`packages/core/src/modules/sales/components/documents/SalesDocumentForm.tsx`) rendered an embedded
+`CrudForm` with `entityIds` and no `injectionSpotId`. `CrudForm` therefore derived the injection host
+from the **first** entity id — `E.customers.customer_entity` on both dialogs — and published
+`crud-form:customers.customer_entity` and its `:fields` child instead of the hosts the customers module
+declares in its `extension-points.ts`. A widget registered against `crud-form:customers.person` or
+`crud-form:customers.company` reached the person and company detail pages but never these two dialogs.
+Both now pass `injectionSpotId={extensionPoints.hosts.personForm.spotId}` and
+`…hosts.companyForm.spotId`, read from the customers module's own declaration so the surfaces cannot
+drift apart again.
+
+**This is an additive change — no action required for existing widgets.** Rather than remove
+`crud-form:customers.customer_entity` (§6, FROZEN) as a live surface on these two dialogs, `CrudForm`
+gained a new `legacyInjectionSpotId?: string` prop that dual-publishes a prior spot id's header, body, and
+field widgets alongside the primary one. Both dialogs pass
+`legacyInjectionSpotId={crudFormExtensionSpotId('customers.customer_entity')}` — the exact id `CrudForm`
+used to auto-derive here — so any widget still targeting it keeps rendering in both quick-create dialogs,
+unchanged. See [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) §6 and
+[`.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md`](.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md)
+for the full contract analysis.
+
+Nothing else about the dialogs changes: `entityIds` is untouched, so custom-field resolution and the
+component-replacement handle behave exactly as before, and validation and save are unaffected. Widgets
+already registered against `crud-form:customers.person` / `crud-form:customers.company` need no change and
+now additionally render in the matching quick dialog — including the `customer_accounts` Account Status and
+Company Users groups, which find no `recordId` in create mode and render their empty state.
+
+**Deprecation window.** `legacyInjectionSpotId` on these two call sites is intended to be removed after at
+least one minor version — track the removal against this entry and the spec above. Until then, no action is
+required from module authors targeting either the legacy id or the declared hosts.
+
+**Action for module authors — required if you target `crud-form:customers.person` / `…company` (or their
+`:fields` children), or the legacy `crud-form:customers.customer_entity` (or its `:fields` child), today.**
+Before this release, the only publishers of `crud-form:customers.person` / `…company` were the person and
+company **detail** pages, so every widget registered there has only ever rendered with a saved record present
+(`operation: 'update'`, a concrete `recordId`). These two sales quick-create dialogs are the first surfaces
+to mount either host — or the bridged legacy id — in **create mode**: no `recordId`, `operation: 'create'`.
+If your widget assumed a record always exists (e.g. it queries by `recordId` unconditionally), it now also
+mounts in the dialogs and must tolerate `recordId` being `undefined` — render an empty/pending state instead
+of querying, the way the in-repo `customer_accounts` Account Status and Company Users groups already do.
+
 ### `catalog`'s `PricingContext` gained an optional `currencyCode` filter (opt-in, strictly safer)
 
 `PricingContext` (`@open-mercato/core/modules/catalog/lib/pricing`) gained two additive, optional
@@ -528,6 +571,16 @@ The query object is now built by `buildQueryParams` from `@open-mercato/shared/l
 **One behavior change worth planning for.** A list route whose schema types a filter param as a plain `z.string()` (no array branch) now returns **400** when a client sends that param twice, where it previously accepted the request and silently used the last value. That is the correct failure mode — quietly discarding a caller's filter is the defect this fixes — but a lenient client may be relying on the old behavior. Callers using the comma form, or sending each param once, are unaffected; a caller sending repeats starts receiving the values it already asked for, which is strictly a widening.
 
 **Action for module authors:** audit your own list-route schemas for filter params that clients may repeat. Where a param is genuinely multi-valued, widen it to `z.union([z.string(), z.array(z.string())])` (or `z.array(z.string())`) and normalize it with `toQueryValueList`. Where it is genuinely single-valued, no change is needed — a repeated occurrence should be rejected. No route URL, HTTP method, response field, `makeCrudRoute` signature, options type, or database column changes, so `BACKWARD_COMPATIBILITY.md` §2, §3 and §7 are not violated.
+
+### `PortalShell`'s `authenticated={false}` no longer overrides a signed-in portal context (#5678)
+
+`PortalShell` from `@open-mercato/ui/portal/PortalShell` resolved its chrome with `authenticatedProp ?? !!user`, so an explicit `authenticated={false}` won even when the `PortalProvider` above it held a real customer. That was not a safe default: the `(frontend)` layout that supplies the prop sits above the `[...slug]` segment precisely so portal navigation does not remount the client subtree, which means a client-side navigation never re-runs it and the prop can describe the route the visitor *arrived* on rather than the one being rendered. Entering the portal at `/{orgSlug}/portal` and following its `router.replace` to the dashboard left `false` in place, and the shell painted the logged-out header — Log In / Sign Up, no sidebar, and `enableEventBridge={false}` so the portal SSE bridge never mounted — around fully authenticated content.
+
+The precedence is now inverted: `!!user || (authenticatedProp ?? false)`. A context user upgrades the chrome, and a stale prop can no longer contradict what is actually rendered below it.
+
+**No prop was added, removed, or renamed, and the component's type is unchanged**, so nothing here breaks at compile time. What changes is the semantics of one value: `authenticated={false}` is now a *default* rather than a *veto*. For the documented use this is a no-op — public portal pages render `PortalShell` without a provider, where `user` is `null` anyway, and a test pins that case. The server layout was updated in the same change to withhold the session (`customerAuth`, `userName`, `userEmail`) on the public auth routes rather than only lowering the flag, which is what keeps `/portal/login`, `/signup`, `/invite`, `/reset-password` and `/verify` on the public chrome now that the context can win.
+
+**Action for module authors:** if you deliberately render force-public portal chrome for a signed-in customer — an unusual case, and none exists in this repository — `authenticated={false}` alone will no longer achieve it; render that surface outside the `PortalProvider`, or open an issue and an explicit opt-out prop can be added. No exported type, import path, widget spot ID, component-replacement handle, API route, event ID, DI key, or database column changes, so no `BACKWARD_COMPATIBILITY.md` protected surface is affected.
 
 ### `createTimeProjectFixture` needs a customer, and now says so instead of 422-ing
 
