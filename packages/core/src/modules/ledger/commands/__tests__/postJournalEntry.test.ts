@@ -1,5 +1,5 @@
-// OM-13 unit tests for `ledger.postJournalEntry` — scope per the Jira
-// ticket: balanced-vs-unbalanced posting, rejection in a locked fiscal
+// Unit tests for `ledger.postJournalEntry` — scope: balanced-vs-unbalanced
+// posting, rejection in a locked fiscal
 // period, and sequenceNumber correctness under concurrency. Follows
 // `currencies/commands/__tests__/scope.test.ts` /
 // `currencies.atomicity.test.ts`'s own conventions: `registerCommand` and
@@ -63,7 +63,7 @@ function balancedInput(overrides: Partial<Record<string, unknown>> = {}) {
     organizationId: ORG,
     tenantId: TENANT,
     operationDate: '2026-02-15',
-    description: 'OM-13 unit test entry',
+    description: 'Unit test entry',
     currencyId: CURRENCY,
     lines: [
       { accountId: CASH_ACCOUNT, debit: '100.0000' },
@@ -305,12 +305,18 @@ describe('ledger.postJournalEntry', () => {
     // #6340 review's M2 fix), not `em.getConnection().execute(...)` — assert
     // on `em.execute` itself rather than a connection obtained via
     // `getConnection()`, which this path no longer calls.
-    expect(em.execute.mock.calls).toHaveLength(CONCURRENT_POSTS)
-    for (const call of em.execute.mock.calls) {
+    // Each successful post now also issues one `SET CONSTRAINTS ...
+    // IMMEDIATE` call (PR #6340 review, m5) — filtered out below so this
+    // assertion still targets only the sequence allocator's own calls.
+    const sequenceCalls = em.execute.mock.calls.filter((call) => /insert into journal_entry_sequence/i.test(call[0] as string))
+    expect(sequenceCalls).toHaveLength(CONCURRENT_POSTS)
+    for (const call of sequenceCalls) {
       const sql = call[0] as string
       expect(sql).toMatch(/insert into journal_entry_sequence/i)
       expect(sql).toMatch(/on conflict/i)
       expect(sql).toMatch(/returning/i)
     }
+    const constraintCalls = em.execute.mock.calls.filter((call) => /set constraints/i.test(call[0] as string))
+    expect(constraintCalls).toHaveLength(CONCURRENT_POSTS)
   })
 })

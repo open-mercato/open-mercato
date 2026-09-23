@@ -290,6 +290,14 @@ export async function runPostJournalEntry(
 
   try {
     await em.flush()
+    // `journal_entry_line_balanced` is `deferrable initially deferred`, so
+    // it fires at COMMIT, not at `flush()` — the try/catch below never saw
+    // it, and the raw, untranslated Postgres error reached the caller (PR
+    // #6340 review, m5). Forcing the deferred check to run now, still
+    // inside this transaction and still inside this try, makes it
+    // catchable here instead of escaping past `withPostingTransaction`'s
+    // commit.
+    await em.execute('set constraints "journal_entry_line_balanced" immediate')
   } catch (err) {
     if (isBalanceTriggerViolation(err)) {
       throw new CrudHttpError(500, {

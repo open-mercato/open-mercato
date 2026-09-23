@@ -1,4 +1,4 @@
-// Shared fake `EntityManager` for OM-13's ledger command unit tests
+// Shared fake `EntityManager` for this module's command unit tests
 // (postJournalEntry / reverseJournalEntry / fiscalPeriods). Modeled on
 // `currencies/commands/__tests__/scope.test.ts` and
 // `currencies.atomicity.test.ts`'s own hand-rolled `buildEm()` helpers —
@@ -77,6 +77,10 @@ export function buildFakeEm(opts: { throwOnNextFlush?: unknown } = {}): FakeEm {
   }
 
   const connectionExecute = jest.fn(async (sql: string, params: unknown[]) => {
+    // `SET CONSTRAINTS ... IMMEDIATE` (postJournalEntry.ts, PR #6340 review
+    // m5) forces Postgres's deferred balance-check trigger to run before
+    // commit — this fake has no triggers at all, so it's a safe no-op here.
+    if (sql.toLowerCase().includes('set constraints')) return []
     if (!sql.includes('journal_entry_sequence')) {
       throw new Error(`buildFakeEm: unhandled raw SQL — ${sql}`)
     }

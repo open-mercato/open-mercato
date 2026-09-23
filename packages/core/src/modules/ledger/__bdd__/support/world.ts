@@ -1,5 +1,5 @@
 // Support helpers shared by every `ledger` BDD step-definition file
-// (OM-174). See `../README.md` for why this exists and what it does and
+// See `../README.md` for why this exists and what it does and
 // does not verify.
 //
 // `FakeEntityManager` is a minimal, hand-written stand-in for MikroORM's
@@ -127,6 +127,10 @@ export class FakeEntityManager {
   }
 
   private async rawExecute(sql: string, params: unknown[]): Promise<{ next_value: string }[]> {
+    // `SET CONSTRAINTS ... IMMEDIATE` (postJournalEntry.ts, PR #6340 review
+    // m5) forces Postgres's deferred balance-check trigger to run before
+    // commit — this fake has no triggers at all, so it's a safe no-op here.
+    if (sql.toLowerCase().includes('set constraints')) return []
     if (!sql.includes('journal_entry_sequence')) {
       throw new Error(`FakeEntityManager.execute(): unhandled raw SQL — ${sql}`)
     }
