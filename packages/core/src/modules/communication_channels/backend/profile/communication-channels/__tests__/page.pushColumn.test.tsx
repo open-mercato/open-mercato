@@ -62,8 +62,12 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
   },
 }))
 
+// `ConnectChannelMenu` (the header's connect dropdown, #5595) reads the spot's
+// widgets through `useInjectionWidgets`; with none injected it renders nothing,
+// which is what this push-column suite assumes.
 jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => ({
   InjectionSpot: () => null,
+  useInjectionWidgets: () => ({ widgets: [], loading: false, error: null }),
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({

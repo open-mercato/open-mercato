@@ -22,7 +22,104 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## 0.7.0 → 0.7.1 (unreleased)
+## 0.8.0 → 0.8.1 (unreleased)
+
+### `encryptEntityPayload`/`encryptFields` can now throw `TenantDataEncryptionError` (`WRONG_KEY`) instead of silently corrupting data (#5951)
+
+`TenantDataEncryptionService.encryptFields` treated a field as "already encrypted" whenever it
+decrypted under the **current** tenant DEK — a deliberate anti-forgery check (#2720). Real
+ciphertext sealed under a *different* key (a DEK mid-rotation, or the PBKDF2 fallback key the KMS
+falls back to during a Vault outage) failed that check too, so it was encrypted a **second** time,
+producing a nested envelope no read path can undo, plus a lookup hash computed over ciphertext
+instead of plaintext. This is not limited to a deliberate rotation: the ORM subscriber
+re-encrypts every mapped field on `beforeUpdate`, so a transient Vault blip plus an unrelated
+column update was enough to trigger it.
+
+The write now fails closed instead. A structurally well-formed envelope (12-byte IV, 16-byte tag,
+non-empty ciphertext — `isEncryptedPayloadShape`, new additive export from
+`@open-mercato/shared/lib/encryption/aes`) that does not decrypt under the current DEK now raises
+`TenantDataEncryptionError` with code `WRONG_KEY` instead of returning a corrupted payload.
+
+**Action for module authors:** any code that calls `encryptEntityPayload`/`encryptFields`
+directly — not through `mercato entities rotate-encryption-key --old-key <key>` (which skips a
+value neither key opens and reports it in the run summary) or `backfill-system-encryption` /
+`rotate-encryption-key` run without `--old-key` (both skip such a value silently — the
+overwhelmingly common cause is a value already encrypted under the current key, and neither CLI
+has a signal to distinguish that from a value sealed under a key that is gone) — now needs to
+handle this exception explicitly if it does not already propagate uncaught errors to a place that
+surfaces them to an operator. See `apps/mercato/src/modules/example/commands/todos.ts` for the
+reference pattern (the scaffolded app template calls `encryptEntityPayload` and lets the error
+propagate). If you hit `WRONG_KEY` in production, see "Key mismatch fails the write" in
+[`apps/docs/docs/architecture/data-encryption.mdx`](apps/docs/docs/architecture/data-encryption.mdx)
+for how to resolve an affected row.
+
+## 0.7.0 → 0.8.0 (2026-09-18)
+
+Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).
+
+### The sales document quick-create dialogs publish the declared customers hosts (#6017)
+
+The "Create person" and "Create company" quick dialogs on the sales document form
+(`packages/core/src/modules/sales/components/documents/SalesDocumentForm.tsx`) rendered an embedded
+`CrudForm` with `entityIds` and no `injectionSpotId`. `CrudForm` therefore derived the injection host
+from the **first** entity id — `E.customers.customer_entity` on both dialogs — and published
+`crud-form:customers.customer_entity` and its `:fields` child instead of the hosts the customers module
+declares in its `extension-points.ts`. A widget registered against `crud-form:customers.person` or
+`crud-form:customers.company` reached the person and company detail pages but never these two dialogs.
+Both now pass `injectionSpotId={extensionPoints.hosts.personForm.spotId}` and
+`…hosts.companyForm.spotId`, read from the customers module's own declaration so the surfaces cannot
+drift apart again.
+
+**This is an additive change — no action required for existing widgets.** Rather than remove
+`crud-form:customers.customer_entity` (§6, FROZEN) as a live surface on these two dialogs, `CrudForm`
+gained a new `legacyInjectionSpotId?: string` prop that dual-publishes a prior spot id's header, body, and
+field widgets alongside the primary one. Both dialogs pass
+`legacyInjectionSpotId={crudFormExtensionSpotId('customers.customer_entity')}` — the exact id `CrudForm`
+used to auto-derive here — so any widget still targeting it keeps rendering in both quick-create dialogs,
+unchanged. See [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) §6 and
+[`.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md`](.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md)
+for the full contract analysis.
+
+Nothing else about the dialogs changes: `entityIds` is untouched, so custom-field resolution and the
+component-replacement handle behave exactly as before, and validation and save are unaffected. Widgets
+already registered against `crud-form:customers.person` / `crud-form:customers.company` need no change and
+now additionally render in the matching quick dialog — including the `customer_accounts` Account Status and
+Company Users groups, which find no `recordId` in create mode and render their empty state.
+
+**Deprecation window.** `legacyInjectionSpotId` on these two call sites is intended to be removed after at
+least one minor version — track the removal against this entry and the spec above. Until then, no action is
+required from module authors targeting either the legacy id or the declared hosts.
+
+**Action for module authors — required if you target `crud-form:customers.person` / `…company` (or their
+`:fields` children), or the legacy `crud-form:customers.customer_entity` (or its `:fields` child), today.**
+Before this release, the only publishers of `crud-form:customers.person` / `…company` were the person and
+company **detail** pages, so every widget registered there has only ever rendered with a saved record present
+(`operation: 'update'`, a concrete `recordId`). These two sales quick-create dialogs are the first surfaces
+to mount either host — or the bridged legacy id — in **create mode**: no `recordId`, `operation: 'create'`.
+If your widget assumed a record always exists (e.g. it queries by `recordId` unconditionally), it now also
+mounts in the dialogs and must tolerate `recordId` being `undefined` — render an empty/pending state instead
+of querying, the way the in-repo `customer_accounts` Account Status and Company Users groups already do.
+
+### `catalog`'s `PricingContext` gained an optional `currencyCode` filter (opt-in, strictly safer)
+
+`PricingContext` (`@open-mercato/core/modules/catalog/lib/pricing`) gained two additive, optional
+fields: `currencyCode` and `customerGroupIds` (a set-membership replacement for the still-supported
+`customerGroupId`). Neither field is required, and omitting both leaves every existing caller's
+behavior byte-for-byte unchanged — `resolveCatalogPrice`/`selectBestPrice` never filtered by
+currency before, and still do not unless the caller opts in.
+
+**The one real behavior change, and it is opt-in only:** before this release, a caller resolving a
+price without a currency-aware context could silently match a `CatalogProductPrice` row in a
+*different* currency than intended — there was no check. If your code starts passing
+`currencyCode` in the `PricingContext`, a row that previously matched across currencies now
+correctly resolves to "no price found" instead. This is the intended fix (it closes an
+undocumented cross-currency bug), but it is a visible behavior change for whatever call site
+opts in first.
+
+**Action for module authors:** none required to keep current behavior. If you want currency-aware
+resolution, pass `currencyCode` in your `PricingContext` and audit any `CatalogProductPrice` rows
+that only differ by currency for the product/variant you resolve most often — those are the rows
+whose resolution outcome can change.
 
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 
@@ -79,7 +176,7 @@ Full reasoning: `.ai/specs/2026-09-03-extensible-locale-set.md`.
 
 ### ⚠️ `translations.supported_locales` now also drives the UI language switcher (check before upgrading)
 
-**This is the one change in 0.7.1 that can alter behaviour for an existing installation with no
+**This is the one change in 0.8.0 that can alter behaviour for an existing installation with no
 code change on your side. Review your saved selection before you deploy.**
 
 Settings → Module Configs → Translations (feature `translations.manage_locales`) writes a
@@ -303,7 +400,7 @@ Nothing that was previously accepted is now rejected. `loose` remains a read ali
 
 `Migration20260824180000_deal_status_lost` rewrites stored `loose` values in `customer_deals.status` and `customer_deals.pipeline_stage`, renames the `loose` dictionary entry for the `deal_status` and `pipeline_stage` kinds, and replaces the seeded `Loose` stage label with `Lost`. It deletes nothing. A dictionary entry is left alone when the same scope already holds a `lost` entry, because `customer_dictionary_entries_unique` covers (organization, tenant, kind, normalized value), and a label is only corrected when it is still the seeded `Loose`, so a tenant that renamed the option keeps its own wording. Rows the migration deliberately skips keep classifying correctly through the read aliases.
 
-**Deploy order matters in one direction only, and it is the rollback.** Running the new code before the migration is safe: every reader accepts both spellings, so an un-migrated instance keeps classifying its `loose` rows correctly. Rolling the *code* back to 0.7.0 after the migration has run is not. `lib/dealsSummaryQueries.ts` at 0.7.0 matches `status = 'loose'`, the rows now say `lost`, and the quarter win/loss KPI and the monthly trend series report **zero lost deals** on an instance whose data is perfectly fine. Nothing errors, so the only symptom is a blank number. `down()` is a documented no-op, so there is no automated way back either: if you must roll the code back, either reverse the status values by hand (`update customer_deals set status = 'loose' where status = 'lost'`, which is lossy for any deal that was already `lost` before the migration) or stay on 0.7.1.
+**Deploy order matters in one direction only, and it is the rollback.** Running the new code before the migration is safe: every reader accepts both spellings, so an un-migrated instance keeps classifying its `loose` rows correctly. Rolling the *code* back to 0.7.0 after the migration has run is not. `lib/dealsSummaryQueries.ts` at 0.7.0 matches `status = 'loose'`, the rows now say `lost`, and the quarter win/loss KPI and the monthly trend series report **zero lost deals** on an instance whose data is perfectly fine. Nothing errors, so the only symptom is a blank number. `down()` is a documented no-op, so there is no automated way back either: if you must roll the code back, either reverse the status values by hand (`update customer_deals set status = 'loose' where status = 'lost'`, which is lossy for any deal that was already `lost` before the migration) or stay on 0.8.0.
 
 **Action for module authors:** replace `DEAL_STATUS_LOSE` with `DEAL_STATUS_LOST`. The old constant is still exported and still equals `'loose'`, now marked `@deprecated` and scheduled for removal no earlier than 0.9.0. Code comparing a status literally against `'loose'` should call `isLostDealStatus`, which matches both spellings; code that consumes `canonicalDealStatus` output must expect `'lost'` where it previously saw `'loose'`. See `.ai/specs/2026-08-24-deal-status-lost-spelling.md`.
 
@@ -324,14 +421,14 @@ logs a warning each time it does so.
 **But a standalone app MUST enable the provider module, or all outbound email stops.** The
 provider is no longer compiled into `@open-mercato/shared`; the adapter is contributed by the
 `channel_resend` / `channel_ses` module, and `src/modules.ts` is your app's file, so upgrading
-the packages does not add it. An app scaffolded before 0.7.1 keeps sending nothing and throws
+the packages does not add it. An app scaffolded before 0.8.0 keeps sending nothing and throws
 `No ChannelAdapter registered for providerKey 'resend'` on the first send — a password reset or
 invitation — with no failure at boot to warn you. Add the dependency and the entry:
 
 ```jsonc
 // package.json — match your other @open-mercato/* versions
-"@open-mercato/channel-resend": "0.7.1",
-// and "@open-mercato/channel-ses": "0.7.1" if you set SYSTEM_EMAIL_PROVIDER=ses
+"@open-mercato/channel-resend": "0.8.0",
+// and "@open-mercato/channel-ses": "0.8.0" if you set SYSTEM_EMAIL_PROVIDER=ses
 ```
 
 ```ts
@@ -448,6 +545,16 @@ The query object is now built by `buildQueryParams` from `@open-mercato/shared/l
 
 **Action for module authors:** audit your own list-route schemas for filter params that clients may repeat. Where a param is genuinely multi-valued, widen it to `z.union([z.string(), z.array(z.string())])` (or `z.array(z.string())`) and normalize it with `toQueryValueList`. Where it is genuinely single-valued, no change is needed — a repeated occurrence should be rejected. No route URL, HTTP method, response field, `makeCrudRoute` signature, options type, or database column changes, so `BACKWARD_COMPATIBILITY.md` §2, §3 and §7 are not violated.
 
+### `PortalShell`'s `authenticated={false}` no longer overrides a signed-in portal context (#5678)
+
+`PortalShell` from `@open-mercato/ui/portal/PortalShell` resolved its chrome with `authenticatedProp ?? !!user`, so an explicit `authenticated={false}` won even when the `PortalProvider` above it held a real customer. That was not a safe default: the `(frontend)` layout that supplies the prop sits above the `[...slug]` segment precisely so portal navigation does not remount the client subtree, which means a client-side navigation never re-runs it and the prop can describe the route the visitor *arrived* on rather than the one being rendered. Entering the portal at `/{orgSlug}/portal` and following its `router.replace` to the dashboard left `false` in place, and the shell painted the logged-out header — Log In / Sign Up, no sidebar, and `enableEventBridge={false}` so the portal SSE bridge never mounted — around fully authenticated content.
+
+The precedence is now inverted: `!!user || (authenticatedProp ?? false)`. A context user upgrades the chrome, and a stale prop can no longer contradict what is actually rendered below it.
+
+**No prop was added, removed, or renamed, and the component's type is unchanged**, so nothing here breaks at compile time. What changes is the semantics of one value: `authenticated={false}` is now a *default* rather than a *veto*. For the documented use this is a no-op — public portal pages render `PortalShell` without a provider, where `user` is `null` anyway, and a test pins that case. The server layout was updated in the same change to withhold the session (`customerAuth`, `userName`, `userEmail`) on the public auth routes rather than only lowering the flag, which is what keeps `/portal/login`, `/signup`, `/invite`, `/reset-password` and `/verify` on the public chrome now that the context can win.
+
+**Action for module authors:** if you deliberately render force-public portal chrome for a signed-in customer — an unusual case, and none exists in this repository — `authenticated={false}` alone will no longer achieve it; render that surface outside the `PortalProvider`, or open an issue and an explicit opt-out prop can be added. No exported type, import path, widget spot ID, component-replacement handle, API route, event ID, DI key, or database column changes, so no `BACKWARD_COMPATIBILITY.md` protected surface is affected.
+
 ### `createTimeProjectFixture` needs a customer, and now says so instead of 422-ing
 
 `createTimeProjectFixture` from `@open-mercato/core/helpers/integration/timesheetFixtures` posts to `POST /api/staff/timesheets/time-projects`, where a customer became mandatory when consulting projects gained customer-scoped rates. A fixture call that omits one can no longer succeed: the route answers `422`, and the spec fails somewhere downstream of the fixture with no indication that the fixture was the problem. Six in-repo specs regressed exactly that way.
@@ -471,10 +578,31 @@ The new `phone_calls` module encrypts two entities at rest through the standard 
 
 Two additional heal paths are available if you need them:
 
-- **Upgrade Action** (`phone_calls.seed-call-encryption-maps`, version `0.7.1`) — the managed, UI/API-triggered heal for the same backfill, gated on `UPGRADE_ACTIONS_ENABLED=true` and the `configs.manage` feature, run per tenant (idempotent). The migration only reaches scopes that had active maps when it ran, so this is the path for a tenant that upgraded with encryption **disabled** and enabled it afterwards — that tenant has no map and nothing else would tell you.
+- **Upgrade Action** (`phone_calls.seed-call-encryption-maps`, version `0.8.0`) — the managed, UI/API-triggered heal for the same backfill, gated on `UPGRADE_ACTIONS_ENABLED=true` and the `configs.manage` feature, run per tenant (idempotent). The migration only reaches scopes that had active maps when it ran, so this is the path for a tenant that upgraded with encryption **disabled** and enabled it afterwards — that tenant has no map and nothing else would tell you.
 - **Manual CLI** — re-run `yarn mercato entities seed-encryption --tenant <tenantId> --org <organizationId>` per tenant. It idempotently upserts **all** modules' default encryption maps, including both phone_calls ones.
 
 Note: only calls ingested **after** the maps exist are encrypted. Rows written by a build that ran without them stay plaintext until they are re-ingested (a pull is idempotent, so re-pulling the affected range rewrites them) or handled with the `entities rotate-encryption` / `decrypt-database` tooling.
+
+### The schedule dialog's pickers and `CrudForm` date/time fields now follow the app locale (#5942)
+
+`TimePicker`'s default clock is now derived from the active locale instead of being hardcoded to `12h`, and every consumer of `<DatePicker>` (`@open-mercato/ui/primitives/date-picker`, including `CrudForm`'s `date`/`datepicker`/`datetime`/`datetime-local` fields) that does not pin its own `locale` now falls back to the active app locale instead of always rendering English.
+
+**Who is affected.** `pl`/`de`/`es` tenants see a 24-hour clock on every `TimePicker`, and a Monday-first, localized calendar on every `DatePicker` that previously fell back to English regardless of the tenant's language. `en` and `ko` output is unchanged — both are 12-hour locales, and English was already the picker default. No API, schema, or component prop was removed.
+
+**Action for module authors:** none required. A field or call site that already pins an explicit `locale` (date-fns `Locale` object) or `format` (`'12h' | '24h'`) keeps that value unchanged — the new default only applies where neither was set. To pin the previous English/12-hour behavior regardless of tenant locale, pass `format="12h"` to `TimePicker`, or `locale={enUS}` (from `date-fns/locale/en-US`) to `DatePicker`.
+
+### `communication_channels` now requires `progress` to be enabled (#6094)
+
+`communication_channels`'s import-history worker and its queue command (`workers/channel-import-history.ts`, `commands/queue-import-history.ts`) resolve `progressService` from the DI container, which is registered only by the `progress` module. An app that enabled `communication_channels` without `progress` previously got no build-time warning: the queue command still returned a job id and a `200`, and the worker then failed on every retry with `AwilixResolutionError: Could not resolve 'progressService'`, with no error surfaced to the user and no `progress_jobs` row to inspect.
+
+`communication_channels`'s `ModuleInfo` now declares `requires: ['progress']`, so the existing generator-enforced dependency check (already used by `sales`, `wms`, `push_notifications`, and `api_keys`) now covers it too. If your `src/modules.ts` enables `communication_channels` without `progress`, `yarn generate` now fails fast instead of shipping the silent worker failure:
+
+```
+Module dependency check failed:
+- Module "communication_channels" requires: progress
+```
+
+**Action for module authors:** add `{ id: 'progress', from: '@open-mercato/core' }` to `src/modules.ts` before `communication_channels`, then re-run `yarn generate`. `apps/mercato/src/modules.ts`, the `create-app` template's `modules.ts` (used unchanged by the `classic` preset), and the `crm` starter preset (the only other preset that enables `communication_channels`) all enable `progress` too, so this repo's own apps and freshly scaffolded apps are unaffected.
 
 ## 0.6.7 → 0.7.0 (2026-08-26)
 
@@ -1337,7 +1465,7 @@ For the 0.6.7 compatibility window, `sales.orders.create` and `POST /api/sales/o
 
 **Action for downstream:** stop sending `paidTotalAmount`, `refundedTotalAmount`, and `outstandingAmount` when creating orders. Callers that never sent them are unaffected and continue receiving the historical `{ id }` create response. To create an already-settled order, create the order and then record its payment with `sales.payments.create` / `POST /api/sales/payments`, which recomputes the ledger from payment rows.
 
-## 0.6.5 → 0.6.6 (unreleased)
+## 0.6.5 → 0.6.6 (2026-07-17)
 
 ### ACL feature policy and concrete capability payloads
 
@@ -2346,7 +2474,7 @@ are tracked as follow-up work:
 
 | Package | Current pin | Dependabot proposed | Why deferred |
 |---------|-------------|---------------------|--------------|
-| `@mikro-orm/*` | `^6.6.10` | `^7.0.11` | v7 drops decorator re-exports and `persistAndFlush`/`removeAndFlush`, requires invasive migration across every `data/entities.ts` and all write paths — **addressed in the [0.5.0 → 0.5.1](#050--051-unreleased) window** |
+| `@mikro-orm/*` | `^6.6.10` | `^7.0.11` | v7 drops decorator re-exports and `persistAndFlush`/`removeAndFlush`, requires invasive migration across every `data/entities.ts` and all write paths — **addressed in the [0.5.0 → 0.6.0](#050--060-2026-05-06) window** |
 | `typescript` | `^5.9.3` | `^6.0.3` | v6 deprecates `moduleResolution=node10` (`error TS5107`) across every package `tsconfig.json`; fix requires either `"ignoreDeprecations": "6.0"` everywhere or a real migration to `bundler`/`node16` |
 | `awilix` | `^12.0.5` | `^13.0.3` | v13 changed the `Cradle` generic default from `any` to `{}`, which makes every `container.resolve('em')` return `unknown` at 100+ DI call sites with no code change |
 

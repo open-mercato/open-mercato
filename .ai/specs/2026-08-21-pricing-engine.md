@@ -80,7 +80,7 @@ Added retroactively to an already-approved spec, scoped strictly to capability a
 ### Cross-cutting rules
 - Every price-rule mutation flows through the existing `catalog.prices.create/update/delete` commands — no bespoke pricing logic in the UI layer.
 - The list and form surface only fields the API/commands already accept (per Problem Statement — closing a reachability gap, not adding new capability).
-- Phase 1 reuses the existing `catalog.products.manage` feature (no new ACL surface); only Phase 3's diagnostic page introduces a feature (`pricing.diagnostics.view`).
+- Phase 1 reuses the existing `catalog.pricing.manage` feature (no new ACL surface — `api/prices/route.ts`'s actual write gate, confirmed by direct read during implementation; an earlier revision of this line named `catalog.products.manage`, which is a real, separate, already-declared feature but not the one this route checks) — only Phase 3's diagnostic page introduces a feature (`pricing.diagnostics.view`).
 
 ## 📝 Architecture
 
@@ -200,7 +200,9 @@ Quantity bounds, validity windows and offer resolution stay in `matchesContext` 
 
 This is one-directional on purpose. The predicate is allowed to return rows the matcher then rejects — that is just a slightly wide fetch. It is never allowed to hide a row the matcher would have chosen, because that is a silently wrong price with no error anywhere. Soundness in this direction is what makes the predicate safe to add to every existing caller without re-verifying each one.
 
-It is verified as a **property-based** test, not a fixture table (`.ai/specs/2026-04-24-agentic-property-based-testing.md` — the harness exists): generate random `CatalogProductPrice` rows and random `PricingContext`s, assert `matchesContext(row, ctx) ⇒ buildPriceRowFilter(ctx).matches(row)` over the generated space. A fixture table tests the cases whoever wrote it already thought of, and the failure mode here is precisely a dimension nobody thought about — a `NULL` branch forgotten in one of six columns.
+It is verified as a **property-based** test, not a fixture table: generate random `CatalogProductPrice` rows and random `PricingContext`s, assert `matchesContext(row, ctx) ⇒ buildPriceRowFilter(ctx).matches(row)` over the generated space. A fixture table tests the cases whoever wrote it already thought of, and the failure mode here is precisely a dimension nobody thought about — a `NULL` branch forgotten in one of six columns.
+
+**Correction (implementation time):** this section originally cited `.ai/specs/2026-04-24-agentic-property-based-testing.md` as an existing harness ("the harness exists"). It does not — that sibling spec is itself unimplemented, and `fast-check`/`@fast-check/jest` are not installed anywhere in this repo. Rather than add a new devDependency to satisfy a different, unimplemented spec, this implementation hand-rolls a seeded pseudo-random generation loop in plain Jest that verifies the same invariant. Adopt `fast-check` properly (and migrate this test) if/when that sibling spec ships.
 
 `buildPriceRowFilter` is additive: it is a new export, no existing caller is required to adopt it, and adopting it cannot change which price `selectBestPrice` returns (that is what the invariant states). It is a prerequisite for `storefront-public-api.md` §6.1 and for anything reading prices on a per-page basis.
 
@@ -280,7 +282,7 @@ Explicitly deferred / out of scope for this spec (named so the gap doesn't silen
 ## 📋 Implementation Plan
 
 ### Phase 1 — Catalog price-rule admin UI
-1. Verify `CatalogProductPrice` carries `updated_at`; if missing, add it (additive migration) before the form ships, since optimistic locking is default-on for user-editable entities.
+1. Verify `CatalogProductPrice` carries `updated_at` — **confirmed already present** (`Migration20251030150038.ts`, carried through the later table rename); no migration needed. Optimistic locking works via `CrudForm`'s auto-derive from `initialValues.updatedAt`.
 2. Build `catalog/backend/catalog/prices/` list page (`<DataTable>`) against the existing prices CRUD route — no new backend route.
 3. Build the create/edit `<CrudForm>` exposing all specificity fields; wire `createCrud`/`updateCrud`/`deleteCrud`.
 4. Add i18n keys for every new label; run `yarn i18n:check-hardcoded`.
@@ -334,6 +336,8 @@ Explicitly deferred / out of scope for this spec (named so the gap doesn't silen
 | Citation provenance | Pass | `2026-08-14-ecommerce-suite-roadmap.md`/ADR-4, `2026-08-14-cart-module.md`, and `2026-08-14-customer-groups-and-b2b-terms.md` ship in the same change as this document and are cited as settled sibling design (unimplemented, but agreed). The `PricingContext` ownership split with `customer-groups-and-b2b-terms.md` is stated in both documents, and the tie-break rule has one named owner rather than two provisional guesses |
 
 ## Changelog
+
+- **2026-09-19** — Phase 1 + Phase 2 implemented (PR #6268). Three factual corrections found during implementation, verified against actual code rather than assumed: (1) the "Cross-cutting rules" line naming `catalog.products.manage` as the Phase 1 reused feature was wrong — `api/prices/route.ts`'s real write gate is `catalog.pricing.manage`, a separate already-declared/already-granted feature; the "no new ACL surface" conclusion still holds. (2) Phase 1 Implementation Plan step 1's "verify `updated_at`; if missing, add it" resolved to "already present" (`Migration20251030150038.ts`) — no migration shipped. (3) The Row-narrowing section's claim that the property-based-testing harness (`fast-check`) "exists" was false — that sibling spec is itself unimplemented and the dependency is not installed anywhere in this repo; this implementation hand-rolls the same invariant check in plain Jest instead. Phase 2b (index-only migration) and Phase 3 (new `pricing` module) were explicitly out of scope for this PR per the implementer's brief and remain as stated in Phasing.
 
 - **2026-09-16** — Row-narrowing pass, after an analysis of how the suite's read side behaves once per-customer pricing is actually used (roadmap ADR-9).
   - Added `buildPriceRowFilter(ctx)` to Phase 2 (Data Model → Row narrowing) with a one-directional soundness invariant against `matchesContext`, verified by a property-based test. The gap it closes: `selectBestPrice` is pure over whatever rows a caller fetched, the only indexes on `catalog_product_variant_prices` are by product/variant, and `storefront-public-api.md` §6.1 fetches by product id — so a listing page loads every contracted customer's rows for every product on it. The spec already documented "which rows reach the resolver" as a caller contract for *tenant scoping*; this extends the same treatment to the dimension that determines the fetch's size.
