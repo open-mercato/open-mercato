@@ -69,6 +69,34 @@ describe('dictionary fallback for locales the platform does not ship', () => {
       expect(en.moduleOnly).toBe('Module value')
       expect(en.greeting).toBe('Hello')
     })
+
+    it('sees a module registered as a side effect of resolving the app loader on the first load of a locale', async () => {
+      // Mirrors apps/mercato/src/lib/i18n/register-dictionary-loader.ts: the
+      // registered loader lazily imports the locale's per-module translation
+      // bundle and calls registerModules() as a side effect, after an internal
+      // await. loadDictionary() MUST await loadAppDictionary() before reading
+      // tryGetModules() — reading the registry first would race the locale's
+      // first-ever load and permanently cache a dictionary missing this
+      // lazily-registered module's translations (regression fixed in
+      // 4f3a8e255).
+      registerAppDictionaryLoader(async (locale: Locale) => {
+        if (locale === 'pl') {
+          await Promise.resolve()
+          registerModules([
+            { translations: { pl: { greeting: 'Cześć (module)', fromModule: 'Z modułu' } } },
+          ] as any)
+        }
+        return APP_DICTIONARIES[locale] ?? {}
+      })
+
+      const pl = await loadDictionary('pl')
+
+      // The module key is present on the very first load, proving the module
+      // registered inside the loader was read after it resolved.
+      expect(pl.fromModule).toBe('Z modułu')
+      // The app dictionary still wins the collision (issue #5995).
+      expect(pl.greeting).toBe('Cześć')
+    })
   })
 
   describe('an app-registered locale', () => {
