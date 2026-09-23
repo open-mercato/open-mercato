@@ -1,0 +1,743 @@
+<!doctype html>
+<html lang="en" data-prototype-id="assisted-selling-rep-console">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Assisted Selling Rep Console — interactive backend prototype</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<link rel="stylesheet" href="screens.css" />
+<link rel="stylesheet" href="prototype.css" />
+</head>
+<body>
+
+<!-- Lucide icon sprite. Include only the paths the prototype uses. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="ic-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+<symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="ic-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="ic-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="ic-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></symbol>
+<symbol id="ic-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="ic-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+<symbol id="ic-more" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.75"/><circle cx="12" cy="12" r="1.75"/><circle cx="19" cy="12" r="1.75"/></symbol>
+<symbol id="ic-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></symbol>
+<symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="ic-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></symbol>
+<symbol id="ic-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+<symbol id="ic-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7H7v7"/><path d="M7 3v5h8"/></symbol>
+<symbol id="ic-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></symbol>
+<symbol id="ic-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+<symbol id="ic-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+<symbol id="ic-percent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 5 5 19"/><circle cx="7.5" cy="7.5" r="1.5"/><circle cx="16.5" cy="16.5" r="1.5"/></symbol>
+<symbol id="ic-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
+<symbol id="ic-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="ic-archive" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></symbol>
+<symbol id="ic-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+<symbol id="ic-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+<symbol id="ic-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+<symbol id="ic-message" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></symbol>
+<symbol id="ic-bot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></symbol>
+<symbol id="ic-shieldalert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="M12 8v4"/><path d="M12 16h.01"/></symbol>
+<symbol id="ic-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+<symbol id="ic-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></symbol>
+<symbol id="ic-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="ic-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></symbol>
+</defs></svg>
+
+<div class="doc-toolbar">
+  <strong style="font-size:0.875rem">Assisted Selling Rep Console — prototype</strong>
+  <nav class="screen-nav" aria-label="Screens">
+    <a href="#s1">1 Inbox</a>
+    <a href="#s2">2 Thread</a>
+    <a href="#s3">3 AI draft</a>
+    <a href="#s4">4 Builder</a>
+    <a href="#s5">5 Settings</a>
+    <a href="#s6">6 Attribution</a>
+    <a href="#s7">7 No access</a>
+    <a href="#s8">8 Empty</a>
+  </nav>
+  <button class="btn btn-outline btn-sm" id="theme-toggle" type="button">
+    <svg><use href="#ic-sun"/></svg> Theme
+  </button>
+</div>
+
+<div class="doc">
+
+<header class="doc-head">
+  <h1>Assisted Selling Rep Console — screen inventory</h1>
+  <p class="muted" style="max-width:70ch;margin:0">
+    Interactive backend screens derived from <code class="t-mono">.ai/specs/2026-09-22-assisted-selling.md</code>
+    (spec 13 of the ecommerce suite, PR <a href="https://github.com/open-mercato/open-mercato/pull/6346" style="color:inherit">#6346</a>).
+    Scope is the <strong>rep console only</strong> — the backoffice surface under
+    <code class="t-mono">packages/core/src/modules/assisted_selling/backend/</code> (§7). The buyer-facing
+    storefront proposal tray and conversation panel are specified in <code class="t-mono">storefront-app.md</code>
+    §5.8–§5.9 and are a separate, out-of-scope prototype surface. The shell, page scaffolding, DataTable chrome,
+    tabs and CrudForm layout mirror <code class="t-mono">packages/ui/src/backend/</code>; the AI approval card
+    mirrors <code class="t-mono">packages/ui/src/ai/parts/MutationPreviewCard.tsx</code>. Every screen lists its
+    spec-section and behavioral coverage.
+  </p>
+</header>
+
+<!-- ============================================================ -->
+<!-- S1 — Console inbox -->
+<!-- ============================================================ -->
+<section class="screen" id="s1">
+  <div class="screen-meta">
+    <h2>1. Conversation inbox</h2>
+    <p>Priya Shah, a sales rep at Northwind Fasteners, opens the console to see which buyers are mid-conversation and which proposals are still waiting on a decision.</p>
+    <div class="screen-refs"><span class="ref">§6.1</span><span class="ref">§7.1</span><span class="ref">§5.2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/assisted-selling/threads</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Assisted Selling</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item active"><svg><use href="#ic-message"/></svg> Conversations</span>
+            <a class="nav-item" data-goto="s6"><svg><use href="#ic-percent"/></svg> Attribution</a>
+            <a class="nav-item" data-goto="s5"><svg><use href="#ic-settings"/></svg> Settings</a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Conversations</span></div></div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div>
+            <button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">PS</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Conversations</h1><p>Live buyer conversations across your stores. AI and rep suggestions share this one inbox.</p></div>
+          </div>
+
+          <div class="dt">
+            <div class="dt-head">
+              <div class="dt-head-row">
+                <h2 class="t-table-title">4 conversations</h2>
+                <div class="dt-head-actions"><button class="btn btn-outline btn-sm"><svg><use href="#ic-refresh"/></svg></button></div>
+              </div>
+              <div class="dt-toolbar">
+                <div class="dt-toolbar-row">
+                  <input class="input dt-search" placeholder="Search buyer or store…" />
+                  <div class="dt-toolbar-right">
+                    <button class="chip chip-active">All stores</button>
+                    <button class="chip">Assigned to me</button>
+                    <button class="chip">Awaiting buyer</button>
+                    <button class="chip">Closed</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <table class="table">
+              <thead><tr>
+                <th>Buyer</th><th>Store</th><th>Mode</th><th>Assigned rep</th><th>Live proposals</th><th>Last activity</th><th class="right">Actions</th>
+              </tr></thead>
+              <tbody>
+                <tr class="clickable" data-goto="s2">
+                  <td><span class="row-3"><span class="avatar avatar-sm">GB</span>Guest #4F2A</span></td>
+                  <td>Northwind Retail</td>
+                  <td><span class="badge badge-info">both</span></td>
+                  <td>Priya Shah</td>
+                  <td><span class="badge badge-warning">2 awaiting buyer</span></td>
+                  <td class="num">3m ago</td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm" data-goto="s2"><svg><use href="#ic-chevron-right"/></svg></button></span></td>
+                </tr>
+                <tr class="clickable" data-goto="s3">
+                  <td><span class="row-3"><span class="avatar avatar-sm">MO</span>Marta Okonkwo</td>
+                  <td>Northwind Retail</td>
+                  <td><span class="badge badge-neutral"><svg><use href="#ic-bot"/></svg>ai</span></td>
+                  <td class="muted">Unassigned</td>
+                  <td><span class="badge badge-warning"><svg><use href="#ic-shieldalert"/></svg>1 draft, needs your review</span></td>
+                  <td class="num">11m ago</td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm" data-goto="s3"><svg><use href="#ic-chevron-right"/></svg></button></span></td>
+                </tr>
+                <tr class="clickable" data-goto="s2">
+                  <td><span class="row-3"><span class="avatar avatar-sm">GC</span>Guest #91C0</span></td>
+                  <td>Northwind Wholesale</td>
+                  <td><span class="badge badge-info">rep</span></td>
+                  <td>Diego Ruiz</td>
+                  <td class="muted">—</td>
+                  <td class="num">2h ago</td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm" data-goto="s2"><svg><use href="#ic-chevron-right"/></svg></button></span></td>
+                </tr>
+                <tr style="opacity:0.65">
+                  <td><span class="row-3"><span class="avatar avatar-sm">BW</span>Ben Whitfield</span></td>
+                  <td>Northwind Retail</td>
+                  <td><span class="badge badge-neutral">both</span></td>
+                  <td>Priya Shah</td>
+                  <td class="muted">—</td>
+                  <td class="num"><span class="badge badge-neutral"><svg><use href="#ic-archive"/></svg>Closed · 1d ago</span></td>
+                  <td class="right muted t-hint">Read-only</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="dt-foot">
+              <span class="t-hint num">Showing 1 to 4 of 4 results</span>
+              <ul class="pager"><li><button class="nav" disabled><svg><use href="#ic-chevron-left"/></svg></button></li><li><button aria-current="page">1</button></li><li><button class="nav" disabled><svg><use href="#ic-chevron-right"/></svg></button></li></ul>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>"Live proposals" is the indexed <code class="t-mono">live_proposal_count</code> column (§5.1) — no join across module tables is needed to power this filter.</span></div>
+    <div class="note"><b>2</b><span>Marta Okonkwo's row shows a shield icon because her one live "proposal" is actually an <code class="t-mono">AiPendingAction</code>, not yet an <code class="t-mono">AssistedSellingProposal</code> row (§4.2) — see screen 3.</span></div>
+    <div class="note"><b>3</b><span>There is deliberately no search, sort or filter over participant display name — it is encrypted at rest (§5.2). The inbox filters only on plain indexed columns: store, status, assignment and live-proposal count.</span></div>
+    <div class="note"><b>4</b><span>"Ben Whitfield"'s closed thread carries no open actions — a closed conversation is history, and there is no reopen affordance in this spec.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S2 — Thread detail, live conversation -->
+<!-- ============================================================ -->
+<section class="screen" id="s2">
+  <div class="screen-meta">
+    <h2>2. Thread detail — live conversation, mode "both"</h2>
+    <p>Priya opens Guest #4F2A's thread. One of her own proposals is still awaiting the buyer; an earlier AI proposal was already partly accepted.</p>
+    <div class="screen-refs"><span class="ref">§3.1</span><span class="ref">§5.4</span><span class="ref">§6.6</span><span class="ref">§8.3</span><span class="ref">R3</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/assisted-selling/threads/4f2a-9c11</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Assisted Selling</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item" data-goto="s1"><svg><use href="#ic-message"/></svg> Conversations</a><a class="nav-item" data-goto="s6"><svg><use href="#ic-percent"/></svg> Attribution</a><a class="nav-item" data-goto="s5"><svg><use href="#ic-settings"/></svg> Settings</a></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s1" data-goto="s1" style="color:inherit;text-decoration:none">Conversations</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Guest #4F2A</span></div></div><div class="topbar-right"><span class="avatar">PS</span></div></header>
+        <main class="page">
+          <div class="page-head">
+            <div class="row-3"><span class="avatar avatar-lg">GB</span><div><h1 class="t-page-title">Guest #4F2A</h1><p class="t-hint" style="margin:0">Basket EUR 342,00 · active · Northwind Retail</p></div></div>
+            <div class="page-actions"><button class="btn btn-outline btn-sm" data-goto="s4"><svg><use href="#ic-plus"/></svg> New proposal</button></div>
+          </div>
+
+          <div class="alert alert-info">
+            <svg><use href="#ic-info"/></svg>
+            <div><div class="alert-title">Mode: both — AI and rep may both propose</div><div class="t-hint">The buyer sees identical acceptance flow either way; only authorship differs. Change this in <a href="#" data-goto="s5" style="color:inherit">Settings</a>.</div></div>
+          </div>
+
+          <div class="split split-side" style="margin-top:1rem">
+            <div class="col" style="gap:0.75rem">
+              <div class="card card-pad" style="gap:0.75rem;display:flex;flex-direction:column">
+
+                <div class="row-3"><span class="t-hint t-mono" style="margin:0 auto">— today, 10:38 —</span></div>
+
+                <div class="row-3" style="justify-content:center"><span class="t-hint">Priya Shah joined the conversation</span></div>
+
+                <div class="row" style="align-items:flex-start;gap:0.5rem">
+                  <span class="avatar avatar-sm">GB</span>
+                  <div class="col" style="gap:0.25rem;max-width:32rem">
+                    <div class="row-3"><b class="t-label">Guest buyer</b><span class="t-hint">10:41</span></div>
+                    <div class="card" style="padding:0.625rem 0.875rem">Hi — do you have the TorqueMax seal kit in a size that fits a 40mm pump?</div>
+                  </div>
+                </div>
+
+                <div class="row" style="align-items:flex-start;gap:0.5rem;flex-direction:row-reverse">
+                  <span class="avatar avatar-sm">PS</span>
+                  <div class="col" style="gap:0.25rem;max-width:32rem;align-items:flex-end">
+                    <div class="row-3" style="flex-direction:row-reverse"><b class="t-label">Priya Shah</b><span class="t-hint">10:44</span></div>
+                    <div class="card" style="padding:0.625rem 0.875rem">Yes — I put together a small bundle with the right gasket and bracket for that pump. Have a look below.</div>
+                  </div>
+                </div>
+
+                <div class="row" style="align-items:flex-start;gap:0.5rem;flex-direction:row-reverse">
+                  <span class="avatar avatar-sm">PS</span>
+                  <div class="card" style="padding:0.75rem 1rem;max-width:34rem;align-self:flex-end">
+                    <div class="row between">
+                      <div class="row-3"><svg style="width:1rem;height:1rem"><use href="#ic-tag"/></svg><b class="t-label">Proposal #P-1042</b></div>
+                      <span class="badge badge-warning">Published · awaiting buyer</span>
+                    </div>
+                    <ul class="t-body" style="margin:0.5rem 0 0;padding-left:1.1rem">
+                      <li>TorqueMax Seal Kit ×2 — <span class="t-mono">64,00 zł</span></li>
+                      <li>Pump Gasket 40mm ×1 — <span class="t-mono">18,00 zł</span></li>
+                      <li>Mounting Bracket ×1 — <span class="t-mono">47,00 zł</span></li>
+                    </ul>
+                    <div class="row between" style="margin-top:0.5rem">
+                      <span class="t-hint">Priced as the buyer's own group · <a href="#" style="color:inherit">price_row_id provenance</a></span>
+                      <span class="t-hint"><svg style="width:0.75rem;height:0.75rem;vertical-align:-1px"><use href="#ic-clock"/></svg> expires in 71h</span>
+                    </div>
+                    <div class="row between" style="margin-top:0.5rem">
+                      <button class="btn btn-outline btn-xs">Withdraw</button>
+                      <span class="t-hint">129,00 zł total</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="row-3" style="justify-content:center"><span class="t-hint">— yesterday —</span></div>
+
+                <div class="row" style="align-items:flex-start;gap:0.5rem">
+                  <span class="avatar avatar-sm" style="background:var(--accent-indigo);color:#fff"><svg style="width:0.875rem;height:0.875rem"><use href="#ic-bot"/></svg></span>
+                  <div class="card" style="padding:0.75rem 1rem;max-width:34rem">
+                    <div class="row between">
+                      <div class="row-3"><svg style="width:1rem;height:1rem"><use href="#ic-tag"/></svg><b class="t-label">Proposal #P-1039</b></div>
+                      <span class="badge badge-success">Accepted · 2 of 3 lines</span>
+                    </div>
+                    <ul class="t-body" style="margin:0.5rem 0 0;padding-left:1.1rem">
+                      <li>Hex Bolt Set M8 ×4 — <span class="t-mono">22,00 zł</span></li>
+                      <li>Thread Sealant 50ml ×1 — <span class="t-mono">9,00 zł</span></li>
+                      <li style="text-decoration:line-through;color:var(--muted-foreground)">Spare O-ring Kit ×1 — declined</li>
+                    </ul>
+                    <div class="t-hint" style="margin-top:0.5rem">Merged via <code class="t-mono">cart.mergeUndo</code>-eligible acceptance · <a href="#" style="color:inherit">view mergeSummary</a></div>
+                  </div>
+                </div>
+
+              </div>
+
+              <div class="card card-pad" style="gap:0.5rem;display:flex;flex-direction:column">
+                <textarea class="textarea" placeholder="Message this buyer…" style="min-height:3.5rem"></textarea>
+                <div class="row between">
+                  <span class="t-hint">This composer never writes to the buyer's basket — only the proposal builder can.</span>
+                  <button class="btn btn-primary btn-sm"><svg><use href="#ic-send"/></svg> Send</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="col" style="gap:0.75rem">
+              <div class="card card-pad" style="gap:0.5rem;display:flex;flex-direction:column">
+                <div class="t-card-title">Participants</div>
+                <div class="row between"><span class="row-3"><span class="avatar avatar-sm">GB</span>Guest buyer</span><span class="badge badge-neutral">present</span></div>
+                <div class="row between"><span class="row-3"><span class="avatar avatar-sm">PS</span>Priya Shah (rep)</span><span class="badge badge-success">present</span></div>
+                <div class="row between"><span class="row-3"><span class="avatar avatar-sm" style="background:var(--accent-indigo);color:#fff"><svg style="width:0.75rem;height:0.75rem"><use href="#ic-bot"/></svg></span>Store agent (ai)</span><span class="badge badge-neutral">absent</span></div>
+                <span class="t-hint">A rep joining is always visible to the buyer immediately — this is not a setting (§8.3, R3).</span>
+              </div>
+              <div class="card card-pad" style="gap:0.375rem;display:flex;flex-direction:column">
+                <div class="t-card-title">Conversation</div>
+                <div class="row between"><span class="t-hint">Store</span><span>Northwind Retail</span></div>
+                <div class="row between"><span class="t-hint">Opened</span><span>Yesterday, 15:02</span></div>
+                <div class="row between"><span class="t-hint">Assigned</span><span>Priya Shah</span></div>
+                <button class="btn btn-outline btn-sm" style="margin-top:0.25rem">Reassign</button>
+              </div>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Proposal #P-1042's price is explicitly labelled "the buyer's own group" — a rep on a different price kind must not mistake their own resolution for the buyer's (§7.2, R1).</span></div>
+    <div class="note"><b>2</b><span>Proposal #P-1039 shows partial acceptance: 2 lines merged, 1 recorded <code class="t-mono">declined</code> — neither merged nor deleted, and <code class="t-mono">CartMergeLog.strategy</code> is <code class="t-mono">manual</code> (§2.3, §10).</span></div>
+    <div class="note"><b>3</b><span>There is no "push to cart" button anywhere on this page — the only path into the buyer's basket is the buyer's own acceptance (§7.2). This absence is asserted in tests by enumerating registered routes, not by inspecting the UI.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S3 — AI draft awaiting rep approval -->
+<!-- ============================================================ -->
+<section class="screen" id="s3">
+  <div class="screen-meta">
+    <h2>3. AI draft awaiting rep approval — copilot runtime</h2>
+    <p>With <code class="t-mono">aiProposalsRequireRepApproval: true</code>, the store's agent drafted a bundle for Marta Okonkwo inside Priya's copilot chat. Nothing exists yet until Priya confirms.</p>
+    <div class="screen-refs"><span class="ref">§4.2</span><span class="ref">§6.5</span><span class="ref">§10 "The two runtimes"</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/assisted-selling/threads/mo-77e1</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Assisted Selling</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item" data-goto="s1"><svg><use href="#ic-message"/></svg> Conversations</a><a class="nav-item" data-goto="s6"><svg><use href="#ic-percent"/></svg> Attribution</a><a class="nav-item" data-goto="s5"><svg><use href="#ic-settings"/></svg> Settings</a></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s1" data-goto="s1" style="color:inherit;text-decoration:none">Conversations</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Marta Okonkwo</span></div></div><div class="topbar-right"><span class="avatar">PS</span></div></header>
+        <main class="page">
+          <div class="page-head">
+            <div class="row-3"><span class="avatar avatar-lg">MO</span><div><h1 class="t-page-title">Marta Okonkwo</h1><p class="t-hint" style="margin:0">Basket EUR 0,00 · active · Northwind Retail · signed in</p></div></div>
+          </div>
+
+          <div class="split split-side">
+            <div class="col" style="gap:0.75rem">
+              <div class="card card-pad" style="gap:0.5rem;display:flex;flex-direction:column">
+                <div class="row" style="align-items:flex-start;gap:0.5rem">
+                  <span class="avatar avatar-sm">MO</span>
+                  <div class="card" style="padding:0.625rem 0.875rem;max-width:30rem">Any recommendations for a starter kit for a 40mm pump?</div>
+                </div>
+              </div>
+
+              <div class="card card-pad" style="border-color:var(--status-warning-border)">
+                <div class="row" style="align-items:flex-start;gap:0.5rem">
+                  <svg style="width:1.1rem;height:1.1rem;margin-top:0.1rem;color:var(--status-warning-icon)"><use href="#ic-shieldalert"/></svg>
+                  <div><div class="t-card-title">Review proposed changes</div><p class="t-hint" style="margin:0.125rem 0 0">Store agent wants to propose 2 lines to Marta Okonkwo's basket</p></div>
+                </div>
+                <table class="table" style="margin-top:0.75rem">
+                  <thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead>
+                  <tbody>
+                    <tr><td class="t-mono t-hint">Line 1</td><td class="t-hint" style="text-decoration:line-through">—</td><td style="color:var(--status-success-text);font-weight:500">TorqueMax Seal Kit ×2 — 64,00 zł</td></tr>
+                    <tr><td class="t-mono t-hint">Line 2</td><td class="t-hint" style="text-decoration:line-through">—</td><td style="color:var(--status-success-text);font-weight:500">Pump Gasket 40mm ×1 — 18,00 zł</td></tr>
+                  </tbody>
+                </table>
+                <div class="row between" style="margin-top:0.75rem">
+                  <button class="btn btn-ghost btn-sm"><svg><use href="#ic-eye"/></svg> Review details <svg><use href="#ic-chevron-down"/></svg></button>
+                  <div class="row" style="gap:0.5rem">
+                    <button class="btn btn-outline btn-sm" data-goto="s1">Cancel <span class="kbd" style="margin-left:0.375rem">Esc</span></button>
+                    <button class="btn btn-primary btn-sm" data-goto="s2">Confirm <span class="kbd" style="margin-left:0.375rem">⌘⏎</span></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="col" style="gap:0.75rem">
+              <div class="alert alert-warning">
+                <svg><use href="#ic-warn"/></svg>
+                <div><div class="alert-title">No proposal exists yet</div><div class="t-hint">This card is an <code class="t-mono">AiPendingAction</code>, not an <code class="t-mono">AssistedSellingProposal</code>. Cancel leaves nothing behind. Confirm both approves <em>and</em> publishes — one step, not two (§4.2).</div></div>
+              </div>
+              <div class="card card-pad" style="gap:0.375rem;display:flex;flex-direction:column">
+                <div class="t-card-title">Participants</div>
+                <div class="row between"><span class="row-3"><span class="avatar avatar-sm">MO</span>Marta Okonkwo</span><span class="badge badge-neutral">absent</span></div>
+                <div class="row between"><span class="row-3"><span class="avatar avatar-sm" style="background:var(--accent-indigo);color:#fff"><svg style="width:0.75rem;height:0.75rem"><use href="#ic-bot"/></svg></span>Store agent (ai)</span><span class="badge badge-success">present</span></div>
+              </div>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>This is the <code class="t-mono">mutation-preview-card</code> pattern reused verbatim, not a bespoke approval UI — same diff table, same Cancel/Confirm row, same <code class="t-mono">⌘⏎</code>/<code class="t-mono">Esc</code> shortcuts.</span></div>
+    <div class="note"><b>2</b><span>Confirming creates the proposal already <code class="t-mono">published</code> — there is no intermediate <code class="t-mono">pending_rep_approval</code> status and no separate publish step (§5.4).</span></div>
+    <div class="note"><b>3</b><span>With <code class="t-mono">aiProposalsRequireRepApproval: false</code> (the default) this screen never appears — the same tool call publishes directly and the buyer's own acceptance is the approval (§4.2).</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S4 — Proposal builder drawer -->
+<!-- ============================================================ -->
+<section class="screen" id="s4">
+  <div class="screen-meta">
+    <h2>4. Proposal builder — a rep authors lines by hand</h2>
+    <p>Diego builds a proposal for a wholesale buyer, adding products and quantities. The buyer's resolved price is shown as each line is added, not the rep's own.</p>
+    <div class="screen-refs"><span class="ref">§6.3</span><span class="ref">§7.1</span><span class="ref">§8.9</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/assisted-selling/threads/91c0-2b6f</span></div>
+    <div class="drawer-scrim">
+      <div class="app app-tall">
+        <aside class="sidebar">
+          <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+          <nav class="sidebar-nav"><div class="nav-group"><span>Assisted Selling</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item" data-goto="s1"><svg><use href="#ic-message"/></svg> Conversations</a></div></nav>
+        </aside>
+        <div class="main">
+          <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Guest #91C0</span></div></div></header>
+          <main class="page"><div class="page-head"><div><h1 class="t-page-title">Guest #91C0</h1></div></div></main>
+        </div>
+      </div>
+      <div class="drawer" style="width:32rem">
+        <div class="drawer-head">
+          <div class="grow"><div class="t-card-title">New proposal</div><p class="t-hint" style="margin:0.25rem 0 0">Lines are priced as this buyer, not as you.</p></div>
+          <button class="btn btn-ghost btn-icon btn-sm" data-goto="s2"><svg><use href="#ic-x"/></svg></button>
+        </div>
+        <div class="drawer-body">
+          <div class="field"><label>Add product</label><input class="input" placeholder="Search catalog…" /></div>
+
+          <table class="table">
+            <thead><tr><th>Product</th><th>Qty</th><th class="right">Buyer price</th><th></th></tr></thead>
+            <tbody>
+              <tr>
+                <td>Heavy-Duty Pump Coupling</td>
+                <td><input class="input t-mono" style="width:4rem" value="10" /></td>
+                <td class="right t-mono">840,00 zł</td>
+                <td class="right"><button class="btn btn-icon btn-xs"><svg><use href="#ic-trash"/></svg></button></td>
+              </tr>
+              <tr>
+                <td>Flange Gasket Set (bulk)</td>
+                <td><input class="input t-mono" style="width:4rem" value="4" /></td>
+                <td class="right t-mono">96,00 zł</td>
+                <td class="right"><button class="btn btn-icon btn-xs"><svg><use href="#ic-trash"/></svg></button></td>
+              </tr>
+            </tbody>
+          </table>
+          <span class="t-hint">2 of 50 lines · buyer's B2B contract price applied automatically</span>
+
+          <div class="alert alert-info">
+            <svg><use href="#ic-info"/></svg>
+            <div><div class="alert-title">Assortment checked against this buyer's channel</div><div class="t-hint">A line hidden from this buyer's storefront assortment is rejected here, at authoring time, rather than surfacing as a failed merge later (§8.7, R2).</div></div>
+          </div>
+
+          <div class="field"><label>Note to buyer <span class="t-hint" style="font-weight:400">optional</span></label><textarea class="textarea" placeholder="Add context the buyer will see with this proposal…"></textarea></div>
+        </div>
+        <div class="drawer-foot">
+          <button class="btn btn-outline" data-goto="s2">Cancel <span class="kbd" style="margin-left:0.375rem">Esc</span></button>
+          <button class="btn btn-primary" data-goto="s2"><svg><use href="#ic-send"/></svg> Publish proposal <span class="kbd" style="margin-left:0.375rem">⌘⏎</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Publishing here wraps <code class="t-mono">cart.proposal.create</code> against the <strong>target cart's token</strong> — the buyer's own context, never the rep's (§6.3 step 2, R1).</span></div>
+    <div class="note"><b>2</b><span>There is no draft state to save and resume: a half-built proposal in this drawer is unsaved form state, not a row. Closing the drawer discards it (§5.4).</span></div>
+    <div class="note"><b>3</b><span><code class="t-mono">max_proposal_lines</code> (default 50) is enforced here, at authoring — a validation error against the rep, not a partial merge against the buyer later (§8.9).</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S5 — Settings -->
+<!-- ============================================================ -->
+<section class="screen" id="s5">
+  <div class="screen-meta">
+    <h2>5. Store settings</h2>
+    <p>An admin configures which actor types may sell into this store's conversations, and how cautious the AI actor is.</p>
+    <div class="screen-refs"><span class="ref">§5.6</span><span class="ref">§4.2</span><span class="ref">§11 hard dependency</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/assisted-selling/settings/retail</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Assisted Selling</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item" data-goto="s1"><svg><use href="#ic-message"/></svg> Conversations</a><a class="nav-item" data-goto="s6"><svg><use href="#ic-percent"/></svg> Attribution</a><span class="nav-item active"><svg><use href="#ic-settings"/></svg> Settings</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Settings</span></div></div><div class="topbar-right"><span class="avatar">AN</span></div></header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Assisted selling — Northwind Retail</h1><p>Applies to this store only.</p></div></div>
+
+          <div class="alert alert-error">
+            <svg><use href="#ic-warn"/></svg>
+            <div><div class="alert-title">Requires cart Phase 3 before going live</div><div class="t-hint">Merge-time assortment re-checking (<code class="t-mono">cart</code> §6a.5) must ship before this store is enabled — otherwise a proposal can carry a visibility-restricted line into a merge uncaught (R2, Critical).</div></div>
+          </div>
+
+          <div class="form-layout">
+            <div class="form-col">
+              <div class="form-group">
+                <div class="title">Who may sell</div>
+                <div class="field"><label>Mode</label><select class="select"><option>Off</option><option>AI only</option><option>Rep only</option><option selected>Both</option></select></div>
+                <div class="row between">
+                  <div class="col"><span class="t-label">AI proposals require rep approval</span><span class="t-hint">Off routes AI drafts straight to the buyer; the buyer's acceptance is the approval (§4.2).</span></div>
+                  <button class="switch" aria-checked="false" type="button"></button>
+                </div>
+                <div class="alert alert-warning" style="margin:0">
+                  <svg><use href="#ic-info"/></svg>
+                  <div><div class="t-hint">This selects a <strong>runtime</strong>, not just a gate: enabling it moves the agent into the rep's copilot chat (screen 3), because the confirmation plane needs a staff session that the autonomous runtime does not have.</div></div>
+                </div>
+              </div>
+              <div class="form-group">
+                <div class="title">AI actor</div>
+                <div class="field">
+                  <label>Runs as <span class="req">*</span></label>
+                  <select class="select input-invalid"><option value="">— select an agent principal —</option><option>Store Agent (retail)</option></select>
+                  <span class="field-error">Required while mode includes AI — every attribution, ACL check and audit line depends on this principal (§5.6).</span>
+                </div>
+              </div>
+            </div>
+            <div class="form-col">
+              <div class="form-group">
+                <div class="title">Limits</div>
+                <div class="field"><label>Proposal expiry</label><input class="input" value="72" /><span class="t-hint">Hours. Default 72h.</span></div>
+                <div class="field"><label>Max lines per proposal</label><input class="input t-mono" value="50" /></div>
+                <div class="field"><label>Max AI proposals per thread, per hour</label><input class="input t-mono" value="4" /></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-foot">
+            <div class="actions">
+              <button class="btn btn-outline" data-goto="s1">Cancel</button>
+              <button class="btn btn-primary" data-goto="s1"><svg><use href="#ic-save"/></svg> Save</button>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Turning mode to Off, or from Both to Rep, stops the disallowed actor immediately — including inside conversations already open. It voids no already-published proposal (§8.4).</span></div>
+    <div class="note"><b>2</b><span>There is deliberately no setting anywhere on this page that can hide a rep's presence from the buyer — that disclosure is not configurable (R3). Nothing was omitted from this mockup; the column does not exist in the spec.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S6 — Attribution report -->
+<!-- ============================================================ -->
+<section class="screen" id="s6">
+  <div class="screen-meta">
+    <h2>6. Attribution / commission report</h2>
+    <p>A sales manager checks which rep or agent gets credit for which converted order line.</p>
+    <div class="screen-refs"><span class="ref">§5.5</span><span class="ref">§6.7</span><span class="ref">R6</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/assisted-selling/attributions</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Assisted Selling</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item" data-goto="s1"><svg><use href="#ic-message"/></svg> Conversations</a><span class="nav-item active"><svg><use href="#ic-percent"/></svg> Attribution</span><a class="nav-item" data-goto="s5"><svg><use href="#ic-settings"/></svg> Settings</a></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Attribution</span></div></div><div class="topbar-right"><span class="avatar">AN</span></div></header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Attribution</h1><p>One row per converted cart line. Amounts are snapshotted at conversion and never change afterwards.</p></div></div>
+
+          <div class="dt">
+            <div class="dt-head">
+              <div class="dt-head-row"><h2 class="t-table-title">Last 30 days</h2></div>
+              <div class="dt-toolbar"><div class="dt-toolbar-row"><input class="input dt-search" placeholder="Search order or actor…" /><div class="dt-toolbar-right"><button class="chip chip-active">All actors</button><button class="chip">Reps</button><button class="chip">AI agent</button></div></div></div>
+            </div>
+            <table class="table">
+              <thead><tr><th>Order</th><th>Actor</th><th>Type</th><th>Thread</th><th class="right">Net attributed</th><th>Converted</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td class="t-mono">#10531</td>
+                  <td><span class="row-3"><span class="avatar avatar-sm">PS</span>Priya Shah</span></td>
+                  <td><span class="badge badge-info">rep</span></td>
+                  <td><a href="#" data-goto="s2" style="color:inherit">Guest #4F2A</a></td>
+                  <td class="right t-mono">129,00 zł</td>
+                  <td class="num">Today</td>
+                </tr>
+                <tr>
+                  <td class="t-mono">#10530</td>
+                  <td><span class="row-3"><span class="avatar avatar-sm" style="background:var(--accent-indigo);color:#fff"><svg style="width:0.75rem;height:0.75rem"><use href="#ic-bot"/></svg></span>Store Agent (retail)</span></td>
+                  <td><span class="badge badge-neutral">ai_agent</span></td>
+                  <td class="muted">Marta Okonkwo</td>
+                  <td class="right t-mono">82,00 zł</td>
+                  <td class="num">Yesterday</td>
+                </tr>
+                <tr>
+                  <td class="t-mono">#10532</td>
+                  <td class="muted">—</td>
+                  <td><span class="badge badge-warning"><svg><use href="#ic-warn"/></svg>degraded</span></td>
+                  <td class="muted">—</td>
+                  <td class="right t-mono">341,00 zł <span class="t-hint">(order-level)</span></td>
+                  <td class="num">2 days ago</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="dt-foot">
+              <span class="t-hint num">Showing 1 to 3 of 3 results</span>
+              <ul class="pager"><li><button class="nav" disabled><svg><use href="#ic-chevron-left"/></svg></button></li><li><button aria-current="page">1</button></li><li><button class="nav" disabled><svg><use href="#ic-chevron-right"/></svg></button></li></ul>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Order #10532 is "degraded": the <code class="t-mono">cart.cart.converted</code> event arrived without a <code class="t-mono">lineMap</code>, so attribution fell back to order-level rather than writing nothing (§6.7, R6). The gap is visible, not silent.</span></div>
+    <div class="note"><b>2</b><span>A line the buyer added themselves would show actor "—" here and is <strong>not</strong> reported as degraded — that is the correct, expected case, distinguishable from #10532's genuine gap.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S7 — Insufficient ACL: thread visible, proposals gated -->
+<!-- ============================================================ -->
+<section class="screen" id="s7">
+  <div class="screen-meta">
+    <h2>7. Thread detail — missing <code class="t-mono">cart.proposals.view</code></h2>
+    <p>A support agent holds <code class="t-mono">assisted_selling.threads.view</code> but not <code class="t-mono">cart.proposals.view</code>. They can see the conversation exists, not what was proposed in it.</p>
+    <div class="screen-refs"><span class="ref">§6.1</span><span class="ref">§10 "Console reads"</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/assisted-selling/threads/4f2a-9c11</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Assisted Selling</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item" data-goto="s1"><svg><use href="#ic-message"/></svg> Conversations</a></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s1" data-goto="s1" style="color:inherit;text-decoration:none">Conversations</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Guest #4F2A</span></div></div><div class="topbar-right"><span class="avatar">SA</span></div></header>
+        <main class="page">
+          <div class="page-head"><div class="row-3"><span class="avatar avatar-lg">GB</span><div><h1 class="t-page-title">Guest #4F2A</h1><p class="t-hint" style="margin:0">Basket EUR 342,00 · active · Northwind Retail</p></div></div></div>
+
+          <div class="card card-pad" style="max-width:34rem;margin:2rem auto;text-align:center">
+            <div class="empty-icon" style="margin:0 auto"><svg><use href="#ic-lock"/></svg></div>
+            <div class="t-card-title" style="margin-top:0.75rem">Proposals in this conversation are hidden</div>
+            <p class="t-hint">Viewing a thread's proposals requires <code class="t-mono">cart.proposals.view</code> in addition to <code class="t-mono">assisted_selling.threads.view</code> — they carry the buyer's resolved prices, which is <code class="t-mono">cart</code>'s gated data (§6.1). You can still see participants and messages below.</p>
+            <button class="btn btn-outline btn-sm">Request access</button>
+          </div>
+
+          <div class="card card-pad" style="gap:0.5rem;display:flex;flex-direction:column;max-width:34rem;margin:0 auto">
+            <div class="t-card-title">Participants</div>
+            <div class="row between"><span class="row-3"><span class="avatar avatar-sm">GB</span>Guest buyer</span><span class="badge badge-neutral">present</span></div>
+            <div class="row between"><span class="row-3"><span class="avatar avatar-sm">PS</span>Priya Shah (rep)</span><span class="badge badge-success">present</span></div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>This is a deliberate two-feature design, not a bug: <code class="t-mono">assisted_selling.proposals.author</code> says a principal may converse, <code class="t-mono">cart.proposals.author</code> says it may put a priced basket in front of a buyer — granting one without the other is a meaningful, supported configuration (§6.1).</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S8 — Empty inbox -->
+<!-- ============================================================ -->
+<section class="screen" id="s8">
+  <div class="screen-meta">
+    <h2>8. Inbox — filtered to zero results</h2>
+    <p>Diego filters to conversations assigned to him that are awaiting a buyer decision, and none currently are.</p>
+    <div class="screen-refs"><span class="ref">§7.1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/assisted-selling/threads?assigned=me&amp;awaiting=1</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Assisted Selling</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-message"/></svg> Conversations</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Conversations</span></div></div><div class="topbar-right"><span class="avatar">DR</span></div></header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Conversations</h1></div></div>
+          <div class="dt">
+            <div class="dt-head">
+              <div class="dt-toolbar"><div class="dt-toolbar-row"><input class="input dt-search" /><div class="dt-toolbar-right"><button class="chip chip-active">Assigned to me</button><button class="chip chip-active">Awaiting buyer</button></div></div></div>
+            </div>
+            <div class="empty">
+              <div class="empty-icon"><svg><use href="#ic-message"/></svg></div>
+              <div class="t-card-title">Nothing waiting on a buyer right now</div>
+              <p class="t-hint" style="max-width:38ch">Every proposal you're assigned to has been decided or hasn't been sent yet. New activity will appear here.</p>
+              <button class="btn btn-outline btn-sm" data-goto="s1"><svg><use href="#ic-x"/></svg> Clear filters</button>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Distinct from a store where <code class="t-mono">mode: 'off'</code> — that case has no conversations at all rather than a filtered-away set, and would show the same empty family with different copy.</span></div>
+  </div>
+</section>
+
+</div>
+
+<script>
+(function () {
+  var btn = document.getElementById('theme-toggle');
+  btn.addEventListener('click', function () {
+    document.documentElement.classList.toggle('dark');
+  });
+})();
+</script>
+<script src="comments.js"></script>
+<script src="prototype.js"></script>
+</body>
+</html>
