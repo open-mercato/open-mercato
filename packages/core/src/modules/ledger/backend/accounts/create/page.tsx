@@ -57,7 +57,7 @@ export default function CreateLedgerAccountPage() {
             placeholder: t('ledger.accounts.form.field.parentPlaceholder', 'None'),
             helpText: t(
               'ledger.accounts.form.field.parentHelp',
-              'Structural only in Phase 1 — nothing reads this yet.',
+              'Optional. Groups this account under a parent for display; it does not affect posting.',
             ),
             loadOptions: (query?: string) => loadLedgerAccountOptions(query),
           },

@@ -8,6 +8,8 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { FiscalPeriod, JournalEntry } from '../../data/entities'
 import { createLedgerCrudOpenApi, createPagedListResponseSchema } from '../openapi'
+import { isIdsParamProvided, mergeIdFilter, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
+import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 
 // `/api/ledger/journal-entries` — read-only list (OM-11). No POST/PUT/DELETE:
 // entries are only ever created through `postJournalEntry` /
@@ -108,11 +110,19 @@ export async function GET(req: Request) {
   const organizationId = organizationScope?.selectedId ?? auth.orgId ?? null
 
   const { id, page, pageSize, accountId, periodId, type, referenceType, referenceId, sortField, sortDir } = parsed.data
-  const filter: FilterQuery<JournalEntry> = { tenantId: auth.tenantId }
+  let filter: Record<string, unknown> = { tenantId: auth.tenantId }
   // Selected organization, not the user's home auth.orgId (PR #6340 review, M6).
   if (organizationId) filter.organizationId = organizationId
 
   if (id) filter.id = id
+  // `?ids=` — comma-separated or repeated — documented by the shared OpenAPI
+  // factory (withIdsQueryParam) but previously ignored by every ledger GET
+  // (PR #6340 review nit). Malformed/unknown ids match nothing, never the
+  // unfiltered list (mergeIdFilter's own #4143 fail-closed behavior).
+  const rawIds = readQueryParamList(url.searchParams, 'ids')
+  if (isIdsParamProvided(rawIds)) {
+    filter = mergeIdFilter(filter, parseIdsParam(rawIds), { idsParamProvided: true })
+  }
   if (type) filter.type = type
   if (referenceType) filter.referenceType = referenceType
   if (referenceId) filter.referenceId = referenceId
@@ -132,8 +142,9 @@ export async function GET(req: Request) {
         `exists (select 1 from journal_entry_lines jel where jel.journal_entry_id = ${alias}.id and jel.account_id = ? and jel.tenant_id = ?${organizationId ? ' and jel.organization_id = ?' : ''})`,
       params,
     )
-    filter.$and = filter.$and || []
-    filter.$and.push({ [accountHasLine]: true })
+    const andFilters = (filter.$and as unknown[] | undefined) ?? []
+    andFilters.push({ [accountHasLine]: true })
+    filter.$and = andFilters
   }
 
   // `periodId` resolves to the named `FiscalPeriod`'s date range, applied
@@ -163,7 +174,7 @@ export async function GET(req: Request) {
   }
 
   const offset = (page - 1) * pageSize
-  const [rows, total] = await em.findAndCount(JournalEntry, filter, { orderBy, limit: pageSize, offset })
+  const [rows, total] = await em.findAndCount(JournalEntry, filter as FilterQuery<JournalEntry>, { orderBy, limit: pageSize, offset })
   const items = rows.map(toRow)
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 

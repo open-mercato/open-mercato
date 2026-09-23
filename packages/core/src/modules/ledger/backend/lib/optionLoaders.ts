@@ -85,6 +85,85 @@ export async function loadLedgerAccountOptions(
     .filter((option): option is CrudFieldOption => option !== null)
 }
 
+export async function loadLedgerAccountTypeLabelsByIds(ids: string[]): Promise<Record<string, string>> {
+  const uniqueIds = [...new Set(ids.filter((id) => id.trim().length > 0))]
+  if (!uniqueIds.length) return {}
+  const searchParams = new URLSearchParams({ page: '1', pageSize: String(uniqueIds.length), ids: uniqueIds.join(',') })
+  const response = await apiCall<{ items?: unknown[] }>(
+    `/api/ledger/account-types?${searchParams.toString()}`,
+    undefined,
+    { fallback: { items: [] } },
+  )
+  const items = Array.isArray(response.result?.items) ? response.result.items : []
+  const labels: Record<string, string> = {}
+  for (const item of items) {
+    if (!isRecord(item)) continue
+    const id = toStringOrNull(item.id)
+    if (!id) continue
+    const option = normalizeAccountTypeOption(item, DEFAULT_FALLBACK_LABEL)
+    if (option) labels[id] = option.label
+  }
+  return labels
+}
+
+export async function loadLedgerAccountLabelsByIds(ids: string[]): Promise<Record<string, string>> {
+  const uniqueIds = [...new Set(ids.filter((id) => id.trim().length > 0))]
+  if (!uniqueIds.length) return {}
+  const searchParams = new URLSearchParams({ page: '1', pageSize: String(uniqueIds.length), ids: uniqueIds.join(',') })
+  const response = await apiCall<{ items?: unknown[] }>(
+    `/api/ledger/accounts?${searchParams.toString()}`,
+    undefined,
+    { fallback: { items: [] } },
+  )
+  const items = Array.isArray(response.result?.items) ? response.result.items : []
+  const labels: Record<string, string> = {}
+  for (const item of items) {
+    if (!isRecord(item)) continue
+    const id = toStringOrNull(item.id)
+    if (!id) continue
+    const option = normalizeAccountOption(item, DEFAULT_FALLBACK_LABEL)
+    if (option) labels[id] = option.label
+  }
+  return labels
+}
+
+export type LoadLedgerAccountGroupOptionsParams = {
+  fallbackLabel?: string
+}
+
+function normalizeAccountGroupOption(item: unknown, fallbackLabel: string): CrudFieldOption | null {
+  if (!isRecord(item)) return null
+  const id = toStringOrNull(item.id)
+  if (!id) return null
+  const code = toStringOrNull(item.code)
+  const name = toStringOrNull(item.name)
+  const label = name && code ? `${code} — ${name}` : name ?? code ?? fallbackLabel
+  return { value: id, label }
+}
+
+// `LedgerAccountGroup` rows are permanently system-seeded reference data
+// (never created/edited by tenants — see api/account-groups/route.ts's
+// header comment), so this is a plain read-only picker, same shape as
+// `loadLedgerAccountTypeOptions` above.
+export async function loadLedgerAccountGroupOptions(
+  query?: string,
+  params?: LoadLedgerAccountGroupOptionsParams,
+): Promise<CrudFieldOption[]> {
+  const searchParams = new URLSearchParams({ page: '1', pageSize: '50' })
+  const trimmed = query?.trim()
+  if (trimmed) searchParams.set('search', trimmed)
+  const response = await apiCall<{ items?: unknown[] }>(
+    `/api/ledger/account-groups?${searchParams.toString()}`,
+    undefined,
+    { fallback: { items: [] } },
+  )
+  const fallbackLabel = params?.fallbackLabel ?? DEFAULT_FALLBACK_LABEL
+  const items = Array.isArray(response.result?.items) ? response.result.items : []
+  return items
+    .map((item) => normalizeAccountGroupOption(item, fallbackLabel))
+    .filter((option): option is CrudFieldOption => option !== null)
+}
+
 export type LoadFiscalPeriodOptionsParams = {
   fallbackLabel?: string
 }

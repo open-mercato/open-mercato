@@ -10,6 +10,8 @@ import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern
 import { LedgerAccount } from '../../data/entities'
 import { ledgerAccountCreateSchema, ledgerAccountUpdateSchema } from '../../data/validators'
 import { createLedgerCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../openapi'
+import { isIdsParamProvided, mergeIdFilter, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
+import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 
 // `/api/ledger/accounts` — chart-of-accounts CRUD (OM-11). Hand-written GET
 // mirrors currencies/api/currencies/route.ts's reference pattern rather than
@@ -61,7 +63,12 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
       commandId: 'ledger.deleteLedgerAccount',
       schema: rawBodySchema,
       mapInput: ({ raw, ctx }) => ({
-        id: ((raw as Record<string, unknown>).query as Record<string, unknown> | undefined)?.id as string | undefined,
+        // `id` may arrive as `?id=` (the UI's own delete call) or in the JSON
+        // body (the documented OpenAPI contract — `del.schema` describes a
+        // `{ id }` body; PR #6340 review nit). Query wins when both are sent,
+        // matching this route's pre-existing behavior.
+        id: (((raw as Record<string, unknown>).query as Record<string, unknown> | undefined)?.id
+          ?? ((raw as Record<string, unknown>).body as Record<string, unknown> | undefined)?.id) as string | undefined,
         organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? undefined,
         tenantId: ctx.auth?.tenantId ?? undefined,
       }),
@@ -132,7 +139,7 @@ export async function GET(req: Request) {
   const organizationId = organizationScope?.selectedId ?? auth.orgId ?? null
 
   const { id, page, pageSize, search, sortField, sortDir, accountTypeId, parentAccountId } = parsed.data
-  const filter: FilterQuery<LedgerAccount> = {
+  let filter: Record<string, unknown> = {
     tenantId: auth.tenantId,
     deletedAt: null,
   }
@@ -145,6 +152,14 @@ export async function GET(req: Request) {
   }
 
   if (id) filter.id = id
+  // `?ids=` — comma-separated or repeated — documented by the shared OpenAPI
+  // factory (withIdsQueryParam) but previously ignored by every ledger GET
+  // (PR #6340 review nit). Malformed/unknown ids match nothing, never the
+  // unfiltered list (mergeIdFilter's own #4143 fail-closed behavior).
+  const rawIds = readQueryParamList(url.searchParams, 'ids')
+  if (isIdsParamProvided(rawIds)) {
+    filter = mergeIdFilter(filter, parseIdsParam(rawIds), { idsParamProvided: true })
+  }
   if (accountTypeId) filter.accountTypeId = accountTypeId
   if (parentAccountId) filter.parentAccountId = parentAccountId
   if (search) {
@@ -168,7 +183,7 @@ export async function GET(req: Request) {
   }
 
   const offset = (page - 1) * pageSize
-  const [rows, total] = await em.findAndCount(LedgerAccount, filter, { orderBy, limit: pageSize, offset })
+  const [rows, total] = await em.findAndCount(LedgerAccount, filter as FilterQuery<LedgerAccount>, { orderBy, limit: pageSize, offset })
   const items = rows.map(toRow)
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 

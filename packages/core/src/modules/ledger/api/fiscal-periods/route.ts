@@ -9,6 +9,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { FiscalPeriod } from '../../data/entities'
 import { createFiscalPeriodSchema } from '../../data/validators'
 import { createLedgerCrudOpenApi, createPagedListResponseSchema } from '../openapi'
+import { isIdsParamProvided, mergeIdFilter, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
+import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 
 // `/api/ledger/fiscal-periods` — list + create only (OM-11). Locking and
 // unlocking a period is not a field-level edit and is deliberately NOT
@@ -113,7 +115,7 @@ export async function GET(req: Request) {
   const organizationId = organizationScope?.selectedId ?? auth.orgId ?? null
 
   const { id, page, pageSize, isLocked, sortField, sortDir } = parsed.data
-  const filter: FilterQuery<FiscalPeriod> = {
+  let filter: Record<string, unknown> = {
     tenantId: auth.tenantId,
     deletedAt: null,
   }
@@ -126,6 +128,14 @@ export async function GET(req: Request) {
   }
 
   if (id) filter.id = id
+  // `?ids=` — comma-separated or repeated — documented by the shared OpenAPI
+  // factory (withIdsQueryParam) but previously ignored by every ledger GET
+  // (PR #6340 review nit). Malformed/unknown ids match nothing, never the
+  // unfiltered list (mergeIdFilter's own #4143 fail-closed behavior).
+  const rawIds = readQueryParamList(url.searchParams, 'ids')
+  if (isIdsParamProvided(rawIds)) {
+    filter = mergeIdFilter(filter, parseIdsParam(rawIds), { idsParamProvided: true })
+  }
   if (isLocked === 'true') filter.isLocked = true
   if (isLocked === 'false') filter.isLocked = false
 
@@ -144,7 +154,7 @@ export async function GET(req: Request) {
   }
 
   const offset = (page - 1) * pageSize
-  const [rows, total] = await em.findAndCount(FiscalPeriod, filter, { orderBy, limit: pageSize, offset })
+  const [rows, total] = await em.findAndCount(FiscalPeriod, filter as FilterQuery<FiscalPeriod>, { orderBy, limit: pageSize, offset })
   const items = rows.map(toRow)
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 

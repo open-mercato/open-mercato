@@ -10,7 +10,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { loadLedgerAccountTypeOptions } from '../../lib/optionLoaders'
+import { loadLedgerAccountGroupOptions, loadLedgerAccountTypeOptions } from '../../lib/optionLoaders'
 
 type LedgerAccountTypeData = {
   id: string
@@ -106,12 +106,14 @@ export default function EditLedgerAccountTypePage({ params }: { params?: { id?: 
           },
           {
             id: 'accountGroupId',
-            type: 'text',
-            label: t('ledger.account_types.form.field.accountGroup', 'Account group id'),
+            type: 'select',
+            label: t('ledger.account_types.form.field.accountGroup', 'Account group'),
+            placeholder: t('ledger.account_types.form.field.accountGroupPlaceholder', 'None'),
             helpText: t(
               'ledger.account_types.form.field.accountGroupHelp',
-              'Optional. Cannot be changed once an account of this type has posted entries.',
+              'Optional. System-seeded reference data. Cannot be changed once an account of this type has posted entries.',
             ),
+            loadOptions: (query?: string) => loadLedgerAccountGroupOptions(query),
           },
         ],
       },

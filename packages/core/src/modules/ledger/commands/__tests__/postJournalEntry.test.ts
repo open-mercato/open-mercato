@@ -281,7 +281,21 @@ describe('ledger.postJournalEntry', () => {
     })
   })
 
-  it('allocates strictly sequential, non-duplicate sequence numbers under concurrent posting', async () => {
+  // This exercises the fake EntityManager's `Promise.all` interleaving, which
+  // resolves each call synchronously in turn — it cannot reproduce real
+  // Postgres MVCC contention (PR #6340 review nit: "can't detect a race
+  // because the fake is single-threaded", confirmed correct on inspection).
+  // What it DOES prove, and the reason it stays: the allocator issues one
+  // atomic `INSERT ... ON CONFLICT ... RETURNING` per call rather than a
+  // separate SELECT-then-UPDATE, which is the actual property real Postgres
+  // needs to serialize concurrent allocations without gaps or duplicates —
+  // that guarantee itself was verified against a live Postgres 17 instance
+  // (embedded-postgres, ad hoc, not part of this suite) as part of the m6/m8
+  // verification for this PR. A real concurrent-connections test belongs in
+  // its own PR: it would need a live-Postgres test harness this suite does
+  // not have today, which is a tooling decision on the same footing as M8's
+  // BDD harness — worth proposing separately, not smuggling in via a nit fix.
+  it('allocates strictly sequential, non-duplicate sequence numbers under concurrent posting (fake EM, not a true concurrency test — see comment above)', async () => {
     const command = loadPostJournalEntry()
     const em = buildFakeEm()
     seedOpenPeriod(em, '2026-02-01', '2026-02-28')

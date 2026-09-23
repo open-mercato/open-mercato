@@ -18,6 +18,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { loadLedgerAccountLabelsByIds, loadLedgerAccountTypeLabelsByIds } from '../lib/optionLoaders'
 
 type LedgerAccountRow = {
   id: string
@@ -51,6 +52,7 @@ export default function LedgerAccountsPage() {
   const [filters] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
+  const [refLabels, setRefLabels] = React.useState<Record<string, string>>({})
   const scopeVersion = useOrganizationScopeVersion()
   const mutationContextId = 'ledger-accounts-list:mutation'
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -83,10 +85,28 @@ export default function LedgerAccountsPage() {
         }
         const payload = call.result ?? fallback
         if (!cancelled) {
-          setRows(Array.isArray(payload.items) ? payload.items : [])
+          const items = Array.isArray(payload.items) ? payload.items : []
+          setRows(items)
           setTotal(payload.total || 0)
           setTotalPages(payload.totalPages || 1)
           setTotalIsCapped(payload.totalIsCapped === true)
+
+          // Resolve `accountTypeId`/`parentAccountId` to human-readable labels for
+          // the columns below, batched into one request per reference via `?ids=`
+          // (PR #6340 review nit: raw UUIDs were shown instead). Best-effort: on
+          // failure the columns just keep showing the raw id.
+          const accountTypeIds = [...new Set(items.map((row) => row.accountTypeId).filter(Boolean))]
+          const parentIds = [...new Set(items.map((row) => row.parentAccountId).filter((id): id is string => Boolean(id)))]
+          Promise.all([
+            accountTypeIds.length ? loadLedgerAccountTypeLabelsByIds(accountTypeIds) : Promise.resolve({}),
+            parentIds.length ? loadLedgerAccountLabelsByIds(parentIds) : Promise.resolve({}),
+          ])
+            .then(([typeLabels, parentLabels]) => {
+              if (!cancelled) setRefLabels((prev) => ({ ...prev, ...typeLabels, ...parentLabels }))
+            })
+            .catch(() => {
+              // Best-effort only — the columns fall back to the raw id.
+            })
         }
       } catch {
         if (!cancelled) flash(t('ledger.accounts.list.error.load', 'Failed to load accounts'), 'error')
@@ -157,17 +177,30 @@ export default function LedgerAccountsPage() {
         accessorKey: 'accountTypeId',
         header: t('ledger.accounts.list.columns.accountType', 'Account type'),
         enableSorting: false,
-        cell: ({ row }) => (
-          <span className="font-mono text-xs text-muted-foreground">{row.original.accountTypeId}</span>
-        ),
+        cell: ({ row }) => {
+          const id = row.original.accountTypeId
+          const label = refLabels[id]
+          return label ? (
+            <span title={id}>{label}</span>
+          ) : (
+            <span className="font-mono text-xs text-muted-foreground" title={id}>{id}</span>
+          )
+        },
       },
       {
         accessorKey: 'parentAccountId',
         header: t('ledger.accounts.list.columns.parent', 'Parent account'),
         enableSorting: false,
-        cell: ({ row }) => (
-          <span className="font-mono text-xs text-muted-foreground">{row.original.parentAccountId ?? '—'}</span>
-        ),
+        cell: ({ row }) => {
+          const id = row.original.parentAccountId
+          if (!id) return <span>—</span>
+          const label = refLabels[id]
+          return label ? (
+            <span title={id}>{label}</span>
+          ) : (
+            <span className="font-mono text-xs text-muted-foreground" title={id}>{id}</span>
+          )
+        },
       },
       {
         accessorKey: 'description',
@@ -180,7 +213,7 @@ export default function LedgerAccountsPage() {
         cell: ({ row }) => (row.original.createdAt ? new Date(row.original.createdAt).toLocaleString() : '—'),
       },
     ],
-    [t],
+    [t, refLabels],
   )
 
   return (

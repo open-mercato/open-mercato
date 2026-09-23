@@ -5,7 +5,7 @@ import {
   createOrganizationFixture,
   deleteOrganizationIfExists,
 } from '@open-mercato/core/helpers/integration/authFixtures';
-import { deleteGeneralEntityIfExists } from '@open-mercato/core/helpers/integration/generalFixtures';
+import { deleteGeneralEntityIfExists, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 import {
   createCurrencyFixture,
   generateUniqueCurrencyCode,
@@ -50,7 +50,7 @@ const randomSlug = (prefix: string) => `${prefix}-${randomUUID().slice(0, 8)}`;
 
 async function createTenant(request: APIRequestContext, token: string, name: string): Promise<string> {
   const response = await apiRequest(request, 'POST', '/api/directory/tenants', { token, data: { name } });
-  const body = (await response.json().catch(() => null)) as { id?: string } | null;
+  const body = await readJsonSafe<{ id?: string }>(response);
   expect(response.status(), 'POST /api/directory/tenants should return 201').toBe(201);
   const id = body?.id;
   expect(typeof id === 'string' && id.length > 0).toBeTruthy();

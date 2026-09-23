@@ -8,7 +8,7 @@ import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { loadLedgerAccountTypeOptions } from '../../lib/optionLoaders'
+import { loadLedgerAccountGroupOptions, loadLedgerAccountTypeOptions } from '../../lib/optionLoaders'
 
 export default function CreateLedgerAccountTypePage() {
   const t = useT()
@@ -64,12 +64,14 @@ export default function CreateLedgerAccountTypePage() {
           },
           {
             id: 'accountGroupId',
-            type: 'text',
-            label: t('ledger.account_types.form.field.accountGroup', 'Account group id'),
+            type: 'select',
+            label: t('ledger.account_types.form.field.accountGroup', 'Account group'),
+            placeholder: t('ledger.account_types.form.field.accountGroupPlaceholder', 'None'),
             helpText: t(
               'ledger.account_types.form.field.accountGroupHelp',
-              'Optional. The Polish "zespoły" classification group id — reference data, not editable from this form.',
+              'Optional. The Polish "zespoły" classification group — system-seeded reference data, not editable from this form.',
             ),
+            loadOptions: (query?: string) => loadLedgerAccountGroupOptions(query),
           },
         ],
       },

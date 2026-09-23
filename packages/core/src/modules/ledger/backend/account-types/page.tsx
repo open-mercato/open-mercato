@@ -19,6 +19,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { loadLedgerAccountTypeLabelsByIds } from '../lib/optionLoaders'
 
 type LedgerAccountTypeRow = {
   id: string
@@ -53,6 +54,7 @@ export default function LedgerAccountTypesPage() {
   const [filters, setFilters] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
+  const [refLabels, setRefLabels] = React.useState<Record<string, string>>({})
   const scopeVersion = useOrganizationScopeVersion()
   const mutationContextId = 'ledger-account-types-list:mutation'
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -88,10 +90,25 @@ export default function LedgerAccountTypesPage() {
         }
         const payload = call.result ?? fallback
         if (!cancelled) {
-          setRows(Array.isArray(payload.items) ? payload.items : [])
+          const items = Array.isArray(payload.items) ? payload.items : []
+          setRows(items)
           setTotal(payload.total || 0)
           setTotalPages(payload.totalPages || 1)
           setTotalIsCapped(payload.totalIsCapped === true)
+
+          // Resolve `parentAccountTypeId` to a human-readable label for the
+          // column below, batched into one request via `?ids=` (PR #6340
+          // review nit: raw UUIDs were shown instead). Best-effort.
+          const parentIds = [...new Set(items.map((row) => row.parentAccountTypeId).filter((id): id is string => Boolean(id)))]
+          if (parentIds.length) {
+            loadLedgerAccountTypeLabelsByIds(parentIds)
+              .then((labels) => {
+                if (!cancelled) setRefLabels((prev) => ({ ...prev, ...labels }))
+              })
+              .catch(() => {
+                // Best-effort only — the column falls back to the raw id.
+              })
+          }
         }
       } catch {
         if (!cancelled) flash(t('ledger.account_types.list.error.load', 'Failed to load account types'), 'error')
@@ -177,9 +194,16 @@ export default function LedgerAccountTypesPage() {
         accessorKey: 'parentAccountTypeId',
         header: t('ledger.account_types.list.columns.parent', 'Parent type'),
         enableSorting: false,
-        cell: ({ row }) => (
-          <span className="font-mono text-xs text-muted-foreground">{row.original.parentAccountTypeId ?? '—'}</span>
-        ),
+        cell: ({ row }) => {
+          const id = row.original.parentAccountTypeId
+          if (!id) return <span>—</span>
+          const label = refLabels[id]
+          return label ? (
+            <span title={id}>{label}</span>
+          ) : (
+            <span className="font-mono text-xs text-muted-foreground" title={id}>{id}</span>
+          )
+        },
       },
       {
         accessorKey: 'createdAt',
@@ -187,7 +211,7 @@ export default function LedgerAccountTypesPage() {
         cell: ({ row }) => (row.original.createdAt ? new Date(row.original.createdAt).toLocaleString() : '—'),
       },
     ],
-    [t],
+    [t, refLabels],
   )
 
   const filterDefs = React.useMemo<FilterDef[]>(
