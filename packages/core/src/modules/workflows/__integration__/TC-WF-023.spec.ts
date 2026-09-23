@@ -24,9 +24,14 @@ import {
  * - `claimUserTask` only matches a PENDING task and requires it to be queued to a role
  *   (assignedToRoles non-empty, assignedTo null). The claimable fixture uses the array form
  *   of `assignedTo` which the step handler stores as a role queue.
+ * - The claim is a COMPARE-AND-SET, not a read-then-write: the lookup only decides which
+ *   error to report, while the row is taken with a conditional `UPDATE … WHERE status =
+ *   'PENDING' AND claimed_by IS NULL`. Two callers racing for the same task — exactly what
+ *   the work inbox's claim-next affordance produces — therefore cannot both win.
  * - Re-claiming an already-claimed (IN_PROGRESS) task throws "Task not found or already
  *   claimed"; the route checks the 'not found' substring before 'already', so the response
- *   is 404 (NOT the 409 the issue assumed).
+ *   is 404 (NOT the 409 the issue assumed). The race loser sees the same 404, because zero
+ *   affected rows raises the same `TASK_NOT_FOUND`.
  */
 test.describe('TC-WF-023: user task claim and complete API flow (#2462)', () => {
   test('claims a role-queue task, completes it, and resumes the workflow', async ({ request }) => {
@@ -108,6 +113,50 @@ test.describe('TC-WF-023: user task claim and complete API flow (#2462)', () => 
       )
       expect(finalInstance?.status, 'instance should resume past the USER_TASK and complete').toBe('COMPLETED')
       instanceId = null // terminal — nothing to cancel
+    } finally {
+      await cancelWorkflowInstanceIfExists(request, token, instanceId)
+      await deleteWorkflowDefinitionIfExists(request, token, definitionId)
+    }
+  })
+
+  test('two simultaneous claims on one task: exactly one wins', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const userId = getTokenScope(token).userId
+    const timestamp = Date.now()
+    const defPayload = buildClaimableUserTaskDefinitionPayload(timestamp, '-race')
+    let definitionId: string | null = null
+    let instanceId: string | null = null
+
+    try {
+      definitionId = await createWorkflowDefinitionFixture(request, token, defPayload)
+      instanceId = await startWorkflowInstanceFixture(request, token, {
+        workflowId: defPayload.workflowId,
+        initialContext: { orderId: `order-race-${timestamp}` },
+      })
+
+      const pendingTask = await findInstanceUserTask(request, token, instanceId, { statuses: ['PENDING'] })
+      expect(pendingTask?.id, 'a PENDING user task should be created for the instance').toBeTruthy()
+      const taskId = pendingTask!.id!
+
+      const claim = () =>
+        apiRequest(request, 'POST', `/api/workflows/tasks/${encodeURIComponent(taskId)}/claim`, { token })
+
+      const [first, second] = await Promise.all([claim(), claim()])
+      expect(
+        [first.status(), second.status()].sort(),
+        'the conditional update lets exactly one caller take the row',
+      ).toEqual([200, 404])
+
+      // Whoever lost changed nothing: the task is claimed once, by the winner.
+      const detailResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/workflows/tasks/${encodeURIComponent(taskId)}`,
+        { token },
+      )
+      const detailBody = await readJsonSafe<{ data?: UserTaskSnapshot }>(detailResponse)
+      expect(detailBody?.data?.status).toBe('IN_PROGRESS')
+      expect(detailBody?.data?.claimedBy).toBe(userId)
     } finally {
       await cancelWorkflowInstanceIfExists(request, token, instanceId)
       await deleteWorkflowDefinitionIfExists(request, token, definitionId)

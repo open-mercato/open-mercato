@@ -7,6 +7,7 @@ export const metadata: ModuleInfo = {
   description: 'Core CRM capabilities for people, companies, deals, and activities.',
   author: 'Open Mercato Team',
   license: 'MIT',
+  requires: ['progress'],
   ejectable: true,
 }
 
