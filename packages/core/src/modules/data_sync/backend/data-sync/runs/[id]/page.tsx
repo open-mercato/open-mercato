@@ -136,6 +136,7 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
    * scrolls away with nowhere to go.
    */
   const [staleParameters, setStaleParameters] = React.useState(false)
+  const resumePointDescriptionId = React.useId()
   // Declarations cannot change between two refreshes of the same run, so the
   // options list is fetched once per integration rather than on every progress
   // event that re-reads the run.
@@ -441,7 +442,13 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
                   </Button>
                 ) : null}
                 {canRunSync && resumePoint.kind !== 'none' ? (
-                  <Button type="button" variant="outline" size="sm" onClick={() => void handleRetry()}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    aria-describedby={resumePointDescriptionId}
+                    onClick={() => void handleRetry()}
+                  >
                     <RotateCcw className="mr-2 h-4 w-4" />
                     {/* A cancelled run was stopped on purpose — nothing went
                         wrong, and "Retry" misdescribes that. */}
@@ -458,7 +465,7 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
                 <ActionsDropdown items={overflowActions} triggerMode="icon" />
               </div>
               {resumePoint.kind === 'resumes' ? (
-                <p className="flex flex-wrap items-center justify-end gap-1 text-xs text-muted-foreground">
+                <p id={resumePointDescriptionId} className="flex flex-wrap items-center justify-end gap-1 text-xs text-muted-foreground">
                   <Bookmark className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                   <span>{t('data_sync.runs.detail.resumePoint.resumes', 'Resumes from batch {batch} —', { batch: resumePoint.batchesCompleted })}</span>
                   {/* Verbatim and never truncated: an adapter cursor is the only
@@ -485,7 +492,7 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
                 </p>
               ) : null}
               {resumePoint.kind === 'noCommittedBatch' ? (
-                <p className="flex max-w-prose items-start justify-end gap-1 text-right text-xs text-muted-foreground">
+                <p id={resumePointDescriptionId} className="flex max-w-prose items-start justify-end gap-1 text-right text-xs text-muted-foreground">
                   <Bookmark className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                   <span>{t('data_sync.runs.detail.resumePoint.noCommittedBatch', "This run committed no batch. Retry starts from this feed's last saved position, which may be earlier than this run began.")}</span>
                 </p>

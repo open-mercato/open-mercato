@@ -522,6 +522,10 @@ export default function SyncRunsDashboardPage() {
       // not an error state either; the form renders its normal defaults, and the
       // attempt stays recorded so this cannot retry in a loop.
       if (!seedMountedRef.current || !call.ok || !call.result) return
+      // A second "Run again" re-points `seedAttemptedRef` while this fetch is in
+      // flight; the page stays mounted across that query-only navigation, so a
+      // slower first response must not overwrite the seed the second one applied.
+      if (seedAttemptedRef.current !== fromRunId) return
 
       const source = call.result
       const integration = options.find((option) => option.integrationId === source.integrationId)

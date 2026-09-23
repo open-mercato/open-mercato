@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 
 const apiCallMock = jest.fn()
@@ -212,6 +212,39 @@ describe('SyncRunsDashboardPage ?from= prefill', () => {
 
     await screen.findByText(/copied from erp-ambra/i)
     await waitFor(() => expect(screen.getByDisplayValue('retail-core')).toBeInTheDocument())
+  })
+
+  it('ignores a slower seed fetch that a later "Run again" superseded', async () => {
+    mockApi()
+    let resolveSlowRun: (value: unknown) => void = () => {}
+    const defaultImplementation = apiCallMock.getMockImplementation()
+    apiCallMock.mockImplementation((url: string, ...rest: unknown[]) => {
+      if (url === '/api/data_sync/runs/run-9') {
+        return new Promise((resolve) => { resolveSlowRun = resolve })
+      }
+      return defaultImplementation?.(url, ...rest)
+    })
+    const { rerender } = renderWithProviders(<SyncRunsDashboardPage />)
+    await waitFor(() => expect(selectedEntityTypeText()).toMatch(/Customers/))
+
+    searchParams = new URLSearchParams('from=run-9')
+    rerender(<SyncRunsDashboardPage />)
+    await waitFor(() => expect(
+      apiCallMock.mock.calls.some(([url]) => String(url) === '/api/data_sync/runs/run-9'),
+    ).toBe(true))
+
+    searchParams = new URLSearchParams('from=run-5')
+    rerender(<SyncRunsDashboardPage />)
+    await waitFor(() => expect(screen.getByDisplayValue('retail-core')).toBeInTheDocument())
+
+    await act(async () => {
+      resolveSlowRun({ ok: true, status: 200, result: SOURCE_RUN })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    expect(screen.getByDisplayValue('retail-core')).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('b2b-active')).not.toBeInTheDocument()
+    expect(selectedEntityTypeText()).not.toMatch(/Price Lists/)
   })
 
   it('names the dropped parameter the adapter no longer declares', async () => {

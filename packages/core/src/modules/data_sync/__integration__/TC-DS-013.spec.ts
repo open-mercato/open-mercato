@@ -50,12 +50,6 @@ const ENTITY_RESUMABLE = 'catalog.category'
 const ENTITY_NULL_CURSOR_FULL_REPLAY = 'sales.order'
 const ENTITY_NULL_CURSOR_RESUMABLE = 'sales.shipment'
 
-/**
- * `seedSyncRuns` (helpers/db.ts) inserts every run with a NULL `cursor` and
- * offers no way to set one, and there is no helper at all for the shared
- * `sync_cursors` row. Both are load-bearing here, so this spec seeds them
- * locally; fold them into helpers/db.ts when that file is next edited.
- */
 test.describe('TC-DS-013: Data sync retry from the beginning vs. resume', () => {
   test('fromBeginning decides whether the new run inherits a start cursor', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')

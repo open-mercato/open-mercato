@@ -101,6 +101,22 @@ describe('SyncRunDetailPage resume point', () => {
     expect(line.textContent).not.toMatch(/of\s*~?\d/)
   })
 
+  it.each([
+    ['a resumable run', {}, /Resumes from batch 41/],
+    ['a run that committed no batch', { cursor: null, batchesCompleted: 0 }, /committed no batch/i],
+  ])('associates the resume-point line with the retry button on %s', async (_label, overrides, line) => {
+    mockRun(overrides)
+    renderWithProviders(<SyncRunDetailPage params={{ id: 'run-1' }} />)
+
+    const description = (await screen.findByText(line)).closest('p')
+    expect(description?.id).toBeTruthy()
+    const described = screen
+      .getAllByRole('button')
+      .filter((button) => button.getAttribute('aria-describedby') === description?.id)
+    expect(described).toHaveLength(1)
+    expect(described[0]).toHaveAccessibleDescription(line)
+  })
+
   it('stays non-committal when the run committed no batch', async () => {
     mockRun({ cursor: null, batchesCompleted: 0 })
     renderWithProviders(<SyncRunDetailPage params={{ id: 'run-1' }} />)
