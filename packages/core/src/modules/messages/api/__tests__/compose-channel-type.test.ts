@@ -189,6 +189,21 @@ describe('POST /api/messages — source channel type resolution (#4975)', () => 
 })
 
 describe('POST /api/messages — server-only compose fields', () => {
+  it('drops a client-supplied sentAt (#6095)', async () => {
+    // `sentAt` exists so channel ingest can stamp the provider's receive time.
+    // A browser caller must not be able to backdate a message with it.
+    resolveChannelTypeMock.mockResolvedValue('email')
+
+    const response = await composeMessage(
+      composeRequest(
+        publicComposeBody({ externalEmail: 'jane@example.com', sentAt: '2020-01-01T00:00:00.000Z' }),
+      ),
+    )
+
+    expect(response.status).toBe(201)
+    expect(composeInput().sentAt).toBeUndefined()
+  })
+
   it('drops a client-supplied inboundFromChannel flag (#6093)', async () => {
     // The flag lets channel ingest address an inbound message to the assigned
     // user despite public visibility. A browser caller must not be able to
