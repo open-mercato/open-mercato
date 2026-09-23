@@ -1,4 +1,4 @@
-# `ledger` BDD scenarios (OM-174)
+# `ledger` BDD scenarios
 
 Given/When/Then scenarios for the `ledger` module, run with
 [`@cucumber/cucumber`](https://github.com/cucumber/cucumber-js) via
@@ -6,11 +6,9 @@ Given/When/Then scenarios for the `ledger` module, run with
 the module's first BDD infrastructure — before this task the repo had no
 `.feature` files and no Cucumber dependency anywhere.
 
-Ordering: per the user's explicit decision on 2026-09-22, this step
-happens **before** OM-13 (unit tests) and OM-14 (integration tests), not
-after — the scenarios below are meant to read as a business-facing
-contract derived from the spec, which the unit/integration tests then
-implement against.
+Ordering: these scenarios were written before the unit and integration
+tests, deliberately — they read as a business-facing contract derived
+from the spec, which the unit/integration tests then implement against.
 
 ## Why Cucumber, why `tsx/cjs` and not `ts-node`
 
@@ -70,18 +68,17 @@ support.
 
 ## Verification status — please read before trusting this suite blindly
 
-**Update (after OM-13's Jest tests shipped):** part of the original
-version of this section was wrong, and it's worth saying so plainly
-rather than leaving a stale caveat in place. Writing OM-13's unit tests
-uncovered that `~/mnt/open-mercato` (the main checkout this worktree
-branches from) already has a full, real `yarn install` — 1582 packages,
-including `jest`, `ts-jest`, `typescript-js` (the JS-based TypeScript
-6.0.3 alias `scripts/jest-mikroorm-transformer.cjs` redirects to),
-`@mikro-orm/core`, `@mikro-orm/decorators`, and `tsx`. Node's own
+**Update:** part of the original version of this section was wrong, and
+it's worth saying so plainly rather than leaving a stale caveat in place.
+Writing this module's Jest unit tests uncovered that the main checkout
+this worktree branches from already has a full, real `yarn install` —
+1582 packages, including `jest`, `ts-jest`, `typescript-js` (the JS-based
+TypeScript 6.0.3 alias `scripts/jest-mikroorm-transformer.cjs` redirects
+to), `@mikro-orm/core`, `@mikro-orm/decorators`, and `tsx`. Node's own
 directory walk-up for module resolution reaches that install from
 *inside* this linked worktree (worktrees don't get their own
 `node_modules`, but they don't need one when an ancestor directory
-already has a real one) — which is exactly how OM-13's
+already has a real one) — which is exactly how
 `postJournalEntry.test.ts` / `reverseJournalEntry.test.ts` /
 `fiscalPeriods.test.ts` were actually run and confirmed green, not just
 designed. "No yarn install was possible here" was too pessimistic; the
@@ -117,8 +114,8 @@ blocker than "environment couldn't be verified":
   reached in this run). The failure is
   `TypeError: Cannot read properties of undefined (reading 'constructor')`
   inside `@mikro-orm/decorators/legacy/PrimaryKey.js`, thrown from
-  TypeScript's generated decorator-application helper. OM-13's Jest
-  suite loads ledger's own decorator-based `data/entities.ts` successfully
+  TypeScript's generated decorator-application helper. This module's
+  Jest suite loads ledger's own decorator-based `data/entities.ts` successfully
   in the same environment — via `ts-jest`, which transforms with the
   real TypeScript compiler (aliased to `typescript-js`, TS 6.0.3),
   not esbuild. That is the concrete difference: **ts-jest's decorator
@@ -163,8 +160,8 @@ swap `cucumber.config.cjs`'s `requireModule` from `tsx/cjs` to a
 hand-written TypeScript-compiler-based require hook
 (`cucumber-ts-register.cjs`, using `ts.transpileModule` via the
 `typescript-js` alias — the same approach
-`scripts/jest-mikroorm-transformer.cjs` already uses for OM-13's Jest
-suite) rather than appending it alongside `tsx/cjs`, which is as far as
+`scripts/jest-mikroorm-transformer.cjs` already uses for this module's
+Jest suite) rather than appending it alongside `tsx/cjs`, which is as far as
 the abandoned first attempt described two paragraphs up got.
 
 ### Verification status: account-type / account scenarios
@@ -202,7 +199,7 @@ thrown before any step even ran.
 see "Step definitions call real command handlers, not reimplementations"
 above for what that does and does not cover. A real
 `yarn install && yarn generate && yarn build` followed by an
-integration-test run against actual Postgres (OM-14) is still the
+integration-test run against actual Postgres is still the
 stronger verification, and worth doing before this BDD pattern is
 extended to another module; this suite passing green is not a
 substitute for that.

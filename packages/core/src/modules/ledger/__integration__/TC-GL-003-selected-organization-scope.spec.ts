@@ -22,7 +22,7 @@ import {
 /**
  * TC-GL-003: `GET /api/ledger/{account-types,accounts,fiscal-periods,
  * journal-entries}` scope to the organization selected for the request, not
- * the caller's home organization (OM-14 coverage gap; PR #6340 review,
+ * the caller's home organization (a coverage gap flagged in PR #6340 review,
  * wojciechszyjka: M6).
  *
  * Before the M6 fix, all four routes filtered by `auth.orgId` — the token's

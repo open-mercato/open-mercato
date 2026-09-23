@@ -1,4 +1,4 @@
-// OM-13 unit tests for `ledger.lockFiscalPeriod` / `ledger.unlockFiscalPeriod`
+// Unit tests for `ledger.lockFiscalPeriod` / `ledger.unlockFiscalPeriod`
 // — scope per the Jira ticket: "konflikty optimistic lock przy lock/unlock
 // okresu fiskalnego". Exercises the real
 // `enforceCommandOptimisticLockWithGuards` -> `enforceCommandOptimisticLock`

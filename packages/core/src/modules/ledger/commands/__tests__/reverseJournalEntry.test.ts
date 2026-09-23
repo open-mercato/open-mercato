@@ -1,6 +1,6 @@
-// OM-13 unit tests for `ledger.reverseJournalEntry` — scope per the Jira
-// ticket: "poprawność powiązania storna (`reverseJournalEntry` ->
-// referenceType/referenceId)". Also covers the design decision the spec
+// Unit tests for `ledger.reverseJournalEntry` — scope: reversal-linkage
+// correctness (`reverseJournalEntry` -> referenceType/referenceId). Also
+// covers the design decision the spec
 // documents ("a reversal exists to move a correction into an open
 // period"): the fiscal-period-lock check inside the shared
 // `runPostJournalEntry` core must be evaluated against the REVERSAL's own
@@ -76,7 +76,7 @@ function seedOriginalEntry(em: ReturnType<typeof buildFakeEm>) {
     documentType: null,
     documentNumber: null,
     documentDate: null,
-    description: 'Original entry (OM-13 fixture)',
+    description: 'Original entry (unit test fixture)',
     type: 'NORMAL',
     currencyId: CURRENCY,
     exchangeRate: null,
