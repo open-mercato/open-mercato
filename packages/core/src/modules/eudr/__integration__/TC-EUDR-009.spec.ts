@@ -130,7 +130,7 @@ test.describe('TC-EUDR-009: EUDR batch-2 UI smoke', () => {
 
   test('renders plots list and create form with geometry preview', async ({ page }) => {
     await page.goto('/backend/eudr/plots', { waitUntil: 'domcontentloaded' })
-    await expect(page.getByRole('heading', { name: 'Plots', level: 2 }).first()).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Plots', level: 1 }).first()).toBeVisible()
     await waitForBackendTable(page)
     await expectActionVisible(page, /create/i)
     await expectActionVisible(page, /import/i)
@@ -196,12 +196,12 @@ test.describe('TC-EUDR-009: EUDR batch-2 UI smoke', () => {
       await expectNoErrorState(page, 'Could not load statement.')
 
       await page.goto('/backend/eudr/risk-assessments', { waitUntil: 'domcontentloaded' })
-      await expect(page.getByRole('heading', { name: 'Risk assessments', level: 2 }).first()).toBeVisible()
+      await expect(page.getByRole('heading', { name: 'Risk assessments', level: 1 }).first()).toBeVisible()
       await waitForBackendTable(page)
       await expectNoErrorState(page, 'Could not load risk assessments.')
 
       await page.goto('/backend/eudr/statements', { waitUntil: 'domcontentloaded' })
-      await expect(page.getByRole('heading', { name: 'Statements', level: 2 }).first()).toBeVisible()
+      await expect(page.getByRole('heading', { name: 'Statements', level: 1 }).first()).toBeVisible()
       await waitForBackendTable(page)
       await expect(page.getByRole('columnheader', { name: /EUDR risk|Risk/i }).first()).toBeVisible()
       await expect(page.getByText(/negligible/i).first()).toBeVisible()

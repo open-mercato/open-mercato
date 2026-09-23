@@ -2,6 +2,12 @@ import { expect, test } from '@playwright/test'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import {
+  WORKFLOW_RESET_TO_CODE_MENU_ITEM_LABEL,
+  expectWorkflowHeaderAction,
+  invokeWorkflowHeaderAction,
+  openWorkflowDetailsDrawer,
+} from '@open-mercato/core/helpers/integration/workflowsUi'
 import { deleteWorkflowDefinitionIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
 
 /**
@@ -52,7 +58,7 @@ test.describe('TC-WF-010: Code-Based Workflow Definitions — UI', () => {
       if (stale) await deleteWorkflowDefinitionIfExists(request, apiToken, stale)
 
       // Step 1: open the code-defined workflow detail directly.
-      await page.goto(`/backend/definitions/${encodeURIComponent(CODE_WORKFLOW_API_ID)}`)
+      await page.goto(`/backend/definitions/visual-editor?id=${encodeURIComponent(CODE_WORKFLOW_API_ID)}`)
       await expect(
         page.getByText('This workflow is defined in code. Customize it to make changes.'),
       ).toBeVisible()
@@ -61,11 +67,11 @@ test.describe('TC-WF-010: Code-Based Workflow Definitions — UI', () => {
 
       // Step 2: click Customize — should create a DB override and redirect to it.
       await Promise.all([
-        page.waitForURL(/\/backend\/definitions\/[0-9a-f-]{36}(?:\?.*)?$/i, { timeout: 15_000 }),
+        page.waitForURL(/\/backend\/definitions\/visual-editor\?id=[0-9a-f-]{36}/i, { timeout: 15_000 }),
         customizeButton.click(),
       ])
 
-      const urlMatch = page.url().match(/\/backend\/definitions\/([0-9a-f-]{36})/i)
+      const urlMatch = page.url().match(/[?&]id=([0-9a-f-]{36})/i)
       overrideId = urlMatch?.[1] ?? null
       expect(overrideId, 'Customize should redirect to a UUID detail URL').toBeTruthy()
 
@@ -73,8 +79,7 @@ test.describe('TC-WF-010: Code-Based Workflow Definitions — UI', () => {
       await expect(
         page.getByText('This workflow has been customized from its code-defined version.'),
       ).toBeVisible()
-      const resetButton = page.getByRole('button', { name: 'Reset to code version', exact: true })
-      await expect(resetButton).toBeVisible()
+      await expectWorkflowHeaderAction(page, WORKFLOW_RESET_TO_CODE_MENU_ITEM_LABEL)
 
       // Step 4: verify the API agrees the row is now a code_override.
       const detail = await apiRequest(
@@ -88,11 +93,11 @@ test.describe('TC-WF-010: Code-Based Workflow Definitions — UI', () => {
       expect(detailBody?.data?.source).toBe('code_override')
 
       // Step 5: click Reset to code version → confirm dialog → redirect back to code: id.
-      await resetButton.click()
+      await invokeWorkflowHeaderAction(page, WORKFLOW_RESET_TO_CODE_MENU_ITEM_LABEL)
       const confirmDialog = page.getByRole('alertdialog')
       await expect(confirmDialog).toBeVisible()
       await Promise.all([
-        page.waitForURL(/\/backend\/definitions\/code(?::|%3A)/i, { timeout: 15_000 }),
+        page.waitForURL(/\/backend\/definitions\/visual-editor\?id=code(?::|%3A)/i, { timeout: 15_000 }),
         confirmDialog.getByRole('button', { name: 'Reset to code version' }).click(),
       ])
 
@@ -165,6 +170,9 @@ test.describe('TC-WF-010: Code-Based Workflow Definitions — UI', () => {
   })
 
   test('admin can edit a customized workflow and the change persists', async ({ page, request }) => {
+    // Login + Studio boot + opening the details drawer + a full-payload PUT does
+    // not fit the 20s default.
+    test.setTimeout(60_000)
     const apiToken = await getAuthToken(request, 'admin')
     let overrideId: string | null = null
 
@@ -187,27 +195,23 @@ test.describe('TC-WF-010: Code-Based Workflow Definitions — UI', () => {
       expect(overrideId).toBeTruthy()
 
       // Open the edit page for the override.
-      await page.goto(`/backend/definitions/${encodeURIComponent(overrideId!)}`)
+      await page.goto(`/backend/definitions/visual-editor?id=${encodeURIComponent(overrideId!)}`)
       await expect(
         page.getByText('This workflow has been customized from its code-defined version.'),
       ).toBeVisible()
 
-      // Edit the description and submit the full form — this is the real
-      // CrudForm submission that previously tripped the strict update validator.
+      // Edit the description and save — the Studio issues the same full-payload
+      // PUT that previously tripped the strict update validator. The definition
+      // fields live in the details Drawer, which starts closed.
       const newDescription = `QA edit ${Date.now()}`
-      // The form and the Steps editor both render a "Description" label, so we
-      // scope by placeholder, which is unique to the top-level workflow description.
-      const descriptionField = page
-        .getByPlaceholder('Optional: Describe the purpose of this workflow')
-        .first()
+      const drawer = await openWorkflowDetailsDrawer(page)
+      const descriptionField = drawer.locator('#description')
       await expect(descriptionField).toBeEditable()
       await descriptionField.fill(newDescription)
 
-      // CrudForm renders the submit in both the sticky header and the form footer;
-      // target the footer (in-form) button, which fires the native submit.
-      const updateButton = page
-        .locator('button[type="submit"]', { hasText: 'Update Workflow' })
-        .first()
+      // Save from inside the drawer: with it open, the header Update and the
+      // drawer footer Update are two buttons with the same accessible name.
+      const updateButton = drawer.getByRole('button', { name: 'Update', exact: true })
       await expect(updateButton).toBeVisible()
       await Promise.all([
         page.waitForResponse(
@@ -235,17 +239,17 @@ test.describe('TC-WF-010: Code-Based Workflow Definitions — UI', () => {
     }
   })
 
-  test('code-defined detail form is read-only (no Update Workflow button)', async ({ page }) => {
+  test('a code-defined workflow opens read-only in the studio (no save button)', async ({ page }) => {
     await login(page, 'admin')
 
-    await page.goto(`/backend/definitions/${encodeURIComponent(CODE_WORKFLOW_API_ID)}`)
+    await page.goto(`/backend/definitions/visual-editor?id=${encodeURIComponent(CODE_WORKFLOW_API_ID)}`)
 
     await expect(
       page.getByText('This workflow is defined in code. Customize it to make changes.'),
     ).toBeVisible()
 
-    // The CrudForm suppresses its submit button in readOnly mode.
-    await expect(page.getByRole('button', { name: 'Update Workflow', exact: true })).toHaveCount(0)
+    // The Studio replaces its save action with Customize in read-only mode.
+    await expect(page.getByRole('button', { name: /^(Update|Save)$/ })).toHaveCount(0)
 
     // Customize is the only action available.
     await expect(page.getByRole('button', { name: 'Customize', exact: true })).toBeVisible()

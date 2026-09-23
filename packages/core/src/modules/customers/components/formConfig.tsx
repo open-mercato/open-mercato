@@ -59,7 +59,11 @@ import {
   type CustomerDictionaryKind,
 } from '../lib/dictionaries'
 import { normalizeCustomFieldSubmitValue } from './detail/customFieldUtils'
-import { CUSTOMER_EMAIL_INVALID_MESSAGE_KEY, CUSTOMER_PHONE_INVALID_MESSAGE_KEY } from '../data/validators'
+import {
+  CUSTOMER_EMAIL_INVALID_MESSAGE_KEY,
+  CUSTOMER_PHONE_INVALID_MESSAGE_KEY,
+  CUSTOMER_URL_INVALID_MESSAGE_KEY,
+} from '../data/validators'
 
 export const metadata = {
   navHidden: true,
@@ -1199,7 +1203,7 @@ export const createCompanyFormSchema = () =>
       websiteUrl: z
         .string()
         .trim()
-        .url()
+        .url(CUSTOMER_URL_INVALID_MESSAGE_KEY)
         .optional()
         .or(z.literal(''))
         .transform((val) => (val === '' ? undefined : val))
@@ -1559,7 +1563,7 @@ const clearableUrlField = () =>
   z
     .string()
     .trim()
-    .url()
+    .url(CUSTOMER_URL_INVALID_MESSAGE_KEY)
     .optional()
     .or(z.literal(''))
     .transform((val) => (val === '' ? null : val))

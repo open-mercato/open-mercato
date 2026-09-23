@@ -1,267 +1,244 @@
 ---
 title: User Tasks
-description: Working with workflow tasks that require human input and decisions
+description: Authoring workflow tasks in the inspector and working them from the Work Inbox
 ---
 
 # User Tasks
 
-User tasks are workflow steps that require human intervention—reviewing data, making decisions, or providing input. This guide explains how to work with tasks from a user's perspective.
+User tasks are workflow steps that require a person — reviewing a record, making a decision, entering data. This guide covers both sides: **authoring** a task in the Studio's task inspector, and **working** one from the Work Inbox.
 
-## User Task Queue
+## The Work Inbox
 
-When workflows reach USER_TASK steps, tasks appear in the user's task queue. Access your tasks:
+The Work Inbox at **Workflows → Work Inbox** (`/backend/work-inbox`) is where open work lives. It replaces the old My Tasks list; `/backend/tasks` now redirects there, and individual task URLs (`/backend/tasks/<id>`) still work exactly as before.
 
-1. Navigate to **My Tasks** in the sidebar
-2. View all tasks assigned to you or roles you belong to
-3. Filter by status (PENDING, IN_PROGRESS, COMPLETED)
-4. Sort by priority, due date, or creation time
+The inbox is **one queue over several sources**, not a single table. Workflow user tasks are the source the platform ships; other modules can register their own (agent proposals, for example), and rows from every registered source are merged into the same list.
 
-**Task List Columns:**
-- **Task Name**: Description of what needs to be done
-- **Workflow**: Which workflow this task belongs to
-- **Status**: Current state (PENDING, IN_PROGRESS, COMPLETED, CANCELLED)
-- **Assigned To**: Who is responsible (you, a role, or specific user)
-- **Due Date**: When the task should be completed
-- **Created**: When the task was created
+**Columns:** Work Item, Source, Priority, Status, Assigned To, Due Date, Created.
 
-## Viewing Task Details
+**Filters:** My Work / All Work, Source, Module, Entity Type, Role, Priority, Status, Overdue.
 
-Click a task to view its details:
+**Ordering** is fixed and deliberate: **priority first, then the nearest due date, then oldest first.** Work with no priority set ranks *with* `medium`, not last — otherwise a handful of deliberately deprioritized items would bury the entire pre-existing backlog.
 
-**Task Information:**
-- **Task Name and Description**: What needs to be done
-- **Workflow Context**: Data from the workflow (requester, amount, details)
-- **Assignment**: Who can complete this task
-- **Form Fields**: Data you need to provide
-- **History**: Previous actions and comments
+**Overdue** is derived, never stored: a due date in the past on an item nobody has finished yet. An item that was closed late is not overdue — it is done.
 
-**Actions Available:**
-- **Complete**: Finish the task and move the workflow forward
-- **Cancel**: Cancel the task (workflow may be canceled or rerouted)
-- **Claim**: Take ownership of a role-assigned task
-- **Reassign**: Transfer the task to another user
+**Claim Next** takes the top item you are able to claim and opens it. If two people press it at the same moment they never receive the same item: the claim is a conditional database update, so the second press moves on to the next item instead of failing.
 
-## Completing Tasks
+If a source is temporarily unavailable, the inbox tells you the list may be incomplete rather than failing the whole page — you still see every other source's work.
 
-To complete a task:
+## Working a task
 
-1. **Review the Information**: Check workflow context and any attached data
-2. **Fill Required Fields**: Complete form fields if configured
-3. **Make a Decision**: Choose an action (e.g., Approve, Reject)
-4. **Add Comments** (optional): Explain your decision
-5. **Click "Complete"**: Submit and advance the workflow
+Open a task from the inbox (or from a record page, or from a notification) to reach the task detail page.
 
-**Form Submission:**
+The page is **decision on the left, context on the right**:
 
-If the task has a form schema, you'll see fields to fill:
+- **Left**: the task instructions, the form fields the author configured, and the decision buttons.
+- **Right**: a card for each record the task is about, with a link straight to that record.
+
+**Claim** appears on a task that is offered to a role rather than to you personally. Claiming takes it out of the shared queue; **Release** puts it back.
+
+**Complete** submits the form. If the author configured decision buttons, you press one of those instead — pressing a button both completes the task *and* sends the workflow down that button's route. Which button you pressed is recorded with the completion.
+
+After completing a task you are offered **the next task** in one click, so a run of similar work does not mean going back to the list each time.
+
+## Who can see a task
+
+**A task is yours if it was assigned to you, you claimed it, or it is queued to a role you hold.** Those are the people who see it in the inbox and the people who can finish it. Holding the "view user tasks" permission gets you into the task list; it no longer shows you everyone else's work.
+
+On top of that, you must be able to view the **kinds of records the task is about**. A task bound to a deal is only visible to people who may view deals. This is checked for **every** record the task is bound to, not just one of them — so a task bound to both a deal and a customer needs both.
+
+:::note
+This checks the **type** of record, together with your tenant and organization. It does not check individual records: "may view deals" is not "may view *this* deal". Open Mercato has no record-level permission layer, and this feature does not add one.
+:::
+
+A task that is about **no** records at all — which is every task created before record bindings existed — is visible to whoever it is assigned to, exactly as before.
+
+### Seeing other people's work
+
+Three permissions cover supervision:
+
+| Permission | What it lets you do |
+|---|---|
+| **View all workflow tasks** (`workflows.tasks.view_all`) | See tasks that are not yours. It does **not** let you finish them. |
+| **Reassign workflow tasks** (`workflows.tasks.reassign`) | Move a task to someone else, or back to a role queue. |
+| **Administer workflow tasks** (`workflows.tasks.manage`) | Force-release a claim, cancel, bulk operations, and change the tenant setting below. |
+
+The seeing/doing split is deliberate. A supervisor who completes a colleague's task leaves no trace of how it got to them — so instead they **reassign it to themselves first**, with a reason. That is recorded on the task (who moved it, when, and why) and in the workflow's own event log, so "who approved this?" stays answerable.
+
+Administrators see a Complete button on a task that is not theirs, but pressing it is refused with *"Task is assigned to another user"*. Reassign it first. Reassignment is currently done through the API (`POST /api/workflows/tasks/<id>/reassign`); a button on the task page is coming.
+
+### A task nobody owns
+
+If a task was authored with no assignee and no role queue, nobody can complete it — the Complete action reports *"Task is not assigned to anyone; reassign it before acting on it"*. Reassign it to a person or a queue and it works normally. The Studio warns about this shape while you are authoring, so you usually catch it first.
+
+### Restoring the old behaviour temporarily
+
+If your roles are set up in a way that this change disrupts, an administrator can turn the model off for the whole tenant:
+
+```
+PUT /api/workflows/task-settings   { "taskPermissionsBusinessContext": false }
+```
+
+That restores the **reading** you had before — anyone with "view user tasks" sees every task in the organization again. It restores nothing else: completing someone else's task, claiming a queue you are not in, and anything outside your tenant stay refused, and portal tasks ignore the setting completely.
+
+It is a migration aid and will be removed one release from now. Use the time to grant "view all workflow tasks" to the roles that genuinely need it.
+
+## Portal tasks
+
+A task can be assigned to a **customer** — someone signed in to the customer portal rather than the backoffice.
+
+**For the customer**, tasks appear under **Tasks** in the portal, and open to the same instructions / form / decision buttons a backoffice assignee sees. They need the `portal.tasks.view` permission to see them and `portal.tasks.complete` to finish them. A new task shows up without a page refresh.
+
+**Two rules make portal tasks safe**, and they are stricter than the backoffice ones:
+
+- **A portal task must be bound to a record the customer owns.** Their own customer record, their own person record, or — for a company administrator — a record belonging to someone in their company. A portal task bound to nothing is visible to nobody at all.
+- **A company administrator can read their colleagues' tasks but never complete them.** Only the person a task is assigned to can finish it.
+
+Customers never reach the backoffice task pages, and backoffice users never reach the portal ones.
+
+**Authoring one** currently means editing the definition JSON in the Studio's **Code view** — there is no picker in the task inspector yet:
 
 ```json
-{
-  "decision": "approve",
-  "comments": "Budget approved for Q4 2024",
-  "amount": 15000
+"userTaskConfig": {
+  "assigneeKind": "customer",
+  "assignedTo": "{{context.portalUserId}}",
+  "entityBindings": [
+    { "entityType": "customers:company", "idPath": "context.companyId" }
+  ]
 }
 ```
 
-The form data is merged into the workflow context, making it available to subsequent steps.
+`assignedTo` must resolve to a portal user's id, and at least one binding must name a record that user owns — without it, the task is created but nobody can see it.
 
-## Task Assignment
+:::note
+Existing installations must grant `portal.tasks.view` / `portal.tasks.complete` to their customer roles by hand from the customer-role editor; only newly created tenants get them automatically. Portal permissions are cached for five minutes, so a fresh grant takes a few minutes to take effect for someone already signed in.
+:::
 
-Tasks can be assigned in three ways:
+## Authoring a task
 
-### Direct Assignment
+Select a USER_TASK step in the Studio and open its inspector. It is organized as five questions:
 
-Task is assigned to a specific user. Only that user can complete it.
+### What
 
-**Configuration:**
-```json
-{
-  "userTaskConfig": {
-    "assignedTo": "user-123"
-  }
-}
-```
+The **task title** and the **instructions** the assignee reads. Both accept context values: type `{{context.customer.name}}` — or insert one with the variable picker — and it is filled in when the task is created.
 
-**Use When:**
-- Specific person must handle the task
-- Personal accountability is required
-- Task requires domain expertise only one person has
+Values are resolved **once, at task creation**. Editing the definition later never retro-changes what a running task says.
 
-### Role-Based Assignment
+### About what
 
-Task is assigned to a role. Any user with that role can claim and complete it.
+The **records this task is about**. Each binding is a record type (`customers:person`, `sales:order`) plus the context path its id comes from (`context.customerId`).
 
-**Configuration:**
-```json
-{
-  "userTaskConfig": {
-    "assignedToRoles": ["Approvers", "Managers"]
-  }
-}
-```
+Bindings do three things: they render the context cards on the task page, they let the inbox filter by entity type, and they let the record's own page show that the work exists.
 
-**Claiming Tasks:**
-1. View tasks assigned to your roles
-2. Click **Claim** to take ownership
-3. Complete the task as normal
+A binding whose id does not resolve at creation time is **dropped, not carried** — a task about "order #undefined" is worse than a task about nothing.
 
-**Use When:**
-- Any qualified person can handle the task
-- Load balancing across a team
-- 24/7 coverage required (follow-the-sun model)
+### Who
 
-### Dynamic Assignment (Assignment Rules)
+How the task is assigned:
 
-Task assignment is computed dynamically based on workflow context.
+- **User** — one named user.
+- **Role** — a queue any holder of those roles can claim.
+- **Dynamic** — an assignee read from run context (`{{context.deal.ownerId}}`), with **fallback roles** that are required: when the context value is missing, the task goes to that queue instead. Without fallback roles nobody would see it.
+- **Rule** — a business rule decides.
 
-**Configuration:**
-```json
-{
-  "userTaskConfig": {
-    "assignmentRule": "context.amount > 10000 ? context.managerUserId : context.supervisorUserId"
-  }
-}
-```
+Role queues are matched by **role name**, so renaming a role orphans assignments authored against the old name. Re-pick the role in the definition after a rename.
 
-**Use When:**
-- Assignment depends on request details (amount, type, region)
-- Organizational hierarchy matters (assign to requester's manager)
-- Complex routing logic
+### When
 
-## SLA Tracking
+- **Priority** — Low / Medium / High / Extreme. Drives the inbox ordering.
+- **Deadline** — an ISO 8601 duration from task creation (`PT30M` = 30 minutes, `P2D` = 2 days). It becomes the task's due date.
+- **Reminders** — one or more offsets *before* the deadline (`PT10M`). Each fires a notification to the people the task is offered to. A reminder whose moment has already passed when the task is created is skipped rather than fired immediately.
+- **When the deadline passes** — nothing, **Notify**, **Reassign** (to a user id or a role), or **Follow a route**.
 
-Tasks can have Service Level Agreements (SLAs) that define expected completion times.
+Deadlines are absolute: the moment is computed once at task creation and never recomputed, so a backlogged queue cannot silently extend a deadline.
 
-**Configuration:**
-```json
-{
-  "userTaskConfig": {
-    "slaDuration": "2 days"
-  }
-}
-```
+**Limitation:** a task inside a parallel branch does **not** follow its breach route. A branch advances on its own token, and overriding that is a parallel-execution change rather than a task change; the breach is still recorded and the task still escalates.
 
-**SLA States:**
-- **On Time**: Task completed within SLA
-- **At Risk**: Task approaching due date (e.g., > 80% of SLA elapsed)
-- **Overdue**: Task past due date
+The legacy `escalationRules` field is still carried through the editor for older definitions but nothing executes it. Use **Deadline** + **Reminders** + **When the deadline passes** instead.
 
-**Visual Indicators:**
-- Green: On time
-- Yellow: At risk
-- Red: Overdue
+### Decisions
 
-## Escalation
+**Decision buttons** are the ways this task can end. Each is bound to one outgoing route on the canvas, so the button an assignee presses is what routes the run.
 
-Escalation rules automatically reassign or notify when tasks are overdue.
+- **Use the approval preset** creates Approve / Reject / Comment buttons in one click.
+- Each button has a label (context values allowed), the route it follows, and a style (Default / Primary / Destructive).
+- A button whose route no longer leaves this step is flagged in the inspector: pick another route or remove the button.
 
-**Configuration:**
+Below the buttons: the **form fields** to collect, which of those the assignee **may edit** before deciding, and an optional **external form key** when a module has registered its own renderer for this task.
 
-```json
-{
-  "userTaskConfig": {
-    "slaDuration": "2 days",
-    "escalationRules": [
-      {
-        "triggerAfter": "1 day",
-        "action": "NOTIFY",
-        "notifyUsers": ["manager-user-id"]
-      },
-      {
-        "triggerAfter": "2 days",
-        "action": "REASSIGN",
-        "reassignTo": "manager-user-id"
-      }
-    ]
-  }
-}
-```
+A task with no decision buttons still completes through the plain form, exactly as before decisions existed.
 
-**Escalation Actions:**
-- **NOTIFY**: Send email notification to specified users
-- **REASSIGN**: Transfer task ownership to another user or role
-- **ESCALATE**: Create a new task for a supervisor or manager
+## Pending work on a record page
 
-**Use Cases:**
-- Ensure timely completion
-- Prevent tasks from stalling workflows
-- Enforce SLAs and accountability
+Records that a task is bound to show a **Pending work** panel listing the open items about that record, each linking to its task.
 
-## Example: Approval Task Workflow
+**Where it appears today** — this is enumerated coverage, not universal: customer people, customer companies, deals, and the sales order detail page (as a tab). Adding another record page means wiring that page's injection spot; there is no generic record-page slot to hook into.
 
-Here's a complete approval workflow with user tasks:
+On the order page the panel deliberately sits beside — not instead of — the existing order-approval widget. That widget approves in place; the pending-work panel links out and also lists work that is not an approval.
 
-**Workflow Steps:**
-1. **START** → Auto-advance
-2. **Manager Approval** (USER_TASK) → Assigned to "Managers" role
-3. **Director Approval** (USER_TASK) → Assigned dynamically (if amount > $10k)
-4. **Approved** (END) → Workflow complete
-5. **Rejected** (END) → Workflow complete
+## Notifications
 
-**Manager Approval Task:**
+Three notifications are sent about tasks:
+
+| Notification | When |
+|---|---|
+| Task assigned | A task is created for you, or for a role queue you are in |
+| Task reminder due | A configured reminder offset before the deadline |
+| Task deadline breached | The deadline passed with the task still open |
+
+Each carries a **View** link to the task.
+
+A task can additionally offer a **one-click Complete** button directly on the notification — but only when the completion is genuinely unambiguous:
+
+- at most **one** decision button,
+- **no** form fields to fill in,
+- **no** fields marked editable before deciding.
+
+**Why the limit is real:** a notification action carries only its own id, and the id of the *button you pressed* cannot be passed through to the completion. With two decisions there is no way to tell Approve from Reject, so offering a one-click button would be guessing. Anything that does not qualify gets the deep link instead — which is always present either way, so a quick action is a shortcut and never the only route to the task.
+
+## Example: an approval task
+
 ```json
 {
   "stepId": "manager-approval",
-  "stepName": "Manager Approval",
+  "stepName": "Approve {{context.request.title}}",
   "stepType": "USER_TASK",
   "userTaskConfig": {
+    "instructions": "Check the amount against the budget for {{context.request.department}}.",
     "assignedToRoles": ["Managers"],
-    "formSchema": [
-      {
-        "fieldName": "decision",
-        "fieldType": "select",
-        "label": "Decision",
-        "required": true,
-        "options": ["approve", "reject"]
-      },
-      {
-        "fieldName": "comments",
-        "fieldType": "textarea",
-        "label": "Comments",
-        "required": false
-      }
+    "entityBindings": [
+      { "entityType": "customers:person", "idPath": "context.requesterId", "label": "Requester" }
     ],
-    "slaDuration": "2 days",
-    "escalationRules": [
-      {
-        "triggerAfter": "1 day",
-        "action": "NOTIFY",
-        "notifyUsers": ["director-user-id"]
-      }
+    "priority": "high",
+    "deadline": { "duration": "P2D" },
+    "reminders": [{ "offset": "PT4H" }],
+    "onBreach": { "action": "reassign", "reassignTo": "Directors" },
+    "formSchema": {
+      "properties": { "comments": { "type": "string" } }
+    },
+    "decisions": [
+      { "id": "approve", "label": "Approve", "transitionId": "t_to_approved", "style": "primary" },
+      { "id": "reject", "label": "Reject", "transitionId": "t_to_rejected", "style": "destructive" }
     ]
   }
 }
 ```
 
-**User Experience:**
-1. Manager receives email notification of new task
-2. Manager opens task, reviews request details (amount, requester, justification)
-3. Manager selects "approve" or "reject" and adds comments
-4. Manager clicks "Complete"
-5. Workflow advances to Director Approval (if required) or ends
+What the assignee sees: a task titled with the request's own title, the requester's card beside it, a comments box, and two buttons. Pressing **Reject** completes the task, records `reject` as the choice, and sends the run down `t_to_rejected`. Four hours before the two-day deadline everyone in the Managers queue is reminded; if it passes unfinished, the task is reassigned to Directors and escalated.
 
-## Best Practices
+## Best practices
 
-### For Workflow Designers
+**Authoring**
 
-- Use clear, action-oriented task names (e.g., "Approve Purchase Request", not "Approval")
-- Provide all necessary context in the task description
-- Set realistic SLAs based on team capacity
-- Configure escalation to prevent bottlenecks
+- Name the task after the action ("Approve purchase request", not "Approval"), and use a context value so two tasks are told apart at a glance.
+- Bind the records the task is about — it is what makes the context cards, the entity filter and the record-page panel work.
+- Set a deadline only where one means something; every deadline you set is a reminder someone will receive.
+- Give every way the task can end its own decision button rather than a free-text field the next step has to parse.
 
-### For Task Assignees
+**Working**
 
-- Check your task queue regularly
-- Complete tasks promptly to avoid delays
-- Add meaningful comments to explain decisions
-- Claim role-assigned tasks quickly to prevent duplicates
-
-### For Administrators
-
-- Monitor overdue tasks and escalations
-- Review task completion times to optimize SLAs
-- Balance workload across team members
-- Train users on task completion procedures
+- Use **My Work** to see what is actually yours, and **Claim Next** for a run of similar items.
+- Claim before you start on a role-queued task, so nobody duplicates your work.
+- Release a task you cannot finish rather than leaving it claimed.
 
 ## Next Steps
 
@@ -270,6 +247,9 @@ Here's a complete approval workflow with user tasks:
 - [**Monitor execution**](./monitoring) to track task progress and bottlenecks
 
 **See Also:**
-- [**Step Types**](./step-types) - Learn about USER_TASK steps in detail
-- [**Transitions**](./transitions) - Route tasks based on user decisions
-- [**Framework Documentation**](/framework/workflows/services) - Complete tasks programmatically
+
+- [**Step Types**](./step-types) — USER_TASK steps in detail
+- [**Transitions**](./transitions) — the routes decision buttons bind to
+- [**Task visibility**](/framework/workflows/task-visibility) — the permission model in full, including what it deliberately does not guarantee
+- [**Extending workflows**](/framework/workflows/extending) — contribute your own work-inbox source or task form renderer
+- [**Framework Documentation**](/framework/workflows/services) — complete tasks programmatically

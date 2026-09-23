@@ -2,6 +2,34 @@ import { randomBytes } from 'node:crypto'
 import { Buffer } from 'node:buffer'
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import ts from 'typescript-js'
+
+// Windows: AV scanners, indexers, and watchers briefly hold freshly written
+// destination files open, and rename-over-existing fails with EPERM/EACCES
+// until the handle closes (the same transient race graceful-fs retries
+// around). Back off and retry before surfacing the error; a genuinely locked
+// file (open in an editor) still throws once the deadline passes.
+const RETRYABLE_RENAME_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
+const sleepBuffer = new Int32Array(new SharedArrayBuffer(4))
+
+function sleepSync(ms) {
+  Atomics.wait(sleepBuffer, 0, 0, ms)
+}
+
+export function renameReplaceSync(tmpPath, filePath, { renameImpl = renameSync, platform = process.platform, maxWaitMs = 2000, sleepImpl = sleepSync } = {}) {
+  const deadline = Date.now() + maxWaitMs
+  let delay = 10
+  for (;;) {
+    try {
+      renameImpl(tmpPath, filePath)
+      return
+    } catch (error) {
+      if (platform !== 'win32' || !RETRYABLE_RENAME_CODES.has(error?.code) || Date.now() >= deadline) throw error
+    }
+    sleepImpl(delay)
+    delay = Math.min(delay * 2, 250)
+  }
+}
 
 // Atomic write: write to a temp sibling file, then rename over the target.
 // rename() is atomic on POSIX (and replaces the destination on Windows since Node 16),
@@ -19,7 +47,7 @@ export function atomicWriteFileSync(filePath, data) {
   const tmpPath = `${filePath}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`
   try {
     writeFileSync(tmpPath, next)
-    renameSync(tmpPath, filePath)
+    renameReplaceSync(tmpPath, filePath)
   } catch (error) {
     try {
       unlinkSync(tmpPath)
@@ -55,46 +83,39 @@ export function rewriteRelativeImports(content, fileDir, options = {}) {
     knownOutputPaths = null,
   } = options
 
+  if (!/\b(?:import|export)\b/.test(content)) return content
+  const sourceFile = ts.createSourceFile('output.js', content, ts.ScriptTarget.Latest, false, ts.ScriptKind.JS)
+  const edits = []
+  const explicitResourceExtension = /\.(?:mjs|cjs|node|svg|png|jpe?g|gif|webp|avif|ico|bmp|css|s[ac]ss|less|woff2?|ttf|otf|eot|wasm|html|mdx?|txt|pdf)$/i
+
+  const rewriteSpecifier = (literal) => {
+    if (!literal || !ts.isStringLiteral(literal)) return
+    const original = literal.text
+    let importPath = original
+    if (importPath.startsWith('#generated/') && typeof resolveGeneratedImport === 'function') {
+      importPath = resolveGeneratedImport(importPath.slice('#generated/'.length), fileDir) || importPath
+    }
+    if (importPath.startsWith('.') && !(skipTemplateLiterals && importPath.includes('${'))) {
+      const suffixIndex = importPath.search(/[?#]/)
+      const pathname = suffixIndex === -1 ? importPath : importPath.slice(0, suffixIndex)
+      const suffix = suffixIndex === -1 ? '' : importPath.slice(suffixIndex)
+      if (!skipExtensions.some(extension => pathname.endsWith(extension)) && !explicitResourceExtension.test(pathname)) {
+        importPath = resolveRelativeImport(fileDir, pathname, knownOutputPaths) + suffix
+      }
+    }
+    if (importPath !== original) edits.push({ start: literal.getStart(sourceFile), end: literal.end, text: JSON.stringify(importPath) })
+  }
+
+  const visit = (node) => {
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) rewriteSpecifier(node.moduleSpecifier)
+    else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) rewriteSpecifier(node.arguments[0])
+    ts.forEachChild(node, visit)
+  }
+  visit(sourceFile)
   let output = content
-
-  if (typeof resolveGeneratedImport === 'function') {
-    output = output.replace(
-      /from\s+["']#generated\/([^"']+)["']/g,
-      (match, importPath) => {
-        const rewritten = resolveGeneratedImport(importPath, fileDir)
-        return rewritten ? `from "${rewritten}"` : match
-      },
-    )
-    output = output.replace(
-      /import\s*\(\s*["']#generated\/([^"']+)["']\s*\)/g,
-      (match, importPath) => {
-        const rewritten = resolveGeneratedImport(importPath, fileDir)
-        return rewritten ? `import("${rewritten}")` : match
-      },
-    )
+  for (const edit of edits.sort((left, right) => right.start - left.start)) {
+    output = output.slice(0, edit.start) + edit.text + output.slice(edit.end)
   }
-
-  const shouldSkip = (importPath) => {
-    if (skipExtensions.some((ext) => importPath.endsWith(ext))) return true
-    if (skipTemplateLiterals && importPath.includes('${')) return true
-    return false
-  }
-
-  output = output.replace(/from\s+["'](\.[^"']+)["']/g, (match, importPath) => {
-    if (shouldSkip(importPath)) return match
-    return `from "${resolveRelativeImport(fileDir, importPath, knownOutputPaths)}"`
-  })
-
-  output = output.replace(/import\s*\(\s*["'](\.[^"']+)["']\s*\)/g, (match, importPath) => {
-    if (shouldSkip(importPath)) return match
-    return `import("${resolveRelativeImport(fileDir, importPath, knownOutputPaths)}")`
-  })
-
-  output = output.replace(/import\s+["'](\.[^"']+)["'];/g, (match, importPath) => {
-    if (shouldSkip(importPath)) return match
-    return `import "${resolveRelativeImport(fileDir, importPath, knownOutputPaths)}";`
-  })
-
   return output
 }
 
