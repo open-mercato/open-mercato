@@ -4,6 +4,7 @@ import type { FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { LedgerAccountType } from '../../data/entities'
@@ -128,6 +129,8 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
+  const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const organizationId = organizationScope?.selectedId ?? auth.orgId ?? null
 
   const { id, page, pageSize, search, sortField, sortDir, normalBalance, parentAccountTypeId, accountGroupId } =
     parsed.data
@@ -135,8 +138,12 @@ export async function GET(req: Request) {
     tenantId: auth.tenantId,
     deletedAt: null,
   }
-  if (auth.orgId) {
-    filter.organizationId = auth.orgId
+  // Selected organization (resolveOrganizationScopeForRequest), not the user's
+  // home auth.orgId — a user who switched organizations must see that
+  // organization's rows, not their home org's (PR #6340 review, M6). Superadmin
+  // with no explicit selection still lists across every organization.
+  if (organizationId) {
+    filter.organizationId = organizationId
   }
 
   if (id) filter.id = id

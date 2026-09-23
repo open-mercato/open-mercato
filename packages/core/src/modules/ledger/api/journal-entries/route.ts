@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { FiscalPeriod, JournalEntry, JournalEntryLine } from '../../data/entities'
 import { createLedgerCrudOpenApi, createPagedListResponseSchema } from '../openapi'
@@ -102,10 +103,13 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
+  const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const organizationId = organizationScope?.selectedId ?? auth.orgId ?? null
 
   const { id, page, pageSize, accountId, periodId, type, referenceType, referenceId, sortField, sortDir } = parsed.data
   const filter: FilterQuery<JournalEntry> = { tenantId: auth.tenantId }
-  if (auth.orgId) filter.organizationId = auth.orgId
+  // Selected organization, not the user's home auth.orgId (PR #6340 review, M6).
+  if (organizationId) filter.organizationId = organizationId
 
   if (id) filter.id = id
   if (type) filter.type = type
@@ -117,7 +121,7 @@ export async function GET(req: Request) {
   // Design decisions), so this is a two-step lookup rather than a join.
   if (accountId) {
     const lineFilter: FilterQuery<JournalEntryLine> = { accountId, tenantId: auth.tenantId }
-    if (auth.orgId) lineFilter.organizationId = auth.orgId
+    if (organizationId) lineFilter.organizationId = organizationId
     const lines = await em.find(JournalEntryLine, lineFilter, { fields: ['journalEntryId'] })
     const journalEntryIds = [...new Set(lines.map((line) => line.journalEntryId))]
     if (journalEntryIds.length === 0) {
@@ -131,7 +135,7 @@ export async function GET(req: Request) {
   // `JournalEntry` (app-layer resolution only, see spec's Queries/API).
   if (periodId) {
     const periodFilter: FilterQuery<FiscalPeriod> = { id: periodId, tenantId: auth.tenantId, deletedAt: null }
-    if (auth.orgId) periodFilter.organizationId = auth.orgId
+    if (organizationId) periodFilter.organizationId = organizationId
     const period = await em.findOne(FiscalPeriod, periodFilter)
     if (!period) {
       return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 1 })
