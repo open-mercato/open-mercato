@@ -70,6 +70,7 @@
     }
   },
   "dependencies": {
+    "@open-mercato/cache": "workspace:*",
     "@open-mercato/core": "workspace:*",
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/ui": "workspace:*",

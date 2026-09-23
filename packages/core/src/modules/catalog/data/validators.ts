@@ -468,7 +468,8 @@ export const priceKindUpdateSchema = z
   })
   .merge(priceKindCreateSchema.partial())
 
-export const priceCreateSchema = scoped.extend({
+// Base schema without refinements (used for .partial() in the update schema).
+const priceBaseSchema = scoped.extend({
   variantId: uuid().optional(),
   productId: uuid().optional(),
   offerId: uuid().optional(),
@@ -490,11 +491,51 @@ export const priceCreateSchema = scoped.extend({
   endsAt: z.coerce.date().optional(),
 })
 
+// Both checks only fire when both sides of the comparison are present in this
+// payload — a partial update touching only one side is not re-validated against
+// the stored record here (same limitation the GTIN cross-field check documents
+// above: zod cannot see the merged state, only the command layer can).
+const priceQuantityRangeRefinement = (
+  input: { minQuantity?: number; maxQuantity?: number },
+  ctx: z.RefinementCtx,
+) => {
+  if (
+    input.minQuantity != null &&
+    input.maxQuantity != null &&
+    input.maxQuantity < input.minQuantity
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['maxQuantity'],
+      message: 'catalog.prices.validation.quantityRange',
+    })
+  }
+}
+
+const priceValidityWindowRefinement = (
+  input: { startsAt?: Date; endsAt?: Date },
+  ctx: z.RefinementCtx,
+) => {
+  if (input.startsAt && input.endsAt && input.endsAt < input.startsAt) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['endsAt'],
+      message: 'catalog.prices.validation.validityWindow',
+    })
+  }
+}
+
+export const priceCreateSchema = priceBaseSchema
+  .superRefine(priceQuantityRangeRefinement)
+  .superRefine(priceValidityWindowRefinement)
+
 export const priceUpdateSchema = z
   .object({
     id: uuid(),
   })
-  .merge(priceCreateSchema.partial())
+  .merge(priceBaseSchema.partial())
+  .superRefine(priceQuantityRangeRefinement)
+  .superRefine(priceValidityWindowRefinement)
 
 export const categoryCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),

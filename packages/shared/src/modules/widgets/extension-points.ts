@@ -58,7 +58,13 @@ export type ExtensionPointPatternParameter = {
 }
 
 type ExtensionHostDeclarationBase = {
-  source: string
+  /**
+   * File(s) this host is mounted from, relative to the module's source root. A
+   * host mounted from more than one file may declare them all; the first entry
+   * remains the authoritative provenance path, the rest surface on the
+   * generated fact's `additionalSources`.
+   */
+  source: string | readonly string[]
   contextContract?: string
   dataContract?: string
   scopeContract?: string
@@ -398,6 +404,8 @@ export type ModuleExtensionHostFact = {
     | { kind: 'declaration'; path: string; symbol: string }
     | { kind: 'fact-ref'; factSection: string; factKey: string }
     | { kind: 'framework'; path: string; symbol: string }
+  /** Extra mount-point paths beyond the declaration's primary `source` entry. */
+  additionalSources?: string[]
   aliases?: string[]
   patternParameters?: Record<string, ExtensionPointPatternParameter>
   fallbacks?: string[]
