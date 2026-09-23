@@ -1006,7 +1006,7 @@ export default function SyncRunsDashboardPage() {
                       aria-describedby={scheduleValueError ? SCHEDULE_VALUE_ERROR_ID : undefined}
                     />
                     {scheduleValueError ? (
-                      <p id={SCHEDULE_VALUE_ERROR_ID} className="text-xs text-destructive">
+                      <p id={SCHEDULE_VALUE_ERROR_ID} className="text-xs text-status-error-text">
                         {scheduleValueErrorMessage}
                       </p>
                     ) : null}

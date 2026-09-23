@@ -581,7 +581,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
                           : t('data_sync.dashboard.schedule.intervalValue', 'Interval')}
                       />
                       {valueError ? (
-                        <p id={buildScheduleValueErrorId(row.key)} className="mt-1 text-xs text-destructive">
+                        <p id={buildScheduleValueErrorId(row.key)} className="mt-1 text-xs text-status-error-text">
                           {describeScheduleValueError(valueError, scheduleState.scheduleType)}
                         </p>
                       ) : null}
