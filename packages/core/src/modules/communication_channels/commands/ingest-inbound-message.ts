@@ -213,6 +213,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
         lastMessageAt: m.timestamp ?? new Date(),
+        assignedUserId: channel.userId ?? null,
       })
       em.persist(conversation)
       conversationCreated = true
@@ -378,6 +379,13 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
         : rawBody
     const safeSubject = (m.subject ?? '').trim() || '(no subject)'
 
+    // #6106: a per-user channel is its owner's inbox, so the owner is the
+    // default assignee. Without this fallback the first message of a thread
+    // (no mapping yet) and every message on an unassigned mapping had no
+    // recipient, and the participant-scoped inbox showed it to nobody. A
+    // manual assignment stays authoritative; tenant-wide channels have no owner.
+    const routedAssigneeId = mapping?.assignedUserId ?? channel.userId ?? null
+
     const composeInput = {
       type: `channel.${input.providerKey}`,
       visibility: 'public' as const,
@@ -396,8 +404,8 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       // message" rule rejected every message in an assigned conversation and
       // the worker dropped it as a permanent failure.
       inboundFromChannel: true,
-      recipients: mapping?.assignedUserId
-        ? [{ userId: mapping.assignedUserId, type: 'to' as const }]
+      recipients: routedAssigneeId
+        ? [{ userId: routedAssigneeId, type: 'to' as const }]
         : [],
       subject: safeSubject,
       body: truncatedBody,
@@ -446,6 +454,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
         channelId: input.channelId,
         providerKey: input.providerKey,
         externalThreadRef: m.externalConversationId,
+        assignedUserId: channel.userId ?? null,
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
       })

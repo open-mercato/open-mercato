@@ -439,6 +439,20 @@ function stringValue(value: StaticValue | undefined): string | undefined {
   return typeof value === 'string' ? value : undefined
 }
 
+/**
+ * Normalizes a `source` declaration (single string or array of strings) into
+ * an ordered list. The first entry stays the authoritative provenance path;
+ * any remaining entries are additional mount points.
+ */
+function sourceEntries(value: StaticValue | undefined): string[] {
+  if (typeof value === 'string') return [value]
+  return strings(value)
+}
+
+function primarySource(value: StaticValue | undefined): string | undefined {
+  return sourceEntries(value)[0]
+}
+
 function numberValue(value: StaticValue | undefined): number | undefined {
   if (typeof value === 'number') return value
   if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value)
@@ -560,7 +574,7 @@ function hasDeclarationBinding(
   hostKey: string,
   declaration: StaticObject,
 ): boolean {
-  const relativeSource = stringValue(declaration.source)
+  const relativeSource = primarySource(declaration.source)
   if (!relativeSource) return false
   const bindingFile = sourceFile(path.join(moduleRoot, relativeSource))
   if (!bindingFile) return false
@@ -588,6 +602,7 @@ function baseHost(options: {
   const { declaration } = options
   const aliases = strings(declaration.aliases)
   const fallbacks = strings(declaration.fallbacks)
+  const additionalSources = sourceEntries(declaration.source).slice(1)
   const fact: ModuleExtensionHostFact = {
     key: options.key,
     id: options.id,
@@ -611,6 +626,7 @@ function baseHost(options: {
   if (activation) fact.activation = activation
   if (aliases.length > 0) fact.aliases = aliases
   if (fallbacks.length > 0) fact.fallbacks = fallbacks
+  if (additionalSources.length > 0) fact.additionalSources = additionalSources
   return fact
 }
 
@@ -645,7 +661,7 @@ function extractDeclaredHosts(options: ExtractModuleExtensionFactsOptions): {
       unresolved.push({
         key: `${options.moduleId}.${hostKey}`,
         source: {
-          path: stringValue(host.source) ?? portablePath(options.moduleRoot, options.sourceRoot, filePath),
+          path: primarySource(host.source) ?? portablePath(options.moduleRoot, options.sourceRoot, filePath),
           symbol: `extensionPoints.hosts.${hostKey}`,
         },
         reason: 'unbound-declaration',
