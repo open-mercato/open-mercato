@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { FilterQuery } from '@mikro-orm/core'
+import { raw } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { FiscalPeriod, JournalEntry, JournalEntryLine } from '../../data/entities'
+import { FiscalPeriod, JournalEntry } from '../../data/entities'
 import { createLedgerCrudOpenApi, createPagedListResponseSchema } from '../openapi'
 
 // `/api/ledger/journal-entries` — read-only list (OM-11). No POST/PUT/DELETE:
@@ -118,16 +119,21 @@ export async function GET(req: Request) {
 
   // `accountId` joins through `JournalEntryLine.accountId` — no ORM
   // relation exists between the two entities (plain FK-id columns, see
-  // Design decisions), so this is a two-step lookup rather than a join.
+  // Design decisions). Previously loaded every matching line id into
+  // memory and filtered `JournalEntry.id $in [...ids]`; a busy account
+  // could exceed Postgres's 65,535 bind-parameter limit and 500 the whole
+  // list (PR #6340 review, m10). A correlated `EXISTS` subquery pushes the
+  // join into the database instead, with a fixed, small number of bind
+  // parameters regardless of how many lines the account has.
   if (accountId) {
-    const lineFilter: FilterQuery<JournalEntryLine> = { accountId, tenantId: auth.tenantId }
-    if (organizationId) lineFilter.organizationId = organizationId
-    const lines = await em.find(JournalEntryLine, lineFilter, { fields: ['journalEntryId'] })
-    const journalEntryIds = [...new Set(lines.map((line) => line.journalEntryId))]
-    if (journalEntryIds.length === 0) {
-      return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 1 })
-    }
-    filter.id = { $in: journalEntryIds }
+    const params = organizationId ? [accountId, auth.tenantId, organizationId] : [accountId, auth.tenantId]
+    const accountHasLine = raw(
+      (alias) =>
+        `exists (select 1 from journal_entry_line jel where jel.journal_entry_id = ${alias}.id and jel.account_id = ? and jel.tenant_id = ?${organizationId ? ' and jel.organization_id = ?' : ''})`,
+      params,
+    )
+    filter.$and = filter.$and || []
+    filter.$and.push({ [accountHasLine]: true })
   }
 
   // `periodId` resolves to the named `FiscalPeriod`'s date range, applied
