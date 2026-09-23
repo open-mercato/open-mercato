@@ -40,6 +40,11 @@ type TimerBarProps = {
   onTimerStopped: () => void
   /** Ids of the projects the member has opted into their grid (`show_in_grid`). */
   visibleProjectIds?: string[]
+  /**
+   * The host could not load the member's projects, so an empty `projects` list means
+   * "unknown", not "none assigned" — the Start hint must not send them to an admin.
+   */
+  projectsUnavailable?: boolean
 }
 
 const TIMER_MUTATION_CONTEXT_ID = 'staff-timesheets-timer-bar'
@@ -73,6 +78,7 @@ function DefaultTimerBar({
   staffMemberId,
   onTimerStopped,
   visibleProjectIds,
+  projectsUnavailable,
 }: TimerBarProps) {
   const t = useT()
   const { runMutation, retryLastMutation } = useGuardedMutation<TimerMutationContext>({
@@ -119,10 +125,15 @@ function DefaultTimerBar({
   const startDisabledReason = selectedProjectId
     ? null
     : projects.length === 0
-      ? t(
-          'staff.timesheets.my.timer.startDisabledNoProjects',
-          'No projects assigned yet — ask an admin to assign you to one',
-        )
+      ? projectsUnavailable
+        ? t(
+            'staff.timesheets.my.timer.startDisabledProjectsUnavailable',
+            'Your projects could not be loaded — try again',
+          )
+        : t(
+            'staff.timesheets.my.timer.startDisabledNoProjects',
+            'No projects assigned yet — ask an admin to assign you to one',
+          )
       : t('staff.timesheets.my.timer.startDisabledNoProject', 'Pick a project to start the timer')
 
   const filteredProjects = projects.filter((p) =>
@@ -600,6 +611,7 @@ const timerBarPropsSchema: z.ZodType<TimerBarProps> = z.object({
   staffMemberId: z.string().nullable(),
   onTimerStopped: callbackProp<() => void>(),
   visibleProjectIds: z.array(z.string()).optional(),
+  projectsUnavailable: z.boolean().optional(),
 })
 
 registerComponent<TimerBarProps>({

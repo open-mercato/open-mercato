@@ -62,9 +62,14 @@ const PROJECTS = [
   { id: 'p-2', name: 'Borealis', code: 'BO', color: 'green' },
 ]
 
-function renderTimerBar(projects: typeof PROJECTS) {
+function renderTimerBar(projects: typeof PROJECTS, options: { projectsUnavailable?: boolean } = {}) {
   return renderWithProviders(
-    <TimerBar projects={projects} staffMemberId="staff-1" onTimerStopped={jest.fn()} />,
+    <TimerBar
+      projects={projects}
+      staffMemberId="staff-1"
+      onTimerStopped={jest.fn()}
+      projectsUnavailable={options.projectsUnavailable}
+    />,
   )
 }
 
@@ -103,6 +108,28 @@ describe('TimerBar disabled Start hint', () => {
     expect(document.getElementById(describedBy!)?.textContent).toBe(
       'No projects assigned yet — ask an admin to assign you to one',
     )
+  })
+
+  it('does not send the user to an admin when their projects failed to load', () => {
+    // An empty list after a failed read is "unknown", not "none assigned": telling
+    // a member who has projects to ask an admin for one would be simply wrong.
+    renderTimerBar([], { projectsUnavailable: true })
+
+    const start = getStartButton()
+    expect(start).toBeDisabled()
+
+    const describedBy = start.getAttribute('aria-describedby')
+    expect(document.getElementById(describedBy!)?.textContent).toBe(
+      'Your projects could not be loaded — try again',
+    )
+    expect(screen.queryByText('No projects assigned yet — ask an admin to assign you to one')).toBeNull()
+  })
+
+  it('keeps the pick-a-project hint when projects loaded despite an unavailable flag', () => {
+    renderTimerBar(PROJECTS, { projectsUnavailable: true })
+
+    const describedBy = getStartButton().getAttribute('aria-describedby')
+    expect(document.getElementById(describedBy!)?.textContent).toBe('Pick a project to start the timer')
   })
 
   it('drops the hint and enables Start once a project is picked', async () => {

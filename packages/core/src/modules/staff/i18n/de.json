@@ -1870,6 +1870,7 @@
   "staff.timesheets.my.timer.start": "Timer starten",
   "staff.timesheets.my.timer.startDisabledNoProject": "Wählen Sie ein Projekt aus, um den Timer zu starten",
   "staff.timesheets.my.timer.startDisabledNoProjects": "Noch keine Projekte zugewiesen — bitten Sie einen Administrator, Ihnen eines zuzuweisen",
+  "staff.timesheets.my.timer.startDisabledProjectsUnavailable": "Ihre Projekte konnten nicht geladen werden — bitte versuchen Sie es erneut",
   "staff.timesheets.my.timer.startError": "Timer konnte nicht gestartet werden",
   "staff.timesheets.my.timer.stop": "Timer stoppen",
   "staff.timesheets.my.timer.stopError": "Timer konnte nicht gestoppt werden",

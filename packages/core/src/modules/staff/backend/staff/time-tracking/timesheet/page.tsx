@@ -489,6 +489,11 @@ export default function TimesheetPage() {
   // ENTRY read succeeded, never on whether the period happens to be empty — an
   // ordinary week with nothing logged yet is a truthful period, not a failure.
   const hasLoadFailure = loadFailures.length > 0
+  // Any of these leaves the TimerBar's project list empty for a reason other than
+  // the member having no assignments.
+  const projectsUnavailable = loadFailures.some(
+    (failure) => failure === 'assignments' || failure === 'projects' || failure === 'all',
+  )
   const showUnavailable = hasLoadFailure && !periodLoaded
   const showPartialBanner = hasLoadFailure && periodLoaded
   const retryAction = (
@@ -754,6 +759,7 @@ export default function TimesheetPage() {
           }))}
           staffMemberId={data.staffMemberId}
           visibleProjectIds={data.visibleProjectIds}
+          projectsUnavailable={projectsUnavailable}
           onTimerStopped={() => {
             void loadData()
           }}

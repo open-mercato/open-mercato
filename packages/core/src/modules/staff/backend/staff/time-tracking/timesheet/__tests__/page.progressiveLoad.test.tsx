@@ -53,7 +53,18 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => {
   return { ...actual, apiCall: jest.fn(), apiCallOrThrow: jest.fn(), readApiResultOrThrow: jest.fn() }
 })
 
-jest.mock('../../../../../lib/timesheets-ui/TimerBar', () => ({ TimerBar: () => null }))
+const mockTimerBarProps = jest.fn()
+jest.mock('../../../../../lib/timesheets-ui/TimerBar', () => ({
+  TimerBar: (props: Record<string, unknown>) => {
+    mockTimerBarProps(props)
+    return null
+  },
+}))
+
+function lastTimerBarProps(): Record<string, unknown> {
+  const calls = mockTimerBarProps.mock.calls
+  return (calls[calls.length - 1]?.[0] ?? {}) as Record<string, unknown>
+}
 jest.mock('../../../../../lib/timesheets-ui/CreateProjectDialog', () => ({ CreateProjectDialog: () => null }))
 jest.mock('../../../../../lib/time-tracking-ui/TimeEntryDialog', () => ({ TimeEntryDialog: () => null }))
 jest.mock('../../../../../lib/timesheets-ui/ListView', () => ({
@@ -295,6 +306,30 @@ describe('timesheet progressive load', () => {
     expect(screen.getByTestId('grid-view')).toBeInTheDocument()
     expect(screen.getByText(PARTIAL_MESSAGE)).toBeInTheDocument()
     expect(screen.queryByText(UNAVAILABLE_MESSAGE)).not.toBeInTheDocument()
+  })
+
+  it('tells the TimerBar its projects are unavailable when the assignment read fails', async () => {
+    stubReads({ assignments: true })
+
+    await renderPage()
+
+    expect(lastTimerBarProps().projectsUnavailable).toBe(true)
+  })
+
+  it('tells the TimerBar its projects are unavailable when the project read fails', async () => {
+    stubReads({ projects: true })
+
+    await renderPage()
+
+    expect(lastTimerBarProps().projectsUnavailable).toBe(true)
+  })
+
+  it('reports projects as available to the TimerBar on a healthy load', async () => {
+    stubReads()
+
+    await renderPage()
+
+    expect(lastTimerBarProps().projectsUnavailable).toBe(false)
   })
 
   it('never shows the previous period once a reload leaves the period unknown', async () => {

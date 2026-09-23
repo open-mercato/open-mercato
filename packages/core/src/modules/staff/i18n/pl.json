@@ -1870,6 +1870,7 @@
   "staff.timesheets.my.timer.start": "Uruchom stoper",
   "staff.timesheets.my.timer.startDisabledNoProject": "Wybierz projekt, aby uruchomić stoper",
   "staff.timesheets.my.timer.startDisabledNoProjects": "Nie masz jeszcze przypisanych projektów — poproś administratora o przypisanie",
+  "staff.timesheets.my.timer.startDisabledProjectsUnavailable": "Nie udało się wczytać Twoich projektów — spróbuj ponownie",
   "staff.timesheets.my.timer.startError": "Nie udało się uruchomić licznika czasu",
   "staff.timesheets.my.timer.stop": "Zatrzymaj stoper",
   "staff.timesheets.my.timer.stopError": "Nie udało się zatrzymać licznika czasu",

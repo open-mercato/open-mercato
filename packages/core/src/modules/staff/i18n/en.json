@@ -1870,6 +1870,7 @@
   "staff.timesheets.my.timer.start": "Start timer",
   "staff.timesheets.my.timer.startDisabledNoProject": "Pick a project to start the timer",
   "staff.timesheets.my.timer.startDisabledNoProjects": "No projects assigned yet — ask an admin to assign you to one",
+  "staff.timesheets.my.timer.startDisabledProjectsUnavailable": "Your projects could not be loaded — try again",
   "staff.timesheets.my.timer.startError": "Failed to start timer",
   "staff.timesheets.my.timer.stop": "Stop timer",
   "staff.timesheets.my.timer.stopError": "Failed to stop timer",
