@@ -22,6 +22,7 @@ import { parseBooleanToken } from '../boolean'
 import { isReadProjectionAlwaysConsistent } from './consistency'
 import { isEventDeclared } from '../../modules/events'
 import { createLogger } from '../logger'
+import { createBoundedTtlMemo } from '../query/bounded-ttl-memo'
 
 const logger = createLogger('shared').child({ component: 'data-engine' })
 
@@ -37,6 +38,18 @@ function warnIfUndeclaredEvent(eventName: string, context: string): void {
 /** Internal: clear the undeclared-event warning cache. Exposed for tests. */
 export function __resetUndeclaredEventWarningsForTests(): void {
   undeclaredEventWarned.clear()
+}
+
+/** Only `true` is cached: a cached `false` would keep this failing after a migration creates the table. */
+const tableExistsCache = createBoundedTtlMemo<true>({
+  ttlEnv: 'OM_DATA_ENGINE_TABLE_EXISTS_CACHE_MS',
+  defaultTtlMs: 3_600_000,
+  defaultMaxEntries: 1_000,
+})
+
+/** Test-only: the module-scoped memo would otherwise leak state across specs. */
+export function clearDataEngineTableExistsCache(): void {
+  tableExistsCache.clear()
 }
 
 const COVERAGE_REFRESH_INTERVAL_MS = 5 * 60 * 1000
@@ -62,6 +75,19 @@ type QueuedCrudSideEffect = {
   actorUserId?: string | null
   events?: CrudEventsConfig<unknown>
   indexer?: CrudIndexerConfig<unknown>
+}
+
+/**
+ * A `makeCrudRoute` route-level `indexer:` declaration, handed to the data engine for the
+ * duration of one command-bus write. Command handlers own the side-effect mark on the
+ * `actions.*` path, and most of them mark `events:` only — without this the route's
+ * declaration would reach no code at all. `entityClass` scopes the default to the route's
+ * own ORM entity so a handler that also marks a sibling entity in the same request (a tag
+ * assignment alongside a tag, say) is never indexed under the route's `entityType`.
+ */
+export type DefaultCrudIndexerConfig = {
+  indexer: CrudIndexerConfig<unknown>
+  entityClass: abstract new (...args: never[]) => object
 }
 
 export interface DataEngine {
@@ -149,6 +175,20 @@ export interface DataEngine {
    * is responsible for rebuilding the `query_index` afterwards.
    */
   flushOrmEntityChanges(suppress?: BulkImportSuppression): Promise<void>
+
+  /**
+   * Declare the indexer a CRUD route configured, for marks made during one command-bus
+   * write that do not carry an indexer of their own. Pass `null` to clear it. Optional so
+   * third-party `DataEngine` implementations stay valid; callers invoke it with `?.`.
+   */
+  setDefaultIndexerConfig?(config: DefaultCrudIndexerConfig | null): void
+
+  /**
+   * Whether any side effect drained since the current default was declared carried an
+   * indexer for that default's entity class — false means the declared query-index
+   * obligation was discharged by nobody. Optional for the same reason as the setter.
+   */
+  hasIndexedDefaultEntityClass?(): boolean
 }
 
 export const SYSTEM_ENTITY_RECORDS_BLOCKED_CODE = 'system_entity_records_blocked'
@@ -188,7 +228,42 @@ export function assertCustomEntityStorageEntityId(em: EntityManager, entityId: s
 
 export class DefaultDataEngine implements DataEngine {
   private pendingSideEffects = new Map<string, QueuedCrudSideEffect>()
+  private defaultIndexer: DefaultCrudIndexerConfig | null = null
+  private indexedDefaultEntityClass = false
   constructor(private em: EntityManager, private container: AwilixContainer) {}
+
+  /**
+   * Per-command state, deliberately held on the engine instance rather than threaded through
+   * `CommandRuntimeContext` the way the bulk-import flags are. That is sound only because
+   * `createRequestContainer()` registers `dataEngine` per request (`lib/di/container.ts`), so
+   * one engine instance never spans two requests, and no `makeCrudRoute` verb runs two commands
+   * concurrently against it. An application that re-registers `dataEngine` as a transient would
+   * break both assumptions: the command would mark on a different instance than the route
+   * declared on, so nothing is indexed and every write logs the undischarged-declaration warning.
+   */
+  setDefaultIndexerConfig(config: DefaultCrudIndexerConfig | null): void {
+    this.defaultIndexer = config
+    this.indexedDefaultEntityClass = false
+  }
+
+  hasIndexedDefaultEntityClass(): boolean {
+    return this.indexedDefaultEntityClass
+  }
+
+  private matchesDefaultEntityClass(entity: unknown): boolean {
+    const declared = this.defaultIndexer?.entityClass
+    // `OrmEntityConfig.entity` is `any` and this repository treats `EntitySchema` instances as a
+    // first-class entity shape (`lib/bootstrap/types.ts`). An `EntitySchema` is an object rather
+    // than a constructor, so `instanceof` against it throws — and it would throw inside
+    // `markOrmEntityChange`, outside the best-effort try/catch that guards the flush, turning
+    // every write on such a route into a 500.
+    if (typeof declared !== 'function') return false
+    return entity instanceof declared
+  }
+
+  private resolveDefaultIndexer(entity: unknown): CrudIndexerConfig<unknown> | undefined {
+    return this.matchesDefaultEntityClass(entity) ? this.defaultIndexer?.indexer : undefined
+  }
 
   async setCustomFields(opts: Parameters<DataEngine['setCustomFields']>[0]): Promise<void> {
     const { entityId, recordId, organizationId = null, tenantId = null, values } = opts
@@ -263,6 +338,8 @@ export class DefaultDataEngine implements DataEngine {
   }
 
   private async ensureStorageTableExists(): Promise<void> {
+    const cacheKey = 'custom_entities_storage'
+    if (tableExistsCache.get(cacheKey)) return
     const db = this.getKysely()
     const exists = await db
       .selectFrom('information_schema.tables' as any)
@@ -272,6 +349,7 @@ export class DefaultDataEngine implements DataEngine {
     if (!exists) {
       throw new Error('custom_entities_storage table is missing. Run migrations (yarn db:migrate).')
     }
+    tableExistsCache.set(cacheKey, true)
   }
 
   private normalizeValuesForValidation(values: Record<string, unknown> | undefined | null): Record<string, unknown> {
@@ -728,6 +806,10 @@ export class DefaultDataEngine implements DataEngine {
     const { entity, identifiers } = opts
     if (!entity) return
     if (!identifiers?.id) return
+    // A command handler that marks `events:` only still discharges the route's declared
+    // query-index obligation — the route hands its `indexer:` down as the default so the
+    // handler's own entity and identifiers (the accurate ones) drive the projection write.
+    const indexer = opts.indexer ?? this.resolveDefaultIndexer(entity)
     const key = this.buildSideEffectKey(opts.action, identifiers)
     const existing = this.pendingSideEffects.get(key)
     if (existing) {
@@ -740,7 +822,11 @@ export class DefaultDataEngine implements DataEngine {
       existing.syncOrigin = opts.syncOrigin ?? null
       existing.actorUserId = opts.actorUserId ?? null
       if (opts.events) existing.events = opts.events as CrudEventsConfig<unknown>
+      // Explicit always wins, on the merge branch too: a second `events:`-only mark on the same
+      // key must not let the route default overwrite the `indexer:` an earlier mark installed,
+      // which would silently drop that handler's own `buildUpsertPayload`.
       if (opts.indexer) existing.indexer = opts.indexer as CrudIndexerConfig<unknown>
+      else if (!existing.indexer && indexer) existing.indexer = indexer
       this.pendingSideEffects.set(key, existing)
       return
     }
@@ -756,7 +842,7 @@ export class DefaultDataEngine implements DataEngine {
       actorUserId: opts.actorUserId ?? null,
     }
     if (opts.events) entry.events = opts.events as CrudEventsConfig<unknown>
-    if (opts.indexer) entry.indexer = opts.indexer as CrudIndexerConfig<unknown>
+    if (indexer) entry.indexer = indexer
     this.pendingSideEffects.set(key, entry)
   }
 
@@ -765,6 +851,9 @@ export class DefaultDataEngine implements DataEngine {
     const entries = Array.from(this.pendingSideEffects.values())
     this.pendingSideEffects.clear()
     for (const entry of entries) {
+      if (entry.indexer && !suppress?.skipReindex && this.matchesDefaultEntityClass(entry.entity)) {
+        this.indexedDefaultEntityClass = true
+      }
       try {
         await this.emitOrmEntityEvent({
           action: entry.action,

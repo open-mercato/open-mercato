@@ -39,6 +39,8 @@ describe('OtpEmailProvider', () => {
       id: 'method-1',
       userId: 'user-1',
       type: 'otp_email',
+      tenantId: 'tenant-1',
+      organizationId: 'organization-1',
       providerMetadata: {
         email: 'user@example.com',
       },
@@ -50,6 +52,8 @@ describe('OtpEmailProvider', () => {
     expect(mockedSendEmail).toHaveBeenCalledWith(expect.objectContaining({
       to: 'user@example.com',
       subject: 'Your Open Mercato verification code',
+      tenantId: 'tenant-1',
+      organizationId: 'organization-1',
     }))
 
     const valid = await provider.verify('user-1', method, { code })

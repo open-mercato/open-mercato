@@ -1,3 +1,4 @@
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import * as React from 'react'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -23,88 +24,187 @@ import type { GalleryEntry } from '../types'
 // inline in-memory adapters, so previews never touch an API. AttachmentsSection
 // fetches through `apiCall` internally and cannot take an adapter; it is shown
 // in its `recordId={null}` state, where fetching is disabled by design.
-
+function LoadingMessageEntryDefaultPreview() {
+  const t = useT()
+  return (
+    <div className="w-full max-w-md">
+      <LoadingMessage label={t('design_system.gallery.samples.content.loadingCustomer')} />
+    </div>
+  )
+}
+function ErrorMessageEntryBasicPreview() {
+  const t = useT()
+  return (
+    <div className="w-full max-w-md">
+      <ErrorMessage label={t('design_system.gallery.samples.content.failedToLoadCustomer')} />
+    </div>
+  )
+}
+function ErrorMessageEntryWithDescriptionActionPreview() {
+  const t = useT()
+  return (
+    <div className="w-full max-w-md">
+      <ErrorMessage
+        label={t('design_system.gallery.samples.content.failedToLoadAttachments')}
+        description={t('design_system.gallery.samples.content.theStorageServiceDidNotRespondInTime')}
+        action={
+          <Button variant="outline" size="sm">
+            {t('design_system.gallery.samples.content.retry')}
+          </Button>
+        }
+      />
+    </div>
+  )
+}
+function NotesSectionEntryMockAdapterPreview() {
+  const t = useT()
+  return (
+    <div className="w-full max-w-2xl">
+      <NotesSection
+        entityId="person-1"
+        viewerUserId="user-1"
+        viewerName="Anna Nowak"
+        emptyLabel={t('design_system.gallery.samples.content.noNotesYet')}
+        addActionLabel={t('design_system.gallery.samples.content.addNote')}
+        emptyState={{
+          title: t('design_system.gallery.samples.content.noNotesYet'),
+          actionLabel: t('design_system.gallery.samples.content.addNote'),
+          description: t('design_system.gallery.samples.content.notesAddedHereAreVisibleToTheWholeTeam'),
+        }}
+        translator={t}
+        dataAdapter={notesAdapter(t)}
+      />
+    </div>
+  )
+}
+function AddressesSectionEntryMockAdapterPreview() {
+  const t = useT()
+  return (
+    <div className="w-full max-w-2xl">
+      <AddressesSection
+        entityId="person-1"
+        emptyLabel={t('design_system.gallery.samples.content.noAddressesYet')}
+        addActionLabel={t('design_system.gallery.samples.content.addAddress')}
+        emptyState={{
+          title: t('design_system.gallery.samples.content.noAddressesYet'),
+          actionLabel: t('design_system.gallery.samples.content.addAddress'),
+        }}
+        translator={t}
+        dataAdapter={addressesAdapter(t)}
+      />
+    </div>
+  )
+}
+function AttachmentsSectionEntryUnsavedRecordPreview() {
+  const t = useT()
+  return (
+    <div className="w-full max-w-2xl">
+      <AttachmentsSection
+        entityId="customers:person"
+        recordId={null}
+        title={t('design_system.gallery.samples.content.attachments')}
+        description={t('design_system.gallery.samples.content.filesLinkedToThisRecord')}
+      />
+    </div>
+  )
+}
+function DetailFieldsSectionEntryFieldGridPreview() {
+  const t = useT()
+  return (
+    <div className="w-full">
+      <DetailFieldsSection fields={fieldGrid(t)} />
+    </div>
+  )
+}
+function DetailFieldsSectionEntryCustomFieldPreview() {
+  const t = useT()
+  return (
+    <div className="w-full">
+      <DetailFieldsSection fields={fieldGridWithCustom(t)} />
+    </div>
+  )
+}
 const saveNoop = async () => {}
-
-const fieldGrid: DetailFieldConfig[] = [
+const fieldGrid = (t: ReturnType<typeof useT>): DetailFieldConfig[] => [
   {
     key: 'first-name',
     kind: 'text',
-    label: 'First name',
+    label: t('design_system.gallery.samples.content.firstName'),
     value: 'Anna',
-    emptyLabel: 'Add first name',
+    emptyLabel: t('design_system.gallery.samples.content.addFirstName'),
     onSave: saveNoop,
   },
   {
     key: 'phone',
     kind: 'text',
-    label: 'Phone',
+    label: t('design_system.gallery.samples.content.phone'),
     value: null,
-    emptyLabel: 'Add phone',
+    emptyLabel: t('design_system.gallery.samples.content.addPhone'),
     onSave: saveNoop,
   },
   {
     key: 'status',
     kind: 'select',
-    label: 'Status',
+    label: t('design_system.gallery.samples.content.status'),
     value: 'active',
-    emptyLabel: 'Set status',
+    emptyLabel: t('design_system.gallery.samples.content.setStatus'),
     options: [
-      { value: 'active', label: 'Active' },
-      { value: 'inactive', label: 'Inactive' },
+      {
+        value: 'active',
+        label: t('design_system.gallery.samples.content.active'),
+      },
+      {
+        value: 'inactive',
+        label: t('design_system.gallery.samples.content.inactive'),
+      },
     ],
     onSave: saveNoop,
   },
   {
     key: 'notes',
     kind: 'multiline',
-    label: 'Notes',
-    value: 'Prefers email contact.',
-    emptyLabel: 'Add notes',
+    label: t('design_system.gallery.samples.content.notes'),
+    value: t('design_system.gallery.samples.content.prefersEmailContact'),
+    emptyLabel: t('design_system.gallery.samples.content.addNotes'),
     onSave: saveNoop,
     gridClassName: 'sm:col-span-2 md:col-span-3',
   },
 ]
-
-const fieldGridWithCustom: DetailFieldConfig[] = [
+const fieldGridWithCustom = (t: ReturnType<typeof useT>): DetailFieldConfig[] => [
   {
     key: 'email',
     kind: 'text',
-    label: 'Email',
+    label: t('design_system.gallery.samples.content.email'),
     value: 'anna@example.com',
-    emptyLabel: 'Add email',
+    emptyLabel: t('design_system.gallery.samples.content.addEmail'),
     onSave: saveNoop,
   },
   {
     key: 'owner',
     kind: 'custom',
-    label: 'Owner',
-    emptyLabel: 'Unassigned',
+    label: t('design_system.gallery.samples.content.owner'),
+    emptyLabel: t('design_system.gallery.samples.content.unassigned'),
     render: () => (
       <div className="space-y-1">
-        <div className="text-xs text-muted-foreground">Owner</div>
-        <Badge variant="muted">Unassigned</Badge>
+        <div className="text-xs text-muted-foreground">{t('design_system.gallery.samples.content.owner')}</div>
+        <Badge variant="muted">{t('design_system.gallery.samples.content.unassigned')}</Badge>
       </div>
     ),
   },
 ]
 
-// Sections resolve their labels through an app translator in real pages; the
-// gallery translator just surfaces each key's fallback (or last segment).
-const galleryTranslator = (key: string, fallback?: string) =>
-  fallback ?? key.split('.').pop() ?? key
 
-const notesAdapter: NotesSectionProps['dataAdapter'] = {
+const notesAdapter = (t: ReturnType<typeof useT>): NotesSectionProps['dataAdapter'] => ({
   list: async () => [
     {
       id: 'note-1',
-      body: 'Asked for a revised quote — follow up on Friday.',
+      body: t('design_system.gallery.samples.content.askedForARevisedQuoteFollowUpOnFriday'),
       createdAt: '2026-07-15T09:30:00.000Z',
       authorName: 'Anna Nowak',
     },
     {
       id: 'note-2',
-      body: 'Prefers email contact over phone.',
+      body: t('design_system.gallery.samples.content.prefersEmailContactOverPhone'),
       createdAt: '2026-07-10T14:05:00.000Z',
       authorName: 'Jan Kowalski',
     },
@@ -112,13 +212,12 @@ const notesAdapter: NotesSectionProps['dataAdapter'] = {
   create: async () => {},
   update: async () => {},
   delete: async () => {},
-}
-
-const addressesAdapter: AddressDataAdapter = {
+})
+const addressesAdapter = (t: ReturnType<typeof useT>): AddressDataAdapter => ({
   list: async () => [
     {
       id: 'address-1',
-      name: 'Headquarters',
+      name: t('design_system.gallery.samples.content.headquarters'),
       addressLine1: 'Prosta 51',
       city: 'Warszawa',
       postalCode: '00-838',
@@ -127,7 +226,7 @@ const addressesAdapter: AddressDataAdapter = {
     },
     {
       id: 'address-2',
-      name: 'Warehouse',
+      name: t('design_system.gallery.samples.content.warehouse'),
       addressLine1: 'Magazynowa 7',
       city: 'Pruszków',
       postalCode: '05-800',
@@ -137,8 +236,7 @@ const addressesAdapter: AddressDataAdapter = {
   create: async () => {},
   update: async () => {},
   delete: async () => {},
-}
-
+})
 const detailFieldsSectionEntry: GalleryEntry = {
   id: 'detail-fields-section',
   title: 'DetailFieldsSection',
@@ -147,11 +245,7 @@ const detailFieldsSectionEntry: GalleryEntry = {
     {
       id: 'field-grid',
       title: 'Inline-editable field grid',
-      render: () => (
-        <div className="w-full">
-          <DetailFieldsSection fields={fieldGrid} />
-        </div>
-      ),
+      render: () => <DetailFieldsSectionEntryFieldGridPreview />,
       code: `import { DetailFieldsSection, type DetailFieldConfig } from '@open-mercato/ui/backend/detail'
 
 const fields: DetailFieldConfig[] = [
@@ -173,11 +267,7 @@ const fields: DetailFieldConfig[] = [
     {
       id: 'custom-field',
       title: 'With a custom field cell',
-      render: () => (
-        <div className="w-full">
-          <DetailFieldsSection fields={fieldGridWithCustom} />
-        </div>
-      ),
+      render: () => <DetailFieldsSectionEntryCustomFieldPreview />,
       code: `import { DetailFieldsSection, type DetailFieldConfig } from '@open-mercato/ui/backend/detail'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 
@@ -198,7 +288,6 @@ const fields: DetailFieldConfig[] = [
     },
   ],
 }
-
 const loadingMessageEntry: GalleryEntry = {
   id: 'loading-message',
   title: 'LoadingMessage',
@@ -207,18 +296,13 @@ const loadingMessageEntry: GalleryEntry = {
     {
       id: 'default',
       title: 'default',
-      render: () => (
-        <div className="w-full max-w-md">
-          <LoadingMessage label="Loading customer…" />
-        </div>
-      ),
+      render: () => <LoadingMessageEntryDefaultPreview />,
       code: `import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 
 if (isLoading) return <LoadingMessage label={t('customers.people.detail.loading')} />`,
     },
   ],
 }
-
 const errorMessageEntry: GalleryEntry = {
   id: 'error-message',
   title: 'ErrorMessage',
@@ -227,11 +311,7 @@ const errorMessageEntry: GalleryEntry = {
     {
       id: 'basic',
       title: 'Label only',
-      render: () => (
-        <div className="w-full max-w-md">
-          <ErrorMessage label="Failed to load customer." />
-        </div>
-      ),
+      render: () => <ErrorMessageEntryBasicPreview />,
       code: `import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 
 if (error) return <ErrorMessage label={error} />`,
@@ -239,19 +319,7 @@ if (error) return <ErrorMessage label={error} />`,
     {
       id: 'with-description-action',
       title: 'With description and action',
-      render: () => (
-        <div className="w-full max-w-md">
-          <ErrorMessage
-            label="Failed to load attachments."
-            description="The storage service did not respond in time."
-            action={
-              <Button variant="outline" size="sm">
-                Retry
-              </Button>
-            }
-          />
-        </div>
-      ),
+      render: () => <ErrorMessageEntryWithDescriptionActionPreview />,
       code: `import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 
@@ -263,7 +331,6 @@ import { Button } from '@open-mercato/ui/primitives/button'
     },
   ],
 }
-
 const notesSectionEntry: GalleryEntry = {
   id: 'notes-section',
   title: 'NotesSection',
@@ -272,24 +339,7 @@ const notesSectionEntry: GalleryEntry = {
     {
       id: 'mock-adapter',
       title: 'Timeline (inline mock adapter — no API)',
-      render: () => (
-        <div className="w-full max-w-2xl">
-          <NotesSection
-            entityId="person-1"
-            viewerUserId="user-1"
-            viewerName="Anna Nowak"
-            emptyLabel="No notes yet"
-            addActionLabel="Add note"
-            emptyState={{
-              title: 'No notes yet',
-              actionLabel: 'Add note',
-              description: 'Notes added here are visible to the whole team.',
-            }}
-            translator={galleryTranslator}
-            dataAdapter={notesAdapter}
-          />
-        </div>
-      ),
+      render: () => <NotesSectionEntryMockAdapterPreview />,
       code: `import { NotesSection, type NotesDataAdapter } from '@open-mercato/ui/backend/detail'
 
 // Implement the adapter against your module's API (apiCall) — never fork the section.
@@ -316,7 +366,6 @@ const notesAdapter: NotesDataAdapter = {
     },
   ],
 }
-
 const addressesSectionEntry: GalleryEntry = {
   id: 'addresses-section',
   title: 'AddressesSection',
@@ -325,18 +374,7 @@ const addressesSectionEntry: GalleryEntry = {
     {
       id: 'mock-adapter',
       title: 'Address tiles (inline mock adapter — no API)',
-      render: () => (
-        <div className="w-full max-w-2xl">
-          <AddressesSection
-            entityId="person-1"
-            emptyLabel="No addresses yet"
-            addActionLabel="Add address"
-            emptyState={{ title: 'No addresses yet', actionLabel: 'Add address' }}
-            translator={galleryTranslator}
-            dataAdapter={addressesAdapter}
-          />
-        </div>
-      ),
+      render: () => <AddressesSectionEntryMockAdapterPreview />,
       code: `import { AddressesSection, type AddressDataAdapter } from '@open-mercato/ui/backend/detail'
 
 const addressesAdapter: AddressDataAdapter = {
@@ -360,7 +398,6 @@ const addressesAdapter: AddressDataAdapter = {
     },
   ],
 }
-
 const attachmentsSectionEntry: GalleryEntry = {
   id: 'attachments-section',
   title: 'AttachmentsSection',
@@ -369,16 +406,7 @@ const attachmentsSectionEntry: GalleryEntry = {
     {
       id: 'unsaved-record',
       title: 'Unsaved record (recordId null — API fetch disabled)',
-      render: () => (
-        <div className="w-full max-w-2xl">
-          <AttachmentsSection
-            entityId="customers:person"
-            recordId={null}
-            title="Attachments"
-            description="Files linked to this record."
-          />
-        </div>
-      ),
+      render: () => <AttachmentsSectionEntryUnsavedRecordPreview />,
       code: `import { AttachmentsSection } from '@open-mercato/ui/backend/detail'
 
 // Fetches /api/attachments internally once recordId is set;
@@ -392,7 +420,6 @@ const attachmentsSectionEntry: GalleryEntry = {
     },
   ],
 }
-
 export const entries: GalleryEntry[] = [
   detailFieldsSectionEntry,
   loadingMessageEntry,

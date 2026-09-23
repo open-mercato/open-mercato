@@ -2,6 +2,7 @@ import { describe, test, expect, jest, beforeEach } from '@jest/globals'
 import { LockMode, type EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import * as workflowExecutor from '../workflow-executor'
+import { WORKFLOW_ENGINE_VERSION } from '../engine-version'
 import type {
   WorkflowDefinition,
   WorkflowInstance,
@@ -69,6 +70,7 @@ describe('Workflow Executor (Unit Tests)', () => {
     mockEm = {
       findOne: jest.fn(),
       find: jest.fn(),
+      count: jest.fn(async () => 0),
       create: jest.fn(),
       persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(),
@@ -153,6 +155,56 @@ describe('Workflow Executor (Unit Tests)', () => {
           organizationId: testOrgId,
         })
       ).rejects.toThrow('Workflow definition is disabled')
+    })
+
+    test('should refuse a definition that requires a newer engine version', async () => {
+      const futureDefinition = {
+        ...mockDefinition,
+        metadata: { minEngineVersion: WORKFLOW_ENGINE_VERSION + 1 },
+      }
+      mockEm.findOne.mockResolvedValue(futureDefinition as WorkflowDefinition)
+
+      await expect(
+        workflowExecutor.startWorkflow(mockEm, {
+          workflowId: 'simple-workflow',
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+        })
+      ).rejects.toThrow(`requires engine version ${WORKFLOW_ENGINE_VERSION + 1}`)
+      expect(mockEm.create).not.toHaveBeenCalled()
+    })
+
+    test('should start a definition pinned to the current engine version', async () => {
+      const pinnedDefinition = {
+        ...mockDefinition,
+        metadata: { minEngineVersion: WORKFLOW_ENGINE_VERSION },
+      }
+      mockEm.findOne.mockResolvedValue(pinnedDefinition as WorkflowDefinition)
+
+      const mockInstance = {
+        id: testInstanceId,
+        definitionId: testDefinitionId,
+        workflowId: 'simple-workflow',
+        version: 1,
+        status: 'RUNNING',
+        currentStepId: 'start',
+        context: {},
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        startedAt: new Date(),
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as WorkflowInstance
+      mockEm.create.mockReturnValue(mockInstance)
+
+      const instance = await workflowExecutor.startWorkflow(mockEm, {
+        workflowId: 'simple-workflow',
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      })
+
+      expect(instance.status).toBe('RUNNING')
     })
 
     test('should throw error if definition has no steps', async () => {
@@ -814,6 +866,76 @@ describe('Workflow Executor (Unit Tests)', () => {
         expect.anything(),
         expect.objectContaining({ eventType: 'WORKFLOW_FAILED' })
       )
+    })
+
+    test('persists FAILED on a fresh fork when the execution transaction throws and rolls back (issue #3632)', async () => {
+      // An error that escapes the inner transition try (here: findValidTransitions
+      // throwing) reaches the outer catch, which re-throws → the whole transaction
+      // rolls back, discarding the in-transaction FAILED write. The executor must
+      // still durably mark the instance FAILED on an independent fork so it does
+      // not silently stay RUNNING/start.
+      const instance = buildRunningInstance()
+      mockFindOneByIds(instance, mockDefinition)
+
+      const forkInstance = buildRunningInstance()
+      const forkCreate = jest.fn((_entity: unknown, data: unknown) => data)
+      const forkEm = {
+        findOne: jest.fn(async () => forkInstance),
+        create: forkCreate,
+        persist: jest.fn(),
+        flush: jest.fn(),
+        transactional: jest.fn(async (callback: (trx: EntityManager) => Promise<unknown>) => callback(forkEm as unknown as EntityManager)),
+      }
+      ;(mockEm as any).fork = jest.fn(() => forkEm)
+
+      const transitionHandler = jest.requireMock('../transition-handler') as {
+        findValidTransitions: jest.Mock
+        executeTransition: jest.Mock
+      }
+      transitionHandler.findValidTransitions.mockRejectedValue(new Error('connection reset mid-step'))
+
+      await expect(
+        workflowExecutor.executeWorkflow(mockEm, mockContainer, testInstanceId)
+      ).rejects.toThrow('connection reset mid-step')
+
+      expect((mockEm as any).fork).toHaveBeenCalled()
+      expect(forkInstance.status).toBe('FAILED')
+      expect(forkInstance.errorMessage).toBe('connection reset mid-step')
+      expect(forkCreate).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ eventType: 'WORKFLOW_FAILED' })
+      )
+    })
+
+    test('leaves a non-RUNNING instance untouched on the fork when the transaction throws', async () => {
+      const instance = buildRunningInstance()
+      mockFindOneByIds(instance, mockDefinition)
+
+      // The fork sees an instance that already left RUNNING (e.g. cancelled
+      // concurrently) — it must not be clobbered to FAILED.
+      const forkInstance = { ...buildRunningInstance(), status: 'CANCELLED' } as WorkflowInstance
+      const forkCreate = jest.fn((_entity: unknown, data: unknown) => data)
+      const forkEm = {
+        findOne: jest.fn(async () => forkInstance),
+        create: forkCreate,
+        persist: jest.fn(),
+        flush: jest.fn(),
+        transactional: jest.fn(async (callback: (trx: EntityManager) => Promise<unknown>) => callback(forkEm as unknown as EntityManager)),
+      }
+      ;(mockEm as any).fork = jest.fn(() => forkEm)
+
+      const transitionHandler = jest.requireMock('../transition-handler') as {
+        findValidTransitions: jest.Mock
+        executeTransition: jest.Mock
+      }
+      transitionHandler.findValidTransitions.mockRejectedValue(new Error('boom'))
+
+      await expect(
+        workflowExecutor.executeWorkflow(mockEm, mockContainer, testInstanceId)
+      ).rejects.toThrow('boom')
+
+      expect(forkInstance.status).toBe('CANCELLED')
+      expect(forkCreate).not.toHaveBeenCalled()
     })
 
     test('should trigger compensation when transition fails on a definition with compensatable activities', async () => {

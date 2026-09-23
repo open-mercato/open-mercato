@@ -75,7 +75,7 @@ import { loadGeneratedFieldRegistrations } from './fields/registry'
 import type { CustomFieldDefDto, CustomFieldDefinitionsPayload, CustomFieldsetDto } from './utils/customFieldDefs'
 import { isDefVisible } from './utils/customFieldDefs'
 import { buildFormFieldsFromCustomFields, buildFormFieldFromCustomFieldDef } from './utils/customFieldForms'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useOptionalLocale } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
 import { ComboboxInput } from './inputs/ComboboxInput'
 import { format } from 'date-fns/format'
@@ -96,6 +96,7 @@ import { useInjectionSpotEvents, InjectionSpot, useInjectionWidgets } from './in
 import { dispatchBackendMutationError } from './injection/mutationEvents'
 import { VersionHistoryAction } from './version-history/VersionHistoryAction'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { parseLocaleNumber, resolveLocaleNumberSeparators } from '@open-mercato/shared/lib/number'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
@@ -349,6 +350,8 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   // Legacy field-only grid toggle. Use `groups` for advanced layout.
   twoColumn?: boolean
   title?: string
+  /** Semantic level for the form title. Defaults to 2 for section-level compatibility. */
+  titleHeadingLevel?: 1 | 2
   backHref?: string
   // Optional extra action buttons rendered next to Delete/Cancel/Save
   // Useful for custom links like "Show Records" etc.
@@ -375,6 +378,17 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   embedded?: boolean
   // Hide the footer action bar (Save/Cancel/Delete) when embedding in a custom layout
   hideFooterActions?: boolean
+  /**
+   * Vertical rhythm of the form body.
+   *
+   * `default` is the page-width layout every existing host renders today and is
+   * unchanged byte-for-byte. `compact` tightens the between-group and
+   * between-field spacing and the group-card padding for narrow hosts — a docked
+   * inspector rail, a side panel — where the page rhythm reads as airy and costs
+   * the host a third of its column. It changes SPACING only: no label, helper
+   * text, control size or copy differs between the two.
+   */
+  density?: 'default' | 'compact'
   /**
    * Opt-in: track dirty state even when `embedded` is true, AND enable the form's built-in
    * navigation protection (beforeunload, link-click intercept, pushState/replaceState/popstate).
@@ -403,6 +417,20 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   customFieldsManageMode?: 'inline' | 'page'
   // Optional injection spot ID for widget injection
   injectionSpotId?: string
+  /**
+   * One prior injection spot ID whose header, body (stack/group), and field
+   * (`:fields`) widgets are dual-published alongside `injectionSpotId` — a
+   * compatibility bridge for a host that changed its declared spot id, so a
+   * widget still targeting the old id keeps rendering. See
+   * BACKWARD_COMPATIBILITY.md §6 for the deprecation protocol this supports.
+   *
+   * Body, group, and `:fields` widgets are deduped by id (`mergeByKey`), so a
+   * widget registered on both `injectionSpotId` and `legacyInjectionSpotId`
+   * renders once. The header is the exception: it renders through two
+   * independent `<InjectionSpot>` elements (not the merged list), so a widget
+   * registered on both header spots renders twice.
+   */
+  legacyInjectionSpotId?: string
   replacementHandle?: string
   // Enable collapsible group headers with localStorage persistence.
   // Pass `true` to enable with auto-generated pageType, or `{ pageType }` for explicit key.
@@ -446,6 +474,16 @@ export type CrudFormGroup = {
   kind?: 'customFields'
   // When true, render component output inline without wrapping group chrome
   bare?: boolean
+}
+
+// Appends `legacy` entries not already present in `primary` (by `keyOf`), so a
+// `legacyInjectionSpotId` bridge never renders the same widget twice when it is
+// registered on both the primary and the legacy spot.
+function mergeByKey<T>(primary: T[], legacy: T[], keyOf: (item: T) => string): T[] {
+  if (!legacy.length) return primary
+  const seen = new Set(primary.map(keyOf))
+  const extra = legacy.filter((item) => !seen.has(keyOf(item)))
+  return extra.length ? [...primary, ...extra] : primary
 }
 
 function readByDotPath(source: Record<string, unknown> | undefined, path: string): unknown {
@@ -726,6 +764,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   disableOptimisticLock = false,
   twoColumn = false,
   title,
+  titleHeadingLevel = 2,
   backHref,
   entityId,
   entityIds,
@@ -734,6 +773,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   loadingMessage,
   customEntity = false,
   embedded = false,
+  density = 'default',
   hideFooterActions = false,
   trackDirtyWhenEmbedded = false,
   onDirtyChange,
@@ -745,6 +785,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   customFieldsetBindings,
   customFieldsManageMode = 'inline',
   injectionSpotId,
+  legacyInjectionSpotId,
   replacementHandle,
   collapsibleGroups,
   sortableGroups,
@@ -851,7 +892,10 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const headerInjectionSpotId = resolvedInjectionSpotId
     ? extensionSpotChildId(resolvedInjectionSpotId, 'header')
     : undefined
-  
+  const legacyHeaderInjectionSpotId = legacyInjectionSpotId
+    ? extensionSpotChildId(legacyInjectionSpotId, 'header')
+    : undefined
+
   const recordId = React.useMemo(() => {
     const raw = values.id
     if (typeof raw === 'string') return raw
@@ -1128,16 +1172,33 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
   }, [allowNextNavigation, clearDirtyState, confirmUnsavedChanges, embedded, hasUnsavedChanges, router, trackDirtyWhenEmbedded])
 
-  const { widgets: injectionWidgets } = useInjectionWidgets(resolvedInjectionSpotId, {
+  const { widgets: primaryInjectionWidgets } = useInjectionWidgets(resolvedInjectionSpotId, {
     context: injectionContext,
     triggerOnLoad: true,
   })
-  const { widgets: injectedFieldWidgets } = useInjectionDataWidgets(
+  const { widgets: legacyInjectionWidgets } = useInjectionWidgets(legacyInjectionSpotId, {
+    context: injectionContext,
+    triggerOnLoad: true,
+  })
+  const injectionWidgets = React.useMemo(
+    () => mergeByKey(primaryInjectionWidgets, legacyInjectionWidgets, (w) => w.widgetId),
+    [primaryInjectionWidgets, legacyInjectionWidgets],
+  )
+  const { widgets: primaryFieldWidgets } = useInjectionDataWidgets(
     resolvedInjectionSpotId
       ? extensionSpotChildId(resolvedInjectionSpotId, 'fields')
       : '__disabled__:fields'
   )
-  
+  const { widgets: legacyFieldWidgets } = useInjectionDataWidgets(
+    legacyInjectionSpotId
+      ? extensionSpotChildId(legacyInjectionSpotId, 'fields')
+      : '__disabled__:fields'
+  )
+  const injectedFieldWidgets = React.useMemo(
+    () => mergeByKey(primaryFieldWidgets, legacyFieldWidgets, (w) => w.metadata.id),
+    [primaryFieldWidgets, legacyFieldWidgets],
+  )
+
   const { triggerEvent: triggerInjectionEvent } = useInjectionSpotEvents(resolvedInjectionSpotId ?? '', injectionWidgets)
   const extendedInjectionEventsEnabled = CRUDFORM_EXTENDED_EVENTS_ENABLED && Boolean(resolvedInjectionSpotId)
 
@@ -1326,6 +1387,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   // handles the overflow case on its own: when content scrolls, the footer stays pinned
   // to the dialog's bottom and the user can scroll fields above it.
   const dialogFormPadding = ''
+  // One step down the DS scale each, never an arbitrary value. `default` returns
+  // the exact strings that were inline before this prop existed.
+  const isCompactDensity = density === 'compact'
+  const densityStackLg = isCompactDensity ? 'space-y-3' : 'space-y-4'
+  const densityStackMd = isCompactDensity ? 'space-y-2' : 'space-y-3'
+  const densityCardPadding = isCompactDensity ? 'p-3' : 'p-4'
+  const densityGroupCardPadding = isCompactDensity ? 'px-3 py-2' : 'px-4 py-3'
 
   const buildCustomFieldsManageHref = React.useCallback(
     (targetEntityId: string | null) => {
@@ -1501,14 +1569,27 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       autoCheckAcl={versionHistory?.autoCheckAcl}
     />
   )
-  const headerInjectionAction = headerInjectionSpotId ? (
-    <InjectionSpot
-      spotId={headerInjectionSpotId}
-      context={injectionContext}
-      data={values}
-      onDataChange={(newData) => setValues(newData as CrudFormValues<TValues>)}
-      disabled={pending}
-    />
+  const headerInjectionAction = (headerInjectionSpotId || legacyHeaderInjectionSpotId) ? (
+    <>
+      {headerInjectionSpotId ? (
+        <InjectionSpot
+          spotId={headerInjectionSpotId}
+          context={injectionContext}
+          data={values}
+          onDataChange={(newData) => setValues(newData as CrudFormValues<TValues>)}
+          disabled={pending}
+        />
+      ) : null}
+      {legacyHeaderInjectionSpotId ? (
+        <InjectionSpot
+          spotId={legacyHeaderInjectionSpotId}
+          context={injectionContext}
+          data={values}
+          onDataChange={(newData) => setValues(newData as CrudFormValues<TValues>)}
+          disabled={pending}
+        />
+      ) : null}
+    </>
   ) : null
   const headerExtraActions = versionHistoryEnabled || headerInjectionAction || extraActions ? (
     <>
@@ -3341,7 +3422,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           const sectionKey = `${entityLayout.entityId}:${section.fieldsetCode ?? 'default'}`
           const manageDisabled = !manageHref
           nodes.push(
-            <div key={sectionKey} className="rounded-lg border bg-card p-4 space-y-4">
+            <div key={sectionKey} className={`rounded-lg border bg-card ${densityCardPadding} ${densityStackLg}`}>
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-2">
                   {FieldsetIcon ? (
@@ -3583,7 +3664,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 fieldCount={customFieldCount}
                 chevronPosition={collapsibleChevronPosition}
               >
-                <div className="space-y-3">
+                <div className={densityStackMd}>
                   {customFieldsInnerNodes}
                 </div>
               </CollapsibleGroup>,
@@ -3637,14 +3718,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               fieldCount={groupFields.length}
               chevronPosition={collapsibleChevronPosition}
             >
-              <div className="space-y-3">
+              <div className={densityStackMd}>
                 {groupContent}
               </div>
             </CollapsibleGroup>,
           )
         } else {
           nodes.push(
-            <div key={g.id} className="rounded-lg border bg-card px-4 py-3 space-y-3">
+            <div key={g.id} className={`rounded-lg border bg-card ${densityGroupCardPadding} ${densityStackMd}`}>
               {g.title ? (
                 <div className="text-sm font-medium">{t(g.title, g.title)}</div>
               ) : null}
@@ -3677,6 +3758,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             backHref={backHref}
             backLabel={backLabel}
             title={title}
+            titleHeadingLevel={titleHeadingLevel}
             actions={{
               extraActions: headerExtraActions,
               showDelete: !formReadOnly && showDelete,
@@ -3698,7 +3780,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           className={embedded ? 'min-h-[1px]' : 'min-h-[400px]'}
         >
           {wrapFormBody(
-            <form id={formId} onSubmit={handleSubmit} className={`space-y-4 ${dialogFormPadding}`}>
+            <form id={formId} onSubmit={handleSubmit} className={`${densityStackLg} ${dialogFormPadding}`}>
             {resolvedInjectionSpotId ? (
               <InjectionSpot
                 spotId={resolvedInjectionSpotId}
@@ -3717,13 +3799,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               {sortableGroupsEnabled ? (
                 <DndContext sensors={sortableSensors} collisionDetection={closestCenter} onDragEnd={handleGroupDragEnd}>
                   <SortableContext items={col1Ids} strategy={verticalListSortingStrategy}>
-                    <div className="space-y-3">{col1Content}</div>
+                    <div className={densityStackMd}>{col1Content}</div>
                   </SortableContext>
                 </DndContext>
               ) : (
-                <div className="space-y-3">{col1Content}</div>
+                <div className={densityStackMd}>{col1Content}</div>
               )}
-              {hasSecondaryColumn ? <div className="space-y-3" data-crud-injection-region>{col2Content}</div> : null}
+              {hasSecondaryColumn ? <div className={densityStackMd} data-crud-injection-region>{col2Content}</div> : null}
             </div>
             {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
             {hideFooterActions || formReadOnly ? null : (
@@ -3759,6 +3841,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           backHref={backHref}
           backLabel={backLabel}
           title={title}
+          titleHeadingLevel={titleHeadingLevel}
           actions={{
             extraActions: headerExtraActions,
             showDelete: !formReadOnly && showDelete,
@@ -3784,7 +3867,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           <form
             id={formId}
             onSubmit={handleSubmit}
-            className={`${embedded ? 'space-y-4' : 'rounded-lg border bg-card p-4 space-y-4'} ${dialogFormPadding}`}
+            className={`${embedded ? densityStackLg : `rounded-lg border bg-card ${densityCardPadding} ${densityStackLg}`} ${dialogFormPadding}`}
           >
             {resolvedInjectionSpotId ? (
               <InjectionSpot
@@ -4031,14 +4114,23 @@ function NumberInput({
   autoFocus?: boolean
   onSubmit?: () => void
 }) {
+  const locale = useOptionalLocale()
   const serializedValue = value !== undefined && value !== null ? String(value) : ''
   const [local, setLocal] = React.useState<string>(serializedValue)
   const isFocusedRef = React.useRef(false)
+  // Users type the separator the surrounding UI displays, which follows the application
+  // locale — `110,70` under Polish. `Number()` only ever accepted `.` (issue #5552).
+  const parse = React.useCallback(
+    (raw: string): number | undefined => {
+      if (raw === '') return undefined
+      return parseLocaleNumber(raw, locale) ?? undefined
+    },
+    [locale],
+  )
   const commitIfChanged = React.useCallback(() => {
     if (local === serializedValue) return
-    const numValue = local === '' ? undefined : Number(local)
-    onChange(numValue)
-  }, [local, onChange, serializedValue])
+    onChange(parse(local))
+  }, [local, onChange, parse, serializedValue])
   
   React.useEffect(() => {
     // Only sync from props when not focused to avoid caret jumps
@@ -4050,17 +4142,31 @@ function NumberInput({
   const handleChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const next = e.target.value
     setLocal(next)
-    const numValue = next === '' ? undefined : Number(next)
-    onChange(numValue)
-  }, [onChange])
+    onChange(parse(next))
+  }, [onChange, parse])
 
   const handleKeyDown = React.useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       commitIfChanged()
       onSubmit?.()
+      return
     }
-  }, [commitIfChanged, onSubmit])
+    // A text input has no native spinner, so keep the step affordance the previous
+    // type="number" field offered.
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault()
+      // Binary floating point puts 8.2 - 1 at 7.199999999999999; the native spinner
+      // re-serialized against the step rather than committing that to form state.
+      const base = parse(local) ?? 0
+      const stepped = Number((base + (e.key === 'ArrowUp' ? 1 : -1)).toFixed(10))
+      // The box must keep showing the separator the rest of the UI displays, which is
+      // the application locale's — not the dot String() always emits (issue #5552).
+      const { decimal } = resolveLocaleNumberSeparators(locale)
+      setLocal(decimal === '.' ? String(stepped) : String(stepped).replace('.', decimal))
+      onChange(stepped)
+    }
+  }, [commitIfChanged, local, locale, onChange, onSubmit, parse])
   
   const handleFocus = React.useCallback(() => {
     isFocusedRef.current = true
@@ -4072,8 +4178,15 @@ function NumberInput({
   }, [commitIfChanged])
   
   return (
+    // type="text" rather than type="number": the browser sanitizes a type="number" value
+    // against the BROWSER locale, so it discards the separator the app locale displays
+    // before React ever sees it (issue #5552). inputMode keeps the mobile numeric keypad.
     <Input
-      type="number"
+      type="text"
+      inputMode="decimal"
+      // A text input is eligible for autofill and spellcheck; a number field is not.
+      autoComplete="off"
+      spellCheck={false}
       placeholder={placeholder}
       value={local}
       onChange={handleChange}

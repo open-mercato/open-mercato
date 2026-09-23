@@ -1,4 +1,4 @@
-import { isTransientDbError, isUniqueViolation } from '../pg-errors'
+import { getForeignKeyViolationConstraint, isForeignKeyViolation, isTransientDbError, isUniqueViolation, readPgSqlState } from '../pg-errors'
 
 describe('isTransientDbError', () => {
   it('is true for the max_connections SQLSTATE', () => {
@@ -44,5 +44,93 @@ describe('isTransientDbError', () => {
     const uniqueErr = { code: '23505', message: 'duplicate key value violates unique constraint' }
     expect(isUniqueViolation(uniqueErr)).toBe(true)
     expect(isTransientDbError(uniqueErr)).toBe(false)
+  })
+})
+
+describe('isForeignKeyViolation', () => {
+  it('is true for the foreign_key_violation SQLSTATE', () => {
+    expect(isForeignKeyViolation({ code: '23503' })).toBe(true)
+  })
+
+  it('is true for ORM-wrapped messages that drop the SQLSTATE', () => {
+    expect(
+      isForeignKeyViolation(
+        new Error('update or delete on table "users" violates foreign key constraint "sidebar_variants_user_id_foreign" on table "sidebar_variants"'),
+      ),
+    ).toBe(true)
+  })
+
+  it('looks through MikroORM wrapper chains (cause / previous), including re-wrapped errors', () => {
+    expect(isForeignKeyViolation({ message: 'wrapped', cause: { code: '23503' } })).toBe(true)
+    expect(isForeignKeyViolation({ message: 'wrapped', previous: { code: '23503' } })).toBe(true)
+    expect(isForeignKeyViolation({ message: 'outer', cause: { message: 'inner', previous: { code: '23503' } } })).toBe(true)
+  })
+
+  it('stops on cyclic or very deep wrapper chains', () => {
+    const cyclic: Record<string, unknown> = { message: 'loop' }
+    cyclic.cause = cyclic
+    expect(isForeignKeyViolation(cyclic)).toBe(false)
+    const deep = { cause: { cause: { cause: { cause: { cause: { code: '23503' } } } } } }
+    expect(isForeignKeyViolation(deep)).toBe(false)
+  })
+
+  it('is false for unique violations, transient errors and non-DB errors', () => {
+    expect(isForeignKeyViolation({ code: '23505' })).toBe(false)
+    expect(isForeignKeyViolation({ code: '53300' })).toBe(false)
+    expect(isForeignKeyViolation(new Error('something unrelated broke'))).toBe(false)
+    expect(isForeignKeyViolation(null)).toBe(false)
+  })
+})
+
+describe('getForeignKeyViolationConstraint', () => {
+  const driverMessage = 'update or delete on table "users" violates foreign key constraint "sidebar_variants_user_id_foreign" on table "sidebar_variants"'
+
+  it('reads the pg constraint field from the top-level error', () => {
+    expect(getForeignKeyViolationConstraint({ code: '23503', constraint: 'user_roles_user_id_foreign' })).toBe('user_roles_user_id_foreign')
+  })
+
+  it('reads the constraint from a wrapped driver error', () => {
+    expect(getForeignKeyViolationConstraint({ message: 'wrapped', previous: { code: '23503', constraint: 'sessions_user_id_foreign' } })).toBe('sessions_user_id_foreign')
+    expect(getForeignKeyViolationConstraint({ message: 'wrapped', cause: { code: '23503', constraint: 'user_acls_user_id_foreign' } })).toBe('user_acls_user_id_foreign')
+  })
+
+  it('falls back to the quoted constraint in the driver message', () => {
+    expect(getForeignKeyViolationConstraint(new Error(driverMessage))).toBe('sidebar_variants_user_id_foreign')
+  })
+
+  it('is null when nothing identifies the constraint', () => {
+    expect(getForeignKeyViolationConstraint({ code: '23503' })).toBeNull()
+    expect(getForeignKeyViolationConstraint(new Error('something unrelated broke'))).toBeNull()
+    expect(getForeignKeyViolationConstraint(null)).toBeNull()
+  })
+})
+
+describe('readPgSqlState', () => {
+  it('reads a 5-character SQLSTATE off the top-level error', () => {
+    expect(readPgSqlState({ code: '42P01' })).toBe('42P01')
+  })
+
+  it('reads a SQLSTATE from a nested cause', () => {
+    expect(readPgSqlState({ message: 'wrapped', cause: { code: '23505' } })).toBe('23505')
+  })
+
+  it('is null for a Node system error code, which is not a 5-character SQLSTATE', () => {
+    expect(readPgSqlState({ code: 'ECONNREFUSED' })).toBeNull()
+  })
+
+  it('is null for a Node internal error code', () => {
+    expect(readPgSqlState({ code: 'ERR_INVALID_ARG_TYPE' })).toBeNull()
+  })
+
+  it('is null for five-letter Node errno codes, which are not a 5-character SQLSTATE', () => {
+    expect(readPgSqlState({ code: 'EPIPE' })).toBeNull()
+    expect(readPgSqlState({ code: 'EPERM' })).toBeNull()
+    expect(readPgSqlState({ code: 'EBUSY' })).toBeNull()
+  })
+
+  it('is null for non-DB and empty errors', () => {
+    expect(readPgSqlState(new Error('something unrelated broke'))).toBeNull()
+    expect(readPgSqlState(null)).toBeNull()
+    expect(readPgSqlState(undefined)).toBeNull()
   })
 })

@@ -34,7 +34,10 @@ Customer-facing identity and portal authentication with a two-tier RBAC model. T
 yarn db:generate
 yarn generate
 yarn workspace @open-mercato/core build
+yarn workspace @open-mercato/core test --testPathPatterns='customer_accounts'
 ```
+
+Runbook command (idempotent, safe to re-run): `yarn mercato customer_accounts sync-customer-role-acls [--tenant <tenantId>]` — see § Cross-Module Feature Merging.
 
 ## Data Model
 
@@ -155,6 +158,14 @@ Treat `portal.*` and `*` as first-class stored ACL grants. Server authorization 
 ### Cross-Module Feature Merging
 
 Other modules can declare `defaultCustomerRoleFeatures` in their `setup.ts`. During `seedDefaults`, the customer_accounts module collects these from all enabled modules and merges them into the corresponding `CustomerRoleAcl` records.
+
+`seedDefaults` reaches **new** tenants only. Existing tenants replay the identical merge with:
+
+```bash
+yarn mercato customer_accounts sync-customer-role-acls [--tenant <tenantId>]
+```
+
+Both paths call the single helper `lib/customerRoleAclSync.ts` → `syncDefaultCustomerRoleAcls`. MUST route any new customer-role grant flow through that helper rather than writing `CustomerRoleAcl` rows directly, so the contract stays one implementation: additive only (never revokes a hand-added feature), wildcard-aware via `hasFeature` (a role holding `portal.*` gains no redundant concrete grant), never creates a `CustomerRole` or `CustomerRoleAcl`, tenant-scoped on every query, and idempotent. Run it after adding portal features to any module's `acl.ts` + `defaultCustomerRoleFeatures`, the same way `auth sync-role-acls` follows a `defaultRoleFeatures` change. Note `CustomerRbacService` caches ACLs for five minutes, so a fresh grant is not instantly visible to a signed-in portal user.
 
 ### Server-Side Auth Helpers
 
@@ -371,7 +382,9 @@ Configurable via environment variables (`CUSTOMER_LOGIN_POINTS`, `CUSTOMER_LOGIN
 ### Email Privacy
 
 - Emails stored in plaintext but lookups use `hashForLookup` (deterministic hash)
-- Unique constraint on `(tenantId, emailHash)` prevents duplicates
+- Partial unique index on `(tenantId, emailHash) WHERE deleted_at IS NULL` prevents duplicate **active** accounts — a soft-deleted row no longer blocks re-inviting its email (#5532)
+- Every `CustomerUser` email lookup MUST therefore filter `deletedAt: null`; that predicate is load-bearing, not defensive, because two rows can legitimately share `(tenantId, emailHash)` once one is soft-deleted
+- Match lookups against `lookupHashCandidates(email)` rather than a single `hashForLookup(email)`, so rows still carrying the legacy digest are found
 - Error messages never confirm whether an email is registered
 
 ## Lib Utilities
