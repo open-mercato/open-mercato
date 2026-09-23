@@ -94,6 +94,16 @@ export async function loadDictionary(locale: Locale): Promise<Dict> {
   const needsDefaultLocaleBase =
     locale !== defaultLocale && !(locales as readonly string[]).includes(locale)
   const merged: Dict = needsDefaultLocaleBase ? { ...(await loadDictionary(defaultLocale)) } : {}
+  // Load from registry instead of @/ import (works in standalone packages).
+  // Awaited BEFORE tryGetModules() below: the host app's dictionary loader
+  // (see apps/mercato/src/lib/i18n/register-dictionary-loader.ts) lazily
+  // imports this locale's per-module translation bundle and registers it via
+  // `registerModules()` as a side effect of resolving — reading the module
+  // registry first would race a locale's first-ever load and permanently
+  // cache a dictionary missing every lazily-registered module's translations
+  // for it (the registration event that would normally invalidate the cache
+  // fires too early, before this call has anything cached to invalidate).
+  const baseRaw = await loadAppDictionary(locale)
   // Route handlers translate their responses, so they resolve a dictionary even
   // when they are exercised in isolation without a bootstrapped registry. Module
   // dictionaries are layered first so the host app dictionary — merged last,
@@ -103,8 +113,6 @@ export async function loadDictionary(locale: Locale): Promise<Dict> {
     const dict = m.translations?.[locale]
     if (dict) Object.assign(merged, flattenDictionary(dict))
   }
-  // Load from registry instead of @/ import (works in standalone packages)
-  const baseRaw = await loadAppDictionary(locale)
   Object.assign(merged, flattenDictionary(baseRaw))
   setCachedDictionary(locale, merged)
   return merged
