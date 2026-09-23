@@ -82,6 +82,7 @@
   "ledger.common.credit": "Credit",
   "ledger.common.debit": "Debit",
   "ledger.errors.accountGroupNotFoundForOrg": "The specified account group does not exist for this organization.",
+  "ledger.errors.accountHasChildrenCannotDelete": "This account cannot be deleted because another account still lists it as its parent.",
   "ledger.errors.accountHasPostedEntriesCannotDelete": "This account cannot be deleted because it has posted journal entries.",
   "ledger.errors.accountNotFound": "One or more journal entry lines reference an account that does not exist for this organization: {ids}.",
   "ledger.errors.accountSelfParent": "An account cannot be its own parent.",
@@ -94,6 +95,7 @@
   "ledger.errors.accountTypeReferencedAsParentCannotDelete": "This account type cannot be deleted because another account type still lists it as its parent.",
   "ledger.errors.accountTypeSelfParent": "An account type cannot be its own parent.",
   "ledger.errors.accountTypeSlugTaken": "An account type with this slug already exists for this organization.",
+  "ledger.errors.accountTypeStillInUseCannotDelete": "This account type cannot be deleted because an account still uses it.",
   "ledger.errors.cannotReverseAReversal": "This journal entry is itself a reversal and cannot be reversed. Reverse the original entry instead.",
   "ledger.errors.currencyNotFound": "The specified currency does not exist for this organization.",
   "ledger.errors.fiscalPeriodLocked": "The fiscal period covering this operation date is locked.",
@@ -158,5 +160,6 @@
   "ledger.journal_entries.type.closing": "Closing",
   "ledger.journal_entries.type.normal": "Normal",
   "ledger.journal_entries.type.opening": "Opening",
-  "ledger.journal_entries.type.reversal": "Reversal"
+  "ledger.journal_entries.type.reversal": "Reversal",
+  "ledger.reversal.defaultDescription": "Reversal of journal entry #{sequenceNumber}"
 }
