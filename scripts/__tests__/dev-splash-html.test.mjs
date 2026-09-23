@@ -37,6 +37,105 @@ test('dev splash recognizes greenfield, setup, and ephemeral mode labels', () =>
   assert.match(source, /if \(mode === 'ephemeral'\) return t\('modeEphemeral'\)/)
 })
 
+test('dev splash renders a structured runtime incident preview', () => {
+  const source = read('scripts/dev-splash.html')
+
+  assert.match(source, /<section class="incident-box" id="incident-box" hidden>/)
+  assert.match(source, /id="incident-badge"/)
+  assert.match(source, /id="incident-title"/)
+  assert.match(source, /id="incident-detail"/)
+  assert.match(source, /id="incident-meta"/)
+  assert.match(source, /id="incident-hint"/)
+  assert.match(source, /function renderIncident\(state\) {/)
+  assert.match(source, /renderIncident\(state\)\s*\n\s*renderFailure\(state\)/)
+})
+
+test('dev splash ignores an incident left behind by an older generation', () => {
+  const source = read('scripts/dev-splash.html')
+
+  assert.match(source, /if \(summary\.generation !== runtime\.generation\) return null/)
+})
+
+test('dev splash keeps showing the log tail for a post-ready incident', () => {
+  const source = read('scripts/dev-splash.html')
+
+  assert.match(source, /\|\| \(incident !== null && lines\.length > 0\)/)
+})
+
+test('dev splash localizes every incident label in all supported locales', () => {
+  const source = read('scripts/dev-splash.html')
+  const requiredKeys = [
+    'incidentHealth_starting',
+    'incidentHealth_degraded',
+    'incidentHealth_recovering',
+    'incidentHealth_unavailable',
+    'incidentCode',
+    'incidentSource',
+    'incidentOccurrences',
+    'incidentLastSeen',
+    'incidentPath',
+    'incidentRecovery_generate',
+    'incidentRecovery_migrate',
+    'incidentRecovery_restart',
+  ]
+
+  for (const key of requiredKeys) {
+    const occurrences = source.split(`${key}:`).length - 1
+    assert.equal(occurrences, 4, `${key} must be translated for all four splash locales`)
+  }
+})
+
+test('dev splash warns that the migrate recovery is not automatically reversible', () => {
+  const source = read('scripts/dev-splash.html')
+
+  assert.match(source, /incidentRecovery_migrate: 'Suggested fix: apply database migrations[^']*not automatically reversible\.'/)
+})
+
+test('dev splash requires a second explicit click before applying migrations', () => {
+  const source = read('scripts/dev-splash.html')
+
+  assert.match(source, /if \(action === 'migrate' && pendingConfirmAction !== 'migrate'\) \{/)
+  assert.match(source, /incidentActionMigrateWarning:/)
+  // The static splash must not fall back to a native confirm dialog.
+  assert.doesNotMatch(source, /window\.confirm|[^.\w]confirm\(/)
+})
+
+test('dev splash posts recovery actions to the fixed allowlist with the run token', () => {
+  const source = read('scripts/dev-splash.html')
+
+  assert.match(source, /fetch\('\/runtime\/actions\/' \+ encodeURIComponent\(action\)/)
+  assert.match(source, /'x-om-dev-runtime-token': splashBootstrap\.runtimeToken/)
+  assert.match(source, /if \(!splashBootstrap\.runtimeToken\) return \[\]/)
+})
+
+test('dev splash hides recovery controls while an action is already running', () => {
+  const source = read('scripts/dev-splash.html')
+
+  assert.match(source, /const busy = state\?\.runtime\?\.recovery\?\.busy === true/)
+  assert.match(source, /incidentActionStatus\.textContent = t\('incidentActionBusy'\)\s*\n\s*return/)
+})
+
+test('dev splash localizes every recovery action label in all supported locales', () => {
+  const source = read('scripts/dev-splash.html')
+  const requiredKeys = [
+    'incidentAction_generate',
+    'incidentAction_migrate',
+    'incidentAction_restart',
+    'incidentActionConfirm_migrate',
+    'incidentActionCancel',
+    'incidentActionMigrateWarning',
+    'incidentActionStarting',
+    'incidentActionAccepted',
+    'incidentActionBusy',
+    'incidentActionFailed',
+  ]
+
+  for (const key of requiredKeys) {
+    const occurrences = source.split(`${key}:`).length - 1
+    assert.equal(occurrences, 4, `${key} must be translated for all four splash locales`)
+  }
+})
+
 test('ephemeral dev runner publishes an explicit splash mode', () => {
   const source = read('scripts/dev-ephemeral.ts')
 

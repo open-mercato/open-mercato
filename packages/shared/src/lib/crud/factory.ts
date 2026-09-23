@@ -75,9 +75,10 @@ import { parseExtensionHeaders } from '../umes/extension-headers'
 import { createGenericOptimisticLockReader } from './optimistic-lock'
 import { registerOptimisticLockReaderIfAbsent } from './optimistic-lock-store'
 import { createLogger } from '../logger'
-import { isTransientDbError } from '../db/pg-errors'
+import { getForeignKeyViolationConstraint, isForeignKeyViolation, isTransientDbError, readPgSqlState } from '../db/pg-errors'
 import { getTelemetryRuntime } from '../telemetry/runtime'
 import { randomUUID } from 'node:crypto'
+import { NotFoundError as MikroOrmNotFoundError, ValidationError as MikroOrmValidationError } from '@mikro-orm/core'
 
 type RbacServiceLike = {
   getGrantedFeatures: (userId: string, opts: { tenantId: string | null; organizationId: string | null }) => Promise<string[]>
@@ -609,6 +610,30 @@ function resolveRequestId(request?: Request): string {
   return randomUUID()
 }
 
+/**
+ * Stable, UPPER_SNAKE classification codes for the generic 500/503 fallback
+ * bodies below. See `apps/docs/docs/framework/runtime/request-lifecycle.mdx`
+ * for the full contract.
+ *
+ * - `DATABASE_UNAVAILABLE` — `isTransientDbError` matched (503 branch).
+ * - `DATABASE_ERROR` — a Postgres SQLSTATE is present (via `readPgSqlState`)
+ *   but was not already classified as transient (503) or a foreign-key
+ *   violation (409).
+ * - `PERSISTENCE_ERROR` — a MikroORM `ValidationError`/`NotFoundError` that
+ *   was not already handled by a more specific branch.
+ * - `INTERNAL_ERROR` — default fallback for anything else.
+ */
+type CrudErrorCode = 'INTERNAL_ERROR' | 'DATABASE_ERROR' | 'PERSISTENCE_ERROR' | 'DATABASE_UNAVAILABLE'
+
+function classifyCrudError(err: unknown): { code: CrudErrorCode; pgSqlState: string | null } {
+  const pgSqlState = readPgSqlState(err)
+  if (pgSqlState) return { code: 'DATABASE_ERROR', pgSqlState }
+  if (err instanceof MikroOrmValidationError || err instanceof MikroOrmNotFoundError) {
+    return { code: 'PERSISTENCE_ERROR', pgSqlState: null }
+  }
+  return { code: 'INTERNAL_ERROR', pgSqlState: null }
+}
+
 function handleError(err: unknown, request?: Request): Response {
   if (err instanceof Response) return err
   if (isCrudHttpError(err)) return json(err.body, { status: err.status })
@@ -623,13 +648,45 @@ function handleError(err: unknown, request?: Request): Response {
   if (isTransientDbError(err)) {
     // Transient DB unavailability (pool exhausted, `max_connections` reached, DB
     // restarting) is retryable — surface a 503 with a Retry-After hint instead of
-    // a generic 500 so clients back off and retry once the DB recovers.
+    // a generic 500 so clients back off and retry once the DB recovers. Carries
+    // the same requestId correlation contract as the other branches below.
+    const requestId = resolveRequestId(request)
     logger.warn('Transient DB failure during CRUD handler', {
       message: err instanceof Error ? err.message : undefined,
+      requestId,
     })
     return json(
-      { error: 'Service temporarily unavailable' },
-      { status: 503, headers: { 'Retry-After': '2' } },
+      { error: 'Service temporarily unavailable', code: 'DATABASE_UNAVAILABLE', requestId },
+      { status: 503, headers: { 'Retry-After': '2', 'x-request-id': requestId } },
+    )
+  }
+
+  if (isForeignKeyViolation(err)) {
+    // SQLSTATE 23503 covers both directions: a DELETE blocked by a dependent row
+    // and an INSERT/UPDATE pointing at a missing parent. Either way it is a
+    // data-state conflict the caller can act on, so answer 409 instead of 500.
+    // The constraint name stays in the log only: it maps internal table/column
+    // names and has no business in a client-facing body. The missing-parent
+    // direction is often a server-side defect, so the error is still reported to
+    // telemetry and carries a requestId exactly like the generic 500 below.
+    const requestId = resolveRequestId(request)
+    const constraint = getForeignKeyViolationConstraint(err)
+    logger.warn('Foreign key violation during CRUD handler', {
+      message: err instanceof Error ? err.message : undefined,
+      constraint,
+      requestId,
+    })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'crud',
+      attributes: { requestId, errorName: 'ForeignKeyViolation', constraint: constraint ?? undefined },
+    })
+    return json(
+      {
+        error: 'The record is still referenced by other data, or references a record that does not exist',
+        code: 'FOREIGN_KEY_VIOLATION',
+        requestId,
+      },
+      { status: 409, headers: { 'x-request-id': requestId } },
     )
   }
 
@@ -641,15 +698,18 @@ function handleError(err: unknown, request?: Request): Response {
   const stack = err instanceof Error ? err.stack : undefined
   const errorName = err instanceof Error ? err.name : undefined
   const requestId = resolveRequestId(request)
-  logger.error('Unexpected CRUD error', { message, stack, err, requestId })
+  const { code, pgSqlState } = classifyCrudError(err)
+  logger.error('Unexpected CRUD error', { message, stack, err, requestId, code })
   getTelemetryRuntime()?.reportError(err, {
     module: 'crud',
-    attributes: { requestId, errorName },
+    code: `crud.${code.toLowerCase()}`,
+    attributes: { requestId, errorName, code, pgCode: pgSqlState ?? undefined },
   })
   const body: Record<string, unknown> = {
     error: 'Internal server error',
     message: 'Something went wrong. Please try again later.',
     requestId,
+    code,
   }
   return json(body, { status: 500, headers: { 'x-request-id': requestId } })
 }
