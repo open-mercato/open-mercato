@@ -736,6 +736,12 @@ Two test cases were realized differently from the § Testing Strategy table. Bot
 
 ## Changelog
 
+### 2026-09-23 — disabled-Start hint when the project read fails
+
+- UI QA found the hint sending a member who **has** projects to an admin: the timesheet page leaves the `TimerBar` project list empty when its `assignments` or project-names read fails, and an empty list always rendered `startDisabledNoProjects` ("No projects assigned yet — ask an admin…").
+- `TimerBar` gains an optional `projectsUnavailable` prop (also in its registry prop schema, so existing overrides keep validating). The page sets it from `loadFailures` (`assignments`, `projects` or `all`), and an empty list then renders the new `staff.timesheets.my.timer.startDisabledProjectsUnavailable` ("Your projects could not be loaded — try again", translated in en/pl/de/es/ko). With projects present the hint is unchanged.
+- Tests: `TimerBar.startHint.test.tsx` (both branches) and `page.progressiveLoad.test.tsx` (the prop for an assignments failure, a project-names failure and a healthy load).
+
 ### 2026-09-23 — retargeted at upstream after the time-tracking relocation
 
 - Upstream #5427 retired `/backend/staff/timesheets` in favour of `/backend/staff/time-tracking/timesheet`. The `TimerBar` is a shared component that page still mounts, so Phases 1–3 carry over unchanged; the only page-level edit moved with it — the new page already derives `visibleProjectIds` from `show_in_grid` and now passes it to `TimerBar`. File Manifest updated to match.
