@@ -447,6 +447,11 @@ serves as JSON. The hook may mutate `response.items` in place or replace the arr
 either form is picked up. Note that `response.total`/`pageSize` on an export call describe the
 pre-hook batch, so use `response.items.length` if you need the exported row count.
 
+On `exportScope=full`, items are re-normalized after the hook runs — the same
+`_`-prefixed-metadata stripping and `cf_*` flattening applied before the hook — so anything
+`afterList` adds follows the full-export contract instead of leaking internal keys (such as an
+error-handling branch's `_associations` diagnostics) into the exported file.
+
 ## Response Caching
 
 The CRUD factory includes sophisticated caching to improve performance:

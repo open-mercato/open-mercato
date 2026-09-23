@@ -2033,7 +2033,13 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           // ships a different shape than the JSON list response for the same request (#5969).
           await opts.hooks?.afterList?.(exportPayload, { ...ctx, query: validated as any })
           profiler.mark('after_list_hook')
-          const finalExportItems = Array.isArray(exportPayload.items) ? exportPayload.items : exportItems
+          const hookExportItems = Array.isArray(exportPayload.items) ? exportPayload.items : exportItems
+          // Re-normalize after the hook: `afterList` can add keys the full-export contract
+          // strips (`_`-prefixed metadata, `cf_*`) or fail to flatten (#6019 review).
+          // Idempotent on records already shaped by normalizeFullRecordForExport above.
+          const finalExportItems = exportFullRequested
+            ? hookExportItems.map(normalizeFullRecordForExport)
+            : hookExportItems
           const prepared = exportFullRequested
             ? { columns: ensureColumns(finalExportItems), rows: finalExportItems }
             : prepareExportData(finalExportItems, opts.list, validated as any, ctx)
@@ -2238,7 +2244,12 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         // Same ordering contract as the query-engine export path above (#5969).
         await opts.hooks?.afterList?.(exportPayload, { ...ctx, query: validated as any })
         profiler.mark('after_list_hook')
-        const finalExportItems = Array.isArray(exportPayload.items) ? exportPayload.items : exportItems
+        const hookExportItems = Array.isArray(exportPayload.items) ? exportPayload.items : exportItems
+        // Re-normalize after the hook: same full-export contract as the query-engine path
+        // above (#6019 review).
+        const finalExportItems = exportFullRequested
+          ? hookExportItems.map(normalizeFullRecordForExport)
+          : hookExportItems
         const prepared = exportFullRequested
           ? { columns: ensureColumns(finalExportItems), rows: finalExportItems }
           : prepareExportData(finalExportItems, opts.list, validated as any, ctx)

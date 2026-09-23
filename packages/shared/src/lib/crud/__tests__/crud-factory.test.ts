@@ -879,6 +879,61 @@ describe('CRUD Factory', () => {
       const csvRes = await fallbackRoute.GET(new Request('http://x/api/example/todos?format=csv'))
       expect((await csvRes.text()).split('\n')[1]).toBe('id-1,patched:A')
     })
+
+    // #6019 review: on exportScope=full, items are normalized via normalizeFullRecordForExport
+    // before the hook runs but the hook's own additions used to skip that normalization,
+    // leaking `_`-prefixed metadata and un-flattened `cf_*` keys into the exported file.
+    const addAssociationsMetadata = (res: any) => {
+      for (const item of res.items) {
+        item.title = `patched:${item.title}`
+        item._associations = { ok: false, reason: 'lookup failed' }
+        item.cf_color = 're-added'
+      }
+    }
+
+    it('GET re-normalizes afterList output on the full-export query-engine path (#6019)', async () => {
+      const fullExportRoute = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+        indexer: { entityType: 'example.todo' },
+        list: {
+          schema: querySchema,
+          entityId: 'example.todo',
+          fields: ['id', 'title', 'is_done'],
+          sortFieldMap: { id: 'id' },
+          buildFilters: () => ({} as any),
+          transformItem: (i: any) => ({ id: i.id, title: i.title }),
+        },
+        hooks: { afterList: addAssociationsMetadata },
+      })
+
+      const res = await fullExportRoute.GET(new Request('http://x/api/example/todos?format=json&exportScope=full'))
+      const parsed = JSON.parse(await res.text())
+      expect(parsed[0].Title).toBe('patched:A')
+      expect(parsed[0].Color).toBe('re-added')
+      expect(Object.keys(parsed[0])).not.toContain('_associations')
+      expect(JSON.stringify(parsed)).not.toContain('lookup failed')
+    })
+
+    it('GET re-normalizes afterList output on the full-export ORM-fallback path (#6019)', async () => {
+      db['id-1'] = { id: 'id-1', title: 'A', organizationId: defaultOrganizationId, tenantId: defaultTenantId }
+      const fullFallbackRoute = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+        list: {
+          schema: querySchema,
+          buildFilters: () => ({} as any),
+        },
+        hooks: { afterList: addAssociationsMetadata },
+      })
+
+      const res = await fullFallbackRoute.GET(new Request('http://x/api/example/todos?format=json&exportScope=full'))
+      const parsed = JSON.parse(await res.text())
+      expect(parsed[0].Title).toBe('patched:A')
+      expect(parsed[0].Color).toBe('re-added')
+      expect(Object.keys(parsed[0])).not.toContain('_associations')
+      expect(JSON.stringify(parsed)).not.toContain('lookup failed')
+    })
   })
 
   describe('export loop termination', () => {
