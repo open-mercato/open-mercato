@@ -8994,6 +8994,7 @@ __metadata:
     "@mikro-orm/decorators": "npm:^7.1.14"
     "@mikro-orm/migrations": "npm:^7.1.14"
     "@mikro-orm/postgresql": "npm:^7.1.14"
+    "@open-mercato/events": "workspace:*"
     "@open-mercato/queue": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/telemetry": "workspace:*"
