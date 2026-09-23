@@ -36,6 +36,7 @@ type ResponsePayload = {
   total: number
   page: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 export default function LedgerAccountsPage() {
@@ -45,6 +46,7 @@ export default function LedgerAccountsPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [filters] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
@@ -84,6 +86,7 @@ export default function LedgerAccountsPage() {
           setRows(Array.isArray(payload.items) ? payload.items : [])
           setTotal(payload.total || 0)
           setTotalPages(payload.totalPages || 1)
+          setTotalIsCapped(payload.totalIsCapped === true)
         }
       } catch {
         if (!cancelled) flash(t('ledger.accounts.list.error.load', 'Failed to load accounts'), 'error')
@@ -217,7 +220,7 @@ export default function LedgerAccountsPage() {
               createLabel={t('ledger.accounts.list.actions.create', 'New account')}
             />
           )}
-          pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: 50, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
         />
       </PageBody>

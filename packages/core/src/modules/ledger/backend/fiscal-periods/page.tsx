@@ -36,6 +36,7 @@ type ResponsePayload = {
   total: number
   page: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 // `lock`/`unlock` are custom write routes, not a field-level CRUD edit — see
@@ -49,6 +50,7 @@ export default function FiscalPeriodsPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [filters, setFilters] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
@@ -89,6 +91,7 @@ export default function FiscalPeriodsPage() {
           setRows(Array.isArray(payload.items) ? payload.items : [])
           setTotal(payload.total || 0)
           setTotalPages(payload.totalPages || 1)
+          setTotalIsCapped(payload.totalIsCapped === true)
         }
       } catch {
         if (!cancelled) flash(t('ledger.fiscal_periods.list.error.load', 'Failed to load fiscal periods'), 'error')
@@ -259,7 +262,7 @@ export default function FiscalPeriodsPage() {
               createLabel={t('ledger.fiscal_periods.list.actions.create', 'New fiscal period')}
             />
           )}
-          pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: 50, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
         />
       </PageBody>

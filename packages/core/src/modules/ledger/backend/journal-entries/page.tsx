@@ -35,6 +35,7 @@ type ResponsePayload = {
   total: number
   page: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 const TYPE_BADGE_VARIANT: Record<JournalEntryRow['type'], 'default' | 'secondary' | 'destructive'> = {
@@ -50,6 +51,7 @@ export default function JournalEntriesPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [filters, setFilters] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const scopeVersion = useOrganizationScopeVersion()
@@ -79,6 +81,7 @@ export default function JournalEntriesPage() {
           setRows(Array.isArray(payload.items) ? payload.items : [])
           setTotal(payload.total || 0)
           setTotalPages(payload.totalPages || 1)
+          setTotalIsCapped(payload.totalIsCapped === true)
         }
       } catch {
         if (!cancelled) flash(t('ledger.journal_entries.list.error.load', 'Failed to load journal entries'), 'error')
@@ -185,7 +188,7 @@ export default function JournalEntriesPage() {
             setPage(1)
           }}
           emptyState={<ListEmptyState entityName={t('ledger.journal_entries.list.title', 'Journal Entries')} />}
-          pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: 50, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
         />
       </PageBody>
