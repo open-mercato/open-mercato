@@ -7,12 +7,12 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
-import { notFound } from '@open-mercato/shared/lib/crud/errors'
+import { conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 import { JournalEntry, JournalEntryLine } from '../data/entities'
 import { reverseJournalEntrySchema, type ReverseJournalEntryInput } from '../data/validators'
-import { runPostJournalEntry, withPostingTransaction, type JournalEntryPostCore, type PostJournalEntryResult } from './postJournalEntry'
+import { isComposedPostingCall, runPostJournalEntry, withPostingTransaction, type JournalEntryPostCore, type PostJournalEntryResult } from './postJournalEntry'
 import { emitLedgerEvent } from '../events'
 
 type Scope = { organizationId: string; tenantId: string }
@@ -20,7 +20,19 @@ type Scope = { organizationId: string; tenantId: string }
 /**
  * Loads the original entry and its lines, scoped to the caller's
  * organization/tenant — a `reverseJournalEntry` call cannot reach across
- * scopes any more than any other command can.
+ * scopes any more than any other command can. Also rejects two cases the
+ * domain never allows (PR #6340 review, M3):
+ *
+ * - Reversing a `REVERSAL` itself — a reversal is not the kind of entry
+ *   that gets corrected by reversing it again; the correction path is to
+ *   reverse the *original* mistaken entry.
+ * - Reversing an entry that already has a `REVERSAL` pointing at it via
+ *   `referenceType`/`referenceId` — otherwise a retry or a double-click
+ *   posts a second reversal and the books are wrong by the entry amount.
+ *   Backed by a partial unique index
+ *   (`journal_entry_single_reversal_idx`, see the migration) so this is
+ *   also safe under concurrent requests, not just this application-layer
+ *   check.
  */
 async function loadOriginalEntry(
   em: EntityManager,
@@ -33,6 +45,18 @@ async function loadOriginalEntry(
     tenantId: scope.tenantId,
   })
   if (!entry) throw notFound('Journal entry not found.')
+  if (entry.type === 'REVERSAL') {
+    throw conflict('This journal entry is itself a reversal and cannot be reversed. Reverse the original entry instead.')
+  }
+  const existingReversal = await em.findOne(JournalEntry, {
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    referenceType: 'journal_entry',
+    referenceId: entry.id,
+  })
+  if (existingReversal) {
+    throw conflict('This journal entry has already been reversed.')
+  }
   const lines = await em.find(JournalEntryLine, {
     journalEntryId: entry.id,
     organizationId: scope.organizationId,
@@ -118,23 +142,29 @@ const reverseJournalEntryCommand: CommandHandler<ReverseJournalEntryInput, PostJ
     // `ledger.journal_entry.posted` after commit, exactly like
     // `postJournalEntry` — a downstream subscriber (e.g. Posting Rules
     // Engine's reversal-mirroring subscriber) must see the REVERSAL entry
-    // the same way it sees any other posted entry.
-    void emitLedgerEvent('ledger.journal_entry.posted', {
-      journalEntryId: result.journalEntryId,
-      sequenceNumber: result.sequenceNumber,
-      type: 'REVERSAL',
-      operationDate: input.operationDate.toISOString().slice(0, 10),
-      organizationId: input.organizationId,
-      tenantId: input.tenantId,
-      referenceType: 'journal_entry',
-      referenceId: input.journalEntryId,
-      lines: result.lines.map((line) => ({
-        id: line.id,
-        accountId: line.accountId,
-        debit: line.debit,
-        credit: line.credit,
-      })),
-    }).catch(() => undefined)
+    // the same way it sees any other posted entry. Only fired here when
+    // this call opened (and therefore already fully committed) its own
+    // transaction — see postJournalEntry.ts's isComposedPostingCall doc
+    // comment (PR #6340 review, M7). A composing caller must emit this
+    // event itself once its own outer transaction commits.
+    if (!isComposedPostingCall(ctx)) {
+      void emitLedgerEvent('ledger.journal_entry.posted', {
+        journalEntryId: result.journalEntryId,
+        sequenceNumber: result.sequenceNumber,
+        type: 'REVERSAL',
+        operationDate: input.operationDate.toISOString().slice(0, 10),
+        organizationId: input.organizationId,
+        tenantId: input.tenantId,
+        referenceType: 'journal_entry',
+        referenceId: input.journalEntryId,
+        lines: result.lines.map((line) => ({
+          id: line.id,
+          accountId: line.accountId,
+          debit: line.debit,
+          credit: line.credit,
+        })),
+      }).catch(() => undefined)
+    }
 
     return { journalEntryId: result.journalEntryId, sequenceNumber: result.sequenceNumber }
   },
