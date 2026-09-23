@@ -24,10 +24,11 @@ Gmail email channel provider for the Communications Hub (`communication_channels
 
 ## Adapter Contract
 
-`lib/adapter.ts` implements `ChannelAdapter` from `@open-mercato/core/modules/communication_channels/lib/adapter`. Key methods: `sendMessage`, `normalizeInbound`, `convertOutbound`, `buildOAuthAuthorizeUrl`, `exchangeOAuthCode`, `refreshCredentials`, `fetchHistory`, `registerPush`/`unregisterPush`/`applyPushNotification`, `deleteMessage`, `resolveContact`.
+`lib/adapter.ts` implements `ChannelAdapter` from `@open-mercato/core/modules/communication_channels/lib/adapter`. Key methods: `sendMessage`, `normalizeInbound`, `convertOutbound`, `buildOAuthAuthorizeUrl`, `exchangeOAuthCode`, `refreshCredentials`, `fetchHistory`, `registerPush`/`unregisterPush`/`applyPushNotification`, `deleteMessage`, `resolveContact`, `importHistory`.
 
 - Tenant OAuth client config (`{ clientId, clientSecret, scopes? }`) lives on `IntegrationCredentials` for provider `gmail`; per-user tokens live on `CommunicationChannel.credentials`.
 - `fetchHistory` is cursor-driven via `channelState.historyId`. The terminal `historyId` MUST only advance over messages actually normalized; a transient (non-404/410) fetch failure pins the cursor and re-fetches next tick (see the L3 fix in `fetchAndNormalize`).
+- `importHistory` is the operator-triggered BACKLOG sweep and is independent of `fetchHistory`: it walks `users.messages.list?q=after:<epochSeconds>[ from:(… OR …)]` backwards and MUST NOT read or write `channelState.historyId`. Its cursor carries only Gmail's `nextPageToken`, the frozen query, the group index and the collected counter, so it stays compact for a multi-year mailbox. Senders are chunked into groups of 25 and walked sequentially across pages.
 - The clients are swappable via `setGmailApiClient` / `setGoogleOAuthClient` (test-only hooks).
 
 ## Health Check
@@ -39,6 +40,9 @@ Gmail email channel provider for the Communications Hub (`communication_channels
 | Var | Purpose |
 |-----|---------|
 | `OM_GMAIL_PUBSUB_TOPIC` | Fully-qualified Pub/Sub topic for `registerPush` (optional; polling works without it) |
+| `OM_CHANNEL_GMAIL_REQUEST_TIMEOUT_MS` | Per-attempt Gmail REST timeout (default 30000) |
+| `OM_CHANNEL_GMAIL_IMPORT_PAGE_SIZE` | Messages fetched per `importHistory` page (default 100, hard max 500 — Gmail's `maxResults` ceiling) |
+| `OM_CHANNEL_GMAIL_IMPORT_CONCURRENCY` | Parallel `messages.get` calls inside one `importHistory` page (default 5, hard max 20) |
 
 ## After Changes
 

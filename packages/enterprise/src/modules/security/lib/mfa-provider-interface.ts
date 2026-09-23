@@ -5,6 +5,8 @@ export type MfaMethodRecord = {
   id: string
   type: string
   userId: string
+  tenantId?: string
+  organizationId?: string | null
   secret?: string | null
   providerMetadata?: Record<string, unknown> | null
 }

@@ -847,3 +847,332 @@ function stubOAuth(overrides: Partial<GoogleOAuthClient>): GoogleOAuthClient {
     fetchUserInfo: overrides.fetchUserInfo ?? (async () => ({})),
   }
 }
+
+describe('GmailChannelAdapter.importHistory', () => {
+  const scope = { tenantId: 'tenant-1', organizationId: 'org-1' }
+
+  interface ListCall {
+    query?: string
+    labelIds?: string[]
+    pageToken?: string
+    maxResults?: number
+  }
+
+  function decodeImportCursor(cursor: string | undefined): Record<string, unknown> {
+    if (!cursor) throw new Error('expected a cursor')
+    return JSON.parse(Buffer.from(cursor, 'base64').toString('utf-8')) as Record<string, unknown>
+  }
+
+  function buildImportApi(options: {
+    pages: Array<{ messages: Array<{ id: string; threadId: string }>; nextPageToken?: string }>
+    listCalls: ListCall[]
+    getMessageRaw?: GmailApiClient['getMessageRaw']
+  }): GmailApiClient {
+    let pageIndex = 0
+    return {
+      listHistory: async () => ({ historyId: '0' }),
+      listMessages: async (_auth, listInput) => {
+        options.listCalls.push({ ...listInput })
+        const page = options.pages[pageIndex] ?? { messages: [] }
+        pageIndex += 1
+        return { messages: page.messages, nextPageToken: page.nextPageToken, resultSizeEstimate: 9999 }
+      },
+      getMessageRaw:
+        options.getMessageRaw ??
+        (async (_auth, messageId) => ({
+          id: messageId,
+          threadId: `thread-${messageId}`,
+          labelIds: ['INBOX'],
+          raw: encodeBase64Url(buildRawMime(`${messageId}@gmail.com`, `body ${messageId}`)),
+          internalDate: String(Date.UTC(2026, 4, 21)),
+        })),
+      sendRawMessage: async () => ({ id: 'x', threadId: 'x' }),
+      getProfile: async () => ({ emailAddress: 'alice@gmail.com', historyId: '100' }),
+      trashMessage: async () => undefined,
+      watchInbox: async () => ({ historyId: '1', expiration: '1' }),
+      stopWatch: async () => undefined,
+    }
+  }
+
+  const importEnvKeys = ['OM_CHANNEL_GMAIL_IMPORT_PAGE_SIZE', 'OM_CHANNEL_GMAIL_IMPORT_CONCURRENCY'] as const
+
+  afterEach(() => {
+    for (const key of importEnvKeys) delete process.env[key]
+  })
+
+  it('is exposed on the adapter so the hub stops rejecting gmail imports', () => {
+    expect(typeof getGmailChannelAdapter().importHistory).toBe('function')
+  })
+
+  it('builds a date-only INBOX query when no sender hint is supplied', async () => {
+    const listCalls: ListCall[] = []
+    setGmailApiClient(buildImportApi({ listCalls, pages: [{ messages: [{ id: 'm1', threadId: 't1' }] }] }))
+    const before = Math.floor(Date.now() / 1000)
+
+    const page = await getGmailChannelAdapter().importHistory({
+      credentials: userCredentials,
+      scope,
+      sinceDays: 30,
+    })
+
+    expect(page.messages).toHaveLength(1)
+    expect(page.hasMore).toBe(false)
+    expect(page.nextCursor).toBeUndefined()
+    expect(listCalls[0].labelIds).toEqual(['INBOX'])
+    const match = /^after:(\d+)$/.exec(listCalls[0].query ?? '')
+    expect(match).not.toBeNull()
+    const afterSeconds = Number(match?.[1])
+    expect(afterSeconds).toBeLessThanOrEqual(before - 30 * 86400 + 5)
+    expect(afterSeconds).toBeGreaterThanOrEqual(before - 30 * 86400 - 5)
+  })
+
+  it('clamps sinceDays to the 1..3650 window', async () => {
+    const listCalls: ListCall[] = []
+    setGmailApiClient(buildImportApi({ listCalls, pages: [{ messages: [] }] }))
+    const adapter = getGmailChannelAdapter()
+    const now = Math.floor(Date.now() / 1000)
+
+    await adapter.importHistory({ credentials: userCredentials, scope, sinceDays: 99_999 })
+    await adapter.importHistory({ credentials: userCredentials, scope, sinceDays: 0 })
+
+    const clampedHigh = Number(/^after:(\d+)$/.exec(listCalls[0].query ?? '')?.[1])
+    const clampedLow = Number(/^after:(\d+)$/.exec(listCalls[1].query ?? '')?.[1])
+    expect(now - clampedHigh).toBeGreaterThanOrEqual(3650 * 86400 - 5)
+    expect(now - clampedHigh).toBeLessThanOrEqual(3650 * 86400 + 5)
+    expect(now - clampedLow).toBeGreaterThanOrEqual(86400 - 5)
+    expect(now - clampedLow).toBeLessThanOrEqual(86400 + 5)
+  })
+
+  it('chunks the sender hint into from:(… OR …) groups walked sequentially', async () => {
+    process.env.OM_CHANNEL_GMAIL_IMPORT_PAGE_SIZE = '2'
+    const senders = Array.from({ length: 30 }, (_, index) => `sender${index}@example.com`)
+    const listCalls: ListCall[] = []
+    setGmailApiClient(
+      buildImportApi({
+        listCalls,
+        pages: [
+          { messages: [{ id: 'm1', threadId: 't1' }, { id: 'm2', threadId: 't1' }], nextPageToken: 'gmail-token-1' },
+          { messages: [{ id: 'm3', threadId: 't2' }] },
+          { messages: [{ id: 'm4', threadId: 't3' }] },
+        ],
+      }),
+    )
+    const adapter = getGmailChannelAdapter()
+
+    const first = await adapter.importHistory({
+      credentials: userCredentials,
+      scope,
+      sinceDays: 365,
+      contactEmails: senders,
+    })
+
+    expect(first.messages).toHaveLength(2)
+    expect(first.hasMore).toBe(true)
+    const cursor = decodeImportCursor(first.nextCursor)
+    expect(cursor.pageToken).toBe('gmail-token-1')
+    expect(cursor.queryIndex).toBe(0)
+    expect(cursor.collected).toBe(2)
+    expect(String(cursor.query)).toContain('from:(sender0@example.com OR sender1@example.com')
+    expect(String(cursor.query).split(' OR ')).toHaveLength(25)
+
+    const second = await adapter.importHistory({
+      credentials: userCredentials,
+      scope,
+      sinceDays: 365,
+      contactEmails: senders,
+      cursor: first.nextCursor,
+    })
+
+    expect(second.messages).toHaveLength(2)
+    expect(second.hasMore).toBe(false)
+    expect(second.nextCursor).toBeUndefined()
+    expect(listCalls[1].pageToken).toBe('gmail-token-1')
+    expect(listCalls[2].pageToken).toBeUndefined()
+    expect(String(listCalls[2].query)).toContain('sender25@example.com')
+    expect(String(listCalls[2].query).split(' OR ')).toHaveLength(5)
+  })
+
+  it('freezes the after: term across pages so the window cannot drift', async () => {
+    process.env.OM_CHANNEL_GMAIL_IMPORT_PAGE_SIZE = '1'
+    const listCalls: ListCall[] = []
+    setGmailApiClient(
+      buildImportApi({
+        listCalls,
+        pages: [
+          { messages: [{ id: 'm1', threadId: 't1' }], nextPageToken: 'tok' },
+          { messages: [{ id: 'm2', threadId: 't1' }] },
+        ],
+      }),
+    )
+    const adapter = getGmailChannelAdapter()
+
+    const first = await adapter.importHistory({ credentials: userCredentials, scope, sinceDays: 400 })
+    const second = await adapter.importHistory({
+      credentials: userCredentials,
+      scope,
+      sinceDays: 400,
+      cursor: first.nextCursor,
+    })
+
+    expect(second.hasMore).toBe(false)
+    expect(listCalls[0].query).toBe(listCalls[1].query)
+    expect(decodeImportCursor(first.nextCursor).after).toBe(listCalls[0].query)
+  })
+
+  it('caps the total across all pages at maxMessages and stops', async () => {
+    process.env.OM_CHANNEL_GMAIL_IMPORT_PAGE_SIZE = '2'
+    const listCalls: ListCall[] = []
+    setGmailApiClient(
+      buildImportApi({
+        listCalls,
+        pages: [
+          { messages: [{ id: 'm1', threadId: 't1' }, { id: 'm2', threadId: 't1' }], nextPageToken: 'tok' },
+          { messages: [{ id: 'm3', threadId: 't1' }], nextPageToken: 'tok2' },
+        ],
+      }),
+    )
+    const adapter = getGmailChannelAdapter()
+
+    const first = await adapter.importHistory({
+      credentials: userCredentials,
+      scope,
+      sinceDays: 30,
+      maxMessages: 3,
+    })
+    expect(first.messages).toHaveLength(2)
+    expect(listCalls[0].maxResults).toBe(2)
+    expect(first.hasMore).toBe(true)
+
+    const second = await adapter.importHistory({
+      credentials: userCredentials,
+      scope,
+      sinceDays: 30,
+      maxMessages: 3,
+      cursor: first.nextCursor,
+    })
+    expect(second.messages).toHaveLength(1)
+    expect(listCalls[1].maxResults).toBe(1)
+    expect(second.hasMore).toBe(false)
+    expect(second.nextCursor).toBeUndefined()
+  })
+
+  it('clamps maxMessages to the 1..50000 window', async () => {
+    const listCalls: ListCall[] = []
+    setGmailApiClient(buildImportApi({ listCalls, pages: [{ messages: [] }, { messages: [] }] }))
+    const adapter = getGmailChannelAdapter()
+
+    await adapter.importHistory({ credentials: userCredentials, scope, sinceDays: 30, maxMessages: 0 })
+    expect(listCalls[0].maxResults).toBe(1)
+
+    await adapter.importHistory({
+      credentials: userCredentials,
+      scope,
+      sinceDays: 30,
+      maxMessages: 999_999,
+    })
+    expect(listCalls[1].maxResults).toBe(100)
+  })
+
+  it('never reports totalCandidates from the unreliable resultSizeEstimate', async () => {
+    const listCalls: ListCall[] = []
+    setGmailApiClient(buildImportApi({ listCalls, pages: [{ messages: [{ id: 'm1', threadId: 't1' }] }] }))
+
+    const page = await getGmailChannelAdapter().importHistory({
+      credentials: userCredentials,
+      scope,
+      sinceDays: 30,
+    })
+    expect(page.totalCandidates).toBeUndefined()
+  })
+
+  it('rejects a cursor from a different version and restarts the sweep', async () => {
+    const listCalls: ListCall[] = []
+    setGmailApiClient(buildImportApi({ listCalls, pages: [{ messages: [{ id: 'm1', threadId: 't1' }] }] }))
+    const stale = Buffer.from(JSON.stringify({ v: 99, after: 'after:1', query: 'after:1', queryIndex: 3, collected: 40 })).toString('base64')
+
+    const page = await getGmailChannelAdapter().importHistory({
+      credentials: userCredentials,
+      scope,
+      sinceDays: 30,
+      cursor: stale,
+    })
+
+    expect(page.messages).toHaveLength(1)
+    expect(listCalls[0].pageToken).toBeUndefined()
+  })
+
+  it('skips messages that are gone or transiently unreadable without aborting the sweep', async () => {
+    process.env.OM_CHANNEL_GMAIL_IMPORT_CONCURRENCY = '1'
+    const listCalls: ListCall[] = []
+    setGmailApiClient(
+      buildImportApi({
+        listCalls,
+        pages: [
+          {
+            messages: [
+              { id: 'gone', threadId: 't1' },
+              { id: 'broken', threadId: 't1' },
+              { id: 'ok', threadId: 't1' },
+            ],
+          },
+        ],
+        getMessageRaw: async (_auth, messageId) => {
+          if (messageId === 'gone') throw new GmailApiError('not found', 404, 'not found')
+          if (messageId === 'broken') throw new GmailApiError('server error', 500, 'server error')
+          return {
+            id: messageId,
+            threadId: 't1',
+            labelIds: ['INBOX'],
+            raw: encodeBase64Url(buildRawMime(`${messageId}@gmail.com`, 'body')),
+          }
+        },
+      }),
+    )
+
+    const page = await getGmailChannelAdapter().importHistory({
+      credentials: userCredentials,
+      scope,
+      sinceDays: 30,
+    })
+
+    expect(page.messages).toHaveLength(1)
+    expect(page.messages[0].channelMetadata?.gmailMessageId).toBe('ok')
+    expect(page.hasMore).toBe(false)
+  })
+
+  it('aborts the page when the grant is no longer valid', async () => {
+    setGmailApiClient(
+      buildImportApi({
+        listCalls: [],
+        pages: [{ messages: [{ id: 'm1', threadId: 't1' }] }],
+        getMessageRaw: async () => {
+          throw new GmailApiError('unauthorized', 401, 'unauthorized')
+        },
+      }),
+    )
+
+    await expect(
+      getGmailChannelAdapter().importHistory({ credentials: userCredentials, scope, sinceDays: 30 }),
+    ).rejects.toThrow('unauthorized')
+  })
+
+  it('keeps the cursor compact regardless of how many messages were collected', async () => {
+    process.env.OM_CHANNEL_GMAIL_IMPORT_PAGE_SIZE = '1'
+    setGmailApiClient(
+      buildImportApi({
+        listCalls: [],
+        pages: [{ messages: [{ id: 'm1', threadId: 't1' }], nextPageToken: 'x'.repeat(64) }],
+      }),
+    )
+
+    const page = await getGmailChannelAdapter().importHistory({
+      credentials: userCredentials,
+      scope,
+      sinceDays: 3650,
+      maxMessages: 50_000,
+    })
+
+    expect(page.hasMore).toBe(true)
+    expect((page.nextCursor ?? '').length).toBeLessThan(512)
+  })
+})

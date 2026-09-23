@@ -80,6 +80,11 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
   // --- staff ---
   'staff:StaffTeam': { status: 'enabled', resourceKind: 'staff.team', reason: 'enabled — Phase 5; presence + CRUD decorator. Notes/addresses sub-resources send the lock header (Phase 7).' },
   'staff:StaffTeamRole': { status: 'enabled', resourceKind: 'staff.team_role', reason: 'enabled — Phase 5; presence + CRUD decorator. Team-member/leave-request edits enabled too; accept/reject = status txn.' },
+  'staff:StaffTimeTaskStatus': { status: 'enabled', resourceKind: 'staff.timesheets.task_status', reason: 'enabled — T3.1 (D-1); the Kanban columns are project configuration edited through the task-statuses CRUD route (floor + record_locks via the generic reader). Column moves and the board-wide reorder are position writes carried by the same guarded route.' },
+  'staff:StaffTimeTask': { status: 'enabled', resourceKind: 'staff.timesheets.time_task', reason: 'enabled — T3.2; presence + CRUD decorator (floor + record_locks) on the tasks route. Board drags and drawer edits are status/field writes carried by the same guarded kind.' },
+  'staff:StaffTimeTag': { status: 'enabled', resourceKind: 'staff.timesheets.tag', reason: 'enabled — presence + CRUD decorator on the tags route. Entry/task tag assignments are junction writes guarded under their own `entry_tag` / `task_tag` kinds.' },
+  'staff:StaffTimeTaskComment': { status: 'enabled', resourceKind: 'staff.timesheets.task_comment', reason: 'enabled — hand-written thread route; the lock is enforced at the command layer via `assertOptimisticLock` (case c), matching the routes-map note in optimistic-lock-editable-entities.' },
+  'staff:StaffTimeReport': { status: 'enabled', resourceKind: 'staff.timesheets.time_report', reason: 'enabled — T6; presence + CRUD decorator on the reports route. Close/unlock are status transactions on the same kind and carry the report lock audit trail.' },
 
   // --- resources ---
   'resources:ResourcesResource': { status: 'enabled', resourceKind: 'resources.resource', reason: 'enabled — Phase 5; presence + CRUD decorator. Notes sub-resource sends the lock header (Phase 7); tags exempt.' },
@@ -131,6 +136,9 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
   // --- notifications ---
   'notifications:NotificationTypeOverride': { status: 'exempt', resourceKind: '', reason: 'OSS-floor-only — a tenant-scoped operator override edited only via the custom `PATCH /api/notifications/types` handler (no makeCrudRoute decorator surface), which enforces the synchronous OSS `enforceCommandOptimisticLock` updated_at floor and 409s a stale write on the shared conflict banner. Enterprise record_locks migration deferred.' },
   'notifications:NotificationPreference': { status: 'exempt', resourceKind: '', reason: 'OSS-floor-only — per-(user, type, channel) preference rows a user edits only for themselves (not a shared collaborative-edit surface); written via the idempotent `setPreferences` upsert, which is last-writer-wins by design. Carries updated_at for the OSS floor; tenant/org record_locks enrichment is not engaged.' },
+
+  // --- availability ---
+  'availability:AvailabilityPolicy': { status: 'enabled', resourceKind: 'availability.policy', reason: 'enabled — standard makeCrudRoute entity (floor + record_locks); CrudForm edit page auto-derives the lock header from initialValues.updatedAt; no dedicated presence mount.' },
 }
 
 /**

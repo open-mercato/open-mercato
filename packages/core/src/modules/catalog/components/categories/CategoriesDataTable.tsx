@@ -192,7 +192,8 @@ export default function CategoriesDataTable() {
   return (
     <>
       <DataTable
-        title={t('catalog.categories.list.title', 'Categories')}
+      title={t('catalog.categories.list.title', 'Categories')}
+      titleHeadingLevel={1}
         actions={canManage ? (
           <Button asChild>
             <Link href="/backend/catalog/categories/create">

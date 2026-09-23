@@ -1,3 +1,4 @@
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { hash } from 'bcryptjs'
 import {
@@ -13,56 +14,49 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 const BCRYPT_COST = 10
 const INVITATION_TTL_MS = 72 * 60 * 60 * 1000 // 72 hours
 
-export const CUSTOMER_INVITATION_ACCOUNT_EXISTS_CODE = 'customer_accounts.invitation.account_exists'
+// Use Symbol.for so the marker survives module duplication across bundle
+// boundaries: the accept route and this service are bundled into separate
+// chunks, so `instanceof` between them is false and the 409 mapping would
+// silently degrade back into the raw 500 this error exists to prevent.
+const CUSTOMER_INVITATION_EMAIL_CONFLICT_MARKER = Symbol.for('@open-mercato/CustomerInvitationEmailConflictError')
 
-/**
- * Raised by {@link CustomerInvitationService.acceptInvitation} when the invited address already
- * owns a portal account in the same tenant. Callers MUST discriminate on the `code` property
- * rather than `instanceof`: the service is resolved through DI, so a production bundle can hold
- * more than one copy of this class and `instanceof` then silently returns false.
- */
-export class CustomerInvitationAccountExistsError extends Error {
-  readonly code = CUSTOMER_INVITATION_ACCOUNT_EXISTS_CODE
+export class CustomerInvitationEmailConflictError extends Error {
+  readonly [CUSTOMER_INVITATION_EMAIL_CONFLICT_MARKER] = true
 
-  constructor() {
-    super('[internal] A portal account already exists for the invited email address')
-    this.name = 'CustomerInvitationAccountExistsError'
+  constructor(public readonly email: string) {
+    super('[internal] An account with this email address already exists')
+    this.name = 'CustomerInvitationEmailConflictError'
   }
 }
 
-export function isCustomerInvitationAccountExistsError(error: unknown): boolean {
-  return typeof error === 'object'
-    && error !== null
-    && (error as { code?: unknown }).code === CUSTOMER_INVITATION_ACCOUNT_EXISTS_CODE
+/**
+ * Bundle-safe check for {@link CustomerInvitationEmailConflictError}. Always prefer
+ * this over `instanceof` — API routes reach this service through DI and resolve a
+ * different copy of this module.
+ */
+export function isCustomerInvitationEmailConflictError(
+  error: unknown,
+): error is CustomerInvitationEmailConflictError {
+  return !!error
+    && typeof error === 'object'
+    && (error as Record<symbol, unknown>)[CUSTOMER_INVITATION_EMAIL_CONFLICT_MARKER] === true
 }
 
-const CUSTOMER_USERS_EMAIL_UNIQUE_CONSTRAINT = 'customer_users_tenant_email_hash_uniq'
 const POSTGRES_UNIQUE_VIOLATION = '23505'
 
 /**
- * The pre-insert lookup in {@link CustomerInvitationService.acceptInvitation} is a check-then-act,
- * so two concurrent accepts for the same address (a double-submitted form, two invitations racing)
- * can both pass it and let the second one reach the database. Recognising the resulting unique
- * violation keeps that race on the same 409 answer instead of a 500. MikroORM wraps driver errors,
- * so the original is inspected through `cause`/`previous` as well, again without `instanceof`.
+ * Unique-constraint detection that does not depend on `instanceof`: the MikroORM
+ * copy this module is bundled with is not necessarily the one the driver throws
+ * from, so fall back to the exception name and the Postgres SQLSTATE.
  */
-function isCustomerUserEmailUniqueViolation(error: unknown): boolean {
-  const candidates = [
-    error,
-    (error as { cause?: unknown } | null)?.cause,
-    (error as { previous?: unknown } | null)?.previous,
-  ]
-  return candidates.some((candidate) => {
-    if (typeof candidate !== 'object' || candidate === null) return false
-    const { code, constraint, message } = candidate as {
-      code?: unknown
-      constraint?: unknown
-      message?: unknown
-    }
-    if (code !== POSTGRES_UNIQUE_VIOLATION) return false
-    return constraint === CUSTOMER_USERS_EMAIL_UNIQUE_CONSTRAINT
-      || (typeof message === 'string' && message.includes(CUSTOMER_USERS_EMAIL_UNIQUE_CONSTRAINT))
-  })
+function isUniqueConstraintViolation(error: unknown): boolean {
+  if (error instanceof UniqueConstraintViolationException) return true
+  if (!error || typeof error !== 'object') return false
+  const candidate = error as { name?: unknown; code?: unknown; cause?: unknown }
+  if (candidate.name === 'UniqueConstraintViolationException') return true
+  if (candidate.code === POSTGRES_UNIQUE_VIOLATION) return true
+  const cause = candidate.cause as { code?: unknown } | undefined
+  return !!cause && typeof cause === 'object' && cause.code === POSTGRES_UNIQUE_VIOLATION
 }
 
 export type CustomerInvitationRollbackState = {
@@ -137,11 +131,16 @@ export class CustomerInvitationService {
       existing.email = normalizedEmail
       existing.token = tokenHashed
       existing.customerEntityId = options.customerEntityId || null
-      existing.personEntityId = options.personEntityId || null
+      // Keep the CRM person link and the recipient's display name when the
+      // re-invite does not carry them: the portal invite route and the admin users
+      // page only ever know the company, so overwriting with null would strip an
+      // invitation raised from a person card off that person's account-status card
+      // and drop the personalization from the invitation email (#5499).
+      existing.personEntityId = options.personEntityId || existing.personEntityId || null
       existing.roleIdsJson = options.roleIds
       existing.invitedByUserId = options.invitedByUserId || null
       existing.invitedByCustomerUserId = options.invitedByCustomerUserId || null
-      existing.displayName = options.displayName || null
+      existing.displayName = options.displayName || existing.displayName || null
       existing.expiresAt = expiresAt
       await this.em.flush()
       return { invitation: existing, rawToken: token, reused: true, rollbackState }
@@ -209,25 +208,30 @@ export class CustomerInvitationService {
     const invitation = await this.findByToken(token)
     if (!invitation) return null
 
-    // customer_users carries a (tenant_id, email_hash) unique constraint, so inserting a second
-    // account for an address that was already invited and activated raises a driver-level unique
-    // violation the caller can only surface as a 500. Detect it up front and let the caller answer
-    // with a message the invitee can act on (#5899). The lookup deliberately omits `deletedAt` —
-    // the constraint is not partial, so a soft-deleted account collides just the same.
-    const existingUser = await findOneWithDecryption(
+    const emailHash = hashForLookup(invitation.email)
+
+    // A soft-deleted CustomerUser row does not block re-invitation (the unique
+    // index only applies to non-deleted rows), but an active account with the
+    // same email is a genuine conflict — fail with a domain error here instead
+    // of letting the DB unique-constraint violation surface as a raw 500.
+    // The lookup matches both hash formats: rows written before the keyed digest
+    // still carry the legacy hash, and the partial index cannot relate the two.
+    const existingActiveUser = await findOneWithDecryption(
       this.em,
       CustomerUser,
       {
-        emailHash: { $in: lookupHashCandidates(invitation.email) },
         tenantId: invitation.tenantId,
+        emailHash: { $in: lookupHashCandidates(invitation.email) },
+        deletedAt: null,
       } as any,
       undefined,
       { tenantId: invitation.tenantId, organizationId: invitation.organizationId },
     )
-    if (existingUser) throw new CustomerInvitationAccountExistsError()
+    if (existingActiveUser) {
+      throw new CustomerInvitationEmailConflictError(invitation.email)
+    }
 
     const passwordHash = await hash(password, BCRYPT_COST)
-    const emailHash = hashForLookup(invitation.email)
 
     // Create user
     const user = this.em.create(CustomerUser, {
@@ -274,10 +278,16 @@ export class CustomerInvitationService {
     // Mark invitation as accepted
     invitation.acceptedAt = new Date()
 
+    // The guard above is only the friendly fast path: it and this write are
+    // separated by a bcrypt hash and a role query, so two concurrent accepts can
+    // both pass it. The partial unique index is the real authority — translate
+    // its violation onto the same domain error so both paths answer 409.
     try {
       await this.em.flush()
     } catch (error) {
-      if (isCustomerUserEmailUniqueViolation(error)) throw new CustomerInvitationAccountExistsError()
+      if (isUniqueConstraintViolation(error)) {
+        throw new CustomerInvitationEmailConflictError(invitation.email)
+      }
       throw error
     }
     return { user, invitation }

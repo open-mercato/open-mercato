@@ -1,13 +1,14 @@
 /** @jest-environment node */
 import { POST } from '@open-mercato/core/modules/customer_accounts/api/invitations/accept'
 import {
-  CustomerInvitationAccountExistsError,
+  CustomerInvitationEmailConflictError,
 } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
 
 const mockAcceptInvitation = jest.fn()
 const mockGetEffectiveFeatures = jest.fn()
 const mockCreateSession = jest.fn()
 const mockEmitCustomerAccountsEvent = jest.fn()
+const mockResolveTranslations = jest.fn()
 
 const mockContainer = {
   resolve: jest.fn((token: string) => {
@@ -20,6 +21,10 @@ const mockContainer = {
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => mockResolveTranslations()),
 }))
 
 jest.mock('@open-mercato/core/modules/customer_accounts/events', () => ({
@@ -42,22 +47,34 @@ describe('POST /api/customer_accounts/invitations/accept', () => {
     jest.clearAllMocks()
     mockGetEffectiveFeatures.mockResolvedValue(['portal.dashboard.view'])
     mockCreateSession.mockResolvedValue({ rawToken: 'session-token', jwt: 'jwt-token' })
+    mockResolveTranslations.mockReturnValue({
+      translate: (_key: string, fallback: string) => fallback,
+    })
   })
 
-  it('answers 409 with an account_exists code when the invited email already has a portal account (#5899)', async () => {
-    mockAcceptInvitation.mockRejectedValue(new CustomerInvitationAccountExistsError())
+  it('answers 409 with the translated conflict message when the invited email already has a portal account (#5899)', async () => {
+    mockAcceptInvitation.mockRejectedValue(new CustomerInvitationEmailConflictError('taken@example.com'))
 
     const res = await POST(acceptRequest())
     expect(res.status).toBe(409)
-    await expect(res.json()).resolves.toMatchObject({ ok: false, code: 'account_exists' })
+    await expect(res.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'An account with this email address already exists',
+    })
     expect(mockCreateSession).not.toHaveBeenCalled()
     expect(mockEmitCustomerAccountsEvent).not.toHaveBeenCalled()
   })
 
-  it('recognises the conflict by its code alone, without instanceof on the service class', async () => {
-    mockAcceptInvitation.mockRejectedValue(
-      Object.assign(new Error('duplicate'), { code: 'customer_accounts.invitation.account_exists' }),
-    )
+  it('recognises the conflict across a bundle boundary via the marker, not instanceof', async () => {
+    // The accept route resolves the service through DI and can be bundled into a
+    // different chunk than the service module, so `instanceof` between the two
+    // copies of the error class is unreliable — only the Symbol.for marker survives.
+    const duplicateModuleError = Object.assign(new Error('[internal] An account with this email address already exists'), {
+      name: 'CustomerInvitationEmailConflictError',
+      email: 'taken@example.com',
+      [Symbol.for('@open-mercato/CustomerInvitationEmailConflictError')]: true,
+    })
+    mockAcceptInvitation.mockRejectedValue(duplicateModuleError)
 
     const res = await POST(acceptRequest())
     expect(res.status).toBe(409)
