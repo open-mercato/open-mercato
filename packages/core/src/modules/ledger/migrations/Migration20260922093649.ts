@@ -46,6 +46,12 @@ export class Migration20260922093649 extends Migration {
     this.addSql(`create index "journal_entry_line_journal_entry_idx" on "journal_entry_line" ("journal_entry_id");`);
     this.addSql(`alter table "journal_entry_line" add constraint "journal_entry_line_one_sided_chk" check (("debit" = 0 OR "credit" = 0) AND ("debit" > 0 OR "credit" > 0));`);
 
+    // No cascade: this repo's append-only design (see the guard triggers
+    // below) means a `journal_entry` row is never legitimately deleted, so
+    // there is nothing for a cascade to do — the default RESTRICT-like
+    // behavior is what we want (PR #6340 review, m6).
+    this.addSql(`alter table "journal_entry_line" add constraint "journal_entry_line_journal_entry_fk" foreign key ("journal_entry_id") references "journal_entry" ("id");`);
+
     this.addSql(`create table "journal_entry_sequence" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "tenant_id" uuid not null, "next_value" bigint not null default 1, "created_at" timestamptz not null, constraint "journal_entry_sequence_pkey" primary key ("id"));`);
     this.addSql(`alter table "journal_entry_sequence" add constraint "journal_entry_sequence_scope_unique" unique ("organization_id", "tenant_id");`);
 
@@ -58,15 +64,22 @@ export class Migration20260922093649 extends Migration {
     this.addSql(`
       create or replace function assert_journal_entry_balanced() returns trigger as $$
       declare
+        target_journal_entry_id uuid;
         total_debit numeric(19,4);
         total_credit numeric(19,4);
       begin
+        -- PR #6340 review, m6: the trigger now also fires on DELETE (a row
+        -- removed mid-transaction can leave the remaining lines unbalanced
+        -- just as an insert/update can), and NEW is null on a DELETE event,
+        -- so the id must come from OLD in that case.
+        target_journal_entry_id := coalesce(new.journal_entry_id, old.journal_entry_id);
+
         select coalesce(sum(debit), 0), coalesce(sum(credit), 0)
           into total_debit, total_credit
           from journal_entry_line
-          where journal_entry_id = new.journal_entry_id;
+          where journal_entry_id = target_journal_entry_id;
         if total_debit <> total_credit then
-          raise exception 'journal_entry_line: unbalanced journal entry % (debit % <> credit %)', new.journal_entry_id, total_debit, total_credit;
+          raise exception 'journal_entry_line: unbalanced journal entry % (debit % <> credit %)', target_journal_entry_id, total_debit, total_credit;
         end if;
         return null;
       end;
@@ -74,16 +87,48 @@ export class Migration20260922093649 extends Migration {
     `);
     this.addSql(`
       create constraint trigger journal_entry_line_balanced
-        after insert or update on journal_entry_line
+        after insert or update or delete on journal_entry_line
         deferrable initially deferred
         for each row
         execute procedure assert_journal_entry_balanced();
     `);
+
+    // PR #6340 review, m6: this module's design is append-only — no
+    // legitimate code path anywhere in `ledger` ever updates or deletes a
+    // posted `journal_entry`/`journal_entry_line` row (confirmed by
+    // grepping the module's commands). These triggers turn that design
+    // assumption into a DB-level guarantee rather than leaving it as an
+    // unenforced convention.
+    this.addSql(`
+      create or replace function ledger_journal_entry_append_only() returns trigger as $$
+      begin
+        raise exception 'ledger: % on % is not permitted — journal entries are append-only', tg_op, tg_table_name;
+      end;
+      $$ language plpgsql;
+    `);
+    this.addSql(`
+      create trigger journal_entry_append_only
+        before update or delete on journal_entry
+        for each row
+        execute procedure ledger_journal_entry_append_only();
+    `);
+    this.addSql(`
+      create trigger journal_entry_line_append_only
+        before update or delete on journal_entry_line
+        for each row
+        execute procedure ledger_journal_entry_append_only();
+    `);
   }
 
   override async down(): Promise<void> {
+    this.addSql(`drop trigger if exists journal_entry_line_append_only on "journal_entry_line";`);
+    this.addSql(`drop trigger if exists journal_entry_append_only on "journal_entry";`);
+    this.addSql(`drop function if exists ledger_journal_entry_append_only();`);
+
     this.addSql(`drop trigger if exists journal_entry_line_balanced on "journal_entry_line";`);
     this.addSql(`drop function if exists assert_journal_entry_balanced();`);
+
+    this.addSql(`alter table "journal_entry_line" drop constraint if exists "journal_entry_line_journal_entry_fk";`);
 
     this.addSql(`drop table if exists "journal_entry_sequence" cascade;`);
     this.addSql(`drop table if exists "journal_entry_line" cascade;`);
