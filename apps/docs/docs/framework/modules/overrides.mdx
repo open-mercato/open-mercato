@@ -197,10 +197,12 @@ injection, dashboard and notification registries after hydration, and
 forks either one MUST call `applyModuleOverridesFromEnabledModules(enabledModules, { domains: ['widgets', 'notifications'] })`
 before those registrations — otherwise the raw generated registries overwrite the
 filtered ones and a disabled widget or component override reappears once hydration
-finishes. Each of those browser registrations MUST also run its own domain filter
-(`applyInjectionWidgetOverridesToEntries`, `applyComponentOverridesToEntries`, …)
-before registering, exactly as the server bootstrap does; dispatching alone only
-fills the override stores, it does not filter anything.
+finishes. `ComponentOverridesBootstrap` must additionally pass the generated
+component entries through `applyComponentOverridesToEntries` before flattening
+them, exactly as the server bootstrap does — dispatching alone only fills the
+override stores, it does not filter anything. The injection, dashboard and
+notification registries already apply their own domain filters inside their
+`register*` functions, so no extra filtering call is needed for those.
 
 :::warning Keep client-side overrides off server-only env gates
 
