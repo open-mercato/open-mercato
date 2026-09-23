@@ -397,7 +397,8 @@ gateway worker.
 ### The channel flips to "Needs reconnection" and stops reconnecting
 Discord closed the socket with `4004` (bad token) or `4014` (disallowed intents). Neither is fixable
 by retrying, so the channel is parked deliberately. Fix the token or the intent toggle, then
-reconnect the channel from the profile page.
+reconnect the channel from the profile page. Reconnecting the same application updates the parked
+channel in place and returns it to **Connected**; it does not add a second channel.
 
 ### "Discord rejected the bot token" when connecting
 The token is wrong, or it was reset in the Developer Portal after you copied it. Reset it again and
