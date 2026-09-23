@@ -93,3 +93,24 @@ describe('matchesOne — empty array and absent key equivalence (§11 item 7)', 
     expect(matchesOne(product({ categoryIds: ['x', 'y'], tagIds: ['z'] }), {})).toBe(true)
   })
 })
+
+describe('matchesOne — allOf conjunction', () => {
+  it('requires every allOf scope to match in addition to the scope itself', () => {
+    const scope = { categoryIds: ['cat-a'], allOf: [{ categoryIds: ['cat-b'] }, { tagIds: ['tag-a'] }] }
+    expect(matchesOne(product({ categoryIds: ['cat-a', 'cat-b'], tagIds: ['tag-a'] }), scope)).toBe(true)
+    expect(matchesOne(product({ categoryIds: ['cat-a'], tagIds: ['tag-a'] }), scope)).toBe(false)
+    expect(matchesOne(product({ categoryIds: ['cat-a', 'cat-b'], tagIds: ['tag-z'] }), scope)).toBe(false)
+  })
+
+  it('an allOf entry can veto through its own excludes, including nested allOf', () => {
+    const scope = { allOf: [{ allOf: [{ excludeProductIds: ['product-1'] }] }] }
+    expect(matchesOne(product({ id: 'product-1' }), scope)).toBe(false)
+    expect(matchesOne(product({ id: 'product-2' }), scope)).toBe(true)
+  })
+
+  it('absent and empty allOf both add no condition', () => {
+    const p = product()
+    expect(matchesOne(p, {})).toBe(true)
+    expect(matchesOne(p, { allOf: [] })).toBe(true)
+  })
+})

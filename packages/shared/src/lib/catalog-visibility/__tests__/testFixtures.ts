@@ -64,33 +64,3 @@ export function randomProduct(rng: () => number, index: number): ScopedProduct {
     tagIds: randomSubset(rng, TAG_UNIVERSE),
   }
 }
-
-function isSubset(a: string[], b: string[]): boolean {
-  const set = new Set(b)
-  return a.every((id) => set.has(id))
-}
-
-/**
- * Detects the one documented, accepted approximation boundary of `intersectScopes`
- * (see its own doc comment): a dimension where the channel and a group branch both
- * restrict non-emptily with neither set a subset of the other. Only inside this boundary
- * can `intersectScopes` under-match relative to the mathematically pure
- * `matchesOne(channel) && matchesScope(group)` definition (proven empirically — see
- * `intersectScopes.test.ts`'s "no structural conflict implies exact equality" property,
- * which runs this same detector over thousands of fixtures with zero counter-examples
- * outside it).
- */
-export function hasIncomparableDimensionConflict(
-  channel: AssortmentScope | null,
-  groupBranches: AssortmentScope[],
-): boolean {
-  if (channel === null) return false
-  for (const branch of groupBranches) {
-    for (const dimension of ['categoryIds', 'tagIds'] as const) {
-      const a = channel[dimension] ?? []
-      const b = branch[dimension] ?? []
-      if (a.length > 0 && b.length > 0 && !isSubset(a, b) && !isSubset(b, a)) return true
-    }
-  }
-  return false
-}

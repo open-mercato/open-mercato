@@ -6,10 +6,11 @@ import type { AssortmentScope, EffectiveAssortmentScope } from './types'
  * do NOT merge every source's categoryIds/tagIds into one flat AssortmentScope object.
  * That computes AND across sources' dimensions instead of OR. Each source becomes its
  * own OR-branch in the returned list, UNMODIFIED — nothing about one source's scope
- * changes because another source exists.
+ * changes because another source exists. The returned list is a fresh array, never the
+ * caller's own.
  */
 export function unionScopes(scopes: Array<AssortmentScope | null>): EffectiveAssortmentScope {
   if (scopes.length === 0) return null
   if (scopes.some((s) => s === null)) return null
-  return scopes as AssortmentScope[]
+  return scopes.filter((scope): scope is AssortmentScope => scope !== null)
 }

@@ -14,7 +14,7 @@ function included(product: ScopedProduct, scope: AssortmentScope): boolean {
   return categoryOk && tagOk
 }
 
-/** Single-source AND match. */
+/** AND match of one scope, including every nested `allOf` scope. */
 export function matchesOne(product: ScopedProduct, scope: AssortmentScope): boolean {
   if (!included(product, scope)) return false
   const excludeProductIds = scope.excludeProductIds ?? []
@@ -23,5 +23,6 @@ export function matchesOne(product: ScopedProduct, scope: AssortmentScope): bool
   if (excludeCategoryIds.length > 0 && overlaps(product.categoryIds, excludeCategoryIds)) return false
   const excludeTagIds = scope.excludeTagIds ?? []
   if (excludeTagIds.length > 0 && overlaps(product.tagIds, excludeTagIds)) return false
-  return true
+  const allOf = scope.allOf ?? []
+  return allOf.every((nested) => matchesOne(product, nested))
 }
