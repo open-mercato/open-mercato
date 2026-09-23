@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
@@ -29,7 +30,12 @@ type Scope = { organizationId: string; tenantId: string }
  * period" for a given `operationDate` in `postJournalEntry` would be
  * ambiguous, and an unlocked period could shadow a locked one covering the
  * same range. An exclusion constraint is Phase 2 (see Out of scope); this
- * app-layer check is the documented Phase 1 guard.
+ * app-layer check is the documented Phase 1 guard — the caller
+ * (`createFiscalPeriodCommand`) now runs it inside a per-(organizationId,
+ * tenantId) `pg_advisory_xact_lock`, so two concurrent creates for the same
+ * scope no longer both pass the check before either inserts (PR #6340
+ * review, M4). That closes the race for today's Phase 1 guard; it is not a
+ * substitute for the Phase 2 exclusion constraint.
  * Overlap test: `existing.startDate <= new.endDate AND existing.endDate >= new.startDate`.
  */
 async function findOverlappingFiscalPeriod(
@@ -59,26 +65,44 @@ const createFiscalPeriodCommand: CommandHandler<CreateFiscalPeriodInput, { fisca
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const scope: Scope = { organizationId: input.organizationId, tenantId: input.tenantId }
 
-    const overlapping = await findOverlappingFiscalPeriod(em, scope, input.startDate, input.endDate)
-    if (overlapping) {
-      throw conflict('This date range overlaps an existing fiscal period for this organization.')
-    }
+    // The overlap check below is check-then-insert: without serializing it,
+    // two concurrent creates for the same (organizationId, tenantId) can
+    // both read "no overlap" and both insert, leaving two overlapping
+    // periods — which makes "the covering period" in postJournalEntry's
+    // `requireCoveringUnlockedFiscalPeriod` ambiguous (PR #6340 review,
+    // M4). A real exclusion constraint is the Phase 2 fix (see the comment
+    // on `findOverlappingFiscalPeriod`); until then, a per-(org, tenant)
+    // Postgres advisory transaction lock closes the race today by making
+    // concurrent creates for the same scope queue up rather than
+    // interleave. `pg_advisory_xact_lock` auto-releases at commit/rollback,
+    // so nothing to clean up on either path.
+    const periodId = await em.transactional(async (trx) => {
+      await trx.execute('select pg_advisory_xact_lock(hashtextextended(?, 0))', [
+        `ledger.fiscal_period:${scope.organizationId}:${scope.tenantId}`,
+      ])
 
-    const now = new Date()
-    const period = em.create(FiscalPeriod, {
-      id: randomUUID(),
-      organizationId: input.organizationId,
-      tenantId: input.tenantId,
-      startDate: input.startDate,
-      endDate: input.endDate,
-      isLocked: false,
-      createdAt: now,
-      updatedAt: now,
+      const overlapping = await findOverlappingFiscalPeriod(trx, scope, input.startDate, input.endDate)
+      if (overlapping) {
+        throw conflict('This date range overlaps an existing fiscal period for this organization.')
+      }
+
+      const now = new Date()
+      const period = trx.create(FiscalPeriod, {
+        id: randomUUID(),
+        organizationId: input.organizationId,
+        tenantId: input.tenantId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        isLocked: false,
+        createdAt: now,
+        updatedAt: now,
+      })
+      trx.persist(period)
+      await trx.flush()
+      return period.id
     })
-    em.persist(period)
-    await em.flush()
 
-    return { fiscalPeriodId: period.id }
+    return { fiscalPeriodId: periodId }
   },
   buildLog: async ({ input, result, ctx }) => {
     if (!result) return null
@@ -113,36 +137,49 @@ async function toggleFiscalPeriodLock(
   const em = (ctx.container.resolve('em') as EntityManager).fork()
   const scope: Scope = { organizationId: input.organizationId, tenantId: input.tenantId }
 
-  const period = await em.findOne(FiscalPeriod, {
-    id: input.id,
-    organizationId: scope.organizationId,
-    tenantId: scope.tenantId,
-    deletedAt: null,
-  })
-  if (!period) {
-    // Concurrent-delete race: if the client sent the expected-version
-    // header, surface the unified 409 conflict instead of a bare 404 (see
-    // optimistic-lock-command.ts's own documented usage pattern).
-    enforceRecordGoneIsConflict({
+  // `PESSIMISTIC_WRITE` (`for update`), inside an explicit transaction so
+  // the lock actually holds across the read and the flush below — this is
+  // the other half of the M4 fix in postJournalEntry.ts's
+  // `requireCoveringUnlockedFiscalPeriod`: that function takes a `for
+  // share` lock on the same row, so a concurrent post and a concurrent
+  // lock/unlock now serialize against each other instead of one reading a
+  // stale `isLocked` value before the other commits.
+  return em.transactional(async (trx) => {
+    const period = await trx.findOne(
+      FiscalPeriod,
+      {
+        id: input.id,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        deletedAt: null,
+      },
+      { lockMode: LockMode.PESSIMISTIC_WRITE },
+    )
+    if (!period) {
+      // Concurrent-delete race: if the client sent the expected-version
+      // header, surface the unified 409 conflict instead of a bare 404 (see
+      // optimistic-lock-command.ts's own documented usage pattern).
+      enforceRecordGoneIsConflict({
+        resourceKind: FISCAL_PERIOD_RESOURCE_KIND,
+        resourceId: input.id,
+        request: ctx.request ?? null,
+      })
+      throw notFound('Fiscal period not found.')
+    }
+
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
       resourceKind: FISCAL_PERIOD_RESOURCE_KIND,
-      resourceId: input.id,
+      resourceId: period.id,
+      current: period.updatedAt,
       request: ctx.request ?? null,
     })
-    throw notFound('Fiscal period not found.')
-  }
 
-  await enforceCommandOptimisticLockWithGuards(ctx.container, {
-    resourceKind: FISCAL_PERIOD_RESOURCE_KIND,
-    resourceId: period.id,
-    current: period.updatedAt,
-    request: ctx.request ?? null,
+    period.isLocked = isLocked
+    period.updatedAt = new Date()
+    await trx.flush()
+
+    return { id: period.id, isLocked: period.isLocked, updatedAt: period.updatedAt.toISOString() }
   })
-
-  period.isLocked = isLocked
-  period.updatedAt = new Date()
-  await em.flush()
-
-  return { id: period.id, isLocked: period.isLocked, updatedAt: period.updatedAt.toISOString() }
 }
 
 const lockFiscalPeriodCommand: CommandHandler<LockFiscalPeriodInput, FiscalPeriodDto> = {
