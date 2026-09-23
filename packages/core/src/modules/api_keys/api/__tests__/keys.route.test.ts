@@ -9,11 +9,20 @@ type QueueEntry = { entity?: unknown }
 type OrmEntityInput = { data: Record<string, unknown>; [key: string]: unknown }
 type DeleteOrmEntityInput = { where: Record<string, unknown>; [key: string]: unknown }
 
+interface MockQueryBuilder {
+  where: jest.Mock<MockQueryBuilder, [Record<string, unknown>]>
+  andWhere: jest.Mock<MockQueryBuilder, [Record<string, unknown>]>
+  orderBy: jest.Mock<MockQueryBuilder, [Record<string, unknown>]>
+  limit: jest.Mock<MockQueryBuilder, [number]>
+  offset: jest.Mock<MockQueryBuilder, [number]>
+  getResultAndCount: jest.Mock<Promise<[unknown[], number]>, []>
+}
 interface MockEntityManager {
   findOne: jest.Mock<Promise<unknown>, [unknown, Record<string, unknown>?]>
   find: jest.Mock<Promise<unknown[]>, [unknown, Record<string, unknown>?]>
   fork: jest.Mock<MockEntityManager, []>
   transactional: jest.Mock<Promise<unknown>, [(em: MockEntityManager) => Promise<unknown>]>
+  createQueryBuilder: jest.Mock<MockQueryBuilder, [unknown, string?]>
 }
 
 interface MockDataEngine {
@@ -41,6 +50,14 @@ const queue: QueueEntry[] = []
 const mockGetAuthFromCookies = jest.fn()
 const mockGetAuthFromRequest = jest.fn()
 const mockResolveScope = jest.fn()
+const mockQueryBuilder: MockQueryBuilder = {
+  where: jest.fn<MockQueryBuilder, [Record<string, unknown>]>(() => mockQueryBuilder),
+  andWhere: jest.fn<MockQueryBuilder, [Record<string, unknown>]>(() => mockQueryBuilder),
+  orderBy: jest.fn<MockQueryBuilder, [Record<string, unknown>]>(() => mockQueryBuilder),
+  limit: jest.fn<MockQueryBuilder, [number]>(() => mockQueryBuilder),
+  offset: jest.fn<MockQueryBuilder, [number]>(() => mockQueryBuilder),
+  getResultAndCount: jest.fn<Promise<[unknown[], number]>, []>(async () => [[], 0]),
+}
 const mockEm: MockEntityManager = {
   findOne: jest.fn<Promise<unknown>, [unknown, Record<string, unknown>?]>(),
   find: jest.fn<Promise<unknown[]>, [unknown, Record<string, unknown>?]>(),
@@ -48,6 +65,7 @@ const mockEm: MockEntityManager = {
   transactional: jest.fn<Promise<unknown>, [(em: MockEntityManager) => Promise<unknown>]>(
     async (fn) => fn(mockEm),
   ),
+  createQueryBuilder: jest.fn<MockQueryBuilder, [unknown, string?]>(() => mockQueryBuilder),
 }
 const mockDataEngine: MockDataEngine = {
   __queue: queue,
@@ -106,12 +124,14 @@ jest.mock('../../services/apiKeyService', () => {
 
 type RouteModule = typeof import('../keys/route')
 let routeMetadata: RouteModule['metadata']
+let getHandler: RouteModule['GET']
 let postHandler: RouteModule['POST']
 let deleteHandler: RouteModule['DELETE']
 
 beforeAll(async () => {
   const routeModule = await import('../keys/route')
   routeMetadata = routeModule.metadata
+  getHandler = routeModule.GET
   postHandler = routeModule.POST
   deleteHandler = routeModule.DELETE
 })
@@ -185,6 +205,35 @@ describe('API Keys route', () => {
     mockRbac.invalidateUserCache.mockResolvedValue(undefined)
     mockRbac.loadAcl.mockResolvedValue({ isSuperAdmin: false })
     mockHashApiKey.mockClear()
+  })
+
+  it('lists tenant-wide keys next to the selected organization for an unrestricted actor', async () => {
+    mockResolveScope.mockResolvedValue({
+      selectedId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      filterIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
+      allowedIds: null,
+    })
+    const res = await getHandler(new Request('http://localhost/api/api_keys/keys'))
+    expect(res.status).toBe(200)
+    const organizationClause = mockQueryBuilder.andWhere.mock.calls
+      .map(([clause]) => clause)
+      .find((clause) => '$or' in clause)
+    expect(organizationClause).toEqual({
+      $or: [{ organizationId: { $in: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'] } }, { organizationId: null }],
+    })
+  })
+
+  it('hides tenant-wide keys from an organization-restricted actor', async () => {
+    mockResolveScope.mockResolvedValue({
+      selectedId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      filterIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
+      allowedIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
+    })
+    const res = await getHandler(new Request('http://localhost/api/api_keys/keys'))
+    expect(res.status).toBe(200)
+    const clauses = mockQueryBuilder.andWhere.mock.calls.map(([clause]) => clause)
+    expect(clauses).toContainEqual({ organizationId: { $in: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'] } })
+    expect(clauses.some((clause) => '$or' in clause)).toBe(false)
   })
 
   it('exports the expected ACL features', () => {
