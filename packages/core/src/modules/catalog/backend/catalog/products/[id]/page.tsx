@@ -47,7 +47,7 @@ import {
   buildRecordInjectionContext,
   useSetCurrentRecordInjectionContext,
 } from "@open-mercato/ui/backend/injection/recordContext";
-import { useT } from "@open-mercato/shared/lib/i18n/context";
+import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
 import { useConfirmDialog } from "@open-mercato/ui/backend/confirm-dialog";
 import { E } from "#generated/entities.ids.generated";
 import {
@@ -73,6 +73,7 @@ import {
   type ProductUnitPriceReferenceUnit,
   type ProductUnitRoundingMode,
   productFormSchema,
+  withCanonicalUomFields,
   BASE_INITIAL_VALUES,
   createLocalId,
   slugify,
@@ -323,6 +324,7 @@ export default function EditCatalogProductPage({
 }) {
   const productId = params?.id ? String(params.id) : null;
   const t = useT();
+  const locale = useLocale();
   const pathname = usePathname();
   const productSubpathPrefix = productId
     ? `/backend/catalog/products/${productId}/`
@@ -1049,7 +1051,9 @@ export default function EditCatalogProductPage({
           ),
         );
       }
-      const parsed = productFormSchema.safeParse(formValues);
+      const parsed = productFormSchema.safeParse(
+        withCanonicalUomFields(formValues, locale),
+      );
       if (!parsed.success) {
         const issues = parsed.error.issues;
         const fieldErrors: Record<string, string> = {};
