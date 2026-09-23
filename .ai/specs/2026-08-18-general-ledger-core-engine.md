@@ -663,6 +663,13 @@ suite asserts against, not a workflow it walks through.
 - A `REVERSAL` entry always references the original via
   `referenceType`/`referenceId`, and the original stays visible,
   unmodified, in every query — reversal, not undo.
+- **Added 2026-09-23** (PR #6340 review, M3): a `REVERSAL` entry can
+  only ever point at a `NORMAL` (or `OPENING`/`CLOSING`) entry, never
+  at another `REVERSAL` — reversing a reversal is rejected, as is
+  reversing the same entry a second time, both checked via an existing
+  `REVERSAL` row with `referenceType='journal_entry'`/
+  `referenceId=<the entry being reversed>` before `reverseJournalEntry`
+  posts anything.
 - `LedgerAccountType.normalBalance`/`accountGroupId` and
   `LedgerAccount.accountTypeId` are immutable once any account of that
   type has posted entries — reassigning them would silently
@@ -1311,6 +1318,18 @@ in this spec — see the dependent `sales-invoice-gl-posting` spec
 (planned, not yet drafted), which will be the first consumer and will
 own that failure-isolation story.
 
+**Added 2026-09-23** (PR #6340 review, M5): this section explained why
+cross-module `referenceType`/`referenceId` aren't validated, but said
+nothing about same-module FK-id fields already populated in Phase 1 —
+`JournalEntryLine.accountId`, `JournalEntry.currencyId`,
+`LedgerAccount.accountTypeId`/`parentAccountId`,
+`LedgerAccountType.parentAccountTypeId`/`accountGroupId`. These have
+no database-level FK either, so each write command validates
+existence, non-deleted status, and same organization/tenant scope at
+the application layer before persisting; `parentAccountId`/
+`parentAccountTypeId` are additionally checked for self-reference and
+cycles.
+
 ### Tenant & data isolation
 
 `FiscalPeriod`, `LedgerAccount`, `LedgerAccountType`,
@@ -1319,6 +1338,16 @@ tenant/organization scoped, following the same pattern used elsewhere
 in the repo (`JournalEntryLine` and `LedgerAccountGroup` carry their
 own scope columns rather than relying only on a parent join — see
 Design decisions).
+
+**Corrected 2026-09-23** (PR #6340 review, M6): for read routes
+specifically, the organization filter must resolve the *selected*
+organization for the request (`resolveOrganizationScopeForRequest`),
+not the caller's home `auth.orgId` — an independent review found the
+four GET routes filtering on `auth.orgId` instead, so a user who
+switched organizations, or a superadmin with no home org, saw the
+wrong data or none at all. Now matches the pattern the `makeCrudRoute`
+writes and the fiscal-period lock/unlock routes already used
+correctly.
 
 ### Migration & deployment
 
