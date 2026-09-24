@@ -46,9 +46,9 @@ Let CRM users see, sort, and filter the People and Companies lists by creation d
 
 ### Phase 1: List column, sorting, and whole-day filter
 
-- [ ] 1.1 Add the Created column with sort mapping and translations to the People and Companies lists
-- [ ] 1.2 Treat date-only created_at filter values as whole days in the People and Companies list APIs
-- [ ] 1.3 Add the Playwright integration spec for sort and filter by creation date
+- [x] 1.1 Add the Created column with sort mapping and translations to the People and Companies lists — d574f0cdd
+- [x] 1.2 Treat date-only created_at filter values as whole days in the People and Companies list APIs — 6323c1a61
+- [x] 1.3 Add the Playwright integration spec for sort and filter by creation date — 6323c1a61, d8340a4da
 
 ### Phase 2: Regression coverage
 
