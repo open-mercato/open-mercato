@@ -475,6 +475,36 @@ describe('createAgentFilesExtension', () => {
     expect(manifest).toContain('export const fileAgentDescriptors: FileAgentDescriptor[] = []')
   })
 
+  it('re-exports the committed manifest into the app output dir for the standalone alias tier', () => {
+    const fixture = makeRepoFixture()
+    repoRoot = fixture.repoRoot
+    const outputDir = path.join(repoRoot, 'apps', 'mercato', '.mercato', 'generated')
+
+    const extension = createAgentFilesExtension({
+      isMonorepo: () => true,
+      getRootDir: () => repoRoot,
+      getAppDir: () => path.join(repoRoot, 'apps', 'mercato'),
+      getOutputDir: () => outputDir,
+    })
+    extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase))
+    extension.generateOutput()
+
+    // The committed manifest stays the single source of truth.
+    const manifestPath = path.join(
+      repoRoot,
+      'packages/enterprise/src/modules/agent_orchestrator/generated/file-agents.generated.ts',
+    )
+    expect(fs.readFileSync(manifestPath, 'utf8')).toContain('export const fileAgentDescriptors')
+
+    // `defineAgent` statically imports `@/.mercato/generated/file-agents.generated`
+    // for standalone apps; without this stub the monorepo bundler reports it missing.
+    const stubPath = path.join(outputDir, 'file-agents.generated.ts')
+    expect(fs.existsSync(stubPath)).toBe(true)
+    expect(fs.readFileSync(stubPath, 'utf8')).toContain(
+      "export * from '@open-mercato/enterprise/modules/agent_orchestrator/generated/file-agents.generated'",
+    )
+  })
+
   describe('standalone app layout', () => {
     /**
      * A scaffolded app has no `packages/` tree and no `docker/opencode/` before

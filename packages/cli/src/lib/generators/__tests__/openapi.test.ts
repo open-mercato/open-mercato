@@ -283,6 +283,38 @@ export function buildOpenApiDocument(modules: any[], options: any) {
     }
   })
 
+  it('bundles JSON imported from an installed package instead of leaving it external', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'json-fixture-pkg', 'package.json'),
+      '{"name":"json-fixture-pkg","version":"1.0.0"}\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'json-fixture-pkg', 'data', 'summary.json'),
+      '{"summary":"summary from package json"}\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'demo', 'api', 'route.ts'),
+      [
+        "import data from 'json-fixture-pkg/data/summary.json'",
+        'export async function GET() { return new Response("ok") }',
+        'export const openApi = { GET: { summary: data.summary } }',
+        '',
+      ].join('\n'),
+    )
+
+    const resolver = createMockResolver([{ id: 'demo', from: '@open-mercato/core' }])
+    const result = await generateOpenApi({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+
+    const generatedPath = path.join(tmpDir, 'output', 'generated', 'openapi.generated.json')
+    const openApiDoc = JSON.parse(fs.readFileSync(generatedPath, 'utf8')) as {
+      paths: Record<string, { get?: { summary?: string } }>
+    }
+
+    expect(openApiDoc.paths['/api/demo']?.get?.summary).toBe('summary from package json')
+  })
+
   it('does not cache a static fallback after a bundle failure', async () => {
     touchFile(
       path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'demo', 'api', 'route.ts'),
