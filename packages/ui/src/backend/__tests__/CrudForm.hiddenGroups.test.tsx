@@ -282,6 +282,7 @@ describe('CrudForm hiddenGroupIds', () => {
       // it must not block submit either.
       injectedFieldWidgets = [
         {
+          metadata: { id: 'injected-only-widget' },
           fields: [
             {
               id: 'injectedOnly',
