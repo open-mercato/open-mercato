@@ -67,6 +67,13 @@ function checksum(value: string): string {
   return crypto.createHash('md5').update(value).digest('hex')
 }
 
+function moduleRootIdentity(roots: ModuleRoots): string {
+  return JSON.stringify([
+    roots.pkgBase.replace(/\\/g, '/'),
+    roots.appBase.replace(/\\/g, '/'),
+  ])
+}
+
 function fileRecord(filePath: string, base: string, mode: 'content' | 'shape'): string | null {
   if (!fs.existsSync(filePath)) return null
   let stat: fs.Stats
@@ -268,8 +275,11 @@ export function calculateGenerateWatchStructureChecksum(options: {
   records.push(modulesRecord ?? `missing:${options.modulesFile}`)
 
   for (const roots of options.moduleRoots) {
-    addConventionRecords(records, roots)
-    addScannedRecords(records, roots)
+    const moduleRecords: string[] = []
+    addConventionRecords(moduleRecords, roots)
+    addScannedRecords(moduleRecords, roots)
+    const rootIdentity = moduleRootIdentity(roots)
+    records.push(...moduleRecords.map((record) => `${rootIdentity}:${record}`))
   }
 
   return checksum(records.sort((a, b) => a.localeCompare(b)).join('\n'))

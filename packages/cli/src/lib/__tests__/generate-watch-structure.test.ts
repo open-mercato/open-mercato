@@ -100,6 +100,32 @@ describe('calculateGenerateWatchStructureChecksum', () => {
     expect(currentChecksum()).not.toBe(before)
   })
 
+  it('changes when an identical convention file moves between module roots', () => {
+    const ordersPkgModule = path.join(root, 'packages', 'core', 'src', 'modules', 'orders')
+    const ordersAppModule = path.join(appDir, 'src', 'modules', 'orders')
+    const customersCli = path.join(pkgModule, 'cli.ts')
+    const ordersCli = path.join(ordersPkgModule, 'cli.ts')
+    const cliSource = 'export default function registerCli() {}\n'
+    const moduleRoots = [
+      { appBase: appModule, pkgBase: pkgModule },
+      { appBase: ordersAppModule, pkgBase: ordersPkgModule },
+    ]
+    write(path.join(ordersPkgModule, 'index.ts'), 'export const metadata = { id: "orders" }\n')
+    write(customersCli, cliSource)
+    const before = calculateGenerateWatchStructureChecksum({
+      modulesFile: path.join(appDir, 'src', 'modules.ts'),
+      moduleRoots,
+    })
+
+    fs.rmSync(customersCli)
+    write(ordersCli, cliSource)
+
+    expect(calculateGenerateWatchStructureChecksum({
+      modulesFile: path.join(appDir, 'src', 'modules.ts'),
+      moduleRoots,
+    })).not.toBe(before)
+  })
+
   // A runtime.ts the watcher cannot see is the failure SPEC-072 exists to remove, reappearing in
   // the dev loop: the registry is not regenerated, `Module.runtime` stays undefined, and the
   // runtime never starts — with no error and no warning.
