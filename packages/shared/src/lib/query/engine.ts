@@ -20,6 +20,7 @@ import {
   type SearchTokenProbeQueryBuilder,
 } from '../search/availability'
 import { tokenizeText } from '../search/tokenize'
+import { buildContainmentPatterns } from '../search/containment'
 import { fieldNameCandidates } from './encrypted-sort'
 import { isTenantDataEncryptionEnabled } from '../encryption/toggles'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from './query-extension-runner'
@@ -446,9 +447,9 @@ export class BasicQueryEngine implements QueryEngine {
       ? await this.searchAvailability().hasTokens(String(entity), opts.tenantId ?? null, orgScope)
       : false
     const searchActive = searchEnabled && hasSearchTokens
-    // Opt-in via OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS (default false: the pre-existing
-    // rewrite-everything behavior is kept). When enabled, base-column like/ilike is rerouted
-    // through search tokens ONLY for encrypted columns, where
+    // Gated on OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS (default false per #5383; set it to
+    // true to opt into the #5803 fix ahead of that follow-up). When enabled, base-column
+    // like/ilike is rerouted through search tokens ONLY for encrypted columns, where
     // ILIKE against ciphertext cannot match. On a plaintext column SQL ILIKE is exact, and the token
     // rewrite silently changes the result set: tokenization splits on non-alphanumerics and drops
     // tokens shorter than minTokenLength, so a document-number search like "ZK 1/2026" degrades to
@@ -615,6 +616,27 @@ export class BasicQueryEngine implements QueryEngine {
             field: fieldName,
             value,
           })
+        }
+      }
+      // A PLAINTEXT base column the gate above kept off the token path: apply the declared
+      // containment once per word so the token subquery's word-order-independent matching survives
+      // the reroute (#5803 / TC-RESO-009). Chained `where`s ARE the AND the token
+      // `having count(distinct)` did. `fieldName` is required, so this never fires for a JOINed
+      // column — `applyJoinFilters` calls `applyFilterOp` without it (below), and that predicate
+      // keeps its pre-existing literal-containment behavior unchanged.
+      if (
+        (op === 'like' || op === 'ilike') &&
+        typeof value === 'string' &&
+        searchActive &&
+        fieldName &&
+        encryptedLikeFields !== null &&
+        !isEncryptedLikeField(encryptedLikeFields, fieldName)
+      ) {
+        const patterns = buildContainmentPatterns(value)
+        if (patterns.length > 1) {
+          let next = builder
+          for (const pattern of patterns) next = this.applyColumnOp(next, column, op, pattern)
+          return next
         }
       }
       return this.applyColumnOp(builder, column, op, value)
@@ -1126,6 +1148,12 @@ export class BasicQueryEngine implements QueryEngine {
       // `ilike` through the search-token index the way the ungrouped path does. On a
       // field covered by an encryption map such a leaf therefore compares against
       // ciphertext and will not match.
+      //
+      // This also means the #5803 plaintext-containment split (lib/search/containment) does not
+      // apply here: `buildColumnOpExpression` below keeps a multi-word `like`/`ilike` leaf as one
+      // literal pattern, so an OR-grouped search (e.g. `customers/api/people`'s multi-field
+      // fallback) loses word-order independence on Basic while the Hybrid engine's OR groups
+      // apply the split. Pre-existing divergence between the two engines; not tracked by an issue.
       //
       // The count shape never populates cfValueExprByKey (it joins no cf tables), so
       // its applicability test is key resolution itself — the same condition that
