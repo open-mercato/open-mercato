@@ -55,7 +55,7 @@ test.describe('CRM deal owner assignment — detail and create paths', () => {
 
   test.afterAll(async ({ request }) => {
     for (const dealId of createdDealIds) {
-      await deleteEntityByBody(request, token, '/api/customers/deals', { id: dealId });
+      await deleteEntityByBody(request, token, '/api/customers/deals', dealId);
     }
   });
 
