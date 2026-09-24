@@ -27,6 +27,7 @@ import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
+import { expandCreatedAtDayRules } from '../../lib/createdAtDayFilter'
 import {
   createCustomersCrudOpenApi,
   createPagedListResponseSchema,
@@ -131,7 +132,7 @@ const crud = makeCrudRoute({
       updatedAt: 'updated_at',
     },
     buildFilters: async (query, ctx) => {
-      const advancedFilterTree = consumeAdvancedFilterState(query)
+      const advancedFilterTree = expandCreatedAtDayRules(consumeAdvancedFilterState(query))
       const filters: Record<string, unknown> = { kind: { $eq: 'company' } }
       if (query.id) filters.id = { $eq: query.id }
       if (query.search) {
