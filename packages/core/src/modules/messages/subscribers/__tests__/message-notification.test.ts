@@ -143,6 +143,60 @@ describe('messages sent subscriber', () => {
     )
   })
 
+  it('names the external correspondent, not the system user, for a channel-ingested message (#6093)', async () => {
+    findOneWithDecryptionMock.mockReset()
+    findOneWithDecryptionMock
+      .mockResolvedValueOnce({
+        subject: 'Re: Quote #123',
+        externalName: 'Alice Customer',
+        externalEmail: 'alice@example.com',
+      })
+      .mockResolvedValueOnce({ name: 'Outlook', email: 'system@example.com' })
+
+    await handle({
+      messageId: 'message-1',
+      senderUserId: 'system-user',
+      recipientUserIds: ['assignee-1'],
+      sendViaEmail: false,
+      inboundFromChannel: true,
+      externalEmail: 'alice@example.com',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    }, ctx)
+
+    expect(buildBatchNotificationFromTypeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'messages.new' }),
+      expect.objectContaining({
+        recipientUserIds: ['assignee-1'],
+        titleVariables: { title: 'Re: Quote #123', from: 'Alice Customer' },
+      }),
+    )
+    // Ingest passes sendViaEmail=false: no email job for the assignee, no echo.
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the external address when the correspondent has no display name', async () => {
+    findOneWithDecryptionMock.mockReset()
+    findOneWithDecryptionMock
+      .mockResolvedValueOnce({ subject: 'Hi', externalName: null, externalEmail: 'alice@example.com' })
+      .mockResolvedValueOnce({ name: 'Outlook', email: 'system@example.com' })
+
+    await handle({
+      messageId: 'message-1',
+      senderUserId: 'system-user',
+      recipientUserIds: ['assignee-1'],
+      sendViaEmail: false,
+      inboundFromChannel: true,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    }, ctx)
+
+    expect(buildBatchNotificationFromTypeMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ titleVariables: { title: 'Hi', from: 'alice@example.com' } }),
+    )
+  })
+
   it('uses local strategy by default', async () => {
     await handle({
       messageId: 'message-1',

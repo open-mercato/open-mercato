@@ -109,6 +109,34 @@ export function attachAggregateSearchField(
   return doc
 }
 
+/**
+ * Recomputes the aggregate on a shallow copy of `doc`.
+ *
+ * Search tokens are built from the *decrypted* index document, while the document
+ * persisted in `entity_indexes` stays encrypted at rest. The aggregate composed during
+ * document build therefore concatenates ciphertext for every field an encryption map
+ * covers, and `decryptIndexDocForSearch` cannot repair it because `search_text` is on no
+ * map (#5625). Token writers call this on the decrypted document so the aggregate is
+ * tokenized from the same plaintext a user actually searches for; the copy keeps the
+ * caller's stored document untouched.
+ *
+ * A pre-existing aggregate is blanked before recomposition rather than deleted: an empty
+ * string yields no tokens, but it keeps the key on the document, and
+ * `replaceSearchTokensForRecord` scopes its DELETE to the document's own field names. A
+ * deleted key would drop `search_text` out of that scope and strand the ciphertext-derived
+ * rows with no writer left to remove them.
+ */
+export function rebuildAggregateSearchField(
+  doc: Record<string, unknown>,
+  options: AggregateSearchOptions = {},
+): Record<string, unknown> {
+  const copy = { ...doc }
+  // `collectAggregateSearchValues` skips the aggregate's own key, so this blank is
+  // overwritten whenever anything survives the blocklist and stays blank otherwise.
+  if (AGGREGATE_SEARCH_FIELD in copy) copy[AGGREGATE_SEARCH_FIELD] = ''
+  return attachAggregateSearchField(copy, options)
+}
+
 export function buildIndexDocument(
   baseRow: Record<string, unknown>,
   customFieldValues: Iterable<IndexCustomFieldValue> = [],

@@ -1,9 +1,26 @@
 import type { NextConfig } from "next";
+import { builtinModules } from 'node:module'
 import { resolveAllowedDevOrigins } from './src/lib/dev-origins'
 import { telemetryServerExternalPackages } from '@open-mercato/telemetry/nextjs-config'
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
 const allowedDevOrigins = isDevelopment ? resolveAllowedDevOrigins() : []
+
+// Defensive hardening (refs #6132): `transpilePackages` below makes
+// webpack/Turbopack process these packages' TypeScript source as first-party
+// bundled code instead of treating them as opaque node_modules externals,
+// which can skip the default server-target externalization for `node:`
+// -prefixed builtin imports (e.g. `node:crypto` in @open-mercato/core's auth
+// token hashing) in some bundler/version combinations — webpack would throw
+// UnhandledSchemeError and Turbopack would hang. The bare specifier form
+// (`crypto`) is unaffected, so rewrite `node:<name>` to `<name>` for every
+// Node builtin rather than editing every affected import. This is a no-op
+// when the bundler already resolves `node:` imports correctly.
+const nodeProtocolResolveAlias = Object.fromEntries(
+  builtinModules
+    .filter((name) => !name.startsWith('_') && !name.startsWith('node:'))
+    .map((name) => [`node:${name}`, name]),
+)
 
 const contentSecurityPolicy = [
   "default-src 'self'",
@@ -42,6 +59,19 @@ const nextConfig: NextConfig & { agentRules?: boolean } = {
       : {}),
   },
   allowedDevOrigins: allowedDevOrigins.length > 0 ? allowedDevOrigins : undefined,
+  turbopack: {
+    resolveAlias: nodeProtocolResolveAlias,
+  },
+  webpack: (config, { isServer, webpack }) => {
+    if (isServer) {
+      config.plugins.push(
+        new webpack.NormalModuleReplacementPlugin(/^node:/, (resource: { request: string }) => {
+          resource.request = resource.request.replace(/^node:/, '')
+        }),
+      )
+    }
+    return config
+  },
   // Transpile @open-mercato packages that have TypeScript in src/
   // Note: @open-mercato/shared is excluded as it has pre-built dist/ files
   transpilePackages: [

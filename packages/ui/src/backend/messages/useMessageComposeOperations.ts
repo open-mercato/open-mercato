@@ -147,7 +147,7 @@ function buildComposePayload(
     sourceEntityId: sourceEntityId ?? undefined,
     objects: contextObjects,
     attachmentIds: input.attachmentIds.length > 0 ? input.attachmentIds : undefined,
-    sendViaEmail: publicMessage ? true : params.sendViaEmail,
+    sendViaEmail: params.sendViaEmail,
     senderChannelId: !input.isDraft && publicMessage && params.senderChannelId
       ? params.senderChannelId
       : undefined,
