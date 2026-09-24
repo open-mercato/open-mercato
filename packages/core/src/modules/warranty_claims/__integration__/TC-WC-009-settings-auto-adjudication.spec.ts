@@ -177,7 +177,7 @@ test.describe('TC-WC-009: warranty claim settings and auto-adjudication', () => 
       )
       expect(invalidAutoApprove.status(), 'enabled auto-approve without amount/currency should return 400').toBe(400)
       const invalidBody = await readJsonSafe<{ error?: string }>(invalidAutoApprove)
-      expect(invalidBody?.error).toBe('warranty_claims.errors.autoApproveConfigIncomplete')
+      expect(invalidBody?.error).toBe('Auto-approve requires both a maximum amount and currency.')
 
       settings = await saveWarrantyClaimSettings(request, adminToken, {
         slaHours: 48,
