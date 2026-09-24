@@ -151,6 +151,14 @@ export class OcrService {
           guidance = 'Rate limit exceeded. Please try again later.'
           break
         default:
+          if (err?.name === 'TimeoutError') {
+            guidance = `OCR request timed out: ${rawMessage}`
+            break
+          }
+          if (err?.name === 'AbortError') {
+            guidance = `OCR request was aborted: ${rawMessage}`
+            break
+          }
           guidance = rawMessage.includes('https://')
             ? rawMessage
             : `${rawMessage}. Check OPENAI_API_KEY.`
