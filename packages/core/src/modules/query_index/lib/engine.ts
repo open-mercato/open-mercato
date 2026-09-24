@@ -39,10 +39,12 @@ import {
   type SearchTokenProbeQueryBuilder,
 } from '@open-mercato/shared/lib/search/availability'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
+import { buildContainmentPatterns } from '@open-mercato/shared/lib/search/containment'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from '@open-mercato/shared/lib/query/query-extension-runner'
 import { warnOnCiphertextLikeFallback } from '@open-mercato/shared/lib/query/ciphertext-search-warning'
 import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from '@open-mercato/shared/lib/query/encrypted-sort'
 import { resolveListCountCap } from '@open-mercato/shared/lib/query/count-cap'
+import { resolveCfDefIndexOrgCandidates } from '@open-mercato/shared/lib/crud/custom-field-definition-index'
 import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
@@ -70,6 +72,9 @@ type CustomFieldDefRow = {
 const CF_FILTER_SUPPORTED_OPS = new Set<FilterOp>([
   'eq', 'ne', 'in', 'nin', 'like', 'ilike', 'exists', 'gt', 'gte', 'lt', 'lte',
 ])
+
+/** Custom field kinds stored numerically (`custom_field_values.value_int`/`value_float`) — sort numerically, not as text (#5674). */
+const NUMERIC_CF_SORT_KINDS = new Set(['integer', 'float'])
 
 const DECRYPT_CONCURRENCY = 8
 const AUTO_REINDEX_DEBOUNCE_DEFAULT_MS = 30_000
@@ -245,6 +250,7 @@ export class HybridQueryEngine implements QueryEngine {
   private coverageStatsTtlMs: number
   private customFieldDefsCache = new Map<string, { expiresAt: number; value: CustomFieldDefRow[] }>()
   private customFieldKeysTtlMs: number
+  private customFieldKindCache = new Map<string, { expiresAt: number; value: Map<string, string> }>()
   private columnCache = new Map<string, boolean>()
   private customEntityCache = new Map<string, boolean>()
   private debugVerbosity: boolean | null = null
@@ -568,6 +574,8 @@ export class HybridQueryEngine implements QueryEngine {
         searchConfig.useIlikeForNonEncryptedFields === true &&
         sourceSearchFilters.some((filter) => !String(filter.field).startsWith('cf:'))
       ) {
+        // Gated on OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS (default false per #5383; set it
+        // to true to opt into the #5803 fix ahead of that follow-up).
         // `ignoreRuntimeHealth` asks the on-disk question -- a column holds ciphertext even while
         // the KMS is down -- so an outage keeps encrypted columns on the token path (#4622).
         // `organizationId: null` is deliberate, not an omission: the service then unions in every
@@ -780,6 +788,18 @@ export class HybridQueryEngine implements QueryEngine {
         fallbackOrgId,
       )
       const requiresPlaintextSort = encryptedSortFields.size > 0
+
+      const cfSortKeys = Array.from(new Set(
+        resolvedSorts.filter((sort) => sort.field.startsWith('cf:')).map((sort) => sort.field.slice(3))
+      ))
+      const cfSortKinds = cfSortKeys.length
+        ? await this.resolveCustomFieldSortKinds(
+            indexSources.map((source) => String(source.entityId)),
+            opts.tenantId ?? null,
+            resolveCfDefIndexOrgCandidates(opts.organizationIds, fallbackOrgId),
+            cfSortKeys,
+          )
+        : new Map<string, string>()
 
       // ────────────────────────────────────────────────────────────────
       // Build a reusable "applyQueryShape" function that applies every
@@ -1188,13 +1208,32 @@ export class HybridQueryEngine implements QueryEngine {
             const textExpr = this.buildCfTextExprSql(fieldName, indexSources)
             if (textExpr) {
               const direction = sql.raw(coerceSortDirection(s.dir))
-              next = next.orderBy(sql`${textExpr} ${direction}`)
+              const kind = cfSortKinds.get(fieldName.slice(3))
+              let sortExpr: RawBuilder<unknown> = textExpr
+              if (kind && NUMERIC_CF_SORT_KINDS.has(kind)) {
+                const jsonExpr = this.buildCfJsonExprSql(fieldName, indexSources)
+                // The index doc does not guarantee a numeric scalar for a
+                // numeric-kind field (ciphertext on an encrypted field, a JSON
+                // array from a multi-value/duplicated-row source, or a stale
+                // value from before the kind changed) — casting unconditionally
+                // turns one bad row into a 500 for the whole list. Only cast
+                // when the doc value is actually a JSON number; anything else
+                // sorts as NULL, same as an unset field (#5674 review).
+                sortExpr = jsonExpr
+                  ? sql`CASE WHEN jsonb_typeof(${jsonExpr}) = 'number' THEN (${textExpr})::numeric END`
+                  : textExpr
+              }
+              next = next.orderBy(sql`${sortExpr} ${direction} NULLS LAST`)
             }
           } else {
             const baseField = resolveBaseColumn(fieldName)
             if (!baseField) continue
             next = next.orderBy(qualify(baseField), s.dir ?? SortDir.Asc)
           }
+        }
+        const lastSortField = resolvedSorts.length ? String(resolvedSorts[resolvedSorts.length - 1].field) : null
+        if (resolvedSorts.length && lastSortField !== 'id') {
+          next = next.orderBy(qualify('id'), SortDir.Asc)
         }
         return next
       }
@@ -1995,6 +2034,20 @@ export class HybridQueryEngine implements QueryEngine {
         ? sql<boolean>`false`
         : sql<boolean>`true`
     }
+    // Reaching here with a resolved encryption map means this is a PLAINTEXT column the gate above
+    // deliberately kept off the token path. Apply the declared containment per word so the token
+    // path's word-order-independent matching survives the reroute (#5803 / TC-RESO-009).
+    if (
+      (filter.op === 'like' || filter.op === 'ilike') &&
+      typeof filter.value === 'string' &&
+      searchRuntime?.enabled &&
+      searchRuntime.encryptedFields != null
+    ) {
+      const patterns = buildContainmentPatterns(filter.value)
+      if (patterns.length > 1) {
+        return eb.and(patterns.map((pattern) => eb(qualify(baseField), filter.op, pattern)))
+      }
+    }
     return this.buildColumnFilterExpression(eb, qualify(baseField), filter.op, filter.value)
   }
 
@@ -2275,6 +2328,64 @@ export class HybridQueryEngine implements QueryEngine {
       this.customFieldDefsCache.set(cacheKey, { expiresAt: now + this.customFieldKeysTtlMs, value: result })
     }
     return result.slice()
+  }
+
+  /**
+   * Resolve the declared `kind` for a set of `cf:` sort keys so `applySort` can
+   * cast numeric kinds instead of ordering by jsonb text (#5674). A same-org
+   * definition wins over a tenant-wide one, which wins over a global one, for
+   * the same key — a same-key definition scoped to a *different* organization
+   * in the tenant never gets to decide the kind (#5674 review).
+   */
+  private async resolveCustomFieldSortKinds(
+    entityIds: string[],
+    tenantId: string | null,
+    organizationIds: string[],
+    keys: string[]
+  ): Promise<Map<string, string>> {
+    if (!entityIds.length || !keys.length) return new Map()
+    const sortedOrgIds = organizationIds.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+    const cacheKey = `${this.customFieldKeysCacheKey(entityIds, tenantId)}|org:${sortedOrgIds.join(',')}|${keys.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(',')}`
+    const now = Date.now()
+    const cached = this.customFieldKindCache.get(cacheKey)
+    if (cached && cached.expiresAt > now) return new Map(cached.value)
+
+    const db = this.getDb() as any
+    const rows = await db
+      .selectFrom('custom_field_defs')
+      .select(['key', 'kind', 'organization_id', 'tenant_id'])
+      .where('entity_id', 'in', entityIds)
+      .where('key', 'in', keys)
+      .where('is_active', '=', true)
+      .where((eb: any) => eb.or([
+        eb('tenant_id', '=', tenantId),
+        eb('tenant_id', 'is', null),
+      ]))
+      .where((eb: any) => sortedOrgIds.length
+        ? eb.or([
+            eb('organization_id', 'is', null),
+            eb('organization_id', 'in', sortedOrgIds),
+          ])
+        : eb('organization_id', 'is', null))
+      .execute() as Array<{ key: unknown; kind: unknown; organization_id: unknown; tenant_id: unknown }>
+
+    const winners = new Map<string, { kind: string; specificity: number }>()
+    for (const row of rows) {
+      const key = typeof row.key === 'string' ? row.key : String(row.key)
+      const kind = typeof row.kind === 'string' ? row.kind : null
+      if (!kind) continue
+      // Org-scoped beats tenant-wide beats global for the same key; rows from
+      // an unrelated org were already excluded by the WHERE clause above.
+      const specificity = row.organization_id != null ? 2 : row.tenant_id != null ? 1 : 0
+      const existing = winners.get(key)
+      if (!existing || specificity >= existing.specificity) winners.set(key, { kind, specificity })
+    }
+    const result = new Map<string, string>()
+    for (const [key, entry] of winners) result.set(key, entry.kind)
+    if (this.customFieldKeysTtlMs > 0) {
+      this.customFieldKindCache.set(cacheKey, { expiresAt: now + this.customFieldKeysTtlMs, value: new Map(result) })
+    }
+    return result
   }
 
   private async resolveAvailableCustomFieldKeys(entityIds: string[], tenantId: string | null): Promise<string[]> {
@@ -2735,6 +2846,21 @@ export class HybridQueryEngine implements QueryEngine {
       return q
     }
     const col: any = column
+    // A PLAINTEXT column the gate kept off the token path: AND one containment predicate per word,
+    // which is what the token subquery matched (#5803 / TC-RESO-009). Chained `where`s ARE the AND.
+    if (
+      (filter.op === 'like' || filter.op === 'ilike') &&
+      typeof filter.value === 'string' &&
+      search?.enabled &&
+      search.encryptedFields != null
+    ) {
+      const patterns = buildContainmentPatterns(filter.value)
+      if (patterns.length > 1) {
+        let next = q
+        for (const pattern of patterns) next = next.where(col, filter.op, pattern as any)
+        return next
+      }
+    }
     switch (filter.op) {
       case 'eq':
         return filter.value === null
