@@ -383,6 +383,16 @@ export const staffTimeEntryStartTimerSchema = z.object({
   notes: z.string().max(2000).optional().nullable(),
 })
 
+export const staffTimeEntryStopTimerSchema = z.object({
+  ...scopedCreateFields,
+  ...scopedUpdateFields,
+})
+
+export const staffTimeEntryStartTimerExistingSchema = z.object({
+  ...scopedCreateFields,
+  ...scopedUpdateFields,
+})
+
 export const staffTimeEntryBulkItemSchema = z.object({
   id: z.string().uuid().optional().nullable(),
   date: z.coerce.date(),
@@ -499,9 +509,15 @@ export const staffMyProjectVisibilityUpdateSchema = z.object({
   showInGrid: z.boolean(),
 })
 
+export const staffTimesheetPreferenceUpdateSchema = z.object({
+  lastProjectId: z.string().uuid().nullable(),
+})
+
 export type StaffTimeEntryCreateInput = z.infer<typeof staffTimeEntryCreateSchema>
 export type StaffTimeEntryUpdateInput = z.infer<typeof staffTimeEntryUpdateSchema>
 export type StaffTimeEntryStartTimerInput = z.infer<typeof staffTimeEntryStartTimerSchema>
+export type StaffTimeEntryStopTimerInput = z.infer<typeof staffTimeEntryStopTimerSchema>
+export type StaffTimeEntryStartTimerExistingInput = z.infer<typeof staffTimeEntryStartTimerExistingSchema>
 export type StaffTimeEntryBulkSaveInput = z.infer<typeof staffTimeEntryBulkSaveSchema>
 export type StaffTimeEntrySegmentCreateInput = z.infer<typeof staffTimeEntrySegmentCreateSchema>
 export type StaffTimeEntrySegmentUpdateInput = z.infer<typeof staffTimeEntrySegmentUpdateSchema>
@@ -510,6 +526,7 @@ export type StaffTimeProjectUpdateInput = z.infer<typeof staffTimeProjectUpdateS
 export type StaffTimeProjectMemberAssignInput = z.infer<typeof staffTimeProjectMemberAssignSchema>
 export type StaffTimeProjectMemberUpdateInput = z.infer<typeof staffTimeProjectMemberUpdateSchema>
 export type StaffMyProjectVisibilityUpdateInput = z.infer<typeof staffMyProjectVisibilityUpdateSchema>
+export type StaffTimesheetPreferenceUpdateInput = z.infer<typeof staffTimesheetPreferenceUpdateSchema>
 
 // --- Time tracking consulting suite validators (tasks, tags, reports, settings) ---
 
