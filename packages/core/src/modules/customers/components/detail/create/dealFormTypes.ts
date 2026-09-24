@@ -9,6 +9,7 @@ export type BaseValues = {
   valueCurrency: string
   probability: string
   expectedCloseAt: string
+  ownerUserId: string
   description: string
   personIds: string[]
   companyIds: string[]
@@ -23,6 +24,7 @@ export const EMPTY_VALUES: BaseValues = {
   valueCurrency: '',
   probability: '',
   expectedCloseAt: '',
+  ownerUserId: '',
   description: '',
   personIds: [],
   companyIds: [],

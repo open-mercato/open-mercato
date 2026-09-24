@@ -13,6 +13,7 @@ import { PipelineSelect } from './PipelineSelect'
 import { PipelineStageSelect } from './PipelineStageSelect'
 import { SuffixInput } from './SuffixInput'
 import { DealCurrencyField } from './DealCurrencyField'
+import { DealOwnerSelect } from '../DealOwnerSelect'
 import { sanitizeAmount, sanitizeProbability } from './dealNumericInput'
 import type { BaseValues } from './dealFormTypes'
 import type { PipelineOption, PipelineStageOption } from './useDealPipelines'
@@ -153,6 +154,13 @@ export function DealDetailsFields({
             onChange={(date) => patch({ expectedCloseAt: date ? format(date, 'yyyy-MM-dd') : '' })}
             disabled={isSubmitting}
             placeholder={tr('customers.deals.create.fields.datePlaceholder', 'Pick a date')}
+          />
+        </DealFormField>
+        <DealFormField fieldId="ownerUserId" label={tr('customers.deals.fields.owner', 'Owner')}>
+          <DealOwnerSelect
+            value={values.ownerUserId ? values.ownerUserId : null}
+            onChange={(next) => patch({ ownerUserId: next ?? '' })}
+            disabled={isSubmitting}
           />
         </DealFormField>
       </div>
