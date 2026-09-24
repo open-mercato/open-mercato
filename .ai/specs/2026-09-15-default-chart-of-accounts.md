@@ -572,8 +572,23 @@ after them.
   `buildLog`/`undo`.
 - `backend/ledger/accounts/page.tsx` (modified) — one new button
   calling the new command.
-- Module manifest (modified) — registers the new command against the
-  existing `ledger.accounts.manage` feature.
+- `api/accounts/import-default-chart-of-accounts/route.ts` (new) — a
+  thin custom write route resolving the API Contracts section's own
+  "Open validation point for implementation": `backend/ledger/
+  accounts/page.tsx` has no client-side `commandBus` access (like
+  every other backend page in this module, it calls REST routes under
+  `/api/ledger/...`) and no existing generic "run this command"
+  endpoint covers a non-CRUD, button-triggered action — resolved by
+  following the same pattern `api/fiscal-periods/[id]/lock/route.ts`
+  already established for exactly this situation. Gated by
+  `ledger.accounts.manage`.
+- No module-manifest edit needed — `ledger`'s command auto-discovery
+  (the `module-registry.ts` generator, which scans each module's
+  `commands/` directory) registers
+  `commands/importDefaultChartOfAccounts.ts` automatically once the
+  file exists in the right location; nothing lists this module's
+  commands by hand for that generator to update. The original "Module
+  manifest (modified)" bullet here was inaccurate — see Changelog.
 
 ## Testing Strategy
 
@@ -816,3 +831,27 @@ event; nothing to add to §2.
   Config, no auto-picked account" pattern this document is fully
   compatible with — it only makes more accounts available to pick
   from). No changes needed to any of the four.
+
+### 2026-09-24 (cont. — File Manifest gap found and fixed during OM-18 implementation)
+
+- While implementing OM-18 (the backend-page button), resolved this
+  document's own "Open validation point for implementation" (API
+  Contracts) by adding one new thin route,
+  `api/accounts/import-default-chart-of-accounts/route.ts`, following
+  the same pattern `api/fiscal-periods/[id]/lock/route.ts` already
+  established in this codebase for a non-CRUD, button-triggered
+  command. The File Manifest never anticipated this file at all — it
+  only listed `backend/ledger/accounts/page.tsx` (modified) and
+  "Module manifest (modified)" — even though the API Contracts section
+  itself already flagged that a new route might be needed. Added the
+  route file to the File Manifest.
+- Also checked the File Manifest's "Module manifest (modified)" bullet
+  directly against the real codebase (per
+  `financial-spec-citation-check`) rather than accepting it at face
+  value: `ledger`'s commands are registered by the `module-registry.ts`
+  generator scanning each module's `commands/` directory automatically
+  (confirmed by the absence of any file that imports
+  `commands/ledgerAccountTypes` or similar commands by hand, besides
+  test/validator files) — no module manifest file exists to hand-edit
+  for this. The bullet was inaccurate from the first draft; corrected
+  to say so explicitly instead of removing it silently.
