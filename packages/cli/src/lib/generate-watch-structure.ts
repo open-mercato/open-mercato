@@ -4,6 +4,7 @@ import path from 'node:path'
 import {
   MODULE_CODE_EXTENSIONS,
   SCAN_CONFIGS,
+  resolveStandaloneSourceMirrorBase,
   scanModuleDir,
   stripModuleCodeExtension,
   type ModuleRoots,
@@ -66,6 +67,13 @@ function checksum(value: string): string {
   return crypto.createHash('md5').update(value).digest('hex')
 }
 
+function moduleRootIdentity(roots: ModuleRoots): string {
+  return JSON.stringify([
+    roots.pkgBase.replace(/\\/g, '/'),
+    roots.appBase.replace(/\\/g, '/'),
+  ])
+}
+
 function fileRecord(filePath: string, base: string, mode: 'content' | 'shape'): string | null {
   if (!fs.existsSync(filePath)) return null
   let stat: fs.Stats
@@ -86,6 +94,17 @@ function fileRecord(filePath: string, base: string, mode: 'content' | 'shape'): 
   }
 }
 
+function addFileRecord(
+  records: string[],
+  prefix: string,
+  filePath: string,
+  base: string,
+  mode: 'content' | 'shape',
+): void {
+  const record = fileRecord(filePath, base, mode)
+  if (record) records.push(`${prefix}:${record}`)
+}
+
 function resolveCodeFile(base: string, relativePath: string): string | null {
   const stripped = stripModuleCodeExtension(relativePath)
   const candidates = MODULE_CODE_EXTENSIONS.map((extension) => `${stripped}${extension}`)
@@ -94,6 +113,16 @@ function resolveCodeFile(base: string, relativePath: string): string | null {
     if (fs.existsSync(filePath)) return filePath
   }
   return null
+}
+
+function resolveRuntimeCounterpart(
+  pkgBase: string,
+  sourceBase: string,
+  sourceFile: string,
+): string | null {
+  if (sourceBase === pkgBase) return null
+  const relativePath = path.relative(sourceBase, sourceFile).replace(/\\/g, '/')
+  return resolveCodeFile(pkgBase, relativePath)
 }
 
 function hasInlinePageMetadata(filePath: string): boolean {
@@ -107,48 +136,131 @@ function hasInlinePageMetadata(filePath: string): boolean {
 }
 
 function addConventionRecords(records: string[], roots: ModuleRoots): void {
+  const packageSourceBase = resolveStandaloneSourceMirrorBase(roots.pkgBase) ?? roots.pkgBase
   for (const base of [roots.pkgBase, roots.appBase]) {
     records.push(`module-root:${base}:${fs.existsSync(base) ? 'present' : 'missing'}`)
-    for (const relativePath of STRUCTURAL_CONVENTION_FILES) {
-      const filePath = resolveCodeFile(base, relativePath)
-      if (!filePath) {
-        records.push(`missing:${base}:${relativePath}`)
-        continue
+  }
+  if (packageSourceBase !== roots.pkgBase) {
+    records.push(
+      `module-root:${packageSourceBase}:${fs.existsSync(packageSourceBase) ? 'present' : 'missing'}`,
+    )
+  }
+
+  for (const relativePath of STRUCTURAL_CONVENTION_FILES) {
+    const appFile = resolveCodeFile(roots.appBase, relativePath)
+    if (appFile) {
+      addFileRecord(records, 'convention:app', appFile, roots.appBase, 'content')
+      continue
+    }
+
+    const sourceFile = resolveCodeFile(packageSourceBase, relativePath)
+    if (!sourceFile) {
+      const runtimeFile = packageSourceBase === roots.pkgBase
+        ? null
+        : resolveCodeFile(roots.pkgBase, relativePath)
+      if (runtimeFile) {
+        addFileRecord(records, 'convention:package-runtime', runtimeFile, roots.pkgBase, 'content')
+      } else {
+        records.push(`convention:missing:${relativePath}`)
       }
-      const record = fileRecord(filePath, base, 'content')
-      if (record) records.push(record)
+      continue
+    }
+
+    const packagePrefix = packageSourceBase === roots.pkgBase ? 'package' : 'package-source'
+    addFileRecord(records, `convention:${packagePrefix}`, sourceFile, packageSourceBase, 'content')
+    const runtimeFile = resolveRuntimeCounterpart(roots.pkgBase, packageSourceBase, sourceFile)
+    if (runtimeFile) {
+      addFileRecord(records, 'convention:package-runtime', runtimeFile, roots.pkgBase, 'content')
+    } else if (packageSourceBase !== roots.pkgBase) {
+      records.push(`convention:package-runtime:missing:${relativePath}`)
     }
   }
 }
 
 function addScannedRecords(records: string[], roots: ModuleRoots): void {
+  const packageSourceBase = resolveStandaloneSourceMirrorBase(roots.pkgBase) ?? roots.pkgBase
   for (const config of CONTENT_SENSITIVE_SCAN_CONFIGS) {
     for (const scanned of scanModuleDir(roots, config)) {
-      const base = scanned.fromApp ? roots.appBase : roots.pkgBase
+      const base = scanned.fromApp ? roots.appBase : packageSourceBase
       const filePath = path.join(base, ...config.folder.split('/'), ...scanned.relPath.split('/'))
-      const record = fileRecord(filePath, base, 'content')
-      if (record) records.push(`${config.folder}:${record}`)
+      let sourceOrigin = 'app'
+      if (!scanned.fromApp) {
+        sourceOrigin = packageSourceBase === roots.pkgBase ? 'package' : 'package-source'
+      }
+      addFileRecord(records, `${config.folder}:${sourceOrigin}`, filePath, base, 'content')
+
+      if (!scanned.fromApp && packageSourceBase !== roots.pkgBase) {
+        const runtimeFile = resolveRuntimeCounterpart(roots.pkgBase, packageSourceBase, filePath)
+        if (runtimeFile) {
+          addFileRecord(
+            records,
+            `${config.folder}:package-runtime`,
+            runtimeFile,
+            roots.pkgBase,
+            'content',
+          )
+        } else {
+          records.push(`${config.folder}:package-runtime:missing:${scanned.relPath}`)
+        }
+      }
     }
   }
 
   for (const config of ROUTE_SHAPE_SCAN_CONFIGS) {
     for (const scanned of scanModuleDir(roots, config)) {
-      const base = scanned.fromApp ? roots.appBase : roots.pkgBase
+      const base = scanned.fromApp ? roots.appBase : packageSourceBase
       const folderPath = path.join(base, ...config.folder.split('/'))
       const filePath = path.join(folderPath, ...scanned.relPath.split('/'))
-      const pageRecord = fileRecord(filePath, base, hasInlinePageMetadata(filePath) ? 'content' : 'shape')
-      if (pageRecord) records.push(`${config.folder}:${pageRecord}`)
+      let sourceOrigin = 'app'
+      if (!scanned.fromApp) {
+        sourceOrigin = packageSourceBase === roots.pkgBase ? 'package' : 'package-source'
+      }
+      addFileRecord(
+        records,
+        `${config.folder}:${sourceOrigin}`,
+        filePath,
+        base,
+        hasInlinePageMetadata(filePath) ? 'content' : 'shape',
+      )
 
-      const dir = path.dirname(filePath)
+      let runtimeFile: string | null = null
+      if (!scanned.fromApp && packageSourceBase !== roots.pkgBase) {
+        runtimeFile = resolveRuntimeCounterpart(roots.pkgBase, packageSourceBase, filePath)
+        if (runtimeFile) {
+          addFileRecord(
+            records,
+            `${config.folder}:package-runtime`,
+            runtimeFile,
+            roots.pkgBase,
+            hasInlinePageMetadata(runtimeFile) ? 'content' : 'shape',
+          )
+        } else {
+          records.push(`${config.folder}:package-runtime:missing:${scanned.relPath}`)
+        }
+      }
+
       const stem = stripModuleCodeExtension(path.basename(filePath))
       const metaCandidates = stem === 'page'
         ? ['page.meta', 'meta']
         : [`${stem}.meta`, 'meta']
       for (const candidate of metaCandidates) {
-        const metaPath = resolveCodeFile(dir, candidate)
+        const metaPath = resolveCodeFile(path.dirname(filePath), candidate)
         if (!metaPath) continue
-        const record = fileRecord(metaPath, base, 'content')
-        if (record) records.push(`${config.folder}:meta:${record}`)
+        addFileRecord(records, `${config.folder}:meta:${sourceOrigin}`, metaPath, base, 'content')
+      }
+
+      if (runtimeFile) {
+        for (const candidate of metaCandidates) {
+          const runtimeMetaPath = resolveCodeFile(path.dirname(runtimeFile), candidate)
+          if (!runtimeMetaPath) continue
+          addFileRecord(
+            records,
+            `${config.folder}:meta:package-runtime`,
+            runtimeMetaPath,
+            roots.pkgBase,
+            'content',
+          )
+        }
       }
     }
   }
@@ -163,8 +275,11 @@ export function calculateGenerateWatchStructureChecksum(options: {
   records.push(modulesRecord ?? `missing:${options.modulesFile}`)
 
   for (const roots of options.moduleRoots) {
-    addConventionRecords(records, roots)
-    addScannedRecords(records, roots)
+    const moduleRecords: string[] = []
+    addConventionRecords(moduleRecords, roots)
+    addScannedRecords(moduleRecords, roots)
+    const rootIdentity = moduleRootIdentity(roots)
+    records.push(...moduleRecords.map((record) => `${rootIdentity}:${record}`))
   }
 
   return checksum(records.sort((a, b) => a.localeCompare(b)).join('\n'))
