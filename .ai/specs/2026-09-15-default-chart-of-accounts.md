@@ -564,7 +564,7 @@ after them.
 ## File Manifest
 
 - `lib/defaultChartOfAccounts.ts` (new) — the hardcoded Phase 1
-  template data (38 `LedgerAccountType` rows, 42 `LedgerAccount` rows
+  template data (39 `LedgerAccountType` rows, 43 `LedgerAccount` rows
   across zespoły 0–8), following `lib/seeds.ts`'s existing
   `seedPolishAccountGroups` pattern.
 - `commands/importDefaultChartOfAccounts.ts` (new) — the command
@@ -586,8 +586,8 @@ after them.
   rows, call the command, assert it succeeds and imports the full
   template alongside them.
 - **Happy path creates the full template**: call the command against
-  an empty chart of accounts, assert exactly 38 `LedgerAccountType`
-  rows and 42 `LedgerAccount` rows are created, each correctly linked
+  an empty chart of accounts, assert exactly 39 `LedgerAccountType`
+  rows and 43 `LedgerAccount` rows are created, each correctly linked
   to its `accountGroupId`/`accountTypeId`/`parentAccountTypeId`/
   `parentAccountId`.
 - **Undo restores empty state**: call the command, then its `undo`,
@@ -743,6 +743,28 @@ event; nothing to add to §2.
   119, new Tier 4 real-system entry, dated Changelog entry) — see that
   document's own Changelog for the mirrored entry.
 
+### 2026-09-24 (cont. — arithmetic error in the totals corrected before OM-16 implementation)
+
+- While starting implementation (OM-16, `lib/defaultChartOfAccounts.ts`),
+  counted every row in the Data Models tables directly rather than
+  trusting the document's own summary numbers (per
+  `financial-spec-citation-check`'s verification standard) and found a
+  real, one-off arithmetic error: File Manifest, Testing Strategy, and
+  the previous Changelog entry all stated 38 `LedgerAccountType` / 42
+  `LedgerAccount` rows, but the Data Models section's own "Totals:" line
+  already correctly said 39/43 — and a direct recount of every zespół's
+  own table (zespoły 0 through 8) confirms 39/43 is the number that
+  actually matches the template as specified, not 38/42.
+- The error predates the 070/071/072 split fix, not just this document's
+  arithmetic after it: the previous Changelog entry claimed that fix
+  moved the totals "from 36/40 to 38/42," but recomputing the pre-split
+  template (070 combined, no 072) gives 37/41, not 36/40 — the same
+  off-by-one existed before that fix and was carried through it
+  unnoticed.
+- Fixed File Manifest, Testing Strategy, and the previous Changelog
+  entry's numbers (now 37/41 to 39/43) to match the Data Models table,
+  which was correct all along and needed no change itself.
+
 ### 2026-09-15 (cont. — cross-spec consistency pass against every sibling spec; one real defect found and fixed)
 
 - Per the user's own request to check whether any other spec in this
@@ -763,7 +785,7 @@ event; nothing to add to §2.
   (Odpisy aktualizujące — impairment) as three genuinely separate
   accounts — and `FixedAsset.ledgerAccumulatedImpairmentAccountId`
   already expects `072` to exist as a real, importable account. Split
-  `070`/`071` and added `072`; totals updated from 36/40 to 38/42
+  `070`/`071` and added `072`; totals updated from 37/41 to 39/43
   `LedgerAccountType`/`LedgerAccount` rows throughout (Data Models,
   Testing Strategy, File Manifest). This is exactly the kind of
   external-reference correction Fixed Assets' own Changelog entry
