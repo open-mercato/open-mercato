@@ -12,7 +12,7 @@ import {
   resolveCrudCache,
 } from '@open-mercato/shared/lib/crud/cache'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { User } from '../../auth/data/entities'
 import { Message, MessageObject } from '../data/entities'
@@ -22,6 +22,11 @@ import {
   composeSourceHintSchema,
   resolveComposeSourceChannelType,
 } from '../lib/composeSourceChannelType'
+import {
+  EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
+  resolveMessageChannelThreadAccess,
+} from '../lib/channelThreadAccess'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveMessageActionData } from '../lib/actions'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
 import { getMessageType } from '../lib/message-types-registry'
@@ -499,6 +504,81 @@ export async function POST(req: Request) {
     }
   }
 
+  // #5535: composing on a channel conversation without naming a parent message
+  // used to open a brand-new thread. A fresh thread has no `ChannelThreadMapping`,
+  // so the outbound bridge had nothing to route on and the operator got a 201 for
+  // a message that was never delivered — a silent failure worse than a refusal.
+  // Attach the message to the conversation's existing thread instead, and refuse
+  // outright when there is no such thread to attach it to. Only messages meant to
+  // leave the platform are affected: a draft, or an internal note filed against
+  // the same conversation, is never delivered anyway and stays untouched.
+  let composeParentMessageId = input.parentMessageId
+  if (
+    isPublicVisibility &&
+    !input.isDraft &&
+    !input.parentMessageId &&
+    input.sourceEntityType === EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE &&
+    input.sourceEntityId
+  ) {
+    const channelThread = await resolveMessageChannelThreadAccess(
+      ctx.container,
+      { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
+      { externalConversationId: input.sourceEntityId },
+      { userId: scope.userId, features: resolveUserFeatures(ctx.auth) },
+    )
+    if (!channelThread) {
+      const { translate } = await resolveTranslations()
+      return Response.json(
+        {
+          error: translate(
+            'messages.errors.conversationHasNoChannelThread',
+            'Conversation has no channel thread to deliver into',
+          ),
+        },
+        { status: 409 },
+      )
+    }
+    if (!channelThread.canAccess) {
+      return Response.json({ error: 'Access denied' }, { status: 403 })
+    }
+    composeParentMessageId = channelThread.messageThreadId
+  }
+
+  // #5645 review: the gate above only runs when the client omits a parent. A
+  // caller-supplied `parentMessageId` reaches `messages.messages.compose`, which
+  // derives the thread from that parent alone — so a public, non-draft message
+  // could be threaded onto a channel-linked conversation and delivered to the
+  // external correspondent without any channel-access check. A tenant-wide
+  // channel accepts delivery from any sender, so `messages.compose` plus a known
+  // message id was enough. Apply the same check to the thread the command will
+  // actually derive. An internal thread, a thread outside the caller's scope,
+  // and an absent hub all resolve to `null` and keep the pre-existing rule.
+  if (isPublicVisibility && !input.isDraft && input.parentMessageId) {
+    const em = ctx.container.resolve('em') as EntityManager
+    const parentMessage = await findOneWithDecryption(
+      em,
+      Message,
+      {
+        id: input.parentMessageId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        deletedAt: null,
+      },
+      undefined,
+      { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    )
+    const parentThreadId = parentMessage?.threadId ?? input.parentMessageId
+    const channelThread = await resolveMessageChannelThreadAccess(
+      ctx.container,
+      { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
+      { messageThreadId: parentThreadId },
+      { userId: scope.userId, features: resolveUserFeatures(ctx.auth) },
+    )
+    if (channelThread && !channelThread.canAccess) {
+      return Response.json({ error: 'Access denied' }, { status: 403 })
+    }
+  }
+
   const guardResult = await runMessageMutationGuards(
     ctx.container,
     {
@@ -524,6 +604,7 @@ export async function POST(req: Request) {
   const { result, logEntry } = await commandBus.execute('messages.messages.compose', {
     input: {
       ...input,
+      parentMessageId: composeParentMessageId,
       sendViaEmail,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,

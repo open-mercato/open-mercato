@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
-import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
+import { registerCommand, type CommandHandler, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -13,7 +13,13 @@ import {
   updateDraftSchema,
 } from '../data/validators'
 import { linkAttachmentsToMessage, linkLibraryAttachmentsToMessage, copyAttachmentsForForwardMessages } from '../lib/attachments'
+import {
+  EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
+  resolveActorFeatures,
+  resolveMessageChannelThreadAccess,
+} from '../lib/channelThreadAccess'
 import { MESSAGE_ATTACHMENT_ENTITY_ID, MESSAGE_ENTITY_ID } from '../lib/constants'
+import { canUseChannelThreadFallback } from '../lib/routeHelpers'
 import { getMessageTypeOrDefault } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
 import { buildForwardBodyFromLegacyInput, buildForwardPreviewFromThreadSlice, buildForwardThreadSlice } from '../lib/forwarding'
@@ -704,6 +710,35 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
   },
 }
 
+/**
+ * The channel-thread fallback for a non-participant acting on `original`
+ * (#5535): the channels hub decides whether the caller may work the thread.
+ * An internal thread resolves to `null` and denies, leaving the participant
+ * rule in force. Only an explicitly public message qualifies — channel access
+ * never opens another operator's internal note, matching the detail read.
+ *
+ * The same `messages.view` gate as the read routes applies, because the hub
+ * grants every shared channel regardless of features: without it, a caller
+ * holding only `messages.compose` could forward a conversation it may not read
+ * to itself and read it as the recipient.
+ */
+async function canActOnChannelThreadMessage(
+  ctx: CommandRuntimeContext,
+  input: { tenantId: string; organizationId?: string | null; userId: string },
+  original: Message,
+): Promise<boolean> {
+  if (original.visibility !== 'public') return false
+  const scope = { tenantId: input.tenantId, organizationId: input.organizationId ?? null, userId: input.userId }
+  if (!(await canUseChannelThreadFallback(ctx, scope))) return false
+  const channelThread = await resolveMessageChannelThreadAccess(
+    ctx.container,
+    { tenantId: input.tenantId, organizationId: input.organizationId ?? null },
+    { messageThreadId: original.threadId ?? original.id },
+    { userId: input.userId, features: resolveActorFeatures(ctx.auth) },
+  )
+  return channelThread?.canAccess === true
+}
+
 const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: string | null; recipientUserIds: string[] }> = {
   id: 'messages.messages.reply',
   async execute(rawInput, ctx) {
@@ -715,7 +750,16 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
       recipientUserId: input.userId,
       deletedAt: null,
     })
-    if (original.senderUserId !== input.userId && !ownRecipient) throw new Error('Access denied')
+    if (original.senderUserId !== input.userId && !ownRecipient) {
+      // A message that arrived over a communication channel has no platform
+      // participant to match: its sender is the channel system user and an
+      // unassigned conversation produces no recipient rows, so the
+      // sender-or-recipient test denies every operator — a tenant admin
+      // included (#5535). For a thread the channels hub owns, that hub's own
+      // access rule is the applicable one; an internal thread resolves to
+      // `null` here and keeps the participant rule unchanged.
+      if (!(await canActOnChannelThreadMessage(ctx, input, original))) throw new Error('Access denied')
+    }
 
     const messageType = getMessageTypeOrDefault(original.type)
     if (messageType.allowReply === false) throw new Error('Reply is not allowed for this message type')
@@ -880,7 +924,12 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
       recipientUserId: input.userId,
       deletedAt: null,
     })
-    if (original.senderUserId !== input.userId && !isRecipient) throw new Error('Access denied')
+    // Same fallback as the reply command (#6355): an operator who may answer an
+    // inbound channel message may also forward it internally.
+    const viaChannelThread = original.senderUserId !== input.userId && !isRecipient
+    if (viaChannelThread && !(await canActOnChannelThreadMessage(ctx, input, original))) {
+      throw new Error('Access denied')
+    }
 
     const messageType = getMessageTypeOrDefault(original.type)
     if (messageType.allowForward === false) throw new Error('Forward is not allowed for this message type')
@@ -890,7 +939,7 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
       tenantId: input.tenantId,
       organizationId: input.organizationId,
       userId: input.userId,
-    }, original)
+    }, original, { includePublicThreadMessages: viaChannelThread })
     const generatedPreview = await buildForwardPreviewFromThreadSlice(em, {
       tenantId: input.tenantId,
       organizationId: input.organizationId,
@@ -899,6 +948,11 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
     const forwardedBody = typeof input.body === 'string'
       ? input.body
       : buildForwardBodyFromLegacyInput(generatedPreview.body, input.additionalBody)
+    // A forward of a channel conversation is addressed to colleagues, never to
+    // the correspondent. The channels bridge already refuses `forwardedFrom`, but
+    // the messages email path would still mail `externalEmail` on
+    // `sendViaEmail` — so the customer's address is not carried onto it.
+    const keepsExternalCorrespondent = original.sourceEntityType !== EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE
     let newMessageId = ''
     let responseExternalEmail: string | null = null
     await em.transactional(async (trx) => {
@@ -907,8 +961,8 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
         visibility: original.visibility ?? null,
         sourceEntityType: original.sourceEntityType,
         sourceEntityId: original.sourceEntityId,
-        externalEmail: original.externalEmail,
-        externalName: original.externalName,
+        externalEmail: keepsExternalCorrespondent ? original.externalEmail : null,
+        externalName: keepsExternalCorrespondent ? original.externalName : null,
         threadId: original.threadId ?? original.id,
         parentMessageId: original.id,
         senderUserId: input.userId,
