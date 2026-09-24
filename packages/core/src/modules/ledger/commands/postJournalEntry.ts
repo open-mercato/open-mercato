@@ -26,6 +26,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 import { FiscalPeriod, JournalEntry, JournalEntryLine, LedgerAccount, type JournalEntryType } from '../data/entities'
 import { postJournalEntrySchema, type PostJournalEntryInput } from '../data/validators'
 import { Currency } from '@open-mercato/core/modules/currencies/data/entities'
@@ -35,12 +36,15 @@ export type PostJournalEntryResult = { journalEntryId: string; sequenceNumber: n
 
 type Scope = { organizationId: string; tenantId: string }
 
-type TranslateFn = (key: string, fallback: string, params?: Record<string, unknown>) => string
-// Widened from the original (key, fallback) => string: resolveTranslations()'s
-// translate() is really a TranslateWithFallbackFn (see
-// packages/shared/src/lib/i18n/translate.ts) and already supports a params
-// bag for {placeholder} interpolation — requireValidPostingReferences (M5)
-// is this file's first caller that needs it.
+// PR #6340 review, B1: this used to be a module-local `TranslateFn` widened
+// to `params?: Record<string, unknown>` for requireValidPostingReferences's
+// (M5) {placeholder} interpolation needs. `resolveTranslations().translate`
+// is actually a `TranslateWithFallbackFn` (params: `TranslateParams`,
+// i.e. `Record<string, string | number>`), and `Record<string, unknown>`
+// isn't assignable to that — every call site that passed the real
+// `translate` failed TS2345. Importing the real type instead of
+// re-declaring a wider one, as `reverseJournalEntry.ts` already did,
+// fixes it at the source rather than at each call site.
 
 /**
  * Detects the deferred `journal_entry_lines_balanced` constraint trigger
@@ -124,7 +128,7 @@ async function requireCoveringUnlockedFiscalPeriod(
   em: EntityManager,
   scope: Scope,
   operationDate: Date,
-  translate: TranslateFn,
+  translate: TranslateWithFallbackFn,
 ): Promise<void> {
   const period = await em.findOne(
     FiscalPeriod,
@@ -209,7 +213,7 @@ async function requireValidPostingReferences(
   em: EntityManager,
   scope: Scope,
   input: JournalEntryPostCore,
-  translate: TranslateFn,
+  translate: TranslateWithFallbackFn,
 ): Promise<void> {
   const currency = await em.findOne(Currency, {
     id: input.currencyId,
@@ -246,7 +250,7 @@ async function requireValidPostingReferences(
 export async function runPostJournalEntry(
   em: EntityManager,
   input: JournalEntryPostCore,
-  translate: TranslateFn,
+  translate: TranslateWithFallbackFn,
 ): Promise<PostRunResult> {
   const scope: Scope = { organizationId: input.organizationId, tenantId: input.tenantId }
   await requireCoveringUnlockedFiscalPeriod(em, scope, input.operationDate, translate)
