@@ -376,6 +376,47 @@ describe('setRecordCustomFields', () => {
       expect(nativeDelete).not.toHaveBeenCalled()
       expect(current.valueInt).toBe(7)
     })
+
+    it('scopes the lookup by organizationId when pinOrganizationId is set, so a colliding recordId in another organization cannot be reached (#6034)', async () => {
+      // custom_entities_storage upserts on (entity_type, entity_id, organization_id), so the
+      // same recordId can be a live record in org-a and org-b at once — the recordId-is-globally-
+      // unique invariant this reconciliation otherwise relies on does not hold for those writes.
+      // pinOrganizationId adds organizationId back to the query, so org-a's row is never even
+      // fetched by an org-b write, and cannot be picked up as "left behind" and deleted.
+      const { em, find } = makeEm([])
+
+      await setRecordCustomFields(em, {
+        entityId: 'example:todo',
+        recordId: 'record-1',
+        organizationId: 'org-b',
+        tenantId: 'tenant-1',
+        values: { priority: 7 },
+        pinOrganizationId: true,
+      })
+
+      expect(find).toHaveBeenCalledWith(CustomFieldValue, {
+        entityId: 'example:todo',
+        recordId: 'record-1',
+        fieldKey: 'priority',
+        organizationId: 'org-b',
+        $or: [{ tenantId: 'tenant-1' }, { tenantId: null }],
+      })
+    })
+
+    it('leaves organizationId out of the lookup by default, matching another organization\'s row for the same recordId (#5970)', async () => {
+      const { em, find } = makeEm([])
+
+      await setRecordCustomFields(em, {
+        entityId: 'example:todo',
+        recordId: 'record-1',
+        organizationId: 'org-b',
+        tenantId: 'tenant-1',
+        values: { priority: 7 },
+      })
+
+      const [, where] = find.mock.calls.find(([entity]) => entity === CustomFieldValue) ?? []
+      expect(where).not.toHaveProperty('organizationId')
+    })
   })
 
   it('encrypts values for a tenant-wide definition that leaves organization_id null (#5919)', async () => {

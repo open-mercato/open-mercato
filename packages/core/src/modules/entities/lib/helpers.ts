@@ -23,6 +23,17 @@ export type SetRecordCustomFieldsOptions = {
   onChanged?: (payload: { entityId: string; recordId: string; organizationId: string | null; tenantId: string | null }) => Promise<void> | void
   // Optional: re-use an existing tenant encryption service instance
   encryptionService?: TenantDataEncryptionService | null
+  // When true, additionally scope the reconciling delete/lookup by organizationId,
+  // restoring the pre-#5970 organization pin. Default false relies on `recordId`
+  // being unique across organizations for a given entityId — true for every
+  // ORM-backed entity, where recordId is the record's own primary key. That
+  // invariant does not hold for `custom_entities_storage` records written under
+  // `ENTITIES_BACKCOMPAT_EAV_FOR_CUSTOM`: the table upserts on
+  // `(entity_type, entity_id, organization_id)`, so the same id can be a live
+  // record in two organizations of one tenant, and an organization-agnostic
+  // delete could remove another organization's values (#6034 review). Callers
+  // writing those records must pass pinOrganizationId: true.
+  pinOrganizationId?: boolean
 }
 
 function columnFromKind(kind: string): keyof CustomFieldValue {
@@ -94,9 +105,11 @@ export async function setRecordCustomFields(
   // indexing, so dropping the column here cannot widen what it returns.
   //
   // This relies on recordId being unique across organizations and tenants for a given
-  // entityId — true of every caller, which passes the record's own primary key. A caller
-  // that passed a per-organization natural key would have one organization's write delete
-  // another's live rows.
+  // entityId — true of every ORM-backed caller, which passes the record's own primary key.
+  // A caller that passed a per-organization natural key — or a recordId that is only unique
+  // WITHIN an organization, as custom_entities_storage's EAV backcompat writes are — would
+  // have one organization's write delete another's live rows. Those callers opt into
+  // pinOrganizationId (see SetRecordCustomFieldsOptions) to restore the organization pin.
   //
   // Scope of the delete, precisely: another TENANT's own rows are never touched. Rows with a
   // NULL tenant are, deliberately — they are instance-global and answer every tenant's reads,
@@ -104,6 +117,10 @@ export async function setRecordCustomFields(
   // explicit $or rather than `$in: [tenantId, null]` because SQL `IN (NULL)` never matches a
   // NULL row.
   const tenantScopeFilter = { $or: [{ tenantId }, { tenantId: null }] }
+  const pinOrganizationId = opts.pinOrganizationId === true
+  const reconcileScopeFilter = pinOrganizationId
+    ? { organizationId, ...tenantScopeFilter }
+    : tenantScopeFilter
   const keys = Object.keys(values)
   const presentKeyCount = keys.filter((key) => values[key] !== undefined).length
   if (preferDefs && presentKeyCount > MAX_CUSTOM_FIELD_KEYS_PER_RECORD) {
@@ -149,11 +166,13 @@ export async function setRecordCustomFields(
     // the replacement atomic without letting old-row cleanup target new rows.
     if (isArray) {
       const arr = raw as Primitive[]
-      // Reconciling delete (see tenantScopeFilter): pinning organizationId here left the
-      // rows written under the record's PREVIOUS organization alive next to the
-      // replacements, and the Query Engine's value join does not filter organization_id,
-      // so both generations answered the same lookup (#5970).
-      await em.nativeDelete(CustomFieldValue, { entityId, recordId, fieldKey, ...tenantScopeFilter })
+      // Reconciling delete (see tenantScopeFilter/reconcileScopeFilter): pinning
+      // organizationId here left the rows written under the record's PREVIOUS
+      // organization alive next to the replacements, and the Query Engine's value join
+      // does not filter organization_id, so both generations answered the same lookup
+      // (#5970) — unless the caller opted into pinOrganizationId because its recordId
+      // is not unique across organizations.
+      await em.nativeDelete(CustomFieldValue, { entityId, recordId, fieldKey, ...reconcileScopeFilter })
       for (const val of arr) {
         const col: keyof CustomFieldValue = encrypted ? 'valueText' : def ? columnFromKind(def.kind) : columnFromJsValue(val)
         const cf = em.create(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey, createdAt: new Date() })
@@ -186,7 +205,7 @@ export async function setRecordCustomFields(
     // survive (#5970). Picking the survivor in JS rather than narrowing the query keeps
     // NULL organizations out of SQL three-valued logic, where an inequality predicate
     // would silently spare exactly the stale rows this is meant to remove.
-    const existingRows = await em.find(CustomFieldValue, { entityId, recordId, fieldKey, ...tenantScopeFilter })
+    const existingRows = await em.find(CustomFieldValue, { entityId, recordId, fieldKey, ...reconcileScopeFilter })
     // A soft-deleted row is never the survivor: writing the new value onto it would leave
     // deleted_at set, hiding the field from loadCustomFieldValues while the live row it
     // replaced goes into staleIds. Tombstones still get deleted as stale — the Query
