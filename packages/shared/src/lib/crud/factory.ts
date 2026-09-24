@@ -635,6 +635,55 @@ function classifyCrudError(err: unknown): { code: CrudErrorCode; pgSqlState: str
   return { code: 'INTERNAL_ERROR', pgSqlState: null }
 }
 
+/**
+ * Translates a `z.ZodError`'s `issues` before they reach the client (PR
+ * #6340 review, m1). Every other error path in this factory (CrudHttpError,
+ * the interceptor rejection, the DB-error branches below) already routes
+ * its message through `translate()`; this was the one exception — a zod
+ * schema's `.refine()` message (or a built-in zod message like
+ * "Invalid UUID") is a plain string baked in at schema-definition time,
+ * long before any request's locale is known, so it reached the client
+ * untranslated regardless of the caller's `accept-language`/`locale`
+ * cookie.
+ *
+ * The fix is opt-in and additive, not a retrofit of every existing zod
+ * schema in the repo: a `.refine()` (or `superRefine`) call can now attach
+ * `params: { i18nKey: '<dict key>', i18nFallback: '<the same English text
+ * that used to be the `message`>' }` alongside its `message`, and this
+ * function translates that issue's `message` via
+ * `translate(i18nKey, i18nFallback)` when present. An issue with no
+ * `i18nKey` (which is every zod schema in the repo today, including this
+ * module's own built-in messages like "Invalid UUID" or "Required") is
+ * left exactly as it was — `issue.message` unchanged — so adopting this
+ * mechanism is a per-schema, per-message choice with zero behavior change
+ * for every schema that hasn't opted in yet. See
+ * `packages/core/src/modules/ledger/data/validators.ts` for the first real
+ * usage of `i18nKey`/`i18nFallback` on a `.refine()` call.
+ *
+ * Translating zod's own built-in messages (type/format mismatches like
+ * "Invalid UUID", "Required", `min`/`max` length messages) is a separate,
+ * larger effort — each would need its own per-field `message`/`error`
+ * override wired to this same convention — and is deliberately out of
+ * scope here; this only covers `.refine()`/`superRefine`'s custom
+ * `message`, which is where this repo's actual business-rule validation
+ * text lives.
+ */
+async function translateZodIssues(issues: z.ZodIssue[]): Promise<z.ZodIssue[]> {
+  const withI18nKey = issues.some((issue) => {
+    const params = (issue as { params?: unknown }).params
+    return !!params && typeof params === 'object' && typeof (params as Record<string, unknown>).i18nKey === 'string'
+  })
+  if (!withI18nKey) return issues
+  const { translate } = await resolveTranslations()
+  return issues.map((issue) => {
+    const params = (issue as { params?: unknown }).params as Record<string, unknown> | undefined
+    const i18nKey = typeof params?.i18nKey === 'string' ? params.i18nKey : undefined
+    if (!i18nKey) return issue
+    const fallback = typeof params?.i18nFallback === 'string' ? params.i18nFallback : issue.message
+    return { ...issue, message: translate(i18nKey, fallback) }
+  })
+}
+
 async function handleError(err: unknown, request?: Request): Promise<Response> {
   if (err instanceof Response) return err
   if (isCrudHttpError(err)) {
@@ -648,7 +697,9 @@ async function handleError(err: unknown, request?: Request): Promise<Response> {
   if (interceptorRejection) {
     return json(interceptorRejection.body, { status: interceptorRejection.status })
   }
-  if (err instanceof z.ZodError) return json({ error: 'Invalid input', details: err.issues }, { status: 400 })
+  if (err instanceof z.ZodError) {
+    return json({ error: 'Invalid input', details: await translateZodIssues(err.issues) }, { status: 400 })
+  }
   if (isTransientDbError(err)) {
     // Transient DB unavailability (pool exhausted, `max_connections` reached, DB
     // restarting) is retryable — surface a 503 with a Retry-After hint instead of
@@ -2314,7 +2365,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       return response
     } catch (e) {
       finishProfile({ result: 'error' })
-      return handleError(e, request)
+      return await handleError(e, request)
     }
   }
 
@@ -2632,7 +2683,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       payload = await enrichSingleRecord(payload, ctx)
       return json(payload, { status: 201 })
     } catch (e) {
-      return handleError(e, request)
+      return await handleError(e, request)
     }
   }
 
@@ -2974,7 +3025,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
       return json(payload)
     } catch (e) {
-      return handleError(e, request)
+      return await handleError(e, request)
     }
   }
 
@@ -3267,7 +3318,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
       return json(payload)
     } catch (e) {
-      return handleError(e, request)
+      return await handleError(e, request)
     }
   }
 

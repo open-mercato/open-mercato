@@ -302,6 +302,25 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // intact'), and #4983 for the discussion.
   // { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
   },
+  // PR #6340 review, m12: template-sync didn't know the ledger module was
+  // deliberately kept commented out in the template (see the comment in
+  // packages/create-app/template/src/modules.ts), so `template-sync --check`
+  // reported it as drift and `template:sync:fix` would have silently
+  // re-enabled it there.
+  ledger: {
+    source: `  { id: 'ledger', from: '@open-mercato/core' },`,
+    template: `  // General Ledger core engine (PR #6340). Ships with the scaffold but stays
+  // disabled in the template: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/ledger/index.md in context.required, so enabling it
+  // here trips packages/create-app/src/lib/module-facts-build.test.ts ('every
+  // module fact-sheet a scaffold ships is required by at least one catalog
+  // case'). Run the om-refresh-standalone-harness skill to add that coverage,
+  // then enable it in the template. Tracked in TEMPLATE_COMMENTED_MODULES
+  // (scripts/template-sync.ts) so 'template-sync --check' treats this as a
+  // deliberate divergence rather than drift (PR #6340 review, m12).
+  // { id: 'ledger', from: '@open-mercato/core' },`,
+  },
 }
 
 function commentOutTemplateModules(content: string, rel: string): string {
