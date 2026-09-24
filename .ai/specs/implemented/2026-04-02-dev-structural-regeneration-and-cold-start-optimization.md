@@ -847,12 +847,14 @@ No product API or UI is changed; issue acceptance is exercised through the real 
 
 The snapshot/planner, selected suite/registry execution, and both watcher entrypoints are implemented. The parent integration run reports:
 
-- **129 focused CLI tests passed.**
+- **135 focused CLI tests passed across 10 suites.**
 - **453 current-app non-checksum artifacts were byte-identical** between baseline and final full generation. This excludes internal checksum records and is not a claim that every untouched incremental import alias must be renumbered.
-- Real watcher fixtures passed **28 samples each** for source-TypeScript and compiled-JavaScript layouts. Successful bundle mode exercised API → registry + OpenAPI, page → registry, entities → entity IDs + entities, DI → DI, same-byte rewrites → zero runs, and burst changes → the union of affected groups.
+- Real watcher fixtures passed **28 timed samples total** across source-TypeScript and compiled-JavaScript layouts. Each layout has 15 checkpoints, including one same-byte no-op. Successful bundle mode exercised API → registry + OpenAPI, page → registry, entities → entity IDs + entities, DI → DI, same-byte rewrites → zero runs, and burst changes → the union of affected groups.
 - Successful-bundle full-reference versus incremental comparison found **zero non-checksum artifact differences at all 30 checkpoints** across source-TypeScript and compiled-JavaScript fixtures (28 timed runs plus two same-byte no-op checkpoints), normalizing only the temporary fixture root in artifact strings. The final fallback baseline-versus-incremental-cascade comparison likewise found zero differences at all 30 checkpoints. Group selection and artifact parity are the primary evidence; the fixture's `250ms` debounce dominates its microbenchmark timing, so no microbenchmark speedup is claimed.
 - Both independent reviewers reported no remaining blockers after repairs.
-- The ordered full gate passed package build, generation, second package build, i18n sync, i18n usage, and typecheck. The first full-test attempt found a malformed untouched UI fixture; its user-approved correction passed **18 targeted UI tests**. The complete test rerun and app build remain pending, so this is **not** a completed full-gate or merge-readiness verdict.
+- The configured local gate passed in order: `yarn build:packages`, `yarn generate`, `yarn build:packages`, `yarn i18n:check-sync`, `yarn i18n:check-usage`, `yarn typecheck`, `yarn test`, and `yarn build:app`. Final full tests completed with **46 successful workspace tasks** (four cached); the app build exited successfully. The local runtime qualification below applies.
+- User-approved test-only gate repairs completed the hidden-group widget identity fixture, supplied the catalog locale hook mock, removed an unnecessary virtual mock for the installed `next/headers` module, compared filesystem mtimes against their observed values, and made the form-transform assertion await the current visible field state. Expected behavior and production UI/locale behavior remain unchanged; no Jest configuration change is retained.
+- Native worker crashes on local Node `24.13.1` and `24.21.0` match the `ClearStaleLeftTrimmedPointerVisitor` / `BaselineOutOfLinePrologue` signature in [nodejs/node#62393](https://github.com/nodejs/node/issues/62393). The [Node 24 backport](https://github.com/nodejs/node/pull/65753) is still open. Final local validation uses installed Node `24.13.1`, with the documented `--no-sparkplug` workaround for Jest through a temporary launcher. Node's standalone test runner retains native executable discovery and unchanged sandbox restrictions. No repository runtime setting or test selection is changed. Benchmark measurements above retain their original unmodified Node `24.13.1` runtime.
 
 #### Final Current-App Selected-Runner Measurements
 
@@ -871,13 +873,15 @@ The current app still encounters the pre-existing JSON import-attribute bundling
 
 After source restoration, a final full generation completed in `9.235s` with `bytesChanged: false`. The source mutations were restored. The separate `9.358s` pre-change full-suite reference was supplied from the earlier direct-Node run rather than remeasured inside this benchmark; its different timing boundary must not be presented as a controlled end-to-end speedup ratio.
 
-### Remaining Completion Gate
+### Completion and Merge Status
 
-Record the complete full-test rerun and app build before marking this amendment fully verified. Historical cold-start results remain unchanged and do not serve as verification of this watch-only implementation.
+Implementation, independent review, artifact parity, and the configured local gate are complete. Historical cold-start results remain unchanged and are not verification of this watch-only implementation.
+
+Remote CI for source commit `7607e943e` passed unit tests, lint, design-system lint, Docker build, CodeQL, document multi-instance checks, and 14 of 15 integration shards. [Integration shard 2](https://github.com/open-mercato/open-mercato/actions/runs/35912959404/job/107363582350) remains red: `todo-priority-validation.spec.ts:129` times out clicking the already-selected Medium severity option. The retry trace reports the option outside the viewport after repeated scrolling; the scenario never reaches form submission. The later closed-request-context error is teardown fallout, not the primary failure. This untouched UI scenario has not been changed or bypassed, and the trace alone does not establish whether its cause is test orchestration or product positioning. CI and manual QA remain merge prerequisites; this is not a merge-ready verdict.
 
 ### Changelog — 2026-09-23
 
 - Implemented issue #2205 snapshot-authoritative targeted watch regeneration, suite/output dependencies, source/dist reconciliation, conservative fallbacks, retry/ownership rules, and parity requirements.
-- Recorded the supplied baseline and final qualified current-app measurements, focused CLI/filesystem evidence, and remaining full-gate work; preserved historical sections and their dated outcomes.
+- Recorded the supplied baseline and final qualified current-app measurements, focused CLI/filesystem evidence, completed local gate, and separate remote integration blocker; preserved historical sections and their dated outcomes.
 - Additional supplied repeat baseline, **before source rebuild**: `CACHE_STRATEGY=memory node packages/cli/dist/bin.js generate all` under Node 24 reported `9.358s` CLI time and `9.61s` command wall time after the initial full run. Outputs were unchanged and structural invalidation was skipped; `584` route files were detected. The same JSON import-attribute error forced non-cacheable OpenAPI static fallback. This is a qualified repeated full-generation observation, not a normal successful cached-OpenAPI run or evidence of incremental performance.
 - Documented pre-producer OpenAPI input-graph capture and changed-output cascading, external dependency/supervisor/adapter watch coverage, and explicit no-self-watch ownership.
