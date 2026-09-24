@@ -418,19 +418,19 @@ created.
 
 ## API Contracts
 
-No new HTTP routes. The existing `backend/ledger/accounts/page.tsx`
-already has client-side access to `commandBus` for its existing
-create/update actions; the new "Zaimportuj domyślny plan kont" button
-calls `commandBus.execute('ledger.importDefaultChartOfAccounts', {})`
-the same way the page's existing actions call their own commands. **Open
-validation point for implementation**: whether the existing CRUD-route
-plumbing already exposes a generic non-CRUD "run this command" endpoint
-the button can call, or whether one thin route needs adding to trigger
-this one command from the client — this should be confirmed against
-whatever mechanism the codebase already uses elsewhere for a
-non-CRUD, button-triggered command (if one already exists) before
-implementation starts; this document does not invent new generic
-command-triggering infrastructure either way.
+One new HTTP route: `POST /api/ledger/accounts/import-default-chart-of-accounts`.
+This section's initial draft assumed `backend/ledger/accounts/page.tsx`
+already had client-side access to `commandBus` for its existing
+create/update actions — checked directly during OM-18 implementation
+and found false: like every other backend page in this module, it
+calls REST routes under `/api/ledger/...` (via `apiCall`), never
+`commandBus.execute` from the client. The **open validation point**
+this section originally raised is resolved: no generic non-CRUD "run
+this command" endpoint existed, so one thin route was added, following
+the exact pattern `api/fiscal-periods/[id]/lock/route.ts` already
+established for this situation (see File Manifest). Gated by
+`ledger.accounts.manage`, matching the route's own
+`metadata.POST.requireFeatures`.
 
 ## Literature & Prior Art
 
@@ -550,8 +550,12 @@ after them.
    the ordered insert (account types before accounts) inside one
    `withAtomicFlush` transaction, and the `buildLog`/`undo` payload
    recording every created id.
-3. Register the new command in `ledger`'s module manifest, gated by
-   the existing `ledger.accounts.manage` feature.
+3. No module-manifest registration needed — `ledger`'s command
+   auto-discovery (the `module-registry.ts` generator; see File
+   Manifest) picks up `commands/importDefaultChartOfAccounts.ts`
+   automatically once the file exists in the right location; the
+   command is gated by the existing `ledger.accounts.manage` feature,
+   the same as every other command in this module.
 4. Add the "Zaimportuj domyślny plan kont" button to
    `backend/ledger/accounts/page.tsx`, wired to call the new command
    and refresh the page's existing `DataTable` on success, surfacing
@@ -831,6 +835,27 @@ event; nothing to add to §2.
   Config, no auto-picked account" pattern this document is fully
   compatible with — it only makes more accounts available to pick
   from). No changes needed to any of the four.
+
+### 2026-09-24 (cont. — Implementation Plan / API Contracts corrected post-implementation)
+
+Two more stale-text findings, same class as the File Manifest gap
+above, caught during a full re-verification of this document's scope
+against the finished implementation and Jira (OM-16–OM-20):
+
+- **Implementation Plan, step 3** still said "Register the new command
+  in `ledger`'s module manifest" — the same auto-discovery correction
+  already made to File Manifest, just never carried back to this
+  section. Corrected.
+- **API Contracts** still said "No new HTTP routes" and that
+  `backend/ledger/accounts/page.tsx` "already has client-side access
+  to `commandBus`" — both written before implementation, both checked
+  directly against the real page code (`apiCall` to a REST route, not
+  `commandBus.execute`) and confirmed false. Corrected to describe the
+  route that was actually added, resolving the open validation point
+  this section itself raised.
+
+No scope change — both are wording corrections to match work already
+completed and already closed in Jira, not new requirements.
 
 ### 2026-09-24 (cont. — File Manifest gap found and fixed during OM-18 implementation)
 
