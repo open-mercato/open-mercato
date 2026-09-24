@@ -321,7 +321,7 @@ test.describe('TC-EUDR-007: Statement lifecycle', () => {
         token,
         data: statementCreatePayload(`TC-EUDR-007 Invalid available ${stamp}`, { status: 'available' }),
       })
-      await expectErrorKey(invalidCreateResponse, 'invalidTransition')
+      await expectErrorKey(invalidCreateResponse, 'Invalid status transition.')
 
       const statementId = await createStatement(request, token, `TC-EUDR-007 Submit gate ${stamp}`)
       statementIds.push(statementId)
@@ -496,7 +496,7 @@ test.describe('TC-EUDR-007: Statement lifecycle', () => {
         id: submitted.statementId,
         quantityKg: 1600,
       })
-      await expectErrorKey(elapsedAmendResponse, 'amendWindowElapsed')
+      await expectErrorKey(elapsedAmendResponse, 'The amendment window has elapsed.')
 
       // Regression: an unchanged numeric echo (PG returns scale-padded numerics,
       // e.g. '100.000') must NOT count as an amendment — non-guarded fields stay
@@ -514,7 +514,7 @@ test.describe('TC-EUDR-007: Statement lifecycle', () => {
         id: submitted.statementId,
         referenceIssuedAt: new Date().toISOString(),
       })
-      await expectErrorKey(immutableIssuedAtResponse, 'referenceIssuedAtImmutable')
+      await expectErrorKey(immutableIssuedAtResponse, 'Reference issue date cannot be changed.')
 
       const fresh = await createSubmittedStatement(request, token, {
         supplierEntityId: supplierId,
@@ -567,7 +567,7 @@ test.describe('TC-EUDR-007: Statement lifecycle', () => {
         id: upstream.statementId,
         status: 'withdrawn',
       })
-      await expectErrorKey(referencedWithdrawResponse, 'referencedDownstream')
+      await expectErrorKey(referencedWithdrawResponse, 'This statement is referenced by a downstream statement.')
     } finally {
       for (const id of assessmentIds.reverse()) await deleteByCrudPath(request, token, RISK_ASSESSMENTS_PATH, id)
       for (const id of submissionIds.reverse()) await deleteByCrudPath(request, token, EVIDENCE_SUBMISSIONS_PATH, id)
@@ -598,16 +598,16 @@ test.describe('TC-EUDR-007: Statement lifecycle', () => {
         id: archivedStatementId,
         title: `TC-EUDR-007 Archive edited ${stamp}`,
       })
-      await expectErrorKey(archivedEditResponse, 'archivedReadOnly')
+      await expectErrorKey(archivedEditResponse, 'Archived statements are read-only.')
       const archivedReopenResponse = await updateStatement(request, token, { id: archivedStatementId, status: 'draft' })
-      await expectErrorKey(archivedReopenResponse, 'invalidTransition')
+      await expectErrorKey(archivedReopenResponse, 'Invalid status transition.')
       const archivedDeleteResponse = await apiRequest(
         request,
         'DELETE',
         `${STATEMENTS_PATH}?id=${encodeURIComponent(archivedStatementId)}`,
         { token },
       )
-      await expectErrorKey(archivedDeleteResponse, 'archivedReadOnly')
+      await expectErrorKey(archivedDeleteResponse, 'Archived statements are read-only.')
 
       const assessedStatementId = await createStatement(request, token, `TC-EUDR-007 Latest risk ${stamp}`)
       statementIds.push(assessedStatementId)
