@@ -42,5 +42,5 @@ When an OCR provider call is aborted by a timeout, report it as a timeout instea
 
 ### Phase 2: Fix and verification
 
-- [ ] 2.1 Map TimeoutError/AbortError in the OCR error mapper
+- [x] 2.1 Map TimeoutError/AbortError in the OCR error mapper — dfdb8d2464
 - [ ] 2.2 Run the focused suite and the validation gate
