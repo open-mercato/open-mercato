@@ -30,6 +30,7 @@
   "customers.activities.errors.dateRequired": "La fecha es obligatoria",
   "customers.activities.errors.participantEmailInvalid": "Introduce una dirección de correo electrónico válida para un invitado (p. ej., invitado@example.org)",
   "customers.activities.errors.participantIdentityRequired": "Un participante necesita un registro de usuario o una dirección de correo electrónico",
+  "customers.activities.errors.phoneConflict": "Indica el mismo número de teléfono en phoneNumber y customValues.callPhoneNumber.",
   "customers.activities.errors.phoneInvalid": "Introduce un número de teléfono válido con prefijo internacional (p. ej., +34 912 345 678)",
   "customers.activities.errors.phoneRequired": "El número de teléfono es obligatorio para actividades de llamada",
   "customers.activities.errors.timeRequired": "La hora es obligatoria",
