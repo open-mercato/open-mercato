@@ -24,6 +24,60 @@ import { useCurrencyDictionary } from './hooks/useCurrencyDictionary'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { normalizeCustomFieldSubmitValue } from './customFieldUtils'
 import { DealOwnerSelect, type DealOwnerOption } from './DealOwnerSelect'
+import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
+
+/**
+ * Owner control for the deal form. On a create form it self-assigns to the current user once
+ * that id resolves, matching the pipeline quick-create dialog so a new deal does not start
+ * unowned. The ref guard makes that a one-shot: it never overwrites a choice the user has
+ * already made, and never runs at all in edit mode (autoAssignUserId is empty there).
+ */
+function DealOwnerFieldControl({
+  value,
+  setValue,
+  initialOption,
+  disabled,
+  autoAssignUserId,
+}: {
+  value: string | null
+  setValue: (next: string) => void
+  initialOption: DealOwnerOption | null
+  disabled: boolean
+  autoAssignUserId: string
+}) {
+  const seeded = React.useRef(false)
+  React.useEffect(() => {
+    if (seeded.current || !autoAssignUserId) return
+    seeded.current = true
+    if (!value) setValue(autoAssignUserId)
+    // `value` is read but intentionally not a dependency: the ref makes this a one-shot seed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoAssignUserId, setValue])
+
+  return (
+    <DealOwnerSelect
+      value={value && value.length ? value : null}
+      onChange={(next) => setValue(next ?? '')}
+      initialOption={initialOption}
+      disabled={disabled}
+    />
+  )
+}
+
+/**
+ * Create-mode wrapper. The current-user lookup is a network round-trip, so it lives here
+ * rather than in DealForm itself — an edit form (the deal detail page, the common case)
+ * never self-assigns and must not pay for the request.
+ */
+function DealOwnerCreateField(props: {
+  value: string | null
+  setValue: (next: string) => void
+  initialOption: DealOwnerOption | null
+  disabled: boolean
+}) {
+  const currentUserId = useCurrentUserId()
+  return <DealOwnerFieldControl {...props} autoAssignUserId={currentUserId} />
+}
 
 export type DealFormBaseValues = {
   title: string
@@ -1042,14 +1096,17 @@ export function DealForm({
       label: t('customers.deals.fields.owner', 'Owner'),
       type: 'custom',
       layout: 'half',
-      component: ({ value, setValue }) => (
-        <DealOwnerSelect
-          value={typeof value === 'string' && value ? value : null}
-          onChange={(next) => setValue(next ?? '')}
-          initialOption={initialOwnerOption ?? null}
-          disabled={disabled}
-        />
-      ),
+      component: ({ value, setValue }) => {
+        const controlProps = {
+          value: typeof value === 'string' ? value : null,
+          setValue: (next: string) => setValue(next),
+          initialOption: initialOwnerOption ?? null,
+          disabled,
+        }
+        return mode === 'create'
+          ? <DealOwnerCreateField {...controlProps} />
+          : <DealOwnerFieldControl {...controlProps} autoAssignUserId="" />
+      },
     } as CrudField,
     {
       id: 'description',
@@ -1097,7 +1154,7 @@ export function DealForm({
         />
       ),
     } as CrudField,
-  ], [currencyDictionaryLabels, fetchCurrencyOptions, resolvedCurrencyError, pipelines, pipelineStages, loadStagesForPipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, initialOwnerOption, searchCompanies, searchPeople, t])
+  ], [currencyDictionaryLabels, fetchCurrencyOptions, resolvedCurrencyError, pipelines, pipelineStages, loadStagesForPipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, initialOwnerOption, mode, searchCompanies, searchPeople, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
     const nextGroups: CrudFormGroup[] = [

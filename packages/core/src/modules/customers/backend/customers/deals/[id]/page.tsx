@@ -400,6 +400,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
         onDirtyChange={setIsDirty}
         initialPipelineOptions={formPipelineOptions}
         initialPipelineStageOptions={data.pipelineStages}
+        initialOwnerOption={data.owner ? { id: data.owner.id, name: data.owner.name, email: data.owner.email } : null}
         collapsibleGroups={{ pageType: 'deal-detail-v3', chevronPosition: 'right' }}
         sortableGroups={{ pageType: 'deal-detail-v3' }}
         initialValues={{
