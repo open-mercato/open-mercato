@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
-import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
+import { registerCommand, type CommandHandler, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -705,6 +705,28 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
   },
 }
 
+/**
+ * The channel-thread fallback for a non-participant acting on `original`
+ * (#5535): the channels hub decides whether the caller may work the thread.
+ * An internal thread resolves to `null` and denies, leaving the participant
+ * rule in force. Only an explicitly public message qualifies — channel access
+ * never opens another operator's internal note, matching the detail read.
+ */
+async function canActOnChannelThreadMessage(
+  ctx: CommandRuntimeContext,
+  input: { tenantId: string; organizationId?: string | null; userId: string },
+  original: Message,
+): Promise<boolean> {
+  if (original.visibility !== 'public') return false
+  const channelThread = await resolveMessageChannelThreadAccess(
+    ctx.container,
+    { tenantId: input.tenantId, organizationId: input.organizationId ?? null },
+    { messageThreadId: original.threadId ?? original.id },
+    { userId: input.userId, features: resolveActorFeatures(ctx.auth) },
+  )
+  return channelThread?.canAccess === true
+}
+
 const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: string | null; recipientUserIds: string[] }> = {
   id: 'messages.messages.reply',
   async execute(rawInput, ctx) {
@@ -724,13 +746,7 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
       // included (#5535). For a thread the channels hub owns, that hub's own
       // access rule is the applicable one; an internal thread resolves to
       // `null` here and keeps the participant rule unchanged.
-      const channelThread = await resolveMessageChannelThreadAccess(
-        ctx.container,
-        { tenantId: input.tenantId, organizationId: input.organizationId ?? null },
-        { messageThreadId: original.threadId ?? original.id },
-        { userId: input.userId, features: resolveActorFeatures(ctx.auth) },
-      )
-      if (!channelThread?.canAccess) throw new Error('Access denied')
+      if (!(await canActOnChannelThreadMessage(ctx, input, original))) throw new Error('Access denied')
     }
 
     const messageType = getMessageTypeOrDefault(original.type)
@@ -896,7 +912,13 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
       recipientUserId: input.userId,
       deletedAt: null,
     })
-    if (original.senderUserId !== input.userId && !isRecipient) throw new Error('Access denied')
+    // Same fallback as the reply command (#6355): an operator who may answer an
+    // inbound channel message may also forward it internally. The forward is
+    // never delivered outbound — the channels bridge refuses `forwardedFrom`.
+    const viaChannelThread = original.senderUserId !== input.userId && !isRecipient
+    if (viaChannelThread && !(await canActOnChannelThreadMessage(ctx, input, original))) {
+      throw new Error('Access denied')
+    }
 
     const messageType = getMessageTypeOrDefault(original.type)
     if (messageType.allowForward === false) throw new Error('Forward is not allowed for this message type')
@@ -906,7 +928,7 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
       tenantId: input.tenantId,
       organizationId: input.organizationId,
       userId: input.userId,
-    }, original)
+    }, original, { includePublicThreadMessages: viaChannelThread })
     const generatedPreview = await buildForwardPreviewFromThreadSlice(em, {
       tenantId: input.tenantId,
       organizationId: input.organizationId,

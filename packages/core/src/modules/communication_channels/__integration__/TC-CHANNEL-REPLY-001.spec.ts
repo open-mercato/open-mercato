@@ -22,11 +22,15 @@ import {
  * no `message_recipients` row, so `messages`' sender-or-recipient predicate was
  * false for every operator by construction — a tenant admin included.
  *
- * Three assertions, in the order an operator hits them:
- *   1. `GET /api/messages/{id}` — the detail page the reply button lives on.
+ * Assertions, in the order an operator hits them:
+ *   1. `GET /api/messages/{id}` — the detail page the reply button lives on,
+ *      plus its attachments panel (#6354) and the forward preview (#6355),
+ *      which must open whatever the detail page opens.
  *   2. `POST /api/messages/{id}/reply` — 403 for everyone before the fix.
  *   3. the outbound `MessageChannelLink`, proving the answer was actually routed
  *      back to the channel rather than filed as an internal message.
+ *   4. `POST /api/messages/{id}/forward` — forwarding the customer's message to
+ *      a colleague (#6355).
  *
  * Driven via the env-gated test-seed fixture (`OM_ENABLE_TEST_CHANNEL_SEEDING`)
  * and the REAL `ingest_inbound_message` command, so nothing about the message
@@ -43,6 +47,14 @@ if (!process.env.OM_TEST_APP_ROOT?.trim()) {
 
 const EVENTS_QUEUE = 'events'
 const OUTBOUND_QUEUE = 'communication-channels-outbound'
+
+function readTokenUserId(token: string): string {
+  const payload = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8')) as { sub?: unknown }
+  if (typeof payload.sub !== 'string' || payload.sub.length === 0) {
+    throw new Error('[internal] auth token carries no subject')
+  }
+  return payload.sub
+}
 
 /**
  * The outbound path is asynchronous: `messages.message.sent` reaches the bridge
@@ -128,6 +140,34 @@ test.describe('TC-CHANNEL-REPLY-001: answering an inbound channel message', () =
         'the whole channel conversation must be visible, not only the operator own messages',
       ).toContain(inboundMessageId)
 
+      // The page renders its attachments panel and offers Forward on the same
+      // message; both must open whatever the detail read opens (#6354, #6355).
+      const attachmentsResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/messages/${inboundMessageId}/attachments`,
+        { token },
+      )
+      expect(
+        attachmentsResponse.status(),
+        'the attachments panel must open the message the detail page opens',
+      ).toBe(200)
+      const forwardPreviewResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/messages/${inboundMessageId}/forward-preview`,
+        { token },
+      )
+      expect(
+        forwardPreviewResponse.status(),
+        'the forward preview must open the message the detail page opens',
+      ).toBe(200)
+      const forwardPreview = await readJsonSafe<{ body?: string }>(forwardPreviewResponse)
+      expect(
+        forwardPreview?.body ?? '',
+        'the forward preview must carry the customer message, not an empty conversation',
+      ).toContain('is anyone there?')
+
       // (2) The reply itself — the wall the issue reports.
       const replyResponse = await apiRequest(
         request,
@@ -149,6 +189,18 @@ test.describe('TC-CHANNEL-REPLY-001: answering an inbound channel message', () =
         total,
         'the answer must be routed back to the channel, not filed as an internal message',
       ).toBeGreaterThanOrEqual(2)
+
+      // (4) Forwarding the customer's message internally (#6355).
+      const forwardResponse = await apiRequest(
+        request,
+        'POST',
+        `/api/messages/${inboundMessageId}/forward`,
+        { token, data: { recipients: [{ userId: readTokenUserId(token), type: 'to' }] } },
+      )
+      expect(
+        forwardResponse.status(),
+        'an operator who may answer an inbound channel message must be able to forward it',
+      ).toBe(201)
     } finally {
       await deleteChannelIfExists(request, token, channelId)
     }

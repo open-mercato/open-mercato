@@ -1,5 +1,10 @@
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
-import { CHANNEL_THREAD_FALLBACK_FEATURE } from './channelThreadAccess'
+import {
+  CHANNEL_THREAD_FALLBACK_FEATURE,
+  EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
+  resolveActorFeatures,
+  resolveMessageChannelThreadAccess,
+} from './channelThreadAccess'
 
 export function hasOrganizationAccess(
   scopeOrganizationId: string | null,
@@ -75,6 +80,37 @@ export async function canUseChannelThreadFallback(
   } catch {
     return false
   }
+}
+
+/**
+ * Whether the caller may work the channel-linked thread `message` belongs to
+ * through the channels hub's access rule, rather than as a participant (#5535).
+ *
+ * Shared by every read route that widens its participant test for channel
+ * threads — the detail read, the attachments list and the forward preview — so
+ * the three cannot drift apart (#6354). Only channel-sourced messages pay the
+ * lookup; the fallback is feature-gated through {@link canUseChannelThreadFallback}
+ * because the hub's rule grants every shared channel unconditionally. An
+ * internal thread, a missing hub or a denied gate all read `false`, leaving the
+ * participant rule in force.
+ *
+ * Callers still decide what the widening covers: channel access never opens a
+ * message that is not explicitly public.
+ */
+export async function hasChannelThreadReadAccess(
+  ctx: Awaited<ReturnType<typeof resolveRequestContext>>['ctx'],
+  scope: MessageScope,
+  message: { id: string; threadId?: string | null; sourceEntityType?: string | null },
+): Promise<boolean> {
+  if (message.sourceEntityType !== EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE) return false
+  if (!(await canUseChannelThreadFallback(ctx, scope))) return false
+  const channelThread = await resolveMessageChannelThreadAccess(
+    ctx.container,
+    { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
+    { messageThreadId: message.threadId ?? message.id },
+    { userId: scope.userId, features: resolveActorFeatures(ctx.auth) },
+  )
+  return channelThread?.canAccess === true
 }
 
 export async function canUseMessageEmailFeature(

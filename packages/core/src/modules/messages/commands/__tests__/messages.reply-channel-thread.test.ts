@@ -28,12 +28,24 @@ describe('messages.messages.reply on a channel-linked thread (#5535)', () => {
   const organizationId = '55555555-5555-4555-8555-555555555555'
   const operatorUserId = '66666666-6666-4666-8666-666666666666'
   const systemUserId = '00000000-0000-0000-0000-000000000000'
+  const otherOperatorUserId = '99999999-9999-4999-8999-999999999999'
+
+  function grantedThread() {
+    return {
+      messageThreadId: threadId,
+      externalConversationId: '77777777-7777-4777-8777-777777777777',
+      channelId: '88888888-8888-4888-8888-888888888888',
+      channelType: 'discord',
+      canAccess: true,
+    }
+  }
 
   const inboundMessage = {
     id: inboundMessageId,
     threadId,
     senderUserId: systemUserId,
     subject: 'Incoming from Discord',
+    body: 'Hello, my order has not arrived',
     type: 'channel.discord',
     visibility: 'public',
     sourceEntityType: 'communication_channels.external_conversation',
@@ -182,5 +194,74 @@ describe('messages.messages.reply on a channel-linked thread (#5535)', () => {
     await command!.execute(replyInput(), commandCtx(container, ['messages.compose']) as never)
 
     expect(resolveChannelThreadAccess).not.toHaveBeenCalled()
+  })
+
+  it('never opens a non-public message through the channel fallback', async () => {
+    const command = commandRegistry.get('messages.messages.reply')
+    const { container, resolveChannelThreadAccess } = makeContainer(grantedThread())
+    const emFork = (container.resolve('em') as { fork: () => { findOne: jest.Mock } }).fork()
+    emFork.findOne.mockImplementation(async (entity: unknown, where: Record<string, unknown>) => {
+      if (entity === Message && where.id === inboundMessageId) {
+        return { ...inboundMessage, senderUserId: otherOperatorUserId, visibility: 'internal' }
+      }
+      return null
+    })
+
+    await expect(
+      command!.execute(replyInput(), commandCtx(container, ['messages.compose']) as never),
+    ).rejects.toThrow('Access denied')
+    expect(resolveChannelThreadAccess).not.toHaveBeenCalled()
+  })
+
+  describe('messages.messages.forward (#6355)', () => {
+    function forwardInput() {
+      return {
+        messageId: inboundMessageId,
+        recipients: [{ userId: otherOperatorUserId, type: 'to' as const }],
+        tenantId,
+        organizationId,
+        userId: operatorUserId,
+      }
+    }
+
+    it('lets an operator forward an inbound message the channel grants access to', async () => {
+      const command = commandRegistry.get('messages.messages.forward')
+      const { container, trx, resolveChannelThreadAccess } = makeContainer(grantedThread())
+
+      const result = await command!.execute(
+        forwardInput(),
+        commandCtx(container, ['messages.compose']) as never,
+      )
+
+      expect((result as { id: string }).id).toBe(replyMessageId)
+      expect(resolveChannelThreadAccess).toHaveBeenCalledWith(
+        container,
+        { tenantId, organizationId },
+        { messageThreadId: threadId },
+        { userId: operatorUserId, features: ['messages.compose'] },
+      )
+      const forwardRow = trx.create.mock.calls.find(([entity]) => entity === Message)?.[1] as Record<string, unknown>
+      expect(forwardRow.parentMessageId).toBe(inboundMessageId)
+      expect(forwardRow.senderUserId).toBe(operatorUserId)
+      expect(String(forwardRow.body)).toContain(inboundMessage.subject)
+    })
+
+    it('still denies a caller the channel itself refuses', async () => {
+      const command = commandRegistry.get('messages.messages.forward')
+      const { container } = makeContainer({ ...grantedThread(), canAccess: false })
+
+      await expect(
+        command!.execute(forwardInput(), commandCtx(container, ['messages.compose']) as never),
+      ).rejects.toThrow('Access denied')
+    })
+
+    it('keeps denying a non-participant on an internal thread', async () => {
+      const command = commandRegistry.get('messages.messages.forward')
+      const { container } = makeContainer(null)
+
+      await expect(
+        command!.execute(forwardInput(), commandCtx(container, ['messages.compose']) as never),
+      ).rejects.toThrow('Access denied')
+    })
   })
 })

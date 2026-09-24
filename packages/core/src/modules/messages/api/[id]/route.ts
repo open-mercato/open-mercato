@@ -9,15 +9,11 @@ import { User } from '../../../auth/data/entities'
 import { Message, MessageObject, MessageRecipient } from '../../data/entities'
 import { updateDraftSchema } from '../../data/validators'
 import { buildResolvedMessageActions } from '../../lib/actions'
-import {
-  EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
-  resolveMessageChannelThreadAccess,
-} from '../../lib/channelThreadAccess'
 import { MESSAGE_OPTIMISTIC_LOCK_RESOURCE_KIND } from '../../lib/constants'
 import { getMessageObjectType } from '../../lib/message-objects-registry'
 import { getMessageTypeOrDefault } from '../../lib/message-types-registry'
 import { attachOperationMetadataHeader } from '../../lib/operationMetadata'
-import { canUseChannelThreadFallback, hasOrganizationAccess, resolveMessageContext } from '../../lib/routeHelpers'
+import { hasChannelThreadReadAccess, hasOrganizationAccess, resolveMessageContext } from '../../lib/routeHelpers'
 import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from '../guards'
 import {
   errorResponseSchema,
@@ -115,29 +111,16 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   // rows — so the participant test below denies every operator and the reply
   // button is unreachable. For a thread the channels hub owns, that hub's access
   // rule applies instead; an internal thread resolves to `null` and keeps the
-  // participant rule unchanged. Only channel-sourced messages pay the lookup.
+  // participant rule unchanged.
   //
-  // The fallback is feature-gated here rather than on the route, because
-  // `assertCanAccessChannel` — the rule behind `canAccess` — deliberately ignores
-  // features and returns for EVERY shared channel; its documented precondition is
-  // a caller the route already feature-gated, and this route is `requireAuth`
-  // only so that a participant can always read their own message. Without this
-  // gate the fallback would hand any authenticated tenant user the whole external
-  // conversation on a shared inbox. The check goes through RBAC, not through
-  // `ctx.auth.features` — the session JWT carries no `features` claim at all, so
-  // reading it would deny everyone, tenant admin included.
-  const actorFeatures = resolveUserFeatures(ctx.auth)
-  const mayUseChannelFallback = message.sourceEntityType === EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE
-    && await canUseChannelThreadFallback(ctx, scope)
-  const channelThread = mayUseChannelFallback
-    ? await resolveMessageChannelThreadAccess(
-      ctx.container,
-      { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
-      { messageThreadId: message.threadId ?? message.id },
-      { userId: scope.userId, features: actorFeatures },
-    )
-    : null
-  const hasChannelThreadAccess = channelThread?.canAccess === true
+  // `hasChannelThreadReadAccess` feature-gates the fallback before consulting the
+  // hub, because `assertCanAccessChannel` — the rule behind it — deliberately
+  // ignores features and returns for EVERY shared channel; its documented
+  // precondition is a caller the route already feature-gated, and this route is
+  // `requireAuth` only so that a participant can always read their own message.
+  // The gate goes through RBAC, not through `ctx.auth.features` — the session JWT
+  // carries no `features` claim at all, so reading it would deny everyone.
+  const hasChannelThreadAccess = await hasChannelThreadReadAccess(ctx, scope, message)
 
   if (!isSender && !isRecipient && !hasChannelThreadAccess) {
     return Response.json({ error: 'Access denied' }, { status: 403 })
