@@ -214,6 +214,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
         lastMessageAt: m.timestamp ?? new Date(),
+        assignedUserId: channel.userId ?? null,
       })
       em.persist(conversation)
       conversationCreated = true
@@ -379,6 +380,13 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
         : rawBody
     const safeSubject = (m.subject ?? '').trim() || '(no subject)'
 
+    // #6106: a per-user channel is its owner's inbox, so the owner is the
+    // default assignee. Without this fallback the first message of a thread
+    // (no mapping yet) and every message on an unassigned mapping had no
+    // recipient, and the participant-scoped inbox showed it to nobody. A
+    // manual assignment stays authoritative; tenant-wide channels have no owner.
+    const routedAssigneeId = mapping?.assignedUserId ?? channel.userId ?? null
+
     const composeInput = {
       type: `channel.${input.providerKey}`,
       visibility: 'public' as const,
@@ -391,8 +399,14 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       // senders have no address (Discord, Slack, SMS…) are validated without it.
       // The messages validator fails closed on any type it does not recognize.
       sourceChannelType: input.channelType,
-      recipients: mapping?.assignedUserId
-        ? [{ userId: mapping.assignedUserId, type: 'to' as const }]
+      // #6093: this message came in from the channel, so the recipient below
+      // is internal routing (the conversation's assignee), not an external
+      // addressee. Without the flag the hub's "no recipients on a public
+      // message" rule rejected every message in an assigned conversation and
+      // the worker dropped it as a permanent failure.
+      inboundFromChannel: true,
+      recipients: routedAssigneeId
+        ? [{ userId: routedAssigneeId, type: 'to' as const }]
         : [],
       subject: safeSubject,
       body: truncatedBody,
@@ -404,6 +418,12 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       // when the matcher returned null (no token / JWZ / subject hit).
       parentMessageId: threadMatch?.messageThreadId ?? mapping?.messageThreadId,
       isDraft: false,
+      // #6095: the platform message is dated when the provider received the
+      // mail, not when this worker ran. Otherwise a history import lands every
+      // message on the import minute and the inbox (sorted on `sent_at`) shows
+      // a 90-day mailbox as one block in import order. Adapters without a
+      // timestamp fall through to compose's own `new Date()`.
+      sentAt: m.timestamp ?? undefined,
       // Stable dedup key so a retried ingest (after a transient failure between
       // compose and the ExternalMessage anchor insert) reuses the message
       // composed by the first attempt instead of duplicating it. Mirrors the
@@ -441,6 +461,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
         channelId: input.channelId,
         providerKey: input.providerKey,
         externalThreadRef: m.externalConversationId,
+        assignedUserId: channel.userId ?? null,
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
       })
@@ -562,6 +583,16 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
         providerKey: input.providerKey,
         channelType: input.channelType,
         direction: 'inbound',
+        // #6095: subscribers that date their own rows from this message (the
+        // customers timeline) need the provider's receive time, not the moment
+        // this worker ran. Carried here so no consumer has to read the
+        // ExternalMessage row across the module boundary. ISO string because a
+        // persistent event is serialized onto the queue; null when the adapter
+        // supplied no timestamp, which leaves the consumer's own fallback.
+        providerTimestamp:
+          externalMessage.providerTimestamp instanceof Date
+            ? externalMessage.providerTimestamp.toISOString()
+            : null,
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
       },
