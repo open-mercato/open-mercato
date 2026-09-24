@@ -52,7 +52,7 @@ Let CRM users see, sort, and filter the People and Companies lists by creation d
 
 ### Phase 2: Regression coverage
 
-- [ ] 2.1 Add jsdom list-column tests for the People and Companies Created column
+- [x] 2.1 Add jsdom list-column tests for the People and Companies Created column — 0b3280c09
 
 ### Phase 3: Validation
 
