@@ -18,6 +18,13 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    t: (_key: string, fallback?: string) => fallback ?? _key,
+    translate: (_key: string, fallback?: string) => fallback ?? _key,
+  })),
+}))
+
 describe('messages /api/messages/[id] GET', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -593,6 +600,60 @@ describe('messages /api/messages/[id] PATCH', () => {
       organizationId,
       userId,
     }))
+  })
+
+  it('refuses to send a saved draft through a connected mailbox instead of silently dropping the field', async () => {
+    const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const messageId = '22222222-2222-4222-8222-222222222222'
+    const channelId = '33333333-3333-4333-8333-333333333333'
+
+    const draftMessage = {
+      id: messageId,
+      tenantId,
+      organizationId,
+      senderUserId: userId,
+      isDraft: true,
+      deletedAt: null,
+    }
+
+    const em = {
+      fork: jest.fn().mockReturnThis(),
+      findOne: jest.fn().mockResolvedValue(draftMessage),
+    }
+    const commandBus = {
+      execute: jest.fn().mockResolvedValue({ result: { ok: true, id: messageId }, logEntry: null }),
+    }
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'commandBus') return commandBus
+        return null
+      },
+    }
+
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: { container, auth: null },
+      scope: { tenantId, organizationId, userId },
+    })
+
+    const request = new Request('https://example.test/api/messages/22222222-2222-4222-8222-222222222222', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        subject: 'Send from my mailbox',
+        body: 'Hello',
+        isDraft: false,
+        senderChannelId: channelId,
+      }),
+    })
+
+    const response = await PATCH(request, { params: { id: messageId } })
+
+    expect(response.status).toBe(422)
+    const body = await response.json()
+    expect(body.fieldErrors?.senderChannelId).toBeTruthy()
+    expect(commandBus.execute).not.toHaveBeenCalled()
   })
 })
 

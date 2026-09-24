@@ -99,6 +99,50 @@ describe('messages sent subscriber', () => {
     )
   })
 
+  it('skips the external job for a send_as_user sourced message but still notifies internal recipients', async () => {
+    findOneWithDecryptionMock.mockResolvedValueOnce({ sourceEntityType: 'communication_channels.send_as_user' })
+
+    await handle({
+      messageId: 'message-1',
+      senderUserId: 'sender-1',
+      recipientUserIds: ['u1'],
+      sendViaEmail: true,
+      externalEmail: 'ext@example.com',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    }, ctx)
+
+    expect(enqueueMock).toHaveBeenCalledTimes(1)
+    expect(enqueueMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'recipient', recipientUserId: 'u1' }),
+    )
+    expect(enqueueMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'external' }),
+    )
+  })
+
+  it('skips the external job for an external_conversation sourced message', async () => {
+    findOneWithDecryptionMock.mockResolvedValueOnce({ sourceEntityType: 'communication_channels.external_conversation' })
+
+    await handle({
+      messageId: 'message-1',
+      senderUserId: 'sender-1',
+      recipientUserIds: ['u1'],
+      sendViaEmail: true,
+      externalEmail: 'ext@example.com',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    }, ctx)
+
+    expect(enqueueMock).toHaveBeenCalledTimes(1)
+    expect(enqueueMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'recipient', recipientUserId: 'u1' }),
+    )
+    expect(enqueueMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'external' }),
+    )
+  })
+
   it('names the external correspondent, not the system user, for a channel-ingested message (#6093)', async () => {
     findOneWithDecryptionMock.mockReset()
     findOneWithDecryptionMock

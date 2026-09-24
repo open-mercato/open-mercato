@@ -18,6 +18,7 @@ export type {
   MessageComposerRequiredActionConfig,
   MessageComposerRequiredActionOption,
   MessageComposerVariant,
+  MessageSenderOption,
   MessageTypeItem,
 } from './message-composer.types'
 
