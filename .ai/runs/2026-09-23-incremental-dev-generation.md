@@ -44,7 +44,7 @@ CLI watcher, source/distribution snapshot discovery, generator selection and reg
 - [x] 3.2 Run configured validation and resolve review findings — a4e1f2517, dddfb9474, 7607e943e
 
 ### Phase 4: Delivery
-- [ ] 4.1 Publish verified implementation and release claim
+- [x] 4.1 Publish verified implementation and release claim — PR #6406, evidence commit 18934e1da; issue handed back to pkarw
 
 ## Baseline evidence — 2026-09-23
 
