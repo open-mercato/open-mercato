@@ -1,8 +1,16 @@
 /**
  * @jest-environment jsdom
  */
+/**
+ * Regression coverage for #5954: the "Linked Person" / "Linked Company"
+ * pickers on the portal user admin page must query the real customers API
+ * (`/api/customers/people` and `/api/customers/companies`) and read the
+ * snake_case fields those endpoints actually return, instead of a
+ * nonexistent `/api/customers` route and camelCase fields that are never
+ * present in the response.
+ */
 import * as React from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { PortalUserDetailPageClient } from '../PortalUserDetailPageClient'
 
 type ApiResult = { ok: boolean; status: number; result: unknown }
@@ -17,8 +25,8 @@ const userDetail = {
   emailVerifiedAt: null,
   isActive: true,
   lastLoginAt: null,
-  personEntityId: 'person-1',
-  customerEntityId: 'company-1',
+  personEntityId: null,
+  customerEntityId: null,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-02T00:00:00.000Z',
   roles: [],
@@ -88,9 +96,14 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
   flash: jest.fn(),
 }))
 
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
-  useT: () => (_key: string, fallback?: string) => fallback ?? '',
-}))
+jest.mock('@open-mercato/shared/lib/i18n/context', () => {
+  // A stable translate-function reference is required: the real hook returns
+  // the same function across renders, and PortalUserDetailPageClient's data
+  // effect depends on `t` — a fresh function identity on every render would
+  // re-trigger the load effect and reset in-progress edits.
+  const translate = (_key: string, fallback?: string) => fallback ?? ''
+  return { useT: () => translate }
+})
 
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
   useConfirmDialog: () => ({ confirm: jest.fn(async () => true), ConfirmDialogElement: null }),
@@ -108,70 +121,103 @@ jest.mock('@open-mercato/ui/backend/detail', () => ({
   ErrorMessage: ({ label }: { label: string }) => <div>{label}</div>,
 }))
 
-function createDeferred<T>() {
-  let resolve!: (value: T) => void
-  const promise = new Promise<T>((res) => { resolve = res })
-  return { promise, resolve }
-}
-
-describe('PortalUserDetailPageClient CRM name lookups', () => {
+describe('PortalUserDetailPageClient CRM link search', () => {
   beforeEach(() => {
     apiCallMock.mockReset()
     readApiResultOrThrowMock.mockReset()
     readApiResultOrThrowMock.mockResolvedValue(userDetail)
+    apiCallMock.mockResolvedValue({ ok: true, status: 200, result: { items: [] } })
   })
 
-  it('dispatches the person and company lookups concurrently rather than sequentially', async () => {
-    const personDeferred = createDeferred<ApiResult>()
-    const companyDeferred = createDeferred<ApiResult>()
-
+  it('searches companies via /api/customers/companies and labels results by display_name', async () => {
     apiCallMock.mockImplementation((url: string) => {
-      if (url.startsWith('/api/customers/people/')) return personDeferred.promise
-      if (url.startsWith('/api/customers/companies/')) return companyDeferred.promise
-      // roles request and any other lookups
-      return Promise.resolve({ ok: true, status: 200, result: { items: [] } })
-    })
-
-    render(<PortalUserDetailPageClient params={{ id: 'user-1' }} portalOrigin="http://localhost:3000" />)
-
-    // Both CRM lookups must be in-flight before either response resolves.
-    await waitFor(() => {
-      const calledUrls = apiCallMock.mock.calls.map((call) => call[0])
-      expect(calledUrls).toContain('/api/customers/people/person-1')
-      expect(calledUrls).toContain('/api/customers/companies/company-1')
-    })
-
-    const personCalls = apiCallMock.mock.calls.filter((call) => call[0] === '/api/customers/people/person-1')
-    const companyCalls = apiCallMock.mock.calls.filter((call) => call[0] === '/api/customers/companies/company-1')
-    expect(personCalls).toHaveLength(1)
-    expect(companyCalls).toHaveLength(1)
-
-    personDeferred.resolve({ ok: true, status: 200, result: { person: { id: 'person-1', displayName: 'Jane Doe' } } })
-    companyDeferred.resolve({ ok: true, status: 200, result: { company: { id: 'company-1', displayName: 'Acme Inc' } } })
-
-    // Regression for #5954: names must render from the nested person/company
-    // payload, not the raw entity id.
-    expect(await screen.findByText('Jane Doe')).toBeInTheDocument()
-    expect(await screen.findByText('Acme Inc')).toBeInTheDocument()
-  })
-
-  it('still resolves the company name when the person lookup rejects (best-effort failure)', async () => {
-    apiCallMock.mockImplementation((url: string) => {
-      if (url.startsWith('/api/customers/people/')) return Promise.reject(new Error('person lookup failed'))
-      if (url.startsWith('/api/customers/companies/')) {
-        return Promise.resolve({ ok: true, status: 200, result: { company: { id: 'company-1', displayName: 'Acme Inc' } } })
+      if (url.startsWith('/api/customers/companies?search=')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          result: { items: [{ id: 'company-1', display_name: 'Acme Inc' }] },
+        })
       }
       return Promise.resolve({ ok: true, status: 200, result: { items: [] } })
     })
 
     render(<PortalUserDetailPageClient params={{ id: 'user-1' }} portalOrigin="http://localhost:3000" />)
 
+    const searchInput = await screen.findByPlaceholderText('Search companies by name...')
+    fireEvent.change(searchInput, { target: { value: 'Acme' } })
+
     await waitFor(() => {
-      const calledUrls = apiCallMock.mock.calls.map((call) => call[0])
-      expect(calledUrls).toContain('/api/customers/people/person-1')
-      expect(calledUrls).toContain('/api/customers/companies/company-1')
+      expect(apiCallMock.mock.calls.some((call) =>
+        typeof call[0] === 'string' && call[0].startsWith('/api/customers/companies?search=Acme'),
+      )).toBe(true)
+    })
+    await waitFor(() => {
+      expect(screen.getByText('Acme Inc')).toBeInTheDocument()
+    })
+    expect(apiCallMock.mock.calls.every((call) =>
+      typeof call[0] !== 'string' || call[0] !== '/api/customers?search=Acme&pageSize=10',
+    )).toBe(true)
+  })
+
+  it('searches people via /api/customers/people and labels results by first_name/last_name', async () => {
+    apiCallMock.mockImplementation((url: string) => {
+      if (url.startsWith('/api/customers/people?search=')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          result: { items: [{ id: 'person-1', first_name: 'Jane', last_name: 'Doe' }] },
+        })
+      }
+      return Promise.resolve({ ok: true, status: 200, result: { items: [] } })
     })
 
-    expect(await screen.findByText('Acme Inc')).toBeInTheDocument()
+    render(<PortalUserDetailPageClient params={{ id: 'user-1' }} portalOrigin="http://localhost:3000" />)
+
+    const searchInput = await screen.findByPlaceholderText('Search people by name...')
+    fireEvent.change(searchInput, { target: { value: 'Jane' } })
+
+    await waitFor(() => {
+      expect(apiCallMock.mock.calls.some((call) =>
+        typeof call[0] === 'string' && call[0].startsWith('/api/customers/people?search=Jane'),
+      )).toBe(true)
+    })
+    await waitFor(() => {
+      expect(screen.getByText('Jane Doe')).toBeInTheDocument()
+    })
+  })
+
+  it('links the selected company and shows its display name instead of the raw id', async () => {
+    apiCallMock.mockImplementation((url: string) => {
+      if (url.startsWith('/api/customers/companies?search=')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          result: { items: [{ id: 'company-1', display_name: 'Acme Inc' }] },
+        })
+      }
+      return Promise.resolve({ ok: true, status: 200, result: { items: [] } })
+    })
+
+    render(<PortalUserDetailPageClient params={{ id: 'user-1' }} portalOrigin="http://localhost:3000" />)
+
+    const searchInput = await screen.findByPlaceholderText('Search companies by name...')
+    fireEvent.change(searchInput, { target: { value: 'Acme' } })
+
+    await waitFor(() => {
+      expect(apiCallMock.mock.calls.some((call) =>
+        typeof call[0] === 'string' && call[0].startsWith('/api/customers/companies?search=Acme'),
+      )).toBe(true)
+    })
+    let option: HTMLElement
+    await waitFor(() => {
+      option = screen.getByRole('button', { name: 'Acme Inc' })
+      expect(option).toBeInTheDocument()
+    })
+    fireEvent.click(option!)
+
+    await waitFor(() => {
+      expect(screen.queryByText('company-1')).not.toBeInTheDocument()
+    })
+    expect(screen.getAllByText('Acme Inc').length).toBeGreaterThan(0)
   })
 })
