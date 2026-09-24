@@ -63,6 +63,7 @@ import type {
   InjectionRowActionDefinition,
 } from '@open-mercato/shared/modules/widgets/injection'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from './injection/useRegisteredComponent'
 import { dataTableExtensionSpotId, extensionSpotChildId } from '@open-mercato/shared/modules/widgets/extension-points'
 import { insertByInjectionPlacement } from '@open-mercato/shared/modules/widgets/injection-position'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -1252,7 +1253,7 @@ function ViewSwitcherDropdown({
   )
 }
 
-export function DataTable<T extends RowData>({
+function DataTableImpl<T extends RowData>({
   columns,
   data,
   toolbar,
@@ -3944,4 +3945,26 @@ export function DataTable<T extends RowData>({
     </div>
     </TooltipProvider>
   )
+}
+
+const DataTableFallback = DataTableImpl as unknown as React.ComponentType<DataTableProps<RowData>>
+
+/**
+ * Resolves the public DataTable component handle before mounting the table so
+ * registered props transforms, wrappers, and replacements execute at the real
+ * host boundary rather than being exposed only as a diagnostic DOM attribute.
+ */
+export function DataTable<T extends RowData>(props: DataTableProps<T>) {
+  const extensionTableId = props.perspective?.tableId
+    ?? props.extensionTableId
+    ?? (props.injectionSpotId?.startsWith('data-table:')
+      ? props.injectionSpotId.slice('data-table:'.length)
+      : null)
+  const handle = props.replacementHandle
+    ?? ComponentReplacementHandles.dataTable(extensionTableId ?? 'unknown')
+  const Resolved = useRegisteredComponent<DataTableProps<T>>(
+    handle,
+    DataTableFallback as unknown as React.ComponentType<DataTableProps<T>>,
+  )
+  return <Resolved {...props} />
 }

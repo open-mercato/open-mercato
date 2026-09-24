@@ -156,6 +156,23 @@ export async function fetchAssignableStaffMembers(
   return result.items
 }
 
+/** Resolve the signed-in user's label without depending on the optional staff module. */
+export async function fetchCurrentUserName(
+  options?: { signal?: AbortSignal },
+): Promise<string | null> {
+  try {
+    const data = await readApiResultOrThrow<Record<string, unknown>>(
+      '/api/auth/profile',
+      options?.signal ? { signal: options.signal } : undefined,
+    )
+    const name = typeof data.name === 'string' ? data.name.trim() : ''
+    const email = typeof data.email === 'string' ? data.email.trim() : ''
+    return name || email || null
+  } catch {
+    return null
+  }
+}
+
 export function mapAssignableStaffToFilterOptions(items: AssignableStaffMember[]): FilterOption[] {
   return items.map((item) => ({
     value: item.userId,
