@@ -27,11 +27,9 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 const logger = createLogger('dictionaries').child({ component: 'api' })
 
 const paramsSchema = z.object({ dictionaryId: z.string().uuid() })
-// System dictionaries use namespaced keys (e.g. `sales.deal_loss_reason`,
-// `resources.activity-types`) that the strict create-key regex rejects. The
-// manager edit dialog disables the key field but still resubmits the existing
-// key, so the update parse must accept any stored key verbatim. The strict
-// user-key regex is only enforced below when the key actually changes.
+// The manager edit dialog disables the key field but still resubmits the existing key, so the
+// update parse accepts any stored key verbatim — a row written before the current key rule can
+// still be renamed or edited. The strict key schema is enforced below only when the key changes.
 const updateKeySchema = z.string().trim().min(1).max(100)
 const updateSchema = upsertDictionarySchema
   .partial()
