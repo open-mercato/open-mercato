@@ -1,6 +1,5 @@
 import { asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
-import { availabilityProviderRegistry } from '@open-mercato/shared/lib/availability'
 import {
   InventoryBalance,
   InventoryLot,
@@ -11,7 +10,6 @@ import {
   WarehouseLocation,
   WarehouseZone,
 } from './data/entities'
-import { createWmsAvailabilityProvider } from './lib/availabilityProvider'
 
 export function register(container: AppContainer) {
   container.register({
@@ -24,8 +22,4 @@ export function register(container: AppContainer) {
     InventoryReservation: asValue(InventoryReservation),
     InventoryMovement: asValue(InventoryMovement),
   })
-
-  // Explicit, idempotent (replace-by-id) registration into the shared,
-  // dependency-free registry — never "same DI key, load order wins" (§3.1).
-  availabilityProviderRegistry.register(createWmsAvailabilityProvider(container))
 }
