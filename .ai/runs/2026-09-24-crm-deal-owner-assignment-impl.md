@@ -90,13 +90,13 @@ Note: the compose file masks every `packages/*/dist` with a named volume and the
 
 ### Phase 1: Shared picker, detail view and create paths
 
-- [ ] 1.1 Add `allowClear` to `LookupSelect`
-- [ ] 1.2 Add `DealOwnerSelect`
-- [ ] 1.3 Add owner field + `initialOwnerOption` to `DealForm`
-- [ ] 1.4 Wire the standalone create page
-- [ ] 1.5 Default create-mode owner to the current user
-- [ ] 1.6 Pass `initialOwnerOption` from the detail page
-- [ ] 1.7 Add Phase 1 i18n keys
+- [x] 1.1 Add `allowClear` to `LookupSelect` — d7ff51ce8
+- [x] 1.2 Add `DealOwnerSelect` — 297075cbf
+- [x] 1.3 Add owner field + `initialOwnerOption` to `DealForm` — 73c48768f
+- [x] 1.4 Wire the standalone create page — 1505e7d9f
+- [x] 1.5 Default create-mode owner to the current user — a94c53786
+- [x] 1.6 Pass `initialOwnerOption` from the detail page — a94c53786
+- [x] 1.7 Add Phase 1 i18n keys — c786db95a
 - [ ] 1.8 Integration test — detail view owner change
 - [ ] 1.9 Integration test — both create paths
 
