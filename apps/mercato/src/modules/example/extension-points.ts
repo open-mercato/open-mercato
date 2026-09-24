@@ -38,6 +38,12 @@ export const extensionPoints = defineModuleExtensionPoints({
       supported: ['render-widget'],
       source: 'backend/umes-handlers/page.tsx',
     }),
+    overrideProbe: injectionExtensionHost({
+      family: 'generic',
+      spotId: 'example:override-probe',
+      supported: ['render-widget'],
+      source: 'backend/umes-extensions/page.tsx',
+    }),
     overrideShowcase: componentExtensionHost({
       componentId: 'section:example.overrides.showcase',
       propsContract: 'OverrideShowcaseProps',
