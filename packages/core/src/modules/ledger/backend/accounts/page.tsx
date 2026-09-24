@@ -8,7 +8,7 @@ import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Plus } from 'lucide-react'
+import { Plus, Upload } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -176,6 +176,67 @@ export default function LedgerAccountsPage() {
     [t, confirmDialog, mutationContextId, retryLastMutation, runMutation],
   )
 
+  // `ledger.importDefaultChartOfAccounts` bulk-creates both `LedgerAccountType`
+  // and `LedgerAccount` rows in one call, so it is guarded as its own
+  // `ledger.chart_of_accounts_import` resource kind rather than either
+  // entity's own CRUD resource kind (see
+  // `api/accounts/import-default-chart-of-accounts/route.ts`'s own doc
+  // comment). There is no per-row `resourceId` for this page-level action.
+  const handleImportDefaultChartOfAccounts = React.useCallback(async () => {
+    const confirmed = await confirmDialog({
+      title: t('ledger.accounts.list.confirmImport', 'Import the default chart of accounts?'),
+      description: t(
+        'ledger.accounts.list.confirmImportDescription',
+        'This creates the default Polish chart-of-accounts template (39 account types, 43 accounts). It can only run while your chart of accounts is empty.',
+      ),
+    })
+    if (!confirmed) return
+
+    try {
+      const result = await runMutation({
+        operation: async () => {
+          const call = await apiCall<{ ok: true; createdAccountTypeCount: number; createdAccountCount: number }>(
+            '/api/ledger/accounts/import-default-chart-of-accounts',
+            { method: 'POST' },
+          )
+          if (!call.ok) {
+            throw Object.assign(new Error('[internal] ledger.accounts.importDefaultChartOfAccounts failed'), {
+              status: call.status,
+              ...((call.result as Record<string, unknown> | null) ?? {}),
+            })
+          }
+          return call.result!
+        },
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'ledger.chart_of_accounts_import',
+          resourceId: '',
+          retryLastMutation,
+        },
+      })
+
+      flash(
+        t('ledger.accounts.flash.imported', 'Imported {{typeCount}} account types and {{accountCount}} accounts', {
+          typeCount: result.createdAccountTypeCount,
+          accountCount: result.createdAccountCount,
+        }),
+        'success',
+      )
+      setReloadToken((token) => token + 1)
+    } catch (error) {
+      // The command's own refusal (e.g. a non-empty chart of accounts) comes
+      // back as `{ error: '<translated message>' }` with a 409 status (see
+      // the route's own doc comment) — surface that message verbatim rather
+      // than a generic one, per the spec's Backend Pages section.
+      const serverMessage = (error as { error?: unknown } | null)?.error
+      if (typeof serverMessage === 'string' && serverMessage.length > 0) {
+        flash(serverMessage, 'error')
+        return
+      }
+      flash(t('ledger.accounts.flash.importError', 'Could not import the default chart of accounts'), 'error')
+    }
+  }, [t, confirmDialog, mutationContextId, retryLastMutation, runMutation])
+
   const columns = React.useMemo<ColumnDef<LedgerAccountRow>[]>(
     () => [
       {
@@ -242,12 +303,18 @@ export default function LedgerAccountsPage() {
           searchPlaceholder={t('ledger.accounts.list.searchPlaceholder', 'Search accounts…')}
           actions={
             canManage ? (
-              <Button asChild>
-                <Link href="/backend/accounts/create">
-                  <Plus className="mr-2 h-4 w-4" />
-                  {t('ledger.accounts.list.actions.create', 'New account')}
-                </Link>
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" onClick={handleImportDefaultChartOfAccounts}>
+                  <Upload className="mr-2 h-4 w-4" />
+                  {t('ledger.accounts.list.actions.importDefault', 'Import default chart of accounts')}
+                </Button>
+                <Button asChild>
+                  <Link href="/backend/accounts/create">
+                    <Plus className="mr-2 h-4 w-4" />
+                    {t('ledger.accounts.list.actions.create', 'New account')}
+                  </Link>
+                </Button>
+              </div>
             ) : undefined
           }
           rowActions={(row) => (
