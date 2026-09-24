@@ -122,7 +122,7 @@ test.describe('TC-CHANNEL-EMAIL-HUB-004: compose from a connected mailbox', () =
         subject: `Unknown mailbox ${stamp}`,
         body: 'Should not be sent.',
         bodyFormat: 'text',
-        senderChannelId: '00000000-0000-0000-0000-0000000000ff',
+        senderChannelId: '00000000-0000-4000-8000-0000000000ff',
       },
     })
 
