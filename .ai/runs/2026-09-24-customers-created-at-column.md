@@ -57,3 +57,4 @@ Let CRM users see, sort, and filter the People and Companies lists by creation d
 ### Phase 3: Validation
 
 - [x] 3.1 Run the full validation gate — decffdb1b
+- [x] Post-review fix: keep the Companies Recently created preset window after whole-day created_at filters — 39fb36096
