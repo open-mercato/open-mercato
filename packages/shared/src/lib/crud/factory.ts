@@ -10,6 +10,7 @@ import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@ope
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   runMutationGuards,
   bridgeLegacyGuard,
@@ -41,7 +42,7 @@ import {
   type ResolvedCustomFieldDefinitions,
 } from './custom-field-definition-index'
 import { serializeExport, normalizeExportFormat, defaultExportFilename, ensureColumns, type CrudExportFormat, type PreparedExport } from './exporters'
-import { CrudHttpError, isCrudHttpError } from './errors'
+import { CrudHttpError, isCrudHttpError, translateCrudErrorBody } from './errors'
 import type { CommandBus, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -75,9 +76,10 @@ import { parseExtensionHeaders } from '../umes/extension-headers'
 import { createGenericOptimisticLockReader } from './optimistic-lock'
 import { registerOptimisticLockReaderIfAbsent } from './optimistic-lock-store'
 import { createLogger } from '../logger'
-import { getForeignKeyViolationConstraint, isForeignKeyViolation, isTransientDbError } from '../db/pg-errors'
+import { getForeignKeyViolationConstraint, isForeignKeyViolation, isTransientDbError, readPgSqlState } from '../db/pg-errors'
 import { getTelemetryRuntime } from '../telemetry/runtime'
 import { randomUUID } from 'node:crypto'
+import { NotFoundError as MikroOrmNotFoundError, ValidationError as MikroOrmValidationError } from '@mikro-orm/core'
 
 type RbacServiceLike = {
   getGrantedFeatures: (userId: string, opts: { tenantId: string | null; organizationId: string | null }) => Promise<string[]>
@@ -609,9 +611,36 @@ function resolveRequestId(request?: Request): string {
   return randomUUID()
 }
 
-function handleError(err: unknown, request?: Request): Response {
+/**
+ * Stable, UPPER_SNAKE classification codes for the generic 500/503 fallback
+ * bodies below. See `apps/docs/docs/framework/runtime/request-lifecycle.mdx`
+ * for the full contract.
+ *
+ * - `DATABASE_UNAVAILABLE` — `isTransientDbError` matched (503 branch).
+ * - `DATABASE_ERROR` — a Postgres SQLSTATE is present (via `readPgSqlState`)
+ *   but was not already classified as transient (503) or a foreign-key
+ *   violation (409).
+ * - `PERSISTENCE_ERROR` — a MikroORM `ValidationError`/`NotFoundError` that
+ *   was not already handled by a more specific branch.
+ * - `INTERNAL_ERROR` — default fallback for anything else.
+ */
+type CrudErrorCode = 'INTERNAL_ERROR' | 'DATABASE_ERROR' | 'PERSISTENCE_ERROR' | 'DATABASE_UNAVAILABLE'
+
+function classifyCrudError(err: unknown): { code: CrudErrorCode; pgSqlState: string | null } {
+  const pgSqlState = readPgSqlState(err)
+  if (pgSqlState) return { code: 'DATABASE_ERROR', pgSqlState }
+  if (err instanceof MikroOrmValidationError || err instanceof MikroOrmNotFoundError) {
+    return { code: 'PERSISTENCE_ERROR', pgSqlState: null }
+  }
+  return { code: 'INTERNAL_ERROR', pgSqlState: null }
+}
+
+async function handleError(err: unknown, request?: Request): Promise<Response> {
   if (err instanceof Response) return err
-  if (isCrudHttpError(err)) return json(err.body, { status: err.status })
+  if (isCrudHttpError(err)) {
+    const { translate } = await resolveTranslations()
+    return json(translateCrudErrorBody(err.body, translate), { status: err.status })
+  }
   // A command interceptor that blocked with an explicit status is a deliberate business
   // rejection, not a server fault — surface its status and message instead of a generic 500.
   // Without a usable status the error falls through to the historical handling below (issue #5045).
@@ -623,13 +652,16 @@ function handleError(err: unknown, request?: Request): Response {
   if (isTransientDbError(err)) {
     // Transient DB unavailability (pool exhausted, `max_connections` reached, DB
     // restarting) is retryable — surface a 503 with a Retry-After hint instead of
-    // a generic 500 so clients back off and retry once the DB recovers.
+    // a generic 500 so clients back off and retry once the DB recovers. Carries
+    // the same requestId correlation contract as the other branches below.
+    const requestId = resolveRequestId(request)
     logger.warn('Transient DB failure during CRUD handler', {
       message: err instanceof Error ? err.message : undefined,
+      requestId,
     })
     return json(
-      { error: 'Service temporarily unavailable' },
-      { status: 503, headers: { 'Retry-After': '2' } },
+      { error: 'Service temporarily unavailable', code: 'DATABASE_UNAVAILABLE', requestId },
+      { status: 503, headers: { 'Retry-After': '2', 'x-request-id': requestId } },
     )
   }
 
@@ -670,15 +702,18 @@ function handleError(err: unknown, request?: Request): Response {
   const stack = err instanceof Error ? err.stack : undefined
   const errorName = err instanceof Error ? err.name : undefined
   const requestId = resolveRequestId(request)
-  logger.error('Unexpected CRUD error', { message, stack, err, requestId })
+  const { code, pgSqlState } = classifyCrudError(err)
+  logger.error('Unexpected CRUD error', { message, stack, err, requestId, code })
   getTelemetryRuntime()?.reportError(err, {
     module: 'crud',
-    attributes: { requestId, errorName },
+    code: `crud.${code.toLowerCase()}`,
+    attributes: { requestId, errorName, code, pgCode: pgSqlState ?? undefined },
   })
   const body: Record<string, unknown> = {
     error: 'Internal server error',
     message: 'Something went wrong. Please try again later.',
     requestId,
+    code,
   }
   return json(body, { status: 500, headers: { 'x-request-id': requestId } })
 }
@@ -1996,15 +2031,25 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
               nextPage += 1
             }
           }
+          const exportPayload = { items: exportItems, total, page: 1, pageSize: exportItems.length, totalPages: 1, ...(res.meta ? { meta: res.meta } : {}) }
+          // Serialize only after `afterList` has run: the hook is the documented place to
+          // patch values the base query cannot compute, and an export built before it runs
+          // ships a different shape than the JSON list response for the same request (#5969).
+          await opts.hooks?.afterList?.(exportPayload, { ...ctx, query: validated as any })
+          profiler.mark('after_list_hook')
+          const hookExportItems = Array.isArray(exportPayload.items) ? exportPayload.items : exportItems
+          // Re-normalize after the hook: `afterList` can add keys the full-export contract
+          // strips (`_`-prefixed metadata, `cf_*`) or fail to flatten (#6019 review).
+          // Idempotent on records already shaped by normalizeFullRecordForExport above.
+          const finalExportItems = exportFullRequested
+            ? hookExportItems.map(normalizeFullRecordForExport)
+            : hookExportItems
           const prepared = exportFullRequested
-            ? { columns: ensureColumns(exportItems), rows: exportItems }
-            : prepareExportData(exportItems, opts.list, validated as any, ctx)
+            ? { columns: ensureColumns(finalExportItems), rows: finalExportItems }
+            : prepareExportData(finalExportItems, opts.list, validated as any, ctx)
           const fallbackBase = `${opts.events?.entity || resourceKind || 'list'}${exportFullRequested ? '_full' : ''}`
           const filename = finalizeExportFilename(opts.list, requestedExport, fallbackBase)
           const serialized = serializeExport(prepared, requestedExport)
-          const exportPayload = { items: exportItems, total, page: 1, pageSize: exportItems.length, totalPages: 1, ...(res.meta ? { meta: res.meta } : {}) }
-          await opts.hooks?.afterList?.(exportPayload, { ...ctx, query: validated as any })
-          profiler.mark('after_list_hook')
           const response = new Response(serialized.body, {
             headers: {
               'content-type': serialized.contentType,
@@ -2027,7 +2072,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           finishProfile({
             result: 'export',
             cacheStatus,
-            itemCount: exportItems.length,
+            itemCount: finalExportItems.length,
             total,
           })
           return response
@@ -2199,14 +2244,22 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       profiler.mark('access_logged', accessLogResult)
       if (exportRequested && requestedExport) {
         const exportItems = exportFullRequested ? list.map(normalizeFullRecordForExport) : list
+        const exportPayload = { items: exportItems, total: exportItems.length, page: 1, pageSize: exportItems.length, totalPages: 1 }
+        // Same ordering contract as the query-engine export path above (#5969).
+        await opts.hooks?.afterList?.(exportPayload, { ...ctx, query: validated as any })
+        profiler.mark('after_list_hook')
+        const hookExportItems = Array.isArray(exportPayload.items) ? exportPayload.items : exportItems
+        // Re-normalize after the hook: same full-export contract as the query-engine path
+        // above (#6019 review).
+        const finalExportItems = exportFullRequested
+          ? hookExportItems.map(normalizeFullRecordForExport)
+          : hookExportItems
         const prepared = exportFullRequested
-          ? { columns: ensureColumns(exportItems), rows: exportItems }
-          : prepareExportData(exportItems, opts.list, validated as any, ctx)
+          ? { columns: ensureColumns(finalExportItems), rows: finalExportItems }
+          : prepareExportData(finalExportItems, opts.list, validated as any, ctx)
         const fallbackBase = `${opts.events?.entity || resourceKind || 'list'}${exportFullRequested ? '_full' : ''}`
         const filename = finalizeExportFilename(opts.list, requestedExport, fallbackBase)
         const serialized = serializeExport(prepared, requestedExport)
-        await opts.hooks?.afterList?.({ items: exportItems, total: exportItems.length, page: 1, pageSize: exportItems.length, totalPages: 1 }, { ...ctx, query: validated as any })
-        profiler.mark('after_list_hook')
         const response = new Response(serialized.body, {
           headers: {
             'content-type': serialized.contentType,
@@ -2216,8 +2269,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         finishProfile({
           result: 'export',
           cacheStatus,
-          itemCount: exportItems.length,
-          total: exportItems.length,
+          itemCount: finalExportItems.length,
+          total: finalExportItems.length,
           branch: 'fallback',
         })
         return response

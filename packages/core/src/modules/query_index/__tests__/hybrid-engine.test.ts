@@ -1,13 +1,15 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { HybridQueryEngine, coerceSortDirection } from '../../query_index/lib/engine'
+import { HybridQueryEngine, coerceSortDirection, clearBaseTableExistsCache } from '../../query_index/lib/engine'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import { clearSearchTokenPresenceCache } from '@open-mercato/shared/lib/search/availability'
+import { encryptCustomFieldValue } from '@open-mercato/shared/lib/encryption/customFieldValues'
 
-// The token-presence answer is cached process-wide (TTL); without clearing it,
-// probe-count assertions would observe hits from earlier tests in this file.
+// The token-presence and base-table-existence answers are cached process-wide (TTL); without
+// clearing them, probe-count assertions would observe hits from earlier tests in this file.
 beforeEach(() => {
   clearSearchTokenPresenceCache()
+  clearBaseTableExistsCache()
 })
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
@@ -37,6 +39,12 @@ type KyselyMockConfig = {
   indexCount: number
   coverageRefreshedAt?: Date | string | null
   customFieldKeys?: Record<string, string[]>
+  /**
+   * Overrides `customFieldKeys` when a test needs full `custom_field_defs` rows —
+   * `kind`, `organization_id`, `tenant_id` — rather than just key names, e.g. to
+   * exercise the per-row scope-precedence kind resolution (issue #5968).
+   */
+  customFieldDefs?: Array<Record<string, unknown>>
   rows?: Record<string, Array<Record<string, unknown>>>
   /** If provided, returned for information_schema.columns lookups. */
   columns?: Array<{ table_name: string; column_name: string }>
@@ -231,6 +239,9 @@ function resolveRows(
     const requestedEntities: string[] = inIdx >= 0 && Array.isArray(args[inIdx + 2])
       ? (args[inIdx + 2] as string[])
       : Object.keys(customFieldKeys)
+    if (config.customFieldDefs) {
+      return config.customFieldDefs.filter((row) => requestedEntities.includes(row.entity_id as string))
+    }
     return requestedEntities.flatMap((entityId) =>
       (customFieldKeys[entityId] ?? []).map((key) => ({ entity_id: entityId, key, is_active: true })),
     )
@@ -1214,6 +1225,151 @@ describe('HybridQueryEngine', () => {
     const reindexCalls = emitEvent.mock.calls.filter(([name]) => name === 'query_index.reindex')
     expect(reindexCalls).toHaveLength(0)
     warnSpy.mockRestore()
+  })
+})
+
+// Regression coverage for issue #5968's query-index read path: `resolveCustomFieldKindIndex`
+// and the `decryptRow` wiring that feeds its result into `decryptIndexDocCustomFields`. The
+// underlying scope-precedence algorithm is unit-tested in `@open-mercato/shared`'s
+// `custom-fields/kinds` and `encryption/indexDoc` suites; this exercises the engine's own
+// glue — the `custom_field_defs` round trip, the per-query memoization, and each row being
+// resolved against its OWN `organization_id` — through the public `query()` entrypoint, with
+// the real (unmocked) encrypt/decrypt helpers so a wiring regression can't hide behind a mock.
+describe('HybridQueryEngine custom-field kind resolution (#5968)', () => {
+  const fixedKey = Buffer.alloc(32, 9).toString('base64')
+  const kindService = {
+    isEnabled: () => true,
+    getDek: async () => ({ key: fixedKey }),
+  } as any
+
+  test("resolves each row's cf value by its own organization's definition, not a shared last-row-wins map", async () => {
+    const encryptedForOrgA = await encryptCustomFieldValue('123', 'tenant-1', kindService, new Map())
+    const encryptedForOrgB = await encryptCustomFieldValue('123', 'tenant-1', kindService, new Map())
+
+    const db = createFakeKysely({
+      baseTable: 'customer_entities',
+      hasIndexAny: true,
+      baseCount: 2,
+      indexCount: 2,
+      // Both organizations override the SAME key with different `kind`s — the exact
+      // collision `custom_field_defs` allows with no unique constraint on (entity_id, key).
+      customFieldDefs: [
+        { entity_id: 'customers:customer_entity', key: 'code', kind: 'integer', organization_id: 'org-a', tenant_id: 'tenant-1' },
+        { entity_id: 'customers:customer_entity', key: 'code', kind: 'text', organization_id: 'org-b', tenant_id: 'tenant-1' },
+      ],
+      rows: {
+        customer_entities: [
+          { id: 'row-a', tenant_id: 'tenant-1', organization_id: 'org-a', cf_code: encryptedForOrgA },
+          { id: 'row-b', tenant_id: 'tenant-1', organization_id: 'org-b', cf_code: encryptedForOrgB },
+        ],
+      },
+    })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }), undefined, () => kindService)
+
+    const result = await engine.query('customers:customer_entity', {
+      fields: ['id', 'cf:code'],
+      includeCustomFields: true,
+      tenantId: 'tenant-1',
+      page: { page: 1, pageSize: 50 },
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    const byId = Object.fromEntries((result.items as any[]).map((item) => [item.id, item]))
+    // org-a's field is `integer`: the stored string round-trips through JSON.parse.
+    expect(byId['row-a'].cf_code).toBe(123)
+    // org-b's field is `text` on the SAME key: it must stay the verbatim string rather than
+    // borrowing org-a's `integer` kind from an order-dependent shared map.
+    expect(byId['row-b'].cf_code).toBe('123')
+  })
+
+  test("falls back to the query's own organizationId when a row carries no organization_id column (re-review M1)", async () => {
+    const encryptedForOrgA = await encryptCustomFieldValue('123', 'tenant-1', kindService, new Map())
+
+    const db = createFakeKysely({
+      baseTable: 'customer_entities',
+      hasIndexAny: true,
+      baseCount: 1,
+      indexCount: 1,
+      // Two organizations override the same key with colliding kinds — the ordering
+      // ensures the lowest-priority/most-recently-updated definition would win if the
+      // row's scope collapsed to "no organization" instead of falling back to the
+      // query's own organizationId.
+      customFieldDefs: [
+        { entity_id: 'customers:customer_entity', key: 'code', kind: 'integer', organization_id: 'org-a', tenant_id: 'tenant-1', updated_at: '2026-01-01T00:00:00.000Z' },
+        { entity_id: 'customers:customer_entity', key: 'code', kind: 'text', organization_id: 'org-b', tenant_id: 'tenant-1', updated_at: '2026-02-01T00:00:00.000Z' },
+      ],
+      rows: {
+        customer_entities: [
+          { id: 'row-a', tenant_id: 'tenant-1', cf_code: encryptedForOrgA },
+        ],
+      },
+    })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }), undefined, () => kindService)
+
+    // `fields` deliberately omits `organization_id`, so the fetched row carries no
+    // organization scope of its own — only `opts.organizationId` (`fallbackOrgId`)
+    // disambiguates which organization's `kind` definition applies.
+    const result = await engine.query('customers:customer_entity', {
+      fields: ['id', 'cf:code'],
+      includeCustomFields: true,
+      tenantId: 'tenant-1',
+      organizationId: 'org-a',
+      page: { page: 1, pageSize: 50 },
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    // org-a's field is `integer`: the stored string round-trips through JSON.parse.
+    // Before the fallback fix this decrypted as the verbatim string "123", borrowing
+    // org-b's `text` kind (or whichever definition sorted last) instead.
+    expect((result.items[0] as any).cf_code).toBe(123)
+  })
+
+  test('a failing custom_field_defs lookup fails open and keeps the legacy no-kind decrypt behavior', async () => {
+    const encrypted = await encryptCustomFieldValue('123', 'tenant-1', kindService, new Map())
+    const db = createFakeKysely({
+      baseTable: 'customer_entities',
+      hasIndexAny: true,
+      baseCount: 1,
+      indexCount: 1,
+      customFieldDefs: [
+        { entity_id: 'customers:customer_entity', key: 'code', kind: 'text', organization_id: 'org-a', tenant_id: 'tenant-1' },
+      ],
+      rows: {
+        customer_entities: [{ id: 'row-a', tenant_id: 'tenant-1', organization_id: 'org-a', cf_code: encrypted }],
+      },
+    })
+    // Simulate the definitions lookup failing (e.g. a transient DB error) after the engine's
+    // normal `custom_field_defs` handling would have run — `resolveCustomFieldKindIndex`
+    // wraps that query in a try/catch and must degrade to the pre-fix, no-kind behavior.
+    const originalSelectFrom = db.selectFrom.bind(db)
+    ;(db as any).selectFrom = (table: string) => {
+      if (String(table).split(/\s+as\s+/i)[0].trim() === 'custom_field_defs') {
+        throw new Error('lookup failed')
+      }
+      return originalSelectFrom(table)
+    }
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }), undefined, () => kindService)
+
+    const result = await engine.query('customers:customer_entity', {
+      fields: ['id', 'cf:code'],
+      includeCustomFields: true,
+      tenantId: 'tenant-1',
+      page: { page: 1, pageSize: 50 },
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    // No kind resolved -> legacy JSON.parse fallback -> the stored "123" comes back as 123,
+    // same as before this PR, rather than the request failing outright.
+    expect((result.items[0] as any).cf_code).toBe(123)
   })
 })
 
