@@ -119,6 +119,23 @@ describe('set_visibility — happy path and idempotency', () => {
     )
   })
 
+  it('carries the tenant/organization scope on the event', async () => {
+    // The customers module reacts to this event to invalidate its person-detail
+    // cache (customers/subscribers/channel-visibility-changed.ts) and fails
+    // closed without a tenant id, so the scope is part of the event contract —
+    // not incidental audit detail. Dropping it would silently leave a teammate
+    // reading now-private email from a warm cache entry.
+    const channel = { id: CHANNEL, userId: OWNER, visibility: 'private', updatedAt: new Date() }
+    findOneWithDecryptionMock.mockResolvedValue(channel)
+
+    await setChannelVisibilityCommand.execute(input(), ctx())
+
+    expect(emitEventMock).toHaveBeenCalledWith(
+      'communication_channels.channel.visibility_changed',
+      expect.objectContaining({ tenantId: TENANT, organizationId: ORG }),
+    )
+  })
+
   it('is a no-op when already at the requested value', async () => {
     findOneWithDecryptionMock.mockResolvedValue({
       id: CHANNEL,

@@ -14,7 +14,6 @@ import {
   type SetChannelVisibilityResult,
 } from '../../../../../commands/set-channel-visibility'
 import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-guard'
-import { invalidatePersonDetailCache } from '@open-mercato/core/modules/customers/lib/personDetailCacheTags'
 
 export const metadata = {
   path: '/communication_channels/channels/[id]/visibility',
@@ -128,11 +127,12 @@ export async function PUT(req: Request, context: RouteContext): Promise<Response
   }
 
   // A channel flip is a strictly BROADER widening than a per-conversation share —
-  // it exposes a whole mailbox — so it must invalidate the same person-detail
-  // collection tags. Without this a teammate keeps reading now-private email from
-  // their own warm cache entry for the remainder of the TTL.
-  await invalidatePersonDetailCache(container, auth.tenantId as string, organizationId)
-
+  // it exposes a whole mailbox — so the CRM's person-detail cache must drop the
+  // entries whose email rows this just changed. That invalidation belongs to the
+  // customers module and reaches it through the
+  // `communication_channels.channel.visibility_changed` event the command emits
+  // with the tenant/organization scope: this hub must not import customers to do
+  // its own write. See customers/subscribers/channel-visibility-changed.ts.
   await guard.afterSuccess()
   return NextResponse.json(
     {
