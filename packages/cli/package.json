@@ -60,6 +60,7 @@
     "@mikro-orm/decorators": "^7.1.14",
     "@mikro-orm/migrations": "^7.1.14",
     "@mikro-orm/postgresql": "^7.1.14",
+    "@open-mercato/events": "workspace:*",
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "@open-mercato/telemetry": "workspace:*",

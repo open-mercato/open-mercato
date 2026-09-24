@@ -114,6 +114,24 @@ async function main(): Promise<void> {
   // Postgres driver it pulls in — loads only after initTelemetry() above.
   const { run } = await import('./mercato.js')
   const code = await run(process.argv)
+  // A returning command (seed, import, reindex) ends on the explicit exit below,
+  // which Node skips `beforeExit` for — the same natural-exit path the
+  // broadcast-coalescer shutdown hook relies on to flush a burst's trailing
+  // browser delivery. `run()` above has already bootstrapped the app (and with
+  // it the event bus), so this import is not the module the early
+  // bootstrap-mode guards avoid loading. Runs BEFORE flushTelemetry() so the
+  // final `pg_notify` and its telemetry are both still captured. Bounded at a
+  // fixed 3000ms deadline — independent of and shorter than
+  // OM_BROADCAST_COALESCE_INTERVAL_MS's own window — so a stalled Postgres
+  // connection at exit degrades to the already-accepted dropped-tail case
+  // instead of hanging the command. flushPendingBroadcasts() never rejects
+  // (it settles every entry internally), so the deadline is the only guard
+  // this call needs.
+  const { flushPendingBroadcasts } = await import('@open-mercato/events')
+  await Promise.race([
+    flushPendingBroadcasts(),
+    new Promise<void>((resolve) => setTimeout(resolve, 3000).unref()),
+  ])
   // Flush spans/logs for commands that return (workers block forever and flush via
   // their own shutdown handler instead).
   await flushTelemetry()
