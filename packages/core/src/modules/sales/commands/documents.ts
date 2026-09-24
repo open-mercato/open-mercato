@@ -2132,7 +2132,11 @@ async function loadInvoiceSnapshot(
       organizationId: invoice.organizationId,
       tenantId: invoice.tenantId,
       invoiceNumber: invoice.invoiceNumber,
-      orderId: invoice.orderId ?? null,
+      // `SalesInvoice` has no `orderId` scalar, only the `order` relation —
+      // `invoice.orderId` is always undefined, silently dropping the link
+      // from every delete/undo snapshot. `loadCreditMemoSnapshot` just below
+      // reads its own relation the same, correct way.
+      orderId: invoice.order?.id ?? null,
       statusEntryId: invoice.statusEntryId ?? null,
       status: invoice.status ?? null,
       issueDate: invoice.issueDate ?? null,
@@ -9079,7 +9083,12 @@ const createInvoiceCommand: CommandHandler<
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       invoiceNumber: ensuredInvoiceNumber,
-      orderId: parsed.orderId ?? null,
+      // `SalesInvoice` has no `orderId` scalar — only the `order` relation
+      // (fieldName `order_id`) — so `em.create` silently dropped a plain
+      // `orderId` key here, leaving `order_id` NULL regardless of input.
+      // `em.getReference` is the same by-id relation-assignment pattern
+      // `sales.credit_memos.create` already uses just below.
+      order: parsed.orderId ? em.getReference(SalesOrder, parsed.orderId) : null,
       statusEntryId: parsed.statusEntryId ?? null,
       status,
       issueDate: parsed.issueDate ?? new Date(),
@@ -9411,7 +9420,12 @@ const updateInvoiceCommand: CommandHandler<
     ensureOrganizationScope(ctx, invoice.organizationId);
     ensureTenantScope(ctx, invoice.tenantId);
     invoice.invoiceNumber = before.invoice.invoiceNumber;
-    invoice.orderId = before.invoice.orderId;
+    // Same relation-vs-scalar mismatch as the create/delete-undo handlers
+    // above — assigning `invoice.orderId` here was a silent no-op, since
+    // `SalesInvoice` has no such property.
+    invoice.order = before.invoice.orderId
+      ? em.getReference(SalesOrder, before.invoice.orderId)
+      : null;
     invoice.statusEntryId = before.invoice.statusEntryId;
     invoice.status = before.invoice.status;
     invoice.issueDate = before.invoice.issueDate ? new Date(before.invoice.issueDate as string) : null;
@@ -9517,7 +9531,11 @@ const deleteInvoiceCommand: CommandHandler<
       organizationId: before.invoice.organizationId,
       tenantId: before.invoice.tenantId,
       invoiceNumber: before.invoice.invoiceNumber,
-      orderId: before.invoice.orderId,
+      // Same relation-vs-scalar mismatch as the create handler above —
+      // `order`, not `orderId`, is the real entity property.
+      order: before.invoice.orderId
+        ? em.getReference(SalesOrder, before.invoice.orderId)
+        : null,
       statusEntryId: before.invoice.statusEntryId,
       status: before.invoice.status,
       issueDate: before.invoice.issueDate ? new Date(before.invoice.issueDate as string) : new Date(),
