@@ -23,6 +23,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { useCurrencyDictionary } from './hooks/useCurrencyDictionary'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { normalizeCustomFieldSubmitValue } from './customFieldUtils'
+import { DealOwnerSelect, type DealOwnerOption } from './DealOwnerSelect'
 
 export type DealFormBaseValues = {
   title: string
@@ -70,6 +71,12 @@ export type DealFormProps = {
   showCancelAction?: boolean
   initialPipelineOptions?: PipelineOption[]
   initialPipelineStageOptions?: PipelineStageOption[]
+  /**
+   * The deal's current owner, so the owner picker shows a name immediately instead of
+   * waiting for the assignable-staff roster — and keeps showing one when that owner sits
+   * outside the fetched page or has left the roster.
+   */
+  initialOwnerOption?: DealOwnerOption | null
   /**
    * Injection spot id for the form-scoped record_locks widget (e.g.
    * `customers.deal`). Mirrors how people-v2/companies-v2 mount their save-time
@@ -274,6 +281,7 @@ const schema = z.object({
     .string()
     .max(DEAL_DESCRIPTION_MAX_LENGTH, 'customers.people.detail.deals.descriptionTooLong')
     .optional(),
+  ownerUserId: z.string().trim().optional(),
   personIds: z.array(z.string().trim().min(1)).optional(),
   companyIds: z.array(z.string().trim().min(1)).optional(),
 }).passthrough()
@@ -764,6 +772,7 @@ export function DealForm({
   showCancelAction = true,
   initialPipelineOptions,
   initialPipelineStageOptions,
+  initialOwnerOption,
   injectionSpotId,
   optimisticLockUpdatedAt,
 }: DealFormProps) {
@@ -1029,6 +1038,20 @@ export function DealForm({
       layout: 'half',
     },
     {
+      id: 'ownerUserId',
+      label: t('customers.deals.fields.owner', 'Owner'),
+      type: 'custom',
+      layout: 'half',
+      component: ({ value, setValue }) => (
+        <DealOwnerSelect
+          value={typeof value === 'string' && value ? value : null}
+          onChange={(next) => setValue(next ?? '')}
+          initialOption={initialOwnerOption ?? null}
+          disabled={disabled}
+        />
+      ),
+    } as CrudField,
+    {
       id: 'description',
       label: t('customers.people.detail.deals.fields.description', 'Description'),
       type: 'textarea',
@@ -1074,7 +1097,7 @@ export function DealForm({
         />
       ),
     } as CrudField,
-  ], [currencyDictionaryLabels, fetchCurrencyOptions, resolvedCurrencyError, pipelines, pipelineStages, loadStagesForPipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, searchCompanies, searchPeople, t])
+  ], [currencyDictionaryLabels, fetchCurrencyOptions, resolvedCurrencyError, pipelines, pipelineStages, loadStagesForPipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, initialOwnerOption, searchCompanies, searchPeople, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
     const nextGroups: CrudFormGroup[] = [
@@ -1082,7 +1105,7 @@ export function DealForm({
         id: 'details',
         title: t('customers.people.detail.deals.form.details', 'Deal details'),
         column: 1,
-        fields: ['title', 'status', 'pipelineId', 'pipelineStageId', 'valueAmount', 'valueCurrency', 'probability', 'expectedCloseAt', 'description'],
+        fields: ['title', 'status', 'pipelineId', 'pipelineStageId', 'valueAmount', 'valueCurrency', 'probability', 'expectedCloseAt', 'ownerUserId', 'description'],
       },
       ...(showAssociationsGroup
         ? [{
@@ -1140,6 +1163,10 @@ export function DealForm({
       probability: normalizeNumber(initialValues?.probability ?? null),
       expectedCloseAt: toDateInputValue(initialValues?.expectedCloseAt ?? null),
       description: initialValues?.description ?? '',
+      // Seeded explicitly: this object is an allow-list, so an owner left out here is
+      // dropped before it ever reaches the form and the picker starts empty on a deal
+      // that actually has an owner.
+      ownerUserId: typeof initialValues?.ownerUserId === 'string' ? initialValues.ownerUserId : '',
       personIds: sanitizeIdList(initialValues?.personIds ?? resolveIdsFromSource(initialValues?.people)),
       companyIds: sanitizeIdList(initialValues?.companyIds ?? resolveIdsFromSource(initialValues?.companies)),
       ...Object.fromEntries(
