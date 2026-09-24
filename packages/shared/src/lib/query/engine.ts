@@ -26,8 +26,10 @@ import { isTenantDataEncryptionEnabled } from '../encryption/toggles'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from './query-extension-runner'
 import {
   buildCustomFieldDefinitionIndexFromRows,
+  normalizeDefinitionKey,
   resolveCfDefIndexOrgCandidates,
   type CustomFieldDefinitionRow,
+  type CustomFieldDefinitionSummary,
   type ResolvedCustomFieldDefinitions,
 } from '../crud/custom-field-definition-index'
 import { warnOnCiphertextLikeFallback } from './ciphertext-search-warning'
@@ -292,6 +294,25 @@ function buildFilterableCustomFieldJoins(
       type: source.join.type === 'inner' ? 'inner' : 'left',
     }]
   })
+}
+
+/** Custom field kinds stored numerically (`custom_field_values.value_int`/`value_float`) — sort numerically, not as text (#5674). */
+const NUMERIC_CF_SORT_KINDS = new Set(['integer', 'float'])
+
+/**
+ * Pick the winning `kind` for a `cf:` sort key from an already-resolved
+ * definition list — org-scoped beats tenant-wide beats global, same
+ * precedence as the dedicated sort-kind lookup (#5674 review).
+ */
+function pickCfSortKind(defs: CustomFieldDefinitionSummary[] | undefined): string | null {
+  if (!defs || !defs.length) return null
+  let winner: { kind: string; specificity: number } | null = null
+  for (const def of defs) {
+    if (!def.kind) continue
+    const specificity = def.organizationId != null ? 2 : def.tenantId != null ? 1 : 0
+    if (!winner || specificity >= winner.specificity) winner = { kind: def.kind, specificity }
+  }
+  return winner?.kind ?? null
 }
 
 function computeCustomFieldScore(cfg: Record<string, unknown>, kind: string, entityIndex: number) {
@@ -725,6 +746,7 @@ export class BasicQueryEngine implements QueryEngine {
       hasJoinedAggregates: boolean
       cfJsonAliases: Set<string>
       cfMultiAliasByAlias: Map<string, string>
+      cfSortAliases: string[]
       resolvedCustomFieldDefinitions: ResolvedCustomFieldDefinitions | undefined
     }
 
@@ -1016,10 +1038,70 @@ export class BasicQueryEngine implements QueryEngine {
         }
       }
 
+      // A `cf:` sort needs to know the field's declared `kind` so the ORDER BY
+      // expression can cast numeric kinds instead of ordering by jsonb text
+      // (#5674). Org-scoped beats tenant-wide beats global for the same key —
+      // a same-key definition from an unrelated organization in the tenant
+      // never gets to decide the kind (#5674 review).
+      const cfSortKeys = Array.from(new Set(
+        resolvedSorts.filter((sort) => sort.field.startsWith('cf:')).map((sort) => sort.field.slice(3))
+      ))
+      const cfSortKinds = new Map<string, string>()
+      if (cfSortKeys.length > 0) {
+        // `includeCustomFields === true` already resolved every definition for
+        // these entities into `resolvedCustomFieldDefinitions` above — reuse it
+        // instead of a second `custom_field_defs` round trip (#5674 review).
+        const keysNeedingQuery: string[] = []
+        for (const key of cfSortKeys) {
+          const kind = resolvedCustomFieldDefinitions
+            ? pickCfSortKind(resolvedCustomFieldDefinitions.index.get(normalizeDefinitionKey(key)))
+            : null
+          if (kind) cfSortKinds.set(key, kind)
+          else keysNeedingQuery.push(key)
+        }
+        if (keysNeedingQuery.length > 0) {
+          const sortEntityIds = Array.from(new Set(
+            keysNeedingQuery
+              .map((key) => keySource.get(key)?.entityId)
+              .filter((id): id is EntityId => Boolean(id))
+              .map((id) => String(id))
+          ))
+          if (sortEntityIds.length > 0) {
+            const cfSortOrgCandidates = resolveCfDefIndexOrgCandidates(opts.organizationIds, opts.organizationId ?? null)
+            const kindRows = await db
+              .selectFrom('custom_field_defs' as any)
+              .select(['key' as any, 'kind' as any, 'organization_id' as any, 'tenant_id' as any])
+              .where('entity_id' as any, 'in', sortEntityIds)
+              .where('key' as any, 'in', keysNeedingQuery)
+              .where('is_active' as any, '=', true)
+              .where((eb: any) => eb.or([
+                eb('tenant_id' as any, '=', tenantId),
+                eb('tenant_id' as any, 'is', null),
+              ]))
+              .where((eb: any) => cfSortOrgCandidates.length
+                ? eb.or([
+                    eb('organization_id' as any, 'is', null),
+                    eb('organization_id' as any, 'in', cfSortOrgCandidates),
+                  ])
+                : eb('organization_id' as any, 'is', null))
+              .execute() as Array<{ key: string; kind: string | null; organization_id: string | null; tenant_id: string | null }>
+            const winners = new Map<string, { kind: string; specificity: number }>()
+            for (const row of kindRows) {
+              if (!row.kind) continue
+              const specificity = row.organization_id != null ? 2 : row.tenant_id != null ? 1 : 0
+              const existing = winners.get(row.key)
+              if (!existing || specificity >= existing.specificity) winners.set(row.key, { kind: row.kind, specificity })
+            }
+            for (const [key, entry] of winners) cfSortKinds.set(key, entry.kind)
+          }
+        }
+      }
+
       const cfValueExprByKey: Record<string, RawBuilder<string | null>> = {}
       const cfSelectedAliases: string[] = []
       const cfJsonAliases = new Set<string>()
       const cfMultiAliasByAlias = new Map<string, string>()
+      const cfSortAliases: string[] = []
       for (const key of cfKeys) {
         const source = keySource.get(key)
         if (!source) continue
@@ -1228,29 +1310,56 @@ export class BasicQueryEngine implements QueryEngine {
         }
       }
 
-      // Sorting: base fields and cf:* (use aggregated alias for cf)
+      // Sorting: base fields and cf:* (a dedicated scalar alias, never the jsonb
+      // projection alias — ordering by `to_jsonb(...)` compares arrays after every
+      // scalar string regardless of contents, and a numeric kind must cast to
+      // numeric instead of ordering the text CASE expression lexicographically (#5674)).
+      let lastEmittedSortField: string | null = null
       for (const s of isCountProjection ? [] : resolvedSorts) {
         if (s.field.startsWith('cf:')) {
           const key = s.field.slice(3)
-          const alias = sanitize(`cf:${key}`)
-          // Ensure included in projection to sort by
-          if (!cfSelectedAliases.includes(alias)) {
-            const expr = cfValueExprByKey[key]
-            if (expr) {
-              q = q.select(sql<string | null>`max(${expr})`.as(alias))
-              cfSelectedAliases.push(alias)
+          const sortAlias = sanitize(`cf:${key}__sort`)
+          if (!cfSortAliases.includes(sortAlias)) {
+            const source = keySource.get(key)
+            const kind = cfSortKinds.get(key)
+            let sortExpr: RawBuilder<unknown> | null = null
+            if (source && kind && NUMERIC_CF_SORT_KINDS.has(kind)) {
+              const sourceAliasSafe = sanitize(source.alias || 'src')
+              const keyAliasSafe = sanitize(key)
+              const valAlias = `cfv_${sourceAliasSafe}_${keyAliasSafe}`
+              const numericColumn = kind === 'integer' ? 'value_int' : 'value_float'
+              sortExpr = sql<string | null>`max((${sql.ref(`${valAlias}.${numericColumn}`)})::numeric)`
+            } else {
+              const expr = cfValueExprByKey[key]
+              if (expr) sortExpr = sql<string | null>`max(${expr})`
+            }
+            if (sortExpr) {
+              q = q.select(sortExpr.as(sortAlias))
+              cfSortAliases.push(sortAlias)
             }
           }
-          // Only order by an alias the projection actually carries. A key that
-          // resolved to no expression is dropped rather than emitted as an
-          // unselected alias, which is what the base-column branch above already
-          // does when `resolveBaseColumn` returns null.
-          if (!requiresPlaintextSort && cfSelectedAliases.includes(alias)) {
-            q = q.orderBy(alias, (s.dir ?? 'asc') as any)
+          // Only order by an alias the query actually selects. A key that resolved
+          // to no expression is dropped rather than emitted as an unselected alias,
+          // which is what the base-column branch below already does when
+          // `resolveBaseColumn` returns null.
+          if (!requiresPlaintextSort && cfSortAliases.includes(sortAlias)) {
+            const direction = sql.raw((s.dir ?? 'asc') === 'desc' ? 'desc' : 'asc')
+            q = q.orderBy(sql`${sql.ref(sortAlias)} ${direction} NULLS LAST`)
+            lastEmittedSortField = s.field
           }
         } else {
-          if (!requiresPlaintextSort) q = q.orderBy(qualify(s.field), (s.dir ?? 'asc') as any)
+          if (!requiresPlaintextSort) {
+            q = q.orderBy(qualify(s.field), (s.dir ?? 'asc') as any)
+            lastEmittedSortField = s.field
+          }
         }
+      }
+      // Stable tiebreak so ties (or NULLs) don't reorder arbitrarily across pages
+      // (#5674). Only appended when a sort term actually made it into the ORDER
+      // BY — an entirely unresolved cf sort must stay a no-op, not gain an
+      // incidental `id` ordering the caller never asked for.
+      if (!isCountProjection && lastEmittedSortField !== null && lastEmittedSortField !== 'id') {
+        q = q.orderBy(qualify('id'), 'asc' as any)
       }
 
       // Deduplicate if we joined CFs or extensions by grouping on base id. The count
@@ -1263,7 +1372,7 @@ export class BasicQueryEngine implements QueryEngine {
         q = q.groupBy(`${table}.id`)
       }
 
-      return { builder: q, hasJoinedAggregates, cfJsonAliases, cfMultiAliasByAlias, resolvedCustomFieldDefinitions }
+      return { builder: q, hasJoinedAggregates, cfJsonAliases, cfMultiAliasByAlias, cfSortAliases, resolvedCustomFieldDefinitions }
     }
 
     // Pagination
@@ -1275,6 +1384,7 @@ export class BasicQueryEngine implements QueryEngine {
       hasJoinedAggregates,
       cfJsonAliases,
       cfMultiAliasByAlias,
+      cfSortAliases,
       resolvedCustomFieldDefinitions,
     } = await buildQuery('full')
 
@@ -1358,6 +1468,19 @@ export class BasicQueryEngine implements QueryEngine {
       }
     }
 
+    // The `cf:<key>__sort` alias exists only to give a `cf:` sort's ORDER BY
+    // something to reference (and, for a numeric kind, to host the cast) — it
+    // is never a requested output field. Strip it before rows leave this
+    // function so it doesn't leak into API responses as a phantom custom field
+    // `<key>__sort` (unlike `__is_multi`, which `normalizeCfJsonAliases`
+    // already deletes) (#5674 review).
+    const stripCfSortAliases = (rows: ResultRow[]) => {
+      if (cfSortAliases.length === 0) return
+      for (const row of rows) {
+        for (const alias of cfSortAliases) delete row[alias]
+      }
+    }
+
     let pagedItems: ResultRow[]
     let encryptedSortRowCapWarning: EncryptedSortRowCapWarning | undefined
 
@@ -1400,6 +1523,7 @@ export class BasicQueryEngine implements QueryEngine {
       } else {
         const pageRows = await qFull.where(qualify('id'), 'in', pageIds).execute() as ResultRow[]
         normalizeCfJsonAliases(pageRows)
+        stripCfSortAliases(pageRows)
         const decryptedPageRows = decryptPayload
           ? await mapWithConcurrency(pageRows, DECRYPT_CONCURRENCY, decryptRow)
           : pageRows
@@ -1412,6 +1536,7 @@ export class BasicQueryEngine implements QueryEngine {
       const dataQuery = qFull.limit(pageSize).offset((page - 1) * pageSize)
       const items = await dataQuery.execute() as ResultRow[]
       normalizeCfJsonAliases(items)
+      stripCfSortAliases(items)
       pagedItems = decryptPayload
         ? await mapWithConcurrency(items, DECRYPT_CONCURRENCY, decryptRow)
         : items
