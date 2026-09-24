@@ -31,6 +31,7 @@ When an OCR provider call is aborted by a timeout, report it as a timeout instea
 ## Risks
 
 - An `AbortError` can also come from a caller-initiated cancel, not only a timeout, so the message must stay accurate for both ("aborted" / "timed out") and must not claim a configured limit the service does not know.
+- Validation gate blocker (pre-existing on `develop` `2e95af80`, unrelated to this change): `yarn test` fails in `@open-mercato/ui` (`CrudForm.hiddenGroups`, #6393/#6410), `@open-mercato/core` (`catalog/.../optionsSectionEmptyState`, `useLocale is not a function`), `@open-mercato/cli` (`module-package-sources`) and `create-mercato-app` (`source-link-inventory`); each fails identically on a clean `develop` worktree. `@open-mercato/onboarding` (`encryption`) and `@open-mercato/cli` (`bootstrap-registrations`) failed once under full-suite load and pass on re-run.
 
 ## Progress
 
@@ -43,4 +44,6 @@ When an OCR provider call is aborted by a timeout, report it as a timeout instea
 ### Phase 2: Fix and verification
 
 - [x] 2.1 Map TimeoutError/AbortError in the OCR error mapper — dfdb8d2464
-- [ ] 2.2 Run the focused suite and the validation gate
+- [x] 2.2 Run the focused suite and the validation gate — dfdb8d246b
+
+Focused attachments suite: 18 suites, 157 tests passing; the regression cases fail on `develop` (2 failed, 4 passed) and pass with the fix. Full gate (local runner): `build:packages`, `generate`, `build:packages`, `i18n:check-sync`, `i18n:check-usage`, `typecheck`, `build:app` green; `yarn test` blocked only by the pre-existing failures listed under Risks (core: 1 failed / 17,877 passed, not in `attachments`).
