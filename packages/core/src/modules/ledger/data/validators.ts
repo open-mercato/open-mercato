@@ -64,6 +64,23 @@ export const postJournalEntrySchema = z
       .regex(/^\d+(\.\d{1,8})?$/, 'Exchange rate must be a non-negative decimal with at most 8 decimal places.')
       .nullable()
       .optional(),
+    // PR #6340 review, n3: `'journal_entry'` is the internal marker value
+    // `reverseJournalEntry.ts`'s `buildReversalCore` writes into a REVERSAL
+    // entry's own `referenceType` to point back at the entry it reverses,
+    // and it's what the double-reversal guard (the
+    // `journal_entries_single_reversal_idx` partial unique index, plus the
+    // `existingReversal` lookup in `loadOriginalEntry`) matches on. Without
+    // this restriction, an external `postJournalEntry` caller could set
+    // `referenceType: 'journal_entry', referenceId: <someEntryId>` on an
+    // ordinary NORMAL/OPENING/CLOSING entry, poisoning that guard and making
+    // `<someEntryId>` look "already reversed" — blocking its real reversal.
+    // Rejected here, at the only schema external callers go through
+    // (`reverseJournalEntry`'s own construction calls `runPostJournalEntry`
+    // directly with a `JournalEntryPostCore`, bypassing this schema
+    // entirely, so it's unaffected). The DB-level predicate and the
+    // `existingReversal` lookup are additionally tightened to require
+    // `type = 'REVERSAL'`, closing the same loophole in depth rather than
+    // relying on this check alone.
     referenceType: z.string().max(100).nullable().optional(),
     referenceId: z.uuid().nullable().optional(),
     lines: z.array(journalEntryLineInputSchema).min(2, 'A journal entry requires at least two lines.'),
@@ -76,6 +93,14 @@ export const postJournalEntrySchema = z
     },
     { message: 'Journal entry is not balanced: total debits must equal total credits.', path: ['lines'] },
   )
+  .refine((data) => data.referenceType !== 'journal_entry', {
+    message: "referenceType 'journal_entry' is reserved for reversal entries and cannot be set directly.",
+    path: ['referenceType'],
+    params: {
+      i18nKey: 'ledger.errors.referenceTypeReserved',
+      i18nFallback: "referenceType 'journal_entry' is reserved for reversal entries and cannot be set directly.",
+    },
+  })
 
 export type JournalEntryLineInput = z.infer<typeof journalEntryLineInputSchema>
 export type PostJournalEntryInput = z.infer<typeof postJournalEntrySchema>

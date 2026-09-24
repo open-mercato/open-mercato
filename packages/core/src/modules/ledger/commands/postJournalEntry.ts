@@ -24,7 +24,7 @@ import { LockMode } from '@mikro-orm/core'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, conflict, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 import { FiscalPeriod, JournalEntry, JournalEntryLine, LedgerAccount, type JournalEntryType } from '../data/entities'
@@ -321,6 +321,22 @@ export async function runPostJournalEntry(
           'The journal entry was rejected at commit because it is not balanced. This should never happen when application validation ran — please report this.',
         ),
       })
+    }
+    // PR #6340 review, n3: `loadOriginalEntry`'s `existingReversal` check
+    // in reverseJournalEntry.ts is a read-then-write guard — two
+    // concurrent `reverseJournalEntry` calls for the same entry can both
+    // pass that read before either commits, then both reach this flush.
+    // The `journal_entries_single_reversal_idx` partial unique index (see
+    // entities.ts / the migration) is what actually closes that race, but
+    // without this mapping the loser saw a raw, untranslated Postgres
+    // unique-violation error (a 500) instead of the same readable 409
+    // `loadOriginalEntry` gives the caller who lost the race less
+    // narrowly. Maps it the same way `isBalanceTriggerViolation` above
+    // maps the balance-trigger's own last-resort DB guard.
+    if (isUniqueViolation(err, 'journal_entries_single_reversal_idx')) {
+      throw conflict(
+        translate('ledger.errors.journalEntryAlreadyReversed', 'This journal entry has already been reversed.'),
+      )
     }
     throw err
   }

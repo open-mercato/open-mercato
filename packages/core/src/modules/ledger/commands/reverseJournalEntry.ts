@@ -31,9 +31,16 @@ type Scope = { organizationId: string; tenantId: string }
  *   `referenceType`/`referenceId` — otherwise a retry or a double-click
  *   posts a second reversal and the books are wrong by the entry amount.
  *   Backed by a partial unique index
- *   (`journal_entry_single_reversal_idx`, see the migration) so this is
+ *   (`journal_entries_single_reversal_idx`, see the migration) so this is
  *   also safe under concurrent requests, not just this application-layer
- *   check.
+ *   check. The lookup below also requires `type: 'REVERSAL'` (PR #6340
+ *   review, n3) — without it, a row with `referenceType: 'journal_entry'`
+ *   set on a non-reversal entry (a stale row, or a caller that predates
+ *   n3's schema restriction) would be mistaken for a real reversal here,
+ *   permanently blocking this entry from ever actually being reversed.
+ *   The DB-level partial index carries the same `type = 'REVERSAL'`
+ *   requirement so this stays correct under a concurrent insert too, not
+ *   just for this read.
  */
 async function loadOriginalEntry(
   em: EntityManager,
@@ -58,6 +65,7 @@ async function loadOriginalEntry(
   const existingReversal = await em.findOne(JournalEntry, {
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
+    type: 'REVERSAL',
     referenceType: 'journal_entry',
     referenceId: entry.id,
   })
