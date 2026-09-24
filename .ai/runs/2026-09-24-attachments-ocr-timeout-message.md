@@ -38,7 +38,7 @@ When an OCR provider call is aborted by a timeout, report it as a timeout instea
 
 ### Phase 1: Regression test
 
-- [ ] 1.1 Add the timeout regression test and confirm it fails on develop
+- [x] 1.1 Add the timeout regression test and confirm it fails on develop — 8ea881e433
 
 ### Phase 2: Fix and verification
 
