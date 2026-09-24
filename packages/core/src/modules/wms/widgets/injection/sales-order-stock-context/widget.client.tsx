@@ -411,7 +411,7 @@ export default function SalesOrderStockContextWidget(
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="h-6 shrink-0 px-2 text-xs text-status-error-fg hover:text-status-error-fg"
+                  className="h-6 shrink-0 px-2 text-xs text-status-error-text hover:text-status-error-text"
                   onClick={() => setReleaseReservationId(rid)}
                 >
                   <ShieldOff className="size-3 mr-1" />
