@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { ProgressService } from '../../../../progress/lib/progressService'
 import { productsBulkCreateSchema } from '../../../data/validators'
@@ -60,13 +61,15 @@ export async function POST(req: Request) {
 
   const items = parsed.data.items
   const container = await createRequestContainer()
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const organizationId = scope.selectedId ?? auth.orgId
 
   const guardDecision = await runBulkCreateMutationGuards({
     container,
     auth,
     request: req,
     tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    organizationId,
     userId: auth.sub ?? '',
     resourceKind: 'catalog.product',
     itemCount: items.length,
@@ -92,7 +95,7 @@ export async function POST(req: Request) {
     },
     {
       tenantId: auth.tenantId,
-      organizationId: auth.orgId,
+      organizationId,
       userId: auth.sub,
     },
   )
@@ -102,7 +105,7 @@ export async function POST(req: Request) {
     progressJobId: progressJob.id,
     items,
     scope: {
-      organizationId: auth.orgId,
+      organizationId,
       tenantId: auth.tenantId,
       userId: auth.sub,
     },
