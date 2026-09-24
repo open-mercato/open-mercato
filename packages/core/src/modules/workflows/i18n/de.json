@@ -1952,7 +1952,7 @@
   "workflows.triggers.fields.name": "Name",
   "workflows.triggers.fields.priority": "Priorität",
   "workflows.triggers.hints.contextMapping": "Werte aus der Ereignis-Nutzlast dem anfänglichen Workflow-Kontext zuordnen",
-  "workflows.triggers.hints.debounce": "So viele Millisekunden nach einem Ereignis warten, damit ein Schwall ähnlicher Ereignisse nur einen Workflow startet. Leer lassen, um sofort zu starten.",
+  "workflows.triggers.hints.debounce": "Das erste passende Ereignis startet sofort eine Instanz; weitere Ereignisse für denselben Datensatz innerhalb dieser Millisekundenspanne werden übersprungen. Leer lassen, um für jedes Ereignis eine Instanz zu starten.",
   "workflows.triggers.hints.eventPattern": "Verwenden Sie * als Platzhalter: \"sales.orders.*\" passt auf jedes Bestellereignis",
   "workflows.triggers.hints.filterConditions": "Nur auslösen, wenn die Ereignis-Nutzlast diese Bedingungen erfüllt (alle müssen zutreffen)",
   "workflows.triggers.hints.maxConcurrent": "Begrenzt, wie viele Instanzen dieser Auslöser gleichzeitig laufen lassen darf; Ereignisse über dem Limit werden übersprungen. Leer lassen für kein Limit.",
