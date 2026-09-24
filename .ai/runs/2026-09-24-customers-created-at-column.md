@@ -56,4 +56,4 @@ Let CRM users see, sort, and filter the People and Companies lists by creation d
 
 ### Phase 3: Validation
 
-- [ ] 3.1 Run the full validation gate
+- [x] 3.1 Run the full validation gate — decffdb1b
