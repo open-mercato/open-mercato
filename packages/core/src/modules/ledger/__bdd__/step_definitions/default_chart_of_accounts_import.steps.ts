@@ -155,19 +155,30 @@ When('I import the default chart of accounts into the organization that has none
 When('I undo that import', async function () {
   const command = commandRegistry.get(COMMAND_ID)!
   const ctx = buildCommandContext(em)
-  const logMeta = await command.buildLog({
-    input: { organizationId: ORG_ID, tenantId: TENANT_ID },
+  const input = { organizationId: ORG_ID, tenantId: TENANT_ID }
+  // `buildLog`/`undo` are optional on `CommandHandler` (a handler need not be
+  // undoable at all) - the `!` assertions below are safe because this
+  // command declares `isUndoable: true` and both are non-null-asserted only
+  // after that contract, never assumed for an arbitrary command id.
+  const logMeta = await command.buildLog!({
+    input,
     result: importResult,
     ctx,
+    // This suite has no "before" state worth snapshotting for a bulk import
+    // into an empty chart of accounts - `extractUndoPayload` (used by the
+    // real `undo()` below) reads the undo ids from `commandPayload`, not
+    // from `snapshots`.
+    snapshots: {},
   })
   assert.ok(logMeta, 'expected buildLog to return undo metadata')
-  await command.undo({
+  await command.undo!({
+    input,
+    ctx,
     logEntry: {
       commandPayload: logMeta!.payload,
       organizationId: logMeta!.organizationId,
       tenantId: logMeta!.tenantId,
     },
-    ctx,
   })
 })
 
