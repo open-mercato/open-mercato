@@ -212,6 +212,23 @@ resolution, pass `currencyCode` in your `PricingContext` and audit any `CatalogP
 that only differ by currency for the product/variant you resolve most often — those are the rows
 whose resolution outcome can change.
 
+### `AssignableStaffMember.teamMemberId` is now `string | null` (staff-absent fallback)
+
+When the optional `staff` module is absent, assignable-owner rosters resolve via
+`GET /api/auth/users`. Auth user ids are **not** staff team-member ids — passing them to a staff
+API would produce a wrong lookup.
+
+**Type change:** `AssignableStaffMember.teamMemberId` is now `string | null` (`null` on the auth-users
+fallback path). Downstream code that assumed a non-null team-member id must branch on `null` or use
+`userId` for owner assignment (owner fields store auth user ids).
+
+**Import path:** prefer `@open-mercato/core/modules/customers/lib/assignableStaff`. The
+`components/detail/assignableStaff` re-export is deprecated and will be removed in 0.7.0.
+
+**Existing tenants:** default CRM roles now include `auth.users.list` so owner pickers work without
+the `staff` module. Run `yarn mercato auth sync-role-acls` (or your app's equivalent) so existing
+admin/employee roles pick up the grant.
+
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 
 `Locale` in `@open-mercato/shared/lib/i18n/config` used to be a closed union literal. It is now
