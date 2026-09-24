@@ -9,6 +9,8 @@
 import * as React from 'react'
 import { act, render, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import { compileTreeToWhere, type AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import { expandCreatedAtDayRules } from '../../../lib/createdAtDayFilter'
 import CustomersPeoplePage from '../people/page'
 import CustomersCompaniesPage from '../companies/page'
 
@@ -16,6 +18,7 @@ const apiCallMock = jest.fn()
 const replaceMock = jest.fn()
 const pushMock = jest.fn()
 const dataTablePropsCapture: { current: Record<string, unknown> | null } = { current: null }
+const filterPanelPropsCapture: { current: Record<string, unknown> | null } = { current: null }
 const mockT = (_key: string, fallback?: string, params?: Record<string, unknown>) => {
   if (!fallback) return _key
   return Object.entries(params ?? {}).reduce(
@@ -149,7 +152,10 @@ jest.mock('@open-mercato/ui/backend/hooks/useAdvancedFilter', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/filters/AdvancedFilterPanel', () => ({
-  AdvancedFilterPanel: () => null,
+  AdvancedFilterPanel: (props: Record<string, unknown>) => {
+    filterPanelPropsCapture.current = props
+    return null
+  },
 }))
 
 jest.mock('@open-mercato/ui/backend/filters/ActiveFilterChips', () => ({
@@ -277,6 +283,31 @@ describe.each(surfaces)('$label list — Created column', ({ Page, pathname, api
       const latest = listRequests(apiPrefix).at(-1)
       expect(latest?.get('sortField')).toBe('createdAt')
       expect(latest?.get('sortDir')).toBe('desc')
+    })
+  })
+})
+
+type FilterPreset = { id: string; build: (context: { now: Date; userId?: string | null }) => AdvancedFilterTree }
+
+describe('companies list — Recently created preset', () => {
+  beforeEach(() => {
+    activePathname = '/backend/customers/companies'
+    activeQuery = ''
+    filterPanelPropsCapture.current = null
+    apiCallMock.mockReset()
+    apiCallMock.mockResolvedValue({ ok: true, result: { items: [], total: 0, page: 1, totalPages: 1 }, cacheStatus: null })
+  })
+
+  it('keeps covering the last seven days from midnight once created_at days are expanded', async () => {
+    renderWithProviders(<CustomersCompaniesPage />)
+    await waitFor(() => expect(filterPanelPropsCapture.current?.presets).toBeDefined())
+
+    const presets = filterPanelPropsCapture.current?.presets as FilterPreset[]
+    const preset = presets.find((candidate) => candidate.id === 'recently-created')
+    const tree = preset!.build({ now: new Date('2026-09-24T12:00:00.000Z'), userId: null })
+
+    expect(compileTreeToWhere(expandCreatedAtDayRules(tree)!)).toEqual({
+      created_at: { $gt: '2026-09-16T23:59:59.999' },
     })
   })
 })

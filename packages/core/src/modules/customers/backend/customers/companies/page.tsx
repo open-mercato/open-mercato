@@ -73,8 +73,8 @@ function makeCompaniesPresets(): FilterPreset[] {
       labelKey: 'customers.companies.presets.recentlyCreated',
       iconName: 'clock',
       build: ({ now }) => {
-        const cutoff = new Date(now.getTime() - 7 * 24 * 3600 * 1000).toISOString().slice(0, 10)
-        return makeRuleTree({ field: 'created_at', operator: 'is_after', value: cutoff })
+        const dayBeforeWindow = new Date(now.getTime() - 8 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+        return makeRuleTree({ field: 'created_at', operator: 'is_after', value: dayBeforeWindow })
       },
     },
     {
