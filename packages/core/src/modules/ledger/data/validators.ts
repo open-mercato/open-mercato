@@ -3,9 +3,25 @@ import { z } from 'zod'
 // Numeric columns backing `debit`/`credit`/`amount_currency` are
 // `numeric(19,4)` — matches `JournalEntryLine`'s own column precision
 // (see data/entities.ts).
-const moneyStringSchema = z
-  .string()
-  .regex(/^\d+(\.\d{1,4})?$/, 'Amount must be a non-negative decimal with at most 4 decimal places.')
+// PR #6340 review, m1 (residual): this was `.regex(pattern, 'message')` —
+// zod's built-in format checks (regex/uuid/min/max/...) don't carry a
+// `params` bag onto their issue the way `.refine()`'s custom issues do
+// (confirmed by direct testing: `params` passed to `.regex()`'s object-form
+// message config is silently dropped from the resulting issue), so there
+// was no hook for `translateZodIssues` (see crud/factory.ts) to translate
+// through. Rewritten as an equivalent `.refine()` — same regex, same
+// pass/fail behavior — specifically to gain that hook; this is the
+// "amount"/"exchange rate" residual the review called out by line number
+// (validators.ts:8) alongside the three `.refine()` messages already
+// covered.
+const MONEY_PATTERN = /^\d+(\.\d{1,4})?$/
+const moneyStringSchema = z.string().refine((value) => MONEY_PATTERN.test(value), {
+  message: 'Amount must be a non-negative decimal with at most 4 decimal places.',
+  params: {
+    i18nKey: 'ledger.errors.amountInvalidFormat',
+    i18nFallback: 'Amount must be a non-negative decimal with at most 4 decimal places.',
+  },
+})
 
 // Converts a `moneyStringSchema`-shaped decimal string (non-negative, at
 // most 4 fractional digits) to an exact integer count of ten-thousandths,
@@ -39,7 +55,15 @@ export const journalEntryLineInputSchema = z
       const credit = toMinorUnits(line.credit)
       return (debit === 0n || credit === 0n) && (debit > 0n || credit > 0n)
     },
-    { message: 'Each journal entry line must have exactly one side (debit or credit) greater than zero.' },
+    {
+      message: 'Each journal entry line must have exactly one side (debit or credit) greater than zero.',
+      // PR #6340 review, m1: `params.i18nKey`/`i18nFallback` is the new
+      // opt-in convention (see `translateZodIssues` in
+      // packages/shared/src/lib/crud/factory.ts) for routing a `.refine()`
+      // message through `translate()` before it reaches the client — this
+      // schema's business-rule messages are the first real usage.
+      params: { i18nKey: 'ledger.errors.journalEntryLineNotOneSided', i18nFallback: 'Each journal entry line must have exactly one side (debit or credit) greater than zero.' },
+    },
   )
 
 // `postJournalEntry` input. `type` excludes `REVERSAL` — that value is
@@ -61,7 +85,14 @@ export const postJournalEntrySchema = z
     currencyId: z.uuid(),
     exchangeRate: z
       .string()
-      .regex(/^\d+(\.\d{1,8})?$/, 'Exchange rate must be a non-negative decimal with at most 8 decimal places.')
+      // Same rewrite as `moneyStringSchema` above, same reason (m1 residual).
+      .refine((value) => /^\d+(\.\d{1,8})?$/.test(value), {
+        message: 'Exchange rate must be a non-negative decimal with at most 8 decimal places.',
+        params: {
+          i18nKey: 'ledger.errors.exchangeRateInvalidFormat',
+          i18nFallback: 'Exchange rate must be a non-negative decimal with at most 8 decimal places.',
+        },
+      })
       .nullable()
       .optional(),
     // PR #6340 review, n3: `'journal_entry'` is the internal marker value
@@ -91,7 +122,11 @@ export const postJournalEntrySchema = z
       const totalCredit = data.lines.reduce((sum, line) => sum + toMinorUnits(line.credit), 0n)
       return totalDebit === totalCredit
     },
-    { message: 'Journal entry is not balanced: total debits must equal total credits.', path: ['lines'] },
+    {
+      message: 'Journal entry is not balanced: total debits must equal total credits.',
+      path: ['lines'],
+      params: { i18nKey: 'ledger.errors.journalEntryNotBalanced', i18nFallback: 'Journal entry is not balanced: total debits must equal total credits.' },
+    },
   )
   .refine((data) => data.referenceType !== 'journal_entry', {
     message: "referenceType 'journal_entry' is reserved for reversal entries and cannot be set directly.",
@@ -136,6 +171,7 @@ export const createFiscalPeriodSchema = z
   .refine((data) => data.endDate.getTime() >= data.startDate.getTime(), {
     message: 'endDate must not be before startDate.',
     path: ['endDate'],
+    params: { i18nKey: 'ledger.errors.fiscalPeriodEndBeforeStart', i18nFallback: 'endDate must not be before startDate.' },
   })
 
 export type CreateFiscalPeriodInput = z.infer<typeof createFiscalPeriodSchema>
