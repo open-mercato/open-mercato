@@ -136,9 +136,6 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
   // --- notifications ---
   'notifications:NotificationTypeOverride': { status: 'exempt', resourceKind: '', reason: 'OSS-floor-only — a tenant-scoped operator override edited only via the custom `PATCH /api/notifications/types` handler (no makeCrudRoute decorator surface), which enforces the synchronous OSS `enforceCommandOptimisticLock` updated_at floor and 409s a stale write on the shared conflict banner. Enterprise record_locks migration deferred.' },
   'notifications:NotificationPreference': { status: 'exempt', resourceKind: '', reason: 'OSS-floor-only — per-(user, type, channel) preference rows a user edits only for themselves (not a shared collaborative-edit surface); written via the idempotent `setPreferences` upsert, which is last-writer-wins by design. Carries updated_at for the OSS floor; tenant/org record_locks enrichment is not engaged.' },
-
-  // --- availability ---
-  'availability:AvailabilityPolicy': { status: 'enabled', resourceKind: 'availability.policy', reason: 'enabled — standard makeCrudRoute entity (floor + record_locks); CrudForm edit page auto-derives the lock header from initialValues.updatedAt; no dedicated presence mount.' },
 }
 
 /**

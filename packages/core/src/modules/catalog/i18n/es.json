@@ -530,6 +530,7 @@
   "catalog.products.edit.metadata.title": "Metadatos",
   "catalog.products.edit.metadata.valuePlaceholder": "Valor",
   "catalog.products.edit.offers.deleteError": "No se pudo eliminar la oferta del canal de ventas.",
+  "catalog.products.edit.optionsBuilder.emptyWithVariants": "Este producto tiene variantes sin un esquema de opciones. Las opciones son opcionales.",
   "catalog.products.edit.save": "Guardar cambios",
   "catalog.products.edit.schemas.apply": "Aplicar",
   "catalog.products.edit.schemas.delete": "Eliminar esquema",

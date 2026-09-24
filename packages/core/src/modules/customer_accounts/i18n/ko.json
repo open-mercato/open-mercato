@@ -10,6 +10,7 @@
   "customer_accounts.admin.columns.email": "이메일",
   "customer_accounts.admin.columns.emailVerified": "확인됨",
   "customer_accounts.admin.columns.lastLogin": "마지막 로그인",
+  "customer_accounts.admin.columns.organization": "조직",
   "customer_accounts.admin.columns.roles": "역할",
   "customer_accounts.admin.columns.status": "상태",
   "customer_accounts.admin.confirm.delete": "사용자 \"{{name}}\"을(를) 삭제하시겠습니까?",
