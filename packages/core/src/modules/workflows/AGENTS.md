@@ -94,12 +94,12 @@ Definition → startWorkflow() → Instance → executeWorkflow() loop
 
 | Activity type | When to use |
 |---------------|-------------|
-| `SEND_EMAIL` | Send templated email via mail service |
+| `SEND_EMAIL` | Send templated email via mail service. The handler passes `signal?: AbortSignal` on the send payload; honouring it is optional for implementations. Adapter authors serializing the payload for a queue must strip the field before enqueuing. |
 | `CALL_API` | Call an internal API endpoint |
 | `CALL_WEBHOOK` | Call an external HTTP endpoint (SSRF-guarded via `@open-mercato/shared/lib/url-safety`; `redirect: 'manual'`, 3xx rejected) |
-| `UPDATE_ENTITY` | Mutate an entity via the command bus |
-| `EMIT_EVENT` | Emit a domain event to the event bus |
-| `EXECUTE_FUNCTION` | Run a registered custom function |
+| `UPDATE_ENTITY` | Mutate an entity via the command bus. `CommandBus.execute` does not declare a signal; a write that has already begun cannot be cancelled on timeout. |
+| `EMIT_EVENT` | Emit a domain event to the event bus. `eventBus.emitEvent` does not declare a signal; an emit that has already begun cannot be cancelled on timeout. |
+| `EXECUTE_FUNCTION` | Run a registered custom function. Functions receive `(args, context, signal?: AbortSignal)` — the third arg is additive; existing two-arg functions are unaffected. |
 | `WAIT` | Delay execution for a configured duration |
 | `SET_VARIABLE` | Write values into workflow context at dot paths (assignments land at top-level context, not namespaced under the activity) |
 

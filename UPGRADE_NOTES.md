@@ -212,6 +212,32 @@ resolution, pass `currencyCode` in your `PricingContext` and audit any `CatalogP
 that only differ by currency for the product/variant you resolve most often — those are the rows
 whose resolution outcome can change.
 
+### `SEND_EMAIL` activity forwards an optional `signal` to `emailService.send` (no action required)
+
+The `SEND_EMAIL` activity handler now passes a `signal?: AbortSignal` field inside the object it sends to `emailService.send()`. Implementations that ignore unknown fields are unaffected. Implementations that wish to cancel an in-flight send on activity timeout may read the field:
+
+```ts
+// your email service adapter — honoring signal is optional
+async send(input: { to: string; subject: string; signal?: AbortSignal; … }) {
+  const result = await someMailClient.deliver(input, { signal: input.signal })
+  return result
+}
+```
+
+If your adapter serializes the payload for a message queue, strip `signal` before enqueuing to avoid a non-serializable field in the job data.
+
+### `EXECUTE_FUNCTION` passes an optional `AbortSignal` as its third argument (no action required)
+
+Registered workflow functions (`workflowFunction:<name>` in DI) now receive `(args, context, signal?: AbortSignal)` instead of `(args, context)`. Existing two-argument functions are unaffected — the third parameter is additive. Functions that want to cancel cooperative work on activity timeout can read it:
+
+```ts
+container.register('workflowFunction:myFn', asValue(
+  async (args, _ctx, signal?: AbortSignal) => {
+    return await someSlowOperation(args, { signal })
+  }
+))
+```
+
 ### `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS` opt-in now ANDs per word (#5803, tracked by #5383)
 
 `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS`, introduced as an opt-in carve-out in #4622, still
