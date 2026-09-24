@@ -5,6 +5,7 @@ import {
 } from '@open-mercato/shared/lib/auth/jwt'
 
 const findActiveSessionForClaims = jest.fn()
+const hasActiveSessionForUser = jest.fn()
 const findOneWithDecryption = jest.fn()
 const loadAcl = jest.fn()
 const getEffectiveFeatures = jest.fn()
@@ -58,7 +59,7 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
     jest.clearAllMocks()
     containerResolve.mockImplementation((name: string) => {
       if (name === 'customerSessionService') {
-        return { findActiveSessionForClaims }
+        return { findActiveSessionForClaims, hasActiveSessionForUser }
       }
       if (name === 'customerRbacService') {
         return { loadAcl, getEffectiveFeatures }
@@ -243,11 +244,12 @@ describe('getCustomerAuthFromRequest — legacy raw-secret tokens', () => {
     delete process.env.JWT_LEGACY_GRACE_MINUTES
     process.env.JWT_LEGACY_CUTOVER_AT = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
     containerResolve.mockImplementation((name: string) => {
-      if (name === 'customerSessionService') return { findActiveSessionForClaims }
+      if (name === 'customerSessionService') return { findActiveSessionForClaims, hasActiveSessionForUser }
       if (name === 'customerRbacService') return { loadAcl, getEffectiveFeatures }
       if (name === 'em') return mockEm
       return null
     })
+    hasActiveSessionForUser.mockResolvedValue(true)
     findOneWithDecryption.mockResolvedValue({
       id: userId,
       sessionsRevokedAt: null,
@@ -284,7 +286,57 @@ describe('getCustomerAuthFromRequest — legacy raw-secret tokens', () => {
     const result = await getCustomerAuthFromRequest(req)
 
     expect(result).toMatchObject({ sub: userId, type: 'customer' })
+    // No `sid` to bind to, so the sid-scoped lookup stays unused — but liveness is still proven.
     expect(findActiveSessionForClaims).not.toHaveBeenCalled()
+    expect(hasActiveSessionForUser).toHaveBeenCalledWith({
+      userId,
+      tenantId,
+      organizationId: orgId,
+    })
+  })
+
+  it('rejects a sessionless legacy token once every session of that customer is revoked', async () => {
+    // The revocation path the API used to skip entirely: staff/user revokes the customer's
+    // sessions without stamping `sessionsRevokedAt` (per-device revoke, portal logout), so
+    // `validateUserState` cannot catch it and only the liveness re-check can.
+    process.env.JWT_LEGACY_GRACE_MINUTES = '60'
+    hasActiveSessionForUser.mockResolvedValue(false)
+    const req = buildLegacyRequest()
+
+    await expect(getCustomerAuthFromRequest(req)).resolves.toBeNull()
+    expect(hasActiveSessionForUser).toHaveBeenCalledWith({
+      userId,
+      tenantId,
+      organizationId: orgId,
+    })
+  })
+
+  it('fails closed for a sessionless legacy token when the liveness lookup throws', async () => {
+    process.env.JWT_LEGACY_GRACE_MINUTES = '60'
+    hasActiveSessionForUser.mockRejectedValue(new Error('db unavailable'))
+    const req = buildLegacyRequest()
+
+    await expect(getCustomerAuthFromRequest(req)).resolves.toBeNull()
+  })
+
+  it('scopes the liveness lookup to the token tenant and organization', async () => {
+    // A legacy token names its own scope; the lookup must not fall back to a cross-tenant match.
+    process.env.JWT_LEGACY_GRACE_MINUTES = '60'
+    const otherTenantId = 'ssssssss-ssss-4sss-8sss-ssssssssssss'
+    const payload = buildCustomerPayload({ tenantId: otherTenantId })
+    delete payload.sid
+    const token = signJwt(payload, rawSecret, 30 * 24 * 3600)
+    const req = new Request('http://localhost/api/customer/me', {
+      headers: { cookie: buildCustomerCookieHeader(token) },
+    })
+
+    await getCustomerAuthFromRequest(req)
+
+    expect(hasActiveSessionForUser).toHaveBeenCalledWith({
+      userId,
+      tenantId: otherTenantId,
+      organizationId: orgId,
+    })
   })
 
   it('rejects the same sessionless legacy token once the grace window has passed', async () => {
