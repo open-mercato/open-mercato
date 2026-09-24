@@ -116,9 +116,9 @@ export default function PortalTaskDetailPage({ params }: Props) {
         setFailure('submit')
         return
       }
-      router.push(listHref)
+      router.push(`/${params.orgSlug}/portal/tasks`)
     },
-    [task, values, comments, router, listHref],
+    [task, values, comments, router, params.orgSlug],
   )
 
   if (notFound) {

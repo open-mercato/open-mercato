@@ -11,12 +11,31 @@ import { ComponentOverridesBootstrap } from '../ComponentOverridesBootstrap'
 
 jest.mock('@/.mercato/generated/component-overrides.generated', () => ({
   componentOverrideEntries: [{
-    componentOverrides: [{
-      target: { componentId: 'test' },
-      priority: 1,
-      propsTransform: (props: { label: string }) => ({ ...props, label: 'Override active' }),
-    }],
+    componentOverrides: [
+      {
+        target: { componentId: 'test' },
+        priority: 1,
+        propsTransform: (props: { label: string }) => ({ ...props, label: 'Override active' }),
+      },
+      {
+        target: { componentId: 'disabled-test' },
+        priority: 1,
+        propsTransform: (props: { label: string }) => ({ ...props, label: 'Override active' }),
+      },
+    ],
   }],
+}))
+
+jest.mock('@/modules', () => ({
+  enabledModules: [{
+    id: 'app',
+    from: '@app',
+    overrides: { widgets: { components: { 'disabled-test': null } } },
+  }],
+}))
+
+jest.mock('@/.mercato/generated/enabled-module-ids.generated', () => ({
+  enabledModuleIds: ['app'],
 }))
 
 describe('ComponentOverridesBootstrap', () => {
@@ -46,6 +65,33 @@ describe('ComponentOverridesBootstrap', () => {
 
     expect(screen.getByText('Override active')).toBeInTheDocument()
     expect(screen.queryByText('Fallback active')).not.toBeInTheDocument()
+  })
+
+  it('keeps a modules.ts widgets.components disable applied after hydration', async () => {
+    // Without the client-side filter the browser re-registers the raw generated
+    // entries and the disabled override comes back on hydration (#5864).
+    function Label({ label }: { label: string }) {
+      return <span>{label}</span>
+    }
+
+    function Consumer() {
+      const ResolvedLabel = useRegisteredComponent<{ label: string }>('disabled-test', Label)
+      return <ResolvedLabel label="Fallback active" />
+    }
+
+    await act(async () => {
+      render(
+        <React.Suspense fallback={<span>Loading overrides</span>}>
+          <ComponentOverridesBootstrap profile="login">
+            <Consumer />
+          </ComponentOverridesBootstrap>
+        </React.Suspense>,
+      )
+    })
+
+    expect(getComponentOverrides('disabled-test')).toHaveLength(0)
+    expect(screen.getByText('Fallback active')).toBeInTheDocument()
+    expect(getComponentOverrides('test')).toHaveLength(1)
   })
 
   it('preserves child state and updates mounted consumers when asynchronous overrides activate', async () => {

@@ -138,7 +138,7 @@ The definition panel's **Triggers** section starts a workflow automatically when
 - **Event pattern** — pick the event from the list of events the application declares, or type a pattern with `*` as a wildcard (`sales.orders.*`).
 - **Filter conditions** — narrow which occurrences count. When the chosen event declares a payload shape, the condition builder offers its **payload paths and types** instead of asking you to type them; wildcards and events without a declared payload fall back to free text with a note saying so.
 - **Context mapping** — copy values out of the event payload into the new instance's starting context. Source paths come from the same typed list, and the mapped keys then appear in the variable picker at every step, so a triggered workflow is not a black box.
-- **Debounce** — wait this many milliseconds so a burst of similar events starts one workflow instead of many. Empty means start immediately.
+- **Debounce** — the first event for a given record starts a workflow instance immediately; further events for the *same* record within this many milliseconds are skipped, so a burst of similar events starts one instance instead of many, and that instance sees the first event's payload. The window is tracked per application process. Empty means no debouncing — every matching event starts an instance.
 - **Max concurrent instances** — cap how many instances this trigger may have running at once; events past the cap are skipped. Empty means no limit.
 
 ## The Variable Picker
