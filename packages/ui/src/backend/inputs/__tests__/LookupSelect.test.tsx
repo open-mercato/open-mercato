@@ -382,3 +382,47 @@ describe('LookupSelect disabled', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 })
+
+// `allowClear` exists so a field whose contract forbids an empty value cannot emit
+// `onChange(null)`. The default MUST stay `true`: every pre-existing caller
+// (RoleAssignmentRow, AssignRoleDialog, ParticipantsField) relies on the clear
+// affordance being present without passing the prop.
+describe('LookupSelect allowClear', () => {
+  const SELECTED = [{ id: 'user-1', title: 'Ada Lovelace' }]
+
+  function renderWith(allowClear: boolean | undefined, onChange: (next: string | null) => void) {
+    return render(
+      <LookupSelect
+        value="user-1"
+        onChange={onChange}
+        options={SELECTED}
+        clearLabel="Clear selection"
+        {...(allowClear === undefined ? {} : { allowClear })}
+      />,
+    )
+  }
+
+  it('keeps the clear control when the prop is omitted (regression guard for existing callers)', () => {
+    renderWith(undefined, () => {})
+    expect(screen.getAllByRole('button', { name: /clear selection/i }).length).toBeGreaterThan(0)
+  })
+
+  it('keeps the clear control when explicitly enabled', () => {
+    renderWith(true, () => {})
+    expect(screen.getAllByRole('button', { name: /clear selection/i }).length).toBeGreaterThan(0)
+  })
+
+  it('renders no clear control when disabled, so the selection cannot be emptied', () => {
+    renderWith(false, () => {})
+    expect(screen.queryByRole('button', { name: /clear selection/i })).toBeNull()
+  })
+
+  it('never emits onChange(null) when clearing is disabled', () => {
+    const onChange = jest.fn()
+    renderWith(false, onChange)
+
+    for (const button of screen.queryAllByRole('button')) fireEvent.click(button)
+
+    expect(onChange).not.toHaveBeenCalledWith(null)
+  })
+})
