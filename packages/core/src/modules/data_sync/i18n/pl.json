@@ -31,6 +31,8 @@
   "data_sync.dashboard.schedule.interval": "Interwał",
   "data_sync.dashboard.schedule.intervalHelp": "Przykład: `1h`, `6h` lub `24h` dla powtarzalnych interwałów.",
   "data_sync.dashboard.schedule.intervalValue": "Interwał",
+  "data_sync.dashboard.schedule.invalidCron": "Podaj wyrażenie cron, które scheduler potrafi przetworzyć, na przykład `0 * * * *`.",
+  "data_sync.dashboard.schedule.invalidInterval": "Podaj liczbę całkowitą z jednostką s, m, h lub d (na przykład `15m`, `1h` lub `24h`), o długości co najmniej jednej minuty.",
   "data_sync.dashboard.schedule.invalidValue": "Podaj wartość harmonogramu przed zapisaniem.",
   "data_sync.dashboard.schedule.lastRun": "Ostatni zaplanowany przebieg: {value}",
   "data_sync.dashboard.schedule.neverRun": "Zapisano, ale żadne zaplanowane wykonanie jeszcze się nie zakończyło.",
