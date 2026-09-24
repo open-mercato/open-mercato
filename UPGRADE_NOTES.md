@@ -237,7 +237,7 @@ container.register('workflowFunction:myFn', asValue(
   }
 ))
 ```
-=======
+
 ### `AssignableStaffMember.teamMemberId` is now `string | null` (staff-absent fallback)
 
 When the optional `staff` module is absent, assignable-owner rosters resolve via
@@ -254,7 +254,6 @@ fallback path). Downstream code that assumed a non-null team-member id must bran
 **Existing tenants:** default CRM roles now include `auth.users.list` so owner pickers work without
 the `staff` module. Run `yarn mercato auth sync-role-acls` (or your app's equivalent) so existing
 admin/employee roles pick up the grant.
->>>>>>> origin/develop
 
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 
