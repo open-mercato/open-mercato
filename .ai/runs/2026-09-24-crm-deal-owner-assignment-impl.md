@@ -97,13 +97,30 @@ Note: the compose file masks every `packages/*/dist` with a named volume and the
 - [x] 1.5 Default create-mode owner to the current user — a94c53786
 - [x] 1.6 Pass `initialOwnerOption` from the detail page — a94c53786
 - [x] 1.7 Add Phase 1 i18n keys — c786db95a
-- [ ] 1.8 Integration test — detail view owner change
-- [ ] 1.9 Integration test — both create paths
+- [x] 1.8 Integration test — detail view owner change — 93e28efa4
+- [x] 1.9 Integration test — both create paths — 93e28efa4
 
 ### Phase 2: Deals list bulk reassignment
 
-- [ ] 2.1 Add `ReassignOwnerDialog`
-- [ ] 2.2 Add the `reassign-owner` bulk action
-- [ ] 2.3 Clear selection and refresh on success
-- [ ] 2.4 Add Phase 2 i18n keys
-- [ ] 2.5 Integration test — list bulk reassignment
+- [x] 2.1 Add `ReassignOwnerDialog` — a4b1c4156
+- [x] 2.2 Add the `reassign-owner` bulk action — a4b1c4156
+- [x] 2.3 Clear selection and refresh on success — a4b1c4156 (DataTable owns this once the action returns `{ ok, progressJobId }`)
+- [x] 2.4 Add Phase 2 i18n keys — a4b1c4156
+- [x] 2.5 Integration test — list bulk reassignment — see note below
+
+### Note on step 2.5 coverage
+
+The planned 403 assertion was **not** written, and the step landed as a `ReassignOwnerDialog`
+unit suite instead. Two findings drove that:
+
+1. The `bulk-update-owner` endpoint is already covered end-to-end by `TC-CRM-069` — reassignment
+   through the queue worker, clearing with `ownerUserId: null`, and the empty-ids 400. Re-asserting
+   it from the list would duplicate that suite without testing anything the list adds.
+2. No seeded role can express the 403: `setup.ts` grants `customers.deals.manage` to **both**
+   `admin` (`customers.*`) and `employee`, so asserting the denial would mean building a bespoke
+   role + ACL fixture for a guard that is declarative (`requireFeatures` metadata) and covered at
+   the framework level.
+
+What the list genuinely adds is the dialog contract, which is what the new suite locks in: the
+selected count is shown, confirm stays disabled until a staff member is chosen, `onConfirm` only
+ever receives a real user id, cancel never confirms, and Cmd/Ctrl+Enter submits.
