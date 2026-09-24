@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { generateModulePackageSources } from '../module-package-sources'
 import type { PackageResolver } from '../../resolver'
+import { readChecksumRecord } from '../../utils'
 
 const fixturePackageRoot = path.resolve(
   __dirname,
@@ -25,7 +26,7 @@ function copyDir(src: string, dest: string): void {
   }
 }
 
-function createResolver(tmpDir: string, packageRoot: string, from: string): PackageResolver {
+function createResolver(tmpDir: string, packageRoot: string, from: string, moduleId = 'test_package'): PackageResolver {
   const appDir = path.join(tmpDir, 'app')
   const outputDir = path.join(appDir, '.mercato', 'generated')
   fs.mkdirSync(outputDir, { recursive: true })
@@ -37,14 +38,14 @@ function createResolver(tmpDir: string, packageRoot: string, from: string): Pack
     getOutputDir: () => outputDir,
     getModulesConfigPath: () => path.join(appDir, 'src', 'modules.ts'),
     discoverPackages: () => [],
-    loadEnabledModules: () => [{ id: 'test_package', from }],
+    loadEnabledModules: () => [{ id: moduleId, from }],
     getModulePaths: () => ({
-      appBase: path.join(appDir, 'src', 'modules', 'test_package'),
-      pkgBase: path.join(packageRoot, 'src', 'modules', 'test_package'),
+      appBase: path.join(appDir, 'src', 'modules', moduleId),
+      pkgBase: path.join(packageRoot, 'src', 'modules', moduleId),
     }),
     getModuleImportBase: () => ({
-      appBase: '@/modules/test_package',
-      pkgBase: `${from}/modules/test_package`,
+      appBase: `@/modules/${moduleId}`,
+      pkgBase: `${from}/modules/${moduleId}`,
     }),
     getPackageOutputDir: () => outputDir,
     getPackageRoot: () => packageRoot,
@@ -73,6 +74,88 @@ describe('generateModulePackageSources', () => {
     const output = fs.readFileSync(path.join(resolver.getOutputDir(), 'module-package-sources.css'), 'utf8')
     expect(output).toContain('@source')
     expect(output).toContain('node_modules/@open-mercato/test-package/src/**/*.{ts,tsx}')
+  })
+
+  it('does not checksum unrelated files below the installed package root', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
+    copyDir(fixturePackageRoot, packageRoot)
+    const resolver = createResolver(tmpDir, packageRoot, '@open-mercato/test-package')
+    const outFile = path.join(resolver.getOutputDir(), 'module-package-sources.css')
+    const checksumFile = path.join(resolver.getOutputDir(), 'module-package-sources.checksum')
+
+    await generateModulePackageSources({ resolver, quiet: true })
+    const outputBefore = fs.readFileSync(outFile, 'utf8')
+    const checksumBefore = readChecksumRecord(checksumFile)
+    const pinnedTime = new Date(Date.now() - 60_000)
+    fs.utimesSync(outFile, pinnedTime, pinnedTime)
+    fs.utimesSync(checksumFile, pinnedTime, pinnedTime)
+
+    fs.writeFileSync(path.join(packageRoot, 'src', 'unrelated-runtime.ts'), 'export const unrelated = true\n')
+    const result = await generateModulePackageSources({ resolver, quiet: true })
+
+    expect(result.filesWritten).toEqual([])
+    expect(result.filesUnchanged).toEqual([outFile])
+    expect(fs.readFileSync(outFile, 'utf8')).toBe(outputBefore)
+    expect(fs.statSync(outFile).mtimeMs).toBe(pinnedTime.getTime())
+    expect(fs.statSync(checksumFile).mtimeMs).toBe(pinnedTime.getTime())
+    expect(readChecksumRecord(checksumFile)).toEqual(checksumBefore)
+  })
+
+  it('tracks enabled module and package manifest inputs without touching byte-identical output', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
+    copyDir(fixturePackageRoot, packageRoot)
+    copyDir(
+      path.join(packageRoot, 'src', 'modules', 'test_package'),
+      path.join(packageRoot, 'src', 'modules', 'alternate_module'),
+    )
+    copyDir(
+      path.join(packageRoot, 'dist', 'modules', 'test_package'),
+      path.join(packageRoot, 'dist', 'modules', 'alternate_module'),
+    )
+    const packageName = '@open-mercato/test-package'
+    const initialResolver = createResolver(tmpDir, packageRoot, packageName)
+    const alternateResolver = createResolver(tmpDir, packageRoot, packageName, 'alternate_module')
+    const outFile = path.join(initialResolver.getOutputDir(), 'module-package-sources.css')
+    const checksumFile = path.join(initialResolver.getOutputDir(), 'module-package-sources.checksum')
+
+    await generateModulePackageSources({ resolver: initialResolver, quiet: true })
+    const outputBefore = fs.readFileSync(outFile, 'utf8')
+    const initialStructure = readChecksumRecord(checksumFile)?.structure
+    const pinnedTime = new Date(Date.now() - 60_000)
+    fs.utimesSync(outFile, pinnedTime, pinnedTime)
+
+    await generateModulePackageSources({ resolver: alternateResolver, quiet: true })
+    const alternateStructure = readChecksumRecord(checksumFile)?.structure
+    expect(alternateStructure).not.toBe(initialStructure)
+    expect(fs.readFileSync(outFile, 'utf8')).toBe(outputBefore)
+    expect(fs.statSync(outFile).mtimeMs).toBe(pinnedTime.getTime())
+
+    const packageJsonPath = path.join(packageRoot, 'package.json')
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as Record<string, unknown>
+    packageJson.version = '0.2.0'
+    fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`)
+    const result = await generateModulePackageSources({ resolver: alternateResolver, quiet: true })
+
+    expect(readChecksumRecord(checksumFile)?.structure).not.toBe(alternateStructure)
+    expect(result.filesWritten).toEqual([])
+    expect(result.filesUnchanged).toEqual([outFile])
+    expect(fs.readFileSync(outFile, 'utf8')).toBe(outputBefore)
+    expect(fs.statSync(outFile).mtimeMs).toBe(pinnedTime.getTime())
+  })
+
+  it('keeps official package validation as the source inclusion gate', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
+    copyDir(fixturePackageRoot, packageRoot)
+    const packageJsonPath = path.join(packageRoot, 'package.json')
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as Record<string, unknown>
+    packageJson.name = '@open-mercato/different-package'
+    fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`)
+    const resolver = createResolver(tmpDir, packageRoot, '@open-mercato/test-package')
+
+    await generateModulePackageSources({ resolver, quiet: true })
+
+    const output = fs.readFileSync(path.join(resolver.getOutputDir(), 'module-package-sources.css'), 'utf8')
+    expect(output).toBe('')
   })
 
   it('skips app-backed modules', async () => {

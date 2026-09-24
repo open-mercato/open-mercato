@@ -28,6 +28,9 @@ export interface NormalizeInboundGmailOptions {
   gmailThreadId: string
   gmailLabelIds?: string[]
   accountIdentifier: string
+  /** Gmail `internalDate`: when Gmail received the message. Wins over the MIME Date header. */
+  receivedAt?: Date
+  /** Used only when neither `receivedAt` nor a usable Date header is available. */
   fallbackDate?: Date
 }
 
@@ -50,6 +53,7 @@ export async function normalizeInboundGmailMessage(
     fallbackMessageId: `gmail:${options.gmailMessageId}@${options.accountIdentifier}`,
     // Gmail's threadId is authoritative for conversation grouping.
     resolveConversationId: () => `${GMAIL_THREAD_REF_PREFIX}${options.gmailThreadId}`,
+    receivedAt: options.receivedAt,
     fallbackDate: options.fallbackDate,
     channelMetadata: () => gmailFields,
     channelPayload: () => gmailFields,
