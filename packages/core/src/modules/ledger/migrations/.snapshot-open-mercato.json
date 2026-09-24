@@ -388,7 +388,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
+          "unique": true,
           "length": null,
           "precision": null,
           "scale": null,
@@ -517,6 +517,18 @@
           "keyName": "journal_entries_sequence_unique",
           "primary": false,
           "unique": true
+        },
+        {
+          "columnNames": [
+            "reference_type",
+            "reference_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "journal_entries_single_reversal_idx",
+          "primary": false,
+          "unique": true,
+          "where": "\"type\" = 'REVERSAL' and \"reference_type\" = 'journal_entry' and \"reference_id\" is not null"
         }
       ],
       "checks": [],
@@ -707,6 +719,16 @@
         },
         {
           "columnNames": [
+            "journal_entry_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "journal_entry_lines_journal_entry_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
             "id"
           ],
           "composite": false,
@@ -735,7 +757,19 @@
         }
       ],
       "triggers": [],
-      "foreignKeys": {},
+      "foreignKeys": {
+        "journal_entry_lines_journal_entry_fk": {
+          "columnNames": [
+            "journal_entry_id"
+          ],
+          "constraintName": "journal_entry_lines_journal_entry_fk",
+          "localTableName": "public.journal_entry_lines",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.journal_entries"
+        }
+      },
       "comment": null
     },
     {
@@ -1242,10 +1276,11 @@
             "slug"
           ],
           "composite": true,
-          "constraint": true,
+          "constraint": false,
           "keyName": "ledger_account_types_scope_slug_unique",
           "primary": false,
-          "unique": true
+          "unique": true,
+          "where": "\"deleted_at\" is null"
         }
       ],
       "checks": [],
@@ -1457,10 +1492,11 @@
             "slug"
           ],
           "composite": true,
-          "constraint": true,
+          "constraint": false,
           "keyName": "ledger_accounts_scope_slug_unique",
           "primary": false,
-          "unique": true
+          "unique": true,
+          "where": "\"deleted_at\" is null"
         }
       ],
       "checks": [],

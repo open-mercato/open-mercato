@@ -12,11 +12,25 @@ export class Migration20260922093649 extends Migration {
 
     this.addSql(`create table "ledger_account_types" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "tenant_id" uuid not null, "slug" text not null, "name" text not null, "normal_balance" text not null, "parent_account_type_id" uuid null, "account_group_id" uuid null, "created_at" timestamptz not null, "updated_at" timestamptz not null, "deleted_at" timestamptz null, constraint "ledger_account_types_pkey" primary key ("id"));`);
     this.addSql(`create index "ledger_account_types_scope_idx" on "ledger_account_types" ("organization_id", "tenant_id");`);
-    this.addSql(`alter table "ledger_account_types" add constraint "ledger_account_types_scope_slug_unique" unique ("organization_id", "tenant_id", "slug");`);
+    // PR #6340 review, n4: a plain table `unique` constraint can't carry a
+    // `where` predicate in Postgres, so this was originally
+    // `alter table ... add constraint ... unique (...)`, meaning a
+    // soft-deleted account type's slug stayed reserved forever — deleting
+    // "misc" and creating a new "misc" would fail with a duplicate-slug
+    // error even though the old row is gone from every real listing. A
+    // partial unique INDEX (not a constraint) is the only way to scope
+    // this to live rows in Postgres. Since the whole module is still
+    // unreleased on this branch, this edits the one existing migration in
+    // place (same rationale as n3's own migration edit above).
+    this.addSql(`create unique index "ledger_account_types_scope_slug_unique" on "ledger_account_types" ("organization_id", "tenant_id", "slug") where "deleted_at" is null;`);
 
     this.addSql(`create table "ledger_accounts" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "tenant_id" uuid not null, "slug" text not null, "account_type_id" uuid not null, "parent_account_id" uuid null, "description" text null, "created_at" timestamptz not null, "updated_at" timestamptz not null, "deleted_at" timestamptz null, constraint "ledger_accounts_pkey" primary key ("id"));`);
     this.addSql(`create index "ledger_accounts_scope_idx" on "ledger_accounts" ("organization_id", "tenant_id");`);
-    this.addSql(`alter table "ledger_accounts" add constraint "ledger_accounts_scope_slug_unique" unique ("organization_id", "tenant_id", "slug");`);
+    // PR #6340 review, n4: same fix as `ledger_account_types_scope_slug_unique`
+    // above — a soft-deleted account's slug must be reusable, which a plain
+    // table `unique` constraint (no `where` support in Postgres) cannot
+    // express. Replaced with a partial unique index scoped to live rows.
+    this.addSql(`create unique index "ledger_accounts_scope_slug_unique" on "ledger_accounts" ("organization_id", "tenant_id", "slug") where "deleted_at" is null;`);
 
     this.addSql(`create table "journal_entries" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "tenant_id" uuid not null, "sequence_number" bigint not null, "posted_at" timestamptz not null, "operation_date" date not null, "document_type" text null, "document_number" text null, "document_date" date null, "description" text not null, "type" text not null default 'NORMAL', "currency_id" uuid not null, "exchange_rate" numeric(18,8) null, "reference_type" text null, "reference_id" uuid null, constraint "journal_entries_pkey" primary key ("id"));`);
     this.addSql(`create index "journal_entries_scope_idx" on "journal_entries" ("organization_id", "tenant_id");`);
@@ -30,8 +44,19 @@ export class Migration20260922093649 extends Migration {
     // reversed at most once. Partial so it constrains only this specific
     // reuse of the generic reference_type/reference_id pointer, not any
     // future referenceType. Backs the application-layer guard in
-    // reverseJournalEntry.ts (PR #6340 review, M3).
-    this.addSql(`create unique index "journal_entries_single_reversal_idx" on "journal_entries" ("reference_type", "reference_id") where "reference_type" = 'journal_entry' and "reference_id" is not null;`);
+    // reverseJournalEntry.ts (PR #6340 review, M3). Predicate tightened
+    // (PR #6340 review, n3) to also require type = 'REVERSAL': the
+    // original predicate let any entry type occupy a reference_id's slot
+    // in this index, so a non-reversal entry that happened to carry
+    // reference_type='journal_entry'/reference_id=<id> (impossible for
+    // postJournalEntry callers as of n3's schema restriction, but not
+    // something this DB constraint should have to rely on) would make
+    // <id> permanently unreversible. Since the whole module is still
+    // unreleased on this branch, this edits the one existing migration in
+    // place rather than adding a new one (matching this PR's own prior
+    // review-round commits: 8fe194a5b, 5e97f9a61, 38fb797ce all amended
+    // this same file).
+    this.addSql(`create unique index "journal_entries_single_reversal_idx" on "journal_entries" ("reference_type", "reference_id") where "type" = 'REVERSAL' and "reference_type" = 'journal_entry' and "reference_id" is not null;`);
 
     this.addSql(`create table "journal_entry_lines" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "tenant_id" uuid not null, "journal_entry_id" uuid not null, "account_id" uuid not null, "debit" numeric(19,4) not null default 0, "credit" numeric(19,4) not null default 0, "amount_currency" numeric(19,4) not null default 0, "contractor_snapshot" json null, constraint "journal_entry_lines_pkey" primary key ("id"));`);
     this.addSql(`create index "journal_entry_lines_scope_idx" on "journal_entry_lines" ("organization_id", "tenant_id");`);

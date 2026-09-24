@@ -1,4 +1,4 @@
-import { Check, Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { Check, Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
 export type LedgerNormalBalance = 'DEBIT' | 'CREDIT'
 export type JournalEntryType = 'NORMAL' | 'OPENING' | 'CLOSING' | 'REVERSAL'
@@ -102,9 +102,15 @@ export class LedgerAccountGroup {
   name: 'ledger_account_types_scope_idx',
   properties: ['organizationId', 'tenantId'],
 })
+// PR #6340 review, n4: partial (`where deleted_at is null`) so a
+// soft-deleted account type's slug can be reused — see the migration's
+// own comment on this index for why a plain `@Unique` (a table
+// constraint, no `where` support in Postgres) couldn't express this and
+// had to become a partial unique index instead.
 @Unique({
   name: 'ledger_account_types_scope_slug_unique',
   properties: ['organizationId', 'tenantId', 'slug'],
+  where: `"deleted_at" is null`,
 })
 export class LedgerAccountType {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -155,9 +161,12 @@ export class LedgerAccountType {
   name: 'ledger_accounts_scope_idx',
   properties: ['organizationId', 'tenantId'],
 })
+// PR #6340 review, n4: partial (`where deleted_at is null`) — same
+// reasoning as `ledger_account_types_scope_slug_unique` above.
 @Unique({
   name: 'ledger_accounts_scope_slug_unique',
   properties: ['organizationId', 'tenantId', 'slug'],
+  where: `"deleted_at" is null`,
 })
 export class LedgerAccount {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -227,6 +236,31 @@ export class LedgerAccount {
 @Unique({
   name: 'journal_entries_sequence_unique',
   properties: ['tenantId', 'organizationId', 'sequenceNumber'],
+})
+// PR #6340 review, n1: this partial unique index (the M3 double-reversal
+// guard) existed only in the raw migration SQL, not in ORM metadata — a
+// schema rebuilt from entity metadata, or a later `yarn db:generate` diff,
+// wouldn't know about it. `where` matches the migration's predicate
+// exactly.
+//
+// PR #6340 review, n3: the predicate also requires `type = 'REVERSAL'`
+// (tightened from the original `reference_type = 'journal_entry' and
+// reference_id is not null`, which any entry type could satisfy). Without
+// this, an entry that isn't actually a reversal but happens to carry
+// `referenceType: 'journal_entry'`/`referenceId: <id>` (rejected for
+// external `postJournalEntry` callers by the schema as of n3, but the DB
+// constraint shouldn't rely on that alone) would occupy `<id>`'s slot in
+// this index, causing a genuine later reversal of `<id>` to fail with a
+// raw unique violation instead of ever being insertable. Requiring
+// `type = 'REVERSAL'` means only real reversals participate in the
+// uniqueness check, while a concurrent double-reversal of the same entry
+// (two real REVERSAL rows both pointing at it) is still caught here, not
+// just by the application-layer `existingReversal` check in
+// `reverseJournalEntry.ts`'s `loadOriginalEntry`.
+@Unique({
+  name: 'journal_entries_single_reversal_idx',
+  properties: ['referenceType', 'referenceId'],
+  where: `"type" = 'REVERSAL' and "reference_type" = 'journal_entry' and "reference_id" is not null`,
 })
 export class JournalEntry {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -316,6 +350,16 @@ export class JournalEntry {
   name: 'journal_entry_lines_account_idx',
   properties: ['organizationId', 'accountId'],
 })
+// PR #6340 review, n1: `assert_journal_entry_balanced()` (the deferred
+// balance-check trigger) queries this table by `journal_entry_id` alone,
+// with no `organization_id` predicate — the existing
+// `journal_entry_lines_entry_idx` above leads with `organization_id` and
+// so can't serve that lookup. This single-column index existed only in
+// the raw migration SQL, not in ORM metadata.
+@Index({
+  name: 'journal_entry_lines_journal_entry_idx',
+  properties: ['journalEntryId'],
+})
 @Check({
   name: 'journal_entry_lines_one_sided_chk',
   expression: `("debit" = 0 OR "credit" = 0) AND ("debit" > 0 OR "credit" > 0)`,
@@ -330,8 +374,28 @@ export class JournalEntryLine {
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 
-  /** FK-id to `JournalEntry`, no ORM relation. */
-  @Property({ name: 'journal_entry_id', type: 'uuid' })
+  /** FK-id to `JournalEntry`, mapped to the PK value rather than a
+   * hydrated relation (`mapToPk: true`) — this keeps `journalEntryId`
+   * typed and behaving as a plain `string`, exactly like `accountId`
+   * below and every other cross-entity FK-id in this module, so no
+   * query/command code that reads or assigns `journalEntryId` needs to
+   * change.
+   *
+   * PR #6340 review, n1: the DB-level FK constraint
+   * (`journal_entry_lines_journal_entry_fk`, added for m6) previously
+   * existed only in the raw migration SQL, not in ORM metadata, so the
+   * snapshot and a schema built from metadata alone didn't know about
+   * it. `@ManyToOne` with `mapToPk: true` registers the same FK in
+   * metadata (verified against a real Postgres instance: the emitted
+   * `alter table ... add constraint ... foreign key` DDL is identical to
+   * the migration's, and the property still reads/writes as a plain
+   * uuid string, not a `Ref`/entity) without the hydration/query-builder
+   * behavior change a normal relation would bring. */
+  @ManyToOne(() => JournalEntry, {
+    mapToPk: true,
+    fieldName: 'journal_entry_id',
+    foreignKeyName: 'journal_entry_lines_journal_entry_fk',
+  })
   journalEntryId!: string
 
   /** FK-id to `LedgerAccount`, no ORM relation. */
@@ -353,8 +417,8 @@ export class JournalEntryLine {
 
   /** Point-in-time copy of the counterparty's name/NIP/bank
    * account/Biała Lista status at posting time. PII — declared in this
-   * module's own `encryption.ts` (added in OM-2). Not populated by
-   * anything in this phase. */
+   * module's own `encryption.ts`. Not populated by anything in this
+   * phase. */
   @Property({ name: 'contractor_snapshot', type: 'json', nullable: true })
   contractorSnapshot?: Record<string, unknown> | null
 }
