@@ -209,3 +209,47 @@ integration-test run against actual Postgres is still the
 stronger verification, and worth doing before this BDD pattern is
 extended to another module; this suite passing green is not a
 substitute for that.
+
+
+## Default Chart of Accounts (OM-16–OM-20) — added after the initial 7 feature files
+
+`features/default_chart_of_accounts_import.feature` /
+`step_definitions/default_chart_of_accounts_import.steps.ts` cover the
+`ledger.importDefaultChartOfAccounts` command (see
+`.ai/specs/2026-09-15-default-chart-of-accounts.md`, PR #6137), wired the
+same way as every other feature file above: real command execution via
+`commandRegistry`/`executeCommand`/`buildCommandContext` against
+`support/world.ts`'s fake persistence layer, no reimplementation of the
+command's own logic.
+
+**Scenario source, this feature specifically:** this spec doesn't carry
+separate "User Stories"/"Edge Cases & Failure Scenarios" headings the way
+`2026-08-18-general-ledger-core-engine.md` does — these five scenarios are
+derived instead from its **Problem Statement** (the "faster starting
+point than building from zero" business need), **Design Decisions** (the
+empty-chart-of-accounts precondition, soft-deleted rows never blocking a
+re-import, imported rows being ordinary/editable afterward), and
+**Testing Strategy** sections, matching the same (corrected 39/43) scope
+already covered by the Jest unit suite
+(`commands/__tests__/importDefaultChartOfAccounts.test.ts`).
+
+**Permission enforcement is intentionally not a scenario here**, for the
+identical reason the Jest suite's own header comment documents: every
+command in this module (`ledgerAccountTypes.ts`/`ledgerAccounts.ts`
+included) enforces permissions exclusively at the HTTP route layer, never
+inside `execute()` — there is nothing for a command-level scenario
+(Cucumber or Jest) to observe.
+
+**Verification status:** confirmed. The sandboxed environment these
+five scenarios were originally written in had no `@cucumber/cucumber`
+package reachable from its `node_modules` at all (the same category of
+gap `OM-20` hit for `yarn generate`), so wiring was first checked only by
+hand — every `Given`/`When`/`Then`/`And` line in the `.feature` file
+matched exactly one registered step pattern in the `.steps.ts` file,
+confirmed by extracting both lists programmatically and comparing them
+1:1. `npm run test:bdd` was then actually run from the worktree root (not
+`apps/mercato` — the script lives in the root `package.json`, and the
+config path it passes is relative to the repo root) in an environment
+with this branch's real dependencies installed: **24 scenarios (24
+passed), 99 steps (99 passed)** — the prior 19/19 plus these 5, no
+failures, no pending steps.
