@@ -81,6 +81,7 @@ function DealOwnerCreateField(props: {
 
 export type DealFormBaseValues = {
   title: string
+  ownerUserId?: string | null
   status?: string | null
   pipelineStage?: string | null
   pipelineId?: string | null
@@ -1263,6 +1264,12 @@ export function DealForm({
           expectedCloseAt,
           description: parsed.data.description && parsed.data.description.length
             ? parsed.data.description
+            : undefined,
+          // `base` is an explicit allow-list: a field omitted here never reaches the API.
+          // Empty means "leave the stored owner alone" rather than clear it — the UI never
+          // sends a null owner (spec D5), and the update command skips undefined keys.
+          ownerUserId: parsed.data.ownerUserId && parsed.data.ownerUserId.length
+            ? parsed.data.ownerUserId
             : undefined,
           personIds,
           companyIds,

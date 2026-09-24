@@ -156,3 +156,31 @@ describe('DealForm create-mode owner default', () => {
     expect(setValue).not.toHaveBeenCalled()
   })
 })
+
+// The submit payload is an explicit allow-list, exactly like embeddedInitialValues. A field
+// missing from it is silently dropped before the API call — the owner selection appeared to
+// work in the UI while never persisting. These lock both directions of that contract.
+describe('DealForm owner submit payload', () => {
+  async function submitWith(values: Record<string, unknown>) {
+    const onSubmit = jest.fn().mockResolvedValue(undefined)
+    renderDealForm('edit', { onSubmit })
+    await waitFor(() => expect(captured.props).not.toBeNull())
+
+    const handler = (captured.props as unknown as { onSubmit: (v: Record<string, unknown>) => Promise<void> }).onSubmit
+    await handler({ title: 'Expansion renewal', personIds: [], companyIds: [], ...values })
+    return onSubmit
+  }
+
+  it('sends the selected owner in the base payload', async () => {
+    const onSubmit = await submitWith({ ownerUserId: 'user-7' })
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    expect(onSubmit.mock.calls[0][0].base).toMatchObject({ ownerUserId: 'user-7' })
+  })
+
+  it('omits the owner rather than sending null when none is set, so a stored owner is left alone', async () => {
+    const onSubmit = await submitWith({ ownerUserId: '' })
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    expect(onSubmit.mock.calls[0][0].base.ownerUserId).toBeUndefined()
+    expect(Object.values(onSubmit.mock.calls[0][0].base)).not.toContain(null)
+  })
+})
