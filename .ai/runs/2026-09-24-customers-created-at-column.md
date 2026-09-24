@@ -42,6 +42,8 @@ Let CRM users see, sort, and filter the People and Companies lists by creation d
 
 ## Progress
 
+PR: #6448
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: List column, sorting, and whole-day filter
