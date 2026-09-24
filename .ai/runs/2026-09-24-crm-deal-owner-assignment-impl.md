@@ -86,6 +86,8 @@ Note: the compose file masks every `packages/*/dist` with a named volume and the
 
 ## Progress
 
+PR: #6442
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Shared picker, detail view and create paths
