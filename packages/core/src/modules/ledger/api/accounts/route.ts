@@ -13,12 +13,12 @@ import { createLedgerCrudOpenApi, createPagedListResponseSchema, defaultOkRespon
 import { isIdsParamProvided, mergeIdFilter, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 
-// `/api/ledger/accounts` — chart-of-accounts CRUD (OM-11). Hand-written GET
-// mirrors currencies/api/currencies/route.ts's reference pattern rather than
-// the query-engine-driven `list` config, since `E.ledger.*` entity ids don't
-// exist yet in this worktree (populated by `yarn generate`, deferred to
-// OM-15) and this module's own commands already accept that dependency for
-// the indexer only — the list endpoint doesn't need to.
+// `/api/ledger/accounts` — chart-of-accounts CRUD. Hand-written GET mirrors
+// currencies/api/currencies/route.ts's reference pattern rather than the
+// query-engine-driven `list` config, since `E.ledger.*` entity ids don't
+// exist yet in this worktree (populated by `yarn generate`) and this
+// module's own commands already accept that dependency for the indexer
+// only — the list endpoint doesn't need to.
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['ledger.accounts.view'] },
   POST: { requireAuth: true, requireFeatures: ['ledger.accounts.manage'] },

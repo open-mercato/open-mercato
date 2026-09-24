@@ -10,10 +10,16 @@ Ordering: these scenarios were written before the unit and integration
 tests, deliberately — they read as a business-facing contract derived
 from the spec, which the unit/integration tests then implement against.
 
-## Why Cucumber, why `tsx/cjs` and not `ts-node`
+## Why Cucumber, why `ts-node` was rejected (and `tsx/cjs` later replaced too)
 
-Validated with an isolated npm spike (`~/bdd-spike`, outside this repo,
-using the exact `typescript`/`tsx` versions this repo's root
+**Update (PR #6340 review, m13):** the require hook this section
+originally settled on, `tsx/cjs`, is no longer what actually runs —
+see "Verification status" below for why it was swapped for
+`cucumber-ts-register.cjs`. The `ts-node` findings right below are
+still accurate and are why `ts-node` was never an option either way.
+
+Validated with an isolated npm spike (outside this repo, in a scratch
+directory using the exact `typescript`/`tsx` versions this repo's root
 `package.json` pins) before writing anything here:
 
 - `ts-node@10.9.2` with `requireModule: ['ts-node/register']` throws

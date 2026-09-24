@@ -18,6 +18,8 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 
 type FiscalPeriodRow = {
@@ -56,6 +58,9 @@ export default function FiscalPeriodsPage() {
   const [reloadToken, setReloadToken] = React.useState(0)
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
+  // PR #6340 review, m3 (same gap as backend/accounts/page.tsx).
+  const { payload } = useBackendChrome()
+  const canManage = hasFeature(payload?.grantedFeatures, 'ledger.periods.manage')
   const mutationContextId = 'ledger-fiscal-periods-list:mutation'
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
@@ -231,16 +236,18 @@ export default function FiscalPeriodsPage() {
             setPage(1)
           }}
           actions={
-            <Button asChild>
-              <Link href="/backend/fiscal-periods/create">
-                <Plus className="mr-2 h-4 w-4" />
-                {t('ledger.fiscal_periods.list.actions.create', 'New fiscal period')}
-              </Link>
-            </Button>
+            canManage ? (
+              <Button asChild>
+                <Link href="/backend/fiscal-periods/create">
+                  <Plus className="mr-2 h-4 w-4" />
+                  {t('ledger.fiscal_periods.list.actions.create', 'New fiscal period')}
+                </Link>
+              </Button>
+            ) : undefined
           }
           rowActions={(row) => (
             <RowActions
-              items={[
+              items={canManage ? [
                 row.isLocked
                   ? {
                       id: 'unlock',
@@ -252,13 +259,13 @@ export default function FiscalPeriodsPage() {
                       label: t('ledger.fiscal_periods.list.actions.lock', 'Lock'),
                       onSelect: () => toggleLock(row, true),
                     },
-              ]}
+              ] : []}
             />
           )}
           emptyState={(
             <ListEmptyState
               entityName={t('ledger.fiscal_periods.list.title', 'Fiscal Periods')}
-              createHref="/backend/fiscal-periods/create"
+              createHref={canManage ? '/backend/fiscal-periods/create' : undefined}
               createLabel={t('ledger.fiscal_periods.list.actions.create', 'New fiscal period')}
             />
           )}

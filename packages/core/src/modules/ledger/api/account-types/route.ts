@@ -13,7 +13,7 @@ import { createLedgerCrudOpenApi, createPagedListResponseSchema, defaultOkRespon
 import { isIdsParamProvided, mergeIdFilter, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 
-// `/api/ledger/account-types` — chart-of-accounts type CRUD (OM-11). Same
+// `/api/ledger/account-types` — chart-of-accounts type CRUD. Same
 // hand-written-GET pattern as `api/accounts/route.ts` — see that file's
 // header comment for why this doesn't use the query-engine `list` config.
 const routeMetadata = {

@@ -1,5 +1,5 @@
 /**
- * `POST /api/ledger/fiscal-periods/[id]/lock` (OM-11).
+ * `POST /api/ledger/fiscal-periods/[id]/lock`.
  *
  * Toggling `FiscalPeriod.isLocked` is not a field-level CRUD edit, so this
  * is a custom write route rather than a `makeCrudRoute` `update` action —

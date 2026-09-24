@@ -158,7 +158,7 @@ const createFiscalPeriodCommand: CommandHandler<CreateFiscalPeriodInput, { fisca
  * period, enforce the optimistic-lock guard against the caller's
  * `x-om-ext-optimistic-lock-expected-updated-at` header, flip `isLocked`,
  * persist. Both commands require `ledger.periods.manage` (enforced at the
- * API-route layer — see OM-11 — not inside the command itself, matching
+ * API-route layer, not inside the command itself, matching
  * this codebase's convention of ACL feature checks living on the route).
  */
 async function toggleFiscalPeriodLock(

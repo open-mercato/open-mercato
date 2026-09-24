@@ -319,9 +319,10 @@ describe('ledger.postJournalEntry', () => {
     // #6340 review's M2 fix), not `em.getConnection().execute(...)` — assert
     // on `em.execute` itself rather than a connection obtained via
     // `getConnection()`, which this path no longer calls.
-    // Each successful post now also issues one `SET CONSTRAINTS ...
-    // IMMEDIATE` call (PR #6340 review, m5) — filtered out below so this
-    // assertion still targets only the sequence allocator's own calls.
+    // Each successful post now also issues `SET CONSTRAINTS ...`
+    // calls (PR #6340 review, m5 and its own nit fix below) — filtered
+    // out below so this assertion still targets only the sequence
+    // allocator's own calls.
     const sequenceCalls = em.execute.mock.calls.filter((call) => /insert into journal_entry_sequence/i.test(call[0] as string))
     expect(sequenceCalls).toHaveLength(CONCURRENT_POSTS)
     for (const call of sequenceCalls) {
@@ -330,7 +331,19 @@ describe('ledger.postJournalEntry', () => {
       expect(sql).toMatch(/on conflict/i)
       expect(sql).toMatch(/returning/i)
     }
-    const constraintCalls = em.execute.mock.calls.filter((call) => /set constraints/i.test(call[0] as string))
-    expect(constraintCalls).toHaveLength(CONCURRENT_POSTS)
+    // PR #6340 review, nit: `runPostJournalEntry` now also restores
+    // `SET CONSTRAINTS ... DEFERRED` right after forcing `... IMMEDIATE`
+    // (SET CONSTRAINTS is transaction-scoped, not statement-scoped — without
+    // restoring it, a composed caller sharing this transaction would have
+    // every later statement checked immediately too). So each successful
+    // post now issues one IMMEDIATE and one DEFERRED call, not just one.
+    const immediateCalls = em.execute.mock.calls.filter((call) =>
+      /set constraints .* immediate/i.test(call[0] as string),
+    )
+    const deferredCalls = em.execute.mock.calls.filter((call) =>
+      /set constraints .* deferred/i.test(call[0] as string),
+    )
+    expect(immediateCalls).toHaveLength(CONCURRENT_POSTS)
+    expect(deferredCalls).toHaveLength(CONCURRENT_POSTS)
   })
 })

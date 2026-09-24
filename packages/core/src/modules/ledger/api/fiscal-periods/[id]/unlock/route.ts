@@ -1,5 +1,5 @@
 /**
- * `POST /api/ledger/fiscal-periods/[id]/unlock` (OM-11).
+ * `POST /api/ledger/fiscal-periods/[id]/unlock`.
  *
  * Mirror of `../lock/route.ts` — see that file's header comment for the
  * mutation-guard-registry rationale. Same feature gate

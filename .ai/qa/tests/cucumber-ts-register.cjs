@@ -9,7 +9,7 @@
 // transform (what `tsx` uses) does not match what MikroORM's legacy
 // decorators expect at runtime.
 //
-// OM-13's Jest suite loads these same ledger command files (and their
+// The ledger module's own Jest suite loads these same command files (and their
 // decorator-based `data/entities.ts`) successfully via `ts-jest`, which
 // transforms with the real TypeScript compiler, not esbuild — see
 // `scripts/jest-mikroorm-transformer.cjs`. This hook reproduces that same
@@ -19,7 +19,7 @@
 // per-file `ts.transpileModule`, real TypeScript output, same
 // `import.meta` sanitization and `typescript` -> `typescript-js` redirect
 // as the Jest transformer, so decorator metadata emission matches exactly
-// what OM-13 already proved works against these same entities.
+// what that Jest suite already proved works against these same entities.
 const Module = require('module')
 const fs = require('fs')
 

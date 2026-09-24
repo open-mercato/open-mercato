@@ -12,7 +12,7 @@ import { createLedgerCrudOpenApi, createPagedListResponseSchema } from '../opena
 import { isIdsParamProvided, mergeIdFilter, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 
-// `/api/ledger/fiscal-periods` — list + create only (OM-11). Locking and
+// `/api/ledger/fiscal-periods` — list + create only. Locking and
 // unlocking a period is not a field-level edit and is deliberately NOT
 // wired here: see `[id]/lock/route.ts` and `[id]/unlock/route.ts`, custom
 // write routes through the mutation guard registry per `AGENTS.md` → API

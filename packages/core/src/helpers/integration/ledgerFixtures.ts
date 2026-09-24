@@ -5,7 +5,7 @@ import { expectId, readJsonSafe } from './generalFixtures';
 import { withClient } from './dbFixtures';
 
 /**
- * Fixtures for the `ledger` module's integration tests (OM-14).
+ * Fixtures for the `ledger` module's integration tests.
  *
  * `postJournalEntry`/`reverseJournalEntry` have no HTTP route in Phase 1 — see
  * `.ai/specs/2026-08-18-general-ledger-core-engine.md`, API Contracts:
@@ -17,9 +17,9 @@ import { withClient } from './dbFixtures';
  * `seedJournalEntryInDb` inserts it (and its balanced lines) directly via
  * `pg`, inside one explicit transaction — the same rationale `dbFixtures.ts`
  * documents for entities with no create-via-API path. This does not exercise
- * `postJournalEntry` itself (that's the OM-13 unit suite and the OM-174 BDD
- * scenarios); it only seeds rows for `GET /api/ledger/journal-entries` to
- * read back.
+ * `postJournalEntry` itself (that's the module's own Jest unit suite and
+ * the Cucumber BDD scenarios); it only seeds rows for
+ * `GET /api/ledger/journal-entries` to read back.
  */
 
 export async function createFiscalPeriodFixture(
@@ -124,7 +124,7 @@ export async function seedJournalEntryInDb(input: SeedJournalEntryInput): Promis
     await client.query('begin');
     try {
       await client.query(
-        `insert into journal_entry
+        `insert into journal_entries
            (id, organization_id, tenant_id, sequence_number, posted_at, operation_date,
             document_type, document_number, document_date, description, type,
             currency_id, exchange_rate, reference_type, reference_id)
@@ -144,7 +144,7 @@ export async function seedJournalEntryInDb(input: SeedJournalEntryInput): Promis
       );
       for (const line of input.lines) {
         await client.query(
-          `insert into journal_entry_line
+          `insert into journal_entry_lines
              (id, organization_id, tenant_id, journal_entry_id, account_id, debit, credit, amount_currency, contractor_snapshot)
            values ($1, $2, $3, $4, $5, $6, $7, $8, null)`,
           [randomUUID(), input.organizationId, input.tenantId, entryId, line.accountId, line.debit, line.credit, '0'],
@@ -159,13 +159,48 @@ export async function seedJournalEntryInDb(input: SeedJournalEntryInput): Promis
   });
 }
 
-/** Best-effort cleanup for `seedJournalEntryInDb` — deletes lines, then the entry. */
+/**
+ * Best-effort cleanup for `seedJournalEntryInDb` — deletes lines, then the
+ * entry. PR #6340 review, N1: this used to target the pre-rename singular
+ * tables (`journal_entry`/`journal_entry_line`), so every call threw
+ * `relation "journal_entry" does not exist` — silently, because the whole
+ * function is wrapped in a best-effort `catch {}`. Even against the correct
+ * plural tables, a plain DELETE would still fail: `journal_entries_append_only`
+ * / `journal_entry_lines_append_only` (added for m6) block UPDATE/DELETE on
+ * both tables by design, since a posted journal entry must never be mutated
+ * or removed. Both triggers are disabled for the span of this one
+ * transaction (`ALTER TABLE ... DISABLE TRIGGER` is transactional DDL, so a
+ * rollback restores them) and re-enabled before commit — this only ever
+ * touches rows this same fixture inserted directly via SQL in
+ * `seedJournalEntryInDb`, never anything posted through the real
+ * `postJournalEntry`/`reverseJournalEntry` commands, which have no reason to
+ * bypass the append-only guarantee.
+ */
 export async function deleteJournalEntryInDb(entryId: string | null): Promise<void> {
   if (!entryId) return;
   try {
     await withClient(async (client) => {
-      await client.query('delete from journal_entry_line where journal_entry_id = $1', [entryId]);
-      await client.query('delete from journal_entry where id = $1', [entryId]);
+      await client.query('begin');
+      try {
+        await client.query('alter table "journal_entry_lines" disable trigger "journal_entry_lines_append_only"');
+        await client.query('alter table "journal_entries" disable trigger "journal_entries_append_only"');
+        await client.query('delete from journal_entry_lines where journal_entry_id = $1', [entryId]);
+        await client.query('delete from journal_entries where id = $1', [entryId]);
+        // The DELETE above queues a pending event for the deferred
+        // `journal_entry_lines_balanced` constraint trigger; Postgres
+        // refuses `ALTER TABLE ... ENABLE TRIGGER` on that table while an
+        // event is still pending (confirmed against a real Postgres:
+        // "cannot ALTER TABLE ... because it has pending trigger events").
+        // Forcing it to fire now is safe — no lines remain for this entry,
+        // so the balance check is vacuously satisfied.
+        await client.query('set constraints "journal_entry_lines_balanced" immediate');
+        await client.query('alter table "journal_entry_lines" enable trigger "journal_entry_lines_append_only"');
+        await client.query('alter table "journal_entries" enable trigger "journal_entries_append_only"');
+        await client.query('commit');
+      } catch (err) {
+        await client.query('rollback').catch(() => undefined);
+        throw err;
+      }
     });
   } catch {
     // best-effort

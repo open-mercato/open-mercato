@@ -1,4 +1,4 @@
-// Shared Cucumber.js config for the `ledger` module's BDD scenarios (OM-174).
+// Shared Cucumber.js config for the `ledger` module's BDD scenarios.
 // Mirrors this file's sibling `playwright.config.ts`: only the *config*
 // lives here, executable `.feature`/step-definition files stay module-local
 // under `packages/core/src/modules/ledger/__bdd__/`.

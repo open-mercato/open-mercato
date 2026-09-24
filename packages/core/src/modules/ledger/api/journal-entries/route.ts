@@ -11,7 +11,7 @@ import { createLedgerCrudOpenApi, createPagedListResponseSchema } from '../opena
 import { isIdsParamProvided, mergeIdFilter, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 
-// `/api/ledger/journal-entries` — read-only list (OM-11). No POST/PUT/DELETE:
+// `/api/ledger/journal-entries` — read-only list. No POST/PUT/DELETE:
 // entries are only ever created through `postJournalEntry` /
 // `reverseJournalEntry` (see commands/), never through this route.
 //

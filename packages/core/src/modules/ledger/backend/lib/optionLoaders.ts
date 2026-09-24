@@ -1,7 +1,7 @@
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import type { CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
 
-// Shared FK-picker option loaders for the ledger backend pages (OM-12).
+// Shared FK-picker option loaders for the ledger backend pages.
 // Every cross-entity reference in this module is a plain FK-id column with
 // no ORM relation (see data/entities.ts's own doc comments), so these
 // pickers resolve a human-readable label purely client-side, the same way

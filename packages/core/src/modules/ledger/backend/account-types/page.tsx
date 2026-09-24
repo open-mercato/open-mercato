@@ -18,6 +18,8 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { loadLedgerAccountTypeLabelsByIds } from '../lib/optionLoaders'
 
@@ -45,6 +47,9 @@ type ResponsePayload = {
 export default function LedgerAccountTypesPage() {
   const t = useT()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
+  // PR #6340 review, m3 (same gap as backend/accounts/page.tsx).
+  const { payload } = useBackendChrome()
+  const canManage = hasFeature(payload?.grantedFeatures, 'ledger.accounts.manage')
   const [rows, setRows] = React.useState<LedgerAccountTypeRow[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
@@ -255,25 +260,27 @@ export default function LedgerAccountTypesPage() {
             setPage(1)
           }}
           actions={
-            <Button asChild>
-              <Link href="/backend/account-types/create">
-                <Plus className="mr-2 h-4 w-4" />
-                {t('ledger.account_types.list.actions.create', 'New account type')}
-              </Link>
-            </Button>
+            canManage ? (
+              <Button asChild>
+                <Link href="/backend/account-types/create">
+                  <Plus className="mr-2 h-4 w-4" />
+                  {t('ledger.account_types.list.actions.create', 'New account type')}
+                </Link>
+              </Button>
+            ) : undefined
           }
           rowActions={(row) => (
             <RowActions
-              items={[
+              items={canManage ? [
                 { id: 'edit', label: t('common.edit'), href: `/backend/account-types/${row.id}` },
                 { id: 'delete', label: t('common.delete'), destructive: true, onSelect: () => handleDelete(row) },
-              ]}
+              ] : []}
             />
           )}
           emptyState={(
             <ListEmptyState
               entityName={t('ledger.account_types.list.title', 'Account Types')}
-              createHref="/backend/account-types/create"
+              createHref={canManage ? '/backend/account-types/create' : undefined}
               createLabel={t('ledger.account_types.list.actions.create', 'New account type')}
             />
           )}

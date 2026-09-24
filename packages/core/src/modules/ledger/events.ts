@@ -30,11 +30,12 @@ const events = [
     category: 'lifecycle',
   },
 
-  // Standard CRUD events for the module's master-data entities (OM-9/OM-10),
-  // declared together up front like currencies/events.ts does — `deleted`
-  // is included now even though no delete command exists yet (OM-11 wires
-  // soft-delete through `makeCrudRoute`), since declaring it costs nothing
-  // and matches this repo's convention of declaring a full CRUD triple.
+  // Standard CRUD events for the module's master-data entities, declared
+  // together up front like currencies/events.ts does — `deleted` is
+  // included now even though no delete command exists yet (a future
+  // route wires soft-delete through `makeCrudRoute`), since declaring it
+  // costs nothing and matches this repo's convention of declaring a full
+  // CRUD triple.
   { id: 'ledger.ledger_account.created', label: 'Ledger Account Created', entity: 'ledger_account', category: 'crud' },
   { id: 'ledger.ledger_account.updated', label: 'Ledger Account Updated', entity: 'ledger_account', category: 'crud' },
   { id: 'ledger.ledger_account.deleted', label: 'Ledger Account Deleted', entity: 'ledger_account', category: 'crud' },

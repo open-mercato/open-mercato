@@ -23,7 +23,7 @@ const buildLedgerCrudOpenApi = createCrudOpenApiFactory({
     `Returns a paginated collection of ${pluralLower} scoped to the authenticated organization.`,
 })
 
-// Mirrors currencies/api/openapi.ts's per-module wrapper (see OM-11) —
+// Mirrors currencies/api/openapi.ts's per-module wrapper —
 // `resourceName`/`querySchema`/`create`/`update`/`del` are supplied per
 // route; `journal-entries` (read-only) simply omits `create`/`update`/`del`.
 export function createLedgerCrudOpenApi(options: CrudOpenApiOptions): OpenApiRouteDoc {

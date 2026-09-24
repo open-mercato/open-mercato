@@ -32,7 +32,19 @@ import { postJournalEntrySchema, type PostJournalEntryInput } from '../data/vali
 import { Currency } from '@open-mercato/core/modules/currencies/data/entities'
 import { emitLedgerEvent } from '../events'
 
-export type PostJournalEntryResult = { journalEntryId: string; sequenceNumber: number }
+export type PostJournalEntryResult = {
+  journalEntryId: string
+  sequenceNumber: number
+  // PR #6340 review, nit: without this, a composing caller (M7 — one that
+  // opens its own outer transaction and calls this command via the normal
+  // `commandBus.execute` path, then must emit `ledger.journal_entry.posted`
+  // itself after its own commit) had no way to build the same event
+  // payload `emitPostedEvent` below builds, short of re-querying the lines
+  // it just asked this command to create. A plain serializable shape, not
+  // the `JournalEntryLine` entities themselves (`PostRunResult` below is
+  // the internal type that still carries those).
+  lines: Array<{ id: string; accountId: string; debit: string; credit: string }>
+}
 
 type Scope = { organizationId: string; tenantId: string }
 
@@ -190,7 +202,7 @@ export type JournalEntryPostCore = {
   }[]
 }
 
-type PostRunResult = PostJournalEntryResult & { lines: JournalEntryLine[] }
+export type PostRunResult = Omit<PostJournalEntryResult, 'lines'> & { lines: JournalEntryLine[] }
 
 /**
  * The shared posting core: validates the covering period, allocates the
@@ -313,6 +325,16 @@ export async function runPostJournalEntry(
     // catchable here instead of escaping past `withPostingTransaction`'s
     // commit.
     await em.execute('set constraints "journal_entry_lines_balanced" immediate')
+    // PR #6340 review, nit: `SET CONSTRAINTS` is session/transaction-scoped,
+    // not statement-scoped — without restoring `deferred` here, the check
+    // above stays IMMEDIATE for the rest of this transaction. That's only
+    // safe because this function always inserts one entry's lines in a
+    // single flush; a composed caller sharing this transaction
+    // (`isComposedPostingCall`) that inserts a later entry's lines one
+    // statement at a time would otherwise fail balance-checking on the
+    // first of those statements, before the rest of that entry's lines
+    // exist yet.
+    await em.execute('set constraints "journal_entry_lines_balanced" deferred')
   } catch (err) {
     if (isBalanceTriggerViolation(err)) {
       throw new CrudHttpError(500, {
@@ -381,7 +403,11 @@ export function isComposedPostingCall(ctx: CommandRuntimeContext): boolean {
   return Boolean(ctx.transactionalEm)
 }
 
-async function emitPostedEvent(input: JournalEntryPostCore, result: PostRunResult): Promise<void> {
+// Exported so a composing caller (see `PostJournalEntryResult.lines`'s
+// doc comment above) can build the exact same event payload from the
+// `PostRunResult`-shaped value `runPostJournalEntry` already gave it,
+// instead of re-deriving this shape itself.
+export async function emitPostedEvent(input: JournalEntryPostCore, result: PostRunResult): Promise<void> {
   await emitLedgerEvent('ledger.journal_entry.posted', {
     journalEntryId: result.journalEntryId,
     sequenceNumber: result.sequenceNumber,
@@ -422,7 +448,16 @@ const postJournalEntryCommand: CommandHandler<PostJournalEntryInput, PostJournal
       void emitPostedEvent(input, result).catch(() => undefined)
     }
 
-    return { journalEntryId: result.journalEntryId, sequenceNumber: result.sequenceNumber }
+    return {
+      journalEntryId: result.journalEntryId,
+      sequenceNumber: result.sequenceNumber,
+      lines: result.lines.map((line) => ({
+        id: line.id,
+        accountId: line.accountId,
+        debit: line.debit,
+        credit: line.credit,
+      })),
+    }
   },
   buildLog: async ({ input, result, ctx }) => {
     if (!result) return null

@@ -17,6 +17,8 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { loadLedgerAccountLabelsByIds, loadLedgerAccountTypeLabelsByIds } from '../lib/optionLoaders'
 
@@ -43,6 +45,14 @@ type ResponsePayload = {
 export default function LedgerAccountsPage() {
   const t = useT()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
+  // PR #6340 review, m3: the create/edit pages already require
+  // `ledger.accounts.manage` at the route level, but this list page only
+  // requires `ledger.accounts.view` (correctly — view-only users should
+  // see the chart of accounts). It was rendering New/Edit/Delete to those
+  // same view-only users with no client-side check, so the only thing
+  // stopping them was hitting the gated page after the fact.
+  const { payload } = useBackendChrome()
+  const canManage = hasFeature(payload?.grantedFeatures, 'ledger.accounts.manage')
   const [rows, setRows] = React.useState<LedgerAccountRow[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
@@ -231,25 +241,27 @@ export default function LedgerAccountsPage() {
           }}
           searchPlaceholder={t('ledger.accounts.list.searchPlaceholder', 'Search accounts…')}
           actions={
-            <Button asChild>
-              <Link href="/backend/accounts/create">
-                <Plus className="mr-2 h-4 w-4" />
-                {t('ledger.accounts.list.actions.create', 'New account')}
-              </Link>
-            </Button>
+            canManage ? (
+              <Button asChild>
+                <Link href="/backend/accounts/create">
+                  <Plus className="mr-2 h-4 w-4" />
+                  {t('ledger.accounts.list.actions.create', 'New account')}
+                </Link>
+              </Button>
+            ) : undefined
           }
           rowActions={(row) => (
             <RowActions
-              items={[
+              items={canManage ? [
                 { id: 'edit', label: t('common.edit'), href: `/backend/accounts/${row.id}` },
                 { id: 'delete', label: t('common.delete'), destructive: true, onSelect: () => handleDelete(row) },
-              ]}
+              ] : []}
             />
           )}
           emptyState={(
             <ListEmptyState
               entityName={t('ledger.accounts.list.title', 'Chart of Accounts')}
-              createHref="/backend/accounts/create"
+              createHref={canManage ? '/backend/accounts/create' : undefined}
               createLabel={t('ledger.accounts.list.actions.create', 'New account')}
             />
           )}

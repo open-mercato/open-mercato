@@ -193,7 +193,16 @@ const reverseJournalEntryCommand: CommandHandler<ReverseJournalEntryInput, PostJ
       }).catch(() => undefined)
     }
 
-    return { journalEntryId: result.journalEntryId, sequenceNumber: result.sequenceNumber }
+    return {
+      journalEntryId: result.journalEntryId,
+      sequenceNumber: result.sequenceNumber,
+      lines: result.lines.map((line) => ({
+        id: line.id,
+        accountId: line.accountId,
+        debit: line.debit,
+        credit: line.credit,
+      })),
+    }
   },
   buildLog: async ({ input, result, ctx }) => {
     if (!result) return null

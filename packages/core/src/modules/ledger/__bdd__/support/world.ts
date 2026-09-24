@@ -110,6 +110,21 @@ export class FakeEntityManager {
   async commit(): Promise<void> {}
   async rollback(): Promise<void> {}
 
+  // PR #6340 review, n2: `deleteLedgerAccount` now wraps its lock+check+write
+  // in `em.transactional(cb)` (mirroring `toggleFiscalPeriodLock`'s own
+  // shape), and this fake previously had no such method at all — calling it
+  // threw a raw `TypeError`, which propagated as a rejection but without the
+  // `CrudHttpError` shape (`.status`) the `delete_blocking.feature` scenario
+  // asserts on. This fake has no real transaction semantics to begin with
+  // (every table mutation already lands immediately, see `persist`'s own
+  // doc comment), so — matching the equivalent stub in the Jest unit
+  // suite's own fake EntityManager (`__tests__/support/fakeEntityManager.ts`)
+  // — this just runs the callback against the same fake instance and
+  // propagates whatever it throws or returns.
+  async transactional<T>(cb: (trx: FakeEntityManager) => Promise<T> | T): Promise<T> {
+    return cb(this)
+  }
+
   fork(): FakeEntityManager {
     return this
   }
