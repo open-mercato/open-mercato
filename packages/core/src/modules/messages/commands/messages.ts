@@ -13,8 +13,13 @@ import {
   updateDraftSchema,
 } from '../data/validators'
 import { linkAttachmentsToMessage, linkLibraryAttachmentsToMessage, copyAttachmentsForForwardMessages } from '../lib/attachments'
-import { resolveActorFeatures, resolveMessageChannelThreadAccess } from '../lib/channelThreadAccess'
+import {
+  EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
+  resolveActorFeatures,
+  resolveMessageChannelThreadAccess,
+} from '../lib/channelThreadAccess'
 import { MESSAGE_ATTACHMENT_ENTITY_ID, MESSAGE_ENTITY_ID } from '../lib/constants'
+import { canUseChannelThreadFallback } from '../lib/routeHelpers'
 import { getMessageTypeOrDefault } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
 import { buildForwardBodyFromLegacyInput, buildForwardPreviewFromThreadSlice, buildForwardThreadSlice } from '../lib/forwarding'
@@ -711,6 +716,11 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
  * An internal thread resolves to `null` and denies, leaving the participant
  * rule in force. Only an explicitly public message qualifies — channel access
  * never opens another operator's internal note, matching the detail read.
+ *
+ * The same `messages.view` gate as the read routes applies, because the hub
+ * grants every shared channel regardless of features: without it, a caller
+ * holding only `messages.compose` could forward a conversation it may not read
+ * to itself and read it as the recipient.
  */
 async function canActOnChannelThreadMessage(
   ctx: CommandRuntimeContext,
@@ -718,6 +728,8 @@ async function canActOnChannelThreadMessage(
   original: Message,
 ): Promise<boolean> {
   if (original.visibility !== 'public') return false
+  const scope = { tenantId: input.tenantId, organizationId: input.organizationId ?? null, userId: input.userId }
+  if (!(await canUseChannelThreadFallback(ctx, scope))) return false
   const channelThread = await resolveMessageChannelThreadAccess(
     ctx.container,
     { tenantId: input.tenantId, organizationId: input.organizationId ?? null },
@@ -913,8 +925,7 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
       deletedAt: null,
     })
     // Same fallback as the reply command (#6355): an operator who may answer an
-    // inbound channel message may also forward it internally. The forward is
-    // never delivered outbound — the channels bridge refuses `forwardedFrom`.
+    // inbound channel message may also forward it internally.
     const viaChannelThread = original.senderUserId !== input.userId && !isRecipient
     if (viaChannelThread && !(await canActOnChannelThreadMessage(ctx, input, original))) {
       throw new Error('Access denied')
@@ -937,6 +948,11 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
     const forwardedBody = typeof input.body === 'string'
       ? input.body
       : buildForwardBodyFromLegacyInput(generatedPreview.body, input.additionalBody)
+    // A forward of a channel conversation is addressed to colleagues, never to
+    // the correspondent. The channels bridge already refuses `forwardedFrom`, but
+    // the messages email path would still mail `externalEmail` on
+    // `sendViaEmail` — so the customer's address is not carried onto it.
+    const keepsExternalCorrespondent = original.sourceEntityType !== EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE
     let newMessageId = ''
     let responseExternalEmail: string | null = null
     await em.transactional(async (trx) => {
@@ -945,8 +961,8 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
         visibility: original.visibility ?? null,
         sourceEntityType: original.sourceEntityType,
         sourceEntityId: original.sourceEntityId,
-        externalEmail: original.externalEmail,
-        externalName: original.externalName,
+        externalEmail: keepsExternalCorrespondent ? original.externalEmail : null,
+        externalName: keepsExternalCorrespondent ? original.externalName : null,
         threadId: original.threadId ?? original.id,
         parentMessageId: original.id,
         senderUserId: input.userId,

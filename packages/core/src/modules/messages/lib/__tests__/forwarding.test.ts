@@ -119,4 +119,40 @@ describe('buildForwardThreadSlice', () => {
     expect(sliceIds).toContain(anchorId)
     expect(sliceIds).toContain(actorSentId)
   })
+
+  it('adds public messages but never another operator internal note for a channel-thread caller (#6355)', async () => {
+    const anchorId = 'msg-anchor-4'
+    const inboundId = 'msg-inbound-4'
+    const internalNoteId = 'msg-internal-4'
+    const nullVisibilityId = 'msg-null-4'
+
+    const inbound = { ...makeMessage(inboundId, 'channel-system-user', new Date('2026-01-01T09:00:00Z')), visibility: 'public' } as unknown as Message
+    const internalNote = { ...makeMessage(internalNoteId, otherUserId, new Date('2026-01-01T10:00:00Z')), visibility: 'internal' } as unknown as Message
+    const nullVisibility = { ...makeMessage(nullVisibilityId, otherUserId, new Date('2026-01-01T11:00:00Z')), visibility: null } as unknown as Message
+    const anchor = { ...makeMessage(anchorId, otherUserId, new Date('2026-01-01T12:00:00Z')), visibility: 'public', threadId: anchorId } as unknown as Message
+
+    const em = {
+      find: jest.fn(async (entity: unknown) => {
+        if (entity === Message) return [inbound, internalNote, nullVisibility, anchor]
+        if (entity === MessageRecipient) return []
+        return []
+      }),
+      findOne: jest.fn(async () => null),
+    }
+
+    const widened = await buildForwardThreadSlice(
+      em as never,
+      { tenantId, organizationId, userId: actorUserId },
+      anchor,
+      { includePublicThreadMessages: true },
+    )
+    expect(widened.map((item) => item.id)).toEqual([inboundId, anchorId])
+
+    const participantOnly = await buildForwardThreadSlice(
+      em as never,
+      { tenantId, organizationId, userId: actorUserId },
+      anchor,
+    )
+    expect(participantOnly).toEqual([])
+  })
 })

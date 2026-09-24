@@ -64,9 +64,12 @@ export async function parseRequestBodySafe(req: Request): Promise<unknown> {
  * a tenant admin included — and re-close the very journey #5535 opened. RBAC is
  * also what makes the check wildcard-aware. Fails closed, like the sibling
  * feature checks in this file.
+ *
+ * Takes only the container, so the reply and forward commands apply the same
+ * gate as the read routes (#6355).
  */
 export async function canUseChannelThreadFallback(
-  ctx: Awaited<ReturnType<typeof resolveRequestContext>>['ctx'],
+  ctx: { container: { resolve: (name: string) => unknown } },
   scope: MessageScope,
 ): Promise<boolean> {
   if (!scope.userId || !scope.tenantId) return false

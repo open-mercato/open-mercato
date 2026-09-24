@@ -1,6 +1,7 @@
 import '@open-mercato/core/modules/messages/commands/messages'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { Message, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 
 const emitMessagesEventMock = jest.fn(async () => {})
 
@@ -59,7 +60,10 @@ describe('messages.messages.reply on a channel-linked thread (#5535)', () => {
     organizationId,
   }
 
-  function makeContainer(channelThreadAccess: unknown, options: { registered?: boolean } = {}) {
+  function makeContainer(
+    channelThreadAccess: unknown,
+    options: { registered?: boolean; grantedFeatures?: string[] } = {},
+  ) {
     const trx = {
       create: jest.fn((entity: unknown, data: Record<string, unknown>) => (
         entity === Message ? { id: replyMessageId, ...data } : { ...data }
@@ -79,9 +83,18 @@ describe('messages.messages.reply on a channel-linked thread (#5535)', () => {
     }
 
     const resolveChannelThreadAccess = jest.fn(async () => channelThreadAccess)
+    // The fallback is gated on `messages.view` through RBAC, the same gate the
+    // read routes apply, so the fixture grants it through a real wildcard match.
+    const grantedFeatures = options.grantedFeatures ?? ['messages.*']
+    const rbacService = {
+      userHasAllFeatures: jest.fn(async (_userId: string, required: string[]) => (
+        authorizeFeatures(required, { grantedFeatures })
+      )),
+    }
     const container = {
       resolve: (name: string) => {
         if (name === 'em') return { fork: () => emFork }
+        if (name === 'rbacService') return rbacService
         if (name === 'eventBus') return { emitEvent: jest.fn(async () => {}) }
         if (name === 'communicationChannelsResolveChannelThreadAccess') {
           if (options.registered === false) throw new Error('[internal] service not registered')
@@ -90,7 +103,7 @@ describe('messages.messages.reply on a channel-linked thread (#5535)', () => {
         return null
       },
     }
-    return { container, trx, resolveChannelThreadAccess }
+    return { container, trx, resolveChannelThreadAccess, rbacService }
   }
 
   function replyInput() {
@@ -159,6 +172,18 @@ describe('messages.messages.reply on a channel-linked thread (#5535)', () => {
     await expect(
       command!.execute(replyInput(), commandCtx(container, ['messages.compose']) as never),
     ).rejects.toThrow('Access denied')
+  })
+
+  it('denies a caller without messages.view, matching the read routes', async () => {
+    const command = commandRegistry.get('messages.messages.reply')
+    const { container, resolveChannelThreadAccess } = makeContainer(grantedThread(), {
+      grantedFeatures: ['messages.compose'],
+    })
+
+    await expect(
+      command!.execute(replyInput(), commandCtx(container, ['messages.compose']) as never),
+    ).rejects.toThrow('Access denied')
+    expect(resolveChannelThreadAccess).not.toHaveBeenCalled()
   })
 
   it('keeps denying a non-participant on an internal thread', async () => {
@@ -244,6 +269,62 @@ describe('messages.messages.reply on a channel-linked thread (#5535)', () => {
       expect(forwardRow.parentMessageId).toBe(inboundMessageId)
       expect(forwardRow.senderUserId).toBe(operatorUserId)
       expect(String(forwardRow.body)).toContain(inboundMessage.subject)
+    })
+
+    it('does not carry the correspondent address onto the forward', async () => {
+      const command = commandRegistry.get('messages.messages.forward')
+      const { container, trx } = makeContainer(grantedThread())
+      const emFork = (container.resolve('em') as { fork: () => { findOne: jest.Mock } }).fork()
+      emFork.findOne.mockImplementation(async (entity: unknown, where: Record<string, unknown>) => {
+        if (entity === Message && where.id === inboundMessageId) {
+          return { ...inboundMessage, externalEmail: 'customer@example.com', externalName: 'Customer' }
+        }
+        return null
+      })
+
+      const result = await command!.execute(
+        { ...forwardInput(), sendViaEmail: true },
+        commandCtx(container, ['messages.compose']) as never,
+      )
+
+      const forwardRow = trx.create.mock.calls.find(([entity]) => entity === Message)?.[1] as Record<string, unknown>
+      expect(forwardRow.externalEmail).toBeNull()
+      expect(forwardRow.externalName).toBeNull()
+      expect((result as { externalEmail: string | null }).externalEmail).toBeNull()
+      expect(emitMessagesEventMock).toHaveBeenCalledWith(
+        'messages.message.sent',
+        expect.objectContaining({ externalEmail: null, forwardedFrom: inboundMessageId }),
+        expect.anything(),
+      )
+    })
+
+    it('denies a caller without messages.view before consulting the channel', async () => {
+      const command = commandRegistry.get('messages.messages.forward')
+      const { container, resolveChannelThreadAccess } = makeContainer(grantedThread(), {
+        grantedFeatures: ['messages.compose'],
+      })
+
+      await expect(
+        command!.execute(forwardInput(), commandCtx(container, ['messages.compose']) as never),
+      ).rejects.toThrow('Access denied')
+      expect(resolveChannelThreadAccess).not.toHaveBeenCalled()
+    })
+
+    it('never forwards a non-public message through the channel fallback', async () => {
+      const command = commandRegistry.get('messages.messages.forward')
+      const { container, resolveChannelThreadAccess } = makeContainer(grantedThread())
+      const emFork = (container.resolve('em') as { fork: () => { findOne: jest.Mock } }).fork()
+      emFork.findOne.mockImplementation(async (entity: unknown, where: Record<string, unknown>) => {
+        if (entity === Message && where.id === inboundMessageId) {
+          return { ...inboundMessage, senderUserId: otherOperatorUserId, visibility: null }
+        }
+        return null
+      })
+
+      await expect(
+        command!.execute(forwardInput(), commandCtx(container, ['messages.compose']) as never),
+      ).rejects.toThrow('Access denied')
+      expect(resolveChannelThreadAccess).not.toHaveBeenCalled()
     })
 
     it('still denies a caller the channel itself refuses', async () => {
