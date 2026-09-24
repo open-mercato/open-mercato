@@ -34,6 +34,8 @@ import {
   startInProcessGenerateWatcher,
   type GenerateWatcherHandle,
 } from './lib/in-process-generate-watcher'
+import type { GenerateWatchPlan, GenerateWatchSnapshot } from './lib/generate-watch-plan'
+import type { GenerateWatchModuleTarget } from './lib/generate-watch-events'
 import {
   resolveGenerateWatcherMode,
   type GenerateWatcherMode,
@@ -775,38 +777,15 @@ async function runPostGenerateStructuralInvalidation(quiet: boolean): Promise<vo
   }
 }
 
-/**
- * Generator suite invoked by both `mercato generate all` and the in-process
- * generate watcher embedded in `mercato server dev`. Hoisted to module scope
- * so the watcher embedded in the server lifecycle can reuse the same closure
- * without re-importing the closure-scoped version inside `buildBaseModules`.
- */
-async function runGeneratorSuite(quiet: boolean): Promise<boolean> {
-  const { createResolver } = await import('./lib/resolver')
-  const {
-    generateEntityIds,
-    generateModuleRegistries,
-    generateModuleEntities,
-    generateModuleDi,
-    generateModulePackageSources,
-    generateOpenApi,
-    generateWebResearchAdapters,
-  } = await import('./lib/generators')
-  const resolver = createResolver()
-  const results = [
-    await generateEntityIds({ resolver, quiet }),
-    ...(await generateModuleRegistries({ resolver, quiet })),
-    await generateModuleEntities({ resolver, quiet }),
-    await generateModuleDi({ resolver, quiet }),
-    await generateModulePackageSources({ resolver, quiet }),
-    await generateWebResearchAdapters({ resolver, quiet }),
-    await generateOpenApi({ resolver, quiet }),
-  ]
-  return results.some((result) => (result?.filesWritten.length ?? 0) > 0)
-}
 
-async function runGeneratorSuiteWithStructuralInvalidation(quiet: boolean): Promise<void> {
-  const generatedFilesChanged = await runGeneratorSuite(quiet)
+async function runGeneratorSuiteWithStructuralInvalidation(
+  quiet: boolean,
+  plan?: GenerateWatchPlan,
+  onOpenApiCascade?: (reason: string) => void,
+): Promise<void> {
+  // Keep the generator/compiler graph out of ordinary CLI and server bootstrap.
+  const { runGenerateWatchSuite } = await import('./lib/generate-watch-runner')
+  const generatedFilesChanged = await runGenerateWatchSuite(quiet, plan, undefined, onOpenApiCascade)
   if (!generatedFilesChanged) {
     if (!quiet) {
       console.log('[generate] Generated outputs unchanged; skipping structural invalidation.')
@@ -816,61 +795,85 @@ async function runGeneratorSuiteWithStructuralInvalidation(quiet: boolean): Prom
   await runPostGenerateStructuralInvalidation(quiet)
 }
 
-/**
- * Builds the event-gated structural fingerprint runtime used by generate
- * watchers. Filesystem events mark the tree dirty; the existing full content
- * checksum remains the final authority and the fallback when watching fails.
- */
+/** Shared snapshot and event runtime for standalone and embedded watchers. */
 async function createGenerateWatchRuntime(quiet = false) {
+  // Compiler-backed discovery is only needed by the generation watcher.
   const [
     { createResolver },
-    { calculateGenerateWatchStructureChecksum },
+    { calculateGenerateWatchStructureChecksum, collectGenerateWatchStructureSnapshot, diffGenerateWatchStructureSnapshots },
+    { planGenerateWatchChanges },
     { createGenerateWatchChangeSignal, resolveGenerateWatchTargets },
     { resolveStandaloneSourceMirrorBase },
+    { getOpenApiWatchInputs },
+    { getWebResearchAdapterWatchInputs },
   ] = await Promise.all([
     import('./lib/resolver'),
     import('./lib/generate-watch-structure'),
+    import('./lib/generate-watch-plan'),
     import('./lib/generate-watch-events'),
     import('./lib/generators/scanner'),
+    import('./lib/generators/openapi'),
+    import('./lib/generators/web-research-adapters'),
   ])
+
+  let latestSnapshot: GenerateWatchSnapshot | undefined
 
   const collectWatchState = () => {
     const resolver = createResolver()
-    const moduleRoots: Array<{
-      appBase: string
-      pkgBase: string
-      watchPackageBase: boolean
-    }> = []
+    const moduleRoots: Array<GenerateWatchModuleTarget & { moduleId: string; from?: string }> = []
+    const additionalInputs = new Set<string>()
+    for (const directory of [resolver.getRootDir(), resolver.getAppDir()]) {
+      for (const fileName of ['package.json', 'tsconfig.json', 'tsconfig.base.json', 'yarn.lock', 'package-lock.json', 'pnpm-lock.yaml']) {
+        additionalInputs.add(path.join(directory, fileName))
+      }
+    }
+    const adapterInputs = getWebResearchAdapterWatchInputs(resolver)
+    for (const manifestPath of adapterInputs.manifestPaths) additionalInputs.add(manifestPath)
+    for (const inputPath of getOpenApiWatchInputs(resolver)) additionalInputs.add(inputPath)
     const watchAppPackageFallbacks = resolver.isMonorepo()
     for (const entry of resolver.loadEnabledModules()) {
       const roots = resolver.getModulePaths(entry)
+      const watchPackageBase = entry.from !== '@app' || watchAppPackageFallbacks
+      const additionalModuleBases = watchPackageBase
+        ? ['src', 'dist'].map((folder) => path.join(resolver.getPackageRoot(entry.from), folder, 'modules', entry.id))
+        : []
       moduleRoots.push({
         ...roots,
-        watchPackageBase: entry.from !== '@app' || watchAppPackageFallbacks,
+        moduleId: entry.id,
+        from: entry.from,
+        watchPackageBase,
+        additionalModuleBases,
       })
     }
     return {
       modulesFile: resolver.getModulesConfigPath(),
       moduleRoots,
+      additionalInputs: [...additionalInputs],
+      additionalDirectories: adapterInputs.directoryPaths,
+      appSourceDir: path.join(resolver.getAppDir(), 'src'),
+      outputDir: resolver.getOutputDir(),
     }
   }
 
   return {
-    computeStructureChecksum: async () => {
-      return calculateGenerateWatchStructureChecksum(collectWatchState())
+    computeStructureChecksum: () => calculateGenerateWatchStructureChecksum(collectWatchState()),
+    incremental: {
+      capture: () => {
+        latestSnapshot = collectGenerateWatchStructureSnapshot(collectWatchState())
+        return latestSnapshot
+      },
+      plan: (previous: GenerateWatchSnapshot, next: GenerateWatchSnapshot) =>
+        planGenerateWatchChanges(diffGenerateWatchStructureSnapshots(previous, next), next.fullReasons),
     },
     changeSignal: createGenerateWatchChangeSignal({
       onSkippedDirectory: quiet
         ? undefined
         : (directory) => console.log(`[generate:watch] Skipping missing watch directory: ${directory}`),
-      getWatchTargets: () => {
-        const state = collectWatchState()
-        return resolveGenerateWatchTargets({
-          modulesFile: state.modulesFile,
-          moduleRoots: state.moduleRoots,
-          resolveSourceMirrorBase: resolveStandaloneSourceMirrorBase,
-        })
-      },
+      getWatchTargets: () => resolveGenerateWatchTargets({
+        ...collectWatchState(),
+        snapshot: latestSnapshot,
+        resolveSourceMirrorBase: resolveStandaloneSourceMirrorBase,
+      }),
     }),
   }
 }
@@ -1924,8 +1927,10 @@ export async function run(argv = process.argv) {
             skipInitial,
             quiet,
             ...generateWatchRuntime,
-            runGenerators: async () => {
-              await runGeneratorSuiteWithStructuralInvalidation(true)
+            runGenerators: async (_reason, plan) => {
+              await runGeneratorSuiteWithStructuralInvalidation(true, plan, quiet
+                ? undefined
+                : (reason) => console.log(`[generate:watch] Cascading; groups=openapi; reason=${reason}`))
             },
           })
 
@@ -2408,8 +2413,9 @@ export async function run(argv = process.argv) {
                   skipInitial: true,
                   quiet: false,
                   ...generateWatchRuntime,
-                  runGenerators: async () => {
-                    await runGeneratorSuiteWithStructuralInvalidation(true)
+                  runGenerators: async (_reason, plan) => {
+                    await runGeneratorSuiteWithStructuralInvalidation(true, plan,
+                      (reason) => console.log(`[generate:watch] Cascading; groups=openapi; reason=${reason}`))
                   },
                 })
               } else {
