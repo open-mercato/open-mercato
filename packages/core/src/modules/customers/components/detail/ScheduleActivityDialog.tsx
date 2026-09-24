@@ -414,9 +414,15 @@ export function ScheduleActivityDialog({
         if (callOutcome) customValues.callOutcome = callOutcome
         if (phoneNumberForPayload) customValues.callPhoneNumber = phoneNumberForPayload
       }
+      // On edit, pin the payload to the activity's own linked entity when the
+      // caller provided one (`editData.entityId`) rather than the `entityId` prop,
+      // which tracks the host page's currently-selected entity and can differ from
+      // the activity's record on multi-entity pages like the deal detail view. This
+      // dialog has no entity picker, so an edit must never silently re-link (#6050).
+      const payloadEntityId = isSaveEdit && editData?.entityId ? editData.entityId : entityId
       const payload = {
         ...(isSaveEdit ? { id: editData!.id } : {}),
-        entityId,
+        entityId: payloadEntityId,
         dealId,
         interactionType: state.activityType,
         title: state.title.trim(),

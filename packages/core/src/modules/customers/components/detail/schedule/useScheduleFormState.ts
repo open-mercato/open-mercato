@@ -21,6 +21,14 @@ export type ScheduleActivityEditData = {
   id: string
   /** Record version for the OSS optimistic-lock header on edit (#2055). */
   updatedAt?: string | null
+  /**
+   * The activity's own linked person/company id, captured at edit time. Callers
+   * that show activities from more than one entity (e.g. the deal detail page's
+   * multi-entity activity list) must set this so `ScheduleActivityDialog` keeps
+   * the edit payload's `entityId` pinned to the activity's actual record instead
+   * of whichever entity happens to be selected in the host page's picker (#6050).
+   */
+  entityId?: string | null
   interactionType?: string
   title?: string | null
   body?: string | null
