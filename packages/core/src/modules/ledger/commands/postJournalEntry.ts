@@ -228,12 +228,23 @@ async function requireValidPostingReferences(
   }
 
   const accountIds = [...new Set(input.lines.map((line) => line.accountId))]
-  const accounts = await em.find(LedgerAccount, {
-    id: { $in: accountIds },
-    organizationId: scope.organizationId,
-    tenantId: scope.tenantId,
-    deletedAt: null,
-  })
+  // PR #6340 review, n2: `for share` on the referenced account rows closes
+  // a race with a concurrent delete (`ledgerAccounts.ts`'s
+  // `deleteLedgerAccountCommand`, which takes `for update` on the same
+  // row) — without a lock here, a delete's `accountHasPostedEntries`
+  // check and this posting's own existence check could both read a
+  // pre-write snapshot and both succeed, leaving posted lines on an
+  // account that gets soft-deleted moments later.
+  const accounts = await em.find(
+    LedgerAccount,
+    {
+      id: { $in: accountIds },
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    },
+    { lockMode: LockMode.PESSIMISTIC_READ },
+  )
   const foundIds = new Set(accounts.map((account) => account.id))
   const missing = accountIds.filter((id) => !foundIds.has(id))
   if (missing.length > 0) {

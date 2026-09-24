@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
@@ -22,7 +23,7 @@ import {
 
 // Plain string, matching this module's own `encryption.ts` entityId
 // convention (`'<module>:<table_name>'`) — not yet backed by a generated
-// `E.ledger.ledger_account` entry until `yarn generate` runs (OM-15).
+// `E.ledger.ledger_account` entry until `yarn generate` runs.
 const LEDGER_ACCOUNT_ENTITY_ID = 'ledger:ledger_account'
 
 type Scope = { organizationId: string; tenantId: string }
@@ -313,44 +314,65 @@ const deleteLedgerAccountCommand: CommandHandler<LedgerAccountDeleteInput, { led
   async execute(rawInput, ctx) {
     const parsed = ledgerAccountDeleteSchema.parse(rawInput ?? {})
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-
-    const record = await em.findOne(LedgerAccount, { id: parsed.id, deletedAt: null })
     const { translate } = await resolveTranslations()
-    if (!record) throw notFound(translate('ledger.errors.ledgerAccountNotFound', 'Ledger account not found.'))
-    ensureTenantScope(ctx, record.tenantId)
-    ensureOrganizationScope(ctx, record.organizationId)
-    const scope: Scope = { organizationId: record.organizationId, tenantId: record.tenantId }
 
-    if (await accountHasPostedEntries(em, record.id, scope)) {
-      throw conflict(
-        translate('ledger.errors.accountHasPostedEntriesCannotDelete', 'This account cannot be deleted because it has posted journal entries.'),
+    // PR #6340 review, n2: the account row, the posted-entries/children
+    // checks, and the soft-delete write all now happen inside one
+    // transaction, holding a `for update` lock on the account row for the
+    // whole span — the same shape `fiscalPeriods.ts`'s
+    // `toggleFiscalPeriodLock` uses for its own row. Before this, the
+    // lookup and checks ran in autocommit (no lock held), so a concurrent
+    // `postJournalEntry` (which takes `for share` on this same row, see
+    // `requireValidPostingReferences`) could post new lines against this
+    // account in the gap between this delete's check and its write.
+    // `runCrudCommandWrite`'s own `withAtomicFlush` joins this ambient
+    // transaction rather than opening a nested one (see its own
+    // "Re-entrancy / composability" doc comment), so passing `trx` as its
+    // `em` keeps the whole thing atomic.
+    const record = await em.transactional(async (trx) => {
+      const account = await trx.findOne(
+        LedgerAccount,
+        { id: parsed.id, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
       )
-    }
-    if (await accountHasChildren(em, record.id, scope)) {
-      throw conflict(
-        translate('ledger.errors.accountHasChildrenCannotDelete', 'This account cannot be deleted because another account still lists it as its parent.'),
-      )
-    }
+      if (!account) throw notFound(translate('ledger.errors.ledgerAccountNotFound', 'Ledger account not found.'))
+      ensureTenantScope(ctx, account.tenantId)
+      ensureOrganizationScope(ctx, account.organizationId)
+      const scope: Scope = { organizationId: account.organizationId, tenantId: account.tenantId }
 
-    await runCrudCommandWrite({
-      ctx,
-      em,
-      entityId: LEDGER_ACCOUNT_ENTITY_ID,
-      action: 'deleted',
-      scope,
-      events: ledgerAccountCrudEvents,
-      indexer: ledgerAccountCrudIndexer,
-      sideEffect: () => ({
-        entity: record,
-        identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
-      }),
-      phases: [
-        () => {
-          record.deletedAt = new Date()
-          record.updatedAt = new Date()
-          em.persist(record)
-        },
-      ],
+      if (await accountHasPostedEntries(trx, account.id, scope)) {
+        throw conflict(
+          translate('ledger.errors.accountHasPostedEntriesCannotDelete', 'This account cannot be deleted because it has posted journal entries.'),
+        )
+      }
+      if (await accountHasChildren(trx, account.id, scope)) {
+        throw conflict(
+          translate('ledger.errors.accountHasChildrenCannotDelete', 'This account cannot be deleted because another account still lists it as its parent.'),
+        )
+      }
+
+      await runCrudCommandWrite({
+        ctx,
+        em: trx,
+        entityId: LEDGER_ACCOUNT_ENTITY_ID,
+        action: 'deleted',
+        scope,
+        events: ledgerAccountCrudEvents,
+        indexer: ledgerAccountCrudIndexer,
+        sideEffect: () => ({
+          entity: account,
+          identifiers: { id: account.id, organizationId: account.organizationId, tenantId: account.tenantId },
+        }),
+        phases: [
+          () => {
+            account.deletedAt = new Date()
+            account.updatedAt = new Date()
+            trx.persist(account)
+          },
+        ],
+      })
+
+      return account
     })
 
     return { ledgerAccountId: record.id }
