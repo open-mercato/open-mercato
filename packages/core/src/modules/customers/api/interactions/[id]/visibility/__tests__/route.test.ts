@@ -19,6 +19,15 @@ describe('PATCH /api/customers/interactions/[id]/visibility — validation', () 
     expect(res.status).toBe(400)
   })
 
+  it('returns a translated error for a malformed interaction id (regression: #6176)', async () => {
+    const res = await PATCH(
+      mockRequest({ visibility: 'shared' }),
+      { params: Promise.resolve({ id: 'not-uuid' }) } as any,
+    )
+    const body = await res.json()
+    expect(body.error).toBe('Invalid interaction id')
+  })
+
   it('returns 401 unauthenticated', async () => {
     const res = await PATCH(
       mockRequest({ visibility: 'shared' }),

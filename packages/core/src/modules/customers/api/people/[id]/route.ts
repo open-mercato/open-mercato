@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
@@ -484,7 +485,8 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     if (!parse.success) {
       statusCode = 400
       profileMeta = { reason: 'invalid_person_id' }
-      return NextResponse.json({ error: 'Invalid person id' }, { status: 400 })
+      const { translate } = await resolveTranslations()
+      return NextResponse.json({ error: translate('customers.errors.invalid_person_id', 'Invalid person id') }, { status: 400 })
     }
     profiler.mark('params_resolved', { id: parse.data.id })
 

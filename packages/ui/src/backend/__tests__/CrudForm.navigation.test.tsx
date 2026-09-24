@@ -272,6 +272,40 @@ describe('CrudForm unsaved navigation guard', () => {
     expect(window.location.pathname).toBe('/after-save')
   })
 
+  it('navigates on Cancel without showing the unsaved changes prompt (regression: #6176)', async () => {
+    const { container } = renderWithProviders(
+      <CrudForm
+        title="Form"
+        fields={fields}
+        initialValues={{ name: 'Alice' }}
+        onSubmit={() => {}}
+        cancelHref="/cancelled"
+      />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'ui.forms.confirmUnsavedChanges': 'Unsaved changes',
+        },
+      },
+    )
+
+    const input = container.querySelector('[data-crud-field-id="name"] input[type="text"]') as HTMLInputElement
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'Alice updated' } })
+    })
+
+    const cancelLink = container.querySelector('a[data-crud-form-cancel]') as HTMLAnchorElement
+    expect(cancelLink).not.toBeNull()
+
+    await act(async () => {
+      fireEvent.click(cancelLink)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(confirmDialogMock).not.toHaveBeenCalled()
+  })
+
   it('suppresses the native beforeunload dialog while the submit-bypass flag is active (regression: #1733)', async () => {
     let beforeUnloadDuringSubmit: BeforeUnloadEvent | null = null
     const onSubmit = jest.fn(async () => {

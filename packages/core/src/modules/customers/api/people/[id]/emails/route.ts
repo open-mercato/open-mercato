@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
@@ -46,7 +47,8 @@ type RouteContext = {
 export async function POST(req: Request, context: RouteContext): Promise<Response> {
   const { id: personId } = await context.params
   if (!z.string().uuid().safeParse(personId).success) {
-    return NextResponse.json({ error: 'Invalid person id' }, { status: 400 })
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ error: translate('customers.errors.invalid_person_id', 'Invalid person id') }, { status: 400 })
   }
 
   const auth = await getAuthFromRequest(req)
