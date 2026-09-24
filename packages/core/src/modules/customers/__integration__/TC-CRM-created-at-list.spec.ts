@@ -138,9 +138,10 @@ test.describe('TC-CRM-created-at-list: sort and filter people/companies by creat
       companyId = await createCompanyFixture(request, token, marker)
       await login(page, 'admin')
       await page.goto(`/backend/customers/companies?search=${encodeURIComponent(marker)}`)
-      const header = page.getByRole('columnheader', { name: /Created/i })
-      await expect(header).toBeVisible()
-      await header.click()
+      const sortButton = page.getByRole('button', { name: 'Created', exact: true })
+      await sortButton.scrollIntoViewIfNeeded()
+      await expect(sortButton).toBeVisible()
+      await sortButton.click()
       await expect(page).toHaveURL(/sortField=createdAt/)
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
