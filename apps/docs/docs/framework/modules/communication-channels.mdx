@@ -285,11 +285,11 @@ No tenant setup required. The integrations admin page lets you toggle the provid
 
 ## Environment variables
 
-The hub reads a small set of env vars; sensible defaults exist for all of them.
+The hub reads a small set of env vars; most have sensible defaults, but a few must be set explicitly — production-required ones are called out in the rows below.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `OM_HUB_OAUTH_STATE_KEY` | derived from `AUTH_SECRET` | AES-256-GCM key used to encrypt the OAuth state cookie. **Rotate this on a schedule** — see runbook below. |
+| `OM_HUB_OAUTH_STATE_KEY` | falls back to `KMS_MASTER_KEY`, then to `JWT_SECRET` (non-production only) | AES-256-GCM key used to encrypt the OAuth state cookie. **Required in production** — set this or `KMS_MASTER_KEY`, or the per-user OAuth connect flow fails closed. **Rotate this on a schedule** — see runbook below. |
 | `OM_HUB_OAUTH_STATE_TTL_SECONDS` | `300` (5 minutes) | TTL on the state cookie. OAuth callbacks older than this are rejected. |
 | `OM_HUB_POLL_DEFAULT_SECONDS` | `300` (5 minutes) | Default poll cadence applied to channels that don't set `poll_interval_seconds`. |
 | `OM_HUB_POLL_CONCURRENCY` | `10` | Max parallel poll-channel worker jobs per process. Bound by your DB connection pool. |
@@ -313,7 +313,7 @@ The hub reads a small set of env vars; sensible defaults exist for all of them.
 2. **Sync the ACL grants** — `yarn mercato auth sync-role-acls` so the new `communication_channels.*` features (including `communication_channels.connect_user_channel`) are granted to the appropriate roles.
 3. **Run the structural cache purge** — `yarn mercato configs cache structural --all-tenants`. Mandatory after any `modules.ts` change that adds a provider (slices 3e/3f enable `channel_imap` and `channel_gmail`).
 4. **Configure the OAuth apps** — follow the per-provider setup sections above and register the client IDs/secrets via the **Integrations** admin UI.
-5. **Optional: set `OM_HUB_OAUTH_STATE_KEY`** — derived from `AUTH_SECRET` by default; set explicitly if you want to rotate independently.
+5. **Set `OM_HUB_OAUTH_STATE_KEY`** — required in production unless `KMS_MASTER_KEY` is set; set it explicitly even when `KMS_MASTER_KEY` is present if you want to rotate the state-cookie key independently of it.
 
 ### Routine ops
 

@@ -56,6 +56,13 @@ function defaultRedirectUri(req: Request, providerKey: string): string {
   return toAbsoluteUrl(req, `/api/communication_channels/oauth/${providerKey}/callback`)
 }
 
+function oauthStateErrorResponse(err: unknown): Response | null {
+  if (err instanceof OAuthStateError) {
+    return NextResponse.json({ error: err.message, code: err.code }, { status: 500 })
+  }
+  return null
+}
+
 export async function POST(req: Request, context: RouteContext): Promise<Response> {
   const { provider } = await context.params
   if (!/^[a-z0-9_-]+$/i.test(provider)) {
@@ -121,13 +128,20 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   }
 
   const redirectUri = defaultRedirectUri(req, provider)
-  const stateEnvelope = createOAuthState({
-    userId: auth.sub as string,
-    tenantId: auth.tenantId as string,
-    organizationId: (auth as { orgId?: string | null }).orgId ?? null,
-    providerKey: provider,
-    returnUrl: normalizeOAuthReturnUrl(body.returnUrl, DEFAULT_OAUTH_RETURN_URL),
-  })
+  let stateEnvelope: ReturnType<typeof createOAuthState>
+  try {
+    stateEnvelope = createOAuthState({
+      userId: auth.sub as string,
+      tenantId: auth.tenantId as string,
+      organizationId: (auth as { orgId?: string | null }).orgId ?? null,
+      providerKey: provider,
+      returnUrl: normalizeOAuthReturnUrl(body.returnUrl, DEFAULT_OAUTH_RETURN_URL),
+    })
+  } catch (err) {
+    const response = oauthStateErrorResponse(err)
+    if (response) return response
+    throw err
+  }
 
   let result
   try {
@@ -153,12 +167,21 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
 
   // If the adapter packed extras (PKCE verifier, scopes), bake them into the
   // state cookie now so the callback handler can pass them to exchangeOAuthCode.
-  const finalCookie = result.extra
-    ? (await import('../../../../../lib/oauth-state')).encryptOAuthState({
+  let finalCookie: string
+  if (result.extra) {
+    try {
+      finalCookie = (await import('../../../../../lib/oauth-state')).encryptOAuthState({
         ...stateEnvelope.payload,
         extra: { ...(stateEnvelope.payload.extra ?? {}), ...result.extra },
       })
-    : stateEnvelope.cookie
+    } catch (err) {
+      const response = oauthStateErrorResponse(err)
+      if (response) return response
+      throw err
+    }
+  } else {
+    finalCookie = stateEnvelope.cookie
+  }
 
   const response = NextResponse.json({ authorizeUrl: result.authorizeUrl })
   response.cookies.set({
@@ -184,6 +207,7 @@ export const openApi = {
         { status: 400, description: 'Invalid provider or unsupported (no OAuth)' },
         { status: 401, description: 'Unauthorized' },
         { status: 422, description: 'Invalid request body' },
+        { status: 500, description: 'OAuth state secret missing or state encryption failed' },
         { status: 502, description: 'Adapter failed to build authorize URL' },
       ],
     },
