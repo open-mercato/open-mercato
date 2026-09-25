@@ -69,6 +69,6 @@ PR: #6448
 
 ### Phase 4: Maintainer review follow-up (review 5316332421)
 
-- [ ] 4.1 Define one calendar-day contract for created_at filters with non-UTC boundary tests
-- [ ] 4.2 Make the integration spec deterministic with explicit created_at fixtures
+- [x] 4.1 Define one calendar-day contract for created_at filters with non-UTC boundary tests — 8374ecb76
+- [x] 4.2 Make the integration spec deterministic with explicit created_at fixtures — 4374dfab4
 - [ ] 4.3 Re-run the full validation gate
