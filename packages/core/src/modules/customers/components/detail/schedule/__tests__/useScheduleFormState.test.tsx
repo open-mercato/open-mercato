@@ -157,3 +157,47 @@ describe('useScheduleFormState seeding (#5940)', () => {
     expect(result.current.reminderMinutes).toBe(30)
   })
 })
+
+describe('useScheduleFormState undated seeding (#5941)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers().setSystemTime(localDate(2026, 9, 11, 14, 12))
+  })
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it('leaves a real edit of an undated task blank instead of seeding a due date', () => {
+    const editData = presetCreateData({
+      id: 'b0a1c2d3-0000-4000-8000-000000000003',
+      interactionType: 'task',
+      scheduledAt: null,
+      occurredAt: null,
+    })
+    const { result } = renderHook(() => useScheduleFormState({ open: true, editData }))
+
+    expect(result.current.date).toBe('')
+    expect(result.current.startTime).toBe('')
+  })
+
+  it('still forward-seeds a menu-driven "New Task" (empty id) instead of leaving it blank', () => {
+    const editData = presetCreateData({ id: '', interactionType: 'task', scheduledAt: null, occurredAt: null })
+    const { result } = renderHook(() => useScheduleFormState({ open: true, editData }))
+
+    expect(result.current.date).toBe('2026-09-11')
+    expect(result.current.startTime).toBe('17:00')
+  })
+
+  it('still seeds a date when editing an undated meeting, which requires one', () => {
+    const editData = presetCreateData({
+      id: 'b0a1c2d3-0000-4000-8000-000000000004',
+      interactionType: 'meeting',
+      scheduledAt: null,
+      occurredAt: null,
+    })
+    const { result } = renderHook(() => useScheduleFormState({ open: true, editData }))
+
+    expect(result.current.date).toBe('2026-09-11')
+    expect(result.current.startTime).toBe('14:30')
+  })
+})

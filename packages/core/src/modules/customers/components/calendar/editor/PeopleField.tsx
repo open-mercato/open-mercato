@@ -9,6 +9,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import type { EditorParticipant } from '../../../lib/calendar/editorPayload'
 import { composeAccessibleName } from '../../../lib/calendar/labels'
+import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { searchPeopleOptions, type PersonOption } from './lookups'
 import { CONTROL_BORDER, DROPDOWN_PANEL_CLASS, PersonChip, UppercaseBadge, useDropdownDismiss } from './inputs'
 
@@ -40,6 +41,7 @@ export function PeopleField({
   includeStaff?: boolean
 }) {
   const t = useT()
+  const activeOrgId = useCurrentOrganization()?.id ?? null
   const [query, setQuery] = React.useState('')
   const [open, setOpen] = React.useState(false)
   const [options, setOptions] = React.useState<PersonOption[]>([])
@@ -54,7 +56,12 @@ export function PeopleField({
     const timer = window.setTimeout(async () => {
       setLoading(true)
       try {
-        const results = await searchPeopleOptions(query.trim(), { includeCustomers, includeStaff, signal: controller.signal })
+        const results = await searchPeopleOptions(query.trim(), {
+          includeCustomers,
+          includeStaff,
+          activeOrgId,
+          signal: controller.signal,
+        })
         if (cancelled) return
         setOptions(results)
       } catch {
@@ -68,7 +75,7 @@ export function PeopleField({
       controller.abort()
       window.clearTimeout(timer)
     }
-  }, [open, query, includeCustomers, includeStaff])
+  }, [activeOrgId, open, query, includeCustomers, includeStaff])
 
   const selectedIds = new Set(value.map((participant) => participant.userId))
   const visibleOptions = options.filter((option) => !selectedIds.has(option.userId))

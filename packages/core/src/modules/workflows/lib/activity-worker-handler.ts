@@ -218,26 +218,30 @@ export function createActivityWorkerHandler(
         userId: payload.userId,
       }
 
-      // Execute activity by type (with timeout if specified)
+      // Execute activity by type (with timeout and abort signal if specified)
       let result: any
 
-      const executeActivityByType = async () =>
+      const executeActivityByType = (signal?: AbortSignal) =>
         executeRegistryActivity(payload, activityContext, {
           em: em as PostgreSqlEntityManager,
           container,
+          signal,
         })
 
-      // Apply timeout if specified
       if (payload.timeoutMs) {
-        result = await Promise.race([
-          executeActivityByType(),
-          new Promise((_, reject) =>
-            setTimeout(
-              () => reject(new Error(`Activity timeout after ${payload.timeoutMs}ms`)),
-              payload.timeoutMs
-            )
-          ),
-        ])
+        const ac = new AbortController()
+        let timerId: NodeJS.Timeout
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timerId = setTimeout(() => {
+            ac.abort()
+            reject(new Error(`Activity timeout after ${payload.timeoutMs}ms`))
+          }, payload.timeoutMs)
+        })
+        try {
+          result = await Promise.race([executeActivityByType(ac.signal), timeoutPromise])
+        } finally {
+          clearTimeout(timerId!)
+        }
       } else {
         result = await executeActivityByType()
       }
