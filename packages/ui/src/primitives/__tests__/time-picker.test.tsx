@@ -442,7 +442,7 @@ describe('TimePicker scrolls the selected slot into view', () => {
 
   function slotListIn(root: ParentNode) {
     const list = root.querySelector('[data-slot="time-picker-slots"]')
-    if (!list) throw new Error('slot list not rendered')
+    if (!list) throw new Error('[internal] slot list not rendered')
     return list as HTMLElement
   }
 
