@@ -1,15 +1,4 @@
-/**
- * Detect a Postgres unique-constraint violation (SQLSTATE 23505) regardless of
- * the ORM/driver layer that surfaces it. Shared across modules so duplicate-insert
- * handling stays consistent platform-wide.
- */
-export function isUniqueViolation(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false
-  const code = (err as { code?: string }).code
-  if (code === '23505') return true // Postgres unique_violation
-  const message = (err as { message?: string }).message
-  return typeof message === 'string' && /duplicate key value|unique constraint/i.test(message)
-}
+const UNIQUE_VIOLATION_MESSAGE = /duplicate key value violates unique constraint(?: "([^"]+)")?/i
 
 const FOREIGN_KEY_VIOLATION_MESSAGE = /violates foreign key constraint(?: "([^"]+)")?/i
 
@@ -63,6 +52,37 @@ export function getForeignKeyViolationConstraint(err: unknown): string | null {
   for (const candidate of pgErrorCandidates(err)) {
     if (typeof candidate.message !== 'string') continue
     const match = FOREIGN_KEY_VIOLATION_MESSAGE.exec(candidate.message)
+    if (match?.[1]) return match[1]
+  }
+  return null
+}
+
+/**
+ * Detect a Postgres unique-constraint violation (SQLSTATE 23505) regardless of
+ * the ORM/driver layer that surfaces it. Looks through MikroORM's driver-error
+ * wrapping the same way as {@link isForeignKeyViolation}. Shared across modules
+ * so duplicate-insert / relocate handling stays consistent platform-wide.
+ */
+export function isUniqueViolation(err: unknown): boolean {
+  return pgErrorCandidates(err).some((candidate) => {
+    if (candidate.code === '23505') return true // Postgres unique_violation
+    if (candidate.name === 'UniqueConstraintViolationException') return true
+    return typeof candidate.message === 'string' && /duplicate key value|unique constraint/i.test(candidate.message)
+  })
+}
+
+/**
+ * Name of the constraint behind a unique violation, read from the pg
+ * `constraint` field on any layer of the wrapper chain, or parsed out of the
+ * quoted constraint in the driver message when the field is missing.
+ */
+export function getUniqueViolationConstraint(err: unknown): string | null {
+  for (const candidate of pgErrorCandidates(err)) {
+    if (typeof candidate.constraint === 'string' && candidate.constraint.length > 0) return candidate.constraint
+  }
+  for (const candidate of pgErrorCandidates(err)) {
+    if (typeof candidate.message !== 'string') continue
+    const match = UNIQUE_VIOLATION_MESSAGE.exec(candidate.message)
     if (match?.[1]) return match[1]
   }
   return null
