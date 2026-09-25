@@ -892,6 +892,7 @@
   "ui.email.threads.status.retry": "재시도",
   "ui.email.threads.status.sending": "전송 중…",
   "ui.email.threads.status.sent": "전송됨",
+  "ui.email.threads.teammate": "팀원",
   "ui.email.threads.toLabel": "받는 사람: {recipients}",
   "ui.email.threads.unknownParticipant": "알 수 없는 발신자",
   "ui.email.threads.you": "나",
