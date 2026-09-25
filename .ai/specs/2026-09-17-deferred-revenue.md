@@ -140,25 +140,27 @@ independent implementations of the same pattern, not a shared library
    `accounts_payable`/`sales_invoice_gl_posting`/`posting_rules` all
    already use for a required-but-unseeded account).
 6. **Early stop recognizes the remainder immediately; it does not
-   refund.** The wall names "przerwanie harmonogramu" as a variant but
-   doesn't specify its accounting treatment. Phase 1 assumes the
-   common case behind the wall's own example — a non-refundable annual
-   license or prepaid service where the customer keeps what they paid
-   for even if they stop using it early, so the remaining RMP balance
-   is simply recognized as earned now. A cancellation that requires an
-   actual refund is a different, already-served flow
+   refund — confirmed with the user, 2026-09-25.** The wall names
+   "przerwanie harmonogramu" as a variant but doesn't specify its
+   accounting treatment. Phase 1 assumes the common case behind the
+   wall's own example — a non-refundable annual license or prepaid
+   service where the customer keeps what they paid for even if they
+   stop using it early, so the remaining RMP balance is simply
+   recognized as earned now. A cancellation that requires an actual
+   refund is a different, already-served flow
    (`sales.SalesCreditMemo`/`SalesReturn`) — routing a refund through
    this module as well would conflate two different customer outcomes
-   behind one command. **⚠ NEEDS HUMAN CONFIRMATION** if the "recognize
-   immediately" default doesn't match how these particular contracts
-   are actually is-sold. **Resequenced, maintainer-review round**: this
-   confirmation now gates Implementation Plan Step 0, before any
-   command, API, or UI work begins — the initial draft deferred it to
-   the last implementation step (after `stop` itself, its API, and its
-   UI were already built on the unconfirmed assumption), which the
-   review correctly flagged as backwards: an implementer would have
-   had to redo commands/API/UI if the confirmed answer differed. See
-   Implementation Plan.
+   behind one command. **Confirmed (2026-09-25)**: the "recognize
+   immediately, no refund" default matches how these contracts are
+   actually sold — closing the **⚠ NEEDS HUMAN CONFIRMATION** flag the
+   maintainer review required be resolved before implementation.
+   **Resequenced, maintainer-review round**: this confirmation gated
+   Implementation Plan Step 0, before any command, API, or UI work
+   began — the initial draft deferred it to the last implementation
+   step (after `stop` itself, its API, and its UI were already built
+   on the unconfirmed assumption), which the review correctly flagged
+   as backwards: an implementer would have had to redo commands/API/UI
+   if the confirmed answer differed. See Implementation Plan.
 7. **No automated scheduler — manual trigger only, Phase 1.** Matches
    this project's own established discipline (knowledge base §2,
    "Phase 1/Phase 2 scope discipline") and Fixed Assets' own identical
@@ -829,9 +831,9 @@ confirmation moved from last (step 7) to first (step 0), since steps 3,
 5, and 6 all build on that assumption; confirming it after the fact
 risked rebuilding commands, API, and UI if the answer differed.
 
-0. Confirm Design decision 6's early-stop policy ("recognize
-   immediately, no refund path") with the user — **⚠ NEEDS HUMAN
-   CONFIRMATION**, blocks every step below.
+0. **Confirmed 2026-09-25** — Design decision 6's early-stop policy
+   ("recognize immediately, no refund path") matches how these
+   contracts are actually sold. No longer a gate on the steps below.
 1. Patch `2026-09-15-default-chart-of-accounts.md` with the `840` account
    (Design decision 8).
 2. Scaffold `deferred_revenue`: entities (including
@@ -1185,9 +1187,10 @@ compliant" as requiring every business question to be pre-answered.
 
 ### Verdict
 
-- **Fully compliant** for architectural/AGENTS.md rules — approved for
-  implementation **once Implementation Plan Step 0 (Design decision 6
-  confirmation) is resolved**, per this document's own resequencing.
+- **Fully compliant** — approved for implementation. Implementation
+  Plan Step 0 (Design decision 6 confirmation) was the one remaining
+  gate and was resolved with the user on 2026-09-25 (see Design
+  decision 6 and Changelog).
 
 ## Changelog
 
@@ -1265,4 +1268,18 @@ compliant" as requiring every business question to be pre-answered.
 - **API/UI**: Passed (after fixes) — `openApi`/mutation-guard-registry/`requireAuth`-`requireFeatures` metadata now stated; i18n section added; `pageSize <= 100` now stated on `GET .../deferrals`; canonical mechanisms (`makeCrudRoute` for reads, mutation guard registry for the three command routes, `CrudForm`/`DataTable`/`apiCall`/`useGuardedMutation`) and Design System compliance were already correctly specified
 - **Performance/Cache**: Passed (after fixes) — supporting index and 500-row batch size now named for `accrueRevenueRecognition`'s due-row scan, mirroring Fixed Assets' identical query shape exactly; cache tag invalidation per write path was already specified
 - **Risks**: Passed (after fixes) — severity and detection added to all five Risk entries (a new fifth entry covers the scale gap this same pass found); concrete scenarios and mitigations were already present
-- **Verdict**: Approved — ready for implementation **once Implementation Plan Step 0 (Design decision 6 confirmation) is resolved**, unchanged from the Final Compliance Report's own verdict
+- **Verdict**: Approved — ready for implementation. Implementation Plan Step 0 (Design decision 6 confirmation) was resolved with the user on 2026-09-25 (see Changelog); unchanged otherwise from the Final Compliance Report's own verdict
+
+### 2026-09-25 — Design decision 6 confirmed with the user
+
+Implementation Plan Step 0's open question — whether "recognize
+immediately, no refund" matches how these contracts (non-refundable
+annual license / prepaid service) are actually sold — was put to
+Mikołaj directly and confirmed: yes, the default matches actual
+practice. This closes the last **⚠ NEEDS HUMAN CONFIRMATION** flag in
+this document. Design decision 6, Implementation Plan Step 0, the
+Final Compliance Report's Verdict, and the 2026-09-21 Review's Verdict
+are all updated to record the confirmation and drop the conditional
+("once ... is resolved") language — this spec is now unconditionally
+ready for implementation.
+
