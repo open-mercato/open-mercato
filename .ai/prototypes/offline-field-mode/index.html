@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en" data-prototype-id="offline-field-mode">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Offline Field Mode — interactive backend prototype</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<link rel="stylesheet" href="screens.css" />
+<link rel="stylesheet" href="prototype.css" />
+</head>
+<body>
+
+<!-- Lucide icon sprite. Include only the paths the prototype uses. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="ic-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+<symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="ic-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="ic-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="ic-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></symbol>
+<symbol id="ic-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="ic-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+<symbol id="ic-more" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.75"/><circle cx="12" cy="12" r="1.75"/><circle cx="19" cy="12" r="1.75"/></symbol>
+<symbol id="ic-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></symbol>
+<symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="ic-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></symbol>
+<symbol id="ic-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+<symbol id="ic-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7H7v7"/><path d="M7 3v5h8"/></symbol>
+<symbol id="ic-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></symbol>
+<symbol id="ic-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+<symbol id="ic-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+<symbol id="ic-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+<symbol id="ic-wifi-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h.01"/><path d="M8.5 16.43a5 5 0 0 1 7 0"/><path d="M5 12.86a10 10 0 0 1 4.17-2.68"/><path d="M19 12.86a10 10 0 0 0-2.6-1.9"/><path d="M2 8.82a15 15 0 0 1 3.62-2.3"/><path d="M22 8.82a15 15 0 0 0-9.9-3.7"/><path d="m2 2 20 20"/></symbol>
+<symbol id="ic-package" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 9.4 7.55 4.24"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="M3.29 7.3 12 12l8.71-4.7"/><path d="M12 22V12"/></symbol>
+<symbol id="ic-cart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></symbol>
+<symbol id="ic-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></symbol>
+<symbol id="ic-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+<symbol id="ic-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+</defs></svg>
+
+<div class="doc-toolbar">
+  <strong style="font-size:0.875rem">Offline Field Mode — prototype</strong>
+  <nav class="screen-nav" aria-label="Screens">
+    <a href="#s1">1 Enable</a>
+    <a href="#s2">2 Status</a>
+    <a href="#s3">3 Local gate</a>
+    <a href="#s4">4 Catalog</a>
+    <a href="#s5">5 Product</a>
+    <a href="#s6">6 Queue</a>
+    <a href="#s7">7 Sync</a>
+  </nav>
+  <!-- prototype.js injects the review-mode controls. -->
+  <button class="btn btn-outline btn-sm" id="theme-toggle" type="button">
+    <svg><use href="#ic-sun"/></svg> Theme
+  </button>
+</div>
+
+<div class="doc">
+
+<header class="doc-head">
+  <h1>Offline Field Mode — screen inventory</h1>
+  <p class="muted" style="max-width:65ch;margin:0">
+    Interactive <strong>storefront</strong> screens (buyer-facing, <code class="t-mono">apps/storefront/src/app/field/*</code>)
+    derived from <code class="t-mono">.ai/specs/2026-09-22-offline-field-mode.md</code> and Epic F
+    (<code class="t-mono">.ai/specs/2026-08-14-storefront-app.md</code> §16). This is <strong>not</strong> the backend
+    AppShell/DataTable chrome — <code class="t-mono">/field/*</code> is a separate, client-only, mobile-first route
+    subtree with no admin sidebar or topbar (spec §3.4). Colors, spacing and components still come from the same
+    design tokens (<code class="t-mono">globals.css</code>). Every screen lists its spec section and user-story coverage.
+  </p>
+</header>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     Screen 1 — Enable field mode (disabled state + confirm dialog)
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s1">
+  <div class="screen-meta">
+    <h2>1. Enable field mode</h2>
+    <p>Field mode is off by default (<code class="t-mono">OfflinePackPolicy.enabled: false</code>). A buyer must explicitly opt in and see what will be stored, and for how long, before anything downloads.</p>
+    <div class="screen-refs"><span class="ref">§6</span><span class="ref">§8</span><span class="ref">US-F1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/field</span>
+    </div>
+    <div class="field-app">
+      <div class="field-bar">
+        <h1>Field mode</h1>
+      </div>
+      <div class="field-content">
+        <div class="card card-pad col" style="gap:0.75rem">
+          <div class="row" style="gap:0.625rem">
+            <span class="field-hero-thumb" style="width:2.5rem;height:2.5rem;flex:none"><svg><use href="#ic-wifi-off"/></svg></span>
+            <div>
+              <p class="t-card-title" style="margin:0">Work offline in the warehouse or field</p>
+              <p class="t-hint" style="margin:0.125rem 0 0">Download a priced slice of the catalog now, queue items while you're offline, and sync the moment you're back.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="col" style="gap:0.5rem">
+          <p class="t-label" style="margin:0">What gets stored on this device</p>
+          <div class="row" style="gap:0.5rem;align-items:flex-start"><svg style="width:1rem;height:1rem;color:var(--muted-foreground);margin-top:0.125rem" aria-hidden="true"><use href="#ic-package"/></svg><span class="t-body">Up to 500 products from your price list, encrypted at rest</span></div>
+          <div class="row" style="gap:0.5rem;align-items:flex-start"><svg style="width:1rem;height:1rem;color:var(--muted-foreground);margin-top:0.125rem" aria-hidden="true"><use href="#ic-clock"/></svg><span class="t-body">Kept for 72 hours, then purged automatically</span></div>
+          <div class="row" style="gap:0.5rem;align-items:flex-start"><svg style="width:1rem;height:1rem;color:var(--muted-foreground);margin-top:0.125rem" aria-hidden="true"><use href="#ic-lock"/></svg><span class="t-body">Locked behind Face ID / PIN — every time you open field mode</span></div>
+        </div>
+
+        <button class="btn btn-primary" data-goto="s1" style="width:100%;justify-content:center" aria-haspopup="dialog">
+          Enable field mode
+        </button>
+        <p class="t-hint" style="text-align:center;margin:0">You can turn this off and clear stored data any time from Status.</p>
+      </div>
+    </div>
+
+    <!-- Dialog state, reviewed in place per the skill's drawer/dialog guidance -->
+    <div class="modal-scrim" style="position:absolute;inset:0;background:color-mix(in oklab, var(--foreground) 35%, transparent);display:flex;align-items:center;justify-content:center;padding:1rem">
+      <div class="modal card" style="width:20rem;max-width:100%;border-radius:var(--radius-lg)">
+        <div class="modal-head"><h3 class="t-section">Enable field mode?</h3></div>
+        <div class="modal-body">
+          <p class="t-body" style="margin:0">This downloads a priced catalog for <strong>your account only</strong> and stores it, encrypted, on this device for up to the TTL below.</p>
+          <div class="field">
+            <label for="ttl">Keep data for</label>
+            <select id="ttl" class="select">
+              <option>72 hours (default)</option>
+              <option>24 hours</option>
+              <option>8 hours (one shift)</option>
+            </select>
+          </div>
+          <div class="alert alert-info"><svg><use href="#ic-info"/></svg><div><p class="alert-title" style="margin:0 0 0.125rem">No offline checkout</p><p style="margin:0">Prices update the moment you're back online — nothing here is a locked-in price or a placed order.</p></div></div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-outline">Cancel</button>
+          <button class="btn btn-primary" data-goto="s2">Enable &amp; download</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Real download progress and a partial-download retry state aren't shown here — see spec §3.2 (manifest + delta protocol).</span></div>
+    <div class="note"><b>2</b><span>The TTL choice writes to <code class="t-mono">OfflinePackPolicy.offlineTtlHours</code> for this buyer's device only; the store-level default and hard floor are merchant-configured (§4.1).</span></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     Screen 2 — Status (pack synced, buyer online)
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s2">
+  <div class="screen-meta">
+    <h2>2. Field mode status</h2>
+    <p>The always-available home of field mode: sync freshness, pack size against the cap, and the one place data protection is disclosed and can be revoked.</p>
+    <div class="screen-refs"><span class="ref">§3.2</span><span class="ref">§6</span><span class="ref">US-F1</span><span class="ref">US-F6</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/field</span>
+    </div>
+    <div class="field-app">
+      <div class="field-bar">
+        <h1>Field mode</h1>
+        <div class="field-bar-actions">
+          <span class="badge badge-success"><span class="dot"></span> On</span>
+        </div>
+      </div>
+      <div class="field-content">
+        <div class="card card-pad col" style="gap:0.5rem">
+          <div class="between">
+            <span class="t-label">Last synced</span>
+            <span class="t-body strong num">Today, 14:20</span>
+          </div>
+          <div class="separator"></div>
+          <div class="between">
+            <span class="t-label">Pack size</span>
+            <span class="t-body num">412 / 500 products</span>
+          </div>
+          <div class="progress"><span style="width:82%"></span></div>
+          <p class="t-hint" style="margin:0">1,180 / 1,500 variants · thumbnails off (text &amp; price only)</p>
+        </div>
+
+        <button class="btn btn-outline" style="width:100%;justify-content:center"><svg><use href="#ic-refresh"/></svg> Check for updates</button>
+
+        <div class="card card-pad col" style="gap:0.5rem">
+          <div class="between">
+            <span class="row" style="gap:0.5rem"><svg style="width:1rem;height:1rem"><use href="#ic-lock"/></svg><span class="t-label">Local passcode gate</span></span>
+            <button class="switch" role="switch" aria-checked="true"></button>
+          </div>
+          <p class="t-hint" style="margin:0">Face ID, re-checked every time field mode opens — the device being unlocked is not enough on its own.</p>
+        </div>
+
+        <div class="card card-pad col" style="gap:0.5rem;border-color:var(--status-error-border)">
+          <span class="t-label">Clear field data</span>
+          <p class="t-hint" style="margin:0">Removes the downloaded catalog from this device now. Queued items you haven't synced yet are kept — clearing the pack and clearing your queue are different actions.</p>
+          <button class="btn btn-destructive-outline" style="width:100%;justify-content:center"><svg><use href="#ic-trash"/></svg> Clear field data</button>
+        </div>
+      </div>
+      <nav class="field-tabbar">
+        <button aria-current="page" data-goto="s2"><svg><use href="#ic-home"/></svg> Status</button>
+        <button data-goto="s4"><svg><use href="#ic-package"/></svg> Catalog</button>
+        <button data-goto="s6"><svg><use href="#ic-cart"/></svg> Queue<span class="tab-badge">3</span></button>
+        <button data-goto="s7"><svg><use href="#ic-refresh"/></svg> Sync</button>
+      </nav>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Purge also fires automatically on logout, TTL expiry, and an identity mismatch (§6, §9 R1/R5) — not only from this manual control.</span></div>
+    <div class="note"><b>2</b><span>Turning field mode off here purges the pack the same way; it never touches a non-empty queue (§9 R8).</span></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     Screen 3 — Local passcode / biometric gate
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s3">
+  <div class="screen-meta">
+    <h2>3. Local access gate</h2>
+    <p>Shown on every app open once field mode is enabled — the device being unlocked at the OS level is deliberately not sufficient on its own.</p>
+    <div class="screen-refs"><span class="ref">§6</span><span class="ref">US-F2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/field (locked)</span>
+    </div>
+    <div class="field-app">
+      <div class="field-lock-wrap" style="width:100%">
+        <span class="field-lock-icon"><svg><use href="#ic-lock"/></svg></span>
+        <div>
+          <p class="t-section" style="margin:0 0 0.25rem">Unlock field mode</p>
+          <p class="t-hint" style="margin:0;max-width:16rem">Your device is unlocked, but the priced catalog stored here needs its own passcode.</p>
+        </div>
+        <div class="field-pin-dots">
+          <i class="filled"></i><i class="filled"></i><i class="filled"></i><i></i>
+        </div>
+        <div class="field-keypad">
+          <button>1</button><button>2</button><button>3</button>
+          <button>4</button><button>5</button><button>6</button>
+          <button>7</button><button>8</button><button>9</button>
+          <button></button><button data-goto="s2">0</button><button aria-label="Delete"><svg style="width:1rem;height:1rem;margin:auto"><use href="#ic-x"/></svg></button>
+        </div>
+        <button class="btn btn-ghost" data-goto="s2"><svg><use href="#ic-shield"/></svg> Use Face ID instead</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Where no platform authenticator exists, the app falls back to this PIN prompt instead of skipping the gate (§6).</span></div>
+    <div class="note"><b>2</b><span>Failing or dismissing the gate blocks pack access entirely — there is no "view without unlocking" fallback.</span></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     Screen 4 — Offline catalog (browse the pack)
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s4">
+  <div class="screen-meta">
+    <h2>4. Browse the offline pack</h2>
+    <p>Search and list over the downloaded catalog while disconnected — prices, tiers and availability render exactly as carried in the pack, never recomputed.</p>
+    <div class="screen-refs"><span class="ref">§3.2</span><span class="ref">US-F3</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/field/catalog</span>
+    </div>
+    <div class="field-app">
+      <div class="field-bar">
+        <h1>Catalog</h1>
+      </div>
+      <div class="field-banner"><svg><use href="#ic-wifi-off"/></svg> <span>No connection — prices as of <strong>14:20 today</strong>, from your last sync.</span></div>
+      <div class="field-content">
+        <div class="field-search"><svg><use href="#ic-search"/></svg> Search downloaded catalog</div>
+
+        <div class="field-product" data-goto="s5">
+          <span class="field-product-thumb"><svg><use href="#ic-package"/></svg></span>
+          <div class="field-product-body">
+            <span class="field-product-name">Galvanized steel bracket, 4"</span>
+            <span class="field-product-sku">SKU BRK-4G-100</span>
+            <span class="field-product-price">$4.20 / unit</span>
+            <span class="field-product-tier">$3.85 at 100+</span>
+          </div>
+          <svg style="width:1rem;height:1rem;color:var(--muted-foreground);align-self:center;flex:none"><use href="#ic-chevron-right"/></svg>
+        </div>
+
+        <div class="field-product" data-goto="s5">
+          <span class="field-product-thumb"><svg><use href="#ic-package"/></svg></span>
+          <div class="field-product-body">
+            <span class="field-product-name">Hex bolt M8 × 40mm, zinc</span>
+            <span class="field-product-sku">SKU HB-M8-40Z</span>
+            <span class="field-product-price">$0.12 / unit</span>
+            <span class="field-product-tier">$0.09 at 1,000+</span>
+          </div>
+          <svg style="width:1rem;height:1rem;color:var(--muted-foreground);align-self:center;flex:none"><use href="#ic-chevron-right"/></svg>
+        </div>
+
+        <div class="field-product">
+          <span class="field-product-thumb"><svg><use href="#ic-package"/></svg></span>
+          <div class="field-product-body">
+            <span class="field-product-name">Safety cable tie, 300mm (pack of 100)</span>
+            <span class="field-product-sku">SKU CT-300-100</span>
+            <span class="field-product-price">$6.40 / pack</span>
+          </div>
+          <span class="badge badge-neutral">Last sync: unavailable</span>
+        </div>
+
+        <div class="field-product" data-goto="s5">
+          <span class="field-product-thumb"><svg><use href="#ic-package"/></svg></span>
+          <div class="field-product-body">
+            <span class="field-product-name">Cordless impact driver, 18V (tool only)</span>
+            <span class="field-product-sku">SKU ID-18V-TL</span>
+            <span class="field-product-price">$129.00 / unit</span>
+          </div>
+          <svg style="width:1rem;height:1rem;color:var(--muted-foreground);align-self:center;flex:none"><use href="#ic-chevron-right"/></svg>
+        </div>
+
+        <p class="t-hint" style="text-align:center;margin:0.25rem 0 0">Showing 412 downloaded products · not the full catalog</p>
+      </div>
+      <nav class="field-tabbar">
+        <button data-goto="s2"><svg><use href="#ic-home"/></svg> Status</button>
+        <button aria-current="page" data-goto="s4"><svg><use href="#ic-package"/></svg> Catalog</button>
+        <button data-goto="s6"><svg><use href="#ic-cart"/></svg> Queue<span class="tab-badge">3</span></button>
+        <button data-goto="s7"><svg><use href="#ic-refresh"/></svg> Sync</button>
+      </nav>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The badge on the cable-tie row illustrates <code class="t-mono">availabilityState</code> being advisory only (<code class="t-mono">isAuthoritative: false</code>) — it can still turn out wrong on reconnect (§9 R5).</span></div>
+    <div class="note"><b>2</b><span>A product outside the pack's scope simply never appears here rather than 404ing — search only ever queries local data.</span></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     Screen 5 — Catalog entry detail
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s5">
+  <div class="screen-meta">
+    <h2>5. Pack entry detail</h2>
+    <p>Price tiers and quantity rules straight from the pack entry; queuing here writes an intent, never a price, to the local outbox.</p>
+    <div class="screen-refs"><span class="ref">§3.2</span><span class="ref">§3.3</span><span class="ref">US-F3</span><span class="ref">US-F4</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/field/catalog/brk-4g-100</span>
+    </div>
+    <div class="field-app">
+      <div class="field-bar">
+        <button class="btn btn-ghost btn-icon" data-goto="s4" aria-label="Back"><svg><use href="#ic-chevron-left"/></svg></button>
+        <h1 class="ellipsis">Galvanized steel bracket, 4"</h1>
+      </div>
+      <div class="field-content">
+        <span class="field-hero-thumb"><svg><use href="#ic-package"/></svg></span>
+        <div>
+          <p class="t-hint" style="margin:0">SKU BRK-4G-100 · priced as of 14:20, offline</p>
+          <p class="t-page-title" style="margin:0.125rem 0 0">$4.20 <span class="t-hint" style="font-weight:400">/ unit</span></p>
+          <span class="badge badge-neutral" style="margin-top:0.375rem">In stock as of last sync</span>
+        </div>
+
+        <div class="col" style="gap:0.375rem">
+          <p class="t-label" style="margin:0">Quantity rules</p>
+          <p class="t-body" style="margin:0">Minimum 5 · step 5</p>
+        </div>
+
+        <div class="col" style="gap:0.375rem">
+          <p class="t-label" style="margin:0">Price tiers</p>
+          <table class="field-tier-table">
+            <thead><tr><th>Quantity</th><th class="right">Unit price</th></tr></thead>
+            <tbody>
+              <tr><td>5–24</td><td class="right num">$4.20</td></tr>
+              <tr><td>25–99</td><td class="right num">$4.00</td></tr>
+              <tr><td>100+</td><td class="right num">$3.85</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="between">
+          <span class="t-label">Quantity</span>
+          <div class="field-stepper">
+            <button aria-label="Decrease"><svg><use href="#ic-minus"/></svg></button>
+            <span class="qty">25</span>
+            <button aria-label="Increase"><svg><use href="#ic-plus"/></svg></button>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" data-goto="s6" style="width:100%;justify-content:center"><svg><use href="#ic-plus"/></svg> Add to queue — $4.00/unit</button>
+        <p class="t-hint" style="text-align:center;margin:0">Queuing doesn't reserve stock or lock this price — it's confirmed when you sync.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Everything on this screen — price, tiers, quantity rule, availability — is rendered verbatim from the pack entry (§4.2); nothing is recalculated client-side (ADR-2).</span></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     Screen 6 — Outbox / local queue
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s6">
+  <div class="screen-meta">
+    <h2>6. Local queue (outbox)</h2>
+    <p>Reviewed like a cart, but nothing here has been submitted — it's a bounded list of add-line intents waiting for a connection.</p>
+    <div class="screen-refs"><span class="ref">§3.3</span><span class="ref">§4.2</span><span class="ref">§9 R7</span><span class="ref">US-F4</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/field/cart</span>
+    </div>
+    <div class="field-app">
+      <div class="field-bar">
+        <h1>Queue</h1>
+        <div class="field-bar-actions"><button class="btn btn-ghost btn-icon" aria-label="Clear queue"><svg><use href="#ic-trash"/></svg></button></div>
+      </div>
+      <div class="field-content">
+        <div class="alert alert-info"><svg><use href="#ic-info"/></svg><div><p style="margin:0">3 items queued locally. Nothing is ordered yet — sync when you're back online.</p></div></div>
+
+        <div class="field-outbox-line">
+          <div class="body">
+            <span class="name">Galvanized steel bracket, 4"</span>
+            <span class="meta">Qty 25 · queued 14:22</span>
+          </div>
+          <span class="price">$4.00/unit</span>
+          <button class="btn btn-ghost btn-icon" aria-label="Remove"><svg><use href="#ic-x"/></svg></button>
+        </div>
+        <div class="field-outbox-line">
+          <div class="body">
+            <span class="name">Hex bolt M8 × 40mm, zinc</span>
+            <span class="meta">Qty 1,000 · queued 14:24</span>
+          </div>
+          <span class="price">$0.09/unit</span>
+          <button class="btn btn-ghost btn-icon" aria-label="Remove"><svg><use href="#ic-x"/></svg></button>
+        </div>
+        <div class="field-outbox-line">
+          <div class="body">
+            <span class="name">Cordless impact driver, 18V</span>
+            <span class="meta">Qty 2 · queued 14:31</span>
+          </div>
+          <span class="price">$129.00/unit</span>
+          <button class="btn btn-ghost btn-icon" aria-label="Remove"><svg><use href="#ic-x"/></svg></button>
+        </div>
+
+        <div class="alert alert-warning"><svg><use href="#ic-warn"/></svg><div><p style="margin:0"><strong>184 / 200</strong> lines queued. At 200, further offline adds are blocked until you sync (§9 R7).</p></div></div>
+      </div>
+      <div style="padding:0.75rem 1rem;border-top:1px solid var(--border)">
+        <button class="btn btn-outline" disabled style="width:100%;justify-content:center"><svg><use href="#ic-wifi-off"/></svg> Waiting for connection to sync</button>
+      </div>
+      <nav class="field-tabbar">
+        <button data-goto="s2"><svg><use href="#ic-home"/></svg> Status</button>
+        <button data-goto="s4"><svg><use href="#ic-package"/></svg> Catalog</button>
+        <button aria-current="page" data-goto="s6"><svg><use href="#ic-cart"/></svg> Queue<span class="tab-badge">3</span></button>
+        <button data-goto="s7"><svg><use href="#ic-refresh"/></svg> Sync</button>
+      </nav>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The prices shown here are <code class="t-mono">unitPriceAtQueue</code> — display only, never sent to the server as a price (§4.2). What actually lands is decided on reconnect.</span></div>
+    <div class="note"><b>2</b><span>No route from this screen reaches checkout without a live connectivity check (§3.3).</span></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     Screen 7 — Sync / reconciliation
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s7">
+  <div class="screen-meta">
+    <h2>7. Sync &amp; reconciliation</h2>
+    <p>Shown on reconnect. Replay reuses the cart's own <code class="t-mono">priceChanges</code>/<code class="t-mono">warnings</code>/<code class="t-mono">mergeSummary</code> surfaces — this is not a second, offline-specific screen.</p>
+    <div class="screen-refs"><span class="ref">§2.3</span><span class="ref">§3.3</span><span class="ref">§5.8</span><span class="ref">US-F5</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/field/sync</span>
+    </div>
+    <div class="field-app">
+      <div class="field-bar">
+        <h1>Sync complete</h1>
+      </div>
+      <div class="field-content">
+        <div class="row wrap" style="gap:0.375rem">
+          <span class="badge badge-success"><svg><use href="#ic-check"/></svg> 1 accepted</span>
+          <span class="badge badge-warning"><svg><use href="#ic-warn"/></svg> 1 adjusted</span>
+          <span class="badge badge-error"><svg><use href="#ic-x"/></svg> 1 rejected</span>
+        </div>
+
+        <div class="field-recon-line">
+          <span class="icon ok"><svg><use href="#ic-check"/></svg></span>
+          <div class="body"><span class="name">Galvanized steel bracket, 4" · Qty 25</span><span class="note">Added at $4.00/unit</span></div>
+        </div>
+        <div class="field-recon-line">
+          <span class="icon warn"><svg><use href="#ic-warn"/></svg></span>
+          <div class="body"><span class="name">Hex bolt M8 × 40mm · requested 1,000</span><span class="note">Only 640 in stock — quantity adjusted to 640</span></div>
+        </div>
+        <div class="field-recon-line">
+          <span class="icon bad"><svg><use href="#ic-x"/></svg></span>
+          <div class="body"><span class="name">Cordless impact driver, 18V · Qty 2</span><span class="note">No longer in your price list — removed</span></div>
+        </div>
+
+        <div class="card card-pad col" style="gap:0.375rem">
+          <p class="t-label" style="margin:0">Price changed since you queued</p>
+          <div class="between"><span class="t-body">Galvanized steel bracket, 4"</span><span class="t-body num"><span class="muted" style="text-decoration:line-through">$4.00</span> $4.15</span></div>
+        </div>
+
+        <div class="alert alert-info"><svg><use href="#ic-info"/></svg><div><p style="margin:0">Your saved cart had expired while you were offline — these items were added to a new cart.</p></div></div>
+      </div>
+      <div style="padding:0.75rem 1rem;border-top:1px solid var(--border)">
+        <button class="btn btn-primary" style="width:100%;justify-content:center">Review cart <svg><use href="#ic-chevron-right"/></svg></button>
+      </div>
+      <nav class="field-tabbar">
+        <button data-goto="s2"><svg><use href="#ic-home"/></svg> Status</button>
+        <button data-goto="s4"><svg><use href="#ic-package"/></svg> Catalog</button>
+        <button data-goto="s6"><svg><use href="#ic-cart"/></svg> Queue</button>
+        <button aria-current="page" data-goto="s7"><svg><use href="#ic-refresh"/></svg> Sync</button>
+      </nav>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>"Review cart" hands off to the storefront's existing cart page (out of this prototype's scope) — it is the same page a guest→customer merge already lands on, not a new screen.</span></div>
+    <div class="note"><b>2</b><span>The rejected line has no <code class="t-mono">warnings[].lineId</code> to attribute to, since it was never added — matched here only by <code class="t-mono">(productId, variantId, configuration)</code>, per the named limitation in spec §9/§12 OQ5.</span></div>
+    <div class="note"><b>3</b><span>Reconciliation always re-resolves the buyer's context online first — a stale pack can produce a surprising adjustment like this one, but never an unauthorized purchase (§9 R5).</span></div>
+  </div>
+</section>
+
+</div>
+
+<script>
+(function () {
+  var btn = document.getElementById('theme-toggle');
+  btn.addEventListener('click', function () {
+    document.documentElement.classList.toggle('dark');
+  });
+})();
+</script>
+<script src="comments.js"></script>
+<script src="prototype.js"></script>
+</body>
+</html>
