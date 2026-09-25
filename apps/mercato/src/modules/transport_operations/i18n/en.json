@@ -1,0 +1,18 @@
+{
+  "transport_operations.errors.assigned_driver_unavailable": "The assigned driver is unavailable.",
+  "transport_operations.errors.complete_failed": "Unable to complete trip.",
+  "transport_operations.errors.dispatch_failed": "Unable to dispatch trip.",
+  "transport_operations.errors.driver_license_expired": "The selected driver has an expired license.",
+  "transport_operations.errors.driver_not_on_trip": "The assigned driver is not on this trip.",
+  "transport_operations.errors.driver_unavailable": "The selected driver is unavailable.",
+  "transport_operations.errors.invalid_trip_time": "Trip end time must be after start time.",
+  "transport_operations.errors.record_id_required": "Record id is required.",
+  "transport_operations.errors.record_not_found": "Record not found.",
+  "transport_operations.errors.route_unavailable": "The selected route is not available.",
+  "transport_operations.errors.summary_failed": "Unable to load transport summary.",
+  "transport_operations.errors.trip_assignment_overlap": "The vehicle or driver already has a trip during this time.",
+  "transport_operations.errors.trip_not_found": "Trip schedule not found.",
+  "transport_operations.errors.trip_not_in_progress": "Only trips in progress can be completed.",
+  "transport_operations.errors.trip_not_scheduled": "Only scheduled trips can be dispatched.",
+  "transport_operations.errors.vehicle_unavailable": "The selected vehicle is unavailable."
+}

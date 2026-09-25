@@ -1,0 +1,18 @@
+{
+  "transport_operations.errors.assigned_driver_unavailable": "السائق المعيّن غير متاح.",
+  "transport_operations.errors.complete_failed": "تعذّر إكمال الرحلة.",
+  "transport_operations.errors.dispatch_failed": "تعذّر إرسال الرحلة.",
+  "transport_operations.errors.driver_license_expired": "رخصة السائق المحدد منتهية الصلاحية.",
+  "transport_operations.errors.driver_not_on_trip": "السائق المعيّن ليس في هذه الرحلة.",
+  "transport_operations.errors.driver_unavailable": "السائق المحدد غير متاح.",
+  "transport_operations.errors.invalid_trip_time": "يجب أن يكون وقت انتهاء الرحلة بعد وقت البدء.",
+  "transport_operations.errors.record_id_required": "معرّف السجل مطلوب.",
+  "transport_operations.errors.record_not_found": "لم يتم العثور على السجل.",
+  "transport_operations.errors.route_unavailable": "المسار المحدد غير متاح.",
+  "transport_operations.errors.summary_failed": "تعذّر تحميل ملخص النقل.",
+  "transport_operations.errors.trip_assignment_overlap": "لدى المركبة أو السائق رحلة أخرى خلال هذه الفترة.",
+  "transport_operations.errors.trip_not_found": "لم يتم العثور على جدول الرحلة.",
+  "transport_operations.errors.trip_not_in_progress": "يمكن إكمال الرحلات قيد التنفيذ فقط.",
+  "transport_operations.errors.trip_not_scheduled": "يمكن إرسال الرحلات المجدولة فقط.",
+  "transport_operations.errors.vehicle_unavailable": "المركبة المحددة غير متاحة."
+}

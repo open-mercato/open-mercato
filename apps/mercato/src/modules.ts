@@ -177,6 +177,9 @@ export const enabledModules: ModuleEntry[] = [
     },
   },
   { id: 'ratelimit_probe', from: '@app' },
+  { id: 'transport_operations', from: '@app' },
+  { id: 'hr_management', from: '@app' },
+  { id: 'fleet_management', from: '@app' },
 ]
 
 // Official modules activated via official-modules.json / official-modules.local.json
