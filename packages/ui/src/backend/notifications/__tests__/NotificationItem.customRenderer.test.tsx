@@ -35,6 +35,19 @@ function ViewRenderer({ onAction, actions = [] }: NotificationRendererProps) {
   )
 }
 
+function TwoActionRenderer({ onAction }: NotificationRendererProps) {
+  return (
+    <>
+      <button type="button" onClick={() => void onAction('view-order')}>
+        View order
+      </button>
+      <button type="button" onClick={() => void onAction('view-inventory')}>
+        View inventory
+      </button>
+    </>
+  )
+}
+
 function buildNotification(overrides: Partial<NotificationDto>): NotificationDto {
   return {
     id: 'n-1',
@@ -49,7 +62,11 @@ function buildNotification(overrides: Partial<NotificationDto>): NotificationDto
   }
 }
 
-function renderItem(notification: NotificationDto, onExecuteAction: jest.Mock) {
+function renderItem(
+  notification: NotificationDto,
+  onExecuteAction: jest.Mock,
+  customRenderer: React.ComponentType<NotificationRendererProps> = ViewRenderer,
+) {
   render(
     <NotificationItem
       notification={notification}
@@ -57,7 +74,7 @@ function renderItem(notification: NotificationDto, onExecuteAction: jest.Mock) {
       onExecuteAction={onExecuteAction}
       onDismiss={jest.fn().mockResolvedValue(undefined)}
       t={t}
-      customRenderer={ViewRenderer}
+      customRenderer={customRenderer}
     />,
   )
 }
@@ -95,5 +112,28 @@ describe('NotificationItem custom renderer actions', () => {
 
     await waitFor(() => expect(onExecuteAction).not.toHaveBeenCalled())
     expect(push).not.toHaveBeenCalled()
+  })
+
+  it('navigates to the clicked action href, not linkHref, on a multi-action actioned notification', async () => {
+    const onExecuteAction = jest.fn().mockResolvedValue({})
+    renderItem(
+      buildNotification({
+        status: 'actioned',
+        actionTaken: 'view-order',
+        actions: [
+          { id: 'view-order', label: 'View order', href: '/backend/sales/orders/o-1' },
+          { id: 'view-inventory', label: 'View inventory', href: '/backend/wms/inventory' },
+        ],
+        linkHref: '/backend/sales/orders/o-1',
+      }),
+      onExecuteAction,
+      TwoActionRenderer,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'View inventory' }))
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/backend/wms/inventory'))
+    expect(push).not.toHaveBeenCalledWith('/backend/sales/orders/o-1')
+    expect(onExecuteAction).not.toHaveBeenCalled()
   })
 })

@@ -29,6 +29,7 @@ export const notificationItemSchema = z.object({
     labelKey: z.string().optional(),
     variant: z.string().optional(),
     icon: z.string().optional(),
+    href: z.string().optional(),
   })),
   primaryActionId: z.string().optional(),
   sourceModule: z.string().nullable().optional(),
