@@ -128,7 +128,9 @@ type InteractionUndoPayload = {
   after?: InteractionSnapshot | null
 }
 
-const INTERACTION_UNDO_DATE_OPTIONS = { dateFields: ['scheduledAt', 'occurredAt', 'recurrenceEnd'] } as const
+const INTERACTION_UNDO_DATE_OPTIONS = {
+  datePaths: ['before.interaction.scheduledAt', 'before.interaction.occurredAt', 'before.interaction.recurrenceEnd'],
+}
 
 async function loadInteractionSnapshot(em: EntityManager, id: string): Promise<InteractionSnapshot | null> {
   const interaction = await findOneWithDecryption(em, CustomerInteraction, { id }, { populate: ['entity'] })

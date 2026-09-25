@@ -203,7 +203,7 @@ const createActivityCommand: CommandHandler<
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<ActivityUndoPayload>(logEntry, { dateFields: ['occurredAt'] })
+    const payload = extractUndoPayload<ActivityUndoPayload>(logEntry)
     const after = payload?.after
     const activityId = after?.activity.id ?? logEntry?.resourceId ?? null
     if (!activityId) return
@@ -383,7 +383,7 @@ const updateActivityCommand: CommandHandler<StaffTeamMemberActivityUpdateInput, 
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<ActivityUndoPayload>(logEntry, { dateFields: ['occurredAt'] })
+    const payload = extractUndoPayload<ActivityUndoPayload>(logEntry, { datePaths: ['before.activity.occurredAt'] })
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -513,7 +513,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
       }
     },
     undo: async ({ logEntry, ctx }) => {
-      const payload = extractUndoPayload<ActivityUndoPayload>(logEntry, { dateFields: ['occurredAt'] })
+      const payload = extractUndoPayload<ActivityUndoPayload>(logEntry, { datePaths: ['before.activity.occurredAt'] })
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()

@@ -24,6 +24,19 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### `reviveSnapshotSeed` throws on an unparsable snapshot date; `extractUndoPayload` can revive dates (#6336)
+
+`reviveSnapshotSeed` (`@open-mercato/shared/lib/commands/redo`) now delegates to the new
+`reviveSnapshotDates` helper and throws `[internal] Invalid <field> snapshot date` for a date
+field holding an unparsable string, instead of seeding an `Invalid Date` that failed later on
+flush. Valid ISO strings, `null` and `Date` values behave as before.
+
+`extractUndoPayload(logEntry, options?)` gained an optional second argument. Undo snapshots
+round-trip through `jsonb`, so `Date` fields come back as ISO strings; pass
+`{ datePaths: ['before.<entity>.<field>'] }` (exact paths) or `{ dateFields: ['<field>'] }`
+(key name at any depth) before assigning snapshot dates to entities. Without options the
+payload is returned unchanged.
+
 ### `loadDictionary` now lets a host app's own locale file override a module-defined translation key (#5995)
 
 `loadDictionary` (`@open-mercato/shared/lib/i18n/server`) used to merge the host app's dictionary
