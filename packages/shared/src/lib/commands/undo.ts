@@ -66,11 +66,12 @@ export function reviveSnapshotDates<T extends Record<string, unknown>>(value: T,
 function reviveDateFieldsDeep(value: unknown, fields: ReadonlySet<string>): unknown {
   if (Array.isArray(value)) return value.map((item) => reviveDateFieldsDeep(item, fields))
   if (!isPlainRecord(value)) return value
-  const revived: Record<string, unknown> = {}
-  for (const [key, entry] of Object.entries(value)) {
-    revived[key] = fields.has(key) ? reviveDateValue(entry, key) : reviveDateFieldsDeep(entry, fields)
-  }
-  return revived
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [
+      key,
+      fields.has(key) ? reviveDateValue(entry, key) : reviveDateFieldsDeep(entry, fields),
+    ]),
+  )
 }
 
 function reviveDatePath(value: unknown, segments: readonly string[]): unknown {

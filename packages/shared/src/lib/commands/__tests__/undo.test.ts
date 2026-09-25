@@ -114,6 +114,13 @@ describe('extractUndoPayload date revival (#6336)', () => {
     expect(logEntry.commandPayload.undo.before.occurredAt).toBe(iso)
   })
 
+  it('keeps a __proto__ key as plain data while walking', () => {
+    const logEntry = { commandPayload: JSON.parse('{"undo":{"before":{"__proto__":{"polluted":true},"occurredAt":"2026-01-02T03:04:05.000Z"}}}') }
+    const payload = extractUndoPayload<{ before: Record<string, unknown> }>(logEntry, { dateFields: ['occurredAt'] })
+    expect(Object.getPrototypeOf(payload?.before)).toBe(Object.prototype)
+    expect(Object.keys(payload?.before ?? {})).toContain('__proto__')
+  })
+
   it('throws on an unparsable snapshot date', () => {
     const logEntry = { commandPayload: { undo: { before: { occurredAt: 'not-a-date' } } } }
     expect(() => extractUndoPayload(logEntry, { dateFields: ['occurredAt'] })).toThrow('Invalid occurredAt snapshot date')
