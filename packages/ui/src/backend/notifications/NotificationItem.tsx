@@ -108,6 +108,10 @@ export function NotificationItem({
 
   const handleAction = async (actionId: string, event?: React.MouseEvent) => {
     event?.stopPropagation()
+    if (notification.status === 'actioned') {
+      if (notification.linkHref) router.push(notification.linkHref)
+      return
+    }
     setExecuting(actionId)
     try {
       const result = await onExecuteAction(actionId)
