@@ -28,7 +28,7 @@ This spec also defines how **issue #60** ("global telemetry handler for exceptio
 **Out of scope:**
 
 - Vendor-specific dashboards, alert rules, or SLOs.
-- Browser/RUM telemetry and customer-portal frontend telemetry.
+- Browser/RUM telemetry and customer-portal frontend telemetry. (Backoffice browser RUM has since landed separately — see `.ai/specs/2026-08-11-browser-rum-telemetry.md`.)
 - Log aggregation infrastructure (shipping logs to a backend is a deployment concern).
 - Replacing the existing New Relic agent in one go — modern NR ingests OTLP, so it is reachable as a plain OTLP backend; full retirement of the legacy `newrelic.js` host agent is a future spec.
 - A full structured-logging migration of every existing `console.*` callsite — Phase 1 migrates the noisiest, the rest is opportunistic ("Boy Scout Rule").

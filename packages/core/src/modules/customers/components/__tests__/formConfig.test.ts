@@ -9,6 +9,7 @@ jest.mock('../detail/RolesSection', () => ({
 }))
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback?: string) => fallback ?? _key,
+  useOptionalLocale: () => undefined,
 }))
 
 import React from 'react'
