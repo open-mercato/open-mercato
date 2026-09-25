@@ -349,6 +349,67 @@ describe('ScheduleActivityDialog', () => {
     })
   })
 
+  describe('activity status on save (regression #6481)', () => {
+    function lastSavedRequest() {
+      const requestInit = apiCallOrThrowMock.mock.calls.at(-1)?.[1] as { method?: string; body?: string } | undefined
+      return {
+        method: requestInit?.method,
+        payload: JSON.parse(String(requestInit?.body ?? '{}')) as Record<string, unknown>,
+      }
+    }
+
+    it('omits status when editing a completed meeting so it is not re-opened as planned', async () => {
+      mockScheduleState = createScheduleState({ activityType: 'meeting' as const, title: 'Renamed review' })
+
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+          editData={{
+            id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+            interactionType: 'meeting',
+            title: 'Quarterly review',
+            status: 'done',
+            occurredAt: '2026-09-22T10:00:00.000Z',
+          } as ScheduleActivityEditData}
+        />,
+      )
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ }))
+      })
+
+      const { method, payload } = lastSavedRequest()
+      expect(method).toBe('PUT')
+      expect(payload.title).toBe('Renamed review')
+      expect(payload).not.toHaveProperty('status')
+      expect(payload).not.toHaveProperty('occurredAt')
+    })
+
+    it('still creates a new activity as planned', async () => {
+      mockScheduleState = createScheduleState({ activityType: 'meeting' as const, title: 'Kick-off' })
+
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+        />,
+      )
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Save activity$/ }))
+      })
+
+      const { method, payload } = lastSavedRequest()
+      expect(method).toBe('POST')
+      expect(payload.status).toBe('planned')
+    })
+  })
+
   it('renders an ingested email body as plain text instead of Markdown (#5903)', () => {
     // Plain-text email bodies routinely contain `<address>` and `<url>` tokens,
     // which are invalid MDX, so the Markdown editor must not be used for them.
