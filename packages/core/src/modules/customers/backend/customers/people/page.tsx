@@ -57,6 +57,8 @@ import {
 } from '../../../components/detail/assignableStaff'
 import { CollectionPreviewCell, normalizeCollectionLabels } from '../../../components/list/CollectionPreviewCell'
 import { appendCustomerListSortParams } from '../listSorting'
+import { expandCreatedAtDayRules } from '../../../lib/createdAtDayFilter'
+import { USER_TIMEZONE } from '../../../lib/localDay'
 
 type DictionaryOptionWithTone = AdvancedFilterOption & FilterOption
 
@@ -376,7 +378,7 @@ export default function CustomersPeoplePage() {
     params.set('pageSize', String(pageSize))
     appendCustomerListSortParams(params, sorting)
     if (search.trim()) params.set('search', search.trim())
-    const advancedParams = serializeTree(advancedFilterState)
+    const advancedParams = serializeTree(expandCreatedAtDayRules(advancedFilterState, USER_TIMEZONE))
     for (const [key, val] of Object.entries(advancedParams)) {
       params.set(key, val)
     }

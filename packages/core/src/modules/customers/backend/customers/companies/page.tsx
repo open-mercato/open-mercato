@@ -57,6 +57,9 @@ import {
 } from '../../../components/detail/assignableStaff'
 import { CollectionPreviewCell, normalizeCollectionLabels } from '../../../components/list/CollectionPreviewCell'
 import { appendCustomerListSortParams } from '../listSorting'
+import { expandCreatedAtDayRules } from '../../../lib/createdAtDayFilter'
+import { USER_TIMEZONE } from '../../../lib/localDay'
+import { formatInTimeZone } from 'date-fns-tz'
 
 type DictionaryOptionWithTone = AdvancedFilterOption & FilterOption
 
@@ -73,7 +76,7 @@ function makeCompaniesPresets(): FilterPreset[] {
       labelKey: 'customers.companies.presets.recentlyCreated',
       iconName: 'clock',
       build: ({ now }) => {
-        const dayBeforeWindow = new Date(now.getTime() - 8 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+        const dayBeforeWindow = formatInTimeZone(new Date(now.getTime() - 8 * 24 * 3600 * 1000), USER_TIMEZONE, 'yyyy-MM-dd')
         return makeRuleTree({ field: 'created_at', operator: 'is_after', value: dayBeforeWindow })
       },
     },
@@ -365,7 +368,7 @@ export default function CustomersCompaniesPage() {
     params.set('pageSize', String(pageSize))
     appendCustomerListSortParams(params, sorting)
     if (search.trim()) params.set('search', search.trim())
-    const advancedParams = serializeTree(advancedFilterState)
+    const advancedParams = serializeTree(expandCreatedAtDayRules(advancedFilterState, USER_TIMEZONE))
     for (const [key, val] of Object.entries(advancedParams)) {
       params.set(key, val)
     }

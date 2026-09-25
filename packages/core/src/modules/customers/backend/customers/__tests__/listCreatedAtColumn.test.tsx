@@ -9,7 +9,9 @@
 import * as React from 'react'
 import { act, render, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
-import { compileTreeToWhere, type AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
+import { USER_TIMEZONE } from '../../../lib/localDay'
 import { expandCreatedAtDayRules } from '../../../lib/createdAtDayFilter'
 import CustomersPeoplePage from '../people/page'
 import CustomersCompaniesPage from '../companies/page'
@@ -287,6 +289,76 @@ describe.each(surfaces)('$label list — Created column', ({ Page, pathname, api
   })
 })
 
+function createdAtIsDayQuery(day: string): string {
+  const params = new URLSearchParams()
+  params.set('filter[v]', '2')
+  params.set('filter[root][combinator]', 'and')
+  params.set('filter[root][children][0][type]', 'rule')
+  params.set('filter[root][children][0][field]', 'created_at')
+  params.set('filter[root][children][0][op]', 'is')
+  params.set('filter[root][children][0][value]', day)
+  return params.toString()
+}
+
+describe.each(surfaces)('$label list — Created filter in the reader time zone', ({ Page, pathname, apiPrefix, item }) => {
+  const displayedDay = '2026-01-17'
+  const createdJustAfterLocalMidnight = fromZonedTime(`${displayedDay}T00:30:00.000`, USER_TIMEZONE).toISOString()
+
+  beforeEach(() => {
+    activePathname = pathname
+    activeQuery = createdAtIsDayQuery(displayedDay)
+    dataTablePropsCapture.current = null
+    apiCallMock.mockReset()
+    replaceMock.mockReset()
+    apiCallMock.mockImplementation(async (url: unknown) => {
+      if (String(url).startsWith(apiPrefix)) {
+        const row = { ...item, created_at: createdJustAfterLocalMidnight }
+        return { ok: true, result: { items: [row], total: 1, page: 1, totalPages: 1 }, cacheStatus: null }
+      }
+      return { ok: true, result: { items: [], total: 0, page: 1, totalPages: 1 }, cacheStatus: null }
+    })
+  })
+
+  it('sends the displayed day as instant bounds in the reader time zone', async () => {
+    renderWithProviders(<Page />)
+    await waitFor(() => expect(listRequests(apiPrefix).length).toBeGreaterThan(0))
+
+    const request = listRequests(apiPrefix)[0]
+    expect(request.get('filter[root][children][0][field]')).toBe('created_at')
+    expect(request.get('filter[root][children][0][op]')).toBe('between')
+    const [start, end] = JSON.parse(request.get('filter[root][children][0][value]') ?? '[]') as string[]
+    expect(start).toBe(fromZonedTime(`${displayedDay}T00:00:00.000`, USER_TIMEZONE).toISOString())
+    expect(end).toBe(fromZonedTime(`${displayedDay}T23:59:59.999`, USER_TIMEZONE).toISOString())
+  })
+
+  it('matches a record created just after local midnight on the day its Created cell shows', async () => {
+    renderWithProviders(<Page />)
+    await waitFor(() => {
+      const rows = (dataTablePropsCapture.current?.data ?? []) as Array<Record<string, unknown>>
+      expect(rows[0]?.createdAt).toBe(createdJustAfterLocalMidnight)
+    })
+
+    const rows = dataTablePropsCapture.current?.data as Array<Record<string, unknown>>
+    const column = capturedColumns().find((candidate) => candidate.accessorKey === 'createdAt')
+    const { container } = render(<>{column?.cell?.({ row: { original: rows[0] } })}</>)
+    expect(container.textContent).toBe(new Date(`${displayedDay}T12:00:00`).toLocaleDateString())
+
+    const request = listRequests(apiPrefix)[0]
+    const [start, end] = JSON.parse(request.get('filter[root][children][0][value]') ?? '[]') as string[]
+    const createdAt = Date.parse(createdJustAfterLocalMidnight)
+    expect(createdAt).toBeGreaterThanOrEqual(Date.parse(start))
+    expect(createdAt).toBeLessThanOrEqual(Date.parse(end))
+  })
+
+  it('keeps the bare day in the page URL', async () => {
+    renderWithProviders(<Page />)
+    await waitFor(() => expect(listRequests(apiPrefix).length).toBeGreaterThan(0))
+    for (const [url] of replaceMock.mock.calls) {
+      expect(new URL(String(url), 'http://test').searchParams.get('filter[root][children][0][value]')).toBe(displayedDay)
+    }
+  })
+})
+
 type FilterPreset = { id: string; build: (context: { now: Date; userId?: string | null }) => AdvancedFilterTree }
 
 describe('companies list — Recently created preset', () => {
@@ -298,16 +370,20 @@ describe('companies list — Recently created preset', () => {
     apiCallMock.mockResolvedValue({ ok: true, result: { items: [], total: 0, page: 1, totalPages: 1 }, cacheStatus: null })
   })
 
-  it('keeps covering the last seven days from midnight once created_at days are expanded', async () => {
+  it('starts at local midnight seven days ago once sent to the API', async () => {
     renderWithProviders(<CustomersCompaniesPage />)
     await waitFor(() => expect(filterPanelPropsCapture.current?.presets).toBeDefined())
 
     const presets = filterPanelPropsCapture.current?.presets as FilterPreset[]
     const preset = presets.find((candidate) => candidate.id === 'recently-created')
-    const tree = preset!.build({ now: new Date('2026-09-24T12:00:00.000Z'), userId: null })
+    const now = new Date('2026-09-24T12:00:00.000Z')
+    const tree = preset!.build({ now, userId: null })
+    const [presetRule] = tree.root.children
+    expect(presetRule).toMatchObject({ field: 'created_at', operator: 'is_after' })
 
-    expect(compileTreeToWhere(expandCreatedAtDayRules(tree)!)).toEqual({
-      created_at: { $gt: '2026-09-16T23:59:59.999' },
-    })
+    const sentRule = expandCreatedAtDayRules(tree, USER_TIMEZONE).root.children[0]
+    const firstIncludedDay = formatInTimeZone(new Date(now.getTime() - 7 * 24 * 3600 * 1000), USER_TIMEZONE, 'yyyy-MM-dd')
+    const localMidnight = fromZonedTime(`${firstIncludedDay}T00:00:00.000`, USER_TIMEZONE).getTime()
+    expect(sentRule).toMatchObject({ operator: 'greater_than', value: new Date(localMidnight - 1).toISOString() })
   })
 })
