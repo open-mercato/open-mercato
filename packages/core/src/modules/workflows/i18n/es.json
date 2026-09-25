@@ -1952,7 +1952,7 @@
   "workflows.triggers.fields.name": "Nombre",
   "workflows.triggers.fields.priority": "Prioridad",
   "workflows.triggers.hints.contextMapping": "Mapea valores de la carga del evento al contexto inicial del flujo de trabajo",
-  "workflows.triggers.hints.debounce": "Espera esta cantidad de milisegundos tras un evento antes de iniciar, para que una ráfaga de eventos similares inicie solo un flujo. Deja vacío para iniciar de inmediato.",
+  "workflows.triggers.hints.debounce": "El primer evento coincidente inicia una instancia de inmediato; los eventos posteriores del mismo registro dentro de esta cantidad de milisegundos se omiten. Deja vacío para iniciar una instancia por cada evento.",
   "workflows.triggers.hints.eventPattern": "Usa * como comodin: \"sales.orders.*\" coincide con cualquier evento de pedido",
   "workflows.triggers.hints.filterConditions": "Solo se dispara cuando la carga del evento coincida con estas condiciones (todas deben coincidir)",
   "workflows.triggers.hints.maxConcurrent": "Limita cuántas instancias puede tener este disparador en ejecución a la vez; los eventos que superen el límite se omiten. Deja vacío para no limitar.",

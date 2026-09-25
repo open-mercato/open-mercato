@@ -6,10 +6,19 @@ import { join } from 'node:path'
 // The translator resolves each key to its fallback sentence, so a raw i18n key
 // that leaks straight into the response body (the #5512 defect) is trivially
 // distinguishable from a genuinely localized message.
+//
+// `COMMAND_RAW_KEY_TRANSLATIONS` covers keys that reach the client only via a
+// route's CrudHttpError-forwarding branch (never with an explicit fallback), so
+// `fallback ?? key` alone can't distinguish "translated" from "leaked raw key"
+// for them (#5727) — it mirrors the real `warranty_claims/i18n/en.json` entry.
+const COMMAND_RAW_KEY_TRANSLATIONS: Record<string, string> = {
+  'warranty_claims.errors.invalidTransition': 'That status change is not allowed.',
+}
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
     t: (_key: string, fallback?: string) => fallback ?? _key,
-    translate: (_key: string, fallback?: string) => fallback ?? _key,
+    translate: (_key: string, fallback?: string) =>
+      COMMAND_RAW_KEY_TRANSLATIONS[_key] ?? fallback ?? _key,
   }),
 }))
 
@@ -71,6 +80,8 @@ import { POST as aiAssessPOST } from '../api/ai/assess/route'
 import { GET as claimEventsGET } from '../api/events/route'
 import { GET as riskGET } from '../api/risk/route'
 import { GET as vendorRecoverySuggestionsGET } from '../api/vendor-recovery-suggestions/route'
+import { POST as transitionPOST } from '../api/transition/route'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const RAW_I18N_KEY = /^warranty_claims\./
 
@@ -437,6 +448,28 @@ describe('warranty_claims error responses are localized, never raw i18n keys (#5
       expect(error).toBe('Claim not found.')
     })
   })
+
+  describe('commandBus.execute errors are translated at the route boundary (#5727)', () => {
+    it('translates the invalidTransition key the transition command raises, instead of forwarding it raw', async () => {
+      containerStub.resolve.mockImplementation((token: string) => {
+        if (token === 'em') return { fork: () => ({}) }
+        if (token === 'commandBus') {
+          return { execute: jest.fn().mockRejectedValue(new CrudHttpError(400, { error: 'warranty_claims.errors.invalidTransition' })) }
+        }
+        return undefined
+      })
+      const { status, error } = await readError(
+        await transitionPOST(new Request('http://localhost/api/warranty_claims/transition', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: randomUUID(), toStatus: 'closed' }),
+        })),
+      )
+      expect(status).toBe(400)
+      expect(error).not.toMatch(RAW_I18N_KEY)
+      expect(error).toBe('That status change is not allowed.')
+    })
+  })
 })
 
 
@@ -459,6 +492,20 @@ describe('no warranty_claims API route file inlines a raw i18n key in an error p
         .split('\n')
         .map((line, index) => ({ line, index }))
         .filter(({ line }) => /error: 'warranty_claims\./.test(line))
+        .map(({ index }) => `${file.slice(apiDir.length + 1)}:${index + 1}`),
+    )
+    expect(offenders).toEqual([])
+  })
+
+  it('never forwards a CrudHttpError body without routing it through translateCrudErrorBody() (#5727)', () => {
+    const files = routeSources(apiDir)
+    const offenders = files.flatMap((file) =>
+      readFileSync(file, 'utf8')
+        .split('\n')
+        .map((line, index) => ({ line, index }))
+        // A regressed raw forward reads `NextResponse.json(err.body`; the fixed shape always
+        // wraps it as `NextResponse.json(translateCrudErrorBody(err.body, translate)`.
+        .filter(({ line }) => /NextResponse\.json\(err\.body\b/.test(line))
         .map(({ index }) => `${file.slice(apiDir.length + 1)}:${index + 1}`),
     )
     expect(offenders).toEqual([])
