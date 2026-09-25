@@ -182,6 +182,7 @@ const SYNC_INTERNAL_PACKAGE_KEYS = [
   // so the dependency must track the monorepo version or a scaffolded app fails
   // module resolution the moment the flag is flipped.
   '@open-mercato/enterprise',
+  '@open-mercato/gateway-autopay',
   '@open-mercato/gateway-stripe',
   '@open-mercato/sync-akeneo',
 ] as const
@@ -301,6 +302,17 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // ('one more template module still fits the root budget with its inline index
   // intact'), and #4983 for the discussion.
   // { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
+  },
+  gateway_autopay: {
+    source: `  { id: 'gateway_autopay', from: '@open-mercato/gateway-autopay' },`,
+    template: `  // Autopay hosted-redirect PLN payment gateway. The package ships with the
+  // scaffold but stays disabled by default: the existing checkout submit route
+  // does not yet pass the payer email or the settled provider transaction id
+  // this adapter needs (see .ai/specs/2026-09-10-autopay-hosted-pln-payment-sessions.md),
+  // and the hosted-session redirect transport has not been verified against a
+  // live Autopay sandbox. Enabling it here is a deliberate follow-up once both
+  // are resolved, not a one-line edit.
+  // { id: 'gateway_autopay', from: '@open-mercato/gateway-autopay' },`,
   },
 }
 
