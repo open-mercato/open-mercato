@@ -801,7 +801,14 @@ describe('quote editing invalidates sent token', () => {
     mockEm.flush.mockResolvedValue(undefined)
 
     const ctx: any = {
-      container: { resolve: (token: string) => (token === 'em' ? mockEm : null) },
+      container: {
+        resolve: (token: string) =>
+          token === 'dataEngine'
+            ? { markOrmEntityChange: jest.fn() }
+            : token === 'em'
+              ? mockEm
+              : null,
+      },
       auth: { sub: 'user-1', tenantId: quote.tenantId, orgId: quote.organizationId },
       organizationScope: null,
       selectedOrganizationId: quote.organizationId,
