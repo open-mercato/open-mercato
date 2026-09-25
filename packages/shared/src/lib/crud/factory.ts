@@ -76,7 +76,14 @@ import { parseExtensionHeaders } from '../umes/extension-headers'
 import { createGenericOptimisticLockReader } from './optimistic-lock'
 import { registerOptimisticLockReaderIfAbsent } from './optimistic-lock-store'
 import { createLogger } from '../logger'
-import { getForeignKeyViolationConstraint, isForeignKeyViolation, isTransientDbError, readPgSqlState } from '../db/pg-errors'
+import {
+  getForeignKeyViolationConstraint,
+  getUniqueViolationConstraint,
+  isForeignKeyViolation,
+  isTransientDbError,
+  isUniqueViolation,
+  readPgSqlState,
+} from '../db/pg-errors'
 import { getTelemetryRuntime } from '../telemetry/runtime'
 import { randomUUID } from 'node:crypto'
 import { NotFoundError as MikroOrmNotFoundError, ValidationError as MikroOrmValidationError } from '@mikro-orm/core'
@@ -618,8 +625,8 @@ function resolveRequestId(request?: Request): string {
  *
  * - `DATABASE_UNAVAILABLE` — `isTransientDbError` matched (503 branch).
  * - `DATABASE_ERROR` — a Postgres SQLSTATE is present (via `readPgSqlState`)
- *   but was not already classified as transient (503) or a foreign-key
- *   violation (409).
+ *   but was not already classified as transient (503), foreign-key (409), or
+ *   unique-constraint (409) violation.
  * - `PERSISTENCE_ERROR` — a MikroORM `ValidationError`/`NotFoundError` that
  *   was not already handled by a more specific branch.
  * - `INTERNAL_ERROR` — default fallback for anything else.
@@ -688,6 +695,33 @@ async function handleError(err: unknown, request?: Request): Promise<Response> {
       {
         error: 'The record is still referenced by other data, or references a record that does not exist',
         code: 'FOREIGN_KEY_VIOLATION',
+        requestId,
+      },
+      { status: 409, headers: { 'x-request-id': requestId } },
+    )
+  }
+
+  if (isUniqueViolation(err)) {
+    // SQLSTATE 23505: insert/update collided with an existing unique key (or
+    // partial unique index). Same data-state conflict shape as FK — answer 409
+    // instead of a raw 500 (issue #6467: relocating an email interaction onto a
+    // CRM record that already has the same external_message_id). Constraint
+    // names stay in the log/telemetry only.
+    const requestId = resolveRequestId(request)
+    const constraint = getUniqueViolationConstraint(err)
+    logger.warn('Unique constraint violation during CRUD handler', {
+      message: err instanceof Error ? err.message : undefined,
+      constraint,
+      requestId,
+    })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'crud',
+      attributes: { requestId, errorName: 'UniqueViolation', constraint: constraint ?? undefined },
+    })
+    return json(
+      {
+        error: 'A record with the same unique values already exists',
+        code: 'UNIQUE_VIOLATION',
         requestId,
       },
       { status: 409, headers: { 'x-request-id': requestId } },
