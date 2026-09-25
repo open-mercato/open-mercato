@@ -228,8 +228,9 @@ describe('consumeOAuthStateOnce', () => {
     // loudly, which is the point.
     const fulfilled = results.filter(r => r.status === 'fulfilled')
     const rejected = results.filter(r => r.status === 'rejected')
-    // Pin current behaviour: at least one succeeds; the other may or may not.
-    expect(fulfilled.length).toBeGreaterThanOrEqual(1)
+    // Pin non-atomic store behaviour: both contenders pass has→set and succeed.
+    expect(fulfilled).toHaveLength(2)
+    expect(rejected).toHaveLength(0)
   })
 
   it('verify alone still succeeds on replay — consume is what enforces single-use', () => {

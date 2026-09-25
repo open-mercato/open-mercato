@@ -9,7 +9,7 @@
  * 3. Cache unavailable — cache DI binding resolves to undefined → redirects with code=state_store_unavailable
  */
 
-import { encryptOAuthState } from '../../../../../lib/oauth-state'
+import { encryptOAuthState } from '../../../../../../lib/oauth-state'
 import { GET } from '../route'
 
 // ─── Auth mock ───────────────────────────────────────────────────────────────
@@ -34,7 +34,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 const mockExchangeOAuthCode = jest.fn()
 const mockGetChannelAdapter = jest.fn()
 
-jest.mock('../../../../../lib/adapter-registry-singleton', () => ({
+jest.mock('../../../../../../lib/adapter-registry-singleton', () => ({
   getChannelAdapter: (...args: unknown[]) => mockGetChannelAdapter(...args),
 }))
 
@@ -42,7 +42,7 @@ jest.mock('../../../../../lib/adapter-registry-singleton', () => ({
 
 const mockCreateConnectedChannelRow = jest.fn()
 
-jest.mock('../../../../../lib/connect-channel', () => ({
+jest.mock('../../../../../../lib/connect-channel', () => ({
   createConnectedChannelRow: (...args: unknown[]) => mockCreateConnectedChannelRow(...args),
   MailboxAlreadyConnectedError: class MailboxAlreadyConnectedError extends Error {
     existingProviderKey: string
@@ -57,7 +57,7 @@ jest.mock('../../../../../lib/connect-channel', () => ({
 
 const mockResolveOAuthClientCredentials = jest.fn()
 
-jest.mock('../../../../../lib/oauth-client-config', () => ({
+jest.mock('../../../../../../lib/oauth-client-config', () => ({
   resolveOAuthClientCredentials: (...args: unknown[]) => mockResolveOAuthClientCredentials(...args),
 }))
 
