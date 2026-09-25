@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { EntityManager } from "@mikro-orm/postgresql";
+import { raw } from "@mikro-orm/postgresql";
 import { makeCrudRoute } from "@open-mercato/shared/lib/crud/factory";
 import { CrudHttpError } from "@open-mercato/shared/lib/crud/errors";
 import {
@@ -48,6 +49,12 @@ import {
   defaultOkResponseSchema,
 } from "../openapi";
 import { findWithDecryption } from "@open-mercato/shared/lib/encryption/find";
+import { warnOnEncryptedLikeFilter } from "@open-mercato/shared/lib/encryption/likeFilterWarning";
+import { buildAccentInsensitivePatternSql } from "@open-mercato/shared/lib/db/accentInsensitiveSearch";
+import {
+  PRODUCT_SEARCH_COLUMNS,
+  PRODUCT_SEARCH_EXPRESSION_SQL,
+} from "../../lib/productSearch";
 import { canonicalizeUnitCode, toUnitLookupKey } from "../../lib/unitCodes";
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -206,23 +213,34 @@ export async function buildProductFilters(
   const searchTask = async (): Promise<string[] | null> => {
     if (!term) return null;
     const like = `%${escapeLikePattern(term)}%`;
-    const searchMatches = await findWithDecryption(
-      em,
-      CatalogProduct,
-      {
-        ...scope,
-        ...(query.withDeleted ? {} : { deletedAt: null }),
-        $or: [
-          { title: { $ilike: like } },
-          { subtitle: { $ilike: like } },
-          { description: { $ilike: like } },
-          { sku: { $ilike: like } },
-          { handle: { $ilike: like } },
-        ],
-      },
-      { fields: ["id"] },
-      scope,
-    );
+    // The predicate hides behind a raw() symbol key, which the filter walker in
+    // findWithDecryption cannot see (Object.entries skips symbols), so the
+    // encrypted-ILIKE diagnostic is raised here with the field list instead.
+    // Without it, a tenant that encrypts one of these columns at rest gets an
+    // empty result indistinguishable from a genuine no-match (#5051). It runs
+    // alongside the query rather than before it: it is a development-only
+    // diagnostic and must not add a round trip to the request path.
+    const [searchMatches] = await Promise.all([
+      findWithDecryption(
+        em,
+        CatalogProduct,
+        {
+          ...scope,
+          ...(query.withDeleted ? {} : { deletedAt: null }),
+          [raw(PRODUCT_SEARCH_EXPRESSION_SQL)]: {
+            $ilike: raw(buildAccentInsensitivePatternSql(), [like]),
+          },
+        },
+        { fields: ["id"] },
+        scope,
+      ),
+      warnOnEncryptedLikeFilter({
+        em,
+        entityName: CatalogProduct,
+        likeFields: [...PRODUCT_SEARCH_COLUMNS],
+        tenantId: scope.tenantId,
+      }),
+    ]);
     return searchMatches
       .map((product) => product.id)
       .filter((id): id is string => typeof id === "string" && id.length > 0);
