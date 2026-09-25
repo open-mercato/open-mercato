@@ -1,15 +1,26 @@
 # Sales Invoice GL Posting
 
-**Related:** [General Ledger core engine](2026-08-18-general-ledger-core-engine.md)
+**Related:** [General Ledger core engine](https://github.com/open-mercato/open-mercato/pull/5663)
 (the engine this posts into — depended on for `postJournalEntry`,
 `documentType`, `LedgerAccount`, and `JournalEntryLine.contractorSnapshot`),
-[Accounts Payable](2026-09-06-accounts-payable.md) (the closest
+[Accounts Payable](https://github.com/open-mercato/open-mercato/pull/5962) (the closest
 structural analog — the buy-side mirror of this document, and the
 source of the posting-mechanics pattern reused here), [Contractor
-Registry](2026-09-06-contractor-registry.md) (optional peer — names
+Registry](https://github.com/open-mercato/open-mercato/pull/5955) (optional peer — names
 this document as an indirect, not-yet-designed consumer; see Design
 decisions for what "indirect" actually means and what is resolved
 here)
+
+**Depends on unmerged PRs — added, maintainer-review round (M2).** All
+three documents above are open, unmerged PRs, not files in this repo's
+`.ai/specs/` yet — linked by PR number rather than by filename for
+exactly that reason. `ledger` (the module `requires` names below) is
+likewise not yet present under `packages/core/src/modules/`. This is a
+real merge-ordering dependency, not an oversight: this document cannot
+actually function until #5663 (hard dependency) merges, and its
+`contractors` integration and posting-mechanics precedent assume
+#5955/#5962 land too. Left for the maintainer to sequence merges — see
+Risks & Impact Review.
 
 ## TLDR
 
@@ -916,6 +927,19 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
 
 ## Risks & Impact Review
 
+- **Merge-ordering dependency — added, maintainer-review round (M2).**
+  This document's hard dependency, `ledger` (#5663), and its
+  posting-mechanics precedent/optional peer, Accounts Payable (#5962)
+  and Contractor Registry (#5955), are all open, unmerged PRs at the
+  time of writing. This document cannot function — and its
+  `requires: ['ledger', 'sales', 'currencies']` names a module that
+  doesn't yet exist under `packages/core/src/modules/` — until #5663
+  merges first; #5955/#5962 are needed for the `contractors` soft
+  dependency and posting-mechanics parity to hold as designed. Not a
+  design defect, but a real merge-ordering constraint for whoever
+  sequences these PRs — named explicitly (see the header's
+  "Related"/"Depends on unmerged PRs" note) rather than left for a
+  reader on `develop` to discover via a dead link.
 - **Data integrity.** The main risk mirrors Accounts Payable's own
   named one: a wrong `accountId` in `lineAccounts` posts revenue to
   the wrong place — silently wrong numbers, not a crash. Mitigated by
@@ -1332,3 +1356,23 @@ rather than guesses" stance from B1. `shipping` is unaffected —
 unambiguous revenue, posted as before. Updated: Design decisions
 (new "Line-kind scope" decision), Commands, API Contracts (new 422
 cause), Testing Strategy, Out of Scope.
+
+### 2026-09-25 — M2 resolved: unmerged dependencies linked by PR, not left as dead filenames
+
+Revisited M2 ("separately tracked" since 2026-09-14) with the
+maintainer. Confirmed with Mikołaj this document should not wait on
+#5663/#5962/#5955 to merge first — matching how the rest of this
+spec family cross-references its own still-open siblings. Fix: the
+header's **Related:** links now point at each sibling's PR
+(`https://github.com/open-mercato/open-mercato/pull/<n>`) instead of
+a same-repo relative filename that doesn't exist on `develop` yet,
+plus a new explicit "Depends on unmerged PRs" paragraph naming the
+real constraint (`ledger`/#5663 is a hard dependency; #5955/#5962 are
+needed for the `contractors` peer and the posting-mechanics
+precedent to hold as designed). Added a matching Risks & Impact
+Review entry so the header's own forward-reference resolves to real
+content, not another dangling pointer. Once #5663/#5962/#5955 land on
+`develop`, these three links should be swapped back to relative
+filenames — noted here for whoever does that pass, not fixed
+preemptively since the files don't exist yet to link to.
+
