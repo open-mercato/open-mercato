@@ -12,6 +12,7 @@ import {
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import type { FilterOptionTone } from '@open-mercato/shared/lib/query/advanced-filter'
 import { FilterBarRow, type KanbanFilterChip } from '../../pipeline/components/FilterBarRow'
 import { StatusFilterPopover } from '../../pipeline/components/StatusFilterPopover'
@@ -236,6 +237,7 @@ type DealsMapViewProps = {
 export function DealsMapView({ search }: DealsMapViewProps): React.ReactElement {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
+  const activeOrgId = useCurrentOrganization()?.id ?? null
 
   const [statusFilters, setStatusFilters] = React.useState<string[]>([])
   const [selectedPipelineId, setSelectedPipelineId] = React.useState<string | null>(null)
@@ -293,13 +295,13 @@ export function DealsMapView({ search }: DealsMapViewProps): React.ReactElement 
   })
 
   const staffQuery = useQuery<Map<string, string>>({
-    queryKey: ['customers', 'deals', 'map', 'staff', `scope:${scopeVersion}`],
+    queryKey: ['customers', 'deals', 'map', 'staff', `scope:${scopeVersion}`, activeOrgId],
     staleTime: 300_000,
     queryFn: async () => {
       try {
         const members = await withScopedApiRequestHeaders(
           { ...SUPPRESS_AUTH_REDIRECT_HEADERS },
-          () => fetchAssignableStaffMembers('', { pageSize: 100 }),
+          () => fetchAssignableStaffMembers('', { pageSize: 100, activeOrgId }),
         )
         const names = new Map<string, string>()
         for (const member of members) {
@@ -482,7 +484,7 @@ export function DealsMapView({ search }: DealsMapViewProps): React.ReactElement 
       try {
         const members = await withScopedApiRequestHeaders(
           { ...SUPPRESS_AUTH_REDIRECT_HEADERS },
-          () => fetchAssignableStaffMembers(query ?? '', { pageSize: 100 }),
+          () => fetchAssignableStaffMembers(query ?? '', { pageSize: 100, activeOrgId }),
         )
         const options: EntityFilterOption[] = members
           .filter((member) => !!member.userId && !!member.displayName)
@@ -497,7 +499,7 @@ export function DealsMapView({ search }: DealsMapViewProps): React.ReactElement 
         return []
       }
     },
-    [],
+    [activeOrgId],
   )
 
   const loadPeopleOptions = React.useCallback(

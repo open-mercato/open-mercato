@@ -65,6 +65,12 @@ export type DocumentLookupKey = {
   recordId: string
 }
 
+export type ListDocumentIdsOptions = {
+  offset?: number
+  limit?: number
+  organizationId?: string | null
+}
+
 export type IndexStats = {
   numberOfDocuments: number
   isIndexing: boolean
@@ -110,6 +116,15 @@ export interface FullTextSearchDriver {
     ids: DocumentLookupKey[],
     tenantId: string
   ): Promise<Map<string, FullTextSearchHit>>
+
+  // Uncapped ID enumeration for reconciliation/retention (optional) — unlike
+  // search(), this is not subject to the backend's ranked-search hit cap
+  // (e.g. Meilisearch's maxTotalHits)
+  listDocumentIds?(
+    entityId: EntityId,
+    tenantId: string,
+    options?: ListDocumentIdsOptions
+  ): Promise<string[]>
 
   // Stats/admin (optional)
   getIndexStats?(tenantId: string): Promise<IndexStats | null>

@@ -42,6 +42,20 @@ describe('interactionCreateSchema validation (#1806, #1808)', () => {
     }
   })
 
+  it('accepts date/time null for an undated backlog task (#5941)', () => {
+    const result = interactionCreateSchema.safeParse({
+      ...baseValid,
+      interactionType: 'task' as const,
+      date: null,
+      time: null,
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.date).toBeNull()
+      expect(result.data.scheduledAt).toBeUndefined()
+    }
+  })
+
   it('rejects malformed phone on call activity (#1808)', () => {
     const result = interactionCreateSchema.safeParse({
       ...baseValid,
@@ -179,6 +193,30 @@ describe('interactionUpdateSchema scheduledAt derivation', () => {
     const result = interactionUpdateSchema.safeParse({
       ...baseUpdate,
       scheduledAt: null,
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.scheduledAt).toBeNull()
+    }
+  })
+
+  it('accepts date/time null the same way scheduledAt null is accepted (#5941)', () => {
+    const result = interactionUpdateSchema.safeParse({
+      ...baseUpdate,
+      date: null,
+      time: null,
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.date).toBeNull()
+      expect(result.data.time).toBeNull()
+    }
+  })
+
+  it('clears scheduledAt when the caller drops the date with date: null (#5941)', () => {
+    const result = interactionUpdateSchema.safeParse({
+      ...baseUpdate,
+      date: null,
     })
     expect(result.success).toBe(true)
     if (result.success) {

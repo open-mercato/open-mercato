@@ -264,7 +264,9 @@ customers/subscribers/link-channel-message.ts fires (persistent → lib/link-cha
       INSERT INTO customer_interactions
         (entity, external_message_id, visibility='private',
          interaction_type='email', author_user_id=channel.userId,
-         subject, body, occurred_at=link.createdAt, channel_provider_key, …)
+         subject, body,
+         occurred_at=external_message.provider_timestamp ?? link.createdAt,
+         channel_provider_key, …)
       ON CONFLICT (entity, external_message_id) WHERE deleted_at IS NULL DO NOTHING
   • Threading inheritance:
       - Read In-Reply-To + References from channelMetadata.headers (these are RFC 5322
@@ -800,6 +802,11 @@ None.
 ---
 
 ## Changelog
+
+### 2026-09-15 — Interactions dated with the provider timestamp (#6095)
+
+- `lib/link-channel-message-handler.ts` resolves `occurredAt` once per event from the optional `providerTimestamp` the hub carries on `communication_channels.message.received` / `.sent` (an ISO string over the queue, a `Date` for an in-process emit) and falls back to `link.createdAt` when the event carries none: an adapter that supplied no timestamp, or an event enqueued before the field existed. It reads no communication_channels row for it, because a peer-table read would cross the storage boundary (Cross-Module Coupling in AGENTS.md) and cost one query per event. The same value is threaded into the threading-inheritance path, so the address-match and inherited interactions agree. Before this every email interaction created by a history import carried the import day, and a person's activity timeline showed months of email on one date.
+- Tests: `subscribers/__tests__/link-channel-message.test.ts` — event-carried timestamp used (ISO string and `Date`), no `ExternalMessage` lookup, fallback to `createdAt` when the field is absent or unparsable, threading-inheritance path. Emit side: `communication_channels/commands/__tests__/ingest-inbound-message.test.ts` and `deliver-outbound-message.test.ts` assert the timestamp rides the payload.
 
 ### 2026-06-02 — Reconciled with shipped implementation
 

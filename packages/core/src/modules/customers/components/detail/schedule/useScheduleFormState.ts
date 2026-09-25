@@ -1,5 +1,6 @@
 import * as React from 'react'
 import type { ActivityType } from './fieldConfig'
+import { isDateRequired } from './fieldConfig'
 
 export type RsvpStatus = 'pending' | 'accepted' | 'declined' | 'tentative'
 
@@ -165,14 +166,20 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
         // local-day convention.
         const sourceTimestamp = editData.occurredAt ?? editData.scheduledAt ?? null
         const seedDate = sourceTimestamp ? new Date(sourceTimestamp) : null
-        // No usable timestamp means this is a preset create (or a corrupt row), so
-        // fall forward to the create-mode default instead of "now" (#5940).
-        const dateForForm =
-          seedDate && !Number.isNaN(seedDate.getTime())
-            ? seedDate
-            : resolveDefaultActivityStart(resolvedType, new Date())
-        setDate(formatLocalDateInput(dateForForm))
-        setStartTime(formatLocalTimeInput(dateForForm))
+        const seedDateValid = seedDate !== null && !Number.isNaN(seedDate.getTime())
+        // A real edit of an undated task must stay undated: falling back to a
+        // computed default here would silently give a backlog item a due date on
+        // the next save (#5941). Menu-driven "New Task" (no id yet, so `isEditing`
+        // is false) still gets the create-mode default so #5940's forward-seeded
+        // default keeps working.
+        if (isEditing && !seedDateValid && !isDateRequired(resolvedType)) {
+          setDate('')
+          setStartTime('')
+        } else {
+          const dateForForm = seedDateValid ? (seedDate as Date) : resolveDefaultActivityStart(resolvedType, new Date())
+          setDate(formatLocalDateInput(dateForForm))
+          setStartTime(formatLocalTimeInput(dateForForm))
+        }
         setDuration(editData.durationMinutes ?? 30)
         setAllDay(editData.allDay ?? false)
         setDescription(editData.body ?? '')
@@ -253,7 +260,7 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
       document.body.style.removeProperty('overflow')
       document.body.style.removeProperty('pointer-events')
     }
-  }, [open, editData])
+  }, [open, editData, isEditing])
 
   // Update the Reminder default when the activity type changes in create mode.
   // Skipped in edit mode (the persisted value wins), and gated by `open` to
