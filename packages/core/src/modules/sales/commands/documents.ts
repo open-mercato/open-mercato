@@ -27,7 +27,10 @@ import { buildFeatureNotificationFromType } from "../../notifications/lib/notifi
 import { emitSalesEvent } from "../events";
 import { setRecordCustomFields } from "@open-mercato/core/modules/entities/lib/helpers";
 import { loadCustomFieldValues } from "@open-mercato/shared/lib/crud/custom-fields";
-import { normalizeCustomFieldValues } from "@open-mercato/shared/lib/custom-fields/normalize";
+import {
+  normalizeCustomFieldResponse,
+  normalizeCustomFieldValues,
+} from "@open-mercato/shared/lib/custom-fields/normalize";
 import { E } from "#generated/entities.ids.generated";
 import { findWithDecryption, findOneWithDecryption } from "@open-mercato/shared/lib/encryption/find";
 import {
@@ -692,6 +695,17 @@ type DocumentAdjustmentCreateInput =
 function cloneJson<T>(value: T): T {
   if (value === null || value === undefined) return value;
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/**
+ * Graph snapshots load custom fields through `loadCustomFieldValues`, which keys
+ * them `cf_<key>`. Writing those keys back verbatim stores a new `cf_<key>` row
+ * instead of restoring `<key>`, so restores strip the prefix first.
+ */
+function toSnapshotCustomFieldWriteValues(
+  values: Record<string, unknown>,
+): ReturnType<typeof normalizeCustomFieldValues> {
+  return normalizeCustomFieldValues(normalizeCustomFieldResponse(values) ?? {});
 }
 
 /**
@@ -4328,7 +4342,7 @@ async function restoreQuoteGraph(
       recordId: quote.id,
       organizationId: quote.organizationId,
       tenantId: quote.tenantId,
-      values: normalizeCustomFieldValues(snapshot.quote.customFields),
+      values: toSnapshotCustomFieldWriteValues(snapshot.quote.customFields),
     });
   }
   for (const line of snapshot.lines) {
@@ -4338,7 +4352,7 @@ async function restoreQuoteGraph(
       recordId: line.id,
       organizationId: quote.organizationId,
       tenantId: quote.tenantId,
-      values: normalizeCustomFieldValues(line.customFields),
+      values: toSnapshotCustomFieldWriteValues(line.customFields),
     });
   }
   for (const adjustment of snapshot.adjustments) {
@@ -4348,7 +4362,7 @@ async function restoreQuoteGraph(
       recordId: adjustment.id,
       organizationId: quote.organizationId,
       tenantId: quote.tenantId,
-      values: normalizeCustomFieldValues(adjustment.customFields),
+      values: toSnapshotCustomFieldWriteValues(adjustment.customFields),
     });
   }
 
@@ -4676,7 +4690,7 @@ async function restoreOrderGraph(
       recordId: order.id,
       organizationId: order.organizationId,
       tenantId: order.tenantId,
-      values: normalizeCustomFieldValues(snapshot.order.customFields),
+      values: toSnapshotCustomFieldWriteValues(snapshot.order.customFields),
     });
   }
   for (const line of snapshot.lines) {
@@ -4686,7 +4700,7 @@ async function restoreOrderGraph(
       recordId: line.id,
       organizationId: order.organizationId,
       tenantId: order.tenantId,
-      values: normalizeCustomFieldValues(line.customFields),
+      values: toSnapshotCustomFieldWriteValues(line.customFields),
     });
   }
   for (const adjustment of snapshot.adjustments) {
@@ -4696,7 +4710,7 @@ async function restoreOrderGraph(
       recordId: adjustment.id,
       organizationId: order.organizationId,
       tenantId: order.tenantId,
-      values: normalizeCustomFieldValues(adjustment.customFields),
+      values: toSnapshotCustomFieldWriteValues(adjustment.customFields),
     });
   }
 
