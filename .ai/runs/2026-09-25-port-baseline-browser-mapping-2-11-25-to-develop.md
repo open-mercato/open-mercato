@@ -36,6 +36,8 @@ Recreate the lockfile-only dependency update from PR #6453 on a branch based on 
 
 ## Progress
 
+PR: #6472
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Port the dependency update
