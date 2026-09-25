@@ -275,6 +275,7 @@ A command's `buildLog()` returns `payload: { undo: { before, after } }`, but the
 
 MUST rules:
 - Inside `undo()`, read the snapshot **only** through `extractUndoPayload<UndoPayload<TSnapshot>>(logEntry)` from `@open-mercato/shared/lib/commands/undo`. It unwraps `commandPayload` (and the redo envelope) and falls back to `snapshotBefore`/`snapshotAfter`.
+- Snapshot `Date`s come back as ISO strings: pass `{ dateFields: [...] }` (or `datePaths`) to `extractUndoPayload` before assigning them to entities (#6336).
 - NEVER access `logEntry.payload` in an undo handler. The `logEntry` parameter is typed as `CommandUndoLogEntry`, which intentionally omits `payload` so this footgun is a compile-time error.
 - Delete-undo should be robust to either deletion strategy: clear `deletedAt` when the row survives (soft delete), otherwise re-create the entity from the snapshot (mirror `packages/core/src/modules/sales/commands/configuration.ts`).
 

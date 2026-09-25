@@ -128,6 +128,8 @@ type InteractionUndoPayload = {
   after?: InteractionSnapshot | null
 }
 
+const INTERACTION_UNDO_DATE_OPTIONS = { dateFields: ['scheduledAt', 'occurredAt', 'recurrenceEnd'] } as const
+
 async function loadInteractionSnapshot(em: EntityManager, id: string): Promise<InteractionSnapshot | null> {
   const interaction = await findOneWithDecryption(em, CustomerInteraction, { id }, { populate: ['entity'] })
   if (!interaction) return null
@@ -783,7 +785,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<InteractionUndoPayload>(logEntry)
+    const payload = extractUndoPayload<InteractionUndoPayload>(logEntry, INTERACTION_UNDO_DATE_OPTIONS)
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -992,7 +994,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<InteractionUndoPayload>(logEntry)
+    const payload = extractUndoPayload<InteractionUndoPayload>(logEntry, INTERACTION_UNDO_DATE_OPTIONS)
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -1130,7 +1132,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<InteractionUndoPayload>(logEntry)
+    const payload = extractUndoPayload<InteractionUndoPayload>(logEntry, INTERACTION_UNDO_DATE_OPTIONS)
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -1255,7 +1257,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
       }
     },
     undo: async ({ logEntry, ctx }) => {
-      const payload = extractUndoPayload<InteractionUndoPayload>(logEntry)
+      const payload = extractUndoPayload<InteractionUndoPayload>(logEntry, INTERACTION_UNDO_DATE_OPTIONS)
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
