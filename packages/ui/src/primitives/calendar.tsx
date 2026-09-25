@@ -7,7 +7,9 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { format } from 'date-fns/format'
 import type { Locale } from 'date-fns/locale'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOptionalT, useT } from '@open-mercato/shared/lib/i18n/context'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { createTranslator } from '@open-mercato/shared/lib/i18n/translate'
 import { CompactButton } from './compact-button'
 
 export type CalendarProps = DayPickerProps & { daySize?: 36 | 40 }
@@ -46,6 +48,16 @@ export function CalendarMonthSelector({
 const STANDALONE_MONTH_YEAR = 'LLLL yyyy'
 const STANDALONE_MONTH_SHORT = 'LLL'
 
+const fallbackTranslate = createTranslator({})
+
+function useCalendarT(): TranslateFn {
+  return useOptionalT() ?? fallbackTranslate
+}
+
+type CalendarLabels = DayPickerProps['labels']
+
+const CalendarLabelsContext = React.createContext<CalendarLabels>(undefined)
+
 const navButtonClassName = cn(
   'h-9 w-9 inline-flex items-center justify-center rounded-md shrink-0',
   'border border-border bg-background text-muted-foreground transition-colors',
@@ -61,6 +73,8 @@ function MonthNavButton({
   direction: 'prev' | 'next'
   locale?: Locale
 }) {
+  const t = useCalendarT()
+  const labels = React.useContext(CalendarLabelsContext)
   const dayPicker = useDayPicker() as unknown as {
     previousMonth?: Date
     nextMonth?: Date
@@ -69,7 +83,12 @@ function MonthNavButton({
   const target = direction === 'prev' ? dayPicker.previousMonth : dayPicker.nextMonth
   const Icon = direction === 'prev' ? ChevronLeft : ChevronRight
   const targetLabel = format(target ?? new Date(), STANDALONE_MONTH_YEAR, locale ? { locale } : undefined)
-  const ariaLabel = `Go to ${direction === 'prev' ? 'previous' : 'next'} month: ${targetLabel}`
+  const customLabel = direction === 'prev' ? labels?.labelPrevious : labels?.labelNext
+  const ariaLabel = customLabel
+    ? customLabel(target)
+    : direction === 'prev'
+      ? t('ui.calendar.goToPreviousMonth', 'Go to previous month: {month}', { month: targetLabel })
+      : t('ui.calendar.goToNextMonth', 'Go to next month: {month}', { month: targetLabel })
   return (
     <button
       type="button"
@@ -97,6 +116,7 @@ function buildMonthCaption(
     calendarMonth: CalendarMonth
     displayIndex?: number
   }) {
+    const t = useCalendarT()
     const label = format(calendarMonth.date, STANDALONE_MONTH_YEAR, locale ? { locale } : undefined)
     const index = typeof displayIndex === 'number' ? displayIndex : 0
     // For multi-month layouts (e.g. range pickers) only the leftmost month
@@ -119,7 +139,7 @@ function buildMonthCaption(
           <button
             type="button"
             onClick={onOpenMonthGrid ?? undefined}
-            aria-label={`${label} – open month and year navigation`}
+            aria-label={t('ui.calendar.openMonthYearNavigation', '{month} – open month and year navigation', { month: label })}
             className={cn(
               'flex-1 flex items-center justify-center h-9 rounded-md bg-muted px-3 text-sm font-medium',
               'transition-colors hover:bg-accent hover:text-accent-foreground',
@@ -159,6 +179,7 @@ function MonthGrid({
   onSelectMonth: (month: Date) => void
   onClose: () => void
 }) {
+  const t = useCalendarT()
   const [year, setYear] = React.useState(initialYear)
   const today = new Date()
   const monthLabels = React.useMemo(
@@ -173,12 +194,12 @@ function MonthGrid({
     <div
       className="absolute inset-0 z-10 flex flex-col rounded-md bg-popover p-3"
       role="dialog"
-      aria-label="Select month and year"
+      aria-label={t('ui.calendar.selectMonthAndYear', 'Select month and year')}
     >
       <div className="flex items-center justify-between gap-2 mb-3">
         <button
           type="button"
-          aria-label={`Go to previous year: ${year - 1}`}
+          aria-label={t('ui.calendar.goToPreviousYear', 'Go to previous year: {year}', { year: year - 1 })}
           onClick={() => setYear((current) => current - 1)}
           className={navButtonClassName}
         >
@@ -187,7 +208,7 @@ function MonthGrid({
         <button
           type="button"
           onClick={onClose}
-          aria-label={`${yearLabel} – back to day selection`}
+          aria-label={t('ui.calendar.backToDaySelection', '{year} – back to day selection', { year: yearLabel })}
           className={cn(
             'flex-1 flex items-center justify-center h-9 rounded-md bg-muted px-3 text-sm font-medium',
             'transition-colors hover:bg-accent hover:text-accent-foreground',
@@ -198,7 +219,7 @@ function MonthGrid({
         </button>
         <button
           type="button"
-          aria-label={`Go to next year: ${year + 1}`}
+          aria-label={t('ui.calendar.goToNextYear', 'Go to next year: {year}', { year: year + 1 })}
           onClick={() => setYear((current) => current + 1)}
           className={navButtonClassName}
         >
@@ -248,6 +269,7 @@ export function Calendar({
   month,
   defaultMonth,
   onMonthChange,
+  labels,
   ...props
 }: CalendarProps) {
   // The month/year grid (fast navigation) is only meaningful for single-month
@@ -290,95 +312,99 @@ export function Calendar({
   )
 
   return (
-    <div className={monthGridEnabled ? 'relative' : 'contents'}>
-      <div
-        className={monthGridEnabled && showMonthGrid ? 'pointer-events-none' : 'contents'}
-        aria-hidden={monthGridEnabled && showMonthGrid ? true : undefined}
-      >
-        <DayPicker
-          showOutsideDays={showOutsideDays}
-          fixedWeeks={fixedWeeks}
-          pagedNavigation={pagedNavigation}
-          locale={locale}
-          numberOfMonths={numberOfMonths}
-          month={displayMonth}
-          onMonthChange={handleMonthChange}
-          className={cn('p-3', className)}
-          classNames={{
-            months: 'flex flex-col sm:flex-row gap-4',
-            month: 'space-y-2',
-            month_caption: '',
-            caption_label: 'sr-only',
-            nav: 'sr-only',
-            month_grid: 'w-full border-collapse',
-            weekdays: 'flex',
-            weekday: cn('text-muted-foreground rounded-md font-normal text-xs', daySize === 40 ? 'w-10' : 'w-9'),
-            weeks: 'w-full border-collapse',
-            week: 'flex w-full mt-1',
-            day: cn('text-center text-sm p-0 relative focus-within:relative focus-within:z-20', daySize === 40 ? 'size-10' : 'size-9'),
-            day_button: cn(
-              'p-0 font-normal aria-selected:opacity-100',
-              daySize === 40 ? 'size-10' : 'size-9',
-              'inline-flex items-center justify-center rounded-md text-sm',
-              'transition-colors focus:outline-none focus-visible:outline-none disabled:pointer-events-none',
-              // Focus indicator is a soft accent fill instead of a ring overlay — keyboard
-              // users get a visible cue, but mouse-click focus does not leave a stuck ring
-              // on top of the selected cell.
-              'hover:bg-accent hover:text-accent-foreground',
-              'focus-visible:bg-accent focus-visible:text-accent-foreground',
-            ),
-            // React-day-picker v9 applies `classNames.selected` / `range_*` to the day
-            // CELL (`<td>`) wrapper, not to the inner `<button>`. To keep the parent
-            // fill visible through interaction, we (a) paint the cell with the desired
-            // bg/text, and (b) force the inner button to render transparent — so the
-            // button's own hover/focus-visible bg overrides cannot cover the cell fill.
-            selected: cn(
-              '!bg-primary !text-primary-foreground rounded-md',
-              '[&_button]:!bg-transparent [&_button]:!text-primary-foreground',
-              '[&_button:hover]:!bg-transparent [&_button:hover]:!text-primary-foreground',
-              '[&_button:focus-visible]:!bg-transparent [&_button:focus-visible]:!text-primary-foreground',
-            ),
-            range_start: cn(
-              '!bg-primary !text-primary-foreground rounded-l-md !rounded-r-none',
-              '[&_button]:!bg-transparent [&_button]:!text-primary-foreground',
-              '[&_button:hover]:!bg-transparent [&_button:hover]:!text-primary-foreground',
-              '[&_button:focus-visible]:!bg-transparent [&_button:focus-visible]:!text-primary-foreground',
-            ),
-            range_end: cn(
-              '!bg-primary !text-primary-foreground rounded-r-md !rounded-l-none',
-              '[&_button]:!bg-transparent [&_button]:!text-primary-foreground',
-              '[&_button:hover]:!bg-transparent [&_button:hover]:!text-primary-foreground',
-              '[&_button:focus-visible]:!bg-transparent [&_button:focus-visible]:!text-primary-foreground',
-            ),
-            range_middle: cn(
-              '!bg-accent !text-accent-foreground !rounded-none',
-              '[&_button]:!bg-transparent [&_button]:!text-accent-foreground',
-              '[&_button:hover]:!bg-transparent [&_button:hover]:!text-accent-foreground',
-              '[&_button:focus-visible]:!bg-transparent [&_button:focus-visible]:!text-accent-foreground',
-            ),
-            today: 'font-semibold text-primary rounded-md',
-            outside:
-              'day-outside text-muted-foreground opacity-40 aria-selected:bg-accent/50 aria-selected:text-muted-foreground aria-selected:opacity-30',
-            disabled: 'text-muted-foreground opacity-50',
-            hidden: 'invisible',
-            ...classNames,
-          }}
-          components={{
-            MonthCaption: monthCaption,
-            ...components,
-          }}
-          {...props}
-        />
+    <CalendarLabelsContext.Provider value={labels}>
+      <div className={monthGridEnabled ? 'relative' : 'contents'}>
+        <div
+          className={monthGridEnabled && showMonthGrid ? 'pointer-events-none' : 'contents'}
+          aria-hidden={monthGridEnabled && showMonthGrid ? true : undefined}
+        >
+          <DayPicker
+            showOutsideDays={showOutsideDays}
+            fixedWeeks={fixedWeeks}
+            pagedNavigation={pagedNavigation}
+            hideNavigation
+            locale={locale}
+            labels={labels}
+            numberOfMonths={numberOfMonths}
+            month={displayMonth}
+            onMonthChange={handleMonthChange}
+            className={cn('p-3', className)}
+            classNames={{
+              months: 'flex flex-col sm:flex-row gap-4',
+              month: 'space-y-2',
+              month_caption: '',
+              caption_label: 'sr-only',
+              nav: 'sr-only',
+              month_grid: 'w-full border-collapse',
+              weekdays: 'flex',
+              weekday: cn('text-muted-foreground rounded-md font-normal text-xs', daySize === 40 ? 'w-10' : 'w-9'),
+              weeks: 'w-full border-collapse',
+              week: 'flex w-full mt-1',
+              day: cn('text-center text-sm p-0 relative focus-within:relative focus-within:z-20', daySize === 40 ? 'size-10' : 'size-9'),
+              day_button: cn(
+                'p-0 font-normal aria-selected:opacity-100',
+                daySize === 40 ? 'size-10' : 'size-9',
+                'inline-flex items-center justify-center rounded-md text-sm',
+                'transition-colors focus:outline-none focus-visible:outline-none disabled:pointer-events-none',
+                // Focus indicator is a soft accent fill instead of a ring overlay — keyboard
+                // users get a visible cue, but mouse-click focus does not leave a stuck ring
+                // on top of the selected cell.
+                'hover:bg-accent hover:text-accent-foreground',
+                'focus-visible:bg-accent focus-visible:text-accent-foreground',
+              ),
+              // React-day-picker v9 applies `classNames.selected` / `range_*` to the day
+              // CELL (`<td>`) wrapper, not to the inner `<button>`. To keep the parent
+              // fill visible through interaction, we (a) paint the cell with the desired
+              // bg/text, and (b) force the inner button to render transparent — so the
+              // button's own hover/focus-visible bg overrides cannot cover the cell fill.
+              selected: cn(
+                '!bg-primary !text-primary-foreground rounded-md',
+                '[&_button]:!bg-transparent [&_button]:!text-primary-foreground',
+                '[&_button:hover]:!bg-transparent [&_button:hover]:!text-primary-foreground',
+                '[&_button:focus-visible]:!bg-transparent [&_button:focus-visible]:!text-primary-foreground',
+              ),
+              range_start: cn(
+                '!bg-primary !text-primary-foreground rounded-l-md !rounded-r-none',
+                '[&_button]:!bg-transparent [&_button]:!text-primary-foreground',
+                '[&_button:hover]:!bg-transparent [&_button:hover]:!text-primary-foreground',
+                '[&_button:focus-visible]:!bg-transparent [&_button:focus-visible]:!text-primary-foreground',
+              ),
+              range_end: cn(
+                '!bg-primary !text-primary-foreground rounded-r-md !rounded-l-none',
+                '[&_button]:!bg-transparent [&_button]:!text-primary-foreground',
+                '[&_button:hover]:!bg-transparent [&_button:hover]:!text-primary-foreground',
+                '[&_button:focus-visible]:!bg-transparent [&_button:focus-visible]:!text-primary-foreground',
+              ),
+              range_middle: cn(
+                '!bg-accent !text-accent-foreground !rounded-none',
+                '[&_button]:!bg-transparent [&_button]:!text-accent-foreground',
+                '[&_button:hover]:!bg-transparent [&_button:hover]:!text-accent-foreground',
+                '[&_button:focus-visible]:!bg-transparent [&_button:focus-visible]:!text-accent-foreground',
+              ),
+              today: 'font-semibold text-primary rounded-md',
+              outside:
+                'day-outside text-muted-foreground opacity-40 aria-selected:bg-accent/50 aria-selected:text-muted-foreground aria-selected:opacity-30',
+              disabled: 'text-muted-foreground opacity-50',
+              hidden: 'invisible',
+              ...classNames,
+            }}
+            components={{
+              MonthCaption: monthCaption,
+              ...components,
+            }}
+            {...props}
+          />
+        </div>
+        {monthGridEnabled && showMonthGrid ? (
+          <MonthGrid
+            initialYear={displayMonth.getFullYear()}
+            selectedMonth={displayMonth}
+            locale={locale as Locale | undefined}
+            onSelectMonth={handleSelectMonth}
+            onClose={() => setShowMonthGrid(false)}
+          />
+        ) : null}
       </div>
-      {monthGridEnabled && showMonthGrid ? (
-        <MonthGrid
-          initialYear={displayMonth.getFullYear()}
-          selectedMonth={displayMonth}
-          locale={locale as Locale | undefined}
-          onSelectMonth={handleSelectMonth}
-          onClose={() => setShowMonthGrid(false)}
-        />
-      ) : null}
-    </div>
+    </CalendarLabelsContext.Provider>
   )
 }
