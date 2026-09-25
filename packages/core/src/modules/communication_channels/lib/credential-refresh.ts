@@ -176,8 +176,8 @@ function parseExpiresAt(raw: unknown): Date | null {
 /**
  * Parse a raw `channel_<provider>` client-credential row into the
  * `OAuthClientConfig` shape adapters expect. Returns `undefined` when the row is
- * missing or malformed — adapters then fall back to the deprecated
- * `credentials._client` read path (one minor-release deprecation per Spec A).
+ * missing or malformed — the Gmail adapter then fails refresh (legacy
+ * `credentials._client` fallback was removed — see #3828 / UPGRADE_NOTES).
  */
 function safeParseOAuthClient(raw: unknown): OAuthClientConfig | undefined {
   if (!raw || typeof raw !== 'object') return undefined

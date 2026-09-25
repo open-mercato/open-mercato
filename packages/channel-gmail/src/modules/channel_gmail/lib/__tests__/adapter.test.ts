@@ -9,23 +9,8 @@ import {
   setGoogleOAuthClient,
   type GoogleOAuthClient,
 } from '../oauth'
-import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getGmailChannelAdapter } from '../adapter'
 import { gmailCapabilities } from '../capabilities'
-
-jest.mock('@open-mercato/shared/lib/logger', () => {
-  const mocked = {
-    debug: jest.fn(),
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    child: jest.fn(),
-  }
-  mocked.child.mockImplementation(() => mocked)
-  return { createLogger: jest.fn(() => mocked) }
-})
-
-const adapterLoggerWarn = createLogger('channel_gmail').warn as jest.Mock
 
 const userCredentials = {
   accessToken: 'access',
@@ -408,11 +393,9 @@ describe('GmailChannelAdapter OAuth flow', () => {
     ).rejects.toThrow(/requires_reauth/)
   })
 
-  // Spec A regression coverage — the new oauthClient path is the canonical
-  // production wiring; the legacy _client path remains for one minor
-  // release for backward compatibility.
+  // Spec A — oauthClient is the only accepted client-app config source.
   describe('refreshCredentials — OAuth client wiring (Spec A)', () => {
-    it('refreshes successfully when oauthClient is provided (no _client on credentials)', async () => {
+    it('refreshes successfully when oauthClient is provided', async () => {
       const refreshCalls: Array<{ clientId: string; clientSecret: string; refreshToken: string }> = []
       setGoogleOAuthClient(
         stubOAuth({
@@ -424,7 +407,7 @@ describe('GmailChannelAdapter OAuth flow', () => {
       )
       await getGmailChannelAdapter().refreshCredentials!({
         channelId: 'channel-1',
-        credentials: userCredentials, // NO _client pre-packing
+        credentials: userCredentials,
         scope: { tenantId: 't', organizationId: 'o' },
         oauthClient: {
           clientId: 'oauth-cid',
@@ -440,33 +423,28 @@ describe('GmailChannelAdapter OAuth flow', () => {
       ])
     })
 
-    it('falls back to legacy _client path with a deprecation warning when oauthClient is absent', async () => {
-      adapterLoggerWarn.mockClear()
-      setGoogleOAuthClient(
-        stubOAuth({
-          refreshToken: async () => ({ access_token: 'a', expires_in: 1800, token_type: 'Bearer' }),
+    it('ignores credentials._client and throws when oauthClient is absent', async () => {
+      const refreshToken = jest.fn()
+      setGoogleOAuthClient(stubOAuth({ refreshToken }))
+      await expect(
+        getGmailChannelAdapter().refreshCredentials!({
+          channelId: 'channel-1',
+          credentials: { ...userCredentials, _client: clientCredentials },
+          scope: { tenantId: 't', organizationId: 'o' },
         }),
-      )
-      await getGmailChannelAdapter().refreshCredentials!({
-        channelId: 'channel-1',
-        credentials: { ...userCredentials, _client: clientCredentials },
-        scope: { tenantId: 't', organizationId: 'o' },
-      })
-      // Legacy path emits a one-time deprecation warning per process.
-      expect(adapterLoggerWarn).toHaveBeenCalledWith(
-        expect.stringContaining('reading OAuth client config from credentials._client is deprecated'),
-      )
+      ).rejects.toThrow(/oauthClient is required on RefreshCredentialsInput/)
+      expect(refreshToken).not.toHaveBeenCalled()
     })
 
-    it('throws a clear error when neither oauthClient nor _client carries client config', async () => {
+    it('throws a clear error when oauthClient is absent', async () => {
       setGoogleOAuthClient(stubOAuth({}))
       await expect(
         getGmailChannelAdapter().refreshCredentials!({
           channelId: 'channel-1',
-          credentials: userCredentials, // NO _client, NO oauthClient
+          credentials: userCredentials,
           scope: { tenantId: 't', organizationId: 'o' },
         }),
-      ).rejects.toThrow(/Invalid Gmail OAuth client credentials/)
+      ).rejects.toThrow(/oauthClient is required on RefreshCredentialsInput/)
     })
   })
 })

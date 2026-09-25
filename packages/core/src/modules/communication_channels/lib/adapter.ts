@@ -496,8 +496,8 @@ export interface RefreshCredentialsInput {
    * - For OAuth providers (Gmail): MUST be present; the adapter uses
    *   `clientId` + `clientSecret` to call the provider's token endpoint.
    * - For static-credential providers (IMAP, WhatsApp): ignored.
-   * - When `undefined`: legacy `credentials._client` path is read by the
-   *   adapter (deprecated; will be removed in the next minor release).
+   * - When `undefined`: Gmail refresh fails with a clear error (legacy
+   *   `credentials._client` fallback was removed — see #3828 / UPGRADE_NOTES).
    */
   oauthClient?: OAuthClientConfig
 }
