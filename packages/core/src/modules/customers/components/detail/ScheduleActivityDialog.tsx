@@ -429,7 +429,9 @@ export function ScheduleActivityDialog({
         interactionType: state.activityType,
         title: state.title.trim(),
         body: state.description.trim() || null,
-        status: 'planned',
+        // The dialog has no status control, so an edit must leave the stored status
+        // (and its `occurredAt`) alone instead of re-opening a completed activity (#6481).
+        ...(isSaveEdit ? {} : { status: 'planned' }),
         date: trimmedDate || null,
         time: trimmedDate ? timeForPayload || null : null,
         phoneNumber: state.activityType === 'call' ? phoneNumberForPayload : undefined,
