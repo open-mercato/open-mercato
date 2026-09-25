@@ -1,4 +1,5 @@
 {
+  "search.entityType.warranty_claims.warranty_claim": "Reklamacja gwarancyjna",
   "warranty_claims.ai.apply": "Zastosuj",
   "warranty_claims.ai.assess.attachment": "Załącznik",
   "warranty_claims.ai.assess.attachmentsError": "Nie udało się załadować załączników pozycji.",
