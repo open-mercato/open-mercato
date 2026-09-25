@@ -58,6 +58,9 @@ import {
 } from '../../../components/detail/assignableStaff'
 import { CollectionPreviewCell, normalizeCollectionLabels } from '../../../components/list/CollectionPreviewCell'
 import { appendCustomerListSortParams } from '../listSorting'
+import { expandCreatedAtDayRules } from '../../../lib/createdAtDayFilter'
+import { USER_TIMEZONE } from '../../../lib/localDay'
+import { formatInTimeZone } from 'date-fns-tz'
 
 type DictionaryOptionWithTone = AdvancedFilterOption & FilterOption
 
@@ -74,8 +77,8 @@ function makeCompaniesPresets(): FilterPreset[] {
       labelKey: 'customers.companies.presets.recentlyCreated',
       iconName: 'clock',
       build: ({ now }) => {
-        const cutoff = new Date(now.getTime() - 7 * 24 * 3600 * 1000).toISOString().slice(0, 10)
-        return makeRuleTree({ field: 'created_at', operator: 'is_after', value: cutoff })
+        const dayBeforeWindow = formatInTimeZone(new Date(now.getTime() - 8 * 24 * 3600 * 1000), USER_TIMEZONE, 'yyyy-MM-dd')
+        return makeRuleTree({ field: 'created_at', operator: 'is_after', value: dayBeforeWindow })
       },
     },
     {
@@ -112,6 +115,7 @@ type CompanyRow = {
   organizationId?: string | null
   source?: string | null
   ownerUserId?: string | null
+  createdAt?: string | null
 } & Record<string, unknown>
 
 type CompaniesResponse = {
@@ -159,6 +163,7 @@ function mapApiItem(item: Record<string, unknown>): CompanyRow | null {
   const nextInteractionColor = typeof item.next_interaction_color === 'string' ? item.next_interaction_color : null
   const organizationId = typeof item.organization_id === 'string' ? item.organization_id : null
   const source = typeof item.source === 'string' ? item.source : null
+  const createdAt = typeof item.created_at === 'string' ? item.created_at : null
   const ownerUserId = typeof item.owner_user_id === 'string' ? item.owner_user_id : null
   const customFields: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(item)) {
@@ -188,6 +193,7 @@ function mapApiItem(item: Record<string, unknown>): CompanyRow | null {
     organizationId,
     source,
     ownerUserId,
+    createdAt,
     ...customFields,
   }, item)
 }
@@ -364,7 +370,7 @@ export default function CustomersCompaniesPage() {
     params.set('pageSize', String(pageSize))
     appendCustomerListSortParams(params, sorting)
     if (search.trim()) params.set('search', search.trim())
-    const advancedParams = serializeTree(advancedFilterState)
+    const advancedParams = serializeTree(expandCreatedAtDayRules(advancedFilterState, USER_TIMEZONE))
     for (const [key, val] of Object.entries(advancedParams)) {
       params.set(key, val)
     }
@@ -706,6 +712,22 @@ export default function CustomersCompaniesPage() {
               </div>
             )
             : noValue,
+      },
+      {
+        accessorKey: 'createdAt',
+        header: t('customers.companies.list.columns.createdAt', 'Created'),
+        meta: {
+          columnChooserGroup: 'Dates',
+          filterKey: 'created_at',
+          filterType: 'date' as const,
+          filterGroup: 'Activity',
+          filterIconName: 'calendar',
+        },
+        cell: ({ row }) => (
+          <span className="text-sm">
+            {formatDate(row.original.createdAt, t('customers.companies.list.noValue'))}
+          </span>
+        ),
       },
       {
         accessorKey: 'source',
