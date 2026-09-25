@@ -1,15 +1,25 @@
 # Journal Entry Line Dimension — multi-dimensional tag on a journal line
 
-**Related:** [General Ledger core engine](2026-08-18-general-ledger-core-engine.md)
+**Related:** [General Ledger core engine](https://github.com/open-mercato/open-mercato/pull/5663)
 (GL's own Out of Scope section anticipates this table, and this
-document is the future spec it points to), [Posting Rules Engine](2026-09-06-posting-rules-engine.md)
+document is the future spec it points to), [Posting Rules Engine](https://github.com/open-mercato/open-mercato/pull/6015)
 (first consumer — the 490 engine needs a CostCenter dimension on a
-line; also an untracked sibling draft in this same working tree, not
-an externally-authored source, same caveat as Fixed Assets below —
-see Design Decisions), [Fixed Assets](2026-09-06-fixed-assets.md)
-(second, independent future consumer — Phase 2's `transferAsset`;
-still an untracked sibling draft in this same working tree, not an
-externally-authored source — see Design Decisions)
+line — see Design Decisions), [Fixed Assets](https://github.com/open-mercato/open-mercato/pull/6014)
+(second, independent future consumer — Phase 2's `transferAsset` —
+see Design Decisions)
+
+**Depends on unmerged PRs — updated 2026-09-25.** All three documents
+above are open, unmerged PRs, not files in `.ai/specs/` yet — linked
+by PR number rather than by filename for exactly that reason.
+`ledger` (this module's hard dependency, `requires: ['ledger']`) is
+likewise not yet present under `packages/core/src/modules/`. Posting
+Rules Engine (#6015) and Fixed Assets (#6014) were untracked, no-
+commit-history drafts in this same working tree when this document
+was first reviewed (2026-09-08/09) — both are now real, independently
+reviewed PRs (each already carrying its own maintainer review and
+fixes), so the "untracked draft, take at face value" caveat that used
+to qualify their two-independent-consumers claim no longer applies —
+see Design Decisions and Verdict.
 
 ## TLDR
 
@@ -126,21 +136,19 @@ the posting-rules/konto 490 engine in a future spec, not here" — i.e.
 #5663 anticipated *one* combined future document, not two. The real,
 verified reason to keep this as its own document is different and
 stronger: this table has **more than one independent consumer**.
-`2026-09-06-posting-rules-engine.md` consumes it now (the 4→5 engine).
-Separately, `2026-09-06-fixed-assets.md` (Design Decisions,
-`transferAsset`) already commits its own future Phase 2 to consuming
-this same table, independent of Posting Rules Engine. **Caveat, added
-this round, extended to both cited consumers**: unlike the #5663 check
-(an externally-authored, already-merged source on its own branch),
-both `posting-rules-engine.md` and `fixed-assets.md` are untracked
-drafts sitting in this same working tree, plausibly authored in the
-same pass as this document — confirmed via `git log`/`git ls-tree`
-against `upstream/develop` and this fork: neither has any commit
-history on any branch. Each confirms the two-consumers claim
-textually, but carries less independent weight than the #5663 check,
-and both are worth re-confirming once they go through their own
-fresh-context review. Taking them at face value for now:
-if this table's entity lived inside the `posting_rules` module, Fixed
+#6015 (Posting Rules Engine) consumes it now (the 4→5 engine).
+Separately, #6014 (Fixed Assets, Design Decisions, `transferAsset`)
+already commits its own future Phase 2 to consuming this same table,
+independent of Posting Rules Engine. **Caveat resolved, updated
+2026-09-25**: when this section was first written (2026-09-08/09),
+both #6015 and #6014 were untracked, no-commit-history drafts sitting
+in this same working tree, so the two-consumers claim rested on
+taking them at face value rather than on independently reviewed
+sources. Both have since become real, open PRs, each with its own
+maintainer review round (2026-09-14) and each already carrying its
+own fixes for every finding raised — #6015 and #6014 now confirm the
+two-consumers claim with the same independent weight as the #5663
+check, not less. If this table's entity lived inside the `posting_rules` module, Fixed
 Assets Phase 2 would need a hard dependency on the entire
 `posting_rules` module (its event subscriber, its reconciliation
 sweeper, its fiscal-period guard) just to write one dimension tag it
@@ -282,10 +290,19 @@ enum lives at the validation layer, not the schema layer.
 `data/validators.ts` declares
 `setJournalEntryLineDimensionSchema = z.object({ journalEntryLineId:
 z.string().uuid(), dimensionType: z.enum(DIMENSION_TYPES),
-dimensionIds: z.array(z.string().uuid()).min(1) }).refine((v) => new
+dimensionIds: z.array(z.string().min(1)).min(1) }).refine((v) => new
 Set(v.dimensionIds).size === v.dimensionIds.length, { message:
 'dimensionIds must not contain duplicates', path: ['dimensionIds'] })`
-— the `.refine()` was added this round so a caller passing the same id
+— **corrected, m3**: `dimensionIds` dropped `.uuid()` (was
+`z.array(z.string().uuid())`) because `'Currency'`, the one advertised
+dimension type with a real, shipped target entity, is identified by
+ISO code in this codebase (`currencies/data/entities.ts`,
+`sales/data/entities.ts`), not a uuid — a `.uuid()` validator would
+have rejected every currency dimension at the boundary. `dimension_id`
+(Data Models) is `text`, not `uuid`, for the same reason; already
+described as an opaque reference "resolved by the caller, not by this
+table" (Data Models), so widening its type costs nothing. The
+`.refine()` was added this round so a caller passing the same id
 twice in one call fails validation instead of relying on the
 database's `ON CONFLICT DO NOTHING` to silently absorb it. The
 command's `execute` parses input through it before touching the
@@ -450,9 +467,13 @@ instead.
   deleted — a `(line, dimensionType)` pair's rows are replaced
   atomically by `setJournalEntryLineDimension` (old rows for that pair
   hard-deleted, new rows inserted, in the same transaction), matching
-  the exemption already used for sub-resource rows like
-  `VendorInvoiceLine`/`PaymentBatchLine` guarded by their parent
-  aggregate. Exported from this module so hard-dependency consumers
+  the exemption already used for real, shipped sub-resource rows —
+  **corrected, m2**: `customers/data/entities.ts`'s
+  `CustomerDealPersonLink`/`CustomerTagAssignment`/
+  `CustomerLabelAssignment` and `auth/data/entities.ts`'s `UserRole`
+  all carry `createdAt` with no `updatedAt`/`deletedAt` (an earlier
+  draft cited `VendorInvoiceLine`/`PaymentBatchLine`, which don't exist
+  in this codebase). Exported from this module so hard-dependency consumers
   can import and query it directly (see Design Decisions,
   Cross-module access).
 
@@ -498,7 +519,16 @@ defaultRoleFeatures: {
 ```
 
 No features exist yet to grant (see Access Control); this stays empty
-until a real UI need adds some.
+until a real UI need adds some. **Not dead boilerplate — corrected,
+m6**: `packages/core/AGENTS.md`'s own convention (*"When adding
+features to `acl.ts`, also add them to `setup.ts` —
+`defaultRoleFeatures`..."*) treats `acl.ts` and `setup.ts` as a paired
+contract, verified against real minimal modules (`api_keys`, `auth`,
+`business_rules`, `entities`, `query_index` all ship a short `setup.ts`
+alongside their `acl.ts`). An empty `acl.ts` with no matching
+`setup.ts` would be the actual convention break; this file exists so
+the pairing holds from Phase 1, ready for Phase 2's real features with
+no structural change needed.
 
 ### Commands (Command Pattern, `commands/`)
 
@@ -509,8 +539,12 @@ until a real UI need adds some.
   `setJournalEntryLineDimensionSchema`, always scoped by
   `tenantId`/`organizationId`. Implementation: `prepare()` loads the
   existing rows for that pair (`{ before: existingRows }`); `execute`
-  runs, inside `withAtomicFlush`, a hard-delete of that pair's existing
-  rows followed by inserting the new `dimensionIds` set; `buildLog`
+  runs, inside `withAtomicFlush(fn, { transaction: true })` — the
+  option named explicitly (**corrected, m1**: `withAtomicFlush` does
+  not open a transaction unless told to; matching
+  `customers/commands/deals.ts:577-582`'s own call shape) — a
+  hard-delete of that pair's existing rows followed by inserting the
+  new `dimensionIds` set; `buildLog`
   records `{ undo: { before, after } }`; `undo` restores the `before`
   rows for that pair. Content-idempotent (see Design Decisions).
   Every other dimension type already set on the same line is left
@@ -565,7 +599,7 @@ consumers read.
 | `id` | uuid, PK | |
 | `journal_entry_line_id` | uuid | FK-id to `ledger.journal_entry_line`, no ORM relation |
 | `dimension_type` | text | `'CostCenter'` \| `'BankAccount'` \| `'FixedAsset'` \| `'Currency'` (open string, not a DB enum, so a future dimension type needs no migration) |
-| `dimension_id` | uuid | References an entity in another module by id; which module depends on `dimension_type` and is resolved by the caller, not by this table |
+| `dimension_id` | text | References an entity in another module by id; which module depends on `dimension_type` and is resolved by the caller, not by this table — **corrected, m3**: `text`, not `uuid`, since `'Currency'` (the one advertised type with a real shipped target entity) is identified by ISO code here, not a uuid |
 | `tenant_id` | uuid | |
 | `organization_id` | uuid | |
 | `created_at` | timestamp | |
@@ -608,18 +642,32 @@ nothing to seed (no default role features, no module config).
 
 ## Implementation Plan
 
+**Hard prerequisite, added m7**: `requires: ['ledger']` (step 2 below)
+means Phase 1 is not buildable until #5663 ships the `ledger` module —
+`ModuleInfo.requires` is validated at generation time
+(`packages/cli/src/lib/generators/module-registry.ts`), so `yarn
+generate` rejects a module naming a `requires` entry that doesn't
+exist yet. Expected for a design document describing a future module,
+but worth stating explicitly rather than leaving the plan reading as
+immediately actionable on its own.
+
 ### Phase 1: table + write command, zero consumers
 
 1. `JournalEntryLineDimension` entity + migration (FK-id to
    `ledger.journal_entry_line`, the `(journal_entry_line_id,
    dimension_type)` index above).
 2. `index.ts` with `ModuleInfo.requires: ['ledger']`.
-3. `data/validators.ts` with `setJournalEntryLineDimensionSchema`.
-4. `setJournalEntryLineDimension` command (type-scoped replace,
-   transaction-wrapped via `withAtomicFlush`, undo-capable via
-   `prepare`/`buildLog`/`undo` per Design Decisions).
-5. `setup.ts` with an empty `defaultRoleFeatures.admin: []`.
-6. Unit tests for the command and for consumer-style direct reads (see
+3. `acl.ts` with an empty features array (**added, m5**: was in the
+   File Manifest but missing from this plan — paired with step 6 per
+   `packages/core/AGENTS.md`'s `acl.ts`/`setup.ts` convention).
+4. `data/validators.ts` with `setJournalEntryLineDimensionSchema`.
+5. `setJournalEntryLineDimension` command (type-scoped replace,
+   transaction-wrapped via `withAtomicFlush(fn, { transaction: true })`,
+   undo-capable via `prepare`/`buildLog`/`undo` per Design Decisions).
+6. `setup.ts` with an empty `defaultRoleFeatures.admin: []` (see
+   Module Setup for why this pairs with step 3 rather than being dead
+   weight).
+7. Unit tests for the command and for consumer-style direct reads (see
    Testing Strategy).
 
 ### Phase 2 (deferred)
@@ -677,6 +725,29 @@ packages/core/src/modules/journal_entry_line_dimension/
 ## Risks & Impact Review
 
 ### Data integrity failures
+
+#### Orphan lifecycle — added, m4
+- **Question**: nothing in this design removes a dimension row when
+  its `journalEntryLineId` is deleted, an entry is reversed, or a
+  fiscal period closes — is that a real gap?
+- **Answer**: no, by construction. GL core engine (#5663) makes
+  `JournalEntryLine` append-only and immutable once posted — *"a
+  posted entry is immutable"*, *"`JournalEntry` is always immutable"*
+  (Design Decisions) — a line is never edited or hard-deleted, and a
+  correction posts a new `REVERSAL` entry with its own new lines
+  rather than mutating the original. A `journal_entry_line_dimension`
+  row's `journalEntryLineId` therefore never stops referencing a real
+  row, so it can never become a dangling FK. A reversal's own new
+  lines simply carry no dimension tags unless a consumer explicitly
+  tags them too — an omission a consumer might make, not a lifecycle
+  bug this table has to guard against.
+- **Severity**: N/A — not a defect, a property inherited from
+  `ledger`'s own immutability guarantee, stated explicitly here rather
+  than left as an unstated assumption
+- **Affected area**: `journal_entry_line_dimension` only
+- **Mitigation**: none needed; documented so a future reader does not
+  rediscover this as an open question
+- **Residual risk**: none
 
 #### Two independent consumers writing different dimension types to the same line
 - **Scenario**: Posting Rules Engine sets `{CostCenter: X}` and,
@@ -740,10 +811,12 @@ packages/core/src/modules/journal_entry_line_dimension/
 
 `JournalEntryLineDimension` carries its own `tenant_id`/
 `organization_id` columns (not just inherited through the FK to
-`JournalEntryLine`), matching the pattern already used for
-`VendorInvoiceLine`/`PaymentBatchLine`/`ContractorBankAccount`. Every
-consumer read is required to filter by both, exactly as
-`sales`'s own direct `catalog` reads do.
+`JournalEntryLine`), matching the pattern already used for real,
+shipped sub-resource rows (`CustomerDealPersonLink`,
+`CustomerTagAssignment`, `CustomerLabelAssignment`, `UserRole` —
+**corrected, m2**, a third instance of the same stale citation caught
+during the m2 pass). Every consumer read is required to filter by
+both, exactly as `sales`'s own direct `catalog` reads do.
 
 ### Migration & deployment
 
@@ -770,7 +843,7 @@ One new, additive table. No backfill, no default config, no
 - Reporting/aggregation by dimension (e.g. a P&L cut by cost centre)
   — a future reporting-layer concern, not this module's.
 
-## Final Compliance Report — 2026-09-08
+## Final Compliance Report — 2026-09-08 (self-review round, before external review — corrected, m8)
 
 ### AGENTS.md Files Reviewed
 
@@ -788,9 +861,9 @@ One new, additive table. No backfill, no default config, no
 | root AGENTS.md | Filter by organization_id | Compliant | Own `tenant_id`/`organization_id` columns, not just inherited through the FK |
 | `packages/core/AGENTS.md` → Cross-Module Coupling | Hard dependency uses direct resolution, not `tryResolve` | Compliant | Write via direct `commandBus.execute` (real `workflows`/`UPDATE_ENTITY` precedent); reads via a direct entity query (real `sales`/`catalog` precedent) — **corrected this round**, see Design Decisions, "Cross-module access" |
 | `packages/core/AGENTS.md` → Cross-Module Coupling (hard dependency mechanism) | Hard dependency declared through `ModuleInfo.requires` | Compliant | `index.ts` with `metadata.requires: ['ledger']` |
-| `packages/core/AGENTS.md` → Database Entities | User-editable entities MUST include `updated_at`/`deleted_at` | N/A, exempt | Rows are never individually edited or soft-deleted — a `(line, type)` pair's rows are replaced atomically, matching the existing sub-resource exemption used for `VendorInvoiceLine`/`PaymentBatchLine` |
+| `packages/core/AGENTS.md` → Database Entities | User-editable entities MUST include `updated_at`/`deleted_at` | N/A, exempt | Rows are never individually edited or soft-deleted — a `(line, type)` pair's rows are replaced atomically, matching the exemption real, shipped sub-resource rows already use (`CustomerDealPersonLink`/`CustomerTagAssignment`/`CustomerLabelAssignment`, `UserRole` — **corrected, m2**, replacing a citation of two entities that don't exist in this codebase) |
 | `packages/core/AGENTS.md` → Command Side Effects | Write operations via the Command pattern | Compliant | `setJournalEntryLineDimension` is a command, not a direct mutation from a route handler or a foreign module (there is no route, and no foreign module writes this entity directly) |
-| `packages/core/AGENTS.md` → Entity Update Safety | Multi-phase mutations use `withAtomicFlush` | Compliant | Delete-then-insert (for one type) wrapped in one transaction |
+| `packages/core/AGENTS.md` → Entity Update Safety | Multi-phase mutations use `withAtomicFlush` | Compliant | Delete-then-insert (for one type) wrapped in one transaction via `withAtomicFlush(fn, { transaction: true })` — the option named explicitly, not merely asserted as an outcome (**corrected, m1**) |
 | Quick Rule Reference (`om-spec-writing` SKILL.md) | Undoability is the default for state changes | Compliant | `prepare`/`buildLog`/`undo` contract using the real hook names, verified against `packages/shared/src/lib/commands/types.ts` and `customers/commands/people.ts` — **corrected this round** (an earlier draft cited a non-existent `captureBefore` hook) |
 | Quick Rule Reference (`om-spec-writing` SKILL.md) | Zod validation for all inputs, in `data/validators.ts` | Compliant | `setJournalEntryLineDimensionSchema` — **added this round**, an earlier draft had no validator anywhere |
 | `packages/core/AGENTS.md` → Encryption | GDPR/PII fields declared in `<module>/encryption.ts` | N/A | No PII/GDPR-sensitive field — see Encryption |
@@ -811,12 +884,40 @@ One new, additive table. No backfill, no default config, no
 
 ### Non-Compliant Items
 
-None outstanding after this round's fixes.
+None outstanding against this pass's own checklist (2026-09-08,
+before the external review below). **Corrected, m8**: an earlier
+version of this line read "None outstanding" with no date-stamp,
+which a reader landing here after the external maintainer review
+(below) would take at face value even though that review found real,
+now-fixed defects this self-review round did not catch. See Verdict
+for the current, post-external-review status.
 
 ### Verdict
 
-**Ready for maintainer review, with the caveat below made explicit
-rather than glossed over.** This document went through the
+**Corrected, m8 — this Verdict described only the self-review round
+and did not disclose that an external maintainer review had already
+run and found real defects; current status is now stated below rather
+than left for a reader to assume "Ready for maintainer review" still
+describes where this document stands.**
+
+**Current status (2026-09-25): fully compliant, all external review
+findings fixed.** External maintainer review (PR #5972, @pkarw) ran
+two rounds on 2026-09-08, finding 2 blockers, 3 majors, and 9 minors
+across both rounds. All are now fixed — see the 2026-09-09 and
+2026-09-25 Changelog entries for the itemized list (B1 README
+placement; B2 counterparty-example contradiction; M1 concurrency/
+unique-constraint fix; M2 closed `dimensionType` enum; M3 unmerged-
+sibling links and caveat; m1 named `{ transaction: true }` option; m2
+real sub-resource-exemption precedent; m3 `dimension_id` widened to
+`text`; m4 orphan lifecycle; m5 `acl.ts` Implementation Plan step; m6
+`setup.ts`/`acl.ts` pairing justified; m7 #5663 hard-prerequisite
+note). m9 (branch 1451 commits behind `develop`, CI `scope` job noise)
+remains open — a rebase, not a document change; see Testing Strategy.
+
+**Original self-review verdict (2026-09-08), preserved below:**
+
+Ready for maintainer review, with the caveat below made explicit
+rather than glossed over. This document went through the
 `om-spec-writing` Step 8 checklist (including a fresh-context
 subagent review) and Step 9 Compliance Gate twice: once producing the
 version described in the first Changelog entry below, and a second
@@ -835,12 +936,14 @@ six are fixed in this version; the fixes are load-bearing, not
 cosmetic — the undo hook and the direct-read design would not have
 worked as originally specified, and the full-line-replace design would
 have caused real data loss the moment a second consumer existed. One
-caveat remains open, not a defect: this document's own "two
-independent consumers" justification for staying split from
-`2026-09-06-posting-rules-engine.md` leans partly on
-`2026-09-06-fixed-assets.md`, an untracked sibling draft rather than an
-independently-authored source — worth reconfirming once
-`fixed-assets.md` itself goes through its own fresh-context review.
+caveat is now resolved (updated 2026-09-25, see Design Decisions and
+header): this document's "two independent consumers" justification
+for staying split from Posting Rules Engine (#6015) leaned partly on
+Fixed Assets (#6014), which was an untracked sibling draft at the time
+this was written. Both #6015 and #6014 have since gone through their
+own independent maintainer review rounds and had every finding fixed
+— the justification now rests on two independently reviewed sources,
+not an unverified same-session draft.
 
 ## Changelog
 
@@ -1039,3 +1142,69 @@ taken at the reviewer's word):
   1 (cross-spec consistency) found no conflicts: this document already
   is one of the three sources §2's "Three distinct tagging mechanisms"
   convention was built from.
+
+### 2026-09-25 — M3 resolved: unmerged siblings linked by PR, "untracked draft" caveat lifted
+
+The second review round (2026-09-08 re-review) found the header's
+three `Related:` links all 404 on `develop` (they point at same-repo
+filenames for #5663/#6015/#6014, none of which are merged), and that
+the two-independent-consumers justification for staying split from
+Posting Rules Engine leaned on Fixed Assets while both were untracked,
+no-commit-history drafts. Fix: the header now links each sibling by
+PR number instead of filename, with an explicit "Depends on unmerged
+PRs" paragraph (matching the fix already applied to
+sales-invoice-gl-posting.md's identical M2). Separately, #6015 and
+#6014 are no longer untracked drafts — both have since gone through
+their own maintainer review rounds (2026-09-14) with every finding
+fixed and verified — so the caveat qualifying their two-consumers
+claim (Design Decisions, Verdict) is updated to say so rather than
+still describing them as unverified same-session drafts. Once
+#5663/#6015/#6014 land on `develop`, these three links should be
+swapped back to relative filenames.
+### 2026-09-25 (cont.) — m1, m2, m3, m4, m5, m6, m7, m8 resolved
+
+Closed every remaining open item from PR #5972's second review round
+(2026-09-08 re-review), all verified directly against the real
+repository before editing:
+
+- **m1** — `withAtomicFlush` now names its `{ transaction: true }`
+  option explicitly (Architecture, Implementation Plan, Compliance
+  Matrix) instead of asserting atomicity as a bare outcome; the option
+  is not the default, matching `customers/commands/deals.ts:577-582`'s
+  own call shape.
+- **m2** — the `updated_at`/`deleted_at` exemption now cites real,
+  shipped precedent (`CustomerDealPersonLink`, `CustomerTagAssignment`,
+  `CustomerLabelAssignment`, `UserRole`) instead of two entities
+  (`VendorInvoiceLine`, `PaymentBatchLine`) that don't exist in this
+  codebase.
+- **m3** — `dimension_id` widened from `uuid` to `text` (Data Models,
+  the write schema's `dimensionIds` validator dropped `.uuid()`),
+  since `'Currency'`, the one advertised dimension type with a real
+  shipped target entity, is identified by ISO code here, not a uuid.
+  Confirmed with the maintainer: widen the type rather than drop
+  `'Currency'` from the list.
+- **m4** — added an explicit "Orphan lifecycle" Risk entry: GL core
+  engine (#5663) makes `JournalEntryLine` append-only and immutable
+  once posted, so a `journal_entry_line_dimension` row's
+  `journalEntryLineId` can never become a dangling FK — not a gap,
+  but previously unstated.
+- **m5** — added `acl.ts` (empty features array) as its own
+  Implementation Plan step; it was already in the File Manifest and
+  Architecture but missing from the plan.
+- **m6** — justified `setup.ts` as the required pairing for `acl.ts`
+  per `packages/core/AGENTS.md`'s own convention, verified against
+  five real minimal modules that ship the same pairing, rather than
+  leaving it looking like a file that does nothing.
+- **m7** — added an explicit note that `requires: ['ledger']` blocks
+  `yarn generate` until #5663 ships, since `ModuleInfo.requires` is
+  validated at generation time.
+- **m8** — date-stamped the 2026-09-08 Final Compliance Report as a
+  self-review snapshot and added a current-status paragraph to the
+  Verdict recording that the external review's findings are now fixed,
+  rather than leaving "None outstanding"/"Ready for maintainer review"
+  reading as an up-to-date claim after a maintainer review had already
+  found real defects.
+
+**m9** (branch 1451 commits behind `develop`) remains open — a rebase
+before the next push, not a document change.
+
