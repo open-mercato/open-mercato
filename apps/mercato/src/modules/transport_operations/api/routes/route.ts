@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseScopedCommandInput, resolveCrudRecordId } from '@open-mercato/shared/lib/api/scoped'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { TransportRoute } from '../../data/entities'
@@ -33,7 +34,7 @@ const crud = makeCrudRoute({
     buildFilters: (query) => ({
       ...(query.id ? { id: { $eq: query.id } } : {}),
       ...(query.ids ? { id: { $in: query.ids.split(',').map((value) => value.trim()).filter(Boolean) } } : {}),
-      ...(query.search ? { $or: [{ code: { $ilike: `%${query.search}%` } }, { name: { $ilike: `%${query.search}%` } }] } : {}),
+      ...(query.search ? { $or: [{ code: { $ilike: `%${escapeLikePattern(query.search)}%` } }, { name: { $ilike: `%${escapeLikePattern(query.search)}%` } }] } : {}),
     }),
     transformItem: (item) => ({ ...item, updatedAt: item.updated_at ?? null }),
   },
