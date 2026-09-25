@@ -390,3 +390,123 @@ describe('TimePicker controlled vs uncontrolled', () => {
     expect(chips[1]).toHaveAttribute('data-state', 'active')
   })
 })
+
+describe('TimePicker scrolls the selected slot into view', () => {
+  const SLOT_HEIGHT = 36
+  const LIST_HEIGHT = 280
+  const scrollTops = new WeakMap<Element, number>()
+  const restores: Array<() => void> = []
+
+  function isSlotList(element: Element) {
+    return element.getAttribute('data-slot') === 'time-picker-slots'
+  }
+
+  beforeEach(() => {
+    const rectSpy = jest
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function (this: HTMLElement) {
+        if (isSlotList(this)) return { top: 0, height: LIST_HEIGHT } as DOMRect
+        const list = this.closest('[data-slot="time-picker-slots"]')
+        if (this.getAttribute('data-slot') === 'time-picker-slot' && list) {
+          const index = Array.from(list.querySelectorAll('[data-slot="time-picker-slot"]')).indexOf(this)
+          const offset = index * SLOT_HEIGHT - (scrollTops.get(list) ?? 0)
+          return { top: offset, height: SLOT_HEIGHT } as DOMRect
+        }
+        return { top: 0, height: 0 } as DOMRect
+      })
+    const heightSpy = jest
+      .spyOn(HTMLElement.prototype, 'clientHeight', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        return isSlotList(this) ? LIST_HEIGHT : 0
+      })
+    const originalScrollTop = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop')
+    Object.defineProperty(Element.prototype, 'scrollTop', {
+      configurable: true,
+      get(this: Element) {
+        return scrollTops.get(this) ?? 0
+      },
+      set(this: Element, next: number) {
+        scrollTops.set(this, next)
+      },
+    })
+    restores.push(() => {
+      rectSpy.mockRestore()
+      heightSpy.mockRestore()
+      if (originalScrollTop) Object.defineProperty(Element.prototype, 'scrollTop', originalScrollTop)
+    })
+  })
+
+  afterEach(() => {
+    while (restores.length) restores.pop()?.()
+  })
+
+  function slotListIn(root: ParentNode) {
+    const list = root.querySelector('[data-slot="time-picker-slots"]')
+    if (!list) throw new Error('[internal] slot list not rendered')
+    return list as HTMLElement
+  }
+
+  const centredScrollTop = (index: number) => index * SLOT_HEIGHT - (LIST_HEIGHT - SLOT_HEIGHT) / 2
+
+  it('centres the selected slot of a full-day 15-minute list when the popover opens', () => {
+    renderWithI18n(
+      <TimePicker
+        value="10:00"
+        onChange={() => {}}
+        startTime="00:00"
+        endTime="23:45"
+        intervalMinutes={15}
+        trigger={<button type="button">open</button>}
+        defaultOpen
+      />,
+    )
+    const list = slotListIn(document)
+    expect(list.querySelectorAll('[data-slot="time-picker-slot"]')).toHaveLength(96)
+    expect(list.scrollTop).toBe(centredScrollTop(40))
+  })
+
+  it('keeps the list at the top when no value is set', () => {
+    const { container } = renderWithI18n(
+      <TimePicker startTime="00:00" endTime="23:45" intervalMinutes={15} />,
+    )
+    expect(slotListIn(container).scrollTop).toBe(0)
+  })
+
+  it('keeps the list at the top when the value is off the slot grid', () => {
+    const { container } = renderWithI18n(
+      <TimePicker defaultValue="10:07" startTime="00:00" endTime="23:45" intervalMinutes={15} />,
+    )
+    expect(slotListIn(container).scrollTop).toBe(0)
+  })
+
+  it('does not move the list when the selected slot is already visible', () => {
+    const { container } = renderWithI18n(
+      <TimePicker defaultValue="10:00" startTime="00:00" endTime="23:45" intervalMinutes={15} />,
+    )
+    const list = slotListIn(container)
+    const initial = list.scrollTop
+    const slots = list.querySelectorAll('[data-slot="time-picker-slot"]')
+    fireEvent.click(slots[41])
+    expect(slots[41]).toHaveAttribute('data-state', 'active')
+    expect(list.scrollTop).toBe(initial)
+  })
+
+  it('scrolls to a controlled value that changes to an off-screen slot', () => {
+    const { container, rerender } = renderWithI18n(
+      <TimePicker value="01:00" onChange={() => {}} startTime="00:00" endTime="23:45" intervalMinutes={15} />,
+    )
+    const list = slotListIn(container)
+    expect(list.scrollTop).toBe(0)
+    rerender(
+      <TimePicker value="18:00" onChange={() => {}} startTime="00:00" endTime="23:45" intervalMinutes={15} />,
+    )
+    expect(list.scrollTop).toBe(centredScrollTop(72))
+  })
+
+  it('scrolls to the selection even when the picker is disabled', () => {
+    const { container } = renderWithI18n(
+      <TimePicker defaultValue="10:00" disabled startTime="00:00" endTime="23:45" intervalMinutes={15} />,
+    )
+    expect(slotListIn(container).scrollTop).toBe(centredScrollTop(40))
+  })
+})
