@@ -5,6 +5,7 @@ import {
   taskPrioritySchema,
   taskReminderSchema,
 } from './task-primitives'
+import { workflowMappingSchema } from './mapping-schemas'
 
 /**
  * Per-type activity config schemas for the Activity Registry (spec
@@ -175,7 +176,7 @@ export const invokeAgentConfigSchema = z.object({
   // result envelope (kind / disposition / proposalId / proposalPayload / data).
   // Mirrors SUB_WORKFLOW's outputMapping. When omitted, the engine writes the
   // legacy fixed keys (disposition / agentProposalId / proposalPayload).
-  outputMapping: z.record(z.string(), z.string()).optional(),
+  outputMapping: workflowMappingSchema.optional(),
   // Optional business-record descriptor ("what this process is about"), static
   // or {{context.*}}-interpolated like the rest of the config. Forwarded opaquely
   // to the agent_orchestrator bridge (additive; the enterprise module validates

@@ -33,6 +33,7 @@ import { logWorkflowEvent } from './event-logger'
 import * as stepHandler from './step-handler'
 import { branchToken, mergeTokenContext, type ExecutionToken } from './execution-token'
 import { WORKFLOW_ERROR_CONTEXT_KEY, buildErrorContextEntry } from './error-routing'
+import { isSafeMappingPath, safeGetNestedValue } from './safe-mapping-path'
 
 export interface AdvanceBranchesResult {
   outcome: 'joined' | 'waiting' | 'failed'
@@ -105,15 +106,22 @@ interface ParallelContext {
   userId?: string
 }
 
+export function applyParallelJoinOutputMapping(
+  context: Record<string, any>,
+  outputMapping: Record<string, string>,
+): void {
+  for (const [topKey, sourcePath] of Object.entries(outputMapping)) {
+    if (topKey === 'branches' || !isSafeMappingPath(topKey)) continue
+    const value = safeGetNestedValue(context, sourcePath)
+    if (value !== undefined) context[topKey] = value
+  }
+}
+
 function normalizeWorkflowUserId(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   if (!trimmed || trimmed.startsWith('trigger:')) return null
   return trimmed
-}
-
-function getNestedValue(obj: any, path: string): any {
-  return path.split('.').reduce((current, key) => (current == null ? undefined : current[key]), obj)
 }
 
 /**
@@ -625,11 +633,7 @@ async function fireJoin(
   // mapping cannot clobber the per-branch namespaces.
   const outputMapping: Record<string, string> | undefined = joinStep?.config?.outputMapping
   if (outputMapping) {
-    for (const [topKey, sourcePath] of Object.entries(outputMapping)) {
-      if (topKey === 'branches') continue
-      const value = getNestedValue(nextContext, sourcePath)
-      if (value !== undefined) nextContext[topKey] = value
-    }
+    applyParallelJoinOutputMapping(nextContext, outputMapping)
   }
 
   // Park the root token ON the JOIN step (not its successor) and let the
