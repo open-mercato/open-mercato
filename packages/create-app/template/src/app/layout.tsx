@@ -5,6 +5,7 @@ import { AppProviders } from '@/components/AppProviders'
 
 import { THEME_INIT_SCRIPT } from '@open-mercato/ui/theme/theme-init-script'
 import { detectLocale, loadDictionary, resolveSupportedLocalesForRequest } from '@open-mercato/shared/lib/i18n/server'
+import { getLocaleDirection } from '@open-mercato/shared/lib/i18n/direction'
 import { resolveForcedLocale } from '@open-mercato/shared/lib/i18n/locale'
 import { resolveDevRuntimeLayoutConfig } from '@open-mercato/shared/lib/dev-runtime/layout'
 import { DevRuntimeDiagnosticsBanner } from '@open-mercato/ui/backend/dev/DevRuntimeDiagnosticsBanner'
@@ -28,12 +29,15 @@ export default async function RootLayout({
   const supportedLocales = await resolveSupportedLocalesForRequest()
   const locale = await detectLocale({ supportedLocales })
   const dict = await loadDictionary(locale)
+  // Rendered onto <html dir> below and handed to the client provider, so the
+  // document and every mirroring component agree on one value.
+  const direction = getLocaleDirection(locale)
   const localeLocked = resolveForcedLocale(process.env) !== null
   const demoModeEnabled = process.env.DEMO_MODE !== 'false'
   const noticeBarsEnabled = process.env.OM_INTEGRATION_TEST !== 'true'
   const devRuntime = resolveDevRuntimeLayoutConfig(process.env)
   return (
-    <html lang={locale} suppressHydrationWarning>
+    <html lang={locale} dir={direction} suppressHydrationWarning>
       <head>
         {devRuntime.meta.map((meta) => (
           <meta key={meta.name} name={meta.name} content={meta.content} />
@@ -41,7 +45,7 @@ export default async function RootLayout({
       </head>
       <body className="antialiased" suppressHydrationWarning data-gramm="false">
         <script id="om-theme-init" dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
-        <AppProviders locale={locale} dict={dict} localeLocked={localeLocked} supportedLocales={supportedLocales} demoModeEnabled={demoModeEnabled} noticeBarsEnabled={noticeBarsEnabled}>
+        <AppProviders locale={locale} dict={dict} localeLocked={localeLocked} supportedLocales={supportedLocales} direction={direction} demoModeEnabled={demoModeEnabled} noticeBarsEnabled={noticeBarsEnabled}>
           {devRuntime.enabled ? <DevRuntimeReporter /> : null}
           {devRuntime.bannerEnabled ? <DevRuntimeDiagnosticsBanner /> : null}
           {children}

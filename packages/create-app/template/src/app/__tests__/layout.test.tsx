@@ -114,4 +114,28 @@ describe('RootLayout', () => {
     expect(appProviders?.props.demoModeEnabled).toBe(false)
     expect(appProviders?.props.noticeBarsEnabled).toBe(true)
   })
+
+  it('renders the active locale direction on the document element', async () => {
+    const { default: RootLayout } = await import('../layout')
+    const tree = await RootLayout({ children: 'child' })
+    const html = findElementByType(tree, 'html') as unknown as ReactElement<{ dir?: string }> | null
+
+    // Every page inherits this attribute; without it a right-to-left dictionary
+    // renders as a left-to-right document.
+    expect(html?.props.dir).toBe('ltr')
+  })
+
+  it('renders dir="rtl" for Arabic and hands the same value to the client provider', async () => {
+    const { default: RootLayout } = await import('../layout')
+    const { AppProviders } = await import('@/components/AppProviders')
+    const i18nServer = await import('@open-mercato/shared/lib/i18n/server')
+    ;(i18nServer.detectLocale as jest.Mock).mockResolvedValueOnce('ar')
+
+    const tree = await RootLayout({ children: 'child' })
+    const html = findElementByType(tree, 'html') as unknown as ReactElement<{ dir?: string }> | null
+    const appProviders = findElementByType(tree, AppProviders)
+
+    expect(html?.props.dir).toBe('rtl')
+    expect(appProviders?.props.direction).toBe('rtl')
+  })
 })

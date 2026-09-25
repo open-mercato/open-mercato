@@ -1,6 +1,7 @@
 "use client"
 import { createContext, useContext, useMemo, type PropsWithChildren } from 'react'
 import type { Locale } from './config'
+import { getLocaleDirection, type TextDirection } from './direction'
 import { getSupportedLocales } from './locale-set'
 
 export type Dict = Record<string, string>
@@ -15,6 +16,12 @@ export type TranslateFn = (
 
 export type I18nContextValue = {
   locale: Locale
+  /**
+   * The direction `locale` renders in. A server layout puts the same value on
+   * `<html dir>`, so a client component that needs to mirror layout reads it
+   * here instead of inspecting the DOM.
+   */
+  direction: TextDirection
   t: TranslateFn
   /** True when the locale is pinned via `OM_FORCE_LOCALE`; UI should hide switchers. */
   localeLocked: boolean
@@ -55,7 +62,7 @@ function format(template: string, params?: TranslateParams) {
   })
 }
 
-export function I18nProvider({ children, locale, dict, localeLocked, supportedLocales }: PropsWithChildren<{ locale: Locale; dict: Dict; localeLocked?: boolean; supportedLocales?: readonly Locale[] }>) {
+export function I18nProvider({ children, locale, dict, localeLocked, supportedLocales, direction }: PropsWithChildren<{ locale: Locale; dict: Dict; localeLocked?: boolean; supportedLocales?: readonly Locale[]; direction?: TextDirection }>) {
   // A nested provider (the backend layout mounts one inside the root layout's)
   // shadows the whole subtree, so a prop it does not pass would otherwise be
   // silently downgraded to the registry default for every consumer below it.
@@ -64,6 +71,10 @@ export function I18nProvider({ children, locale, dict, localeLocked, supportedLo
   const outer = useContext(I18nContext)
   const value = useMemo<I18nContextValue>(() => ({
     locale,
+    // Derived from this provider's own locale rather than inherited from an
+    // enclosing one: a nested mount that switches locale has to switch direction
+    // with it. The explicit prop — what the root layout passes — always wins.
+    direction: direction ?? getLocaleDirection(locale),
     localeLocked: localeLocked ?? outer?.localeLocked ?? false,
     // Falls back to the process-local registry so a provider mounted without the
     // prop and without an enclosing one (tests, standalone renders) behaves
@@ -83,7 +94,7 @@ export function I18nProvider({ children, locale, dict, localeLocked, supportedLo
       const template = dict[key] ?? fallback ?? key
       return format(template, resolvedParams)
     },
-  }), [locale, dict, localeLocked, supportedLocales, outer])
+  }), [locale, dict, localeLocked, supportedLocales, direction, outer])
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
 }
 
@@ -118,6 +129,16 @@ export function useLocale() {
 export function useOptionalLocale(): Locale | undefined {
   const ctx = useContext(I18nContext)
   return ctx?.locale
+}
+
+/**
+ * The text direction of the active locale, for components that have to mirror
+ * layout (icons, chevrons, timelines) or pass a direction to a primitive.
+ * Falls back to `ltr` outside a provider so callers can render unconditionally.
+ */
+export function useDirection(): TextDirection {
+  const ctx = useContext(I18nContext)
+  return ctx?.direction ?? 'ltr'
 }
 
 /**
