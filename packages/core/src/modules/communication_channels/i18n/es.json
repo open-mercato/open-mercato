@@ -106,6 +106,8 @@
   "communication_channels.profile.flash.connectedWithProvider": "Canal conectado ({provider}).",
   "communication_channels.profile.flash.error": "No se pudo conectar el canal.",
   "communication_channels.profile.flash.errorWithCode": "No se pudo conectar el canal — {code}.",
+  "communication_channels.profile.flash.replayedState": "Este enlace de conexión ya se utilizó — inicia la conexión de nuevo.",
+  "communication_channels.profile.flash.stateStoreUnavailable": "Un error del servidor impidió completar la conexión. Inténtalo de nuevo en un momento.",
   "communication_channels.profile.group": "Perfil",
   "communication_channels.profile.importHistory.cancel": "Cancelar",
   "communication_channels.profile.importHistory.description": "Recupera mensajes anteriores que este canal no vio al conectarse. Los filtros restringen la búsqueda en el servidor.",

@@ -8,10 +8,12 @@ import { getChannelAdapter } from '../../../../../lib/adapter-registry-singleton
 import { resolveOAuthClientCredentials } from '../../../../../lib/oauth-client-config'
 import {
   COMMUNICATION_CHANNELS_OAUTH_STATE_COOKIE_NAME,
+  consumeOAuthStateOnce,
   DEFAULT_OAUTH_RETURN_URL,
   normalizeOAuthReturnUrl,
   OAuthStateError,
   verifyOAuthState,
+  type OAuthStateConsumeStore,
 } from '../../../../../lib/oauth-state'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -138,6 +140,33 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
 
   // Exchange the code via the adapter.
   const container = await createRequestContainer()
+
+  // Single-use consume: reject a captured valid cookie replayed within the TTL.
+  // Resolve cache after the container exists; missing DI is fail-closed for
+  // replay protection (treat as unavailable → still attempt crypto-only path
+  // would leave the hole open, so require cache).
+  // bootstrap.ts always registers 'cache' (even as undefined when both
+  // createCacheService attempts fail), so resolve() returns undefined rather
+  // than throwing. Guard on the shape instead of catching.
+  const resolved = (() => { try { return container.resolve('cache') } catch { return null } })()
+  if (
+    !resolved ||
+    typeof (resolved as OAuthStateConsumeStore).has !== 'function' ||
+    typeof (resolved as OAuthStateConsumeStore).set !== 'function'
+  ) {
+    return redirectWithFlash(req, returnUrl, { type: 'error', code: 'state_store_unavailable', provider })
+  }
+  const oauthStateStore = resolved as OAuthStateConsumeStore
+  try {
+    await consumeOAuthStateOnce(oauthStateStore, statePayload)
+  } catch (err) {
+    const errCode = err instanceof OAuthStateError ? err.code : 'invalid_state'
+    return redirectWithFlash(req, returnUrl, {
+      type: 'error',
+      code: errCode,
+      provider,
+    })
+  }
   const credentialsService = (() => {
     try {
       return container.resolve('integrationCredentialsService') as CredentialsServiceLike

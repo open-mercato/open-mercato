@@ -105,11 +105,21 @@ export default function ProfileCommunicationChannelsPage() {
                 'communication_channels.profile.connect.mailboxAlreadyConnected',
                 'This mailbox is already connected through another provider. Disconnect it first to reconnect it with a different one.',
               )
-            : flashCode
-              ? t('communication_channels.profile.flash.errorWithCode', 'Failed to connect channel — {code}.', {
-                  code: flashCode,
-                })
-              : t('communication_channels.profile.flash.error', 'Failed to connect channel.'),
+            : flashCode === 'replay'
+              ? t(
+                  'communication_channels.profile.flash.replayedState',
+                  'This connection link was already used — please start the connection again.',
+                )
+              : flashCode === 'state_store_unavailable'
+                ? t(
+                    'communication_channels.profile.flash.stateStoreUnavailable',
+                    'A server error prevented completing the connection. Please try again in a moment.',
+                  )
+                : flashCode
+                  ? t('communication_channels.profile.flash.errorWithCode', 'Failed to connect channel — {code}.', {
+                      code: flashCode,
+                    })
+                  : t('communication_channels.profile.flash.error', 'Failed to connect channel.'),
         'error',
       )
     }

@@ -106,6 +106,8 @@
   "communication_channels.profile.flash.connectedWithProvider": "채널이 연결되었습니다 ({provider}).",
   "communication_channels.profile.flash.error": "채널 연결에 실패했습니다.",
   "communication_channels.profile.flash.errorWithCode": "채널 연결에 실패했습니다 — {code}.",
+  "communication_channels.profile.flash.replayedState": "이 연결 링크는 이미 사용되었습니다. 연결을 다시 시작해 주세요.",
+  "communication_channels.profile.flash.stateStoreUnavailable": "서버 오류로 연결을 완료할 수 없습니다. 잠시 후 다시 시도해 주세요.",
   "communication_channels.profile.group": "프로필",
   "communication_channels.profile.importHistory.cancel": "취소",
   "communication_channels.profile.importHistory.description": "연결 시점에 확인되지 않았던 이전 메시지를 가져옵니다. 필터는 서버 측에서 검색 범위를 좁힙니다.",
