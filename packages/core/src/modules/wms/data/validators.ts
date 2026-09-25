@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { SITE_WAREHOUSE_ROLES } from '../lib/siteWarehouseRoles'
 
 const uuid = () => z.string().uuid()
 const numericQuantity = z.coerce.number().finite()
@@ -27,6 +28,7 @@ const inventoryMovementTypeSchema = z.enum([
   'return_receive',
 ])
 const inventoryMovementReferenceTypeSchema = z.enum(['po', 'so', 'transfer', 'manual', 'qc', 'rma'])
+export const siteWarehouseRoleSchema = z.enum(SITE_WAREHOUSE_ROLES)
 
 const metadataSchema = z.record(z.string(), z.unknown()).optional()
 
@@ -62,6 +64,43 @@ export const warehouseUpdateSchema = z
   .object({ id: uuid() })
   .merge(warehouseFieldsSchema.partial())
   .superRefine(enforcePrimaryRequiresActiveWarehouse)
+
+const siteMutableFieldsSchema = z.object({
+  code: z.string().trim().min(1).max(80),
+  name: z.string().trim().min(1).max(200),
+  isActive: z.boolean(),
+})
+
+export const SITE_MUTABLE_FIELD_REQUIRED = 'wms.sites.validation.mutableFieldRequired'
+
+export const siteCreateSchema = scopedSchema
+  .merge(siteMutableFieldsSchema)
+  .extend({ isActive: z.boolean().default(true) })
+export const siteUpdateSchema = z.object({ id: uuid() }).merge(siteMutableFieldsSchema.partial()).extend({
+  customFields: z.record(z.string(), z.unknown()).optional(),
+}).refine(
+  (value) =>
+    value.code !== undefined ||
+    value.name !== undefined ||
+    value.isActive !== undefined ||
+    Object.keys(value.customFields ?? {}).length > 0,
+  { message: SITE_MUTABLE_FIELD_REQUIRED },
+)
+
+export const siteWarehouseRoleCreateSchema = scopedSchema.extend({
+  siteId: uuid(),
+  warehouseId: uuid(),
+  role: siteWarehouseRoleSchema,
+  isDefault: z.boolean().optional(),
+}).strict()
+
+export const siteWarehouseRoleUpdateSchema = z.object({
+  id: uuid(),
+  warehouseId: uuid().optional(),
+  isDefault: z.boolean().optional(),
+}).strict().refine((value) => value.warehouseId !== undefined || value.isDefault !== undefined, {
+  message: SITE_MUTABLE_FIELD_REQUIRED,
+})
 
 export const warehouseZoneCreateSchema = scopedSchema.extend({
   warehouseId: uuid(),
@@ -327,6 +366,10 @@ export const inventoryMovementCreateSchema = scopedSchema.extend({
 
 export type WarehouseCreateInput = z.infer<typeof warehouseCreateSchema>
 export type WarehouseUpdateInput = z.infer<typeof warehouseUpdateSchema>
+export type SiteCreateInput = z.infer<typeof siteCreateSchema>
+export type SiteUpdateInput = z.infer<typeof siteUpdateSchema>
+export type SiteWarehouseRoleCreateInput = z.infer<typeof siteWarehouseRoleCreateSchema>
+export type SiteWarehouseRoleUpdateInput = z.infer<typeof siteWarehouseRoleUpdateSchema>
 export type WarehouseZoneCreateInput = z.infer<typeof warehouseZoneCreateSchema>
 export type WarehouseZoneUpdateInput = z.infer<typeof warehouseZoneUpdateSchema>
 export type WarehouseLocationCreateInput = z.infer<typeof warehouseLocationCreateSchema>

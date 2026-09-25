@@ -2,7 +2,7 @@
 title: "Use cryptographic randomness in auth-adjacent test helpers"
 modules: ["auth","cache","communication_channels"]
 areas: ["testing","integration","module-data"]
-topics: ["data-scoping","generated-files","filters"]
+topics: ["data-scoping","generated-files","filters","secret-lifecycle"]
 ---
 
 # Use cryptographic randomness in auth-adjacent test helpers
@@ -12,6 +12,8 @@ topics: ["data-scoping","generated-files","filters"]
 **Problem**: Even when randomness is only used for fixture uniqueness, `Math.random()` can be flagged when the generated value is used in security-sensitive paths such as login attempts, tokens, credentials, rate-limit identifiers, or authenticated request setup.
 
 **Rule**: Use `node:crypto` helpers (`randomInt`, `randomUUID`, or `randomBytes`) for any generated value that may touch auth, security checks, identifiers, request headers, or authenticated API calls. Reserve `Math.random()` only for explicitly non-security demo data, and prefer deterministic fixtures when uniqueness is not required.
+
+For a reusable test environment, generate an auth secret once per fresh environment and persist it with that environment's local state. Every process that attaches to the running server must reuse the persisted value; generating a new secret at module load makes clients and workers disagree with the server.
 
 **Applies to**: integration helpers, auth tests, rate-limit tests, fixture factories, temporary IDs, generated emails/passwords, and any test utility that feeds API requests or security-sensitive code paths.
 

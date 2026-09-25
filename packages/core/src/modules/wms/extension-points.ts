@@ -1,8 +1,19 @@
-import { dataTableExtensionHost, defineModuleExtensionPoints } from '@open-mercato/shared/modules/widgets/extension-points'
+import {
+  crudFormExtensionHost,
+  dataTableExtensionHost,
+  defineModuleExtensionPoints,
+} from '@open-mercato/shared/modules/widgets/extension-points'
 
 export const extensionPoints = defineModuleExtensionPoints({
   moduleId: 'wms',
   hosts: {
+    sitesTable: dataTableExtensionHost({ tableId: 'wms.sites.list', source: 'components/backend/SitesTableClient.tsx' }),
+    siteWarehouseRolesTable: dataTableExtensionHost({ tableId: 'wms.site_warehouse_roles.list', source: 'components/backend/SiteWarehouseRolesClient.tsx' }),
+    siteForm: crudFormExtensionHost({
+      entityId: 'wms:site',
+      spotId: 'crud-form:wms.site',
+      source: 'components/backend/SiteFormClient.tsx',
+    }),
     warehousesTable: dataTableExtensionHost({ tableId: 'wms.config.warehouses', source: 'components/backend/WmsConfigurationPage.tsx' }),
     zonesTable: dataTableExtensionHost({ tableId: 'wms.config.zones', source: 'components/backend/WmsConfigurationPage.tsx' }),
     locationsTable: dataTableExtensionHost({ tableId: 'wms.config.locations', source: 'components/backend/WmsConfigurationPage.tsx' }),

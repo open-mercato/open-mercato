@@ -39,8 +39,16 @@ export function mergeLabelCacheEntries(
   return next ?? prev
 }
 
-export async function loadWarehouseOptions(query?: string): Promise<CrudFieldOption[]> {
-  const params = buildQuery({ page: 1, pageSize: 50, search: query?.trim() || undefined })
+export async function loadWarehouseOptions(
+  query?: string,
+  options: { activeOnly?: boolean } = {},
+): Promise<CrudFieldOption[]> {
+  const params = buildQuery({
+    page: 1,
+    pageSize: 50,
+    search: query?.trim() || undefined,
+    isActive: options.activeOnly ? 'true' : undefined,
+  })
   const call = await apiCall<PagedResponse<{ id?: string | null; name?: string | null; code?: string | null }>>(
     `/api/wms/warehouses?${params}`,
   )
@@ -53,6 +61,10 @@ export async function loadWarehouseOptions(query?: string): Promise<CrudFieldOpt
       return { value, label }
     })
     .filter((option): option is CrudFieldOption => option !== null)
+}
+
+export async function loadActiveWarehouseOptions(query?: string): Promise<CrudFieldOption[]> {
+  return loadWarehouseOptions(query, { activeOnly: true })
 }
 
 // label=SKU so that fillCombobox helpers searching by SKU can match the dropdown button text

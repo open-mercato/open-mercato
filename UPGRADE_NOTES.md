@@ -288,6 +288,20 @@ fallback path). Downstream code that assumed a non-null team-member id must bran
 the `staff` module. Run `yarn mercato auth sync-role-acls` (or your app's equivalent) so existing
 admin/employee roles pick up the grant.
 
+### WMS Site-management permissions use the standard ACL sync path
+
+The WMS `supervisor` role now receives `wms.manage_sites` through the module's declared
+`setup.defaultRoleFeatures`, as it does for new tenants. Existing tenants must ensure the
+WMS roles exist and then sync the additive default grants after deployment:
+
+```bash
+yarn mercato seed:defaults
+yarn mercato auth sync-role-acls
+```
+
+The sync is idempotent and does not revoke existing grants or create roles. No database
+migration is needed; in particular, permissions are not granted by matching a mutable role
+name in SQL.
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 
 `Locale` in `@open-mercato/shared/lib/i18n/config` used to be a closed union literal. It is now
