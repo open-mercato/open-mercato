@@ -8,6 +8,7 @@ import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -46,6 +47,19 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
   })
   const [errors, setErrors] = React.useState<Record<string, string>>({})
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+
+  // Default the owner to the current user, matching the pipeline quick-create dialog so a
+  // deal created here does not start unowned (an unowned deal notifies nobody when it closes).
+  // useCurrentUserId resolves asynchronously, so this seeds once the id arrives and never
+  // overrides an explicit seed or a choice the user has already made.
+  const currentUserId = useCurrentUserId()
+  const ownerSeeded = React.useRef(false)
+  React.useEffect(() => {
+    if (ownerSeeded.current || !currentUserId) return
+    ownerSeeded.current = true
+    if (initialValues?.ownerUserId) return
+    setValues((current) => (current.ownerUserId ? current : { ...current, ownerUserId: currentUserId }))
+  }, [currentUserId, initialValues?.ownerUserId])
 
   const { pipelines, stages, loadStages } = useDealPipelines()
   const {
@@ -135,6 +149,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
         probability: typeof data.probability === 'number' ? data.probability : undefined,
         expectedCloseAt,
         description: data.description && data.description.length ? data.description : undefined,
+        ownerUserId: data.ownerUserId && data.ownerUserId.length ? data.ownerUserId : undefined,
         personIds: values.personIds.length ? values.personIds : undefined,
         companyIds: values.companyIds.length ? values.companyIds : undefined,
       }

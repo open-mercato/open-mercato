@@ -23,9 +23,65 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { useCurrencyDictionary } from './hooks/useCurrencyDictionary'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { normalizeCustomFieldSubmitValue } from './customFieldUtils'
+import { DealOwnerSelect, type DealOwnerOption } from './DealOwnerSelect'
+import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
+
+/**
+ * Owner control for the deal form. On a create form it self-assigns to the current user once
+ * that id resolves, matching the pipeline quick-create dialog so a new deal does not start
+ * unowned. The ref guard makes that a one-shot: it never overwrites a choice the user has
+ * already made, and never runs at all in edit mode (autoAssignUserId is empty there).
+ */
+function DealOwnerFieldControl({
+  value,
+  setValue,
+  initialOption,
+  disabled,
+  autoAssignUserId,
+}: {
+  value: string | null
+  setValue: (next: string) => void
+  initialOption: DealOwnerOption | null
+  disabled: boolean
+  autoAssignUserId: string
+}) {
+  const seeded = React.useRef(false)
+  React.useEffect(() => {
+    if (seeded.current || !autoAssignUserId) return
+    seeded.current = true
+    if (!value) setValue(autoAssignUserId)
+    // `value` is read but intentionally not a dependency: the ref makes this a one-shot seed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoAssignUserId, setValue])
+
+  return (
+    <DealOwnerSelect
+      value={value && value.length ? value : null}
+      onChange={(next) => setValue(next ?? '')}
+      initialOption={initialOption}
+      disabled={disabled}
+    />
+  )
+}
+
+/**
+ * Create-mode wrapper. The current-user lookup is a network round-trip, so it lives here
+ * rather than in DealForm itself — an edit form (the deal detail page, the common case)
+ * never self-assigns and must not pay for the request.
+ */
+function DealOwnerCreateField(props: {
+  value: string | null
+  setValue: (next: string) => void
+  initialOption: DealOwnerOption | null
+  disabled: boolean
+}) {
+  const currentUserId = useCurrentUserId()
+  return <DealOwnerFieldControl {...props} autoAssignUserId={currentUserId} />
+}
 
 export type DealFormBaseValues = {
   title: string
+  ownerUserId?: string | null
   status?: string | null
   pipelineStage?: string | null
   pipelineId?: string | null
@@ -70,6 +126,12 @@ export type DealFormProps = {
   showCancelAction?: boolean
   initialPipelineOptions?: PipelineOption[]
   initialPipelineStageOptions?: PipelineStageOption[]
+  /**
+   * The deal's current owner, so the owner picker shows a name immediately instead of
+   * waiting for the assignable-staff roster — and keeps showing one when that owner sits
+   * outside the fetched page or has left the roster.
+   */
+  initialOwnerOption?: DealOwnerOption | null
   /**
    * Injection spot id for the form-scoped record_locks widget (e.g.
    * `customers.deal`). Mirrors how people-v2/companies-v2 mount their save-time
@@ -274,6 +336,7 @@ const schema = z.object({
     .string()
     .max(DEAL_DESCRIPTION_MAX_LENGTH, 'customers.people.detail.deals.descriptionTooLong')
     .optional(),
+  ownerUserId: z.string().trim().optional(),
   personIds: z.array(z.string().trim().min(1)).optional(),
   companyIds: z.array(z.string().trim().min(1)).optional(),
 }).passthrough()
@@ -764,6 +827,7 @@ export function DealForm({
   showCancelAction = true,
   initialPipelineOptions,
   initialPipelineStageOptions,
+  initialOwnerOption,
   injectionSpotId,
   optimisticLockUpdatedAt,
 }: DealFormProps) {
@@ -1029,6 +1093,23 @@ export function DealForm({
       layout: 'half',
     },
     {
+      id: 'ownerUserId',
+      label: t('customers.deals.fields.owner', 'Owner'),
+      type: 'custom',
+      layout: 'half',
+      component: ({ value, setValue }) => {
+        const controlProps = {
+          value: typeof value === 'string' ? value : null,
+          setValue: (next: string) => setValue(next),
+          initialOption: initialOwnerOption ?? null,
+          disabled,
+        }
+        return mode === 'create'
+          ? <DealOwnerCreateField {...controlProps} />
+          : <DealOwnerFieldControl {...controlProps} autoAssignUserId="" />
+      },
+    } as CrudField,
+    {
       id: 'description',
       label: t('customers.people.detail.deals.fields.description', 'Description'),
       type: 'textarea',
@@ -1074,7 +1155,7 @@ export function DealForm({
         />
       ),
     } as CrudField,
-  ], [currencyDictionaryLabels, fetchCurrencyOptions, resolvedCurrencyError, pipelines, pipelineStages, loadStagesForPipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, searchCompanies, searchPeople, t])
+  ], [currencyDictionaryLabels, fetchCurrencyOptions, resolvedCurrencyError, pipelines, pipelineStages, loadStagesForPipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, initialOwnerOption, mode, searchCompanies, searchPeople, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
     const nextGroups: CrudFormGroup[] = [
@@ -1082,7 +1163,7 @@ export function DealForm({
         id: 'details',
         title: t('customers.people.detail.deals.form.details', 'Deal details'),
         column: 1,
-        fields: ['title', 'status', 'pipelineId', 'pipelineStageId', 'valueAmount', 'valueCurrency', 'probability', 'expectedCloseAt', 'description'],
+        fields: ['title', 'status', 'pipelineId', 'pipelineStageId', 'valueAmount', 'valueCurrency', 'probability', 'expectedCloseAt', 'ownerUserId', 'description'],
       },
       ...(showAssociationsGroup
         ? [{
@@ -1140,6 +1221,10 @@ export function DealForm({
       probability: normalizeNumber(initialValues?.probability ?? null),
       expectedCloseAt: toDateInputValue(initialValues?.expectedCloseAt ?? null),
       description: initialValues?.description ?? '',
+      // Seeded explicitly: this object is an allow-list, so an owner left out here is
+      // dropped before it ever reaches the form and the picker starts empty on a deal
+      // that actually has an owner.
+      ownerUserId: typeof initialValues?.ownerUserId === 'string' ? initialValues.ownerUserId : '',
       personIds: sanitizeIdList(initialValues?.personIds ?? resolveIdsFromSource(initialValues?.people)),
       companyIds: sanitizeIdList(initialValues?.companyIds ?? resolveIdsFromSource(initialValues?.companies)),
       ...Object.fromEntries(
@@ -1180,6 +1265,14 @@ export function DealForm({
           description: parsed.data.description && parsed.data.description.length
             ? parsed.data.description
             : undefined,
+          // `base` is an explicit allow-list: a field omitted here never reaches the API.
+          // An empty picker sends `null` rather than being omitted, because clearing an owner
+          // is supported (spec D5) and the update command distinguishes the two — an explicit
+          // null clears the column, an absent key leaves it untouched
+          // (`commands/deals.ts:862`). Both create and update schemas accept null.
+          ownerUserId: parsed.data.ownerUserId && parsed.data.ownerUserId.length
+            ? parsed.data.ownerUserId
+            : null,
           personIds,
           companyIds,
         }
