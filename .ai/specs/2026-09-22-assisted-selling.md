@@ -24,13 +24,13 @@
 - `assisted_selling`: thread, participants, messages, proposal metadata and lifecycle, per-store settings, commission attribution
 - The rep console in the backoffice, built from the existing `messages` and `detail` component families
 - The AI actor: one proposing tool, two runtimes, a budget and a rate limit
-- The buyer-facing thread API and its polling transport; the real-time transport in Phase 4
+- The buyer-facing thread API and its polling transport; the real-time transport in Phase 5
 - The presence disclosure obligation
 
 **Out of scope:**
 - A new chat module, and a `CartProposal*` entity family. Both are refused for reasons stated below, not merely omitted.
 - Quote acceptance. `SalesQuote`/`SalesQuoteLine`/`SalesQuoteAdjustment` ship today (`packages/core/src/modules/sales/data/entities.ts:827`), with a token-addressed `POST /api/sales/quotes/accept` that converts to an order in one transaction, and spec 9 §8 contracts the authenticated portal twin behind `portal.quotes.accept`. This spec fills the gap **before** a quote exists.
-- Co-browsing, screen sharing, voice. Presence in Phase 4 is "a rep is in this conversation", nothing more.
+- Co-browsing, screen sharing, voice. Presence (Phase 5) is "a rep is in this conversation", nothing more.
 - Any change to how a buyer or a staff member authenticates.
 
 **Concerns:**
@@ -181,7 +181,7 @@ The tool is declared `isMutation: true` in both cases. In the autonomous runtime
 
 ### 4.3 The AI actor is a principal, not a category
 
-The autonomous agent runs as an `auth.User` row carrying `kind: 'agent'` — the platform's existing notion of a non-human principal (`packages/core/src/modules/auth/data/entities.ts`, `UserKind = 'human' | 'agent'`). Consequences, all of them free:
+The autonomous agent runs as an `auth.User` row carrying `kind: 'agent'` — the platform's existing notion of a non-human principal (`packages/core/src/modules/auth/data/entities.ts`, `UserKind = 'human' | 'agent' | 'service'`). Consequences, all of them free:
 
 - It has an id, so `CartLine.added_by_actor_id` and `AssistedSellingAttribution.actor_id` are populated exactly as for a rep.
 - It has roles and features, so `cart.proposals.author` gates it through the same ACL as a human, and revoking it is a role change rather than a code change.
@@ -192,7 +192,7 @@ A service account with no row, or an enum value with no identity, would have giv
 
 ### 4.4 Buyer-scoped transport
 
-**v1 is polling, and the polling contract is written to be the same contract the stream will carry**, so Phase 4 is a transport swap and not a model change:
+**v1 is polling, and the polling contract is written to be the same contract the stream will carry**, so Phase 5 is a transport swap and not a model change:
 
 ```
 GET /api/assisted-selling/storefront/thread/events?since=<cursor>
@@ -235,7 +235,7 @@ Standard scoped columns throughout (`id`, `tenant_id`, `organization_id`, `creat
 |---|---|---|
 | `store_id` | uuid | `ecommerce.EcommerceStore.id` |
 | `buyer_cart_id` | uuid | The basket this conversation is about; `cart.Cart.id` |
-| `buyer_cart_token_hash` | text | `hashAuthToken(cartToken)`. The audience key for the buyer-facing routes and for the Phase 4 stream. **Never the raw token** |
+| `buyer_cart_token_hash` | text | `hashAuthToken(cartToken)`. The audience key for the buyer-facing routes and for the Phase 5 stream. **Never the raw token** |
 | `customer_id` | uuid, nullable | Set once the buyer is identified |
 | `customer_user_id` | uuid, nullable | `customer_accounts.CustomerUser.id`; NULL for a guest |
 | `status` | text | `open \| closed` |
@@ -482,7 +482,7 @@ loop: {
 
 plus `ai_max_proposals_per_thread_per_hour` enforced by the command itself. The budget bounds one turn; the per-thread limit bounds a conversation; neither substitutes for the other (R4).
 
-The agent sets `untrustedInput: true`. Buyer-authored message text reaches the model, which is the case `moderation-policy.ts` describes as "a customer portal or public-widget surface" and for which that flag forces input moderation to `enforced`. No shipped agent sets it today; this one must.
+The agent sets `untrustedInput: true`. Buyer-authored message text reaches the model, which is the case the `untrustedInput` field documents as "a customer portal or public-widget surface" (`ai-agent-definition.ts`) and for which `moderation-policy.ts` forces input moderation to `enforced`. No shipped agent sets it today; this one must.
 
 ### 6.6 Terminal states are written by a subscriber
 
@@ -640,7 +640,7 @@ Provider outage, budget exhausted, moderation refusal. The thread continues; the
 
 Shipping in the same change, per `.ai/qa/AGENTS.md`. Self-contained: fixtures created in setup through the API, removed in teardown, no reliance on seeded data.
 
-**Every API path.** Each of the twelve staff routes and four buyer routes — counting `GET` and `PUT /settings/:storeId` separately — asserted for: happy path; tenant isolation; cross-tenant rejection; a missing or insufficient ACL feature (`403`); an absent principal where one is required (`401`); optimistic-lock conflict on the mutating routes; and rate-limit enforcement on the four public ones.
+**Every API path.** Each of the thirteen staff routes and four buyer routes — counting `GET` and `PUT /settings/:storeId` separately — asserted for: happy path; tenant isolation; cross-tenant rejection; a missing or insufficient ACL feature (`403`); an absent principal where one is required (`401`); optimistic-lock conflict on the mutating routes; and rate-limit enforcement on the four public ones.
 
 **Pricing identity (R1):**
 - A rep whose own resolution differs from the buyer's — different price kind, different group, different currency display mode — authors a proposal; every line's `unit_price_net`, `tax_rate` and `price_row_id` are byte-identical to the buyer's own resolution of the same products
@@ -824,4 +824,4 @@ Initial specification, written against [ADR-10](./2026-08-14-ecommerce-suite-roa
 - **`AI_PENDING_ACTION_DEFAULT_TTL_SECONDS` is 900 s**, sized for an employee watching a chat stream. Rather than raise a platform-wide env var governing every pending action in the system, §6.4 makes an expired draft one-click re-proposable — and a fresh price after fifteen minutes is what the buyer should be shown anyway.
 - **`ai_proposals_require_rep_approval` selects a runtime, not just a gate** (§4.2). `prepareMutation` needs a staff context, so the employee approval plane is structurally unreachable in the autonomous case — not by policy, but because `getAuthFromRequest` rejects customer-audience sessions outright.
 
-**Decisions taken at the Open Questions gate**, recorded so a later reader sees they were chosen rather than defaulted: the thread lives in a new `assisted_selling` module (not `customer_accounts`, not `cart`); v1 polls and real-time lands in Phase 5 as pure transport; acceptance is a pre-flight preview plus a re-resolving confirm, on the `resolutionToken` shape spec 9 §7.3 already fixed for reorder preview; proposals expire after a configurable 72 h and remain readable as history; attribution is per line, in this module, written at conversion; AI drafts reach the buyer directly by default, with no rep suppression window, and `true` on the flag routes them through the shipped `AiPendingAction` plane; and the merge-visibility fix ships with `cart` Phase 3 rather than with this feature, because the defect it closes predates it.
+**Decisions taken at the Open Questions gate**, recorded so a later reader sees they were chosen rather than defaulted: the thread lives in a new `assisted_selling` module (not `customer_accounts`, not `cart`); v1 polls and real-time lands in Phase 5 as pure transport; acceptance is a pre-flight preview plus a re-resolving confirm, on the `resolutionToken` shape spec 9 §7.3 already fixed for shopping-list conversion; proposals expire after a configurable 72 h and remain readable as history; attribution is per line, in this module, written at conversion; AI drafts reach the buyer directly by default, with no rep suppression window, and `true` on the flag routes them through the shipped `AiPendingAction` plane; and the merge-visibility fix ships with `cart` Phase 3 rather than with this feature, because the defect it closes predates it.

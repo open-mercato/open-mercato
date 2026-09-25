@@ -1,6 +1,6 @@
 # Assisted Selling Rep Console interactive backend prototype
 
-This directory contains a static, pre-implementation prototype derived from `.ai/specs/2026-09-22-assisted-selling.md.reqcopy`.
+This directory contains a static, pre-implementation prototype derived from [`.ai/specs/2026-09-22-assisted-selling.md`](../../specs/2026-09-22-assisted-selling.md).
 
 ## Review
 
