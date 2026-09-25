@@ -21,6 +21,8 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   useScheduleFormState,
   FIELD_VISIBILITY,
+  isDateRequired,
+  isTimeRequired,
   getFieldLabel,
   DateTimeFields,
   ParticipantsField,
@@ -365,8 +367,10 @@ export function ScheduleActivityDialog({
   const trimmedDate = state.date.trim()
   const trimmedStartTime = state.startTime.trim()
   const trimmedCallPhone = callPhoneNumber.trim()
-  const isDateMissing = !trimmedDate
-  const isTimeMissing = !state.allDay && !trimmedStartTime
+  // Only calendar-bound types must be scheduled; a task may stay an undated
+  // backlog item, so blocking its save on an empty date was wrong (#5941).
+  const isDateMissing = isDateRequired(state.activityType) && !trimmedDate
+  const isTimeMissing = isTimeRequired(state.activityType) && !state.allDay && !trimmedStartTime
   const isSubmitDisabled =
     state.saving ||
     !state.title.trim() ||
@@ -399,9 +403,13 @@ export function ScheduleActivityDialog({
     }
     state.setSaving(true)
     try {
-      const scheduledAt = state.allDay
-        ? new Date(`${state.date}T00:00:00`).toISOString()
-        : new Date(`${state.date}T${state.startTime}:00`).toISOString()
+      // An undated activity (a backlog task) has no moment to compute — sending
+      // an explicit null clears `scheduled_at` instead of posting an
+      // `Invalid Date` built from an empty date string (#5941).
+      const timeForPayload = state.allDay ? '00:00' : trimmedStartTime
+      const scheduledAt = trimmedDate
+        ? new Date(`${trimmedDate}T${timeForPayload || '00:00'}:00`).toISOString()
+        : null
 
       const recurrenceRule = state.recurrenceEnabled
         ? buildRecurrenceRule(state.recurrenceDays, state.recurrenceEndType, state.recurrenceCount, state.recurrenceEndDate)
@@ -422,8 +430,8 @@ export function ScheduleActivityDialog({
         title: state.title.trim(),
         body: state.description.trim() || null,
         status: 'planned',
-        date: trimmedDate,
-        time: state.allDay ? '00:00' : trimmedStartTime,
+        date: trimmedDate || null,
+        time: trimmedDate ? timeForPayload || null : null,
         phoneNumber: state.activityType === 'call' ? phoneNumberForPayload : undefined,
         // Only tasks expose the priority control, so other types leave the column
         // untouched rather than clearing it on a type switch (#5943).
@@ -759,6 +767,17 @@ export function ScheduleActivityDialog({
               value={state.description}
               onChange={state.setDescription}
               isMarkdownEnabled={state.markdownEnabled}
+              // Email bodies are plain text from other mail clients, not Markdown; `<address>`
+              // or `<url>` tokens in them break the MDX editor (#5903).
+              disableMarkdown={state.activityType === 'email'}
+              // The plain textarea defaults to 3 hidden-overflow rows, which
+              // would cut off quoted replies; give email bodies room and a scrollbar.
+              rows={state.activityType === 'email' ? 8 : undefined}
+              textareaClassName={
+                state.activityType === 'email'
+                  ? 'w-full resize-y overflow-y-auto rounded-lg border border-muted-foreground/20 bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                  : undefined
+              }
               height={120}
               placeholder={t('customers.schedule.descriptionPlaceholder', 'Add details...')}
             />

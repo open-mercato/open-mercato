@@ -51,17 +51,29 @@ describe('useScheduleFormState — edit-mode date/time seed precedence (#5939)',
     })
   })
 
-  it('falls back to today when the record carries neither timestamp', () => {
-    const now = new Date()
-    expect(seed(editData({ scheduledAt: null, occurredAt: null })).date).toBe(
-      `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
-    )
-  })
+  describe.each([
+    ['midday', new Date(2026, 8, 11, 12, 0, 0, 0), { date: '2026-09-11', startTime: '12:30' }],
+    ['late evening, past the last slot of the day', new Date(2026, 8, 11, 23, 45, 0, 0), { date: '2026-09-12', startTime: '09:00' }],
+  ])('with the clock pinned at %s', (_label, now, forwardDefault) => {
+    beforeEach(() => {
+      jest.useFakeTimers().setSystemTime(now)
+    })
 
-  it('falls back to today when the seeded timestamp is unparseable', () => {
-    const now = new Date()
-    expect(seed(editData({ scheduledAt: 'not-a-date' })).date).toBe(
-      `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
-    )
+    afterEach(() => {
+      jest.useRealTimers()
+    })
+
+    it('seeds the forward-looking default when a meeting carries neither timestamp (#5940)', () => {
+      expect(seed(editData({ interactionType: 'meeting', scheduledAt: null, occurredAt: null }))).toEqual(forwardDefault)
+    })
+
+    it('seeds the forward-looking default when a meeting timestamp is unparseable (#5940)', () => {
+      expect(seed(editData({ interactionType: 'meeting', scheduledAt: 'not-a-date' }))).toEqual(forwardDefault)
+    })
+
+    it('leaves an undated or unparseable task blank instead of inventing a due date (#5941)', () => {
+      expect(seed(editData({ scheduledAt: null, occurredAt: null }))).toEqual({ date: '', startTime: '' })
+      expect(seed(editData({ scheduledAt: 'not-a-date' }))).toEqual({ date: '', startTime: '' })
+    })
   })
 })

@@ -78,6 +78,24 @@ describe('calculateGenerateWatchStructureChecksum', () => {
     expect(currentChecksum()).not.toBe(before)
   })
 
+  // A runtime.ts the watcher cannot see is the failure SPEC-072 exists to remove, reappearing in
+  // the dev loop: the registry is not regenerated, `Module.runtime` stays undefined, and the
+  // runtime never starts — with no error and no warning.
+  it('changes when a module runtime is added, edited and removed', () => {
+    const before = currentChecksum()
+    const runtimePath = path.join(pkgModule, 'runtime.ts')
+
+    write(runtimePath, 'export const runtime = { start: async () => {} }\n')
+    const afterAdd = currentChecksum()
+    expect(afterAdd).not.toBe(before)
+
+    write(runtimePath, 'export const runtime = { roles: ["worker"], start: async () => {} }\n')
+    expect(currentChecksum()).not.toBe(afterAdd)
+
+    fs.rmSync(runtimePath)
+    expect(currentChecksum()).toBe(before)
+  })
+
   it('changes when a discovered worker is added and removed', () => {
     const before = currentChecksum()
     const workerPath = path.join(pkgModule, 'workers', 'sync-customers.ts')

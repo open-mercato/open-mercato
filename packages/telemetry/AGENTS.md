@@ -29,13 +29,34 @@ off by default. Spec:
 - Keep metric labels low-cardinality. Tenant, organization, and user IDs belong
   on span attributes, never metric labels.
 - Apply redaction at the provider boundary as well as at facade call sites.
+- Report every recorded error: a `catch` that does anything other than rethrow
+  (persists a row, sets a `failed` status, dead-letters an item, returns a
+  fallback) MUST also reach `reportError` — directly, or through a chokepoint that
+  does (`integrationLogService.write` at `level: 'error'`, the queue failure
+  paths). `logger.error` alone does NOT satisfy this: no span exception, no
+  `om.errors` sample, no fingerprint. Full policy:
+  `apps/docs/docs/framework/runtime/error-reporting.mdx`.
+- Pass `code` on every `reportError` call: a stable, enumerated `module.reason`
+  token, never an interpolated string. It is a metric label and the fingerprint
+  backends group on — ids go in `attributes`. The funnel narrows it through
+  `groupableCode` from `@open-mercato/shared/lib/telemetry/error-code` and DROPS
+  anything off-shape, because metric labels skip redaction; a chokepoint taking a
+  `code` from outside the framework (an adapter's `data.errorCode`, a module's
+  `integrationLogService.write({ code })`) narrows it with its OWN fallback first,
+  so the error still lands in a group rather than none.
+- Put the CAUSE in the reported message. A constant message with the reason only
+  in `payload` reports an error nobody can act on, because the payload stays in
+  the database.
 
 ## Ask First
 
 - Ask before adding a built-in metric, auto-instrumentation, production
   dependency, or new global hook.
 - OpenTelemetry packages must stay optional and may only be imported by
-  `provider/otlp-provider.ts`.
+  `provider/otlp-provider.ts` (Node SDK) and `browser/BrowserTelemetry.tsx` (web
+  SDK). Both must load them through a dynamic `import()` so a disabled
+  deployment never resolves them. Adding a third runtime importer needs
+  approval; `import type` is erased and unrestricted.
 - Ask before changing the `pg` `enhancedDatabaseReporting: false` guard or
   broadening the accepted inbound-trace trust model.
 
@@ -43,12 +64,30 @@ off by default. Spec:
 
 - Never emit PII, credentials, record content, SQL parameters, request bodies,
   or arbitrary thrown-object properties.
+  The integration-log tee reports a row's message, `code` and ids only —
+  `integration_logs.payload` never leaves the database.
+- Never add sampling, throttling or suppression to `reportError`. Volume belongs
+  to the collector and the backend, which drop where the drop is visible; a
+  facade-level limiter is the only one that loses an error at the source.
+- Never call a provider-supplied hook unguarded from the facade. `reportError`
+  runs inside `catch` blocks that still have to rethrow or return a 500, so a
+  third-party sink that throws must degrade to a warning, not escape.
 - Never trust `traceparent` or `x-original-traceparent` at an inbound/global
   boundary unless `TELEMETRY_TRUST_INBOUND_TRACE=true`.
 - Never store provider, shared-logger extension, or runtime bridge state only in
   a module local; cross-bundle state uses `globalThis` symbol registries.
 - Never replace provider-owned span delegation with a finished-span sink.
-- Never import this package from a client component.
+- Never import this package from a client component, except the dedicated
+  `@open-mercato/telemetry/browser` entry — the only client-safe surface. It must
+  stay env-free, must never import the server facade (`node:async_hooks`), and
+  must keep the OTel web SDK behind a dynamic `import()` gated on a non-null
+  server-resolved config.
+- Never move an env-reading or collector-credential helper into the `/browser`
+  entry; those belong to `@open-mercato/telemetry/browser/server`, which throws
+  on load in a browser.
+- Never expose the OTLP collector endpoint or its credential to the browser;
+  browser spans go through the same-origin `telemetry` module proxy, which adds
+  `OTEL_EXPORTER_OTLP_HEADERS` server-side.
 
 ## Architecture
 
@@ -69,6 +108,13 @@ host/queue shared runtime bridge ── absent while off
   registration.
 - `src/nextjs-config.ts`: build-time constants only; no runtime imports.
 - `src/nextjs.ts`: enabled runtime helper.
+- `src/browser/*`: browser RUM. `config.ts` (shared, env-free contract) and
+  `BrowserTelemetry.tsx` (boots the web SDK) form the client-safe `/browser`
+  entry; `server.ts` is the server-only `/browser/server` entry that reads env
+  and the collector credential. Off unless `TELEMETRY_BROWSER_ENABLED` is set
+  alongside an active backend.
+- `src/modules/telemetry/*`: the `telemetry` module — the authenticated,
+  rate-limited same-origin OTLP proxy (`POST /api/telemetry/browser-traces`).
 
 ## Validation
 

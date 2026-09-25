@@ -20,6 +20,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   registerAppDictionaryLoader: jest.fn(),
   detectLocale: jest.fn(async () => 'en'),
   loadDictionary: jest.fn(async () => ({ common: 'value' })),
+  resolveSupportedLocalesForRequest: jest.fn(async () => ['en', 'pl', 'es', 'de', 'ko']),
 }))
 
 jest.mock('@/components/AppProviders', () => ({
@@ -83,6 +84,21 @@ describe('RootLayout', () => {
     expect(appProviders).not.toBeNull()
     expect(appProviders?.props.demoModeEnabled).toBe(true)
     expect(appProviders?.props.noticeBarsEnabled).toBe(false)
+  })
+
+  it('resolves the served locale set on the server and hands it to the client provider', async () => {
+    const { default: RootLayout } = await import('../layout')
+    const { AppProviders } = await import('@/components/AppProviders')
+    const i18nServer = await import('@open-mercato/shared/lib/i18n/server')
+    const tree = await RootLayout({ children: 'child' })
+    const appProviders = findElementByType(tree, AppProviders)
+
+    // The client bundle can read neither the app registry nor tenant config, so
+    // the set has to travel down as a prop.
+    expect(appProviders?.props.supportedLocales).toEqual(['en', 'pl', 'es', 'de', 'ko'])
+    expect(i18nServer.detectLocale).toHaveBeenCalledWith({
+      supportedLocales: ['en', 'pl', 'es', 'de', 'ko'],
+    })
   })
 
   it('keeps notice bars enabled outside integration mode', async () => {
