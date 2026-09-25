@@ -1,6 +1,7 @@
 import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
 import { Notification } from '../data/entities'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveNotificationActionHref } from './safeHref'
 
 const logger = createLogger('notifications').child({ component: 'mapper' })
 
@@ -31,6 +32,7 @@ export function toNotificationDto(notification: Notification): NotificationDto {
       labelKey: action.labelKey,
       variant: action.variant,
       icon: action.icon,
+      href: resolveNotificationActionHref(action.href, notification.sourceEntityId),
     })) ?? [],
     primaryActionId: notification.actionData?.primaryActionId,
     sourceModule: notification.sourceModule,

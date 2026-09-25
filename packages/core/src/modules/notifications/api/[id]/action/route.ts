@@ -8,6 +8,7 @@ import {
   runGuardedNotificationWrite,
 } from '../../../lib/routeHelpers'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveNotificationActionHref } from '../../../lib/safeHref'
 
 export const metadata = {
   POST: { requireAuth: true },
@@ -41,7 +42,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const { notification, result } = guarded.result
 
     const action = notification.actionData?.actions?.find((a) => a.id === input.actionId)
-    const href = action?.href?.replace('{sourceEntityId}', notification.sourceEntityId ?? '')
+    const href = resolveNotificationActionHref(action?.href, notification.sourceEntityId)
 
     return Response.json({
       ok: true,

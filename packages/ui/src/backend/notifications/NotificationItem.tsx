@@ -108,6 +108,12 @@ export function NotificationItem({
 
   const handleAction = async (actionId: string, event?: React.MouseEvent) => {
     event?.stopPropagation()
+    if (notification.status === 'actioned') {
+      const actionHref = notification.actions.find((action) => action.id === actionId)?.href
+      const fallbackHref = actionHref ?? notification.linkHref
+      if (fallbackHref) router.push(fallbackHref)
+      return
+    }
     setExecuting(actionId)
     try {
       const result = await onExecuteAction(actionId)
@@ -127,6 +133,7 @@ export function NotificationItem({
     labelKey: action.labelKey ?? action.label,
     variant: action.variant as NotificationTypeAction['variant'],
     icon: action.icon,
+    href: action.href,
   }))
 
   if (CustomRenderer) {

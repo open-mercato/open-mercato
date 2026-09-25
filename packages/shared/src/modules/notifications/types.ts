@@ -165,6 +165,7 @@ export type NotificationDto = {
     labelKey?: string
     variant?: string
     icon?: string
+    href?: string
   }>
   primaryActionId?: string
   sourceModule?: string | null
