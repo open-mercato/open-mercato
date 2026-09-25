@@ -42,8 +42,8 @@ PR: #6472
 
 ### Phase 1: Port the dependency update
 
-- [ ] 1.1 Reproduce PR #6453's `yarn.lock` delta on top of `origin/develop` while preserving its dependency authorship.
-- [ ] 1.2 Confirm the resulting lockfile resolves both existing ranges to `baseline-browser-mapping` 2.11.25 with no unrelated changes.
+- [x] 1.1 Reproduce PR #6453's `yarn.lock` delta on top of `origin/develop` while preserving its dependency authorship. — 13d34cb0d
+- [x] 1.2 Confirm the resulting lockfile resolves both existing ranges to `baseline-browser-mapping` 2.11.25 with no unrelated changes. — 13d34cb0d
 
 ### Phase 2: Verify and hand off
 
