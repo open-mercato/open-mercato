@@ -400,7 +400,7 @@ export class TenantDataEncryptionService {
       if (shouldSkipLookup(tag)) continue
       if (this.inflightMaps.has(tag)) {
         const pending = this.inflightMaps.get(tag)!
-        const resolved = await pending
+        const resolved = await pending.catch(() => null)
         if (resolved) return this.applySystemDefault(resolved, key.entityId)
       }
       const mem = this.memoryCache.get(tag)
@@ -411,8 +411,12 @@ export class TenantDataEncryptionService {
       }
       const pending = this.fetchMap(candidate)
       this.inflightMaps.set(tag, pending)
-      const loaded = await pending
-      this.inflightMaps.delete(tag)
+      let loaded: EncryptionMapRecord | null
+      try {
+        loaded = await pending
+      } finally {
+        this.inflightMaps.delete(tag)
+      }
       if (!loaded) {
         recordMiss(tag)
         debug('🔍 encmap.miss', {
