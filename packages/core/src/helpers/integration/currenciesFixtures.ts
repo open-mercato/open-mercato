@@ -6,12 +6,27 @@ import { getTokenContext } from './generalFixtures';
 export async function createCurrencyFixture(
   request: APIRequestContext,
   token: string,
-  input: { code: string; name: string; symbol?: string },
+  input: {
+    code: string;
+    name: string;
+    symbol?: string;
+    // PR #6340 review, m11: without these, the currency always lands in the
+    // caller token's own home (organizationId, tenantId) — wrong when the
+    // caller is acting on behalf of a throwaway test tenant/org (e.g. a
+    // superadmin token creating fixtures scoped to a QA tenant). Falls back
+    // to the token's own scope, so existing callers are unaffected.
+    organizationId?: string;
+    tenantId?: string;
+    headers?: Record<string, string>;
+  },
 ): Promise<string> {
-  const { organizationId, tenantId } = getTokenContext(token);
+  const tokenScope = getTokenContext(token);
+  const organizationId = input.organizationId ?? tokenScope.organizationId;
+  const tenantId = input.tenantId ?? tokenScope.tenantId;
   const response = await apiRequest(request, 'POST', '/api/currencies/currencies', {
     token,
     data: { organizationId, tenantId, code: input.code, name: input.name, symbol: input.symbol ?? null },
+    headers: input.headers,
   });
   expect(response.ok(), `Failed to create currency fixture: ${response.status()}`).toBeTruthy();
   const body = (await response.json()) as { id?: string };
@@ -99,10 +114,14 @@ export async function deleteCurrenciesEntityIfExists(
   token: string | null,
   path: string,
   id: string | null,
+  opts?: { headers?: Record<string, string> },
 ): Promise<void> {
   if (!token || !id) return;
   try {
-    await apiRequest(request, 'DELETE', `${path}?id=${encodeURIComponent(id)}`, { token });
+    await apiRequest(request, 'DELETE', `${path}?id=${encodeURIComponent(id)}`, {
+      token,
+      headers: opts?.headers,
+    });
   } catch {
     return;
   }
