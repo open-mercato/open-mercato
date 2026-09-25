@@ -177,10 +177,11 @@ describe('DealForm owner submit payload', () => {
     expect(onSubmit.mock.calls[0][0].base).toMatchObject({ ownerUserId: 'user-7' })
   })
 
-  it('omits the owner rather than sending null when none is set, so a stored owner is left alone', async () => {
+  // Spec D5: an empty picker means "unassign", so it must send an explicit null. Omitting the
+  // key would leave the stored owner in place, which is exactly what clearing must not do.
+  it('sends null when the picker is empty, so clearing actually unassigns', async () => {
     const onSubmit = await submitWith({ ownerUserId: '' })
     await waitFor(() => expect(onSubmit).toHaveBeenCalled())
-    expect(onSubmit.mock.calls[0][0].base.ownerUserId).toBeUndefined()
-    expect(Object.values(onSubmit.mock.calls[0][0].base)).not.toContain(null)
+    expect(onSubmit.mock.calls[0][0].base.ownerUserId).toBeNull()
   })
 })

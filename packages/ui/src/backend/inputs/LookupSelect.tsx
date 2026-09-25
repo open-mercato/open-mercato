@@ -42,12 +42,6 @@ type LookupSelectProps = {
   disabled?: boolean
   loading?: boolean
   defaultOpen?: boolean
-  /**
-   * Whether the selection can be cleared back to `null`. Defaults to `true` so every
-   * existing caller keeps its clear affordance. Pass `false` for fields whose contract
-   * forbids an empty value, so the control cannot emit `onChange(null)` at all.
-   */
-  allowClear?: boolean
 }
 
 export function LookupSelect({
@@ -72,7 +66,6 @@ export function LookupSelect({
   disabled = false,
   loading: loadingProp = false,
   defaultOpen = false,
-  allowClear = true,
 }: LookupSelectProps) {
   const t = useT()
   const resolvedSearchPlaceholder = searchPlaceholder ?? placeholder ?? t('ui.lookupSelect.searchPlaceholder', 'Search…')
@@ -396,7 +389,7 @@ export function LookupSelect({
               )
             })}
           </div>
-          {value && !disabled && allowClear ? (
+          {value && !disabled ? (
             <Button
               type="button"
               variant="ghost"
@@ -424,19 +417,17 @@ export function LookupSelect({
           <span className="truncate text-sm font-medium text-foreground">
             {collapsedSelectionLabel}
           </span>
-          {allowClear ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="shrink-0 gap-1 text-sm font-normal"
-              disabled={disabled}
-              onClick={() => onChange(null)}
-            >
-              <X className="h-4 w-4" />
-              {resolvedClearLabel}
-            </Button>
-          ) : null}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="shrink-0 gap-1 text-sm font-normal"
+            disabled={disabled}
+            onClick={() => onChange(null)}
+          >
+            <X className="h-4 w-4" />
+            {resolvedClearLabel}
+          </Button>
         </div>
       ) : hasTyped ? (
         <p className="text-xs text-muted-foreground">

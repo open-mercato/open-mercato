@@ -60,7 +60,9 @@ describe('DealOwnerSelect', () => {
     await waitFor(() => expect(screen.getByText('Grace Hopper')).toBeTruthy())
   })
 
-  it('renders no clear affordance, so the owner cannot be emptied from the UI', () => {
+  // Spec D5: clearing an owner is supported, so the picker must offer the clear control and
+  // pass the null straight through — the forms turn it into `ownerUserId: null`.
+  it('offers a clear control when an owner is selected', () => {
     render(
       <DealOwnerSelect
         value="user-1"
@@ -69,10 +71,10 @@ describe('DealOwnerSelect', () => {
       />,
     )
 
-    expect(screen.queryByRole('button', { name: /clear selection/i })).toBeNull()
+    expect(screen.getAllByRole('button', { name: /clear selection/i }).length).toBeGreaterThan(0)
   })
 
-  it('never emits a null owner even if every rendered control is clicked', () => {
+  it('propagates a cleared selection as null so the owner can be unassigned', () => {
     const onChange = jest.fn()
     render(
       <DealOwnerSelect
@@ -82,9 +84,9 @@ describe('DealOwnerSelect', () => {
       />,
     )
 
-    for (const button of screen.queryAllByRole('button')) fireEvent.click(button)
+    fireEvent.click(screen.getAllByRole('button', { name: /clear selection/i })[0])
 
-    expect(onChange).not.toHaveBeenCalledWith(null)
+    expect(onChange).toHaveBeenCalledWith(null)
   })
 
   it('degrades to an empty roster when the optional staff module is unavailable', async () => {

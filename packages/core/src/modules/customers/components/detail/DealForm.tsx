@@ -1266,11 +1266,13 @@ export function DealForm({
             ? parsed.data.description
             : undefined,
           // `base` is an explicit allow-list: a field omitted here never reaches the API.
-          // Empty means "leave the stored owner alone" rather than clear it — the UI never
-          // sends a null owner (spec D5), and the update command skips undefined keys.
+          // An empty picker sends `null` rather than being omitted, because clearing an owner
+          // is supported (spec D5) and the update command distinguishes the two — an explicit
+          // null clears the column, an absent key leaves it untouched
+          // (`commands/deals.ts:862`). Both create and update schemas accept null.
           ownerUserId: parsed.data.ownerUserId && parsed.data.ownerUserId.length
             ? parsed.data.ownerUserId
-            : undefined,
+            : null,
           personIds,
           companyIds,
         }

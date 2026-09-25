@@ -122,6 +122,29 @@ test.describe('CRM deal owner assignment — detail and create paths', () => {
     expect(stale.status()).toBe(409);
   });
 
+  // Spec D5: clearing is supported. An explicit null unassigns; an absent key does not.
+  test('clears the owner when the payload sends an explicit null', async ({ request }) => {
+    const dealId = await createDealFixture(request, token, {
+      title: `TC-CRM-6442 clear ${Date.now()}`,
+      ownerUserId,
+    });
+    createdDealIds.push(dealId);
+
+    const before = await readJsonSafe(await apiRequest(request, 'GET', `/api/customers/deals/${dealId}`, { token }));
+    expect((before as { deal?: { ownerUserId?: string } })?.deal?.ownerUserId).toBe(ownerUserId);
+    const updatedAt = (before as { deal?: { updatedAt?: string } })?.deal?.updatedAt;
+
+    const cleared = await apiRequest(request, 'PUT', '/api/customers/deals', {
+      token,
+      data: { id: dealId, ownerUserId: null },
+      headers: { [OPTIMISTIC_LOCK_HEADER]: String(updatedAt) },
+    });
+    expect(cleared.ok(), `Clearing the owner failed: ${cleared.status()}`).toBeTruthy();
+
+    const after = await readJsonSafe(await apiRequest(request, 'GET', `/api/customers/deals/${dealId}`, { token }));
+    expect((after as { deal?: { ownerUserId?: string | null } })?.deal?.ownerUserId ?? null).toBeNull();
+  });
+
   test('leaves the owner untouched when the payload omits it', async ({ request }) => {
     const dealId = await createDealFixture(request, token, {
       title: `TC-CRM-6442 untouched ${Date.now()}`,

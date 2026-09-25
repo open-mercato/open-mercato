@@ -43,9 +43,10 @@ function toLookupItem(id: string, name?: string | null, email?: string | null): 
  * Single-owner picker shared by every deal surface that assigns ownership (the detail form,
  * both create forms, and the list's bulk reassign dialog).
  *
- * `allowClear` is false on purpose: a deal's owner cannot be cleared from the UI, so the
- * control must not be able to emit `onChange(null)`. The API still accepts a null owner;
- * that capability is deliberately not exposed here.
+ * Clearing is supported (spec D5): `LookupSelect`'s clear control emits `null`, which the
+ * single-record forms send as `ownerUserId: null` to return a deal to the unowned state the
+ * API has always accepted. The bulk dialog treats a null as "no target chosen" and keeps its
+ * confirm disabled, so a bulk unassignment still cannot be sent.
  */
 export function DealOwnerSelect({
   value,
@@ -76,17 +77,10 @@ export function DealOwnerSelect({
   return (
     <LookupSelect
       value={value}
-      onChange={(next) => {
-        // Defensive: allowClear already removes every clear affordance, so a null can only
-        // arrive from a future change to the primitive. Dropping it keeps the no-unassignment
-        // contract true no matter what the primitive does.
-        if (next === null) return
-        onChange(next)
-      }}
+      onChange={onChange}
       fetchItems={searchOwners}
       options={seededOptions}
       disabled={disabled}
-      allowClear={false}
       placeholder={translateWithFallback(
         t,
         'customers.deals.owner.searchPlaceholder',
