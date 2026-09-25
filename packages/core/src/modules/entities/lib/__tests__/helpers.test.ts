@@ -65,7 +65,7 @@ describe('setRecordCustomFields', () => {
     const persist = jest.fn()
     const create = jest.fn((entity: unknown, data: Record<string, unknown>) => ({ ...data, entity }))
     const em = {
-      find: jest.fn(async () => [definition]),
+      find: jest.fn(async (entity: unknown) => (entity === CustomFieldDef ? [definition] : [])),
       findOne: jest.fn(async () => null),
       create,
       persist,
@@ -107,7 +107,7 @@ describe('setRecordCustomFields', () => {
     const persist = jest.fn()
     const create = jest.fn((entity: unknown, data: Record<string, unknown>) => ({ ...data, entity }))
     const em = {
-      find: jest.fn(async () => [definition]),
+      find: jest.fn(async (entity: unknown) => (entity === CustomFieldDef ? [definition] : [])),
       findOne: jest.fn(async () => null),
       create,
       persist,
@@ -215,6 +215,128 @@ describe('setRecordCustomFields', () => {
     expect(emMock.begin).toHaveBeenCalledTimes(1)
     expect(emMock.commit).toHaveBeenCalledTimes(1)
     expect(emMock.rollback).not.toHaveBeenCalled()
+  })
+
+  it('reads the existing values for every scalar key in one query, not one query per key', async () => {
+    const definitions = ['alpha', 'beta', 'gamma'].map((key) => ({
+      key,
+      kind: 'text',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      updatedAt: new Date('2026-09-16T00:00:00.000Z'),
+      configJson: {},
+    }))
+    // Two rows under one key: the shape a multi-value field leaves behind. `findOne` updated one
+    // arbitrary row and left the rest, so the prefetch has to keep first-wins rather than last-wins.
+    const firstRow = { fieldKey: 'beta', valueText: 'stale-1' }
+    const secondRow = { fieldKey: 'beta', valueText: 'stale-2' }
+    const create = jest.fn((entity: unknown, data: Record<string, unknown>) => ({ ...data, entity }))
+    const emMock = {
+      find: jest.fn(async (entity: unknown) => (entity === CustomFieldDef ? definitions : [firstRow, secondRow])),
+      findOne: jest.fn(async () => null),
+      create,
+      persist: jest.fn(),
+      nativeDelete: jest.fn(async () => 0),
+      flush: jest.fn(async () => undefined),
+      begin: jest.fn(async () => undefined),
+      commit: jest.fn(async () => undefined),
+      rollback: jest.fn(async () => undefined),
+      isInTransaction: jest.fn(() => false),
+    }
+    const em = emMock as unknown as EntityManager
+
+    await setRecordCustomFields(em, {
+      entityId: 'example:todo',
+      recordId: 'record-1',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      values: { alpha: 'a', beta: 'b', gamma: 'c' },
+    })
+
+    // One read for the definitions, one for the values — not one per key.
+    expect(emMock.find).toHaveBeenCalledTimes(2)
+    expect(emMock.findOne).not.toHaveBeenCalled()
+    expect(emMock.find).toHaveBeenCalledWith(CustomFieldValue, {
+      entityId: 'example:todo',
+      recordId: 'record-1',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      fieldKey: { $in: ['alpha', 'beta', 'gamma'] },
+    })
+    // The prefetched row is UPDATED in place; only the two keys without one are created.
+    expect(firstRow.valueText).toBe('b')
+    expect(secondRow.valueText).toBe('stale-2')
+    expect(create).toHaveBeenCalledTimes(2)
+    expect(create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ fieldKey: 'alpha' }))
+    expect(create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ fieldKey: 'gamma' }))
+  })
+
+  it('does not prefetch a multi-value key, whose rows the array branch replaces wholesale', async () => {
+    const definitions = [
+      { key: 'note', kind: 'text', organizationId: 'org-1', tenantId: 'tenant-1', updatedAt: new Date(0), configJson: {} },
+      { key: 'segments', kind: 'select', organizationId: 'org-1', tenantId: 'tenant-1', updatedAt: new Date(0), configJson: { multi: true } },
+    ]
+    const emMock = {
+      find: jest.fn(async (entity: unknown) => (entity === CustomFieldDef ? definitions : [])),
+      findOne: jest.fn(async () => null),
+      create: jest.fn((entity: unknown, data: Record<string, unknown>) => ({ ...data, entity })),
+      persist: jest.fn(),
+      nativeDelete: jest.fn(async () => 2),
+      flush: jest.fn(async () => undefined),
+      begin: jest.fn(async () => undefined),
+      commit: jest.fn(async () => undefined),
+      rollback: jest.fn(async () => undefined),
+      isInTransaction: jest.fn(() => false),
+    }
+    const em = emMock as unknown as EntityManager
+
+    await setRecordCustomFields(em, {
+      entityId: 'example:todo',
+      recordId: 'record-1',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      values: { note: 'hello', segments: ['gamma', 'delta'] },
+    })
+
+    expect(emMock.find).toHaveBeenCalledWith(CustomFieldValue, expect.objectContaining({
+      fieldKey: { $in: ['note'] },
+    }))
+  })
+
+  it('reads no values at all when every key is multi-value', async () => {
+    const definition = {
+      key: 'segments',
+      kind: 'select',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      updatedAt: new Date('2026-09-16T00:00:00.000Z'),
+      configJson: { multi: true },
+    }
+    const emMock = {
+      find: jest.fn(async (entity: unknown) => (entity === CustomFieldDef ? [definition] : [])),
+      findOne: jest.fn(async () => null),
+      create: jest.fn((entity: unknown, data: Record<string, unknown>) => ({ ...data, entity })),
+      persist: jest.fn(),
+      nativeDelete: jest.fn(async () => 2),
+      flush: jest.fn(async () => undefined),
+      begin: jest.fn(async () => undefined),
+      commit: jest.fn(async () => undefined),
+      rollback: jest.fn(async () => undefined),
+      isInTransaction: jest.fn(() => false),
+    }
+    const em = emMock as unknown as EntityManager
+
+    await setRecordCustomFields(em, {
+      entityId: 'example:todo',
+      recordId: 'record-1',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      values: { segments: ['gamma', 'delta'] },
+    })
+
+    // Definitions only — an empty scalar-key set must not cost a round trip.
+    expect(emMock.find).toHaveBeenCalledTimes(1)
+    expect(emMock.find).toHaveBeenCalledWith(CustomFieldDef, expect.anything())
   })
 
   it('encrypts values for a tenant-wide definition that leaves organization_id null (#5919)', async () => {
