@@ -1,6 +1,7 @@
 {
   "name": "@open-mercato/telemetry",
-  "version": "0.7.0",
+  "version": "0.8.0",
+  "license": "MIT",
   "description": "Vendor-neutral spans, metrics, and error reporting backed by a pluggable OTLP provider. Off by default; the telemetry runtime is loaded only when explicitly enabled.",
   "type": "module",
   "main": "./dist/index.js",
@@ -14,6 +15,14 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./src/browser/index.ts",
+      "default": "./dist/browser/index.js"
+    },
+    "./browser/server": {
+      "types": "./src/browser/server.ts",
+      "default": "./dist/browser/server.js"
     },
     "./*": {
       "types": [
@@ -31,6 +40,14 @@
   "dependencies": {
     "@open-mercato/shared": "workspace:*"
   },
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
   "optionalDependencies": {
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/api-logs": "^0.220.0",
@@ -39,20 +56,29 @@
     "@opentelemetry/exporter-metrics-otlp-http": "^0.220.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.220.0",
     "@opentelemetry/instrumentation": "^0.220.0",
+    "@opentelemetry/instrumentation-document-load": "^0.65.0",
+    "@opentelemetry/instrumentation-fetch": "^0.220.0",
     "@opentelemetry/instrumentation-pg": "^0.71.0",
     "@opentelemetry/instrumentation-undici": "^0.29.0",
     "@opentelemetry/resources": "^2.9.0",
     "@opentelemetry/sdk-logs": "^0.220.0",
     "@opentelemetry/sdk-metrics": "^2.9.0",
     "@opentelemetry/sdk-node": "^0.220.0",
+    "@opentelemetry/sdk-trace-base": "^2.9.0",
     "@opentelemetry/sdk-trace-node": "^2.9.0",
+    "@opentelemetry/sdk-trace-web": "^2.9.0",
     "@opentelemetry/semantic-conventions": "^1.41.1"
   },
   "devDependencies": {
-    "@opentelemetry/sdk-trace-base": "^2.9.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.1",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.4.0",
+    "@types/react": "^19.2.17",
     "jest": "^30.4.2",
+    "jest-environment-jsdom": "^30.4.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "ts-jest": "^29.4.12",
     "typescript": "7.0.2"
   },

@@ -2,7 +2,18 @@ jest.mock('@open-mercato/cache', () => ({
   runWithCacheTenant: async (_tenantId: string | null, fn: () => Promise<unknown>) => fn(),
 }), { virtual: true })
 
+// Default behavior matches production's fallback-translator shape for a key with no
+// dictionary entry (`dict[key] ?? fallback ?? key`) — shared has no domain dictionary to
+// consult, so every existing test observes the same pass-through it always has. Individual
+// tests override `mockTranslate` to prove `handleError` actually routes a CrudHttpError body
+// through the resolved `translate()` instead of forwarding it verbatim (#5727).
+const mockTranslate = jest.fn((key: string, fallback?: string) => fallback ?? key)
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ t: mockTranslate, translate: mockTranslate }),
+}))
+
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import {
   clearOptimisticLockReadersForTests,
@@ -23,6 +34,7 @@ import {
   type TelemetryRuntime,
 } from '@open-mercato/shared/lib/telemetry/runtime'
 import { z } from 'zod'
+import { NotFoundError as MikroOrmNotFoundError, ValidationError as MikroOrmValidationError } from '@mikro-orm/core'
 
 // Keep the real custom-field helpers but spy on the definition loader so we can
 // assert the factory skips the second DB round-trip when the query engine has
@@ -802,6 +814,139 @@ describe('CRUD Factory', () => {
     })
   })
 
+  describe('afterList hook ordering on the export paths', () => {
+    // Issue #5969: both export branches used to call serializeExport() before awaiting
+    // hooks.afterList, so a hook that patches values the base query cannot compute reached
+    // the JSON list response but never the exported file.
+    const patchTitles = (res: any) => {
+      for (const item of res.items) item.title = `patched:${item.title}`
+    }
+
+    it('GET applies afterList mutations to the query-engine export, matching the JSON list', async () => {
+      const hookedRoute = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+        indexer: { entityType: 'example.todo' },
+        list: {
+          schema: querySchema,
+          entityId: 'example.todo',
+          fields: ['id', 'title', 'is_done'],
+          sortFieldMap: { id: 'id' },
+          buildFilters: () => ({} as any),
+          transformItem: (i: any) => ({ id: i.id, title: i.title }),
+          allowCsv: true,
+          csv: { headers: ['id', 'title'], row: (t: any) => [t.id, t.title], filename: 'todos.csv' },
+        },
+        hooks: { afterList: patchTitles },
+      })
+
+      const jsonRes = await hookedRoute.GET(new Request('http://x/api/example/todos'))
+      expect((await jsonRes.json()).items[0].title).toBe('patched:A')
+
+      const csvRes = await hookedRoute.GET(new Request('http://x/api/example/todos?format=csv'))
+      expect((await csvRes.text()).split('\n')[1]).toBe('id-1,patched:A')
+    })
+
+    it('GET honors an afterList hook that replaces the export payload items', async () => {
+      const replacingRoute = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+        indexer: { entityType: 'example.todo' },
+        list: {
+          schema: querySchema,
+          entityId: 'example.todo',
+          fields: ['id', 'title', 'is_done'],
+          sortFieldMap: { id: 'id' },
+          buildFilters: () => ({} as any),
+          transformItem: (i: any) => ({ id: i.id, title: i.title }),
+          allowCsv: true,
+          csv: { headers: ['id', 'title'], row: (t: any) => [t.id, t.title], filename: 'todos.csv' },
+        },
+        hooks: { afterList: (res: any) => { res.items = [{ id: 'replaced', title: 'Z' }] } },
+      })
+
+      const csvRes = await replacingRoute.GET(new Request('http://x/api/example/todos?format=csv'))
+      expect((await csvRes.text()).split('\n').slice(1)).toEqual(['replaced,Z'])
+    })
+
+    it('GET applies afterList mutations to the ORM-fallback export', async () => {
+      db['id-1'] = { id: 'id-1', title: 'A', organizationId: defaultOrganizationId, tenantId: defaultTenantId }
+      const fallbackRoute = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+        list: {
+          schema: querySchema,
+          buildFilters: () => ({} as any),
+          allowCsv: true,
+          csv: { headers: ['id', 'title'], row: (t: any) => [t.id, t.title], filename: 'todos.csv' },
+        },
+        hooks: { afterList: patchTitles },
+      })
+
+      const jsonRes = await fallbackRoute.GET(new Request('http://x/api/example/todos'))
+      expect((await jsonRes.json()).items[0].title).toBe('patched:A')
+
+      db['id-1'] = { id: 'id-1', title: 'A', organizationId: defaultOrganizationId, tenantId: defaultTenantId }
+      const csvRes = await fallbackRoute.GET(new Request('http://x/api/example/todos?format=csv'))
+      expect((await csvRes.text()).split('\n')[1]).toBe('id-1,patched:A')
+    })
+
+    // #6019 review: on exportScope=full, items are normalized via normalizeFullRecordForExport
+    // before the hook runs but the hook's own additions used to skip that normalization,
+    // leaking `_`-prefixed metadata and un-flattened `cf_*` keys into the exported file.
+    const addAssociationsMetadata = (res: any) => {
+      for (const item of res.items) {
+        item.title = `patched:${item.title}`
+        item._associations = { ok: false, reason: 'lookup failed' }
+        item.cf_color = 're-added'
+      }
+    }
+
+    it('GET re-normalizes afterList output on the full-export query-engine path (#6019)', async () => {
+      const fullExportRoute = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+        indexer: { entityType: 'example.todo' },
+        list: {
+          schema: querySchema,
+          entityId: 'example.todo',
+          fields: ['id', 'title', 'is_done'],
+          sortFieldMap: { id: 'id' },
+          buildFilters: () => ({} as any),
+          transformItem: (i: any) => ({ id: i.id, title: i.title }),
+        },
+        hooks: { afterList: addAssociationsMetadata },
+      })
+
+      const res = await fullExportRoute.GET(new Request('http://x/api/example/todos?format=json&exportScope=full'))
+      const parsed = JSON.parse(await res.text())
+      expect(parsed[0].Title).toBe('patched:A')
+      expect(parsed[0].Color).toBe('re-added')
+      expect(Object.keys(parsed[0])).not.toContain('_associations')
+      expect(JSON.stringify(parsed)).not.toContain('lookup failed')
+    })
+
+    it('GET re-normalizes afterList output on the full-export ORM-fallback path (#6019)', async () => {
+      db['id-1'] = { id: 'id-1', title: 'A', organizationId: defaultOrganizationId, tenantId: defaultTenantId }
+      const fullFallbackRoute = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+        list: {
+          schema: querySchema,
+          buildFilters: () => ({} as any),
+        },
+        hooks: { afterList: addAssociationsMetadata },
+      })
+
+      const res = await fullFallbackRoute.GET(new Request('http://x/api/example/todos?format=json&exportScope=full'))
+      const parsed = JSON.parse(await res.text())
+      expect(parsed[0].Title).toBe('patched:A')
+      expect(parsed[0].Color).toBe('re-added')
+      expect(Object.keys(parsed[0])).not.toContain('_associations')
+      expect(JSON.stringify(parsed)).not.toContain('lookup failed')
+    })
+  })
+
   describe('export loop termination', () => {
     const EXPORT_PAGE_SIZE = 1000
 
@@ -917,9 +1062,88 @@ describe('CRUD Factory', () => {
     const res = await route.POST(new Request('http://x/api/example/todos', { method: 'POST', body: JSON.stringify({ title: 'Exhausted', is_done: true, cf_priority: 3 }), headers: { 'content-type': 'application/json' } }))
     expect(res.status).toBe(503)
     expect(res.headers.get('Retry-After')).toBe('2')
+    const body = await res.json()
+    expect(body.code).toBe('DATABASE_UNAVAILABLE')
+    expect(typeof body.requestId).toBe('string')
+    expect(res.headers.get('x-request-id')).toBe(body.requestId)
     // The failed write is still rolled back — no created event/index leaks out.
     expect(Object.values(db)).toHaveLength(0)
     expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()
+  })
+
+  it('echoes an inbound x-request-id on the 503 transient-DB response', async () => {
+    setRecordCustomFields.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('sorry, too many clients already'), { code: '53300' })
+    })
+    const res = await route.POST(new Request('http://x/api/example/todos', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Exhausted', is_done: true, cf_priority: 3 }),
+      headers: { 'content-type': 'application/json', 'x-request-id': 'req-fixed-503' },
+    }))
+    expect(res.status).toBe(503)
+    const body = await res.json()
+    expect(body.requestId).toBe('req-fixed-503')
+    expect(res.headers.get('x-request-id')).toBe('req-fixed-503')
+  })
+
+  it('returns DATABASE_ERROR for an unmapped Postgres SQLSTATE without leaking driver detail', async () => {
+    setRecordCustomFields.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('relation "missing_table" does not exist'), { code: '42P01' })
+    })
+    const res = await route.POST(new Request('http://x/api/example/todos', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Undefined table', is_done: true, cf_priority: 3 }),
+      headers: { 'content-type': 'application/json' },
+    }))
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.code).toBe('DATABASE_ERROR')
+    expect(typeof body.requestId).toBe('string')
+    expect(JSON.stringify(body)).not.toContain('42P01')
+    expect(JSON.stringify(body)).not.toContain('missing_table')
+  })
+
+  it('returns PERSISTENCE_ERROR for a MikroORM ValidationError with no Postgres SQLSTATE', async () => {
+    setRecordCustomFields.mockImplementationOnce(async () => {
+      throw new MikroOrmValidationError('entity failed validation')
+    })
+    const res = await route.POST(new Request('http://x/api/example/todos', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Invalid entity', is_done: true, cf_priority: 3 }),
+      headers: { 'content-type': 'application/json' },
+    }))
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.code).toBe('PERSISTENCE_ERROR')
+    expect(typeof body.requestId).toBe('string')
+  })
+
+  it('returns PERSISTENCE_ERROR for a MikroORM NotFoundError with no Postgres SQLSTATE', async () => {
+    setRecordCustomFields.mockImplementationOnce(async () => {
+      throw new MikroOrmNotFoundError('entity not found')
+    })
+    const res = await route.POST(new Request('http://x/api/example/todos', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Missing entity', is_done: true, cf_priority: 3 }),
+      headers: { 'content-type': 'application/json' },
+    }))
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.code).toBe('PERSISTENCE_ERROR')
+  })
+
+  it('does not misclassify a Node system error code as a database error', async () => {
+    setRecordCustomFields.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:80'), { code: 'ECONNREFUSED' })
+    })
+    const res = await route.POST(new Request('http://x/api/example/todos', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Unrelated socket failure', is_done: true, cf_priority: 3 }),
+      headers: { 'content-type': 'application/json' },
+    }))
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.code).toBe('INTERNAL_ERROR')
   })
 
   it('returns a correlated 409 without leaking the constraint name when a handler hits a foreign key violation', async () => {
@@ -1353,6 +1577,7 @@ describe('CRUD Factory', () => {
       error: 'Internal server error',
       message: 'Something went wrong. Please try again later.',
       requestId: expect.any(String),
+      code: 'INTERNAL_ERROR',
     })
   })
 
@@ -1392,6 +1617,40 @@ describe('CRUD Factory', () => {
       error: 'Internal server error',
       message: 'Something went wrong. Please try again later.',
       requestId: expect.any(String),
+      code: 'INTERNAL_ERROR',
+    })
+  })
+
+  // Issue #5727 — a command that raises CrudHttpError with a raw i18n key (rather than an
+  // already-translated message) must not leak that key verbatim; handleError() routes it
+  // through the resolved translate() before responding.
+  it('POST command route translates a raw i18n key on a CrudHttpError body instead of forwarding it verbatim', async () => {
+    mockTranslate.mockImplementationOnce((key: string, fallback?: string) =>
+      key === 'some_module.errors.lineLocked' ? 'This line is locked.' : (fallback ?? key),
+    )
+    commandBus.execute.mockRejectedValue(new CrudHttpError(400, { error: 'some_module.errors.lineLocked' }))
+
+    const res = await postInterceptorErrorRequest(interceptorErrorRoute())
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: 'This line is locked.' })
+    expect(mockTranslate).toHaveBeenCalledWith('some_module.errors.lineLocked', 'some_module.errors.lineLocked')
+  })
+
+  it('POST command route preserves other CrudHttpError body fields alongside the translated error', async () => {
+    mockTranslate.mockImplementationOnce((key: string, fallback?: string) =>
+      key === 'some_module.errors.conflict' ? 'A conflicting record already exists.' : (fallback ?? key),
+    )
+    commandBus.execute.mockRejectedValue(
+      new CrudHttpError(409, { error: 'some_module.errors.conflict', conflictingId: 'todo-9' }),
+    )
+
+    const res = await postInterceptorErrorRequest(interceptorErrorRoute())
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toEqual({
+      error: 'A conflicting record already exists.',
+      conflictingId: 'todo-9',
     })
   })
 
@@ -1497,7 +1756,7 @@ describe('CRUD Factory', () => {
       expect(body.requestId).toMatch(/^[A-Za-z0-9-]{36}$/)
     })
 
-    it('reports the error to telemetry with the same requestId', async () => {
+    it('reports the error to telemetry with the same requestId and a groupable code', async () => {
       commandBus.execute.mockRejectedValue(new Error('boom'))
 
       const res = await postWithRequestId('req-fixed-123')
@@ -1507,12 +1766,17 @@ describe('CRUD Factory', () => {
       expect(reportError).toHaveBeenCalledTimes(1)
       expect(reportError).toHaveBeenCalledWith(
         expect.any(Error),
-        { module: 'crud', attributes: { requestId: 'req-fixed-123', errorName: 'Error' } },
+        {
+          module: 'crud',
+          code: 'crud.internal_error',
+          attributes: { requestId: 'req-fixed-123', errorName: 'Error', code: 'INTERNAL_ERROR', pgCode: undefined },
+        },
       )
     })
 
-    // The 503/422 branches deliberately stay outside this change (issue #5608) — lock that
-    // in so a later refactor cannot quietly widen the correlation id across every branch.
+    // The 422 interceptor-rejection branch deliberately stays outside this change (issue
+    // #5608) — lock that in so a later refactor cannot quietly widen the correlation id
+    // across every branch. The 503 transient-DB branch gained requestId/code separately.
     it('leaves the interceptor-rejection branch without a requestId', async () => {
       commandBus.execute.mockRejectedValue(
         new CommandInterceptorError('Missing required fields: VAT id', { status: 422 }),

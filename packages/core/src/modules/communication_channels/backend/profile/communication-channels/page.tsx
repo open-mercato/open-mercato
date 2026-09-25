@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/communication_channels/extension-points'
+import { getImportHistoryLimits } from '@open-mercato/core/modules/communication_channels/lib/import-history-limits'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -21,11 +22,11 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
-import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { ConnectChannelMenu } from './ConnectChannelMenu'
 
 type ChannelRow = {
   id: string
@@ -155,6 +156,8 @@ export default function ProfileCommunicationChannelsPage() {
   }, [reloadKey, t])
 
   const reauthRows = rows.filter((r) => r.status === 'requires_reauth')
+
+  const reloadChannels = React.useCallback(() => setReloadKey((k) => k + 1), [])
 
   const onSetPrimary = React.useCallback(
     async (channelId: string) => {
@@ -510,8 +513,8 @@ export default function ProfileCommunicationChannelsPage() {
   return (
     <Page>
       <PageBody>
-        <header className="mb-4 flex items-baseline justify-between">
-          <div>
+        <header className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="min-w-0">
             <h1 className="text-2xl font-semibold">
               {t('communication_channels.profile.title', 'My communication channels')}
             </h1>
@@ -523,12 +526,9 @@ export default function ProfileCommunicationChannelsPage() {
             </p>
           </div>
           {/* Provider connect entry points injected by each channel-* package
-              (channel-gmail, channel-imap) via UMES. */}
-          <InjectionSpot
-            spotId={extensionPoints.hosts.profileConnect.spotId}
-            context={{ reload: () => setReloadKey((k) => k + 1) }}
-            data={{}}
-          />
+              (channel-gmail, channel-imap) via UMES. They stack inside one
+              dropdown so the header does not widen per installed provider. */}
+          <ConnectChannelMenu onConnected={reloadChannels} />
         </header>
 
         {reauthRows.length > 0 ? (
@@ -553,7 +553,7 @@ export default function ProfileCommunicationChannelsPage() {
           error={errorMessage}
           emptyState={t(
             'communication_channels.profile.empty',
-            'You have no connected channels yet. Use one of the Connect buttons above to add a channel.',
+            'You have no connected channels yet. Add one using the menu at the top of this page.',
           )}
         />
         <ImportHistoryDialog
@@ -585,6 +585,7 @@ type ImportHistoryDialogProps = {
 
 function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialogProps): React.JSX.Element {
   const t = useT()
+  const importLimits = React.useMemo(() => getImportHistoryLimits(channel?.providerKey), [channel?.providerKey])
   const [sinceDays, setSinceDays] = React.useState('30')
   const [contactEmails, setContactEmails] = React.useState('')
   const [maxMessages, setMaxMessages] = React.useState('500')
@@ -610,16 +611,18 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
     const sinceNum = Number.parseInt(sinceDays, 10)
     const maxNum = Number.parseInt(maxMessages, 10)
     const errors: Record<string, string> = {}
-    if (!Number.isFinite(sinceNum) || sinceNum < 1 || sinceNum > 365) {
+    if (!Number.isFinite(sinceNum) || sinceNum < 1 || sinceNum > importLimits.maxSinceDays) {
       errors.sinceDays = t(
         'communication_channels.profile.importHistory.errors.sinceDays',
-        'Choose a number between 1 and 365 days.',
+        'Choose a number between 1 and {max} days.',
+        { max: importLimits.maxSinceDays },
       )
     }
-    if (!Number.isFinite(maxNum) || maxNum < 1 || maxNum > 5000) {
+    if (!Number.isFinite(maxNum) || maxNum < 1 || maxNum > importLimits.maxMessages) {
       errors.maxMessages = t(
         'communication_channels.profile.importHistory.errors.maxMessages',
-        'Choose a number between 1 and 5000 messages.',
+        'Choose a number between 1 and {max} messages.',
+        { max: importLimits.maxMessages },
       )
     }
     const parsedEmails = contactEmails
@@ -697,7 +700,7 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
       'success',
     )
     onQueued()
-  }, [channel, sinceDays, maxMessages, contactEmails, submitting, t, onQueued, retryLastMutation, runMutation])
+  }, [channel, sinceDays, maxMessages, contactEmails, submitting, t, onQueued, retryLastMutation, runMutation, importLimits])
 
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent) => {
@@ -733,7 +736,7 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
               id="import-history-since"
               type="number"
               min={1}
-              max={365}
+              max={importLimits.maxSinceDays}
               value={sinceDays}
               onChange={(e) => setSinceDays(e.target.value)}
               aria-invalid={Boolean(fieldErrors.sinceDays)}
@@ -781,7 +784,7 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
               id="import-history-max"
               type="number"
               min={1}
-              max={5000}
+              max={importLimits.maxMessages}
               value={maxMessages}
               onChange={(e) => setMaxMessages(e.target.value)}
               aria-invalid={Boolean(fieldErrors.maxMessages)}
