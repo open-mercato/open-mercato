@@ -27,6 +27,18 @@ type ShareState = {
 
 type PersonEmailShareControlProps = {
   personId: string
+  /**
+   * Bumped by the host whenever it re-reads the thread list, so this control
+   * re-reads with it.
+   *
+   * Required because `canShare` only turns true once the caller owns a private
+   * email interaction with this Person, and that row is written by a queue
+   * worker after the send completes — so the mount-time read is always too
+   * early on a first send, and the switch stayed hidden until a manual page
+   * refresh (#6455). The host's post-send burst poll covers that window; this
+   * control follows it rather than running a second timer of its own.
+   */
+  reloadToken?: number
   /** Called after a successful flip so the thread list can refetch. */
   onChanged?: () => void
 }
@@ -47,7 +59,11 @@ const EMPTY_STATE: ShareState = {
  * Rendered above `EmailThreadsPanel` rather than inside it so the shared UI
  * package's panel contract stays untouched.
  */
-export function PersonEmailShareControl({ personId, onChanged }: PersonEmailShareControlProps) {
+export function PersonEmailShareControl({
+  personId,
+  reloadToken,
+  onChanged,
+}: PersonEmailShareControlProps) {
   const t = useT()
   const [state, setState] = React.useState<ShareState>(EMPTY_STATE)
   const [busy, setBusy] = React.useState(false)
@@ -91,9 +107,19 @@ export function PersonEmailShareControl({ personId, onChanged }: PersonEmailShar
     }
   }, [personId])
 
+  // Kept in a ref so a flip in progress does not itself retrigger the reload.
+  const busyRef = React.useRef(false)
   React.useEffect(() => {
+    busyRef.current = busy
+  }, [busy])
+
+  React.useEffect(() => {
+    // A poll landing mid-flip would paint the pre-flip state for a moment and
+    // make the switch appear to bounce back; `onToggle` re-reads once the write
+    // settles, so skipping here loses nothing.
+    if (busyRef.current) return
     void load()
-  }, [load])
+  }, [load, reloadToken])
 
   const applyShared = React.useCallback(
     async (nextShared: boolean) => {
