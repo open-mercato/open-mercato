@@ -628,9 +628,13 @@ export async function POST(req: Request) {
   }
 
   if (useLlmOcr) {
-    requestOcrProcessing(em, att, uploadDriver, storedPath).catch((error) => {
+    // Await so wait-queue overflow can finish the inline text fallback before
+    // the response returns (background LLM OCR still schedules via setImmediate).
+    try {
+      await requestOcrProcessing(em, att, uploadDriver, storedPath)
+    } catch (error) {
       logger.error('Failed to queue OCR processing', { err: error })
-    })
+    }
   } else if (wantsLlmOcr) {
     logger.warn('OCR requested but OPENAI_API_KEY not configured, falling back to text extraction when available')
   }

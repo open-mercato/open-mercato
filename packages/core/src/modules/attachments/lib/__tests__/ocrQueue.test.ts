@@ -7,6 +7,15 @@ import {
 } from '../ocrQueue'
 import type { Attachment } from '../../data/entities'
 import type { StorageDriver } from '../drivers/types'
+import { extractAttachmentContent } from '../textExtraction'
+
+jest.mock('../textExtraction', () => ({
+  extractAttachmentContent: jest.fn(async () => null),
+}))
+
+const extractAttachmentContentMock = extractAttachmentContent as jest.MockedFunction<
+  typeof extractAttachmentContent
+>
 
 const makeAttachment = (): Attachment =>
   ({
@@ -24,6 +33,8 @@ describe('requestOcrProcessing EntityManager isolation', () => {
 
   beforeEach(() => {
     resetOcrConcurrencyStateForTests()
+    extractAttachmentContentMock.mockReset()
+    extractAttachmentContentMock.mockResolvedValue(null)
     setImmediateSpy = jest.spyOn(global, 'setImmediate').mockImplementation((() => undefined) as never)
   })
 
@@ -37,7 +48,9 @@ describe('requestOcrProcessing EntityManager isolation', () => {
     const fork = jest.fn(() => forkedEm)
     const requestEm = { fork } as unknown as EntityManager
 
-    await requestOcrProcessing(requestEm, makeAttachment(), driver, 'docs/attachment-1.pdf')
+    await expect(
+      requestOcrProcessing(requestEm, makeAttachment(), driver, 'docs/attachment-1.pdf'),
+    ).resolves.toBe('queued')
 
     expect(fork).toHaveBeenCalledTimes(1)
     expect(setImmediateSpy).toHaveBeenCalledTimes(1)
@@ -144,6 +157,8 @@ describe('requestOcrProcessing wait queue cap', () => {
     resetOcrConcurrencyStateForTests()
     process.env.OM_ATTACHMENT_OCR_MAX_CONCURRENCY = '1'
     process.env.OM_ATTACHMENT_OCR_MAX_WAIT_QUEUE = '1'
+    extractAttachmentContentMock.mockReset()
+    extractAttachmentContentMock.mockResolvedValue('inline-extracted text')
     setImmediateSpy = jest.spyOn(global, 'setImmediate').mockImplementation((() => undefined) as never)
   })
 
@@ -155,7 +170,7 @@ describe('requestOcrProcessing wait queue cap', () => {
     resetOcrConcurrencyStateForTests()
   })
 
-  it('drops OCR scheduling when the wait queue is full', async () => {
+  it('falls back to inline text extraction when the wait queue is full', async () => {
     let releaseFirst!: () => void
     const firstGate = new Promise<void>((resolve) => {
       releaseFirst = resolve
@@ -169,10 +184,37 @@ describe('requestOcrProcessing wait queue cap', () => {
     await Promise.resolve()
     expect(getOcrConcurrencyStateForTests()).toEqual({ active: 1, waiting: 1 })
 
-    const forkedEm = { fork: jest.fn(() => ({ id: 'forked' })) } as unknown as EntityManager
-    await requestOcrProcessing(forkedEm, makeAttachment(), driver, 'docs/attachment-1.pdf')
+    const attachmentRow = { id: 'attachment-1', content: null as string | null }
+    const forkedEm = {
+      findOne: jest.fn(async () => attachmentRow),
+      persist: jest.fn(),
+      flush: jest.fn(async () => undefined),
+    }
+    forkedEm.persist.mockImplementation(() => forkedEm)
+    const requestEm = {
+      fork: jest.fn(() => forkedEm),
+    } as unknown as EntityManager
+
+    const overflowDriver = {
+      toLocalPath: jest.fn(async () => ({
+        filePath: '/tmp/attachment-1.pdf',
+        cleanup: jest.fn(async () => undefined),
+      })),
+    } as unknown as StorageDriver
+
+    await expect(
+      requestOcrProcessing(requestEm, makeAttachment(), overflowDriver, 'docs/attachment-1.pdf'),
+    ).resolves.toBe('inline_fallback')
 
     expect(setImmediateSpy).not.toHaveBeenCalled()
+    expect(extractAttachmentContentMock).toHaveBeenCalledWith({
+      filePath: '/tmp/attachment-1.pdf',
+      mimeType: 'application/pdf',
+    })
+    expect(attachmentRow.content).toBe('inline-extracted text')
+    expect(forkedEm.persist).toHaveBeenCalledWith(attachmentRow)
+    expect(forkedEm.flush).toHaveBeenCalled()
+
     releaseFirst()
   })
 })

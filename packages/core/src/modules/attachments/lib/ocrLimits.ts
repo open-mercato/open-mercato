@@ -51,8 +51,11 @@ export function resolvePdfPageIterationLimit(numPages: number, maxPages: number 
  * Env: RATE_LIMIT_ATTACHMENTS_UPLOAD_{POINTS,DURATION,BLOCK_DURATION}.
  */
 export function resolveAttachmentsUploadRateLimitConfig(): RateLimitConfig {
+  // Default sits above typical multi-file library batches (dialog has no hard
+  // file cap). Client retry/partial-progress UX for rejected mid-batch files is
+  // tracked in https://github.com/open-mercato/open-mercato/issues/6397.
   return readEndpointRateLimitConfig('ATTACHMENTS_UPLOAD', {
-    points: 30,
+    points: 100,
     duration: 60,
     keyPrefix: 'attachments_upload',
   })

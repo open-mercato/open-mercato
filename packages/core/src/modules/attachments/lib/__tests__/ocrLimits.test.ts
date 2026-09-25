@@ -68,7 +68,7 @@ describe('ocrLimits', () => {
 
     const { resolveAttachmentsUploadRateLimitConfig } = await import('../ocrLimits')
     expect(resolveAttachmentsUploadRateLimitConfig()).toEqual({
-      points: 30,
+      points: 100,
       duration: 60,
       blockDuration: undefined,
       keyPrefix: 'attachments_upload',

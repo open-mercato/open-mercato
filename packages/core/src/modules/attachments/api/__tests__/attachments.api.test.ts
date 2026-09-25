@@ -181,7 +181,7 @@ describe('attachments API', () => {
     expect(res.status).toBe(429)
     expect(mockRateLimiterService.consume).toHaveBeenCalledWith(
       't1:user-1',
-      expect.objectContaining({ keyPrefix: 'attachments_upload', points: 30, duration: 60 }),
+      expect.objectContaining({ keyPrefix: 'attachments_upload', points: 100, duration: 60 }),
     )
     expect(mockEm.create).not.toHaveBeenCalled()
   })

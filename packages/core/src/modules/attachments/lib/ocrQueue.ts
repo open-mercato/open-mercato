@@ -4,6 +4,7 @@ import { OcrService } from './ocrService'
 import type { StorageDriver } from './drivers/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveOcrMaxConcurrency, resolveOcrMaxWaitQueue } from './ocrLimits'
+import { extractAttachmentContent } from './textExtraction'
 
 const logger = createLogger('attachments').child({ component: 'ocr' })
 
@@ -15,6 +16,9 @@ export type OcrRequestedEvent = {
   organizationId: string | null
   tenantId: string | null
 }
+
+/** Outcome of `requestOcrProcessing` — background LLM OCR vs inline text fallback. */
+export type OcrProcessingDispatch = 'queued' | 'inline_fallback'
 
 let activeOcrJobs = 0
 const ocrWaitQueue: Array<() => void> = []
@@ -106,12 +110,49 @@ export async function processAttachmentOcr(
   }
 }
 
+/**
+ * When the in-process OCR wait queue is full, extract plain text/PDF/DOCX content
+ * inline (no LLM) so `attachment.content` is not left NULL forever.
+ */
+async function persistInlineTextExtractionFallback(
+  em: EntityManager,
+  payload: OcrRequestedEvent,
+  driver: StorageDriver,
+): Promise<void> {
+  const { attachmentId, storagePath, mimeType, partitionCode } = payload
+  const { filePath, cleanup } = await driver.toLocalPath(partitionCode, storagePath)
+  try {
+    const content = await extractAttachmentContent({ filePath, mimeType })
+    if (!content) {
+      logger.info('OCR wait queue full; inline extraction produced no content', { attachmentId })
+      return
+    }
+    const row = await em.findOne(Attachment, { id: attachmentId })
+    if (!row) {
+      logger.error('Attachment not found during OCR overflow fallback', { attachmentId })
+      return
+    }
+    row.content = content
+    await em.persist(row).flush()
+    logger.info('OCR wait queue full; stored inline text extraction', {
+      attachmentId,
+      contentLength: content.length,
+    })
+  } catch (error) {
+    logger.error('OCR wait queue overflow inline extraction failed', { attachmentId, err: error })
+  } finally {
+    await cleanup().catch((cleanupError) => {
+      logger.warn('Temp file cleanup failed after OCR overflow fallback', { err: cleanupError })
+    })
+  }
+}
+
 export async function requestOcrProcessing(
   em: EntityManager,
   attachment: Attachment,
   driver: StorageDriver,
   storagePath: string,
-): Promise<void> {
+): Promise<OcrProcessingDispatch> {
   const payload: OcrRequestedEvent = {
     attachmentId: attachment.id,
     storagePath,
@@ -132,12 +173,13 @@ export async function requestOcrProcessing(
 
   const maxWaitQueue = resolveOcrMaxWaitQueue()
   if (ocrWaitQueue.length >= maxWaitQueue) {
-    logger.warn('OCR wait queue full; dropping background job', {
+    logger.warn('OCR wait queue full; falling back to inline text extraction', {
       attachmentId: attachment.id,
       waiting: ocrWaitQueue.length,
       maxWaitQueue,
     })
-    return
+    await persistInlineTextExtractionFallback(workerEm, payload, driver)
+    return 'inline_fallback'
   }
 
   setImmediate(() => {
@@ -145,4 +187,5 @@ export async function requestOcrProcessing(
       logger.error('Background processing error', { err: error })
     })
   })
+  return 'queued'
 }
