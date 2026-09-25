@@ -322,6 +322,7 @@ export function Calendar({
             showOutsideDays={showOutsideDays}
             fixedWeeks={fixedWeeks}
             pagedNavigation={pagedNavigation}
+            hideNavigation
             locale={locale}
             labels={labels}
             numberOfMonths={numberOfMonths}

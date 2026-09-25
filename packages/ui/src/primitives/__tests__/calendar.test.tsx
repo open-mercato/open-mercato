@@ -66,9 +66,13 @@ describe('Calendar source sizes and month selector', () => {
     const labelPrevious = jest.fn((month?: Date) => `Back to ${month?.getMonth()}`)
     const labelNext = jest.fn((month?: Date) => `Forward to ${month?.getMonth()}`)
     render(<I18nProvider locale="en" dict={{}}><Calendar mode="single" defaultMonth={new Date(2026, 5, 1)} labels={{ labelPrevious, labelNext }} /></I18nProvider>)
-    const outsideBuiltInNav = (name: string) =>
-      screen.getAllByRole('button', { name }).filter((button) => !button.closest('nav'))
-    expect(outsideBuiltInNav('Back to 4')).toHaveLength(1)
-    expect(outsideBuiltInNav('Forward to 6')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Forward to 6' }))
+    expect(screen.getByRole('button', { name: 'Back to 5' })).toBeInTheDocument()
+  })
+
+  it('does not render the hidden built-in navigation with its untranslated names', () => {
+    render(<I18nProvider locale="pl" dict={{}}><Calendar mode="single" defaultMonth={new Date(2026, 5, 1)} /></I18nProvider>)
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Go to the (Previous|Next) Month/ })).not.toBeInTheDocument()
   })
 })
