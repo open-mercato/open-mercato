@@ -1,12 +1,11 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { runWithCacheTenant } from '@open-mercato/cache'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { InboxSettings } from '../../data/entities'
 import { updateSettingsSchema } from '../../data/validators'
 import { resolveRequestContext, handleRouteError } from '../routeHelpers'
+import { ensureInboxSettings } from '../../lib/ensure-settings'
 import {
   resolveCache,
   createSettingsCacheKey,
@@ -36,20 +35,10 @@ export async function GET(req: Request) {
       }
     }
 
-    const settings = await findOneWithDecryption(
-      ctx.em,
-      InboxSettings,
-      {
-        organizationId: ctx.organizationId,
-        tenantId: ctx.tenantId,
-        deletedAt: null,
-      },
-      undefined,
-      ctx.scope,
-    )
+    const { settings } = await ensureInboxSettings(ctx.em, ctx.scope)
 
     const responseBody = {
-      settings: settings ? {
+      settings: {
         id: settings.id,
         inboxAddress: settings.inboxAddress,
         isActive: settings.isActive,
@@ -57,7 +46,7 @@ export async function GET(req: Request) {
         // Surface only whether a per-tenant secret exists — never the value.
         webhookSecretSet: Boolean(settings.webhookSecret),
         updatedAt: settings.updatedAt instanceof Date ? settings.updatedAt.toISOString() : (settings.updatedAt ?? null),
-      } : null,
+      },
     }
 
     if (cache) {
@@ -88,21 +77,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: 'Invalid request', details: parsed.error.issues }, { status: 400 })
     }
 
-    const settings = await findOneWithDecryption(
-      ctx.em,
-      InboxSettings,
-      {
-        organizationId: ctx.organizationId,
-        tenantId: ctx.tenantId,
-        deletedAt: null,
-      },
-      undefined,
-      ctx.scope,
-    )
-
-    if (!settings) {
-      return NextResponse.json({ error: 'Settings not found' }, { status: 404 })
-    }
+    const { em: settingsEm, settings } = await ensureInboxSettings(ctx.em, ctx.scope)
 
     // Optimistic lock: refuse a stale overwrite when two tabs edit the same inbox
     // settings record. Strictly additive — a no-op without the expected-version header.
@@ -129,7 +104,10 @@ export async function PATCH(req: Request) {
       settings.webhookSecret = parsed.data.webhookSecret ? parsed.data.webhookSecret : null
     }
 
-    await ctx.em.flush()
+    // Flush through `settingsEm` — after a concurrent-bootstrap recovery this
+    // is a clean fork, not `ctx.em`, whose unit of work would otherwise retry
+    // the losing insert.
+    await settingsEm.flush()
 
     const cache = resolveCache(ctx.container)
     await runWithCacheTenant(ctx.tenantId, () => invalidateSettingsCache(cache, ctx.tenantId))
@@ -166,7 +144,6 @@ export const openApi: OpenApiRouteDoc = {
       description: 'Updates working language and/or active status',
       responses: [
         { status: 200, description: 'Updated settings' },
-        { status: 404, description: 'Settings not found' },
       ],
     },
   },

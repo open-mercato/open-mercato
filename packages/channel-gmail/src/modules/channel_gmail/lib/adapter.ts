@@ -11,6 +11,8 @@ import type {
   FetchHistoryInput,
   GetMessageStatusInput,
   HistoryPage,
+  ImportHistoryInput,
+  ImportHistoryPage,
   InboundMessage,
   MessageStatus,
   NormalizedInboundMessage,
@@ -52,7 +54,16 @@ import {
 } from './convert-outbound'
 import { normalizeInboundGmailMessage } from './normalize-inbound'
 import { emailResolveContact } from '@open-mercato/core/modules/communication_channels/lib/email-contact'
-import { encodeCursor } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
+import { decodeCursor, encodeCursor } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
+import {
+  IMPORT_HISTORY_DEFAULT_SINCE_DAYS,
+  IMPORT_HISTORY_DEFAULT_MAX_MESSAGES,
+  getImportHistoryMaxSinceDays,
+  getImportHistoryMaxMessages,
+} from '@open-mercato/core/modules/communication_channels/lib/import-history-limits'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('channel_gmail')
 
 /**
  * Gmail `ChannelAdapter`. OAuth2-based, polling-driven (`realtimePush: false`).
@@ -574,6 +585,134 @@ class GmailChannelAdapter implements ChannelAdapter {
     }
   }
 
+  /**
+   * Operator-triggered backlog import (Spec B § Phase B6).
+   *
+   * Reaches BACKWARD in time over `gmail.users.messages.list?q=…`, independent
+   * of the forward-polling `historyId` cursor — nothing here reads or writes
+   * `GmailChannelState`, so a multi-year backfill can never move the live poll
+   * cursor.
+   *
+   * Scale contract: the cursor carries Gmail's own `nextPageToken` plus a
+   * collected counter and the frozen query, so it stays a few hundred bytes for
+   * a 50k-message mailbox. Message ids are never enumerated up front.
+   */
+  async importHistory(input: ImportHistoryInput): Promise<ImportHistoryPage> {
+    const userCredentials = parseUserCredentialsOrThrow(input.credentials)
+    const auth = { accessToken: userCredentials.accessToken }
+    const api = getGmailApiClient()
+    const accountIdentifier = userCredentials.email ?? 'me'
+
+    const maxMessages = clampImportMaxMessages(input.maxMessages)
+    const pageSize = resolveImportPageSize()
+    const concurrency = resolveImportConcurrency()
+
+    const cursor = decodeGmailImportCursor(input.cursor)
+    const afterTerm = cursor?.after ?? buildAfterTerm(clampImportSinceDays(input.sinceDays))
+    const queries = buildImportQueries(afterTerm, input.contactEmails)
+
+    let queryIndex = cursor ? cursor.queryIndex : 0
+    let pageToken = cursor?.pageToken
+    const collectedSoFar = cursor?.collected ?? 0
+    let activeQuery: string | undefined = cursor?.query ?? queries[queryIndex]
+
+    const budget = Math.max(0, maxMessages - collectedSoFar)
+    if (budget === 0 || queryIndex >= queries.length) {
+      return { messages: [], hasMore: false }
+    }
+
+    const perPage = Math.min(pageSize, budget)
+    const refs: Array<{ id: string; threadId: string }> = []
+    let listCalls = 0
+    while (refs.length < perPage && queryIndex < queries.length && listCalls < IMPORT_MAX_LIST_CALLS_PER_PAGE) {
+      listCalls += 1
+      const list = await api.listMessages(auth, {
+        query: activeQuery,
+        labelIds: ['INBOX'],
+        pageToken,
+        maxResults: perPage - refs.length,
+      })
+      for (const message of list.messages ?? []) {
+        refs.push({ id: message.id, threadId: message.threadId })
+      }
+      if (list.nextPageToken) {
+        pageToken = list.nextPageToken
+        continue
+      }
+      queryIndex += 1
+      pageToken = undefined
+      activeQuery = queries[queryIndex]
+    }
+
+    const messages = await this.fetchAndNormalizeForImport(api, auth, refs, accountIdentifier, concurrency)
+
+    const collected = collectedSoFar + messages.length
+    const exhausted = pageToken === undefined && queryIndex >= queries.length
+    const hasMore = !exhausted && collected < maxMessages
+    const nextCursor = hasMore
+      ? encodeCursor({
+          v: GMAIL_IMPORT_CURSOR_VERSION,
+          after: afterTerm,
+          query: queries[queryIndex] ?? activeQuery ?? queries[queries.length - 1],
+          queryIndex,
+          pageToken,
+          collected,
+        } satisfies GmailImportCursor)
+      : undefined
+
+    return { messages, nextCursor, hasMore }
+  }
+
+  /**
+   * Import-path fetch. Diverges from `fetchAndNormalize` deliberately: the
+   * forward path stops at the first hard failure to protect the polling cursor,
+   * whereas a backlog import has no cursor to protect and must not abandon a
+   * multi-year sweep over one unreadable message — so a per-message failure is
+   * skipped and logged. Only credential/permission failures (401/403), which
+   * would fail every remaining message too, abort the page.
+   */
+  private async fetchAndNormalizeForImport(
+    api: ReturnType<typeof getGmailApiClient>,
+    auth: { accessToken: string },
+    refs: Array<{ id: string; threadId: string }>,
+    accountIdentifier: string,
+    concurrency: number,
+  ): Promise<NormalizedInboundMessage[]> {
+    const results = new Array<NormalizedInboundMessage | null>(refs.length).fill(null)
+    let nextIndex = 0
+    const workerCount = Math.max(1, Math.min(concurrency, refs.length))
+
+    const runWorker = async (): Promise<void> => {
+      while (true) {
+        const index = nextIndex
+        nextIndex += 1
+        if (index >= refs.length) return
+        const ref = refs[index]
+        try {
+          const raw = await api.getMessageRaw(auth, ref.id)
+          const fallbackDate = raw.internalDate ? new Date(Number(raw.internalDate)) : undefined
+          results[index] = await normalizeInboundGmailMessage({
+            rawMessage: decodeBase64Url(raw.raw),
+            gmailMessageId: raw.id,
+            gmailThreadId: raw.threadId,
+            gmailLabelIds: raw.labelIds ?? [],
+            accountIdentifier,
+            fallbackDate,
+          })
+        } catch (error) {
+          if (isFatalGmailImportError(error)) throw error
+          logger.warn('skipping unreadable message during history import', {
+            gmailMessageId: ref.id,
+            reason: error instanceof Error ? error.message.slice(0, 200) : 'unknown error',
+          })
+        }
+      }
+    }
+
+    await Promise.all(Array.from({ length: workerCount }, () => runWorker()))
+    return results.filter((message): message is NormalizedInboundMessage => message !== null)
+  }
+
   async deleteMessage(input: DeleteChannelMessageInput): Promise<void> {
     const userCredentials = parseUserCredentialsOrThrow(input.credentials)
     const api = getGmailApiClient()
@@ -620,19 +759,151 @@ class GmailChannelAdapter implements ChannelAdapter {
         return { messages: out, hardFailed: true }
       }
       const rawBuffer = decodeBase64Url(raw.raw)
-      const fallbackDate = raw.internalDate ? new Date(Number(raw.internalDate)) : undefined
+      // `internalDate` is when Gmail received the message; the MIME Date header
+      // is the sender's and must not date the platform message (#6095).
+      const receivedAt = raw.internalDate ? new Date(Number(raw.internalDate)) : undefined
       const normalized = await normalizeInboundGmailMessage({
         rawMessage: rawBuffer,
         gmailMessageId: raw.id,
         gmailThreadId: raw.threadId,
         gmailLabelIds: raw.labelIds ?? ref.labelIds ?? [],
         accountIdentifier,
-        fallbackDate,
+        receivedAt,
       })
       out.push(normalized)
     }
     return { messages: out, hardFailed: false }
   }
+}
+
+// ── Backlog import (importHistory) helpers ───────────────────
+
+const GMAIL_IMPORT_CURSOR_VERSION = 1
+const IMPORT_SINCE_DAYS_MIN = 1
+const IMPORT_SINCE_DAYS_DEFAULT = IMPORT_HISTORY_DEFAULT_SINCE_DAYS
+const IMPORT_MAX_MESSAGES_MIN = 1
+const IMPORT_MAX_MESSAGES_DEFAULT = IMPORT_HISTORY_DEFAULT_MAX_MESSAGES
+const IMPORT_PAGE_SIZE_DEFAULT = 100
+/** `users.messages.list` rejects `maxResults` above 500. */
+const IMPORT_PAGE_SIZE_MAX = 500
+const IMPORT_CONCURRENCY_DEFAULT = 5
+const IMPORT_CONCURRENCY_MAX = 20
+/** Senders per `from:(… OR …)` group — keeps each `q` well inside Gmail's URL budget. */
+const IMPORT_SENDER_CHUNK_SIZE = 25
+/** Matches the hub's `contactEmails` ceiling; bounds the number of query groups. */
+const IMPORT_SENDER_MAX = 200
+/** Bounds `messages.list` round-trips inside a single page when groups come back empty. */
+const IMPORT_MAX_LIST_CALLS_PER_PAGE = 25
+
+interface GmailImportCursor {
+  v: number
+  /** Frozen `after:<epochSeconds>` term so later pages cannot drift with wall-clock. */
+  after: string
+  /** Frozen full query for the group the next page resumes on. */
+  query: string
+  queryIndex: number
+  pageToken?: string
+  collected: number
+}
+
+function clampImportSinceDays(value: number): number {
+  const raw = Number.isFinite(value) ? Math.trunc(value) : IMPORT_SINCE_DAYS_DEFAULT
+  return Math.max(IMPORT_SINCE_DAYS_MIN, Math.min(getImportHistoryMaxSinceDays(), raw))
+}
+
+function clampImportMaxMessages(value: number | undefined): number {
+  const raw = Number.isFinite(value) ? Math.trunc(value as number) : IMPORT_MAX_MESSAGES_DEFAULT
+  return Math.max(IMPORT_MAX_MESSAGES_MIN, Math.min(getImportHistoryMaxMessages(), raw))
+}
+
+function resolveEnvInt(name: string, fallback: number, max: number): number {
+  const parsed = Number.parseInt(process.env[name] ?? '', 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback
+  return Math.min(parsed, max)
+}
+
+function resolveImportPageSize(): number {
+  return resolveEnvInt('OM_CHANNEL_GMAIL_IMPORT_PAGE_SIZE', IMPORT_PAGE_SIZE_DEFAULT, IMPORT_PAGE_SIZE_MAX)
+}
+
+function resolveImportConcurrency(): number {
+  return resolveEnvInt('OM_CHANNEL_GMAIL_IMPORT_CONCURRENCY', IMPORT_CONCURRENCY_DEFAULT, IMPORT_CONCURRENCY_MAX)
+}
+
+/**
+ * Gmail accepts `after:` as either `YYYY/MM/DD` — resolved in the mailbox
+ * owner's display timezone, so the boundary day is ambiguous — or as a Unix
+ * timestamp in seconds, which is not. We emit the timestamp form.
+ *
+ * Either form filters on Gmail's INTERNAL date (when Gmail received the
+ * message), not the `Date:` header, so a message with an old header that was
+ * recently delivered or migrated into the mailbox counts as recent.
+ */
+function buildAfterTerm(sinceDays: number): string {
+  const epochSeconds = Math.floor((Date.now() - sinceDays * 24 * 60 * 60 * 1000) / 1000)
+  return `after:${Math.max(0, epochSeconds)}`
+}
+
+function normalizeImportSenders(contactEmails: string[] | undefined): string[] {
+  const seen = new Set<string>()
+  for (const raw of contactEmails ?? []) {
+    if (typeof raw !== 'string') continue
+    const trimmed = raw.trim().toLowerCase()
+    if (!trimmed.includes('@') || /[\s"()]/.test(trimmed)) continue
+    seen.add(trimmed)
+    if (seen.size >= IMPORT_SENDER_MAX) break
+  }
+  return Array.from(seen)
+}
+
+/**
+ * Build the ordered list of Gmail queries this import walks.
+ *
+ * Gmail's `q` rides in the request URL, so a 200-address `from:(… OR …)` chain
+ * would blow past a practical URL budget. Senders are therefore split into
+ * groups of `IMPORT_SENDER_CHUNK_SIZE` and the groups are walked SEQUENTIALLY
+ * across pages (the cursor records which group is active). Groups are disjoint
+ * by construction — a message has exactly one `From` — so no cross-group dedup
+ * is needed. With no sender hint a single date-only query is returned.
+ */
+function buildImportQueries(afterTerm: string, contactEmails: string[] | undefined): string[] {
+  const senders = normalizeImportSenders(contactEmails)
+  if (senders.length === 0) return [afterTerm]
+  const queries: string[] = []
+  for (let index = 0; index < senders.length; index += IMPORT_SENDER_CHUNK_SIZE) {
+    const group = senders.slice(index, index + IMPORT_SENDER_CHUNK_SIZE)
+    queries.push(`${afterTerm} from:(${group.join(' OR ')})`)
+  }
+  return queries
+}
+
+function decodeGmailImportCursor(value: string | undefined): GmailImportCursor | null {
+  const parsed = decodeCursor(value)
+  if (!parsed || typeof parsed !== 'object') return null
+  const candidate = parsed as Partial<Record<keyof GmailImportCursor, unknown>>
+  if (candidate.v !== GMAIL_IMPORT_CURSOR_VERSION) return null
+  if (typeof candidate.after !== 'string' || typeof candidate.query !== 'string') return null
+  const queryIndex = typeof candidate.queryIndex === 'number' && candidate.queryIndex >= 0 ? Math.trunc(candidate.queryIndex) : 0
+  const collected = typeof candidate.collected === 'number' && candidate.collected >= 0 ? Math.trunc(candidate.collected) : 0
+  const pageToken = typeof candidate.pageToken === 'string' && candidate.pageToken.length > 0 ? candidate.pageToken : undefined
+  return {
+    v: GMAIL_IMPORT_CURSOR_VERSION,
+    after: candidate.after,
+    query: candidate.query,
+    queryIndex,
+    pageToken,
+    collected,
+  }
+}
+
+/**
+ * A 401 (expired/revoked grant) or a 403 that survived the client's bounded
+ * retry (permission denied, or exhausted per-user quota) will fail every
+ * remaining message in the sweep, so it aborts the page instead of being
+ * skipped message by message.
+ */
+function isFatalGmailImportError(error: unknown): boolean {
+  return error instanceof GmailApiError && (error.status === 401 || error.status === 403)
 }
 
 function collectMessageRefs(

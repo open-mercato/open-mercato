@@ -41,9 +41,269 @@ See #3828 and
 
 ---
 
+### `loadDictionary` now lets a host app's own locale file override a module-defined translation key (#5995)
+
+`loadDictionary` (`@open-mercato/shared/lib/i18n/server`) used to merge the host app's dictionary
+(`apps/<host>/src/i18n/<locale>.json`) first and then layer every registered module's dictionary
+on top, so a module-defined key always won over the host's own value for the same key — with no
+error or warning. A host that added, say, `"customers.columnGroups.crm"` to its own locale file
+would see it silently overwritten by `packages/core/src/modules/customers/i18n/<locale>.json`.
+
+The merge order is now reversed: module dictionaries are layered first (registration order,
+unchanged relative precedence between modules), and the host app dictionary is applied last, so it
+is always the final word. `apps/<host>/src/i18n/<locale>.json` is now the supported way to
+override any translation key a module defines.
+
+**Action for module/app authors:** if your app's locale file happens to define a key that
+collides with a module-defined key, your app's value now wins where the module's used to. Audit
+your own locale files for accidental collisions with module dictionaries if you rely on a
+module's translation for a key your app also happens to define.
+
+As part of this change, `apps/mercato/src/i18n/*.json` (and the mirrored `create-app` template)
+had 90 stale, drifted duplicate keys removed — mostly `inbox_ops.*` copies left over from before
+that module owned its own translations, plus a handful of `common.*`/`catalog.*` keys. Those
+duplicates had already diverged from the module's current wording in at least one locale; leaving
+them in place would have flipped several translated strings to outdated text the moment this
+precedence change landed. If you maintain a fork with its own `apps/<host>/src/i18n/*.json`, audit
+it the same way before upgrading: a key that duplicates a module key with a different value now
+silently wins, for better or for worse.
+
+### `customers` now requires `progress` to be enabled (#6302)
+
+`customers`'s deal bulk-update workers and lib (`lib/bulkDeals.ts`,
+`workers/deals-bulk-update-owner.ts`, `workers/deals-bulk-update-stage.ts`) resolve
+`progressService` from the DI container, which is registered only by the `progress` module. An
+app that enabled `customers` without `progress` previously got no build-time warning: the bulk
+deal-update API routes still returned a job id and a `200`, and the worker then failed on every
+retry with `AwilixResolutionError: Could not resolve 'progressService'`, with no error surfaced
+to the user and no `progress_jobs` row to inspect — the same silent-failure class as
+`communication_channels` (#6094).
+
+`customers`'s `ModuleInfo` now declares `requires: ['progress']`, so the existing
+generator-enforced dependency check (already used by `sales`, `wms`, `push_notifications`,
+`api_keys`, and `communication_channels`) now covers it too. If your `src/modules.ts` enables
+`customers` without `progress`, `yarn generate` now fails fast instead of shipping the silent
+worker failure:
+
+```
+Module dependency check failed:
+- Module "customers" requires: progress
+```
+
+**Action for module authors:** add `{ id: 'progress', from: '@open-mercato/core' }` to
+`src/modules.ts` before `customers`, then re-run `yarn generate`. `apps/mercato/src/modules.ts`
+and the `create-app` template already enable `progress`, so this repo's own apps and freshly
+scaffolded `classic`/`crm` apps are unaffected; the `wms` starter preset has been updated to add
+`progress` alongside `customers` for the same reason.
+
+### `encryptEntityPayload`/`encryptFields` can now throw `TenantDataEncryptionError` (`WRONG_KEY`) instead of silently corrupting data (#5951)
+
+`TenantDataEncryptionService.encryptFields` treated a field as "already encrypted" whenever it
+decrypted under the **current** tenant DEK — a deliberate anti-forgery check (#2720). Real
+ciphertext sealed under a *different* key (a DEK mid-rotation, or the PBKDF2 fallback key the KMS
+falls back to during a Vault outage) failed that check too, so it was encrypted a **second** time,
+producing a nested envelope no read path can undo, plus a lookup hash computed over ciphertext
+instead of plaintext. This is not limited to a deliberate rotation: the ORM subscriber
+re-encrypts every mapped field on `beforeUpdate`, so a transient Vault blip plus an unrelated
+column update was enough to trigger it.
+
+The write now fails closed instead. A structurally well-formed envelope (12-byte IV, 16-byte tag,
+non-empty ciphertext — `isEncryptedPayloadShape`, new additive export from
+`@open-mercato/shared/lib/encryption/aes`) that does not decrypt under the current DEK now raises
+`TenantDataEncryptionError` with code `WRONG_KEY` instead of returning a corrupted payload.
+
+**Action for module authors:** any code that calls `encryptEntityPayload`/`encryptFields`
+directly — not through `mercato entities rotate-encryption-key --old-key <key>` (which skips a
+value neither key opens and reports it in the run summary) or `backfill-system-encryption` /
+`rotate-encryption-key` run without `--old-key` (both skip such a value silently — the
+overwhelmingly common cause is a value already encrypted under the current key, and neither CLI
+has a signal to distinguish that from a value sealed under a key that is gone) — now needs to
+handle this exception explicitly if it does not already propagate uncaught errors to a place that
+surfaces them to an operator. See `apps/mercato/src/modules/example/commands/todos.ts` for the
+reference pattern (the scaffolded app template calls `encryptEntityPayload` and lets the error
+propagate). If you hit `WRONG_KEY` in production, see "Key mismatch fails the write" in
+[`apps/docs/docs/architecture/data-encryption.mdx`](apps/docs/docs/architecture/data-encryption.mdx)
+for how to resolve an affected row.
+
+### The company create form publishes `crud-form:customers.company`, and bridges the entity-derived spot (#5875)
+
+`packages/core/src/modules/customers/backend/customers/companies/create/page.tsx` rendered its
+`CrudForm` without an `injectionSpotId`. `CrudForm` therefore fell back to deriving the injection
+host from the first entry of `entityIds`, which on that page is `E.customers.customer_entity`, so
+the create form published `crud-form:customers.customer_entity` (and its
+`crud-form:customers.customer_entity:fields` child). The company **edit** surface passes the
+module's declared host explicitly, so the two surfaces of the same logical form addressed
+different spots and a widget registered against the declared company host reached editing but
+never creation. The create page now passes `injectionSpotId={extensionPoints.hosts.companyForm.spotId}`,
+so both surfaces publish `crud-form:customers.company` and its `:fields` child.
+
+**This is an additive change — no action required for existing widgets.** Rather than remove
+`crud-form:customers.customer_entity` (§6, FROZEN) as a live surface on this page, the page also
+passes `legacyInjectionSpotId={crudFormExtensionSpotId('customers.customer_entity')}` — the same
+`CrudForm` bridge prop #6017 introduced for the sales quick-create dialogs, which dual-publishes a
+prior spot id's header, body, and field widgets alongside the primary one. Any widget still
+targeting `crud-form:customers.customer_entity` or its `:fields` child keeps rendering here,
+unchanged.
+
+No other frozen surface is touched: `entityIds` still drives custom-field resolution and the
+component-replacement handle, `CrudForm`'s fallback spot resolution is unchanged for every other
+host, the context shape published at the surviving spots is unchanged, and no prop, API route,
+event or database column changes.
+
+**Deprecation window.** `legacyInjectionSpotId` on this page is intended to be removed after at
+least one minor version, in step with the same bridge on the #6017 sales dialogs. Until then, no
+action is required from module authors targeting either the legacy id or the declared host.
+
+**Action for module authors — none required to keep current behavior.** Widgets already
+registered against `crud-form:customers.company` need no change and now additionally render during
+company creation — including the `customer_accounts` portal-users group, which finds no `recordId`
+in create mode and renders its empty state. The bridge also keeps the shipped `example` module's
+`example.injection.customer-priority-field` field widget rendering on this page exactly as before,
+via the dual-published `:fields` child.
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).
+
+### The sales document quick-create dialogs publish the declared customers hosts (#6017)
+
+The "Create person" and "Create company" quick dialogs on the sales document form
+(`packages/core/src/modules/sales/components/documents/SalesDocumentForm.tsx`) rendered an embedded
+`CrudForm` with `entityIds` and no `injectionSpotId`. `CrudForm` therefore derived the injection host
+from the **first** entity id — `E.customers.customer_entity` on both dialogs — and published
+`crud-form:customers.customer_entity` and its `:fields` child instead of the hosts the customers module
+declares in its `extension-points.ts`. A widget registered against `crud-form:customers.person` or
+`crud-form:customers.company` reached the person and company detail pages but never these two dialogs.
+Both now pass `injectionSpotId={extensionPoints.hosts.personForm.spotId}` and
+`…hosts.companyForm.spotId`, read from the customers module's own declaration so the surfaces cannot
+drift apart again.
+
+**This is an additive change — no action required for existing widgets.** Rather than remove
+`crud-form:customers.customer_entity` (§6, FROZEN) as a live surface on these two dialogs, `CrudForm`
+gained a new `legacyInjectionSpotId?: string` prop that dual-publishes a prior spot id's header, body, and
+field widgets alongside the primary one. Both dialogs pass
+`legacyInjectionSpotId={crudFormExtensionSpotId('customers.customer_entity')}` — the exact id `CrudForm`
+used to auto-derive here — so any widget still targeting it keeps rendering in both quick-create dialogs,
+unchanged. See [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) §6 and
+[`.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md`](.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md)
+for the full contract analysis.
+
+Nothing else about the dialogs changes: `entityIds` is untouched, so custom-field resolution and the
+component-replacement handle behave exactly as before, and validation and save are unaffected. Widgets
+already registered against `crud-form:customers.person` / `crud-form:customers.company` need no change and
+now additionally render in the matching quick dialog — including the `customer_accounts` Account Status and
+Company Users groups, which find no `recordId` in create mode and render their empty state.
+
+**Deprecation window.** `legacyInjectionSpotId` on these two call sites is intended to be removed after at
+least one minor version — track the removal against this entry and the spec above. Until then, no action is
+required from module authors targeting either the legacy id or the declared hosts.
+
+**Action for module authors — required if you target `crud-form:customers.person` / `…company` (or their
+`:fields` children), or the legacy `crud-form:customers.customer_entity` (or its `:fields` child), today.**
+Before this release, the only publishers of `crud-form:customers.person` / `…company` were the person and
+company **detail** pages, so every widget registered there has only ever rendered with a saved record present
+(`operation: 'update'`, a concrete `recordId`). These two sales quick-create dialogs are the first surfaces
+to mount either host — or the bridged legacy id — in **create mode**: no `recordId`, `operation: 'create'`.
+If your widget assumed a record always exists (e.g. it queries by `recordId` unconditionally), it now also
+mounts in the dialogs and must tolerate `recordId` being `undefined` — render an empty/pending state instead
+of querying, the way the in-repo `customer_accounts` Account Status and Company Users groups already do.
+
+### `catalog`'s `PricingContext` gained an optional `currencyCode` filter (opt-in, strictly safer)
+
+`PricingContext` (`@open-mercato/core/modules/catalog/lib/pricing`) gained two additive, optional
+fields: `currencyCode` and `customerGroupIds` (a set-membership replacement for the still-supported
+`customerGroupId`). Neither field is required, and omitting both leaves every existing caller's
+behavior byte-for-byte unchanged — `resolveCatalogPrice`/`selectBestPrice` never filtered by
+currency before, and still do not unless the caller opts in.
+
+**The one real behavior change, and it is opt-in only:** before this release, a caller resolving a
+price without a currency-aware context could silently match a `CatalogProductPrice` row in a
+*different* currency than intended — there was no check. If your code starts passing
+`currencyCode` in the `PricingContext`, a row that previously matched across currencies now
+correctly resolves to "no price found" instead. This is the intended fix (it closes an
+undocumented cross-currency bug), but it is a visible behavior change for whatever call site
+opts in first.
+
+**Action for module authors:** none required to keep current behavior. If you want currency-aware
+resolution, pass `currencyCode` in your `PricingContext` and audit any `CatalogProductPrice` rows
+that only differ by currency for the product/variant you resolve most often — those are the rows
+whose resolution outcome can change.
+
+### `SEND_EMAIL` activity forwards an optional `signal` to `emailService.send` (no action required)
+
+The `SEND_EMAIL` activity handler now passes a `signal?: AbortSignal` field inside the object it sends to `emailService.send()`. Implementations that ignore unknown fields are unaffected. Implementations that wish to cancel an in-flight send on activity timeout may read the field:
+
+```ts
+// your email service adapter — honoring signal is optional
+async send(input: { to: string; subject: string; signal?: AbortSignal; … }) {
+  const result = await someMailClient.deliver(input, { signal: input.signal })
+  return result
+}
+```
+
+If your adapter serializes the payload for a message queue, strip `signal` before enqueuing to avoid a non-serializable field in the job data.
+
+### `EXECUTE_FUNCTION` passes an optional `AbortSignal` as its third argument (no action required)
+
+Registered workflow functions (`workflowFunction:<name>` in DI) now receive `(args, context, signal?: AbortSignal)` instead of `(args, context)`. Existing two-argument functions are unaffected — the third parameter is additive. Functions that want to cancel cooperative work on activity timeout can read it:
+
+```ts
+container.register('workflowFunction:myFn', asValue(
+  async (args, _ctx, signal?: AbortSignal) => {
+    return await someSlowOperation(args, { signal })
+  }
+))
+```
+
+### `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS` opt-in now ANDs per word (#5803, tracked by #5383)
+
+`OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS`, introduced as an opt-in carve-out in #4622, still
+**defaults to `false`** — #5383 tracks making `search_tokens` tokenization semantically equivalent
+to ILIKE before this can default on with confidence, and that plan is unchanged. **No action is
+required for a default installation.**
+
+For a deployment that already sets it to `true`, or opts in now: a multi-word term is applied as
+**one containment predicate per word, ANDed**, instead of one verbatim literal —
+`?search=Warehouse 12` now becomes `name ILIKE '%Warehouse%' AND name ILIKE '%12%'` rather than
+`name ILIKE '%Warehouse 12%'`. That is deliberate: the token subquery this switch replaces matched a
+value carrying every token in any order with anything between them, so a single literal predicate
+would stop matching `Warehouse A 12`. Per-word ANDing preserves that word-order independence —
+`smith john` still matches a `John Smith` value — while applying the declared predicate on a
+plaintext column exactly, closing the #5803 defect for anyone who opts in: `?search=2026-08` no
+longer answers with a `2026-01` row, and `?search=08` filters instead of matching every row.
+Columns the tenant encryption map reports as encrypted keep the token path either way, because
+ILIKE against ciphertext cannot match.
+
+**What to check if you already opt in.** One capability narrows: with `OM_SEARCH_ENABLE_PARTIALS`
+on, the token index also matched prefixes, so `?search=warehou` could match `Warehouse` through
+expanded tokens even where the fragment was not a contiguous substring of the stored value.
+Containment matches only real substrings. Fuzzy, typo-tolerant search belongs on `SearchService`
+(`/api/search`, `/api/search/global`), which is unaffected by this change.
+
+A second capability widens: multi-word terms such as document numbers containing a space now also
+match values holding the words non-contiguously or in another order — `?search=ZK 1/2026` also
+matches `ZK 11/2026` and `1/2026 ZK`, where the previous single-literal ILIKE matched neither. This
+is the same word-order independence the `Warehouse 12` example above relies on; it is a trade-off,
+not a strict improvement, over the single-literal behavior this switch previously had.
+
+Encrypted-column search is unchanged in both settings, and no schema, route, or response shape moved.
+
+### `AssignableStaffMember.teamMemberId` is now `string | null` (staff-absent fallback)
+
+When the optional `staff` module is absent, assignable-owner rosters resolve via
+`GET /api/auth/users`. Auth user ids are **not** staff team-member ids — passing them to a staff
+API would produce a wrong lookup.
+
+**Type change:** `AssignableStaffMember.teamMemberId` is now `string | null` (`null` on the auth-users
+fallback path). Downstream code that assumed a non-null team-member id must branch on `null` or use
+`userId` for owner assignment (owner fields store auth user ids).
+
+**Import path:** prefer `@open-mercato/core/modules/customers/lib/assignableStaff`. The
+`components/detail/assignableStaff` re-export is deprecated and will be removed in 0.7.0.
+
+**Existing tenants:** default CRM roles now include `auth.users.list` so owner pickers work without
+the `staff` module. Run `yarn mercato auth sync-role-acls` (or your app's equivalent) so existing
+admin/employee roles pick up the grant.
 
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 
@@ -293,6 +553,17 @@ Nothing changes at runtime beyond the tag name — no prop was added, removed, o
 
 **Action for module authors:** if you hold a ref to `AlertDescription` as `useRef<HTMLParagraphElement>(null)`, or annotate one of its event handlers with `React.*Event<HTMLParagraphElement>`, change the element type to `HTMLDivElement`. Nothing else is affected: the component is used by composition in 97 files across this repository and not one of them passes a ref, so the practical migration surface is very small. There is no runtime bridge to stage because the element type is the entire changed surface — a mismatched annotation is a compile error in your own package, never a silent behavior change. Callers that previously worked around the restriction by rendering block `<span>`s inside the description (for example the record-locks settings page shipped in #5481) keep working unchanged and may be simplified back to real paragraphs at leisure.
 
+### A saved DataTable view stores one entry per column, and a pre-existing view may hide one column once (#5117)
+
+`PerspectiveSettings.columnVisibility` — what a saved `DataTable` view persists through `/api/perspectives/*` — used to be a **sparse** map: it carried only the columns the user had explicitly toggled. TanStack Table treats a missing key as *visible*, so a view saved before a column existed described nothing about that column, and a module's declared `meta.hidden` default (which the CRM lists derive from a custom field's `listVisible: false`) was skipped for anyone who had a saved view at all. `DataTable` now serializes an explicit boolean for every leaf column it can see, unioned with any decision the stored view holds for a column that has not registered yet.
+
+The type is unchanged — the schema has always been `z.record(z.string(), z.boolean()).optional()` — so a dense map validates and round-trips through existing storage without migration, and nothing about the API surface moves. Two consequences are worth knowing about:
+
+- **Stored payloads grow.** A view's `columnVisibility` goes from a handful of keys to one per column. It is a flat boolean map, so the increase is small in absolute terms, but a downstream consumer that assumed "the keys present are the columns the user hid" must now read the value rather than the key's presence. `true` still means visible and is still treated as equivalent to an absent key everywhere in the platform's own comparisons.
+- **One column may hide once, on the first load after upgrading.** A view saved under the old sparse format that un-hid a column declaring `meta.hidden` carries no `true` for it — the old format simply could not express "shown on purpose", because the column chooser *deletes* an entry when a column is turned back on. That map is genuinely ambiguous, and the platform now resolves the ambiguity in favour of the module's declared default, so the column is hidden once. Re-showing it and saving the view records the explicit `true` and it sticks from then on.
+
+**Action for module authors:** none for normal use. Only code that reads or writes `PerspectiveSettings.columnVisibility` directly — a module seeding a role perspective, or a migration that rewrites stored views — should switch from testing key presence to testing the boolean value, and may seed dense maps to avoid the one-time wrinkle above for its own views.
+
 ### Device API responses are camelCase; the snake_case keys are deprecated aliases (#5513)
 
 `GET /api/devices`, `GET /api/devices/admin/devices` and `GET /api/devices/admin/devices/:id` returned the raw database column names (`device_id`, `user_id`, `last_seen_at`, …) while every other module returns camelCase. A client written against the platform convention read `undefined` for every field on this one module. All three routes now return camelCase keys as the canonical shape:
@@ -469,6 +740,16 @@ The query object is now built by `buildQueryParams` from `@open-mercato/shared/l
 
 **Action for module authors:** audit your own list-route schemas for filter params that clients may repeat. Where a param is genuinely multi-valued, widen it to `z.union([z.string(), z.array(z.string())])` (or `z.array(z.string())`) and normalize it with `toQueryValueList`. Where it is genuinely single-valued, no change is needed — a repeated occurrence should be rejected. No route URL, HTTP method, response field, `makeCrudRoute` signature, options type, or database column changes, so `BACKWARD_COMPATIBILITY.md` §2, §3 and §7 are not violated.
 
+### `PortalShell`'s `authenticated={false}` no longer overrides a signed-in portal context (#5678)
+
+`PortalShell` from `@open-mercato/ui/portal/PortalShell` resolved its chrome with `authenticatedProp ?? !!user`, so an explicit `authenticated={false}` won even when the `PortalProvider` above it held a real customer. That was not a safe default: the `(frontend)` layout that supplies the prop sits above the `[...slug]` segment precisely so portal navigation does not remount the client subtree, which means a client-side navigation never re-runs it and the prop can describe the route the visitor *arrived* on rather than the one being rendered. Entering the portal at `/{orgSlug}/portal` and following its `router.replace` to the dashboard left `false` in place, and the shell painted the logged-out header — Log In / Sign Up, no sidebar, and `enableEventBridge={false}` so the portal SSE bridge never mounted — around fully authenticated content.
+
+The precedence is now inverted: `!!user || (authenticatedProp ?? false)`. A context user upgrades the chrome, and a stale prop can no longer contradict what is actually rendered below it.
+
+**No prop was added, removed, or renamed, and the component's type is unchanged**, so nothing here breaks at compile time. What changes is the semantics of one value: `authenticated={false}` is now a *default* rather than a *veto*. For the documented use this is a no-op — public portal pages render `PortalShell` without a provider, where `user` is `null` anyway, and a test pins that case. The server layout was updated in the same change to withhold the session (`customerAuth`, `userName`, `userEmail`) on the public auth routes rather than only lowering the flag, which is what keeps `/portal/login`, `/signup`, `/invite`, `/reset-password` and `/verify` on the public chrome now that the context can win.
+
+**Action for module authors:** if you deliberately render force-public portal chrome for a signed-in customer — an unusual case, and none exists in this repository — `authenticated={false}` alone will no longer achieve it; render that surface outside the `PortalProvider`, or open an issue and an explicit opt-out prop can be added. No exported type, import path, widget spot ID, component-replacement handle, API route, event ID, DI key, or database column changes, so no `BACKWARD_COMPATIBILITY.md` protected surface is affected.
+
 ### `createTimeProjectFixture` needs a customer, and now says so instead of 422-ing
 
 `createTimeProjectFixture` from `@open-mercato/core/helpers/integration/timesheetFixtures` posts to `POST /api/staff/timesheets/time-projects`, where a customer became mandatory when consulting projects gained customer-scoped rates. A fixture call that omits one can no longer succeed: the route answers `422`, and the spec fails somewhere downstream of the fixture with no indication that the fixture was the problem. Six in-repo specs regressed exactly that way.
@@ -504,6 +785,19 @@ Note: only calls ingested **after** the maps exist are encrypted. Rows written b
 **Who is affected.** `pl`/`de`/`es` tenants see a 24-hour clock on every `TimePicker`, and a Monday-first, localized calendar on every `DatePicker` that previously fell back to English regardless of the tenant's language. `en` and `ko` output is unchanged — both are 12-hour locales, and English was already the picker default. No API, schema, or component prop was removed.
 
 **Action for module authors:** none required. A field or call site that already pins an explicit `locale` (date-fns `Locale` object) or `format` (`'12h' | '24h'`) keeps that value unchanged — the new default only applies where neither was set. To pin the previous English/12-hour behavior regardless of tenant locale, pass `format="12h"` to `TimePicker`, or `locale={enUS}` (from `date-fns/locale/en-US`) to `DatePicker`.
+
+### `communication_channels` now requires `progress` to be enabled (#6094)
+
+`communication_channels`'s import-history worker and its queue command (`workers/channel-import-history.ts`, `commands/queue-import-history.ts`) resolve `progressService` from the DI container, which is registered only by the `progress` module. An app that enabled `communication_channels` without `progress` previously got no build-time warning: the queue command still returned a job id and a `200`, and the worker then failed on every retry with `AwilixResolutionError: Could not resolve 'progressService'`, with no error surfaced to the user and no `progress_jobs` row to inspect.
+
+`communication_channels`'s `ModuleInfo` now declares `requires: ['progress']`, so the existing generator-enforced dependency check (already used by `sales`, `wms`, `push_notifications`, and `api_keys`) now covers it too. If your `src/modules.ts` enables `communication_channels` without `progress`, `yarn generate` now fails fast instead of shipping the silent worker failure:
+
+```
+Module dependency check failed:
+- Module "communication_channels" requires: progress
+```
+
+**Action for module authors:** add `{ id: 'progress', from: '@open-mercato/core' }` to `src/modules.ts` before `communication_channels`, then re-run `yarn generate`. `apps/mercato/src/modules.ts`, the `create-app` template's `modules.ts` (used unchanged by the `classic` preset), and the `crm` starter preset (the only other preset that enables `communication_channels`) all enable `progress` too, so this repo's own apps and freshly scaffolded apps are unaffected.
 
 ## 0.6.7 → 0.7.0 (2026-08-26)
 

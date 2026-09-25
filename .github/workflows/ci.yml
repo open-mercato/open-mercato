@@ -209,7 +209,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
-        run: yarn install --immutable
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
 
       - name: Build packages
         # Always builds all packages — no filter. Turbo cache handles the speedup:
@@ -369,7 +369,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
-        run: yarn install --immutable
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
 
       - name: Check for dead resolution keys
         # Runs before the audit because a dead `resolutions` key is a *cause* of the
@@ -431,7 +431,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
-        run: yarn install --immutable
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
 
       - name: Guard against an empty lint task graph
         # Fails when `turbo run lint` resolves to zero commands, so a future
@@ -504,7 +504,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
-        run: yarn install --immutable
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
 
       - name: DS lint (head)
         # `|| true`: the report must be published even when error-level
@@ -643,7 +643,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
-        run: yarn install --immutable
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
 
       - name: Cache Turbo build outputs
         uses: actions/cache@v6
@@ -658,6 +658,15 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: build-artifacts
+
+      - name: Check CLASSIC DI injection survives bundling
+        # Reads packages/*/dist, so it must stay after the artifact download.
+        # Awilix CLASSIC resolves a factory's dependencies by PARAMETER NAME, and
+        # esbuild renames a parameter that shadows an enclosing binding — so a
+        # registration can be correct in source, pass under ts-jest, and still
+        # throw AwilixResolutionError in the published package. Source-level
+        # checks cannot see this; only the built artefact can.
+        run: yarn check:classic-di-injection
 
       - name: Check dependency version conflicts
         run: yarn check:dep-versions
@@ -803,7 +812,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
-        run: yarn install --immutable
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
 
       - name: Download build artifacts
         uses: actions/download-artifact@v8
@@ -927,7 +936,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
-        run: yarn install --immutable
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
 
       - name: Download build artifacts
         uses: actions/download-artifact@v8

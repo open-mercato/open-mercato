@@ -33,6 +33,11 @@ import type { WorkflowActivityJob, WorkflowActivityJobActivity } from '../activi
 
 const mockLogWorkflowEvent = logWorkflowEvent as jest.MockedFunction<typeof logWorkflowEvent>
 
+const slowCooperativeState = {
+  capturedSignal: undefined as AbortSignal | undefined,
+  cancelled: false,
+}
+
 registerActivityType({
   id: 'TEST_NOT_ASYNC',
   icon: 'Ban',
@@ -41,6 +46,25 @@ registerActivityType({
   form: [],
   execute: async () => ({ ok: true }),
   async: { capable: false, reason: 'requiresRequestScope' },
+})
+
+registerActivityType({
+  id: 'TEST_SLOW_COOPERATIVE',
+  icon: 'Clock',
+  i18nKey: 'workflows.activities.types.TEST_SLOW_COOPERATIVE',
+  configSchema: z.object({}),
+  form: [],
+  execute: async (_config, _ctx, deps) =>
+    new Promise((resolve, reject) => {
+      slowCooperativeState.capturedSignal = deps.signal
+      const timerId = setTimeout(() => resolve({ ok: true }), 500)
+      deps.signal?.addEventListener('abort', () => {
+        clearTimeout(timerId)
+        slowCooperativeState.cancelled = true
+        reject(new DOMException('The operation was aborted', 'AbortError'))
+      })
+    }),
+  async: { capable: true },
 })
 
 describe('Activity Worker Handler (registry dispatch)', () => {
@@ -72,6 +96,8 @@ describe('Activity Worker Handler (registry dispatch)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    slowCooperativeState.capturedSignal = undefined
+    slowCooperativeState.cancelled = false
 
     mockInstance = {
       id: 'instance-1',
@@ -199,5 +225,28 @@ describe('Activity Worker Handler (registry dispatch)', () => {
     await expect(
       handler(makeJob(makePayload({ activityType: 'UNKNOWN_TYPE' })), jobCtx)
     ).rejects.toThrow('Unsupported activity type: UNKNOWN_TYPE')
+  })
+
+  test('aborts a slow activity when timeoutMs elapses (#5148 worker path)', async () => {
+    const handler = createActivityWorkerHandler(mockEm, mockContainer)
+
+    await expect(
+      handler(
+        makeJob(
+          makePayload({
+            activityType: 'TEST_SLOW_COOPERATIVE',
+            timeoutMs: 20,
+          })
+        ),
+        jobCtx
+      )
+    ).rejects.toThrow(/Activity timeout after 20ms/)
+
+    expect(slowCooperativeState.capturedSignal?.aborted).toBe(true)
+    expect(slowCooperativeState.cancelled).toBe(true)
+    expect(mockLogWorkflowEvent).toHaveBeenCalledWith(
+      mockEm,
+      expect.objectContaining({ eventType: 'ACTIVITY_FAILED' })
+    )
   })
 })

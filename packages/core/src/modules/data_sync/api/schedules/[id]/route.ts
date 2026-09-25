@@ -6,6 +6,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { readOptimisticLockExpected } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { isInvalidScheduleValueError } from '@open-mercato/shared/lib/schedule/invalidScheduleValue'
+import { buildScheduleValueErrorBody } from '../../../lib/schedule-value'
 import { updateSyncScheduleSchema } from '../../../data/validators'
 import type { SyncScheduleService } from '../../../lib/sync-schedule-service'
 import { serializeSchedule } from '../serialize'
@@ -142,6 +144,9 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
   } catch (error) {
     if (isCrudHttpError(error)) {
       return NextResponse.json(error.body, { status: error.status })
+    }
+    if (isInvalidScheduleValueError(error)) {
+      return NextResponse.json(buildScheduleValueErrorBody(error.scheduleType), { status: 422 })
     }
     const message = error instanceof Error ? error.message : 'Failed to update sync schedule'
     return NextResponse.json({ error: message }, { status: 422 })
