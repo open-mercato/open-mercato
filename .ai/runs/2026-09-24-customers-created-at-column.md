@@ -34,9 +34,15 @@ Let CRM users see, sort, and filter the People and Companies lists by creation d
 
 - 3.1 Run the full validation gate.
 
+### Phase 4: Maintainer review follow-up (review 5316332421)
+
+- 4.1 Define one calendar-day contract: expand date-only created_at values to explicit instants in the user's time zone on the client and in UTC on the server, with non-UTC boundary tests.
+- 4.2 Make the integration spec deterministic with explicit created_at fixtures, including a midnight boundary and a non-UTC browser time zone.
+- 4.3 Re-run the full validation gate.
+
 ## Risks
 
-- Date-only filter values are read in the database session time zone, matching every other date filter in the platform. A user far from UTC may see a record created close to midnight counted on the adjacent day.
+- Resolved in Phase 4: date-only values are expanded to explicit instants — the user's time zone in the UI (matching how the column renders dates) and UTC for direct API callers — instead of the database session time zone.
 - Open PR #5974 localizes the column-chooser and filter group labels on the same two pages. Whichever lands second adapts the new column's `Dates`/`Activity` group labels.
 - `yarn test` in `@open-mercato/cli` fails locally only when the temp dir lives inside the repository (this runner's `TMPDIR`); it passes under a system temp dir and in upstream CI on the same base.
 
@@ -60,3 +66,9 @@ PR: #6448
 
 - [x] 3.1 Run the full validation gate — decffdb1b
 - [x] Post-review fix: keep the Companies Recently created preset window after whole-day created_at filters — 39fb36096
+
+### Phase 4: Maintainer review follow-up (review 5316332421)
+
+- [ ] 4.1 Define one calendar-day contract for created_at filters with non-UTC boundary tests
+- [ ] 4.2 Make the integration spec deterministic with explicit created_at fixtures
+- [ ] 4.3 Re-run the full validation gate
