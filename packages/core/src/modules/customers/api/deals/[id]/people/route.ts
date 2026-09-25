@@ -9,7 +9,12 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
-import { CustomerDeal, CustomerDealPersonLink, CustomerEntity } from '../../../../data/entities'
+import {
+  CustomerDeal,
+  CustomerDealPersonLink,
+  CustomerEntity,
+  CustomerPersonProfile,
+} from '../../../../data/entities'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -40,12 +45,36 @@ type DealPersonItem = {
   kind: 'person'
   linkedAt: string
   isPrimary: boolean
+  // Added for the shared linked-people card, which renders the same shape the company
+  // endpoint already returns. Purely additive: every key above keeps its meaning, so
+  // `DealLinkedEntitiesTab` and any third-party consumer are unaffected.
+  displayName: string
+  primaryEmail: string | null
+  primaryPhone: string | null
+  status: string | null
+  lifecycleStage: string | null
+  jobTitle: string | null
+  department: string | null
+  createdAt: string
+  organizationId: string
+  temperature: string | null
+  source: string | null
 }
 
 function matchesSearch(item: DealPersonItem, query: string): boolean {
   const normalized = query.trim().toLowerCase()
   if (!normalized.length) return true
-  return [item.label, item.subtitle]
+  return [
+    item.label,
+    item.subtitle,
+    item.primaryEmail,
+    item.primaryPhone,
+    item.jobTitle,
+    item.department,
+    item.status,
+    item.lifecycleStage,
+    item.source,
+  ]
     .filter((value): value is string => typeof value === 'string' && value.length > 0)
     .some((value) => value.toLowerCase().includes(normalized))
 }
@@ -118,17 +147,56 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       entityScope,
     )
 
+    // One batched read for the profile-only columns, keyed by every linked person — not one
+    // query per row. The handler filters, sorts and paginates in memory below, so the batch
+    // covers the whole link set rather than the page; that is fine at the expected scale of
+    // tens of contacts per deal, and the in-memory pipeline is what to revisit first if it
+    // ever is not.
+    const personIds = links
+      .map((link) => (link.person as CustomerEntity | null)?.id)
+      .filter((personId): personId is string => typeof personId === 'string' && personId.length > 0)
+
+    const profiles = personIds.length > 0
+      ? await findWithDecryption(
+          em,
+          CustomerPersonProfile,
+          {
+            entity: { $in: personIds },
+            tenantId: deal.tenantId,
+            organizationId: deal.organizationId,
+          },
+          {},
+          entityScope,
+        )
+      : []
+    const profileByPersonId = new Map(
+      profiles.map((profile) => [(profile.entity as { id: string }).id, profile]),
+    )
+
     const items = links
       .map((link) => {
         const person = link.person as CustomerEntity | null
         if (!person?.id) return null
+        const profile = profileByPersonId.get(person.id) ?? null
+        const displayName = person.displayName ?? person.primaryEmail ?? person.id
         return {
           id: person.id,
-          label: person.displayName ?? person.primaryEmail ?? person.id,
+          label: displayName,
           subtitle: person.primaryEmail ?? person.primaryPhone ?? null,
           kind: 'person',
           linkedAt: link.createdAt.toISOString(),
           isPrimary: link.isPrimary === true,
+          displayName,
+          primaryEmail: person.primaryEmail ?? null,
+          primaryPhone: person.primaryPhone ?? null,
+          status: person.status ?? null,
+          lifecycleStage: person.lifecycleStage ?? null,
+          jobTitle: profile?.jobTitle ?? null,
+          department: profile?.department ?? null,
+          createdAt: person.createdAt.toISOString(),
+          organizationId: person.organizationId,
+          temperature: person.temperature ?? null,
+          source: person.source ?? null,
         } satisfies DealPersonItem
       })
       .filter((item): item is DealPersonItem => item !== null)
@@ -175,6 +243,17 @@ export const openApi: OpenApiRouteDoc = {
                 kind: z.literal('person'),
                 linkedAt: z.string(),
                 isPrimary: z.boolean(),
+                displayName: z.string(),
+                primaryEmail: z.string().nullable(),
+                primaryPhone: z.string().nullable(),
+                status: z.string().nullable(),
+                lifecycleStage: z.string().nullable(),
+                jobTitle: z.string().nullable(),
+                department: z.string().nullable(),
+                createdAt: z.string(),
+                organizationId: z.string().uuid().nullable(),
+                temperature: z.string().nullable(),
+                source: z.string().nullable(),
               }),
             ),
             total: z.number().int().nonnegative(),
