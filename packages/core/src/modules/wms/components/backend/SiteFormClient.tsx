@@ -92,20 +92,23 @@ export function SiteFormClient({ siteId }: { siteId?: string }) {
         label: t("wms.sites.form.code", "Code"),
         type: "text",
         required: true,
+        readOnly: !canManage,
       },
       {
         id: "name",
         label: t("wms.sites.form.name", "Name"),
         type: "text",
         required: true,
+        readOnly: !canManage,
       },
       {
         id: "isActive",
         label: t("wms.sites.form.active", "Active"),
         type: "checkbox",
+        disabled: !canManage,
       },
     ],
-    [t],
+    [t, canManage],
   );
   const schema = React.useMemo(() => createSiteSchema(t), [t]);
   const groups = React.useMemo(() => buildSiteGroups(siteId), [siteId]);
