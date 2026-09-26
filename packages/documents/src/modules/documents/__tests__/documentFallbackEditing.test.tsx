@@ -175,6 +175,26 @@ describe('single-user fallback editing', () => {
     expect(result.current.status).toBe('saved')
   })
 
+  it('keeps an initialization update matching the saved content clean', () => {
+    const initialContentHtml = '<p>Saved body</p>'
+    const { result } = renderHook(() => useFallbackContentPersistence({
+      documentId: DOCUMENT_ID,
+      initialUpdatedAt: INITIAL_UPDATED_AT,
+      initialContentHtml,
+      enabled: true,
+    }))
+    const editor = {
+      getHTML: () => initialContentHtml,
+      getText: () => 'Saved body',
+    } as unknown as Editor
+
+    act(() => result.current.onEditorUpdate(editor))
+    act(() => jest.advanceTimersByTime(FALLBACK_AUTOSAVE_DELAY_MS))
+
+    expect(result.current.status).toBe('saved')
+    expect(apiCallMock).not.toHaveBeenCalled()
+  })
+
   it('flushes pending content before allowing internal link navigation', async () => {
     let resolveSave!: (value: unknown) => void
     const save = new Promise((resolve) => { resolveSave = resolve })
