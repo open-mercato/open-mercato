@@ -437,7 +437,7 @@ function NavItemBadge({ href, compact }: { href: string; compact: boolean }) {
     : 'bg-muted text-muted-foreground'
   return (
     <span
-      className={`ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-medium ${tone} ${
+      className={`ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-medium ${tone} ${
         compact ? 'absolute end-0 top-0 -me-1 -mt-1' : ''
       }`}
       aria-label={badge.label ?? display}

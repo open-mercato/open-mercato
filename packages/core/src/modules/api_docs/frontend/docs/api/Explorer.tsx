@@ -472,7 +472,7 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
                           <li key={operation.id}>
                             <button
                               type="button"
-                              className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left transition ${
+                              className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-start transition ${
                                 selectedOperation?.id === operation.id
                                   ? 'bg-primary/10 text-primary'
                                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -856,7 +856,7 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
                       <li key={`mobile-${operation.id}`}>
                         <button
                           type="button"
-                          className={`flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-sm ${
+                          className={`flex w-full items-center gap-2 rounded-md border px-3 py-2 text-start text-sm ${
                             selectedOperation?.id === operation.id
                               ? 'border-accent-indigo text-foreground'
                               : 'border-border text-muted-foreground'

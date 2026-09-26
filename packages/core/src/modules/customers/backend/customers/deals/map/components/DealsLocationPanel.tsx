@@ -174,7 +174,7 @@ export function DealsLocationPanel({
               aria-label={cardAriaLabel}
               aria-pressed={isSelected}
               onClick={() => onSelect(deal.id)}
-              className={`h-auto w-full flex-col items-stretch justify-start gap-1 whitespace-normal rounded-lg border border-border p-3 text-left shadow-none ${
+              className={`h-auto w-full flex-col items-stretch justify-start gap-1 whitespace-normal rounded-lg border border-border p-3 text-start shadow-none ${
                 isSelected ? 'bg-muted' : 'bg-card'
               }`}
             >

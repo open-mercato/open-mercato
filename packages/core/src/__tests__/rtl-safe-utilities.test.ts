@@ -151,6 +151,96 @@ function physicalToken(token: string): string | null {
   return null
 }
 
+/**
+ * Line index for a byte offset, via binary search over the line-start table.
+ *
+ * The first check used to scan one line at a time, which silently skipped every
+ * template literal that wrapped onto the next line — the exact shape most
+ * `cn(...)` class lists take, and where `first:rounded-l-[…]` hid from this
+ * guard. Literals are now matched against the whole file text and resolved back
+ * to a line so the `rtl-physical` marker keeps working.
+ */
+function createLineLocator(text: string): (offset: number) => number {
+  const starts: number[] = [0]
+  for (let index = 0; index < text.length; index += 1) {
+    if (text.charCodeAt(index) === 10) starts.push(index + 1)
+  }
+  return (offset) => {
+    let low = 0
+    let high = starts.length - 1
+    let found = 0
+    while (low <= high) {
+      const mid = (low + high) >> 1
+      if (starts[mid] <= offset) {
+        found = mid
+        low = mid + 1
+      } else {
+        high = mid - 1
+      }
+    }
+    return found
+  }
+}
+
+/**
+ * Comments replaced by spaces, newlines preserved.
+ *
+ * Scanning raw text for string literals breaks on an apostrophe inside a comment:
+ * the regex opens a literal that never closes, swallows the code below it, and
+ * reports class tokens from lines that only *mention* them (`// … pl-[10px] …`).
+ * Blanking comments keeps every offset (and therefore every reported line number)
+ * intact while removing both that desync and the Markdown code spans in doc
+ * comments, which are not class lists either.
+ */
+function sanitizeSource(text: string): string {
+  const out = [...text]
+  type Mode = 'code' | 'line-comment' | 'block-comment' | 'single' | 'double' | 'template'
+  let mode: Mode = 'code'
+  const blank = (index: number): void => {
+    if (out[index] !== '\n' && out[index] !== undefined) out[index] = ' '
+  }
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]
+    const next = text[index + 1]
+    if (mode === 'code') {
+      if (char === '/' && next === '/') {
+        mode = 'line-comment'
+        blank(index)
+      } else if (char === '/' && next === '*') {
+        mode = 'block-comment'
+        blank(index)
+      } else if (char === "'") mode = 'single'
+      else if (char === '"') mode = 'double'
+      else if (char === '`') mode = 'template'
+      continue
+    }
+    if (mode === 'line-comment') {
+      if (char === '\n') mode = 'code'
+      else blank(index)
+      continue
+    }
+    if (mode === 'block-comment') {
+      if (char === '*' && next === '/') {
+        blank(index)
+        blank(index + 1)
+        index += 1
+        mode = 'code'
+        continue
+      }
+      blank(index)
+      continue
+    }
+    if (char === '\\') {
+      index += 1
+      continue
+    }
+    if (mode === 'single' && char === "'") mode = 'code'
+    else if (mode === 'double' && char === '"') mode = 'code'
+    else if (mode === 'template' && char === '`') mode = 'code'
+  }
+  return out.join('')
+}
+
 describe('directional Tailwind utilities must be logical (RTL-safe)', () => {
   const files: string[] = []
   for (const root of discoverSourceRoots()) walk(root, files)
@@ -164,20 +254,24 @@ describe('directional Tailwind utilities must be logical (RTL-safe)', () => {
 
     for (const full of files) {
       const rel = relative(repoRoot, full).split(sep).join('/')
-      const lines = readFileSync(full, 'utf8').split('\n')
+      const text = readFileSync(full, 'utf8')
+      const code = sanitizeSource(text)
+      const lines = text.split('\n')
+      const lineForOffset = createLineLocator(text)
 
-      lines.forEach((line, index) => {
-        if (line.includes(OPT_OUT_MARKER)) return
-        const literals = line.match(STRING_LITERAL)
-        if (!literals) return
-        for (const literal of literals) {
-          const value = literal.slice(1, -1)
-          for (const token of value.split(/\s+/)) {
-            const offender = physicalToken(token)
-            if (offender) violations.push(`${rel}:${index + 1}: ${offender}`)
-          }
+      for (const literal of code.matchAll(STRING_LITERAL)) {
+        const lineIndex = lineForOffset(literal.index ?? 0)
+        if ((lines[lineIndex] ?? '').includes(OPT_OUT_MARKER)) continue
+        // A class list split across lines has no room for a trailing comment on the
+        // line the literal starts, so the marker is also honoured on the line above —
+        // the same convention the inline-offset check below uses.
+        if ((lines[lineIndex - 1] ?? '').includes(OPT_OUT_MARKER)) continue
+        const value = literal[0].slice(1, -1)
+        for (const token of value.split(/\s+/)) {
+          const offender = physicalToken(token)
+          if (offender) violations.push(`${rel}:${lineIndex + 1}: ${offender}`)
         }
-      })
+      }
     }
 
     expect(violations).toEqual([])

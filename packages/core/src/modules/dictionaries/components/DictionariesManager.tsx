@@ -419,7 +419,7 @@ export function DictionariesManager() {
                     role="button"
                     tabIndex={0}
                     aria-pressed={dictionary.id === selectedId}
-                    className={`flex w-full cursor-pointer select-none items-center justify-between rounded border px-3 py-2 text-left text-sm transition ${
+                    className={`flex w-full cursor-pointer select-none items-center justify-between rounded border px-3 py-2 text-start text-sm transition ${
                       dictionary.id === selectedId ? 'border-primary bg-primary/5 text-primary' : 'border-border hover:bg-muted'
                     }`}
                     onClick={() => setSelectedId(dictionary.id)}

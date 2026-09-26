@@ -62,7 +62,7 @@ export function ThemeToggle({ className }: ThemeToggleProps) {
       <span
         className={cn(
           'absolute size-5 rounded-full bg-background shadow-sm transition-transform duration-200 motion-reduce:transition-none',
-          isDark ? 'translate-x-7' : 'translate-x-0'
+          isDark ? 'translate-x-7 rtl:-translate-x-7' : 'translate-x-0'
         )}
       />
       {/* Icons */}

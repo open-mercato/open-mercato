@@ -4,6 +4,7 @@ import * as React from 'react'
 import * as ScrollAreaPrimitive from '@radix-ui/react-scroll-area'
 
 import { cn } from '@open-mercato/shared/lib/utils'
+import { useDirection } from '@open-mercato/shared/lib/i18n/context'
 
 /**
  * DS-styled scrollable container. Wraps Radix `ScrollArea` with token-driven
@@ -170,24 +171,27 @@ const ScrollArea = React.forwardRef<
   ScrollAreaProps
 >(
   (
-    { children, className, scrollbars = 'vertical', viewportClassName, scrollbarClassName, thumbClassName, scrollbarSize, scrollbarVariant, ...props },
+    { children, className, scrollbars = 'vertical', viewportClassName, scrollbarClassName, thumbClassName, scrollbarSize, scrollbarVariant, dir, ...props },
     ref,
-  ) => (
-    <ScrollAreaRoot ref={ref} className={className} {...props}>
-      <ScrollAreaViewport className={viewportClassName}>{children}</ScrollAreaViewport>
-      {(scrollbars === 'vertical' || scrollbars === 'both') ? (
-        <ScrollAreaScrollbar orientation="vertical" size={scrollbarSize} variant={scrollbarVariant} className={scrollbarClassName}>
-          <ScrollAreaThumb className={thumbClassName} />
-        </ScrollAreaScrollbar>
-      ) : null}
-      {(scrollbars === 'horizontal' || scrollbars === 'both') ? (
-        <ScrollAreaScrollbar orientation="horizontal" size={scrollbarSize} variant={scrollbarVariant} className={scrollbarClassName}>
-          <ScrollAreaThumb className={thumbClassName} />
-        </ScrollAreaScrollbar>
-      ) : null}
-      <ScrollAreaCorner />
-    </ScrollAreaRoot>
-  ),
+  ) => {
+    const direction = useDirection()
+    return (
+      <ScrollAreaRoot ref={ref} className={className} dir={dir ?? direction} {...props}>
+        <ScrollAreaViewport className={viewportClassName}>{children}</ScrollAreaViewport>
+        {(scrollbars === 'vertical' || scrollbars === 'both') ? (
+          <ScrollAreaScrollbar orientation="vertical" size={scrollbarSize} variant={scrollbarVariant} className={scrollbarClassName}>
+            <ScrollAreaThumb className={thumbClassName} />
+          </ScrollAreaScrollbar>
+        ) : null}
+        {(scrollbars === 'horizontal' || scrollbars === 'both') ? (
+          <ScrollAreaScrollbar orientation="horizontal" size={scrollbarSize} variant={scrollbarVariant} className={scrollbarClassName}>
+            <ScrollAreaThumb className={thumbClassName} />
+          </ScrollAreaScrollbar>
+        ) : null}
+        <ScrollAreaCorner />
+      </ScrollAreaRoot>
+    )
+  },
 )
 ScrollArea.displayName = 'ScrollArea'
 

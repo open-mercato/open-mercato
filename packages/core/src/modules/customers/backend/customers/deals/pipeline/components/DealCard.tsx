@@ -283,7 +283,7 @@ function DealCardImpl({
       <div className="flex items-start justify-between gap-2.5">
         <div
           data-card-action="true"
-          className={`mr-0.5 mt-0.5 flex shrink-0 transition-opacity ${
+          className={`me-0.5 mt-0.5 flex shrink-0 transition-opacity ${
             selected || bulkSelectionActive
               ? 'opacity-100'
               // `opacity-0` alone leaves the element in the DOM with hit-testable pointer

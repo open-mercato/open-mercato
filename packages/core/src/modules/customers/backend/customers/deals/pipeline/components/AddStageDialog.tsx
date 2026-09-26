@@ -264,7 +264,7 @@ export function AddStageDialog({
                     type="button"
                     onClick={() => setValue(option.value)}
                     aria-pressed={selected}
-                    className={`flex items-center justify-between gap-2 rounded-sm px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                    className={`flex items-center justify-between gap-2 rounded-sm px-3 py-2 text-start text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
                       selected
                         ? 'bg-muted font-medium text-foreground'
                         : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'

@@ -72,7 +72,7 @@ export const ConfirmStep = (props: ConfirmStepProps) => {
                   <button
                     key={rate.serviceCode}
                     type="button"
-                    className={`flex w-full cursor-pointer items-center justify-between rounded-lg border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                    className={`flex w-full cursor-pointer items-center justify-between rounded-lg border p-3 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                       isSelected ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
                     }`}
                     onClick={() => onRateSelect(rate)}

@@ -118,13 +118,36 @@ corners, popovers positioned from measured rectangles, canvas and diagram handle
 and trace spans on a time axis, map pins on a bitmap, email margins for clients without
 logical properties — carry a marker and a reason, so a new one cannot slip in unnoticed.
 
+Closed since (2026-09-26):
+
+1. **`translate-x-*` audited to the end.** Only two sites moved a purely physical
+   distance — the `Switch` and `ThemeToggle` knobs, which now carry `rtl:-translate-x-*`
+   so the indicator travels toward the labelled side in Arabic. The rest were
+   `translate-x-0` resets, the centring idiom, or an operator-chosen dock already marked.
+   `bg-left/right` no longer exists anywhere in the tree.
+2. **The guard can see what it was blind to.** It now scans whole-file string literals
+   instead of one line at a time — a class list that wraps onto the next line, the shape
+   every `cn(...)` call takes, was previously never scanned — and blanks comments before
+   scanning, so an apostrophe in a comment can no longer desync quote matching and
+   attribute a token to a line that merely mentions it. Switching it on surfaced 20 real
+   physical utilities (`text-left` ×15, `ml-auto`, `mr-0.5`, `-right-0.5`,
+   `border-l-[3px]`, `rounded-l/r-[calc(…)]` ×2); all are logical now.
+3. **`ScrollArea` is direction-aware by default.** The primitive derives `dir` from the
+   i18n context (`useDirection()`, which falls back to `ltr` outside a provider) instead of
+   leaving Radix on its LTR default, while still accepting an explicit `dir` override.
+4. **Sticky-column shadows mirror.** The `DataTable` before/after gradients sit on logical
+   insets, so they now carry `md:rtl:before:bg-gradient-to-r` /
+   `md:rtl:after:bg-gradient-to-l`.
+
 Still open in this phase:
 
-1. `translate-x-*` outside the centring idiom, and `bg-left/right` — audit each
-   occurrence.
-2. The primitives that consume direction as data rather than as layout:
-   `ScrollArea` (`dir` prop, already supported), chevrons/drag handles,
-   `InlineGranularitySelect`, `ScheduleGrid`, chart axis origin, code editor.
+1. The kanban horizontal scroller (`customers` deals pipeline): `stepScroll`,
+   `updateScrollEdges` and `laneOffsets` all assume LTR `scrollLeft` coordinates, so its
+   two edge-stepping buttons stay physical behind an `rtl-physical` marker carrying that
+   reason. Converting the scroller is a behavioural change and needs a Playwright run
+   under `ar` before it ships.
+2. The remaining direction-as-data primitives: chevrons/drag handles, `ScheduleGrid`,
+   chart axis origin, code editor.
 
 ### Phase 2 — Arabic content completeness
 
@@ -361,3 +384,14 @@ new ACL features (`saudi_localization.*`) and built on `makeCrudRoute`.
   stay Latin on purpose — an example storefront handle and the `1 kg = 1000 g`
   unit-conversion equation — and `catalog.products.edit.offers.deleteError` deliberately
   keeps the value the app dictionary already ships, so one key cannot read two ways.
+- **2026-09-26 (Phase 1b, closed for the tree)** — the RTL audit finished the two open
+  items and hardened the guard that keeps them closed. `translate-x-*` was audited to the
+  end (two knobs mirrored with `rtl:-translate-x-*`; the rest are resets, the centring
+  idiom, or marked docks) and `bg-left/right` no longer exists. The guard now scans
+  whole-file literals rather than one line at a time and blanks comments first, which
+  surfaced 20 real physical utilities that the per-line scan had never seen (15 `text-left`,
+  `ml-auto`, `mr-0.5`, `-right-0.5`, `border-l-[3px]`, two `rounded-l/r-[calc(…)]`).
+  `ScrollArea` now derives `dir` from the i18n context, so Radix stops defaulting to LTR in
+  Arabic, and the `DataTable` sticky-column gradients mirror with their logical insets.
+  What remains is one behavioural item — the kanban scroller's LTR-shaped `scrollLeft`
+  math, marked `rtl-physical` with that reason — plus the direction-as-data primitives.

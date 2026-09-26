@@ -220,7 +220,7 @@ export function EntityFilterPopover({
                         role="checkbox"
                         aria-checked={checked}
                         onClick={() => toggleDraft(option.value)}
-                        className={`h-auto w-full justify-start gap-3 rounded-none px-4 py-2.5 text-left font-normal ${
+                        className={`h-auto w-full justify-start gap-3 rounded-none px-4 py-2.5 text-start font-normal ${
                           checked ? 'bg-muted/60' : 'bg-card'
                         }`}
                       >

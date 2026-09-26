@@ -240,7 +240,7 @@ export function ActionsDropdown({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className={`w-full justify-start h-auto min-h-8 py-1.5 whitespace-normal text-left leading-snug${
+                className={`w-full justify-start h-auto min-h-8 py-1.5 whitespace-normal text-start leading-snug${
                   item.destructive
                     ? ' text-destructive hover:text-destructive hover:bg-destructive/10 focus-visible:text-destructive'
                     : ''

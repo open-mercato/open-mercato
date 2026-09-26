@@ -106,7 +106,7 @@ function PickerRow({
       aria-checked={selected}
       onClick={onSelect}
       data-testid={testId}
-      className={`h-auto w-full justify-start gap-2.5 rounded-md px-2.5 py-2 text-left text-sm font-normal ${
+      className={`h-auto w-full justify-start gap-2.5 rounded-md px-2.5 py-2 text-start text-sm font-normal ${
         selected ? 'bg-muted/60' : 'bg-transparent'
       }`}
     >

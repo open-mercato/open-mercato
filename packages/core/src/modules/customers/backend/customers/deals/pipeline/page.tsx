@@ -2805,6 +2805,11 @@ export default function DealsKanbanPage(): React.ReactElement {
                 onPointerCancel={stopContinuousScroll}
                 aria-label={translateWithFallback(t, 'customers.deals.kanban.board.scrollPrev', 'Scroll to previous stage')}
                 aria-disabled={scrollEdges.atStart}
+                // The kanban scroller's scrollLeft arithmetic (stepScroll / updateScrollEdges /
+                // laneOffsets) is LTR-shaped end to end, so moving only this anchor to the logical
+                // start would park the control on the empty side of an axis whose steps still run
+                // left-to-right. Converting the whole scroller is tracked as an open Phase 1b item.
+                // rtl-physical
                 className={`absolute left-0 top-28 flex size-9 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-lg transition-opacity hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
                   scrollEdges.atStart ? 'opacity-30' : ''
                 }`}
@@ -2887,6 +2892,8 @@ export default function DealsKanbanPage(): React.ReactElement {
                 onPointerCancel={stopContinuousScroll}
                 aria-label={translateWithFallback(t, 'customers.deals.kanban.board.scrollNext', 'Scroll to next stage')}
                 aria-disabled={scrollEdges.atEnd}
+                // Same LTR-shaped scroll axis as the previous-stage button above.
+                // rtl-physical
                 className={`absolute right-0 top-28 flex size-9 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-lg transition-opacity hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
                   scrollEdges.atEnd ? 'opacity-30' : ''
                 }`}

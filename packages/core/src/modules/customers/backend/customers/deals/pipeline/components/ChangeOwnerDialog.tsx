@@ -149,7 +149,7 @@ export function ChangeOwnerDialog({
                     //  - `h-auto` → fit avatar + two stacked text lines (default `h-9` clips and leaves the background only covering the first line — that's the "uneven" symptom)
                     //  - `justify-start` → left-align contents (default Button is `justify-center`, which pushes the avatar+name toward the middle)
                     //  - `whitespace-normal` → allow long emails to wrap instead of overflowing the button box (default Button is `whitespace-nowrap`)
-                    className={`flex h-auto w-full items-center justify-start gap-3 whitespace-normal rounded-md px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                    className={`flex h-auto w-full items-center justify-start gap-3 whitespace-normal rounded-md px-3 py-2 text-start transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
                       isSelected ? 'bg-muted' : ''
                     }`}
                   >

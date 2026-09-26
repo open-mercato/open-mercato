@@ -509,9 +509,9 @@ const EMPTY_VIEW_SETTINGS: PerspectiveSettings = Object.freeze({}) as Perspectiv
 // leaves the scrollable middle columns no visible window at all — narrow
 // screens fall back to plain horizontal scroll so every column stays reachable.
 const STICKY_RIGHT_SHADOW_CLASS =
-  'md:before:absolute md:before:inset-y-0 md:before:-start-2 md:before:w-2 md:before:bg-gradient-to-l md:before:from-foreground/8 md:before:to-transparent md:before:pointer-events-none'
+  'md:before:absolute md:before:inset-y-0 md:before:-start-2 md:before:w-2 md:before:bg-gradient-to-l md:rtl:before:bg-gradient-to-r md:before:from-foreground/8 md:before:to-transparent md:before:pointer-events-none'
 const STICKY_LEFT_SHADOW_CLASS =
-  'md:after:absolute md:after:inset-y-0 md:after:-end-2 md:after:w-2 md:after:bg-gradient-to-r md:after:from-foreground/8 md:after:to-transparent md:after:pointer-events-none'
+  'md:after:absolute md:after:inset-y-0 md:after:-end-2 md:after:w-2 md:after:bg-gradient-to-r md:rtl:after:bg-gradient-to-l md:after:from-foreground/8 md:after:to-transparent md:after:pointer-events-none'
 
 export type BulkActionExecuteResult = {
   ok: boolean

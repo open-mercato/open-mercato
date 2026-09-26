@@ -203,7 +203,7 @@ export function ConfirmDealLostDialog({
                             setReasonListOpen(false)
                             setError('')
                           }}
-                          className={`h-auto flex w-full items-center justify-between rounded-none px-4 py-3 text-left ${
+                          className={`h-auto flex w-full items-center justify-between rounded-none px-4 py-3 text-start ${
                             index < lossReasons.length - 1 ? 'border-b border-border/60' : ''
                           } ${isSelected ? 'bg-muted/60' : 'hover:bg-accent/50'}`}
                         >

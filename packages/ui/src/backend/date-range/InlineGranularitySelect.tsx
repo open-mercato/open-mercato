@@ -46,7 +46,7 @@ export function InlineGranularitySelect({
             size="sm"
             title={t(option.titleKey, option.titleFallback)}
             onClick={() => onChange(option.value)}
-            className={`h-auto px-2 py-0.5 text-xs font-medium transition-colors first:rounded-l-[calc(var(--radius)-2px)] last:rounded-r-[calc(var(--radius)-2px)] ${
+            className={`h-auto px-2 py-0.5 text-xs font-medium transition-colors first:rounded-s-[calc(var(--radius)-2px)] last:rounded-e-[calc(var(--radius)-2px)] ${
               isActive
                 ? 'bg-primary text-primary-foreground'
                 : 'text-muted-foreground hover:bg-muted hover:text-foreground'

@@ -384,7 +384,7 @@ export function TaskPicker({
                         data-testid={`task-picker-option-${item.id}`}
                         onMouseEnter={() => setActiveIndex(flat.indexOf(item))}
                         onClick={() => choose(item.id)}
-                        className={`flex h-9 w-full items-center gap-2 border-b border-border/50 px-2.5 text-left text-sm last:border-b-0 ${
+                        className={`flex h-9 w-full items-center gap-2 border-b border-border/50 px-2.5 text-start text-sm last:border-b-0 ${
                           isActive ? 'bg-accent' : ''
                         }`}
                       >
