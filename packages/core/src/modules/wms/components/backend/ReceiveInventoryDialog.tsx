@@ -448,6 +448,7 @@ export function ReceiveInventoryDialog({
                   aria-hidden="true"
                 />
                 <ComboboxInput
+                  aria-label={t('wms.backend.inventory.receive.form.variant', 'Variant')}
                   value={form.catalogVariantId}
                   onChange={(next) => {
                     patchForm({
