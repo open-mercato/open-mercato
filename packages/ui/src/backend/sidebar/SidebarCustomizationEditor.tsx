@@ -1352,7 +1352,7 @@ function ItemRow({ item, draft, saving, onLabelChange, onHiddenChange, t, depth,
   return (
     <div
       className="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-muted/40"
-      style={depth ? { paddingLeft: 16 + depth * 24 } : undefined}
+      style={depth ? { paddingInlineStart: 16 + depth * 24 } : undefined}
     >
       {dragHandle ?? (depth > 0 ? <span className="w-4 shrink-0" aria-hidden /> : null)}
       <div className={`min-w-0 flex-1 flex flex-col gap-1.5 ${effectivelyDimmed ? 'opacity-60' : ''}`}>

@@ -364,6 +364,7 @@ export function ProfileDropdown({
         <div
           ref={menuRef}
           className="fixed z-popover w-64 overflow-hidden rounded-lg border bg-popover p-0 shadow-lg"
+    // rtl-physical: positioned from a measured getBoundingClientRect
           style={{ top: menuPosition.top, right: menuPosition.right }}
           role="menu"
           data-testid="profile-dropdown"

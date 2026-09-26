@@ -177,7 +177,7 @@ const JsonNode = React.memo<JsonNodeProps>(({ data, depth, maxInitialDepth, them
           <>
             <br />
             {data.map((item, index) => (
-              <div key={index} style={{ paddingLeft: `${indent + 16}px` }}>
+              <div key={index} style={{ paddingInlineStart: `${indent + 16}px` }}>
                 <JsonNode
                   data={item}
                   depth={depth + 1}
@@ -191,7 +191,7 @@ const JsonNode = React.memo<JsonNodeProps>(({ data, depth, maxInitialDepth, them
                 <br />
               </div>
             ))}
-            <span style={{ paddingLeft: `${indent}px` }} className={themeClasses.punctuation}>
+            <span style={{ paddingInlineStart: `${indent}px` }} className={themeClasses.punctuation}>
               ]
             </span>
           </>
@@ -229,7 +229,7 @@ const JsonNode = React.memo<JsonNodeProps>(({ data, depth, maxInitialDepth, them
           <>
             <br />
             {entries.map(([key, value], index) => (
-              <div key={key} style={{ paddingLeft: `${indent + 16}px` }}>
+              <div key={key} style={{ paddingInlineStart: `${indent + 16}px` }}>
                 <span className={themeClasses.key}>"{key}"</span>
                 <span className={themeClasses.punctuation}>: </span>
                 <JsonNode
@@ -246,7 +246,7 @@ const JsonNode = React.memo<JsonNodeProps>(({ data, depth, maxInitialDepth, them
                 <br />
               </div>
             ))}
-            <span style={{ paddingLeft: `${indent}px` }} className={themeClasses.punctuation}>
+            <span style={{ paddingInlineStart: `${indent}px` }} className={themeClasses.punctuation}>
               {'}'}
             </span>
           </>

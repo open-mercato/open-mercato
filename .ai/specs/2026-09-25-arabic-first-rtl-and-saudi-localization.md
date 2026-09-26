@@ -91,22 +91,38 @@ Today the gap is structural, not cosmetic:
 
 ### Phase 1b — patterns with no logical equivalent
 
-Not renames, so each is a per-site decision and is deliberately outside the
-guard:
+**Audited 2026-09-25** by compiling each candidate utility with the installed Tailwind
+4.3.3 and reading the emitted CSS, instead of assuming:
 
-1. `bg-gradient-to-l/r` — a physical gradient step. The DataTable sticky-column
-   shadows are the canonical case: they need `rtl:bg-gradient-to-l/r` overrides on
-   the `before:`/`after:` shadow classes.
-2. `space-x-*` (14 sites) and `divide-x` — sibling spacing. Verify against the
-   installed Tailwind version whether `space-x-*` already resolves to
-   `margin-inline-*`; if not, migrate the call sites.
-3. Inline `style={{ left }}` / `style={{ right }}` in canvas and diagram code
-   (workflow nodes, run gantt, agent trace timelines, app shell aside width) —
-   coordinates are physical by construction; mirroring needs measured-value
-   arithmetic, not classes.
-4. `origin-left/right`, `bg-left/right` and `translate-x-*` outside the centring
-   idiom — audit each occurrence.
-5. The primitives that consume direction as data rather than as layout:
+- **`space-x-*` was on this list by mistake and is off it.** Tailwind 4 compiles it to
+  `margin-inline-start`/`margin-inline-end`, so it already mirrors; its 12 sites need no
+  change and the guard no longer calls it unsafe.
+- **`bg-gradient-to-r/l` is real**: the emitted rule is
+  `--tw-gradient-position: to right in oklab`, fixed to a physical side. There is no
+  logical gradient, so each site is a decision — the DataTable sticky-column shadows are
+  the canonical case and need `rtl:bg-gradient-to-l/r`.
+- **`origin-left/right` is real**: Tailwind has no logical origin. One site (the messages
+  thread panel) needed `rtl:origin-right`.
+- **Inline `style={{ left }}` / `{{ right }}` is real and now enforced**: no class can fix
+  it, so the RTL guard requires either the logical property (`insetInlineStart`,
+  `insetInlineEnd`, `marginInlineStart`, `paddingInlineStart`) or an `rtl-physical` marker
+  on the line — or on the line above it, since a style object has no room for a trailing
+  comment — with a reason.
+
+That audit is **finished for the tree**: 15 offsets were converted (the sidebar collapse
+toggle and the `DataTable` tree-row indent, both visible on every screen; the JSON
+viewer's four; the sidebar customization tree; four category/organisation tree indents;
+the command palette anchor; the organisation switcher in both the app and the template)
+and the 27 offsets that are physical on purpose — operator-chosen docks and screen
+corners, popovers positioned from measured rectangles, canvas and diagram handles, Gantt
+and trace spans on a time axis, map pins on a bitmap, email margins for clients without
+logical properties — carry a marker and a reason, so a new one cannot slip in unnoticed.
+
+Still open in this phase:
+
+1. `translate-x-*` outside the centring idiom, and `bg-left/right` — audit each
+   occurrence.
+2. The primitives that consume direction as data rather than as layout:
    `ScrollArea` (`dir` prop, already supported), chevrons/drag handles,
    `InlineGranularitySelect`, `ScheduleGrid`, chart axis origin, code editor.
 
@@ -302,6 +318,15 @@ new ACL features (`saudi_localization.*`) and built on `makeCrudRoute`.
   mapping with explicit VAT-category rules, and UBL 2.1 assembly carrying the
   sourced business rules. The QR panel renders the payload on the order detail.
   Signed XAdES, CSID onboarding and sandbox validation remain open.
+- **2026-09-25 (Phase 1b) — the physical offsets audited and closed for the tree.** The
+  audit was done by compiling each candidate utility with the installed Tailwind 4.3.3 and
+  reading the emitted CSS, which corrected one claim and confirmed the rest:
+  `space-x-*` is *logical* in v4 (no work needed; it was listed as unsafe by mistake),
+  while `bg-gradient-to-*`, `origin-*` and inline `left`/`right` offsets are genuinely
+  physical. 15 offsets were converted to logical properties — the sidebar collapse toggle
+  and the `DataTable` tree indent, which every screen renders — 27 were left physical with
+  an `rtl-physical` marker and a reason, and the RTL guard gained an enforceable rule for
+  inline offsets, which no class can fix.
 - **2026-09-25 (Phase 2, Arabic rollout starts)** — `dashboards`, `notifications`,
   `currencies`, `dictionaries`, `progress`, `api_keys`, `phone_calls` and `audit_logs`
   ship complete Arabic dictionaries (661 keys between them), and `i18n-check-sync` now

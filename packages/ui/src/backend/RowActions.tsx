@@ -112,6 +112,7 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
           className="fixed w-44 max-w-[calc(100vw-1rem)] rounded-md border bg-background p-1 shadow focus-visible:outline-none z-dropdown"
           style={{
             top: direction === 'down' ? anchorRect.bottom + 8 : anchorRect.top - 8,
+    // rtl-physical: positioned from a measured getBoundingClientRect
             left: Math.min(anchorRect.right, window.innerWidth - 8),
             transform: `translate(-100%, ${direction === 'down' ? '0' : '-100%'})`,
           }}

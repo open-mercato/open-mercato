@@ -104,7 +104,7 @@ export function ConditionGroup({ group, onChange, onDelete, depth, maxDepth = 5,
   return (
     <div
       className={`p-3 rounded border-2 ${colorClass}`}
-      style={{ marginLeft: depth > 0 ? `${depth * 16}px` : '0' }}
+      style={{ marginInlineStart: depth > 0 ? `${depth * 16}px` : '0' }}
     >
       {/* Group Header */}
       <div className="flex items-center gap-2 mb-3">

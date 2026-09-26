@@ -852,6 +852,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
       if (!rail) return
       const offset = Math.max(180, Math.round(rail.clientWidth * 0.65))
       rail.scrollBy({
+    // rtl-physical: follows the drag direction, not the reading direction
         left: direction === 'left' ? -offset : offset,
         behavior: 'smooth',
       })

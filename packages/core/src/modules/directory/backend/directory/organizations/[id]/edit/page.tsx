@@ -245,7 +245,7 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
           <ul className="space-y-1 text-sm">
             {childSummary.map((child) => (
               <li key={child.value} className="leading-none">
-                <span style={{ paddingLeft: child.depth > 0 ? TREE_PADDING + (child.depth - 1) * TREE_STEP : 0 }}>
+                <span style={{ paddingInlineStart: child.depth > 0 ? TREE_PADDING + (child.depth - 1) * TREE_STEP : 0 }}>
                   {child.depth > 0 ? <span className="text-muted-foreground">↳ </span> : null}
                   {child.name}
                 </span>

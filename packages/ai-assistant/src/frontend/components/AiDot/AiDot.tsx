@@ -13,9 +13,13 @@ export interface AiDotProps {
 }
 
 const floatingPositionStyles: Record<FloatingPosition, React.CSSProperties> = {
+    // rtl-physical: the assistant dot sits in a screen corner chosen by the operator
   'bottom-right': { bottom: 24, right: 24 },
+    // rtl-physical: the assistant dot sits in a screen corner chosen by the operator
   'bottom-left': { bottom: 24, left: 24 },
+    // rtl-physical: the assistant dot sits in a screen corner chosen by the operator
   'top-right': { top: 24, right: 24 },
+    // rtl-physical: the assistant dot sits in a screen corner chosen by the operator
   'top-left': { top: 24, left: 24 },
 }
 

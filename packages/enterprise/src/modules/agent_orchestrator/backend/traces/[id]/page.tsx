@@ -1189,11 +1189,13 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                                       key={index}
                                       aria-hidden="true"
                                       className="absolute inset-y-0 bg-muted"
+    // rtl-physical: a trace span is placed on a time axis, which is physical
                                       style={{ left: `${gap.offsetRatio * 100}%`, width: `${gap.widthRatio * 100}%` }}
                                     />
                                   ))}
                                   <div
                                     className={`absolute top-1/2 h-2.5 -translate-y-1/2 rounded ${spanBarClass(span.kind)} ${span.status === 'error' ? 'opacity-60 ring-1 ring-status-error-border' : ''}`}
+    // rtl-physical: a trace span is placed on a time axis, which is physical
                                     style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
                                   />
                                 </div>

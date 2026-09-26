@@ -126,7 +126,7 @@ export default function CategoriesDataTable() {
         const depth = row.original.depth ?? 0
         return (
           <div className="flex items-center text-sm font-medium leading-none text-foreground">
-            <span style={{ marginLeft: computeIndent(depth), whiteSpace: 'pre' }}>
+            <span style={{ marginInlineStart: computeIndent(depth), whiteSpace: 'pre' }}>
               {formatCategoryTreeLabel(row.original.name, depth)}
             </span>
           </div>

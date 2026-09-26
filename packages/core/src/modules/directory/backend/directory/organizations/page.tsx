@@ -128,7 +128,7 @@ export default function DirectoryOrganizationsPage() {
           return (
             <div className="flex items-center text-sm font-medium leading-none text-foreground">
               <span
-                style={{ marginLeft: computeIndent(depth), whiteSpace: 'pre' }}
+                style={{ marginInlineStart: computeIndent(depth), whiteSpace: 'pre' }}
               >
                 {formatTreeLabel(row.original.name, depth)}
               </span>

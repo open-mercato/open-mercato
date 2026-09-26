@@ -119,6 +119,7 @@ export function AddRowDropdown({
     <div
       ref={dropdownRef}
       className="fixed z-50 rounded-lg border bg-popover shadow-lg"
+    // rtl-physical: positioned from a measured getBoundingClientRect
       style={{ top: position.top, left: position.left, width: DROPDOWN_WIDTH }}
     >
       <div className="flex items-center border-b px-3">

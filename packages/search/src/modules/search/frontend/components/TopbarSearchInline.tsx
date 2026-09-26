@@ -429,6 +429,7 @@ export function TopbarSearchInline({
           ref={popoverRef}
           id="topbar-search-results"
           role="listbox"
+    // rtl-physical: positioned from a measured getBoundingClientRect
           style={{ position: 'fixed', top: anchor.top, left: anchor.left, width: anchor.width }}
           className="z-popover rounded-md border bg-popover text-popover-foreground shadow-md"
         >

@@ -114,6 +114,7 @@ function DockControls({
 
 const FLOATING_POSITION_STYLE: React.CSSProperties = {
   bottom: 24,
+    // rtl-physical: the dock edge is chosen by the operator
   right: 24,
 }
 
@@ -353,6 +354,7 @@ export function DockableChat() {
             className="fixed z-top bg-gray-900 rounded-xl border border-gray-700 shadow-2xl flex flex-col overflow-hidden"
             style={{
               top: '24px',
+    // rtl-physical: the dock edge is chosen by the operator
               left: '24px',
               width: '400px',
               maxHeight: 'calc(100vh - 48px)',
@@ -375,17 +377,21 @@ export function DockableChat() {
   if (!isOpen) return null
 
   const positionStyles: Record<Exclude<DockPosition, 'floating'>, React.CSSProperties> = {
+    // rtl-physical: the dock edge is chosen by the operator
     right: {
       position: 'fixed',
       top: 0,
+    // rtl-physical: the dock edge is chosen by the operator
       right: 0,
       bottom: 0,
       width: dockState.width,
       zIndex: 40,
     },
+    // rtl-physical: the dock edge is chosen by the operator
     left: {
       position: 'fixed',
       top: 0,
+    // rtl-physical: the dock edge is chosen by the operator
       left: 0,
       bottom: 0,
       width: dockState.width,
@@ -394,7 +400,9 @@ export function DockableChat() {
     bottom: {
       position: 'fixed',
       bottom: 0,
+    // rtl-physical: the dock edge is chosen by the operator
       left: 0,
+    // rtl-physical: the dock edge is chosen by the operator
       right: 0,
       height: dockState.height,
       zIndex: 40,

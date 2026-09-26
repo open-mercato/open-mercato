@@ -522,7 +522,7 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
                     setPopoverOpen(false)
                   }}
                   // DS-SKIP: dynamic tree indentation depends on organization depth.
-                  style={{ paddingLeft: `${0.5 + opt.depth * 0.75}rem` }}
+                  style={{ paddingInlineStart: `${0.5 + opt.depth * 0.75}rem` }}
                   className="h-auto w-full justify-between rounded-sm py-1.5 pe-2 text-start font-normal hover:bg-muted/40 disabled:bg-transparent disabled:text-muted-foreground disabled:shadow-none focus-visible:bg-muted/40"
                 >
                   <span className="truncate min-w-0">{opt.label.trim()}</span>

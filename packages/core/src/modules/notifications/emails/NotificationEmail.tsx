@@ -57,6 +57,7 @@ export function NotificationEmail({ title, body, actions, panelUrl, copy }: Noti
                       borderRadius: 8,
                       textDecoration: 'none',
                       display: 'inline-block',
+    // rtl-physical: email clients do not support logical properties reliably
                       marginRight: 8,
                       marginBottom: 8,
                       fontSize: '13px',

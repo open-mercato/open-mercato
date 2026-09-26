@@ -14,11 +14,21 @@ import { join, relative, sep } from 'node:path'
  * to the same edge in a left-to-right document and mirror in a right-to-left one,
  * so they are the only form a direction-aware UI may use.
  *
- * Deliberately out of scope, because they have no logical equivalent and
- * mirroring them is a per-site semantic decision rather than a rename:
- * `translate-x-*`, `space-x-*`, `divide-x`, `bg-gradient-to-l/r`,
- * `origin-left/right` and inline `style={{ left }}`. They are tracked as the
- * spec's Phase 1b.
+ * Deliberately out of scope, because mirroring them is a per-site semantic decision
+ * rather than a rename: `translate-x-*`, `divide-x`, `bg-gradient-to-l/r` (the
+ * generated gradient is `--tw-gradient-position: to right`, verified against the
+ * installed Tailwind 4.3.3) and `origin-left/right` (Tailwind has no logical
+ * origin). They are tracked as the spec's Phase 1b.
+ *
+ * `space-x-*` is *not* on that list, although an earlier revision of this file said
+ * it was: Tailwind 4 compiles it to `margin-inline-start`/`margin-inline-end`, so it
+ * already mirrors. Verified the same way — by compiling the utility and reading the
+ * output — and left alone, because "fixing" a logical utility is churn.
+ *
+ * Inline `style={{ left }}`/`{{ right }}` offsets cannot be fixed by a class, so a
+ * second check requires the `rtl-physical` marker on those lines as well: a measured
+ * canvas coordinate or a map pin is physical on purpose, while a control anchored to
+ * the sidebar edge is not.
  *
  * A line that legitimately needs a physical utility (an operator-chosen dock
  * edge, a measured canvas coordinate) opts out with an `rtl-physical` marker and
@@ -61,6 +71,23 @@ const VIOLATIONS: Array<{ rule: string; pattern: RegExp }> = [
 ]
 
 const STRING_LITERAL = /(`(?:\\[\s\S]|[^`\\])*`|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*')/g
+
+/**
+ * An inline offset on the physical axis inside a `style={{ … }}` object:
+ * `left`, `right`, `marginLeft`, `marginRight`, `paddingLeft`, `paddingRight`,
+ * `borderLeft`, `borderRight`. Logical alternatives exist (`insetInlineStart`,
+ * `marginInlineStart`) and are the fix; the sites where a physical value is the point
+ * carry the marker with a reason.
+ *
+ * The scan only looks inside style objects, because `left`/`right` are also ordinary
+ * identifier names (`function equals(left, right)`), which are none of this audit's
+ * business.
+ */
+const INLINE_PHYSICAL_OFFSET =
+  /\b(?:left|right|marginLeft|marginRight|paddingLeft|paddingRight|borderLeft|borderRight)\s*:/
+
+const STYLE_OBJECT_OPEN = /style=\{?\{/
+const STYLE_OBJECT_CLOSE = /\}\}/
 
 function isDir(candidate: string): boolean {
   try {
@@ -150,6 +177,31 @@ describe('directional Tailwind utilities must be logical (RTL-safe)', () => {
             if (offender) violations.push(`${rel}:${index + 1}: ${offender}`)
           }
         }
+      })
+    }
+
+    expect(violations).toEqual([])
+  })
+
+  it('marks inline physical offsets, which no class can fix', () => {
+    const violations: string[] = []
+
+    for (const full of files) {
+      const rel = relative(repoRoot, full).split(sep).join('/')
+      const lines = readFileSync(full, 'utf8').split('\n')
+      let insideStyleObject = false
+
+      lines.forEach((line, index) => {
+        const opens = STYLE_OBJECT_OPEN.test(line)
+        if (opens) insideStyleObject = true
+        const inStyleObject = insideStyleObject
+        if (STYLE_OBJECT_CLOSE.test(line)) insideStyleObject = false
+        if (!inStyleObject) return
+        // A style object has no room for a trailing comment, so the marker usually
+        // sits on the line above the property it excuses.
+        if (line.includes(OPT_OUT_MARKER) || lines[index - 1]?.includes(OPT_OUT_MARKER)) return
+        if (!INLINE_PHYSICAL_OFFSET.test(line)) return
+        violations.push(`${rel}:${index + 1}: ${line.trim().slice(0, 120)}`)
       })
     }
 

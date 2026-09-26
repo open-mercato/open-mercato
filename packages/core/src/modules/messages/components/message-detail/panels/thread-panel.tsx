@@ -44,7 +44,7 @@ export function MessageDetailThreadSection({ detail }: { detail: MessageDetail }
                   if (!PreviewComponent) return null
 
                   return (
-                    <div key={obj.id} className="scale-95 origin-left">
+                    <div key={obj.id} className="scale-95 origin-left rtl:origin-right">
                       <PreviewComponent
                         entityId={obj.entityId}
                         entityModule={obj.entityModule}

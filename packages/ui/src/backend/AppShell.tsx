@@ -1436,13 +1436,15 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
       </a>
       {/* Desktop sidebar collapse/expand toggle — sits on the divider line between
           sidebar and content, like Notion/Vercel. Hidden on mobile (hamburger in
-          topbar handles the drawer). */}
+          topbar handles the drawer). The offset is inline (it depends on the measured
+          sidebar width) and logical, because the sidebar moves to the other edge in
+          RTL. */}
       <button
         type="button"
         onClick={() => setCollapsed((c) => !c)}
         aria-label={t('appShell.toggleSidebar')}
         className="hidden lg:flex fixed top-4 z-dropdown size-7 items-center justify-center rounded-md border bg-background text-muted-foreground shadow-sm transition-all hover:text-foreground hover:bg-muted focus:outline-none focus-visible:shadow-focus"
-        style={{ left: `calc(${asideWidth} - 14px)` }}
+        style={{ insetInlineStart: `calc(${asideWidth} - 14px)` }}
       >
         {effectiveCollapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
       </button>

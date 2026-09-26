@@ -259,6 +259,7 @@ export function GalleryShell() {
   }
 
   return (
+    // rtl-physical: compensates the gallery dock offset measured at runtime
     <div ref={rootRef} className="flex min-w-0 flex-col lg:flex-row" style={dockOffset ? { marginLeft: -dockOffset, width: `calc(100% + ${dockOffset}px)` } : undefined}>
       <GalleryNavigation sections={sections} activePath={activeNavigationPath} activeFamilyId={familyParam} onNavigate={() => setSearch('')} failed={failed} onExpand={id => {
         const family = galleryFamilies.find(family => family.id === id)

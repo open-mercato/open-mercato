@@ -176,6 +176,7 @@ export function DealCardMenu({ items, ariaLabel }: DealCardMenuProps): React.Rea
                   direction === 'down'
                     ? anchor.bottom + MENU_GAP
                     : anchor.top - MENU_GAP,
+    // rtl-physical: positioned from a measured getBoundingClientRect
                 left: Math.min(anchor.right, window.innerWidth - 8),
                 transform: `translate(-100%, ${direction === 'down' ? '0' : '-100%'})`,
               }}

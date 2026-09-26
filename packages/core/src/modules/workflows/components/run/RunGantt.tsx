@@ -59,6 +59,7 @@ function BarRow({
     >
       <span
         className={`absolute top-1/2 flex -translate-y-1/2 items-center justify-start overflow-hidden rounded border px-1 ${colors.bg} ${colors.border} h-5`}
+    // rtl-physical: a Gantt bar is placed on a time axis, which is physical
         style={{ left: `${offsetPercent}%`, width: `${widthPercent}%` }}
       >
         {bar.spansCollapsedWait ? (

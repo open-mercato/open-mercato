@@ -128,6 +128,7 @@ export function SubWorkflowNode({ id, data, isConnectable, selected }: NodeProps
                     position={Position.Top}
                     id={`in:${port.name}`}
                     isConnectable={isConnectable}
+    // rtl-physical: canvas geometry measured from the diagram, not from the reading direction
                     style={{ left: `${((index + 1) / (inputs.length + 1)) * 100}%` }}
                     className={`${NODE_PORT_HANDLE_CLASS} !bg-primary`}
                   />
@@ -151,6 +152,7 @@ export function SubWorkflowNode({ id, data, isConnectable, selected }: NodeProps
                     position={Position.Bottom}
                     id={`out:${port.name}`}
                     isConnectable={isConnectable}
+    // rtl-physical: canvas geometry measured from the diagram, not from the reading direction
                     style={{ left: `${((index + 1) / (outputs.length + 1)) * 100}%` }}
                     className={`${NODE_PORT_HANDLE_CLASS} !bg-muted-foreground`}
                   />

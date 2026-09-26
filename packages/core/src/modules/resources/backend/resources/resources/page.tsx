@@ -417,7 +417,7 @@ export default function ResourcesResourcesPage() {
         const showEdit = isGroup && canManage && row.original.resourceTypeId
         return (
           <div className={isGroup ? 'flex items-center justify-between gap-3' : 'flex items-center gap-2'}>
-            <span style={{ marginLeft: indent }} className={isGroup ? 'text-sm font-semibold text-foreground' : 'text-sm font-medium text-foreground'}>
+            <span style={{ marginInlineStart: indent }} className={isGroup ? 'text-sm font-semibold text-foreground' : 'text-sm font-medium text-foreground'}>
               {row.original.name}
             </span>
             {showEdit ? (

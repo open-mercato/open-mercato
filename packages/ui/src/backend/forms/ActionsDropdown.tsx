@@ -208,6 +208,7 @@ export function ActionsDropdown({
           onMouseLeave={handleMouseLeave}
           style={{
             top: direction === 'down' ? anchorRect.bottom + 4 : anchorRect.top - 4,
+    // rtl-physical: positioned from a measured getBoundingClientRect
             left: anchorRect.right,
             transform: `translate(-100%, ${direction === 'down' ? '0' : '-100%'})`,
           }}

@@ -108,6 +108,7 @@ export function NodeOutcomeRows({
                 isConnectable={isConnectable}
                 title={label}
                 aria-label={label}
+    // rtl-physical: canvas geometry measured from the diagram, not from the reading direction
                 style={{ right: NODE_HANDLE_EDGE_OFFSET, top: '50%' }}
                 className={`${NODE_HANDLE_CLASS} ${TONE_DOT_CLASSES[row.tone]}`}
               />

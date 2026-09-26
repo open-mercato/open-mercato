@@ -256,7 +256,7 @@ function ReportSheetLine({ line, depth, isNonBillable, showRates, money }: LineP
   return (
     <>
       <tr className="border-b border-border/60 last:border-b-0">
-        <td className="px-6 py-2" style={{ paddingLeft: `${1.5 + depth * 1.25}rem` }}>
+        <td className="px-6 py-2" style={{ paddingInlineStart: `${1.5 + depth * 1.25}rem` }}>
           <div className="flex items-center gap-2">
             {hasChildren ? (
               <button

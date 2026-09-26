@@ -3803,7 +3803,7 @@ export function DataTable<T extends RowData>({
                       const expandAffordance = expansionEnabled && cellIndex === 0 ? (
                         <span
                           className="inline-flex shrink-0 items-center"
-                          style={{ paddingLeft: `${row.depth * 1.25}rem` }}
+                          style={{ paddingInlineStart: `${row.depth * 1.25}rem` }}
                         >
                           {row.getCanExpand() ? (
                             <IconButton

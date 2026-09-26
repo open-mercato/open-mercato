@@ -265,7 +265,7 @@ export function CommandPalette() {
         <div
           data-debug-panel
           className="fixed z-top bg-gray-900 rounded-xl border border-gray-700 shadow-2xl flex flex-col overflow-hidden"
-          style={{ top: '80px', right: '20px', width: '400px', minWidth: '400px', maxWidth: '400px', maxHeight: 'calc(100vh - 100px)' }}
+          style={{ top: '80px', insetInlineEnd: '20px', width: '400px', minWidth: '400px', maxWidth: '400px', maxHeight: 'calc(100vh - 100px)' }}
         >
           <DebugPanel
             events={debugEvents}
