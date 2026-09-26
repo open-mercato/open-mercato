@@ -165,6 +165,10 @@ export default function SaudiVatSettingsPage() {
         },
         mutationPayload: body,
       })
+      if (!call.result) {
+        flash(t('saudi_localization.vat_settings.errors.save_failed', 'Unable to save the Saudi VAT settings.'), 'error')
+        return
+      }
       setForm(toFormState(call.result))
       setIsComplete(call.result.isComplete)
       setUpdatedAt(call.result.updatedAt)

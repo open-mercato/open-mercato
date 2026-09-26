@@ -89,10 +89,27 @@ and irrelevant elsewhere, so the OSS core stays jurisdiction-neutral:
    and save-through-`runMutation` (the write path a `CrudForm` would own, wired
    by hand because a singleton has no list/create/delete).
 
+### Implemented since (invoice integration)
+
+5. **`data/enrichers.ts`** — the payload reaches invoice documents through the
+   platform's response-enricher surface, not by reaching into the sales module:
+   - `saudi_localization.zatca-invoice-qr` targets `sales:sales_order` (the sales
+     order API already opts into that surface, so no core change is needed) and
+     adds `_saudi_localization: { zatcaQrPayload, zatcaQrStatus }`;
+   - `zatcaQrStatus` is `ready`, `qr_disabled`, `settings_incomplete` or
+     `missing_invoice_data`, so a consumer can tell "the operator must open
+     settings" apart from "this order has no totals";
+   - gated by `saudi_localization.settings.view`, `cacheableOnListHit: false`
+     (the payload depends on tenant settings and per-record totals), and
+     `enrichMany` reads the settings once per batch instead of per row.
+
+   The payload is computed, never persisted, so reprinting an invoice cannot show
+   a stale code.
+
 ### Planned
 
-- Invoice integration: attach the payload to generated invoices and to the print
-  view, and store the payload with the invoice so a reprint is byte-identical.
+- A print/PDF view that renders the payload as a QR image (needs an encoder
+  dependency decision; the payload itself is already exact).
 - Phase 2: UBL 2.1 XML, invoice hash, previous-invoice-hash chain, ICV counter,
   CSID-backed cryptographic stamp, and a clearance/reporting submission pipeline
   with an audit-trail entity.
@@ -141,6 +158,10 @@ behind `saudi_localization.settings.view`.
 
 Planned: `POST /api/saudi/zatca/submit`, `GET /api/saudi/zatca/submissions`.
 
+Read responses: every `GET /api/sales/orders` payload carries
+`_saudi_localization: { zatcaQrPayload, zatcaQrStatus }` for callers holding
+`saudi_localization.settings.view`.
+
 ## Integration Coverage
 
 - **This change:** no route, endpoint or UI path exists yet, so no Playwright
@@ -183,3 +204,8 @@ Planned: `POST /api/saudi/zatca/submit`, `GET /api/saudi/zatca/submissions`.
   invoice pipeline, and optimistic locking wired the platform's way
   (`updatedAt` + extension header + the standard 409 body). 55 module tests.
   Invoice integration, Hijri dates and Phase 2 clearance remain scoped.
+- **2026-09-25 (invoice integration)** — The ZATCA QR payload now ships on sales
+  order responses through a response enricher on `sales:sales_order`, with an
+  explicit status (`ready` / `qr_disabled` / `settings_incomplete` /
+  `missing_invoice_data`) instead of an absent field. 63 module tests.
+  Rendering the payload as a QR image, Hijri dates and Phase 2 clearance remain.
