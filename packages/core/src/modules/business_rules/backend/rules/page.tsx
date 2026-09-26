@@ -256,6 +256,7 @@ export default function RulesListPage() {
       cell: ({ row }) => (
         <button
           onClick={() => handleToggleEnabled(row.original.id, row.original.enabled)}
+          aria-label={`${row.original.enabled ? t('common.disable') : t('common.enable')} ${row.original.ruleName}`}
           className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium cursor-pointer ${
             row.original.enabled
               ? 'bg-status-success-bg text-status-success-text hover:bg-status-success-bg/80'
