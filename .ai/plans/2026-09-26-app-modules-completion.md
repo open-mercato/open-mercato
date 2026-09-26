@@ -48,7 +48,47 @@ Deliberate follow-ups:
 `HrApprovalStepDefinition`, `HrApprovalRequest`, `HrApprovalActionLog`) with 19 zod
 schemas already written in `data/validators.ts`.
 
-To finish it, in this order:
+## hr_management — progress 2026-09-26
+
+**Backbone landed** (verify with the narrow project: `cd apps/mercato; npx tsc -p
+.mercato/tsconfig-fleet.json`, which now includes both app modules):
+
+- `lib/errors.ts` — `raiseHrError` / `hrMessage`.
+- `lib/hrService.ts` — `assertEmployeeWritable` (department exists, termination not
+  before hire), `assertAttendanceRecordable` (one record per employee per UTC day),
+  `assertLeaveRequestBookable` (range order, no overlap with pending/approved leave),
+  and `getHrDashboardSummary` (headcount, on leave, departments, pending leave,
+  pending approvals, documents expiring inside 30 days).
+- `commands/crud.ts` — the CRUD factory, copied from the fleet module.
+- `commands/hr.ts` — events/indexers for all ten entities and CRUD registration for
+  **departments** and **employees** (with the hire/termination/ID-expiry date
+  coercions and the employee rule wired into `beforeCreate`).
+- `di.ts` — `hrService` registered beside the entities.
+
+**Remaining in this module** — the same shape as the fleet slice:
+
+1. `commands/hr.ts` — register the six entities whose schemas are already mapped but
+   which have no commands yet: driver profiles (license/medical expiry), attendance
+   (recordedAt pair, one-per-day rule in `beforeCreate`), leave requests
+   (`beforeCreate` → `assertLeaveRequestBookable`), employee documents (issue/expiry),
+   approval workflows, approval step definitions.
+2. `commands/approvals.ts` — the engine: `submit` (create request + first action log),
+   `approve`, `reject`, `reassign`, `cancel`, each advancing `currentStepOrder` inside
+   one transaction with pessimistic locks and emitting side effects for the request
+   *and* the entity it approves (e.g. flipping the leave request to `approved`).
+   Register the `HrApprovalRequest` / `HrApprovalActionLog` CRUD too.
+3. `api/` — `openapi.ts`, one `makeCrudRoute` per entity, the five approval action
+   routes (copy `fleet_management/api/assignments/handover/route.ts`), and
+   `dashboard-summary`. Features: `hr.read` / `hr.write` / `hr.admin` /
+   `hr.documents.manage` for CRUD, `approvals.action` / `approvals.config` for the
+   engine.
+4. `setup.ts` (default role features) and `i18n/` in six locales — the `hr_management.errors.*`
+   keys the service raises (`department_not_found`, `employee_not_found`,
+   `termination_before_hire`, `attendance_already_recorded`, `leave_overlap`,
+   `invalid_leave_range`) are the minimum set to start from.
+
+Once step 2 exists, `fleet_management`'s reserved `approvalRequestId` can be wired to
+it so a custody handover can require approval instead of starting as `active`.
 
 1. `lib/errors.ts` — `raiseHrError` / `hrMessage`, same shape as the fleet module.
 2. `lib/hrService.ts` — the rules that must not live in a route: an employee cannot
