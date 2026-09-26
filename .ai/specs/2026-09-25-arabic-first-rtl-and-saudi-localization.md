@@ -126,6 +126,19 @@ guard:
    entry).
 4. Locale-aware `Intl` formatting for numbers, currency and dates everywhere a
    value is formatted, including the decimal-input parser.
+5. **Implemented 2026-09-25 — the app serves English and Arabic only.** The
+   platform still ships five dictionaries, but this app carries `en` and `ar`
+   and nothing else, so:
+   - `restrictServedLocales()` (shared) narrows what the app *offers*, because a
+     locale whose dictionaries are missing would render raw keys in every module
+     that never had one;
+   - the app's dictionary loader carries exactly the two cases;
+   - `i18n:check-sync` treats `apps/mercato/src/i18n` as the authority for the
+     app-level set, so a deleted dictionary is not recreated on the next commit,
+     while module dictionaries keep the platform's full parity set.
+
+   Adding a language later is three edits: drop `src/i18n/<code>.json`, add its
+   case to the loader, and name it in `registerLocales` + `restrictServedLocales`.
 
 ### Phase 3 — Saudi localization module
 
@@ -248,3 +261,10 @@ new ACL features (`saudi_localization.*`) and built on `makeCrudRoute`.
   VAT-number validation, halala rounding, net/VAT/gross breakdown), 31 unit tests
   including a hand-built TLV vector and an independent decoder. Module spec:
   [`.ai/specs/2026-09-25-saudi-localization-module.md`](2026-09-25-saudi-localization-module.md).
+- **2026-09-25 (app locale set)** — the app now serves English and Arabic only.
+  `restrictServedLocales()` / `clearServedLocaleRestriction()` added to shared
+  (with the default locale always kept and unknown codes ignored), the app
+  dictionary loader trimmed to `en`/`ar`, and `i18n:check-sync` taught to keep
+  module-level parity without recreating app-level dictionaries.
+- **2026-09-25 (Phase 3, second slice)** — the Saudi VAT settings API and its
+  backend screen, with real optimistic locking on the settings record.

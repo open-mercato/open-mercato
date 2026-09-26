@@ -20,7 +20,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   registerAppDictionaryLoader: jest.fn(),
   detectLocale: jest.fn(async () => 'en'),
   loadDictionary: jest.fn(async () => ({ common: 'value' })),
-  resolveSupportedLocalesForRequest: jest.fn(async () => ['en', 'pl', 'es', 'de', 'ko']),
+  resolveSupportedLocalesForRequest: jest.fn(async () => ['en', 'ar']),
 }))
 
 jest.mock('@/components/AppProviders', () => ({
@@ -95,9 +95,9 @@ describe('RootLayout', () => {
 
     // The client bundle can read neither the app registry nor tenant config, so
     // the set has to travel down as a prop.
-    expect(appProviders?.props.supportedLocales).toEqual(['en', 'pl', 'es', 'de', 'ko'])
+    expect(appProviders?.props.supportedLocales).toEqual(['en', 'ar'])
     expect(i18nServer.detectLocale).toHaveBeenCalledWith({
-      supportedLocales: ['en', 'pl', 'es', 'de', 'ko'],
+      supportedLocales: ['en', 'ar'],
     })
   })
 

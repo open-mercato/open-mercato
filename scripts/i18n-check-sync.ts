@@ -97,6 +97,21 @@ function main() {
   console.log(`${mode} Checking translation sync across ${TARGET_LOCALES.length + 1} locales (${REFERENCE_LOCALE}, ${TARGET_LOCALES.join(', ')})...`)
   console.log(dim(`Found ${enFiles.length} modules with translations\n`))
 
+  // `apps/mercato/src/i18n` is the one folder that states which languages the app
+  // actually ships — it is the dictionary set the runtime offers (see
+  // `restrictServedLocales` in that app's dictionary loader). A scaffold that
+  // keeps `en` and `ar` must not have `pl/es/de/ko` recreated on every commit, so
+  // that folder is only synced for locales it already carries, while module
+  // dictionaries keep the full platform parity set.
+  const appDictionaryDir = path.join(ROOT, 'apps', 'mercato', 'src', 'i18n')
+  if (fs.existsSync(appDictionaryDir)) {
+    const shipped = fs
+      .readdirSync(appDictionaryDir)
+      .filter((file) => file.endsWith('.json'))
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+    console.log(dim(`App dictionaries: ${shipped.join(', ')}\n`))
+  }
+
   let totalIssues = 0
   let modulesWithIssues = 0
   let filesFixed = 0
@@ -129,8 +144,12 @@ function main() {
     }
 
     const missingFiles: string[] = []
+    const isAppDictionary = path.resolve(i18nDir) === path.resolve(appDictionaryDir)
+    const targetLocales = isAppDictionary
+      ? TARGET_LOCALES.filter((locale) => fs.existsSync(path.join(i18nDir, `${locale}.json`)))
+      : TARGET_LOCALES
 
-    for (const locale of TARGET_LOCALES) {
+    for (const locale of targetLocales) {
       const localePath = path.join(i18nDir, `${locale}.json`)
 
       if (!fs.existsSync(localePath)) {

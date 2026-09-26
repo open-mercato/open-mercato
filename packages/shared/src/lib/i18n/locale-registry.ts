@@ -28,6 +28,9 @@ export {
   isSupportedLocale,
   getRegisteredLocales,
   normalizeLocaleCode,
+  restrictServedLocales,
+  clearServedLocaleRestriction,
+  getServedLocaleRestriction,
 } from './locale-set'
 
 /**
@@ -43,6 +46,10 @@ export {
  * unknown codes are ignored with a warning rather than thrown, so one bad entry
  * in app config cannot take the app down at boot. Registering is idempotent, and
  * re-registering the shipped locales is a no-op.
+ *
+ * Registration says what the app *can* render. Use `restrictServedLocales` when
+ * it should offer less than that — a scaffold that drops the platform's other
+ * dictionaries must not keep advertising them in its language switcher.
  */
 export function registerLocales(codes: readonly string[]): void {
   let added = false
