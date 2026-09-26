@@ -39,6 +39,7 @@ export function DocumentEditorSurface(input: Props) {
   const fallbackPersistence = useFallbackContentPersistence({
     documentId: input.documentId,
     initialUpdatedAt: input.contentUpdatedAt ?? null,
+    initialContentHtml: input.initialContentHtml,
     enabled: input.transport === 'fallback' && !input.readOnly,
     onConflictRefresh: input.onContentConflict,
   })
