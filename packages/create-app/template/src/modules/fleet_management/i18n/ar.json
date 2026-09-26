@@ -1,0 +1,15 @@
+{
+  "fleet_management.errors.assignment_already_open": "للمركبة مهمة عهدة مفتوحة بالفعل.",
+  "fleet_management.errors.assignment_already_returned": "تم إرجاع مهمة العهدة هذه بالفعل.",
+  "fleet_management.errors.assignment_not_found": "لم يتم العثور على مهمة العهدة.",
+  "fleet_management.errors.assignment_not_returnable": "لم يعد من الممكن إرجاع مهمة العهدة هذه.",
+  "fleet_management.errors.handover_failed": "تعذّر تسليم المركبة",
+  "fleet_management.errors.odometer_below_current": "لا يمكن أن يكون عدّاد التسليم أقل من قراءة المركبة الحالية.",
+  "fleet_management.errors.odometer_below_handover": "لا يمكن أن يكون عدّاد الإرجاع أقل من قراءة التسليم.",
+  "fleet_management.errors.record_id_required": "معرّف السجل مطلوب.",
+  "fleet_management.errors.record_not_found": "لم يتم العثور على السجل.",
+  "fleet_management.errors.return_failed": "تعذّر إرجاع المركبة",
+  "fleet_management.errors.vehicle_in_custody": "المركبة المحدّدة في عهدة موظف آخر بالفعل.",
+  "fleet_management.errors.vehicle_not_found": "لم يتم العثور على المركبة.",
+  "fleet_management.errors.vehicle_unavailable": "المركبة المحدّدة غير متاحة."
+}

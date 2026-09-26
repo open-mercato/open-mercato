@@ -1,0 +1,15 @@
+{
+  "fleet_management.errors.assignment_already_open": "The vehicle already has an open custody assignment.",
+  "fleet_management.errors.assignment_already_returned": "This custody assignment was already returned.",
+  "fleet_management.errors.assignment_not_found": "Assignment not found.",
+  "fleet_management.errors.assignment_not_returnable": "This custody assignment can no longer be returned.",
+  "fleet_management.errors.handover_failed": "Unable to hand over the vehicle",
+  "fleet_management.errors.odometer_below_current": "The handover odometer cannot be lower than the vehicle current reading.",
+  "fleet_management.errors.odometer_below_handover": "The return odometer cannot be lower than the handover reading.",
+  "fleet_management.errors.record_id_required": "Record id is required.",
+  "fleet_management.errors.record_not_found": "Record not found.",
+  "fleet_management.errors.return_failed": "Unable to return the vehicle",
+  "fleet_management.errors.vehicle_in_custody": "The selected vehicle is already in another employee custody.",
+  "fleet_management.errors.vehicle_not_found": "Vehicle not found.",
+  "fleet_management.errors.vehicle_unavailable": "The selected vehicle is not available."
+}

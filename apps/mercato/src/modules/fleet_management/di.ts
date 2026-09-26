@@ -1,11 +1,12 @@
-import { asValue } from 'awilix'
+import { asFunction, asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import {
   FleetVehicle,
-  FleetVehicleDocument,
   FleetVehicleAssignment,
+  FleetVehicleDocument,
   FleetVehicleOdometerLog,
 } from './data/entities'
+import { createFleetService } from './lib/fleetService'
 
 export function register(container: AppContainer) {
   container.register({
@@ -13,5 +14,6 @@ export function register(container: AppContainer) {
     FleetVehicleDocument: asValue(FleetVehicleDocument),
     FleetVehicleAssignment: asValue(FleetVehicleAssignment),
     FleetVehicleOdometerLog: asValue(FleetVehicleOdometerLog),
+    fleetService: asFunction(createFleetService).scoped(),
   })
 }
