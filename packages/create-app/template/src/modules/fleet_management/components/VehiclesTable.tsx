@@ -10,6 +10,8 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { fetchCrudList } from '@open-mercato/ui/backend/utils/crud'
 import { useT, useDirection } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import Link from 'next/link'
+import { Button } from '@open-mercato/ui/primitives/button'
 
 type VehicleRow = {
   id: string
@@ -138,6 +140,18 @@ export default function VehiclesTable() {
     <DataTable
       title={t('fleet_management.vehicles.page.title', 'Vehicles')}
       titleHeadingLevel={1}
+      actions={(
+        <Button asChild>
+          <Link href="/backend/fleet/vehicles/create">
+            {t('fleet_management.vehicles.actions.create', 'New vehicle')}
+          </Link>
+        </Button>
+      )}
+      rowActions={(row) => (
+        <Link className="text-sm font-medium underline" href={`/backend/fleet/vehicles/${row.id}/edit`}>
+          {t('fleet_management.vehicles.actions.edit', 'Edit')}
+        </Link>
+      )}
       columns={columns}
       data={data?.items ?? []}
       searchValue={search}
