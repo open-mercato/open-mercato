@@ -201,8 +201,18 @@ high-visibility surfaces first: `dashboards` ✅, `notifications` ✅, `currenci
    and the app dictionaries (en + ar) and their template mirrors carry
    `common.languages.arabic`, so the switcher renders the language's own name instead of
    depending on `Intl.DisplayNames`.
-4. Locale-aware `Intl` formatting for numbers, currency and dates everywhere a
-   value is formatted, including the decimal-input parser.
+4. Locale-aware `Intl` formatting for numbers, currency and dates everywhere a value is
+   formatted. **Started 2026-09-26.** The decimal-input parser is already locale-aware
+   (`parseLocaleNumber` / `resolveLocaleNumberSeparators` in
+   `packages/shared/src/lib/number.ts`, covered by
+   `ProductUomSection.localeDecimalSeparator.test.ts`), and the customer-facing money and
+   date surfaces now pass the active locale instead of `undefined`: the `checkout`
+   transaction list and detail, `eudr` plot areas and `documents` comment timestamps.
+   The rule for the remainder: a **runtime** surface passes `useLocale()` (or the server
+   equivalent) into `formatCurrency` / `formatDate` / `Intl.*`; a gallery, fixture or docs
+   sample may pin a locale deliberately, and says why in a comment. Still on `undefined`:
+   `sales` (`SalesDocumentsTable`, `messageObjectPreviews`), the `design_system` gallery
+   fixtures (pinned on purpose) and the AI-assistant `ui-parts.mdx` sample.
 5. **Implemented 2026-09-25 — the app serves English and Arabic only.** The
    platform still ships five dictionaries, but this app carries `en` and `ar`
    and nothing else, so:
@@ -422,3 +432,10 @@ new ACL features (`saudi_localization.*`) and built on `makeCrudRoute`.
   app dictionaries plus template mirrors carry `common.languages.arabic`. Verified with
   914 UI primitive/chart tests, the shared i18n suites, both typechecks, `yarn i18n:check`
   and `yarn template:sync`.
+- **2026-09-26 (Phase 2, locale-aware formatting starts)** — the money and date surfaces a
+  customer actually reads now format in the application locale instead of the machine's:
+  the `checkout` transaction list and detail (`formatAmount` / `formatDate` /
+  `formatDateTime`), `eudr` plot areas, and `documents` comment timestamps all thread
+  `useLocale()` into their helpers. The decimal-input parser was already locale-aware
+  (`parseLocaleNumber`), so the remaining work is the `sales` surfaces and the deliberate,
+  documented pins in the gallery and docs fixtures.

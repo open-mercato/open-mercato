@@ -14,7 +14,7 @@ import {
   UserRound,
   WalletCards,
 } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
@@ -75,20 +75,20 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
   )
 }
 
-function formatAmount(amount: number | null | undefined, currencyCode: string): string {
+function formatAmount(amount: number | null | undefined, currencyCode: string, locale: string): string {
   const resolved = typeof amount === 'number' ? amount : 0
   try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency: currencyCode }).format(resolved)
+    return new Intl.NumberFormat(locale, { style: 'currency', currency: currencyCode }).format(resolved)
   } catch {
     return `${resolved.toFixed(2)} ${currencyCode}`
   }
 }
 
-function formatDateTime(value: string | null | undefined): string {
+function formatDateTime(value: string | null | undefined, locale: string): string {
   if (!value) return '—'
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return value
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale, {
     year: 'numeric',
     month: 'short',
     day: '2-digit',
@@ -130,6 +130,7 @@ function buildSectionJson(section: SectionDefinition): string {
 
 export default function CheckoutTransactionDetailPage({ params }: { params: Promise<{ id: string }> | { id: string } }) {
   const t = useT()
+  const locale = useLocale()
   const [payload, setPayload] = React.useState<DetailPayload | null>(null)
   const [transactionId, setTransactionId] = React.useState('')
   const [isCapturing, setIsCapturing] = React.useState(false)
@@ -209,8 +210,8 @@ export default function CheckoutTransactionDetailPage({ params }: { params: Prom
     const paymentRows: SectionRow[] = [
       {
         label: t('checkout.admin.transactionDetail.fields.amount'),
-        plainValue: formatAmount(payload.transaction.amount, payload.transaction.currencyCode),
-        value: <span className="font-semibold">{formatAmount(payload.transaction.amount, payload.transaction.currencyCode)}</span>,
+        plainValue: formatAmount(payload.transaction.amount, payload.transaction.currencyCode, locale),
+        value: <span className="font-semibold">{formatAmount(payload.transaction.amount, payload.transaction.currencyCode, locale)}</span>,
       },
       {
         label: t('checkout.admin.transactionDetail.fields.status'),
@@ -229,13 +230,13 @@ export default function CheckoutTransactionDetailPage({ params }: { params: Prom
       },
       {
         label: t('checkout.admin.transactionDetail.fields.created'),
-        plainValue: formatDateTime(payload.transaction.createdAt),
-        value: formatDateTime(payload.transaction.createdAt),
+        plainValue: formatDateTime(payload.transaction.createdAt, locale),
+        value: formatDateTime(payload.transaction.createdAt, locale),
       },
       {
         label: t('checkout.admin.transactionDetail.fields.updated'),
-        plainValue: formatDateTime(payload.transaction.updatedAt),
-        value: formatDateTime(payload.transaction.updatedAt),
+        plainValue: formatDateTime(payload.transaction.updatedAt, locale),
+        value: formatDateTime(payload.transaction.updatedAt, locale),
       },
     ]
 

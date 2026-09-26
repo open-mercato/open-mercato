@@ -78,11 +78,11 @@ function formatDateTime(value: string | null | undefined, emptyLabel: string, lo
   return date.toLocaleString(locale || undefined)
 }
 
-function formatArea(value: number | string | null | undefined, emptyLabel: string): string {
+function formatArea(value: number | string | null | undefined, emptyLabel: string, locale: string): string {
   if (value === null || value === undefined || value === '') return emptyLabel
   const numeric = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(numeric)) return String(value)
-  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(numeric)
+  return new Intl.NumberFormat(locale, { maximumFractionDigits: 4 }).format(numeric)
 }
 
 function normalizeCompanyOption(raw: unknown): { value: string; label: string } | null {
@@ -285,7 +285,7 @@ export default function EudrPlotsPage() {
     {
       accessorKey: 'areaHa',
       header: translate('eudr.plots.list.columns.areaHa'),
-      cell: ({ row }) => formatArea(row.original.areaHa, translate('eudr.common.empty')),
+      cell: ({ row }) => formatArea(row.original.areaHa, translate('eudr.common.empty'), locale),
     },
     {
       accessorKey: 'validationWarnings',

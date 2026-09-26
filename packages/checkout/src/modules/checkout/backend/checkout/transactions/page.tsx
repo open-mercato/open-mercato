@@ -3,7 +3,7 @@ import * as React from 'react'
 import { extensionPoints } from '@open-mercato/checkout/modules/checkout/extension-points'
 import { useSearchParams } from 'next/navigation'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -42,16 +42,16 @@ type LinkListResponse = {
   items?: Array<Record<string, unknown>>
 }
 
-function formatDate(value: string | null | undefined): string {
+function formatDate(value: string | null | undefined, locale: string): string {
   if (!value) return '—'
   const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString()
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString(locale)
 }
 
-function formatAmount(amount: number | null | undefined, currencyCode: string): string {
+function formatAmount(amount: number | null | undefined, currencyCode: string, locale: string): string {
   const resolved = typeof amount === 'number' ? amount : 0
   try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency: currencyCode }).format(resolved)
+    return new Intl.NumberFormat(locale, { style: 'currency', currency: currencyCode }).format(resolved)
   } catch {
     return `${resolved.toFixed(2)} ${currencyCode}`
   }
@@ -59,6 +59,7 @@ function formatAmount(amount: number | null | undefined, currencyCode: string): 
 
 export default function CheckoutTransactionsPage() {
   const t = useT()
+  const locale = useLocale()
   const searchParams = useSearchParams()
   const initialLinkId = React.useMemo(() => {
     const raw = searchParams.get('linkId')
@@ -204,7 +205,7 @@ export default function CheckoutTransactionsPage() {
       {
         accessorKey: 'amount',
         header: t('checkout.admin.transactions.columns.amount'),
-        cell: ({ row }) => formatAmount(row.original.amount, row.original.currencyCode),
+        cell: ({ row }) => formatAmount(row.original.amount, row.original.currencyCode, locale),
       },
       {
         accessorKey: 'status',
@@ -219,11 +220,11 @@ export default function CheckoutTransactionsPage() {
       {
         accessorKey: 'createdAt',
         header: t('checkout.admin.transactions.columns.date'),
-        cell: ({ row }) => formatDate(row.original.createdAt),
+        cell: ({ row }) => formatDate(row.original.createdAt, locale),
       },
     )
     return baseColumns
-  }, [canViewPii, t])
+  }, [canViewPii, t, locale])
 
   return (
     <Page>
