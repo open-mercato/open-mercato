@@ -287,3 +287,31 @@ registerCrudCommands({
   events: hrApprovalStepEvents,
   indexer: hrApprovalStepIndexer,
 })
+
+// Registered here so the CRUD route for approval requests has commands to dispatch to.
+// The state changes that matter are made by the approval engine in commands/approvals.ts,
+// which writes the request directly; this registration covers create/update/delete over
+// HTTP, and its schemas deliberately leave the lifecycle fields to the engine.
+export const hrApprovalRequestEvents = makeEvents<HrApprovalRequest>('approval_request')
+export const hrApprovalRequestIndexer = makeIndexer<HrApprovalRequest>(HR_APPROVAL_REQUEST_ENTITY_ID)
+
+registerCrudCommands({
+  entity: HrApprovalRequest,
+  entityId: HR_APPROVAL_REQUEST_ENTITY_ID,
+  resource: 'approval_requests',
+  createSchema: createApprovalRequestSchema,
+  updateSchema: updateApprovalRequestSchema,
+  toCreateData: (input) => ({
+    ...input,
+    ...(optionalDate(input.decidedAt) ? { decidedAt: optionalDate(input.decidedAt) } : {}),
+  }),
+  toUpdateData: (input) => {
+    const { decidedAt, ...patch } = patched(input)
+    return {
+      ...patch,
+      ...(decidedAt === undefined ? {} : { decidedAt: optionalDate(decidedAt) ?? null }),
+    }
+  },
+  events: hrApprovalRequestEvents,
+  indexer: hrApprovalRequestIndexer,
+})
