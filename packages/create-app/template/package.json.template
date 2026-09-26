@@ -117,6 +117,7 @@
     "next": "16.3.3",
     "pg": "8.23.0",
     "pdfjs-dist": "^6.2.108",
+    "qrcode": "^1.5.4",
     "react": "19.2.8",
     "react-big-calendar": "^1.20.0",
     "react-dom": "19.2.8",

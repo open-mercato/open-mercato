@@ -22,5 +22,18 @@
   "saudi_localization.vat_settings.page_title": "إعدادات ضريبة القيمة المضافة السعودية",
   "saudi_localization.vat_settings.sections.seller": "بيانات البائع",
   "saudi_localization.vat_settings.sections.seller_hint": "كما هي مسجّلة لدى هيئة الزكاة والضريبة والجمارك.",
-  "saudi_localization.vat_settings.sections.tax": "ضريبة القيمة المضافة ومخرجات الفاتورة"
+  "saudi_localization.vat_settings.sections.tax": "ضريبة القيمة المضافة ومخرجات الفاتورة",
+  "saudi_localization.widgets.zatca_qr.description": "الرمز الذي يجب أن تحمله الفاتورة الضريبية المبسطة، ويُبنى من إعدادات ضريبة القيمة المضافة للبائع.",
+  "saudi_localization.widgets.zatca_qr.disabled.body": "تُصدر الفواتير بدون رمز QR. شغّله ما لم يكن المنشأ غير مسجّل في ضريبة القيمة المضافة.",
+  "saudi_localization.widgets.zatca_qr.disabled.title": "رمز QR الخاص بالفاتورة الإلكترونية مُعطّل",
+  "saudi_localization.widgets.zatca_qr.image_alt": "رمز QR للفاتورة الإلكترونية",
+  "saudi_localization.widgets.zatca_qr.missing_data.body": "يحتاج رمز QR إلى إجمالي الطلب وإجمالي الضريبة ووقت الإصدار.",
+  "saudi_localization.widgets.zatca_qr.missing_data.title": "لا يمكن ترميز هذا الطلب بعد",
+  "saudi_localization.widgets.zatca_qr.open_settings": "افتح إعدادات ضريبة القيمة المضافة",
+  "saudi_localization.widgets.zatca_qr.render_failed.body": "النص أدناه هو القيمة الدقيقة التي تتوقعها الهيئة، ويمكن لأي مُولّد رموز QR ترميزها.",
+  "saudi_localization.widgets.zatca_qr.render_failed.title": "تعذّر رسم الرمز",
+  "saudi_localization.widgets.zatca_qr.settings_incomplete.body": "يلزم اسم البائع والرقم الضريبي قبل أن تحمل الفاتورة رمز QR الخاص بالفاتورة الإلكترونية.",
+  "saudi_localization.widgets.zatca_qr.settings_incomplete.title": "إعدادات ضريبة القيمة المضافة غير مكتملة",
+  "saudi_localization.widgets.zatca_qr.title": "رمز QR للفاتورة الإلكترونية",
+  "saudi_localization.widgets.zatca_qr.total": "الإجمالي شامل ضريبة القيمة المضافة"
 }

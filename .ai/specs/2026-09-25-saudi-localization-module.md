@@ -117,11 +117,23 @@ and irrelevant elsewhere, so the OSS core stays jurisdiction-neutral:
    value stay Gregorian ISO 8601, and unusable input returns `null` rather than
    throwing on a document-rendering path.
 
+### Implemented since (QR panel)
+
+7. **`widgets/injection/zatca-qr/`** — the QR panel on a sales order, declared for
+   `sales.document.detail.order:details` through the module's
+   `widgets/injection-table.ts` (the sales module needs no change; it already
+   declares that surface). The panel draws the payload with `qrcode`, shows the
+   payload text and the order's dual-calendar date, and turns every non-`ready`
+   status into a specific message with a link to the settings screen. When the
+   image cannot be drawn it still shows the payload — the payload, not the image,
+   is the compliance artifact.
+8. **Dependency**: `qrcode` (plus `@types/qrcode`) added to the app and to the
+   create-app template, matching the version the enterprise package already pins.
+
 ### Planned
 
-- A print/PDF view that renders the payload as a QR image (needs an encoder
-  dependency decision; the payload itself is already exact).
 - Wiring the dual-calendar label into invoice, HR and fiscal document templates.
+- ZATCA Phase 2 (UBL 2.1 XML, invoice hash, ICV/PIH chain, CSID stamp).
 - Phase 2: UBL 2.1 XML, invoice hash, previous-invoice-hash chain, ICV counter,
   CSID-backed cryptographic stamp, and a clearance/reporting submission pipeline
   with an audit-trail entity.
@@ -224,3 +236,8 @@ Read responses: every `GET /api/sales/orders` payload carries
 - **2026-09-25 (Hijri dates)** — Umm al-Qura date helpers (parts, Hijri-only and
   dual-calendar labels) backed by ICU, pinned to `Asia/Riyadh` by default and
   documented as display-only. 75 module tests.
+- **2026-09-25 (QR panel)** — The sales order detail now shows the ZATCA QR code
+  itself: a widget on `sales.document.detail.order:details` renders the payload
+  with `qrcode`, prints it as text, dates it in both calendars, and explains every
+  non-ready status. `qrcode` added to the app and template dependencies.
+  82 module tests.
