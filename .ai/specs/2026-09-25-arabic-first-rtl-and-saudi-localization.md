@@ -112,16 +112,19 @@ guard:
 
 ### Phase 2 — Arabic content completeness
 
-**Progress 2026-09-25 (module dictionaries):** `dashboards` ships a complete
-`i18n/ar.json` (117 keys, real translations, zero values left as English).
+**Progress 2026-09-25 (module dictionaries):** `dashboards` (117 keys),
+`notifications` (96) and `currencies` (158) ship complete `i18n/ar.json` files —
+real translations, zero values left as English apart from the two literal
+placeholders that *should* stay Latin (`USD` as a code example, `$` as a symbol
+example).
 Policy that the gate now enforces: a module's `ar.json` must be *whole* — every key
 present, values actually Arabic — because a partially translated file renders a
 half-English screen that looks finished. `scripts/i18n-check-sync.ts` therefore
 treats any locale-shaped dictionary a folder ships as a checked locale (the
 platform's `pl/es/de/ko` parity set is still required everywhere;
 `.hardcoded-allowlist.json` is excluded by pattern). Rollout order, smallest
-high-visibility surfaces first: `dashboards` ✅, `notifications`, `currencies`,
-`dictionaries`, then `auth` (718), `catalog` (724), `sales` (1 494),
+high-visibility surfaces first: `dashboards` ✅, `notifications` ✅, `currencies` ✅,
+`dictionaries` (128), then `auth` (718), `catalog` (724), `sales` (1 494),
 `customers` (2 880), `staff` (2 066).
 
 1. Ship `ar` dictionaries for every module that ships `en` (module-level
@@ -288,3 +291,14 @@ new ACL features (`saudi_localization.*`) and built on `makeCrudRoute`.
   module-level parity without recreating app-level dictionaries.
 - **2026-09-25 (Phase 3, second slice)** — the Saudi VAT settings API and its
   backend screen, with real optimistic locking on the settings record.
+- **2026-09-25 (Phase 3, ZATCA Phase 2 groundwork)** — the deterministic core of
+  ZATCA Phase 2 in `saudi_localization/lib/zatca/`: canonical XML writer, the hash
+  convention proven against the published first-invoice constant, ICV/PIH sequencing
+  (in-memory port, then a `module_configs`-backed store), a sales order → invoice
+  mapping with explicit VAT-category rules, and UBL 2.1 assembly carrying the
+  sourced business rules. The QR panel renders the payload on the order detail.
+  Signed XAdES, CSID onboarding and sandbox validation remain open.
+- **2026-09-25 (Phase 2, Arabic rollout starts)** — `dashboards`, `notifications`
+  and `currencies` ship complete Arabic dictionaries (371 keys between them), and
+  `i18n-check-sync` now holds any shipped locale to full parity instead of only the
+  platform's `pl/es/de/ko` set. Rollout order recorded in the Phase 2 section.
