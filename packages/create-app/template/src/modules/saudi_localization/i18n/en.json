@@ -4,6 +4,7 @@
   "saudi_localization.errors.load_failed": "Unable to load the Saudi VAT settings.",
   "saudi_localization.errors.save_failed": "Unable to save the Saudi VAT settings.",
   "saudi_localization.nav.group": "Saudi localization",
+  "saudi_localization.vat_settings.actions.retry": "Retry",
   "saudi_localization.vat_settings.actions.save": "Save",
   "saudi_localization.vat_settings.fields.cr_number": "Commercial registration number",
   "saudi_localization.vat_settings.fields.invoice_qr": "Print the ZATCA QR code on invoices",

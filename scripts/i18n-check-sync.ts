@@ -145,9 +145,17 @@ function main() {
 
     const missingFiles: string[] = []
     const isAppDictionary = path.resolve(i18nDir) === path.resolve(appDictionaryDir)
+    // A locale that is not in the platform parity set, but *is* shipped for this
+    // folder (Arabic, on its way in), is checked exactly like the parity locales:
+    // a partially translated file must not look translated. Only locale-shaped file
+    // names count — `.hardcoded-allowlist.json` sits in these folders too.
+    const shippedLocales = fs
+      .readdirSync(i18nDir)
+      .filter((file) => /^[a-z]{2}(?:-[A-Za-z]{2,4})?\.json$/.test(file) && file !== `${REFERENCE_LOCALE}.json`)
+      .map((file) => path.basename(file, '.json'))
     const targetLocales = isAppDictionary
       ? TARGET_LOCALES.filter((locale) => fs.existsSync(path.join(i18nDir, `${locale}.json`)))
-      : TARGET_LOCALES
+      : [...new Set([...TARGET_LOCALES, ...shippedLocales])].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 
     for (const locale of targetLocales) {
       const localePath = path.join(i18nDir, `${locale}.json`)

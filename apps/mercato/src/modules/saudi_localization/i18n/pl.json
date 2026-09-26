@@ -4,6 +4,7 @@
   "saudi_localization.errors.load_failed": "Nie udało się wczytać saudyjskich ustawień VAT.",
   "saudi_localization.errors.save_failed": "Nie udało się zapisać saudyjskich ustawień VAT.",
   "saudi_localization.nav.group": "Lokalizacja saudyjska",
+  "saudi_localization.vat_settings.actions.retry": "Retry",
   "saudi_localization.vat_settings.actions.save": "Zapisz",
   "saudi_localization.vat_settings.fields.cr_number": "Numer rejestracji handlowej",
   "saudi_localization.vat_settings.fields.invoice_qr": "Drukuj kod QR ZATCA na fakturach",
@@ -22,5 +23,18 @@
   "saudi_localization.vat_settings.page_title": "Ustawienia saudyjskiego VAT",
   "saudi_localization.vat_settings.sections.seller": "Dane sprzedawcy",
   "saudi_localization.vat_settings.sections.seller_hint": "Dokładnie tak, jak zarejestrowano w ZATCA.",
-  "saudi_localization.vat_settings.sections.tax": "VAT i dane na fakturze"
+  "saudi_localization.vat_settings.sections.tax": "VAT i dane na fakturze",
+  "saudi_localization.widgets.zatca_qr.description": "The code a simplified tax invoice must carry, generated from the seller VAT settings.",
+  "saudi_localization.widgets.zatca_qr.disabled.body": "Invoices are issued without a QR code. Turn it on unless the entity is not VAT-registered.",
+  "saudi_localization.widgets.zatca_qr.disabled.title": "The ZATCA QR code is turned off",
+  "saudi_localization.widgets.zatca_qr.image_alt": "ZATCA e-invoice QR code",
+  "saudi_localization.widgets.zatca_qr.missing_data.body": "The QR code needs the order total, its VAT total and the issue timestamp.",
+  "saudi_localization.widgets.zatca_qr.missing_data.title": "This order cannot be encoded yet",
+  "saudi_localization.widgets.zatca_qr.open_settings": "Open VAT settings",
+  "saudi_localization.widgets.zatca_qr.render_failed.body": "The payload below is still the exact value ZATCA expects, and any QR generator can encode it.",
+  "saudi_localization.widgets.zatca_qr.render_failed.title": "The code could not be drawn",
+  "saudi_localization.widgets.zatca_qr.settings_incomplete.body": "The seller name and VAT registration number are required before an invoice can carry a ZATCA QR code.",
+  "saudi_localization.widgets.zatca_qr.settings_incomplete.title": "VAT settings are incomplete",
+  "saudi_localization.widgets.zatca_qr.title": "ZATCA invoice QR",
+  "saudi_localization.widgets.zatca_qr.total": "Total including VAT"
 }

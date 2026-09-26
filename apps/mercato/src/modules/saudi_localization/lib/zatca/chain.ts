@@ -41,7 +41,11 @@ export type ZatcaInvoiceReservation = {
   previousInvoiceHash: string
 }
 
-export type ZatcaInvoiceChainErrorCode = 'invalid_scope' | 'invalid_icv' | 'invalid_invoice_hash'
+export type ZatcaInvoiceChainErrorCode =
+  | 'invalid_scope'
+  | 'invalid_icv'
+  | 'invalid_invoice_hash'
+  | 'invalid_chain'
 
 export class ZatcaInvoiceChainError extends Error {
   readonly code: ZatcaInvoiceChainErrorCode
@@ -85,6 +89,22 @@ function requireIcv(value: number): number {
 }
 
 /**
+ * The next counter value and the `PIH` an invoice would carry, **without writing
+ * anything**. A preview screen or a validation call must be able to ask "what would
+ * this invoice look like" without burning a counter value or moving the chain.
+ */
+export async function peekNextInvoiceChain(options: {
+  store: ZatcaInvoiceChainStore
+  scope: ZatcaInvoiceChainScope
+}): Promise<ZatcaInvoiceReservation> {
+  const state = await options.store.read(options.scope)
+  return {
+    icv: requireIcv(state?.icv ?? 0) + 1,
+    previousInvoiceHash: resolvePreviousInvoiceHash(state?.lastInvoiceHash ?? INITIAL_PREVIOUS_INVOICE_HASH),
+  }
+}
+
+/**
  * Claims the next invoice counter value and returns the `PIH` the invoice must
  * embed. The claim is persisted immediately so the number cannot be handed out
  * twice; the hash pointer only moves in `commitInvoiceChain`.
@@ -93,11 +113,13 @@ export async function allocateNextInvoiceChain(options: {
   store: ZatcaInvoiceChainStore
   scope: ZatcaInvoiceChainScope
 }): Promise<ZatcaInvoiceReservation> {
+  const reservation = await peekNextInvoiceChain(options)
   const state = await options.store.read(options.scope)
-  const icv = requireIcv(state?.icv ?? 0) + 1
-  const previousInvoiceHash = resolvePreviousInvoiceHash(state?.lastInvoiceHash ?? INITIAL_PREVIOUS_INVOICE_HASH)
-  await options.store.write(options.scope, { icv, lastInvoiceHash: state?.lastInvoiceHash ?? null })
-  return { icv, previousInvoiceHash }
+  await options.store.write(options.scope, {
+    icv: reservation.icv,
+    lastInvoiceHash: state?.lastInvoiceHash ?? null,
+  })
+  return reservation
 }
 
 /**

@@ -33,6 +33,7 @@
  */
 
 import { formatSaudDecimal } from '../saudi/vat'
+import { SAUDI_TIME_ZONE } from '../saudi/hijri'
 import { INITIAL_PREVIOUS_INVOICE_HASH, computeInvoiceHash, resolvePreviousInvoiceHash } from './hash'
 import { serializeCanonicalXml, xmlElement, xmlText, type XmlNode } from './xml'
 
@@ -157,13 +158,46 @@ export function buildInvoiceTransactionCode(subtype: ZatcaInvoiceSubtype, isExpo
   return `0${subtypeDigit}00${exportDigit}00`
 }
 
+/**
+ * The issue date and time as ZATCA wants them: in the seller's timezone
+ * (`Asia/Riyadh`), not UTC. Formatting a 21:30 UTC invoice as 21:30 would print the
+ * wrong time, and near midnight the wrong date on a legal document.
+ */
+const ISSUE_DATE_FORMATTER = new Intl.DateTimeFormat('en-GB', {
+  timeZone: SAUDI_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
+
+const ISSUE_TIME_FORMATTER = new Intl.DateTimeFormat('en-GB', {
+  timeZone: SAUDI_TIME_ZONE,
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+})
+
+/** Assembled from parts, so the output cannot depend on a locale's separators. */
+function formatParts(formatter: Intl.DateTimeFormat, value: Date): Record<string, string> {
+  const parts: Record<string, string> = {}
+  for (const part of formatter.formatToParts(value)) {
+    if (part.type !== 'literal') parts[part.type] = part.value
+  }
+  return parts
+}
+
 function toIssueDateParts(issuedAt: Date | string): { date: string; time: string } {
   const parsed = issuedAt instanceof Date ? issuedAt : new Date(issuedAt)
   if (Number.isNaN(parsed.getTime())) {
     throw new ZatcaInvoiceError('invalid_timestamp', 'The invoice issue timestamp is not a valid date.')
   }
-  const iso = parsed.toISOString()
-  return { date: iso.slice(0, 10), time: iso.slice(11, 19) }
+  const dateParts = formatParts(ISSUE_DATE_FORMATTER, parsed)
+  const timeParts = formatParts(ISSUE_TIME_FORMATTER, parsed)
+  return {
+    date: `${dateParts.year}-${dateParts.month}-${dateParts.day}`,
+    time: `${timeParts.hour}:${timeParts.minute}:${timeParts.second}`,
+  }
 }
 
 function requireIcv(value: number): number {

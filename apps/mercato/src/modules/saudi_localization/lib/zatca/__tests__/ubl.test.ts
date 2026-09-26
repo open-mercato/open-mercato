@@ -167,6 +167,15 @@ describe('ZATCA invoice XML', () => {
     expect(xml).toContain('<cbc:RegistrationName>شركة الرياض للتجارة “وشركاه”</cbc:RegistrationName>')
   })
 
+  it('writes the issue date and time in Riyadh, not in UTC', () => {
+    // 21:30 UTC on the 31st is 00:30 on the 1st in Riyadh — a UTC-formatted invoice
+    // would print the wrong day on a legal document.
+    const xml = buildZatcaInvoiceXml(invoiceInput({ issuedAt: '2026-01-31T21:30:00.000Z' }))
+
+    expect(xml).toContain('<cbc:IssueDate>2026-02-01</cbc:IssueDate>')
+    expect(xml).toContain('<cbc:IssueTime>00:30:00</cbc:IssueTime>')
+  })
+
   it('emits only canonical XML: no declaration, no comments, no self-closing tags', () => {
     const xml = buildZatcaInvoiceXml(invoiceInput())
 

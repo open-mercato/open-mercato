@@ -112,6 +112,18 @@ guard:
 
 ### Phase 2 — Arabic content completeness
 
+**Progress 2026-09-25 (module dictionaries):** `dashboards` ships a complete
+`i18n/ar.json` (117 keys, real translations, zero values left as English).
+Policy that the gate now enforces: a module's `ar.json` must be *whole* — every key
+present, values actually Arabic — because a partially translated file renders a
+half-English screen that looks finished. `scripts/i18n-check-sync.ts` therefore
+treats any locale-shaped dictionary a folder ships as a checked locale (the
+platform's `pl/es/de/ko` parity set is still required everywhere;
+`.hardcoded-allowlist.json` is excluded by pattern). Rollout order, smallest
+high-visibility surfaces first: `dashboards` ✅, `notifications`, `currencies`,
+`dictionaries`, then `auth` (718), `catalog` (724), `sales` (1 494),
+`customers` (2 880), `staff` (2 066).
+
 1. Ship `ar` dictionaries for every module that ships `en` (module-level
    `i18n/ar.json`), and make `i18n:check-sync` aware of the app-extended locale
    set instead of the platform's shipped five. Note the constraint found while

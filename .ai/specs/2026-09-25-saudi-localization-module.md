@@ -166,6 +166,25 @@ Still open before anything may be called Phase 2 compliant: the XAdES signature 
 onboarding, the `UBLExtensions` wrapper the signature lives in, wiring the chain store to
 persistence inside the invoice pipeline, and validation against the ZATCA sandbox.
 
+15. **`lib/zatca/chain-store.ts`** — the chain persisted through the platform's
+    `module_configs` store (tenant/organization scoped, versioned, cached, no entity
+    and no migration for two numbers). A stored value that cannot be read as a chain
+    **throws** instead of falling back to "no chain yet": reading a corrupt chain as an
+    empty one would hand out counter 1 and the chain-start hash again, forking the
+    history ZATCA validates against. `peekNextInvoiceChain` answers "what would the
+    next invoice carry" without claiming a counter or moving the chain.
+16. **`lib/zatca/order-invoice.ts`** — the sales order → invoice mapping: VAT category
+    per line (`S` when taxed; `Z`/`E` only from a ZATCA exemption code; otherwise `O`
+    with `VATEX-SA-OOS`, because guessing `Z` for untaxed domestic lines misreports a
+    filing), unit code from the line's UoM snapshot, issue timestamp from `placedAt`
+    (falling back to `createdAt`) so a reprint cannot move it, and the seller party from
+    the VAT settings the QR already reads. `buildZatcaOrderInvoice` returns the input,
+    the pre-hash document, the hash, the QR payload and the invoice XML in one call.
+17. **Issue date/time fix** — the invoice date and time are formatted in `Asia/Riyadh`
+    (assembled from `Intl.DateTimeFormat.formatToParts`, so no locale's separators leak
+    into a legal document). A 21:30 UTC invoice is now dated 00:30 the next day in
+    Riyadh instead of printing the wrong day in UTC.
+
 ### Planned
 
 - Wiring the dual-calendar label into invoice, HR and fiscal document templates.

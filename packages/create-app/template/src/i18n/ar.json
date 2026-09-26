@@ -300,6 +300,8 @@
   "entityMissing": "الكيان مفقود.",
   "error": "خطأ",
   "errors.invalid_input": "إدخال غير صالح",
+  "errors.organization_required": "سياق المؤسسة مطلوب",
+  "errors.unauthorized": "غير مصرّح",
   "example.admin.page.description": "موارد تجريبية للوحدة التجريبية.",
   "example.admin.page.resources": "الموارد",
   "example.admin.page.title": "الإدارة التجريبية",

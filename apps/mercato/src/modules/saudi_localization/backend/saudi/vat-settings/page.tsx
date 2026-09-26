@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Saudi VAT settings — the seller identity the ZATCA invoice QR is built from.
+ * Saudi VAT settings â€” the seller identity the ZATCA invoice QR is built from.
  *
  * The screen exists because the values are a compliance input, not a preference:
  * the VAT registration number and the seller name are what ZATCA reads out of the
@@ -9,7 +9,7 @@
  * completeness banner says that in the interface rather than letting an operator
  * discover it from a rejected invoice.
  *
- * Every write goes through `runMutation` (the page cannot use `CrudForm` — the
+ * Every write goes through `runMutation` (the page cannot use `CrudForm` â€” the
  * record has no list, no create and no delete) so mutation guards and injected
  * validation run exactly as they do on a CRUD screen.
  */
@@ -93,7 +93,7 @@ export default function SaudiVatSettingsPage() {
   const t = useT()
   const { runMutation, retryLastMutation } = useGuardedMutation<MutationContext>({
     contextId: MUTATION_CONTEXT_ID,
-    blockedMessage: t('saudi_localization.vat_settings.errors.save_failed', 'Unable to save the Saudi VAT settings.'),
+    blockedMessage: t('saudi_localization.errors.save_failed', 'Unable to save the Saudi VAT settings.'),
   })
 
   const [form, setForm] = React.useState<FormState>(EMPTY_FORM)
@@ -109,7 +109,7 @@ export default function SaudiVatSettingsPage() {
     setLoadError(null)
     const call = await apiCall<VatSettingsResponse>(SETTINGS_API)
     if (!call.ok || !call.result) {
-      setLoadError(t('saudi_localization.vat_settings.errors.load_failed', 'Unable to load the Saudi VAT settings.'))
+      setLoadError(t('saudi_localization.errors.load_failed', 'Unable to load the Saudi VAT settings.'))
       setIsLoading(false)
       return
     }
@@ -131,7 +131,7 @@ export default function SaudiVatSettingsPage() {
     event.preventDefault()
     const ratePercent = parseRatePercent(form.vatRatePercent)
     if (ratePercent === null) {
-      setRateError(t('saudi_localization.vat_settings.errors.invalid_rate', 'Enter a VAT rate between 0 and 100.'))
+      setRateError(t('saudi_localization.errors.invalid_rate', 'Enter a VAT rate between 0 and 100.'))
       return
     }
     setRateError(null)
@@ -166,7 +166,7 @@ export default function SaudiVatSettingsPage() {
         mutationPayload: body,
       })
       if (!call.result) {
-        flash(t('saudi_localization.vat_settings.errors.save_failed', 'Unable to save the Saudi VAT settings.'), 'error')
+        flash(t('saudi_localization.errors.save_failed', 'Unable to save the Saudi VAT settings.'), 'error')
         return
       }
       setForm(toFormState(call.result))
@@ -174,7 +174,7 @@ export default function SaudiVatSettingsPage() {
       setUpdatedAt(call.result.updatedAt)
       flash(t('saudi_localization.vat_settings.messages.saved', 'Saudi VAT settings saved.'), 'success')
     } catch {
-      flash(t('saudi_localization.vat_settings.errors.save_failed', 'Unable to save the Saudi VAT settings.'), 'error')
+      flash(t('saudi_localization.errors.save_failed', 'Unable to save the Saudi VAT settings.'), 'error')
     } finally {
       setIsSaving(false)
     }
@@ -199,7 +199,7 @@ export default function SaudiVatSettingsPage() {
             label={loadError}
             action={
               <Button type="button" variant="outline" size="sm" onClick={() => void load()}>
-                {t('common.actions.retry', 'Retry')}
+                {t('saudi_localization.vat_settings.actions.retry', 'Retry')}
               </Button>
             }
           />

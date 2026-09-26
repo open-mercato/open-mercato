@@ -1,4 +1,4 @@
-import { allocateNextInvoiceChain, commitInvoiceChain, createInMemoryZatcaInvoiceChainStore, ZatcaInvoiceChainError } from '../chain'
+import { allocateNextInvoiceChain, commitInvoiceChain, createInMemoryZatcaInvoiceChainStore, peekNextInvoiceChain, ZatcaInvoiceChainError } from '../chain'
 import { INITIAL_PREVIOUS_INVOICE_HASH, computeInvoiceHash } from '../hash'
 
 const scope = { tenantId: 'tenant-1', organizationId: 'org-1' }
@@ -81,5 +81,20 @@ describe('ZATCA invoice chain', () => {
 
     const reread = await store.read(scope)
     expect(reread?.icv).toBe(reservation.icv)
+  })
+
+  it('peeks the next counter and hash without claiming or moving anything', async () => {
+    const store = createInMemoryZatcaInvoiceChainStore()
+    const first = await allocateNextInvoiceChain({ store, scope })
+    const firstHash = computeInvoiceHash('<Invoice>1</Invoice>')
+    await commitInvoiceChain({ store, scope, icv: first.icv, invoiceHash: firstHash })
+
+    const peeked = await peekNextInvoiceChain({ store, scope })
+    const peekedAgain = await peekNextInvoiceChain({ store, scope })
+
+    expect(peeked).toEqual({ icv: 2, previousInvoiceHash: firstHash })
+    expect(peekedAgain).toEqual(peeked)
+    // Peeking must not consume the counter the next real invoice needs.
+    expect(await allocateNextInvoiceChain({ store, scope })).toEqual(peeked)
   })
 })

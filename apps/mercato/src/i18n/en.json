@@ -300,6 +300,8 @@
   "entityMissing": "Entity is missing.",
   "error": "Error",
   "errors.invalid_input": "Invalid input",
+  "errors.organization_required": "Organization context is required",
+  "errors.unauthorized": "Unauthorized",
   "example.admin.page.description": "Demo resources for the example module.",
   "example.admin.page.resources": "Resources",
   "example.admin.page.title": "Example Admin",
