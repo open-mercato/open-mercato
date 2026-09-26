@@ -2,6 +2,7 @@
   "saudi_localization.errors.invalid_rate": "Enter a VAT rate between 0 and 100.",
   "saudi_localization.errors.invalid_vat_settings": "Invalid Saudi VAT settings",
   "saudi_localization.errors.load_failed": "Unable to load the Saudi VAT settings.",
+  "saudi_localization.errors.order_not_found": "Sales order not found",
   "saudi_localization.errors.save_failed": "Unable to save the Saudi VAT settings.",
   "saudi_localization.nav.group": "Saudi localization",
   "saudi_localization.vat_settings.actions.retry": "Retry",

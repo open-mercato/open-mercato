@@ -2,6 +2,7 @@
   "saudi_localization.errors.invalid_rate": "أدخل نسبة ضريبة بين ٠ و١٠٠.",
   "saudi_localization.errors.invalid_vat_settings": "إعدادات ضريبة القيمة المضافة السعودية غير صالحة",
   "saudi_localization.errors.load_failed": "تعذّر تحميل إعدادات ضريبة القيمة المضافة السعودية.",
+  "saudi_localization.errors.order_not_found": "لم يُعثر على أمر البيع",
   "saudi_localization.errors.save_failed": "تعذّر حفظ إعدادات ضريبة القيمة المضافة السعودية.",
   "saudi_localization.nav.group": "التوطين السعودي",
   "saudi_localization.vat_settings.actions.retry": "إعادة المحاولة",

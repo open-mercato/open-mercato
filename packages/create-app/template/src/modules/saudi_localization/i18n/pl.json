@@ -2,6 +2,7 @@
   "saudi_localization.errors.invalid_rate": "Podaj stawkę VAT od 0 do 100.",
   "saudi_localization.errors.invalid_vat_settings": "Nieprawidłowe saudyjskie ustawienia VAT",
   "saudi_localization.errors.load_failed": "Nie udało się wczytać saudyjskich ustawień VAT.",
+  "saudi_localization.errors.order_not_found": "Sales order not found",
   "saudi_localization.errors.save_failed": "Nie udało się zapisać saudyjskich ustawień VAT.",
   "saudi_localization.nav.group": "Lokalizacja saudyjska",
   "saudi_localization.vat_settings.actions.retry": "Retry",

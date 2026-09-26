@@ -185,6 +185,26 @@ persistence inside the invoice pipeline, and validation against the ZATCA sandbo
     into a legal document). A 21:30 UTC invoice is now dated 00:30 the next day in
     Riyadh instead of printing the wrong day in UTC.
 
+18. **`lib/zatca/sales-order-source.ts`** — reads a sales order into the invoice-input
+    shape by foreign key id with an explicit decrypting scope (tenant **and**
+    organization, never optional): an invoice that mixes organizations is worse than no
+    invoice. Uses `findOneWithDecryption`/`findWithDecryption`, because an order can
+    carry encrypted fields and a plain read would hand the invoice a ciphertext total.
+19. **`POST /api/saudi/zatca/invoice-preview`** — the first real call site for the whole
+    Phase 2 stack: it loads the order, peeks the chain (claiming nothing), builds the
+    document, and returns `{ status, icv, previousInvoiceHash, invoiceHash, qrPayload,
+    xml, preHashXml }` with `preview: true, chainMutated: false` as literal fields in the
+    response and the OpenAPI schema. It answers with the same status vocabulary the order
+    panel uses (`ready` / `settings_incomplete` / `qr_disabled` / `missing_invoice_data`),
+    refuses a simplified invoice while the QR is switched off (and allows a standard one,
+    which needs no QR), answers 404 for another organization's order, and 422 with the
+    `ZatcaInvoiceError` code when the order itself cannot be invoiced. Guarded by
+    `saudi_localization.settings.view`.
+20. A defect the route tests caught before it shipped: `ZatcaInvoiceError` is declared in
+    `ubl.ts` and only *used* in `order-invoice.ts`, so importing it from the latter made
+    `instanceof` throw inside the catch block — every mapping failure would have surfaced
+    as a 500 instead of a 422.
+
 ### Planned
 
 - Wiring the dual-calendar label into invoice, HR and fiscal document templates.
@@ -288,6 +308,13 @@ Read responses: every `GET /api/sales/orders` payload carries
   explicit status (`ready` / `qr_disabled` / `settings_incomplete` /
   `missing_invoice_data`) instead of an absent field. 63 module tests.
   Rendering the payload as a QR image, Hijri dates and Phase 2 clearance remain.
+- **2026-09-25 (ZATCA preview endpoint)** — the Phase 2 stack got its first real call
+  site: `POST /api/saudi/zatca/invoice-preview` reads a sales order (scoped and
+  decrypted), peeks the chain without claiming a counter, and returns the invoice XML,
+  the hash and the QR payload — labelled `preview: true, chainMutated: false`. The tests
+  caught a latent `instanceof` crash on an error class imported from the wrong module
+  (a 500 where a 422 belonged). 157 module tests. Signed XAdES, CSID onboarding, the
+  persistent issuance flow and sandbox validation remain.
 - **2026-09-25 (Hijri dates)** — Umm al-Qura date helpers (parts, Hijri-only and
   dual-calendar labels) backed by ICU, pinned to `Asia/Riyadh` by default and
   documented as display-only. 75 module tests.
