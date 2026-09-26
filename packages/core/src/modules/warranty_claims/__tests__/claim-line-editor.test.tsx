@@ -26,7 +26,7 @@ jest.mock('@open-mercato/shared/modules/widgets/injection-loader', () => ({
   loadInjectionDataWidgetsForSpot: jest.fn(async () => []),
 }))
 
-import { LineItemsEditor } from '../backend/warranty_claims/create/page'
+import { LineItemsEditor, lineHasContentBeyondQuantity } from '../backend/warranty_claims/create/page'
 
 type EditorProps = React.ComponentProps<typeof LineItemsEditor>
 type EditorLine = Parameters<EditorProps['setLines']>[0][number]
@@ -128,6 +128,38 @@ afterEach(() => {
 })
 
 describe('LineItemsEditor', () => {
+  it('does not treat the default quantity as a completed claim line', () => {
+    expect(lineHasContentBeyondQuantity({
+      productId: null,
+      variantId: null,
+      orderLineId: null,
+      productName: '',
+      sku: '',
+      serialNumber: '',
+      purchaseDate: '',
+      warrantyMonths: '',
+      faultCode: null,
+      faultDescription: '',
+      qtyClaimed: 1,
+    })).toBe(false)
+  })
+
+  it('accepts a claim line once it contains identifying or fault information', () => {
+    expect(lineHasContentBeyondQuantity({
+      productId: null,
+      variantId: null,
+      orderLineId: null,
+      productName: 'Widget',
+      sku: '',
+      serialNumber: '',
+      purchaseDate: '',
+      warrantyMonths: '',
+      faultCode: null,
+      faultDescription: '',
+      qtyClaimed: 1,
+    })).toBe(true)
+  })
+
   it('renders only one page of rows for an order with hundreds of lines', async () => {
     const { container } = await renderEditor(250)
 
