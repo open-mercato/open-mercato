@@ -38,15 +38,21 @@ jest.mock('@tanstack/react-query', () => ({
 
 jest.mock('@open-mercato/ui/backend/inputs/ComboboxInput', () => ({
   ComboboxInput: ({
+    id,
+    'aria-label': ariaLabel,
     placeholder,
     value,
     onChange,
   }: {
+    id?: string
+    'aria-label'?: string
     placeholder: string
     value: string
     onChange: (v: string) => void
   }) => (
     <input
+      id={id}
+      aria-label={ariaLabel}
       placeholder={placeholder}
       value={value}
       onChange={(e) => onChange(e.target.value)}
@@ -111,6 +117,18 @@ describe('ReceiveInventoryDialog', () => {
       />,
     )
     expect(screen.getByText('Receive inventory')).toBeTruthy()
+  })
+
+  it('labels the wrapped variant combobox', () => {
+    render(
+      <ReceiveInventoryDialog
+        open
+        onOpenChange={jest.fn()}
+        access={buildAccess()}
+      />,
+    )
+
+    expect(screen.getByRole('textbox', { name: 'Variant' })).toBeTruthy()
   })
 
   it('does not render when closed', () => {
