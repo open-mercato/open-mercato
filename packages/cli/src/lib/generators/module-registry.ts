@@ -4826,6 +4826,7 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
     let featuresImportName: string | null = null
     let customEntitiesImportName: string | null = null
     let vectorImportName: string | null = null
+    let queryIndexImportName: string | null = null
     let dashboardWidgetsValue: WriterFunction = emptyArray()
     let setupImportName: string | null = null
     let moduleRuntimeImportName: string | null = null
@@ -4902,6 +4903,12 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
     {
       const vec = resolveConventionFile(discovered.resolve('vector.ts'), 'VECTOR', modId, importIdRef, imports)
       if (vec) vectorImportName = vec.importName
+    }
+
+    // Query index projection configuration: query-index.ts
+    {
+      const queryIndex = resolveConventionFile(discovered.resolve('query-index.ts'), 'QUERY_INDEX', modId, importIdRef, imports)
+      if (queryIndex) queryIndexImportName = queryIndex.importName
     }
 
     // Custom fields: data/fields.ts
@@ -5015,6 +5022,17 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
           members: ['default', 'vectorConfig', 'config'],
           fallback: identifier('undefined'),
           castType: "Module['vector']",
+        }),
+      })
+    }
+    if (queryIndexImportName) {
+      moduleEntries.push({
+        name: 'queryIndex',
+        value: namespaceFallback({
+          importName: queryIndexImportName,
+          members: ['default', 'queryIndexConfig', 'config'],
+          fallback: identifier('undefined'),
+          castType: "Module['queryIndex']",
         }),
       })
     }

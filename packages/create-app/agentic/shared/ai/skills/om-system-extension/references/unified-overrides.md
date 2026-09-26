@@ -23,6 +23,7 @@ Load this reference when `src/modules.ts` must disable or replace an installed c
 | ACL features | `overrides.acl.features` — feature ID |
 | DI bindings | `overrides.di` — container key |
 | Encryption maps | `overrides.encryption.maps` — entity ID |
+| Query index projection | `overrides.queryIndex.entities` — entity ID; `{ project: false }`, or `null` as its shorthand, stops the entity type being written to `entity_indexes` |
 
 ## Rules
 

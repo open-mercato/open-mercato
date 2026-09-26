@@ -48,6 +48,82 @@ Goal: make querying base entities together with custom fields fast and simple by
 - Upsert: inserts or updates the JSONB row keyed by `(entity_type, entity_id, organization_id_coalesced)`, always writing `deleted_at = null`.
 - Delete: `markDeleted()` **hard-deletes** the index row and its `search_tokens`. The `deleted_at` column exists and readers still filter on it, but the current writers never populate it — a removed base record leaves no index row behind.
 
+## Choosing which entity types are projected
+
+Indexing is opt-in **per write path** — a CRUD command's `indexer: { entityType }`, the DataEngine,
+the CRUD bridge — and none of them consults the read side. An entity earns a row because someone
+wrote a create command for it, not because a screen reads it through the index. On a large
+deployment that is most of the table: one production install measured 22.1M of 25.2M rows (87%),
+and 21.6 of 31.5 GB of stored bytes (69%), on nine entity types no query ever reached through
+`entity_indexes`.
+
+`queryIndex.entities` is the per-entity switch. **The default is unchanged** — declare nothing and
+every entity type is projected exactly as before.
+
+A module declares it for its own entities in `query-index.ts` at the module root:
+
+```ts
+// src/modules/sales/query-index.ts
+import type { QueryIndexModuleConfig } from '@open-mercato/shared/modules/query-index'
+
+const config: QueryIndexModuleConfig = {
+  entities: [{ entityId: 'sales:sales_order_line', project: false }],
+}
+export default config
+```
+
+An app overrides any module's declaration — including a core module's — from `modules.ts`, with no
+fork. `null` is the shorthand for `{ project: false }`:
+
+```ts
+// apps/<app>/src/modules.ts
+{
+  id: 'sales',
+  overrides: {
+    queryIndex: {
+      entities: {
+        'sales:sales_order_line': null,
+        'sales:sales_payment': { project: false },
+      },
+    },
+  },
+}
+```
+
+### What "not projected" means
+
+Every write path honours the switch, so the table holds **zero** rows for the entity type:
+
+| Path | Behaviour |
+| --- | --- |
+| `query_index.upsert_one` (DataEngine, CRUD bridge) | Returns before the scope lookup, the row write and the coverage adjustment. |
+| `query_index.reindex` event and `mercato query_index reindex` | Skipped, whether the entity is named explicitly or reached by a whole-account run. |
+| `mercato query_index rebuild` / `rebuild-all` | Skipped — `upsertIndexBatch` attempts nothing, so batch-write reconciliation reads it as "nothing was asked for". |
+| `query_index.coverage.warmup` / `.refresh` | No snapshot is written. |
+| `query_index.delete_one` | **Still runs.** A row written before the switch was set cleans itself up instead of becoming permanent partial coverage. |
+
+On the read side the engine answers the entity from its base tables and reports it as **not
+indexed**, never as partially covered. That distinction is the point: with
+`FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES=true` a half-filled entity type is read *through* the index as
+though it were complete, so rows that are not indexed silently vanish from filtered results and from
+the total count. Zero rows is safe; half is not.
+
+### Before you switch one off
+
+A read reaches `entity_indexes` in exactly three ways. Check all three before stopping an entity type:
+
+1. **Custom-field values** — the engine LEFT JOINs the index and reads `doc ->> 'cf:<key>'`. An
+   entity with no active `custom_field_defs` row gains nothing from the join.
+2. **Token / trigram search** — a `like`/`ilike` filter is rewritten into a `search_tokens` semi-join.
+   Only a caller that issues one reaches it.
+3. **Expression indexes you declared on `doc`** — a custom-field sort or filter served by a btree.
+
+Switching off an entity type does not delete the rows it already has; that is a data migration, and
+whose it is depends on the deployment. Purge them with
+`mercato query_index purge --entity <module:entity>`, then `VACUUM (FULL, ANALYZE) entity_indexes` if
+the space matters — a `DELETE` alone leaves the relation its size and the surviving rows scattered
+through it.
+
 ## Events and consistency
 - Subscribers are registered for all entities that have custom field definitions:
   - `<module>.<entity>.created|updated` → upsert index row.

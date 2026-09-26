@@ -152,6 +152,7 @@ export interface ModuleOverrides {
   di?: DiOverridesMap | LooseOverrideMap
   encryption?: EncryptionOverridesShape
   nav?: NavOverridesShape
+  queryIndex?: QueryIndexOverridesShape
 }
 
 /**
@@ -192,6 +193,7 @@ export type ModuleOverrideDomain =
   | 'di'
   | 'encryption'
   | 'nav'
+  | 'queryIndex'
 
 export interface ModuleOverrideEntry<TShape> {
   moduleId: string
@@ -245,6 +247,7 @@ const DOMAIN_KEYS: ModuleOverrideDomain[] = [
   'di',
   'encryption',
   'nav',
+  'queryIndex',
 ]
 
 const TRACKING_ISSUE_HINT =
@@ -364,6 +367,7 @@ import type { ComponentOverride } from './widgets/component-registry'
 import type { NotificationHandler } from './notifications/handler'
 import type { NotificationTypeDefinition } from './notifications/types'
 import type { ModuleEncryptionMap } from './encryption'
+import { applyQueryIndexOverrides, type QueryIndexOverridesShape } from './query-index'
 import type { ModuleSetupConfig } from './setup'
 import type { ApiInterceptor } from '../lib/crud/api-interceptor'
 import type { ResponseEnricher } from '../lib/crud/response-enricher'
@@ -1736,6 +1740,19 @@ function navOverridesApplier(entries: ReadonlyArray<ModuleOverrideEntry<NavOverr
   }
 }
 
+/**
+ * `overrides.queryIndex` is collected across every module entry and handed to
+ * the policy in one call: the store keeps the whole set, so a later dispatch
+ * replaces the previous one rather than accumulating stale entries across HMR.
+ */
+function queryIndexOverridesApplier(entries: ReadonlyArray<ModuleOverrideEntry<QueryIndexOverridesShape>>): void {
+  applyQueryIndexOverrides(
+    entries
+      .map((entry) => entry.overrides)
+      .filter((shape): shape is QueryIndexOverridesShape => !!shape),
+  )
+}
+
 function registerBuiltInModuleOverrideAppliers(): void {
   registerModuleOverrideApplier<NavOverridesShape>('nav', navOverridesApplier)
   registerModuleOverrideApplier<RoutesOverridesShape>('routes', routesOverridesApplier)
@@ -1752,6 +1769,7 @@ function registerBuiltInModuleOverrideAppliers(): void {
   registerModuleOverrideApplier<AclOverridesShape>('acl', aclOverridesApplier)
   registerModuleOverrideApplier<DiOverridesMap>('di', diOverridesApplier)
   registerModuleOverrideApplier<EncryptionOverridesShape>('encryption', encryptionOverridesApplier)
+  registerModuleOverrideApplier<QueryIndexOverridesShape>('queryIndex', queryIndexOverridesApplier)
 }
 
 registerBuiltInModuleOverrideAppliers()

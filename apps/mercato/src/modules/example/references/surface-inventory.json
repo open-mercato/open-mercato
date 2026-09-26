@@ -281,6 +281,11 @@
             "value": "nav",
             "status": "framework-only",
             "note": "nav.groupOrder is an app-level framework setting; no module target is ever emitted for it"
+          },
+          {
+            "value": "queryIndex",
+            "status": "emitted-example",
+            "note": "queryIndex.entities targets \u2014 one per ORM entity the module owns"
           }
         ]
       },

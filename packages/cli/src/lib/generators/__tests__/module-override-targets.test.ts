@@ -86,9 +86,38 @@ describe('module override targets — adapter registry coverage', () => {
     for (const adapter of MODULE_OVERRIDE_TARGET_ADAPTERS) {
       expect(ALL_OVERRIDE_DOMAINS).toContain(adapter.domain)
     }
-    // exactly the 16 runtime domains, one adapter each
-    expect(ALL_OVERRIDE_DOMAINS).toHaveLength(16)
-    expect(MODULE_OVERRIDE_TARGET_ADAPTERS).toHaveLength(16)
+    // exactly the 17 runtime domains, one adapter each
+    expect(ALL_OVERRIDE_DOMAINS).toHaveLength(17)
+    expect(MODULE_OVERRIDE_TARGET_ADAPTERS).toHaveLength(17)
+  })
+
+  it('projects one queryIndex target per ORM entity the module owns', () => {
+    const facts = baseFacts({
+      entities: [{ id: 'demo:todo', class: 'Todo', table: 'todos', editable: true, customFields: true }],
+      factSources: [
+        { kind: 'entity', id: 'demo:todo', source: { sourcePath: `${SOURCE_ROOT}/data/entities.ts` } },
+      ],
+    })
+
+    expect(targetFor(facts, 'queryIndex', 'demo:todo')).toMatchObject({
+      domain: 'queryIndex',
+      modes: ['disable-replace'],
+      key: 'demo:todo',
+      path: ['queryIndex', 'entities', 'demo:todo'],
+      source: { sourcePath: `${SOURCE_ROOT}/data/entities.ts` },
+    })
+  })
+
+  it('diagnoses a queryIndex candidate whose entity has no proven declaration site', () => {
+    const facts = baseFacts({
+      entities: [{ id: 'demo:todo', class: 'Todo', table: 'todos', editable: true, customFields: true }],
+      factSources: [],
+    })
+    const { overrideTargetDiagnostics } = collectModuleOverrideTargets(facts)
+
+    expect(overrideTargetDiagnostics).toContainEqual(
+      expect.objectContaining({ code: 'missing-source', domain: 'queryIndex' }),
+    )
   })
 
   it('classifies nav as framework-only (never a module target)', () => {

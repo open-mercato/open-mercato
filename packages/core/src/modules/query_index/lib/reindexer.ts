@@ -17,6 +17,7 @@ import { purgeOrphans } from './stale'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import { isSearchDebugEnabled } from './search-tokens'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isEntityTypeProjected } from '@open-mercato/shared/modules/query-index'
 
 const logger = createLogger('query_index').child({ component: 'reindexer' })
 
@@ -130,6 +131,18 @@ export async function reindexEntity(
 ): Promise<ReindexJobResult> {
   const entityType = String(options?.entityType || '')
   if (!entityType) {
+    return {
+      processed: 0,
+      total: 0,
+      tenantScopes: [],
+      scopes: [],
+    }
+  }
+  // A reindex of a type the app does not project would refill the very rows the
+  // switch exists to keep out — and leave it partially covered, which is the one
+  // state `FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES` reads as complete.
+  if (!isEntityTypeProjected(entityType)) {
+    logger.info('Skipping reindex for an entity type that is not projected', { entityType })
     return {
       processed: 0,
       total: 0,

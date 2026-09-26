@@ -3754,6 +3754,11 @@ const OVERRIDE_DOMAIN_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> 
     status: 'framework-only',
     note: 'nav.groupOrder is an app-level framework setting; no module target is ever emitted for it',
   },
+  queryIndex: {
+    value: 'queryIndex',
+    status: 'emitted-example',
+    note: 'queryIndex.entities targets — one per ORM entity the module owns',
+  },
 }
 
 const OVERRIDE_MODE_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {
