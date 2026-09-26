@@ -52,7 +52,7 @@ type WorkflowDefinition = {
   } | null
   tenantId: string
   organizationId: string
-  createdAt: string
+  createdAt: string | null
   updatedAt: string
   createdBy: string | null
   source?: WorkflowDefinitionSource
@@ -431,6 +431,9 @@ export default function WorkflowDefinitionsListPage() {
       header: t('workflows.fields.createdAt'),
       accessorKey: 'createdAt',
       cell: ({ row }) => {
+        if (!row.original.createdAt) {
+        return <span className="text-sm text-muted-foreground">—</span>
+      }
         const date = new Date(row.original.createdAt)
         return <span className="text-sm text-muted-foreground">{date.toLocaleDateString()}</span>
       },
