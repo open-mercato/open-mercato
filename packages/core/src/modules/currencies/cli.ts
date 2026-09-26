@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RateFetchingService } from './services/rateFetchingService'
 import { NBPProvider } from './services/providers/nbp'
+import { NBPAverageRateProvider } from './services/providers/nbpAverage'
 import { RaiffeisenPolandProvider } from './services/providers/raiffeisen'
 import { CurrencyFetchConfig } from './data/entities'
 import { seedExampleCurrencies } from './lib/seeds'
@@ -61,6 +62,7 @@ const fetchRatesCommand: ModuleCli = {
 
       // Register providers
       fetchService.registerProvider(new NBPProvider())
+      fetchService.registerProvider(new NBPAverageRateProvider())
       fetchService.registerProvider(new RaiffeisenPolandProvider())
 
       const dateStr = String(args.date || '')
@@ -151,6 +153,8 @@ const listProvidersCommand: ModuleCli = {
     console.log('  • NBP (National Bank of Poland)')
     console.log('    - ~13 currencies with bid/ask rates')
     console.log('    - Table C: Buy/Sell rates')
+    console.log('  • NBP average rates (tables A/B)')
+    console.log('    - Official foreign-currency to PLN average rates')
     console.log('')
     console.log('  • Raiffeisen Bank Polska')
     console.log('    - 4 major currencies (EUR, USD, CHF, GBP)')
