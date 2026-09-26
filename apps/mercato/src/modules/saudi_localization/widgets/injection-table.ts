@@ -7,10 +7,16 @@ import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/
  * declaration here rather than a change in the sales module.
  */
 export const injectionTable: ModuleInjectionTable = {
-  'sales.document.detail.order:details': {
-    widgetId: 'saudi_localization.injection.zatca-qr',
-    priority: 70,
-  },
+  'sales.document.detail.order:details': [
+    {
+      widgetId: 'saudi_localization.injection.zatca-invoice-preview',
+      priority: 75,
+    },
+    {
+      widgetId: 'saudi_localization.injection.zatca-qr',
+      priority: 70,
+    },
+  ],
 }
 
 export default injectionTable

@@ -205,6 +205,14 @@ persistence inside the invoice pipeline, and validation against the ZATCA sandbo
     `instanceof` throw inside the catch block — every mapping failure would have surfaced
     as a 500 instead of a 422.
 
+21. **`widgets/injection/zatca-invoice-preview/`** — the preview on the order detail, and
+    the manual-reporting workflow made concrete: an operator asks for the invoice, reads
+    the ICV, the previous hash and the invoice hash, copies or downloads the exact UBL XML
+    and files it in the Fatoora portal. Nothing renders until the button is pressed (the
+    document is kilobytes of XML, and most visits to an order are not about compliance),
+    it needs only the order id (the request decides the rest), and every non-ready status
+    explains itself in the same vocabulary as the QR panel.
+
 ### Planned
 
 - Wiring the dual-calendar label into invoice, HR and fiscal document templates.
@@ -309,6 +317,16 @@ Read responses: every `GET /api/sales/orders` payload carries
   `missing_invoice_data`) instead of an absent field. 63 module tests.
   Rendering the payload as a QR image, Hijri dates and Phase 2 clearance remain.
 - **2026-09-25 (ZATCA preview endpoint)** — the Phase 2 stack got its first real call
+  site: `POST /api/saudi/zatca/invoice-preview` reads a sales order (scoped and
+  decrypted), peeks the chain without claiming a counter, and returns the invoice XML,
+  the hash and the QR payload — labelled `preview: true, chainMutated: false`. The tests
+  caught a latent `instanceof` crash on an error class imported from the wrong module
+  (a 500 where a 422 belonged). 157 module tests.
+- **2026-09-25 (invoice preview widget)** — The preview endpoint is reachable from the
+  sales order detail: an operator can read the ICV, the previous hash and the invoice
+  hash, and copy or download the exact UBL XML a Saudi tax invoice would carry, which is
+  the manual Fatoora-portal workflow. Nothing is issued and nothing is written. 165
+  module tests.
   site: `POST /api/saudi/zatca/invoice-preview` reads a sales order (scoped and
   decrypted), peeks the chain without claiming a counter, and returns the invoice XML,
   the hash and the QR payload — labelled `preview: true, chainMutated: false`. The tests
