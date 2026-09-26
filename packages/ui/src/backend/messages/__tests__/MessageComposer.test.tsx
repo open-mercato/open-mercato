@@ -606,6 +606,16 @@ describe('MessageComposer draft flow', () => {
     })
   })
 
+  it('associates the visible recipient and message labels with their inputs', async () => {
+    renderWithProviders(
+      <MessageComposer inline variant="compose" />,
+      { dict: {} },
+    )
+
+    expect(await screen.findByRole('textbox', { name: 'To' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Message' })).toBeInTheDocument()
+  })
+
   it('keeps recipient suggestions available for multi-character input when backend search is unreliable', async () => {
     ;(apiCall as jest.Mock).mockImplementation((url: string, options?: { method?: string, body?: string }) => {
       if (url.startsWith('/api/messages/types')) {
