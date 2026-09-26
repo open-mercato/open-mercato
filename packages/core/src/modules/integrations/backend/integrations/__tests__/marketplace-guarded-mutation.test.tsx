@@ -49,11 +49,12 @@ jest.mock('lucide-react', () => new Proxy({}, {
 }))
 
 jest.mock('@open-mercato/ui/primitives/switch', () => ({
-  Switch: ({ checked, disabled, onCheckedChange }: { checked: boolean; disabled?: boolean; onCheckedChange: (checked: boolean) => void }) => (
+  Switch: ({ checked, disabled, onCheckedChange, 'aria-label': ariaLabel }: { checked: boolean; disabled?: boolean; onCheckedChange: (checked: boolean) => void; 'aria-label'?: string }) => (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={ariaLabel}
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
     >
@@ -122,7 +123,7 @@ describe('Integrations marketplace — guarded mutation wiring', () => {
 
     renderWithProviders(<IntegrationsMarketplacePage />)
 
-    const toggle = await screen.findByRole('switch')
+    const toggle = await screen.findByRole('switch', { name: 'Stripe' })
     expect(toggle).toHaveAttribute('aria-checked', 'false')
 
     fireEvent.click(toggle)
