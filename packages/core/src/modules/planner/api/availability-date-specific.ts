@@ -10,6 +10,7 @@ import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/er
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { plannerAvailabilityDateSpecificReplaceSchema } from '../data/validators'
+import { zonedDateKey } from '../lib/availabilityTimezone'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import {
   runCrudMutationGuardAfterSuccess,
@@ -93,7 +94,10 @@ export async function POST(req: Request) {
         const blocked = rules.some((rule) => {
           const window = parseAvailabilityRuleWindow(rule)
           if (window.repeat !== 'once') return false
-          return dateSet.has(formatDateKey(window.startAt))
+          // Resolved in the rule's own zone so this gate agrees with
+          // `planner.availability.date-specific.replace` and does not depend
+          // on the host clock.
+          return dateSet.has(zonedDateKey(window.startAt, rule.timezone))
         })
         if (blocked) {
           throw new CrudHttpError(403, { error: translate('planner.availability.errors.unauthorized', 'Unauthorized') })
@@ -215,9 +219,3 @@ function resolveDateSet(input: { date?: string; dates?: string[] }): Set<string>
   return dates
 }
 
-function formatDateKey(value: Date): string {
-  const year = value.getFullYear()
-  const month = String(value.getMonth() + 1).padStart(2, '0')
-  const day = String(value.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}

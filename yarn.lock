@@ -9054,6 +9054,7 @@ __metadata:
     "@xyflow/react": "npm:^12.11.5"
     ai: "npm:^7.0.83"
     chance: "npm:^1.1.13"
+    cross-env: "npm:^10.1.0"
     date-fns: "npm:4.4.0"
     date-fns-tz: "npm:^3.2.0"
     jest: "npm:^30.4.2"
