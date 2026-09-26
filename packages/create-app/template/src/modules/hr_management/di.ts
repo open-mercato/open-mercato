@@ -1,4 +1,4 @@
-import { asValue } from 'awilix'
+import { asFunction, asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import {
   HrDepartment,
@@ -12,6 +12,7 @@ import {
   HrApprovalRequest,
   HrApprovalActionLog,
 } from './data/entities'
+import { createHrService } from './lib/hrService'
 
 export function register(container: AppContainer) {
   container.register({
@@ -25,5 +26,6 @@ export function register(container: AppContainer) {
     HrApprovalStepDefinition: asValue(HrApprovalStepDefinition),
     HrApprovalRequest: asValue(HrApprovalRequest),
     HrApprovalActionLog: asValue(HrApprovalActionLog),
+    hrService: asFunction(createHrService).scoped(),
   })
 }
