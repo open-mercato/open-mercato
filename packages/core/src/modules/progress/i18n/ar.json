@@ -1,0 +1,20 @@
+{
+  "progress.actions.cancel": "إلغاء",
+  "progress.actions.dismiss": "تجاهل",
+  "progress.actions.retry": "إعادة المحاولة",
+  "progress.activeCount": "{count} عملية قيد التنفيذ",
+  "progress.errors.alreadyFinished": "انتهت المهمة بالفعل",
+  "progress.errors.cannotCancel": "لا يمكن إلغاء هذه المهمة",
+  "progress.errors.notFound": "لم يُعثر على المهمة",
+  "progress.eta.hoursMinutes": "يتبقى {hours} س {minutes} د",
+  "progress.eta.minutes": "يتبقى {count} د",
+  "progress.eta.seconds": "يتبقى {count} ث",
+  "progress.processed": "تمت معالجته",
+  "progress.recentlyCompleted": "اكتملت {count} عملية",
+  "progress.status.cancelled": "ملغاة",
+  "progress.status.completed": "مكتملة",
+  "progress.status.failed": "فاشلة",
+  "progress.status.pending": "قيد الانتظار",
+  "progress.status.running": "قيد التنفيذ",
+  "progress.title": "التقدّم"
+}

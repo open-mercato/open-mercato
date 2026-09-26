@@ -113,10 +113,10 @@ guard:
 ### Phase 2 — Arabic content completeness
 
 **Progress 2026-09-25 (module dictionaries):** `dashboards` (117 keys),
-`notifications` (96) and `currencies` (158) ship complete `i18n/ar.json` files —
-real translations, zero values left as English apart from the two literal
-placeholders that *should* stay Latin (`USD` as a code example, `$` as a symbol
-example).
+`notifications` (96), `currencies` (158), `dictionaries` (128) and `progress` (18)
+ship complete `i18n/ar.json` files — real translations, with the only Arabic-to-English
+matches being literal examples that must stay that way (`USD` as a code example, `$`
+as a symbol example, `slug_name` as a key example, the `⌘/Ctrl + Enter` shortcut).
 Policy that the gate now enforces: a module's `ar.json` must be *whole* — every key
 present, values actually Arabic — because a partially translated file renders a
 half-English screen that looks finished. `scripts/i18n-check-sync.ts` therefore
@@ -124,7 +124,7 @@ treats any locale-shaped dictionary a folder ships as a checked locale (the
 platform's `pl/es/de/ko` parity set is still required everywhere;
 `.hardcoded-allowlist.json` is excluded by pattern). Rollout order, smallest
 high-visibility surfaces first: `dashboards` ✅, `notifications` ✅, `currencies` ✅,
-`dictionaries` (128), then `auth` (718), `catalog` (724), `sales` (1 494),
+`dictionaries` ✅, `progress` ✅, then `auth` (718), `catalog` (724), `sales` (1 494),
 `customers` (2 880), `staff` (2 066).
 
 1. Ship `ar` dictionaries for every module that ships `en` (module-level
@@ -298,7 +298,8 @@ new ACL features (`saudi_localization.*`) and built on `makeCrudRoute`.
   mapping with explicit VAT-category rules, and UBL 2.1 assembly carrying the
   sourced business rules. The QR panel renders the payload on the order detail.
   Signed XAdES, CSID onboarding and sandbox validation remain open.
-- **2026-09-25 (Phase 2, Arabic rollout starts)** — `dashboards`, `notifications`
-  and `currencies` ship complete Arabic dictionaries (371 keys between them), and
-  `i18n-check-sync` now holds any shipped locale to full parity instead of only the
-  platform's `pl/es/de/ko` set. Rollout order recorded in the Phase 2 section.
+- **2026-09-25 (Phase 2, Arabic rollout starts)** — `dashboards`, `notifications`,
+  `currencies`, `dictionaries` and `progress` ship complete Arabic dictionaries (517
+  keys between them), and `i18n-check-sync` now holds any shipped locale to full
+  parity instead of only the platform's `pl/es/de/ko` set. Rollout order recorded in
+  the Phase 2 section.
