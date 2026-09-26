@@ -27,6 +27,7 @@ type ComposeProps = {
 function RecipientTagsInput({ compose }: ComposeProps) {
   return (
     <TagsInput
+      inputId="messages-compose-recipients"
       value={compose.recipientIds}
       onChange={compose.setRecipientIds}
       selectedOptions={compose.selectedRecipientOptions}
@@ -170,8 +171,9 @@ function MarkdownBodySection({
           <FileCode className="h-4 w-4" />
         </IconButton>
       </div>
-      <div id={inputId}>
+      <div>
         <SwitchableMarkdownInput
+          inputId={inputId}
           value={compose.body}
           onChange={compose.setBody}
           isMarkdownEnabled={compose.bodyFormat === 'markdown'}
