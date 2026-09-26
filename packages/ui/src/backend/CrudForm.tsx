@@ -4309,6 +4309,7 @@ function NumberInput({
 
 // Local-buffer textarea to avoid form-wide re-renders while typing
 function TextAreaInput({
+  id,
   value,
   onChange,
   placeholder,
@@ -4319,6 +4320,7 @@ function TextAreaInput({
   disabled,
   readOnly,
 }: {
+  id?: string
   value: string
   onChange: (v: string) => void
   placeholder?: string
@@ -4355,6 +4357,7 @@ function TextAreaInput({
 
   return (
     <Textarea
+      id={id}
       placeholder={placeholder}
       value={local}
       onChange={handleChange}
@@ -4600,6 +4603,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   markRequired,
 }: FieldControlProps) {
   const t = useT()
+  const textareaId = React.useId()
   const fieldSetValue = React.useCallback(
     (nextValue: unknown) => setValue(field.id, nextValue),
     [setValue, field.id]
@@ -4656,7 +4660,10 @@ const FieldControl = React.memo(function FieldControlImpl({
         : undefined}
     >
       {field.type !== 'checkbox' && field.label.trim().length > 0 ? (
-        <label className="block text-sm font-medium">
+        <label
+          className="block text-sm font-medium"
+          htmlFor={field.type === 'textarea' ? textareaId : undefined}
+        >
           {field.label}
           {field.required || markRequired ? <span className="text-status-error-text"> *</span> : null}
         </label>
@@ -4762,6 +4769,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'textarea' && (
         <TextAreaInput
+          id={textareaId}
           value={value == null ? '' : String(value)}
           placeholder={placeholder}
           onChange={(next) => fieldSetValue(next)}
