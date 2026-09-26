@@ -963,7 +963,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
         </VisuallyHidden>
 
         {/* Header */}
-        <div className="flex shrink-0 items-center justify-between pb-2.5 pl-6 pr-5 pt-4">
+        <div className="flex shrink-0 items-center justify-between pb-2.5 ps-6 pe-5 pt-4">
           <div className="flex flex-col gap-1">
             <h2 className="text-base font-bold leading-tight text-foreground">
               {t('customers.tags.manage.title', 'Manage tags')}
@@ -1160,13 +1160,13 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                       </div>
                     </div>
                     <div className="relative w-[220px] shrink-0">
-                      <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/70" />
+                      <Search className="absolute start-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/70" />
                       <input
                         type="text"
                         value={searchValue}
                         onChange={(e) => setSearchValue(e.target.value)}
                         placeholder={t('customers.tags.manage.search', 'Search values...')}
-                        className="w-full rounded-md border border-input bg-background py-2 pl-9 pr-3 text-xs text-foreground outline-none placeholder:text-muted-foreground/70 focus:border-foreground"
+                        className="w-full rounded-md border border-input bg-background py-2 ps-9 pe-3 text-xs text-foreground outline-none placeholder:text-muted-foreground/70 focus:border-foreground"
                       />
                     </div>
                   </div>
@@ -1314,7 +1314,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                   disabled={saving || !hasChanges}
                   className="rounded-md bg-foreground px-4 py-2.5 text-sm font-semibold text-background hover:bg-foreground/90"
                 >
-                  <Save className="mr-2 size-4" />
+                  <Save className="me-2 size-4" />
                   {saving
                     ? t('customers.tags.manage.saving', 'Saving...')
                     : t('customers.tags.manage.save', 'Save changes')}

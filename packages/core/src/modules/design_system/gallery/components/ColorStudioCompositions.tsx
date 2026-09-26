@@ -41,7 +41,7 @@ export function ColorStudioCompositions({ theme, tokens }: { theme: 'light' | 'd
     <div className="grid min-w-0 auto-rows-fr gap-6 @md/cards:grid-cols-2 @7xl/cards:grid-cols-4">
       <article className={`${CARD} gap-6 bg-card p-6`} aria-label={t('design_system.colorStudio.agenda')}>
         <div className="space-y-2"><Clock3 aria-hidden className="size-5 text-muted-foreground" /><h5 className="text-xl font-medium tracking-tight">{t('design_system.colorStudio.agenda')}</h5><p className="text-xs text-muted-foreground">{copy('today')}</p></div>
-        <div className="flex flex-1 flex-col gap-3">{appointments.map(item => <div key={item.key} className="flex-1 space-y-2 rounded-lg border-l-4 px-4 py-3" style={{ backgroundColor: item.background, color: item.foreground, borderLeftColor: item.accent }}>
+        <div className="flex flex-1 flex-col gap-3">{appointments.map(item => <div key={item.key} className="flex-1 space-y-2 rounded-lg border-s-4 px-4 py-3" style={{ backgroundColor: item.background, color: item.foreground, borderLeftColor: item.accent }}>
           <p className="text-sm font-semibold">{t(`design_system.colorStudio.${item.key}`)}</p><p className="text-xs">{item.time}</p>
         </div>)}</div>
         <AvatarStack size="xs"><Avatar label={copy('creatorName')} src={assetSource(creator)} /><Avatar label={copy('designerName')} src={assetSource(portrait)} /><Avatar label={copy('collaboratorName')} src={assetSource(workspace)} /></AvatarStack>
@@ -51,7 +51,7 @@ export function ColorStudioCompositions({ theme, tokens }: { theme: 'light' | 'd
         <div className="relative -mx-6 -mt-6 h-56 overflow-hidden" aria-hidden>
           <div className="absolute inset-6 rounded-full border-8" style={{ borderColor: tokens['--studio-secondary'] }} />
           <img src={assetSource(portrait)} alt="" className="relative mx-auto h-full w-full object-contain object-bottom" loading="lazy" />
-          <div className="absolute -right-8 -top-8 size-40 rounded-full border-8" style={{ borderColor: tokens['--studio-tertiary'] }} />
+          <div className="absolute -end-8 -top-8 size-40 rounded-full border-8" style={{ borderColor: tokens['--studio-tertiary'] }} />
         </div>
         <div className="relative space-y-4 pt-6"><Sparkles aria-hidden className="size-6" /><h5 className="text-4xl font-semibold leading-tight tracking-tight">{copy('posterTitle')}</h5><p className="text-sm leading-relaxed">{copy('posterDescription')}</p></div>
       </article>
@@ -69,7 +69,7 @@ export function ColorStudioCompositions({ theme, tokens }: { theme: 'light' | 'd
 
       <article className={`${CARD} gap-6 bg-card p-6`} aria-label={copy('plans')}>
         <div className="space-y-3"><Layers aria-hidden className="size-6" style={{ color: tokens['--primary'] }} /><h5 className="text-2xl font-medium tracking-tight">{copy('plans')}</h5><p className="text-sm leading-relaxed text-muted-foreground">{copy('plansHint')}</p></div>
-        <div className="space-y-3">{['solo', 'team'].map(choice => <Button key={choice} type="button" variant="outline" aria-pressed={plan === choice} onClick={() => setPlan(choice)} className="h-auto w-full justify-between gap-3 whitespace-normal p-4 text-left" style={plan === choice ? { backgroundColor: tokens['--accent'], color: tokens['--accent-foreground'], borderColor: tokens['--primary'] } : undefined}><span className="space-y-1"><span className="block text-base font-medium">{copy(choice)}</span><span className="block text-xs font-normal">{copy(`${choice}Hint`)}</span></span>{plan === choice ? <Check aria-hidden className="size-5 shrink-0" /> : <span className="size-5 shrink-0 rounded-full border border-border" aria-hidden />}</Button>)}</div>
+        <div className="space-y-3">{['solo', 'team'].map(choice => <Button key={choice} type="button" variant="outline" aria-pressed={plan === choice} onClick={() => setPlan(choice)} className="h-auto w-full justify-between gap-3 whitespace-normal p-4 text-start" style={plan === choice ? { backgroundColor: tokens['--accent'], color: tokens['--accent-foreground'], borderColor: tokens['--primary'] } : undefined}><span className="space-y-1"><span className="block text-base font-medium">{copy(choice)}</span><span className="block text-xs font-normal">{copy(`${choice}Hint`)}</span></span>{plan === choice ? <Check aria-hidden className="size-5 shrink-0" /> : <span className="size-5 shrink-0 rounded-full border border-border" aria-hidden />}</Button>)}</div>
         <div className="mt-auto space-y-3 border-t border-border pt-5"><p role="status" className="text-sm font-medium">{copy(plan === 'solo' ? 'soloSelected' : 'teamSelected')}</p><p className="text-xs leading-relaxed text-muted-foreground">{copy('planNote')}</p></div>
       </article>
 

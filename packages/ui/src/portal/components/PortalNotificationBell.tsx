@@ -60,7 +60,7 @@ export function PortalNotificationBell({ t }: PortalNotificationBellProps) {
       >
         <BellIcon className={`size-[18px] ${pulse ? 'animate-pulse' : ''}`} />
         {unreadCount > 0 ? (
-          <span className="absolute -right-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-foreground text-[9px] font-bold text-background">
+          <span className="absolute -end-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-foreground text-[9px] font-bold text-background">
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         ) : null}

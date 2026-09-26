@@ -99,8 +99,8 @@ export default function PortalAiAssistantTriggerWidget({ context }: PortalAiAssi
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
           className={cn(
-            'sm:max-w-xl sm:top-0 sm:bottom-0 sm:right-0 sm:left-auto sm:translate-x-0 sm:translate-y-0',
-            'sm:h-screen sm:max-h-screen sm:rounded-none sm:rounded-l-2xl',
+            'sm:max-w-xl sm:top-0 sm:bottom-0 sm:end-0 sm:start-auto sm:translate-x-0 sm:translate-y-0',
+            'sm:h-screen sm:max-h-screen sm:rounded-none sm:rounded-s-2xl',
             'flex flex-col gap-3 p-4',
           )}
           data-ai-portal-inject-sheet=""

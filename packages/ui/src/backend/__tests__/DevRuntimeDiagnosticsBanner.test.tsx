@@ -388,9 +388,9 @@ describe('DevRuntimeDiagnosticsBanner', () => {
     expect(banner.className).toContain('z-banner')
     // Bottom-right, but lifted clear of the support-chat launcher that lives in
     // that corner with its own very high third-party z-index.
-    expect(banner.className).toContain('sm:right-4')
+    expect(banner.className).toContain('sm:end-4')
     expect(banner.className).toContain('bottom-20')
-    expect(banner.className).not.toContain('sm:left-4')
+    expect(banner.className).not.toContain('sm:start-4')
     expect(banner.className).not.toContain('bottom-3')
     // Never a full-bleed top bar: that is what collided with the shell chrome.
     expect(banner.className).not.toContain('border-b')

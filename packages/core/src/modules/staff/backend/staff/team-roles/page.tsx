@@ -131,9 +131,9 @@ export default function StaffTeamRolesPage() {
         }
         return (
           <div className="flex flex-col">
-            <span className="font-medium pl-6">{row.original.name}</span>
+            <span className="font-medium ps-6">{row.original.name}</span>
             {row.original.description ? (
-              <span className="pl-6 text-xs text-muted-foreground line-clamp-2">
+              <span className="ps-6 text-xs text-muted-foreground line-clamp-2">
                 {markdownToPlainText(row.original.description)}
               </span>
             ) : null}

@@ -121,7 +121,7 @@ export function ContentLayout({ title, intro, breadcrumb, children }: ContentLay
               Privacy
             </Link>
           </div>
-          <p className="text-xs text-muted-foreground/80 sm:text-right">
+          <p className="text-xs text-muted-foreground/80 sm:text-end">
             © {new Date().getFullYear()} Open Mercato. All rights reserved.
           </p>
         </div>

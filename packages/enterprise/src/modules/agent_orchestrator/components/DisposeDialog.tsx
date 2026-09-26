@@ -93,7 +93,7 @@ export function DisposeDialog({
             <Button
               type="button"
               variant="outline"
-              className="ml-auto"
+              className="ms-auto"
               onClick={() => onOpenChange(false)}
               disabled={busy}
             >

@@ -241,7 +241,7 @@ export function TransitionsEditor({ value = [], onChange, onInvalidActivityConfi
           {error && <p className="text-sm text-status-error-text mt-1">{error}</p>}
         </div>
         <Button type="button" onClick={addTransition} variant="outline" size="sm" className="w-full sm:w-auto">
-          <Plus className="h-4 w-4 mr-1" />
+          <Plus className="h-4 w-4 me-1" />
           {t('workflows.form.addTransition')}
         </Button>
       </div>
@@ -254,7 +254,7 @@ export function TransitionsEditor({ value = [], onChange, onInvalidActivityConfi
 
       <div className="space-y-3">
         {value.map((transition, index) => (
-          <div key={index} className="p-4 border rounded-md bg-card shadow-sm border-l-4 border-l-blue-500">
+          <div key={index} className="p-4 border rounded-md bg-card shadow-sm border-s-4 border-s-blue-500">
             <div className="space-y-3">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -406,7 +406,7 @@ export function TransitionsEditor({ value = [], onChange, onInvalidActivityConfi
                 </div>
               </div>
 
-              <div className="mt-4 pl-4 border-l-2 border-border">
+              <div className="mt-4 ps-4 border-s-2 border-border">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
                   <Label className="text-xs font-semibold text-foreground">
                     {t('workflows.transitions.activities')}
@@ -418,7 +418,7 @@ export function TransitionsEditor({ value = [], onChange, onInvalidActivityConfi
                     size="sm"
                     className="w-full sm:w-auto"
                   >
-                    <Plus className="h-3 w-3 mr-1" />
+                    <Plus className="h-3 w-3 me-1" />
                     {t('workflows.form.addActivity')}
                   </Button>
                 </div>
@@ -433,7 +433,7 @@ export function TransitionsEditor({ value = [], onChange, onInvalidActivityConfi
                   {(transition.activities || []).map((activity, activityIndex) => {
                     const activityKey = `${transition.transitionId ?? index}:${activity.activityId || activityIndex}`
                     return (
-                      <div key={activityKey} className="p-3 border rounded-md bg-muted shadow-sm border-l-4 border-l-green-500">
+                      <div key={activityKey} className="p-3 border rounded-md bg-muted shadow-sm border-s-4 border-s-green-500">
                         <div className="space-y-2">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                           <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">

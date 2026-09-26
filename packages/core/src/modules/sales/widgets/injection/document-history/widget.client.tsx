@@ -220,7 +220,7 @@ function TimelineItem({
     <div data-testid="timeline-entry" className="relative flex gap-3">
       {/* Vertical connector line */}
       {!isLast && (
-        <div className="absolute left-[11px] top-6 bottom-0 w-px bg-border" aria-hidden />
+        <div className="absolute start-[11px] top-6 bottom-0 w-px bg-border" aria-hidden />
       )}
 
       {/* Icon circle */}
@@ -329,7 +329,7 @@ function FilterDropdown({ filter, onChange }: { filter: FilterKind; onChange: (k
         <div
           role="listbox"
           aria-label={t('sales.documents.history.filter.label', 'Filters')}
-          className="absolute left-0 top-full mt-1 z-dropdown w-48 rounded-md border bg-background p-1 shadow-md"
+          className="absolute start-0 top-full mt-1 z-dropdown w-48 rounded-md border bg-background p-1 shadow-md"
         >
           {options.map(opt => (
             <button

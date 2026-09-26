@@ -47,7 +47,7 @@ export function EditorStatusPresence({ status, users, counts, mode, canEdit, onM
           {safeUsers.length > visible.length ? <span className="inline-flex size-5 items-center justify-center rounded-full border border-background bg-muted text-xs font-semibold text-muted-foreground ring-2 ring-background">+{safeUsers.length - visible.length}</span> : null}
         </div>
       ) : null}
-      <span className="order-last w-full text-center text-xs text-muted-foreground sm:order-none sm:w-auto sm:text-left">{t('documents.editor.wordCount', { words: counts.words, characters: counts.characters })}</span>
+      <span className="order-last w-full text-center text-xs text-muted-foreground sm:order-none sm:w-auto sm:text-start">{t('documents.editor.wordCount', { words: counts.words, characters: counts.characters })}</span>
       {fallbackSave ? (
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground" role="status" aria-live="polite">

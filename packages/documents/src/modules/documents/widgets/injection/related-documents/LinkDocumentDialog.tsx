@@ -212,7 +212,7 @@ export function LinkDocumentDialog({ open, target, onOpenChange, onLinked }: {
           ) : null}
           {!loading && !hasCurrentError && query.trim() && hasCurrentResults && visibleRows.length === 0 ? <p className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">{t('documents.relatedDocuments.linkDialog.empty')}</p> : null}
           {!loading && visibleRows.length > 0 ? <div className="max-h-72 space-y-2 overflow-y-auto">{visibleRows.map((row) => (
-            <Button key={row.id} type="button" variant={activeRowId === row.id ? 'secondary' : 'outline'} aria-current={activeRowId === row.id ? 'true' : undefined} className="h-auto w-full justify-between p-3 text-left" onFocus={() => setActiveRowId(row.id)} onClick={() => { void linkDocument(row) }}>
+            <Button key={row.id} type="button" variant={activeRowId === row.id ? 'secondary' : 'outline'} aria-current={activeRowId === row.id ? 'true' : undefined} className="h-auto w-full justify-between p-3 text-start" onFocus={() => setActiveRowId(row.id)} onClick={() => { void linkDocument(row) }}>
               <span className="min-w-0"><span className="block truncate font-medium">{row.title}</span><span className="block truncate text-xs text-muted-foreground">{row.ownerLabel}</span></span><Link2 />
             </Button>
           ))}</div> : null}

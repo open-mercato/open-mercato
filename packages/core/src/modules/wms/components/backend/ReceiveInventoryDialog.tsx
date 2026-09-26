@@ -421,8 +421,8 @@ export function ReceiveInventoryDialog({
         className="max-w-lg gap-0 overflow-hidden p-0"
         onKeyDown={handleDialogKeyDown}
       >
-        <div className="border-b px-6 py-4 pr-12">
-          <DialogHeader className="space-y-1 text-left">
+        <div className="border-b px-6 py-4 pe-12">
+          <DialogHeader className="space-y-1 text-start">
             <DialogTitle>
               {t('wms.backend.inventory.receive.dialog.title', 'Receive inventory')}
             </DialogTitle>
@@ -442,9 +442,9 @@ export function ReceiveInventoryDialog({
               required
               error={fieldErrors.catalogVariantId}
             >
-              <div className="relative [&_input]:pl-9">
+              <div className="relative [&_input]:ps-9">
                 <Package
-                  className="pointer-events-none absolute left-3 top-1/2 z-10 size-4 -translate-y-1/2 text-muted-foreground"
+                  className="pointer-events-none absolute start-3 top-1/2 z-10 size-4 -translate-y-1/2 text-muted-foreground"
                   aria-hidden="true"
                 />
                 <ComboboxInput

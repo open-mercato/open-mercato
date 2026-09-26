@@ -2137,7 +2137,7 @@ function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
               size="sm"
               onClick={addOption}
             >
-              <Plus className="mr-2 h-4 w-4" />
+              <Plus className="me-2 h-4 w-4" />
               {t("catalog.products.create.optionsBuilder.add", "Add option")}
             </Button>
           </div>
@@ -2464,7 +2464,7 @@ function ProductVariantsSection({
                 <Link
                   href={`/backend/catalog/products/${productId}/variants/create`}
                 >
-                  <Plus className="mr-2 h-4 w-4" />
+                  <Plus className="me-2 h-4 w-4" />
                   {t("catalog.products.edit.variants.add", "Add variant")}
                 </Link>
               </Button>
@@ -2474,7 +2474,7 @@ function ProductVariantsSection({
         {variants.length ? (
           <div className="overflow-x-auto rounded-md border">
             <table className="w-full min-w-[720px] table-fixed text-sm">
-              <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
+              <thead className="bg-muted/40 text-start text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2 font-normal">
                     {t("catalog.products.form.variants", "Variant")}
@@ -2489,7 +2489,7 @@ function ProductVariantsSection({
                   <th className="w-24 px-3 py-2 font-normal">
                     {t("catalog.products.edit.variants.default", "Default")}
                   </th>
-                  <th className="w-40 px-3 py-2 font-normal text-right">
+                  <th className="w-40 px-3 py-2 font-normal text-end">
                     {t("catalog.products.edit.variantList.actions", "Actions")}
                   </th>
                 </tr>

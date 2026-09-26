@@ -97,7 +97,7 @@ export function PortFieldArrayEditor({
     <div className="space-y-3">
       <div className="flex justify-end">
         <Button type="button" size="sm" onClick={addPort} disabled={disabled}>
-          <Plus className="size-3 mr-1" />
+          <Plus className="size-3 me-1" />
           {t(addLabelKey)}
         </Button>
       </div>
@@ -119,7 +119,7 @@ export function PortFieldArrayEditor({
                   disabled={disabled}
                   className="w-full h-auto px-4 py-3 justify-between hover:bg-muted/70"
                 >
-                  <div className="flex-1 min-w-0 text-left">
+                  <div className="flex-1 min-w-0 text-start">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-semibold text-foreground truncate">
                         {port.label || port.name}

@@ -611,7 +611,7 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
                           <button
                             key={person.id}
                             type="button"
-                            className="w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                            className="w-full px-3 py-2 text-start text-sm hover:bg-muted"
                             onClick={() => {
                               setEditPersonEntityId(person.id)
                               setPersonName(person.label)
@@ -654,7 +654,7 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
                           <button
                             key={company.id}
                             type="button"
-                            className="w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                            className="w-full px-3 py-2 text-start text-sm hover:bg-muted"
                             onClick={() => {
                               setEditCustomerEntityId(company.id)
                               setCompanyName(company.label)
@@ -791,7 +791,7 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
         <h2 className="text-sm font-semibold">
           {t('customer_accounts.admin.detail.sections.sessions', 'Active Sessions')}
           {data.sessions.length > 0 && (
-            <span className="ml-2 text-xs font-normal text-muted-foreground">({data.sessions.length})</span>
+            <span className="ms-2 text-xs font-normal text-muted-foreground">({data.sessions.length})</span>
           )}
         </h2>
         {data.sessions.length === 0 ? (

@@ -500,7 +500,7 @@ export function AttachmentPartitionSettings({ s3Enabled }: AttachmentPartitionSe
               {t('attachments.partitions.form.ocrLabel', 'Require OCR/text extraction')}
             </label>
             {form.requiresOcr && (
-              <div className="space-y-2 pl-6">
+              <div className="space-y-2 ps-6">
                 <Label htmlFor="partition-ocr-model">
                   {t('attachments.partitions.form.ocrModelLabel', 'OCR Model')}
                 </Label>

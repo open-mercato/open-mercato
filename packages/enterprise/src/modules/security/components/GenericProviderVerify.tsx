@@ -57,12 +57,12 @@ export default function GenericProviderVerify({
       />
       <div className="flex flex-wrap items-center gap-2">
         <Button type="submit" disabled={!canSubmit}>
-          {submitting ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+          {submitting ? <Loader2 className="me-2 size-4 animate-spin" /> : null}
           {submitLabel ?? t('security.profile.mfa.verify.submit', 'Verify')}
         </Button>
         {onResend ? (
           <Button type="button" variant="outline" disabled={resending} onClick={handleResend}>
-            {resending ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+            {resending ? <Loader2 className="me-2 size-4 animate-spin" /> : null}
             {t('security.profile.mfa.verify.resend', 'Resend code')}
           </Button>
         ) : null}

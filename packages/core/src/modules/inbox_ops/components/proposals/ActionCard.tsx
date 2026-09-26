@@ -140,17 +140,17 @@ function OrderPreview({ payload }: { payload: Record<string, unknown> }) {
           <table className="w-full text-xs">
             <thead>
               <tr className="bg-muted/50">
-                <th className="text-left px-2 py-1 font-medium">{t('inbox_ops.preview.product', 'Product')}</th>
-                <th className="text-right px-2 py-1 font-medium">{t('inbox_ops.preview.qty', 'Qty')}</th>
-                <th className="text-right px-2 py-1 font-medium">{t('inbox_ops.preview.price', 'Price')}</th>
+                <th className="text-start px-2 py-1 font-medium">{t('inbox_ops.preview.product', 'Product')}</th>
+                <th className="text-end px-2 py-1 font-medium">{t('inbox_ops.preview.qty', 'Qty')}</th>
+                <th className="text-end px-2 py-1 font-medium">{t('inbox_ops.preview.price', 'Price')}</th>
               </tr>
             </thead>
             <tbody>
               {lineItems.map((item, index) => (
                 <tr key={index} className="border-t">
                   <td className="px-2 py-1">{(item.productName as string) || '—'}</td>
-                  <td className="px-2 py-1 text-right">{String(item.quantity ?? '')}</td>
-                  <td className="px-2 py-1 text-right">{item.unitPrice ? `${item.unitPrice} ${currencyCode}` : '—'}</td>
+                  <td className="px-2 py-1 text-end">{String(item.quantity ?? '')}</td>
+                  <td className="px-2 py-1 text-end">{item.unitPrice ? `${item.unitPrice} ${currencyCode}` : '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -296,7 +296,7 @@ export function ActionCard({
             className="h-11 md:h-9"
             onClick={() => onRetry(action.id)}
           >
-            <RefreshCw className="h-4 w-4 mr-1" />
+            <RefreshCw className="h-4 w-4 me-1" />
             {t('inbox_ops.action.retry', 'Retry')}
           </Button>
           <Button
@@ -306,7 +306,7 @@ export function ActionCard({
             className="h-11 md:h-9"
             onClick={() => onEdit(action)}
           >
-            <Pencil className="h-4 w-4 mr-1" />
+            <Pencil className="h-4 w-4 me-1" />
             {t('inbox_ops.action.edit', 'Edit')}
           </Button>
           <Button
@@ -316,7 +316,7 @@ export function ActionCard({
             className="h-11 md:h-9"
             onClick={() => onReject(action.id)}
           >
-            <XCircle className="h-4 w-4 mr-1" />
+            <XCircle className="h-4 w-4 me-1" />
             {t('inbox_ops.action.reject', 'Reject')}
           </Button>
         </div>
@@ -415,7 +415,7 @@ export function ActionCard({
             onClick={() => onAccept(action.id)}
             disabled={hasBlockingDiscrepancies || hasNameIssue}
           >
-            <CheckCircle className="h-4 w-4 mr-1" />
+            <CheckCircle className="h-4 w-4 me-1" />
             {t('inbox_ops.action.accept', 'Accept')}
           </Button>
         </div>
@@ -426,7 +426,7 @@ export function ActionCard({
           className="h-11 md:h-9"
           onClick={() => onEdit(action)}
         >
-          <Pencil className="h-4 w-4 mr-1" />
+          <Pencil className="h-4 w-4 me-1" />
           {t('inbox_ops.action.edit', 'Edit')}
         </Button>
         <Button
@@ -436,7 +436,7 @@ export function ActionCard({
           className="h-11 md:h-9"
           onClick={() => onReject(action.id)}
         >
-          <XCircle className="h-4 w-4 mr-1" />
+          <XCircle className="h-4 w-4 me-1" />
           {t('inbox_ops.action.reject', 'Reject')}
         </Button>
       </div>

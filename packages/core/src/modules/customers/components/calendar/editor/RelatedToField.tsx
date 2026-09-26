@@ -18,7 +18,7 @@ import {
 import { CONTROL_BORDER, DROPDOWN_PANEL_CLASS, PersonChip, UppercaseBadge, useDropdownDismiss } from './inputs'
 
 const OPTION_ROW_CLASS =
-  'h-auto w-full justify-start gap-2 whitespace-normal px-2 py-1.5 text-left text-sm font-normal text-foreground'
+  'h-auto w-full justify-start gap-2 whitespace-normal px-2 py-1.5 text-start text-sm font-normal text-foreground'
 
 export function RelatedToField({
   label,
@@ -102,7 +102,7 @@ export function RelatedToField({
     >
       <div
         className={cn(
-          'flex h-10 w-full items-center rounded-md bg-background pl-2.5 pr-3 transition-colors hover:bg-accent/50',
+          'flex h-10 w-full items-center rounded-md bg-background ps-2.5 pe-3 transition-colors hover:bg-accent/50',
           error ? 'border border-status-error-border' : CONTROL_BORDER,
         )}
       >
@@ -113,7 +113,7 @@ export function RelatedToField({
           aria-expanded={open}
           aria-label={label}
           onClick={() => setOpen((previous) => !previous)}
-          className="h-full min-w-0 flex-1 justify-between rounded-none bg-transparent p-0 text-left shadow-none hover:bg-transparent dark:hover:bg-transparent"
+          className="h-full min-w-0 flex-1 justify-between rounded-none bg-transparent p-0 text-start shadow-none hover:bg-transparent dark:hover:bg-transparent"
         >
           <span className="flex min-w-0 items-center gap-2">
             {value ? (
@@ -196,7 +196,7 @@ export function RelatedToField({
                     : <User aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />}
                   <span className="min-w-0 flex-1 truncate">
                     {option.label}
-                    {option.subtitle ? <span className="ml-1.5 text-xs text-muted-foreground">{option.subtitle}</span> : null}
+                    {option.subtitle ? <span className="ms-1.5 text-xs text-muted-foreground">{option.subtitle}</span> : null}
                   </span>
                   <span className="shrink-0 text-xs text-muted-foreground">{kindLabel(option.kind)}</span>
                 </Button>

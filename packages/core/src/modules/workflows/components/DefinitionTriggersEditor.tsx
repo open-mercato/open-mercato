@@ -331,7 +331,7 @@ export function DefinitionTriggersEditor({
             </h3>
           </div>
           <Button size="sm" variant="outline" onClick={handleCreateNew} className="w-full sm:w-auto">
-            <Plus className="w-4 h-4 mr-1" />
+            <Plus className="w-4 h-4 me-1" />
             {t('workflows.triggers.add', 'Add Trigger')}
           </Button>
         </div>
@@ -487,7 +487,7 @@ export function DefinitionTriggersEditor({
                   {untypedPayloadChip}
                 </div>
                 <Button size="sm" variant="ghost" onClick={addFilterCondition} className="w-full sm:w-auto">
-                  <Plus className="w-4 h-4 mr-1" />
+                  <Plus className="w-4 h-4 me-1" />
                   {t('workflows.triggers.addCondition', 'Add Condition')}
                 </Button>
               </div>
@@ -569,7 +569,7 @@ export function DefinitionTriggersEditor({
                   {untypedPayloadChip}
                 </div>
                 <Button size="sm" variant="ghost" onClick={addContextMapping} className="w-full sm:w-auto">
-                  <Plus className="w-4 h-4 mr-1" />
+                  <Plus className="w-4 h-4 me-1" />
                   {t('workflows.triggers.addMapping', 'Add Mapping')}
                 </Button>
               </div>

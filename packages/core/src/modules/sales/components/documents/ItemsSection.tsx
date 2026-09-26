@@ -686,7 +686,7 @@ export function SalesDocumentItemsSection({
         <div className="overflow-hidden rounded border">
           <table className="w-full text-sm">
             <thead className="bg-muted">
-              <tr className="text-left">
+              <tr className="text-start">
                 <th className="px-3 py-2 font-medium">
                   {t("sales.documents.items.table.product", "Product")}
                 </th>

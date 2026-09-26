@@ -308,20 +308,20 @@ export function CachePanel() {
             <table className="w-full min-w-[560px] text-sm">
               <thead>
                 <tr className="text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="px-3 py-2 text-left">
+                  <th className="px-3 py-2 text-start">
                     {t('configs.cache.table.segment', 'Segment')}
                   </th>
-                  <th className="px-3 py-2 text-left">
+                  <th className="px-3 py-2 text-start">
                     {t('configs.cache.table.path', 'Path')}
                   </th>
-                  <th className="px-3 py-2 text-left">
+                  <th className="px-3 py-2 text-start">
                     {t('configs.cache.table.method', 'Method')}
                   </th>
-                  <th className="px-3 py-2 text-left">
+                  <th className="px-3 py-2 text-start">
                     {t('configs.cache.table.count', 'Cached keys')}
                   </th>
                   {canShowActions ? (
-                    <th className="px-3 py-2 text-right">
+                    <th className="px-3 py-2 text-end">
                       {t('configs.cache.table.actions', 'Actions')}
                     </th>
                   ) : null}
@@ -354,7 +354,7 @@ export function CachePanel() {
                         {t('configs.cache.table.countValue', '{{count}} keys', { count: segment.keyCount })}
                       </td>
                       {canShowActions ? (
-                        <td className="px-3 py-2 align-top text-right">
+                        <td className="px-3 py-2 align-top text-end">
                           <Button
                             variant="outline"
                             size="sm"

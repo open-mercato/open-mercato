@@ -89,11 +89,11 @@ export function TokenCalculatorTab() {
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-3.5 py-2.5">
         <input ref={fileInputRef} type="file" accept=".md,.markdown,.txt,.json,.ts,.tsx,.yaml,.yml" hidden onChange={openFile} />
         <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-          <Upload className="mr-1.5 size-3.5" />
+          <Upload className="me-1.5 size-3.5" />
           {t('agent_orchestrator.tokens.openFile', 'Open file…')}
         </Button>
         <Button type="button" variant="outline" size="sm" disabled={text === ''} onClick={() => { setText(''); setFileName('') }}>
-          <Trash2 className="mr-1.5 size-3.5" />
+          <Trash2 className="me-1.5 size-3.5" />
           {t('agent_orchestrator.tokens.clear', 'Clear')}
         </Button>
         {fileName ? <span className="font-mono text-xs text-muted-foreground">{fileName}</span> : null}
@@ -110,7 +110,7 @@ export function TokenCalculatorTab() {
           onChange={(event) => setText(event.target.value)}
           spellCheck={false}
           placeholder={t('agent_orchestrator.tokens.placeholder', 'Paste text or Markdown here, or open a file from disk — the token count updates as you type.')}
-          className="min-h-[440px] resize-none rounded-none border-0 border-b border-border font-mono text-sm md:border-b-0 md:border-r"
+          className="min-h-[440px] resize-none rounded-none border-0 border-b border-border font-mono text-sm md:border-b-0 md:border-e"
         />
         <div className="flex flex-col gap-4 p-5">
           <div className="flex items-baseline gap-2">
@@ -126,7 +126,7 @@ export function TokenCalculatorTab() {
             {stats.map((stat) => (
               <React.Fragment key={stat.label}>
                 <dt className="text-muted-foreground">{stat.label}</dt>
-                <dd className="text-right font-semibold tabular-nums">{formatNumber(stat.value, locale)}</dd>
+                <dd className="text-end font-semibold tabular-nums">{formatNumber(stat.value, locale)}</dd>
               </React.Fragment>
             ))}
           </dl>

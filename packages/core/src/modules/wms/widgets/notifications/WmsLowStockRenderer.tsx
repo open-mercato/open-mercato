@@ -67,7 +67,7 @@ export function WmsLowStockRenderer({
         <AlertTriangle className="size-5 text-status-warning-icon" aria-hidden="true" />
         {isUnread ? (
           <span
-            className="absolute -right-1 -top-1 size-3 rounded-full bg-status-warning-icon ring-2 ring-background"
+            className="absolute -end-1 -top-1 size-3 rounded-full bg-status-warning-icon ring-2 ring-background"
             aria-hidden="true"
           />
         ) : null}
@@ -117,7 +117,7 @@ export function WmsLowStockRenderer({
           >
             <ExternalLink className="size-3.5" aria-hidden="true" />
             {t('wms.notifications.lowStock.renderer.viewSku', 'View SKU')}
-            {executing ? <Loader2 className="ml-1 size-3 animate-spin" /> : null}
+            {executing ? <Loader2 className="ms-1 size-3 animate-spin" /> : null}
           </Button>
           <Button
             type="button"
@@ -138,7 +138,7 @@ export function WmsLowStockRenderer({
         type="button"
         variant="ghost"
         size="xs"
-        className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+        className="absolute end-2 top-2 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
         onClick={(e) => {
           e.stopPropagation()
           onDismiss()

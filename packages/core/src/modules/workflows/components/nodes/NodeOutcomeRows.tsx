@@ -94,7 +94,7 @@ export function NodeOutcomeRows({
           return (
             <div
               key={row.handleId}
-              className="relative flex min-h-4 items-center justify-end gap-1 pr-2"
+              className="relative flex min-h-4 items-center justify-end gap-1 pe-2"
               {...(row === defaultRow
                 ? { 'data-default-route-handle': row.handleId }
                 : { 'data-outcome-handle': row.handleId })}
@@ -136,7 +136,7 @@ export function NodeOutcomeRows({
         </div>
       )}
       {inheritanceNote && (
-        <p className="mt-0.5 text-right text-overline text-muted-foreground">{inheritanceNote}</p>
+        <p className="mt-0.5 text-end text-overline text-muted-foreground">{inheritanceNote}</p>
       )}
     </div>
   )

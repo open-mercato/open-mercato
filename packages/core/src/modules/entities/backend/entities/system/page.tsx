@@ -8,7 +8,7 @@ export default function SystemEntitiesPage() {
       <PageBody>
         <ContextHelp bulb title="Customize system entities with custom fields" className="mb-4">
           <p className="mb-2">This section lists built-in system entities. You can extend them by adding custom fields. These fields will automatically appear in list filters and edit forms wherever this entity is used.</p>
-          <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
+          <ul className="list-disc ps-5 space-y-1 text-muted-foreground">
             <li>Use <strong>Edit</strong> to define custom fields for a system entity.</li>
             <li>Custom fields are applied at query time and are available across the admin UI.</li>
             <li>No schema fork needed — changes are stored safely in the custom fields engine.</li>

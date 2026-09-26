@@ -48,7 +48,7 @@ export function EntityPickerResults(props: EntityPickerResultsProps) {
           variant="ghost"
           role="option"
           aria-selected={index === props.activeIndex}
-          className={cn('h-auto w-full justify-start px-3 py-2 text-left', index === props.activeIndex ? 'bg-accent text-accent-foreground' : null)}
+          className={cn('h-auto w-full justify-start px-3 py-2 text-start', index === props.activeIndex ? 'bg-accent text-accent-foreground' : null)}
           onMouseDown={(event) => event.preventDefault()}
           onMouseEnter={() => props.onActiveIndexChange(index)}
           onClick={() => props.onSelect(item)}

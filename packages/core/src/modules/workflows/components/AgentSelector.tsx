@@ -153,7 +153,7 @@ export function AgentSelector({ isOpen, onClose, onSelect, title, description }:
                     onSelect(agent.id, agent)
                     setSearchQuery('')
                   }}
-                  className="text-left p-4 border-2 border-border rounded-lg hover:border-primary hover:bg-accent transition-all group"
+                  className="text-start p-4 border-2 border-border rounded-lg hover:border-primary hover:bg-accent transition-all group"
                 >
                   <div className="flex items-start justify-between mb-2">
                     <div className="flex-1 min-w-0">
@@ -162,7 +162,7 @@ export function AgentSelector({ isOpen, onClose, onSelect, title, description }:
                       </h4>
                       <p className="text-xs text-muted-foreground font-mono mt-0.5 truncate">{agent.id}</p>
                     </div>
-                    <Plus className="size-5 text-muted-foreground group-hover:text-primary transition-colors flex-shrink-0 ml-2" />
+                    <Plus className="size-5 text-muted-foreground group-hover:text-primary transition-colors flex-shrink-0 ms-2" />
                   </div>
 
                   {(agent.runtime || agent.resultKind) && (

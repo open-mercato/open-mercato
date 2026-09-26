@@ -51,7 +51,7 @@ function NextStepCalloutEntryBasicPreview() {
           'design_system.gallery.samples.content.productsAreImportedAndPricedPublishingMakesThemVisibleOnEverySalesChannel',
         )}
         actionLabel={t('design_system.gallery.samples.content.publishCatalog')}
-        actionIcon={<Sparkles className="mr-2 size-4" />}
+        actionIcon={<Sparkles className="me-2 size-4" />}
         onAction={() => {}}
       />
     </div>
@@ -185,7 +185,7 @@ import { NextStepCallout } from '@open-mercato/ui/backend/NextStepCallout'
   title="Publish your catalog"
   description="Products are imported and priced. Publishing makes them visible on every sales channel."
   actionLabel="Publish catalog"
-  actionIcon={<Sparkles className="mr-2 size-4" />}
+  actionIcon={<Sparkles className="me-2 size-4" />}
   onAction={handlePublish}
 />`,
     },

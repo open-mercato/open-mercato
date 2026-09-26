@@ -1138,7 +1138,7 @@ export default function AgentCaseloadPage() {
           <>
             <div className="flex flex-wrap items-center gap-2">
               <div className="w-full sm:w-72 lg:w-80">{searchControl}</div>
-              <div className="flex flex-wrap items-center gap-2 sm:ml-auto">{filterPills}</div>
+              <div className="flex flex-wrap items-center gap-2 sm:ms-auto">{filterPills}</div>
             </div>
 
             <StatusTabs segment={segment} counts={counts} total={grandTotal} onSegmentChange={setSegment} />
@@ -1155,14 +1155,14 @@ export default function AgentCaseloadPage() {
                   {t('agent_orchestrator.caseload.bulk.selected', undefined, { count: selectedRows.length })}
                 </span>
                 <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => { void approveRows(selectedRows, 'bulk') }}>
-                  <Check className="mr-1.5 size-4 text-status-success-text" />
+                  <Check className="me-1.5 size-4 text-status-success-text" />
                   {t('agent_orchestrator.proposal.actions.approve')}
                 </Button>
                 <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => openReject(selectedRows)}>
-                  <X className="mr-1.5 size-4 text-status-error-text" />
+                  <X className="me-1.5 size-4 text-status-error-text" />
                   {t('agent_orchestrator.proposal.actions.reject')}
                 </Button>
-                <Button type="button" size="sm" variant="ghost" className="ml-auto" onClick={clearSelection}>
+                <Button type="button" size="sm" variant="ghost" className="ms-auto" onClick={clearSelection}>
                   {t('agent_orchestrator.caseload.bulk.clear')}
                 </Button>
               </div>
@@ -1251,7 +1251,7 @@ function MultiSelectPill({
                 type="button"
                 onClick={() => toggle(value)}
                 title={optionTitles?.get(value)}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted"
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-sm transition-colors hover:bg-muted"
               >
                 <Checkbox checked={selected.includes(value)} className="pointer-events-none" />
                 <span className="truncate">{value}</span>
@@ -1354,7 +1354,7 @@ function HotkeysHint({
       </span>
       <Popover open={legendOpen} onOpenChange={onLegendOpenChange}>
         <PopoverTrigger asChild>
-          <Button type="button" variant="ghost" size="sm" className="ml-auto h-6 gap-1 px-1.5 text-xs font-normal text-muted-foreground">
+          <Button type="button" variant="ghost" size="sm" className="ms-auto h-6 gap-1 px-1.5 text-xs font-normal text-muted-foreground">
             <Kbd>?</Kbd> {t('agent_orchestrator.caseload.hotkeys.help')}
           </Button>
         </PopoverTrigger>
@@ -1547,8 +1547,8 @@ function ExceptionsInbox({
                     data-inbox-row={row.id}
                     onClick={() => onCursorChange(row.id)}
                     className={cn(
-                      'flex w-full items-start gap-3 border-l-2 px-4 py-3 text-left transition-colors focus:outline-none focus-visible:bg-muted/60',
-                      active ? 'border-l-brand-violet bg-brand-violet/10' : 'border-l-transparent hover:bg-muted/40',
+                      'flex w-full items-start gap-3 border-s-2 px-4 py-3 text-start transition-colors focus:outline-none focus-visible:bg-muted/60',
+                      active ? 'border-s-brand-violet bg-brand-violet/10' : 'border-s-transparent hover:bg-muted/40',
                       row.pendingUndo && 'opacity-60',
                     )}
                   >
@@ -1556,7 +1556,7 @@ function ExceptionsInbox({
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="truncate text-sm font-medium text-foreground">{row.agentLabel}</span>
-                        <WaitingLabel value={row.waitingLabel} className="ml-auto shrink-0 text-xs text-muted-foreground" />
+                        <WaitingLabel value={row.waitingLabel} className="ms-auto shrink-0 text-xs text-muted-foreground" />
                       </div>
                       <p className="mt-0.5 truncate text-sm font-semibold text-foreground">{headlineOf(row)}</p>
                       <div className="mt-1.5 flex items-center gap-1.5">
@@ -1569,7 +1569,7 @@ function ExceptionsInbox({
                           </span>
                         ) : null}
                         <span
-                          className={cn('ml-auto size-2 shrink-0 rounded-full', STATUS_DOT[row.status])}
+                          className={cn('ms-auto size-2 shrink-0 rounded-full', STATUS_DOT[row.status])}
                           title={t(`agent_orchestrator.caseload.status.${row.status}`)}
                         />
                       </div>
@@ -1666,7 +1666,7 @@ function DecisionPane({
           />
         ) : null}
 
-        <div className="overflow-hidden rounded-lg border border-border border-l-2 border-l-brand-violet bg-brand-violet/10 p-4">
+        <div className="overflow-hidden rounded-lg border border-border border-s-2 border-s-brand-violet bg-brand-violet/10 p-4">
           <div className="flex items-center gap-3">
             <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand-violet text-brand-violet-foreground">
               <Sparkles className="size-4" />
@@ -1728,29 +1728,29 @@ function DecisionPane({
         {row.isPending ? (
           <>
             <Button type="button" variant="outline" size="sm" onClick={() => onReject(row)} disabled={busy}>
-              <X className="mr-1.5 size-4 text-status-error-text" />
+              <X className="me-1.5 size-4 text-status-error-text" />
               {t('agent_orchestrator.proposal.actions.reject')}
-              <Kbd className="ml-1.5">R</Kbd>
+              <Kbd className="ms-1.5">R</Kbd>
             </Button>
             <Button type="button" variant="outline" size="sm" onClick={() => onOpenDetail(row)} disabled={busy}>
               {t('agent_orchestrator.proposal.actions.edit')}
-              <Kbd className="ml-1.5">E</Kbd>
+              <Kbd className="ms-1.5">E</Kbd>
             </Button>
             <Button
               type="button"
               size="sm"
-              className="ml-auto"
+              className="ms-auto"
               onClick={() => onApprove(row)}
               disabled={busy || !optionChosen}
               title={optionChosen ? undefined : t('agent_orchestrator.proposal.options.chooseHint')}
             >
-              <Check className="mr-1.5 size-4" />
+              <Check className="me-1.5 size-4" />
               {t('agent_orchestrator.proposal.actions.approve')}
-              <Kbd className="ml-1.5 border-primary-foreground/30 bg-transparent text-primary-foreground">A</Kbd>
+              <Kbd className="ms-1.5 border-primary-foreground/30 bg-transparent text-primary-foreground">A</Kbd>
             </Button>
           </>
         ) : (
-          <Button type="button" variant="outline" size="sm" className="ml-auto" onClick={() => onOpenDetail(row)}>
+          <Button type="button" variant="outline" size="sm" className="ms-auto" onClick={() => onOpenDetail(row)}>
             {t('agent_orchestrator.caseload.inbox.openDetail')}
           </Button>
         )}

@@ -420,13 +420,13 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={getSyncSummaryVariant(props.isEnabled ? 'enabled' : 'disabled')}>
-              {props.isEnabled ? <ShieldCheck className="mr-2 h-3.5 w-3.5" /> : <ShieldAlert className="mr-2 h-3.5 w-3.5" />}
+              {props.isEnabled ? <ShieldCheck className="me-2 h-3.5 w-3.5" /> : <ShieldAlert className="me-2 h-3.5 w-3.5" />}
               {props.isEnabled
                 ? t('data_sync.dashboard.start.status.enabled', 'Integration enabled')
                 : t('data_sync.dashboard.start.status.disabled', 'Integration disabled')}
             </Badge>
             <Badge variant={getSyncSummaryVariant(props.hasCredentials ? 'ready' : 'missing')}>
-              <CalendarClock className="mr-2 h-3.5 w-3.5" />
+              <CalendarClock className="me-2 h-3.5 w-3.5" />
               {props.hasCredentials
                 ? t('data_sync.dashboard.start.status.credentialsReady', 'Credentials ready')
                 : t('data_sync.dashboard.start.status.credentialsMissing', 'Credentials missing')}
@@ -440,7 +440,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
           </div>
         </div>
         <Button type="button" variant="outline" onClick={() => void load()} disabled={isLoading}>
-          <RefreshCw className="mr-2 h-4 w-4" />
+          <RefreshCw className="me-2 h-4 w-4" />
           {t('data_sync.integrationTab.refresh', 'Refresh')}
         </Button>
       </div>
@@ -478,7 +478,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
       ) : (
         <div className="overflow-x-auto rounded-lg border">
           <table className="w-full min-w-[1080px] text-sm">
-            <thead className="bg-muted/50 text-left">
+            <thead className="bg-muted/50 text-start">
               <tr>
                 <th className="px-3 py-2 font-medium">{t('data_sync.dashboard.columns.entityType', 'Entity Type')}</th>
                 <th className="px-3 py-2 font-medium">{t('data_sync.dashboard.columns.direction', 'Direction')}</th>
@@ -571,7 +571,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
                           onClick={() => void handleStartSync(row.entityType, row.direction, row.key)}
                           disabled={controlsDisabled || !props.isEnabled || !props.hasCredentials || option.canStartRun === false}
                         >
-                          {isRunning ? <Spinner className="mr-2 h-4 w-4" /> : <Play className="mr-2 h-4 w-4" />}
+                          {isRunning ? <Spinner className="me-2 h-4 w-4" /> : <Play className="me-2 h-4 w-4" />}
                           {isRunning
                             ? t('data_sync.integrationTab.starting', 'Starting...')
                             : t('data_sync.integrationTab.start', 'Run now')}
@@ -583,7 +583,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
                           onClick={() => void handleSaveSchedule(row.entityType, row.direction, row.key)}
                           disabled={controlsDisabled || option.canStartRun === false}
                         >
-                          {isSaving ? <Spinner className="mr-2 h-4 w-4" /> : <Save className="mr-2 h-4 w-4" />}
+                          {isSaving ? <Spinner className="me-2 h-4 w-4" /> : <Save className="me-2 h-4 w-4" />}
                           {isSaving
                             ? t('data_sync.dashboard.schedule.saving', 'Saving...')
                             : t('data_sync.dashboard.schedule.save', 'Save recurring schedule')}
@@ -595,7 +595,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
                           onClick={() => void handleDeleteSchedule(row.entityType, row.key)}
                           disabled={controlsDisabled || !scheduleState.id}
                         >
-                          {isDeleting ? <Spinner className="mr-2 h-4 w-4" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                          {isDeleting ? <Spinner className="me-2 h-4 w-4" /> : <Trash2 className="me-2 h-4 w-4" />}
                           {isDeleting
                             ? t('data_sync.dashboard.schedule.deleting', 'Removing...')
                             : t('data_sync.dashboard.schedule.delete', 'Remove schedule')}

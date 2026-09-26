@@ -700,7 +700,7 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
                   onClick={() => handleAddSwatch(normalizedValue)}
                   data-slot="color-picker-add"
                   className={cn(
-                    'flex w-full items-center gap-1.5 rounded-b-xl px-4 py-3.5 text-left text-sm text-muted-foreground outline-none transition-colors',
+                    'flex w-full items-center gap-1.5 rounded-b-xl px-4 py-3.5 text-start text-sm text-muted-foreground outline-none transition-colors',
                     'hover:bg-muted/40 hover:text-foreground',
                     'focus-visible:shadow-focus focus-visible:outline-none',
                   )}

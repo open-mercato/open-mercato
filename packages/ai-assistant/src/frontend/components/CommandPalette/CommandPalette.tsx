@@ -148,7 +148,7 @@ export function CommandPalette() {
       <Dialog open={isOpen} onOpenChange={handleOpenChange} modal={!showDebug}>
         <DialogContent
           className={cn(
-            'fixed left-1/2 top-[10vh] z-modal -translate-x-1/2',
+            'fixed start-1/2 top-[10vh] z-modal -translate-x-1/2 rtl:translate-x-1/2',
             'w-full max-w-2xl p-0',
             'rounded-xl border bg-background shadow-2xl',
             'flex flex-col'

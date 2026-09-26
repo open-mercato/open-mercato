@@ -367,7 +367,7 @@ export default function AgentTracesPage() {
               <div className="w-full sm:w-72 lg:w-80">
                 <SearchInput value={search} onChange={setSearch} placeholder={t('agent_orchestrator.traces.searchPlaceholder')} />
               </div>
-              <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+              <div className="flex flex-wrap items-center gap-2 sm:ms-auto">
                 <div
                   className="flex items-center gap-1.5"
                   title={t('agent_orchestrator.traces.windowTooltip')}
@@ -587,7 +587,7 @@ function MultiSelectPill({
                 key={value}
                 type="button"
                 onClick={() => toggle(value)}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted"
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-sm transition-colors hover:bg-muted"
               >
                 <Checkbox checked={selected.includes(value)} className="pointer-events-none" />
                 <span className="truncate">{value}</span>

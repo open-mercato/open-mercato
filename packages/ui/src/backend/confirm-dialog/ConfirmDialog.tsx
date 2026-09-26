@@ -208,7 +208,7 @@ export function ConfirmDialog({
         // Mobile: bottom sheet
         "fixed inset-x-0 bottom-0 top-auto w-full",
         // Desktop: centered
-        "sm:inset-auto sm:mx-auto sm:my-auto sm:max-w-md sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2",
+        "sm:inset-auto sm:mx-auto sm:my-auto sm:max-w-md sm:top-1/2 sm:start-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rtl:translate-x-1/2",
         // Animation with reduced motion support
         "motion-safe:open:animate-in motion-safe:open:fade-in-0 motion-safe:open:slide-in-from-bottom-4",
         "sm:motion-safe:open:slide-in-from-bottom-0 sm:motion-safe:open:zoom-in-95",
@@ -234,7 +234,7 @@ export function ConfirmDialog({
           onClick={handleCancel}
           disabled={loading}
           aria-label={closeAriaLabel}
-          className="absolute right-4 top-4 opacity-70 hover:opacity-100"
+          className="absolute end-4 top-4 opacity-70 hover:opacity-100"
         >
           <X className="h-4 w-4" />
         </IconButton>
@@ -243,9 +243,9 @@ export function ConfirmDialog({
         <h2
           id={titleId}
           className={cn(
-            "text-sm font-medium leading-snug tracking-tight pr-6",
+            "text-sm font-medium leading-snug tracking-tight pe-6",
             // Mobile: centered, Desktop: left-aligned
-            "text-center sm:text-left"
+            "text-center sm:text-start"
           )}
         >
           {resolvedTitle}
@@ -282,7 +282,7 @@ export function ConfirmDialog({
               disabled={loading}
               className="w-full sm:w-auto"
             >
-              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {loading && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
               {resolvedConfirmText}
             </Button>
           )}

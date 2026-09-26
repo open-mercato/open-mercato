@@ -853,14 +853,14 @@ export default function SyncExcelUploadConfigWidget({
 
           <div className="flex flex-wrap items-center gap-3">
             <Button type="button" onClick={() => void handleUpload()} disabled={!selectedFile || isUploading || isRunActive || isRestoringSession}>
-              {isUploading ? <Spinner className="mr-2 size-4" /> : <Upload className="mr-2 size-4" />}
+              {isUploading ? <Spinner className="me-2 size-4" /> : <Upload className="me-2 size-4" />}
               {isUploading
                 ? t('sync_excel.widget.actions.uploadPending', 'Uploading...')
                 : t('sync_excel.widget.actions.upload', 'Upload and preview')}
             </Button>
             {preview ? (
               <Button type="button" variant="outline" onClick={() => void handleRefreshPreview()} disabled={isRefreshingPreview || isUploading || isRunActive || isRestoringSession}>
-                {isRefreshingPreview ? <Spinner className="mr-2 size-4" /> : <RefreshCw className="mr-2 size-4" />}
+                {isRefreshingPreview ? <Spinner className="me-2 size-4" /> : <RefreshCw className="me-2 size-4" />}
                 {isRefreshingPreview
                   ? t('sync_excel.widget.actions.refreshPending', 'Refreshing...')
                   : t('sync_excel.widget.actions.refresh', 'Refresh preview')}
@@ -999,11 +999,11 @@ export default function SyncExcelUploadConfigWidget({
 
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" variant="outline" onClick={handleResetToSuggested} disabled={isStartingImport || isRunActive}>
-                    <RefreshCw className="mr-2 size-4" />
+                    <RefreshCw className="me-2 size-4" />
                     {t('sync_excel.widget.actions.reset', 'Reset to suggestion')}
                   </Button>
                   <Button type="button" onClick={() => void handleStartImport()} disabled={!canStartImport || isStartingImport || isRunActive}>
-                    {isStartingImport ? <Spinner className="mr-2 size-4" /> : <Play className="mr-2 size-4" />}
+                    {isStartingImport ? <Spinner className="me-2 size-4" /> : <Play className="me-2 size-4" />}
                     {isStartingImport
                       ? t('sync_excel.widget.actions.startPending', 'Starting...')
                       : t('sync_excel.widget.actions.start', 'Start import')}
@@ -1127,12 +1127,12 @@ export default function SyncExcelUploadConfigWidget({
 
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" onClick={() => void handleRefreshAll()} disabled={isRefreshingPreview || isRestoringSession}>
-                <RefreshCw className="mr-2 size-4" />
+                <RefreshCw className="me-2 size-4" />
                 {t('sync_excel.widget.actions.refreshRun', 'Refresh run status')}
               </Button>
               {isRunActive ? (
                 <Button type="button" variant="destructive" onClick={() => void handleCancelRun()} disabled={isCancelling}>
-                  {isCancelling ? <Spinner className="mr-2 size-4" /> : <XCircle className="mr-2 size-4" />}
+                  {isCancelling ? <Spinner className="me-2 size-4" /> : <XCircle className="me-2 size-4" />}
                   {isCancelling
                     ? t('sync_excel.widget.actions.cancelPending', 'Cancelling...')
                     : t('sync_excel.widget.actions.cancel', 'Cancel run')}

@@ -354,7 +354,7 @@ function AndOrToggle({
         type="button"
         aria-pressed={combinator === 'or'}
         onClick={() => combinator !== 'or' && onChange('or')}
-        className={`${baseBtn} border-l border-input ${combinator === 'or' ? selBtn : unselBtn}`}
+        className={`${baseBtn} border-s border-input ${combinator === 'or' ? selBtn : unselBtn}`}
       >
         {orLabel}
       </button>
@@ -571,7 +571,7 @@ function RuleRow({
         </IconButton>
       </div>
       {errorMsg ? (
-        <div className="ml-6 pl-12 text-xs text-status-error-text">{errorMsg}</div>
+        <div className="ms-6 ps-12 text-xs text-status-error-text">{errorMsg}</div>
       ) : null}
     </div>
   )
@@ -806,7 +806,7 @@ function MultiValuePicker({
                 role="option"
                 aria-selected={isOn}
                 onClick={() => toggle(opt.value)}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
               >
                 <Checkbox checked={isOn} aria-hidden="true" tabIndex={-1} className="pointer-events-none" />
                 {opt.tone ? (
@@ -950,7 +950,7 @@ function GroupToolbar({
             onClick={() => dispatch({ type: 'removeNode', nodeId: group.id })}
             aria-label={t('ui.advancedFilter.deleteGroup', 'Delete group')}
             title={t('ui.advancedFilter.deleteGroup', 'Delete group')}
-            className="ml-auto"
+            className="ms-auto"
           >
             <X className="size-4 text-muted-foreground" />
           </IconButton>

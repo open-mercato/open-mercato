@@ -43,11 +43,11 @@ export function RecentActivityWidget({ interactions, t }: { interactions: Intera
                   {interaction.authorName && <span>{interaction.authorName}</span>}
                 </p>
               </div>
-              <div className="shrink-0 text-right">
+              <div className="shrink-0 text-end">
                 <p className="text-xs text-muted-foreground">
                   {date ? formatRelativeTime(date) : '—'}
                 </p>
-                <ArrowUpRight className="ml-auto mt-1 size-3.5 text-muted-foreground" />
+                <ArrowUpRight className="ms-auto mt-1 size-3.5 text-muted-foreground" />
               </div>
             </div>
           )
@@ -60,7 +60,7 @@ export function RecentActivityWidget({ interactions, t }: { interactions: Intera
         <div className="mt-3 border-t pt-3">
           <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs">
             {t('customers.companies.dashboard.seeAllActivity', 'See all {{count}} activities', { count: String(interactions.length) })}
-            <ChevronRight className="ml-0.5 size-3" />
+            <ChevronRight className="ms-0.5 size-3" />
           </Button>
         </div>
       )}

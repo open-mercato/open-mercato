@@ -288,7 +288,7 @@ export default function TotpProviderDetails({
                 disabled={loading || !setup || code.trim().length < 6}
                 className="h-10"
               >
-                {loading ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                {loading ? <Loader2 className="me-2 size-4 animate-spin" /> : null}
                 {t('ui.actions.save', 'Save')}
               </Button>
               <Button type="button" variant="outline" className="h-10" onClick={handleCancel}>

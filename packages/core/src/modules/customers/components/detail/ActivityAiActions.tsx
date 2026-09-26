@@ -30,7 +30,7 @@ export function ActivityAiActions({ activityType }: ActivityAiActionsProps) {
                     disabled
                     className="h-auto rounded-full px-2 py-1 text-xs text-muted-foreground opacity-100"
                   >
-                    <Icon className="mr-1 size-3" />
+                    <Icon className="me-1 size-3" />
                     {t(action.i18nKey, action.fallback)}
                   </Button>
                 </span>

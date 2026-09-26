@@ -107,7 +107,7 @@ function ScorerSliderField({
         disabled={disabled}
         onValueChange={(next) => onChange(next[0] ?? fallback)}
       />
-      <span className="w-12 shrink-0 text-right text-sm tabular-nums text-foreground">
+      <span className="w-12 shrink-0 text-end text-sm tabular-nums text-foreground">
         {resolved.toFixed(decimals)}
       </span>
     </div>

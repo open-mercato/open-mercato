@@ -600,10 +600,10 @@ export default function TimeTrackingMyWorkPage() {
                           <td className="w-32 p-3 align-top text-xs text-muted-foreground">
                             {formatClockRange(entry) ?? '—'}
                           </td>
-                          <td className="w-20 p-3 text-right align-top font-mono font-semibold tabular-nums">
+                          <td className="w-20 p-3 text-end align-top font-mono font-semibold tabular-nums">
                             {formatDuration(entry.durationMinutes, 'clock')}
                           </td>
-                          <td className="w-16 p-3 text-right align-top">
+                          <td className="w-16 p-3 text-end align-top">
                             {canManageOwn && !entry.isLocked ? (
                               <Button
                                 type="button"
@@ -691,7 +691,7 @@ export default function TimeTrackingMyWorkPage() {
                         <td className="p-3" colSpan={2}>
                           {t('staff.time_tracking.myWork.today.total', 'Total today')}
                         </td>
-                        <td className="p-3 text-right font-mono tabular-nums">
+                        <td className="p-3 text-end font-mono tabular-nums">
                           {formatDuration(todayTotal, 'clock')}
                         </td>
                         <td />

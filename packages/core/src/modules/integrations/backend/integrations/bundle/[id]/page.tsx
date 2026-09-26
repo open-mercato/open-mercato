@@ -292,7 +292,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
               {credFields.filter(isFieldVisible).map((field) => (
                 <div key={field.key} className="space-y-1.5">
                   <label htmlFor={`bundle-credential-${field.key}`} className="text-sm font-medium">
-                    {field.label}{field.required && <span className="ml-0.5 text-destructive">*</span>}
+                    {field.label}{field.required && <span className="ms-0.5 text-destructive">*</span>}
                   </label>
                   {field.type === 'select' && field.options ? (
                     <Select
@@ -339,7 +339,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
                 </div>
               ))}
               <Button type="button" onClick={() => void handleSaveCredentials()} disabled={isSavingCreds}>
-                {isSavingCreds ? <Spinner className="mr-2 h-4 w-4" /> : null}
+                {isSavingCreds ? <Spinner className="me-2 h-4 w-4" /> : null}
                 {t('integrations.detail.credentials.save')}
               </Button>
             </CardContent>
@@ -372,7 +372,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
                       {item.title}
                     </Link>
                     {item.category && (
-                      <Badge variant="secondary" className="ml-2 text-xs">{item.category}</Badge>
+                      <Badge variant="secondary" className="ms-2 text-xs">{item.category}</Badge>
                     )}
                     {item.description && (
                       <p className="text-xs text-muted-foreground mt-0.5">{item.description}</p>

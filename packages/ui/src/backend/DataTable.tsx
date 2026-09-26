@@ -498,17 +498,20 @@ const EMPTY_VIEW_SETTINGS: PerspectiveSettings = Object.freeze({}) as Perspectiv
 // Directional shadow utilities for sticky table cells. `border-collapse: collapse`
 // blocks `box-shadow` on `<td>`/`<th>`, so we paint the shadow as a pseudo-element
 // gradient on the outside edge — the side opposite to the sticky anchor:
-//   sticky right-0  → shadow falls to the LEFT  (use `before:` + `-left-2` + `to-l`)
-//   sticky left-0   → shadow falls to the RIGHT (use `after:`  + `-right-2` + `to-r`)
+//   sticky end-0   → shadow falls toward the START (use `before:` + `-start-2` + `to-l`)
+//   sticky start-0 → shadow falls toward the END   (use `after:`  + `-end-2` + `to-r`)
+// The `to-l`/`to-r` gradient step is physical and does not mirror under RTL;
+// correcting it needs an `rtl:` override and is tracked in
+// .ai/specs/2026-09-25-arabic-first-rtl-and-saudi-localization.md (Phase 1b).
 // `foreground/8` matches the `--shadow-md` token opacity (8%) and is theme-aware.
 // Column pinning (and these shadows) is md-and-up only: below `md` the pinned
 // first column + actions column can be wider than the whole viewport, which
 // leaves the scrollable middle columns no visible window at all — narrow
 // screens fall back to plain horizontal scroll so every column stays reachable.
 const STICKY_RIGHT_SHADOW_CLASS =
-  'md:before:absolute md:before:inset-y-0 md:before:-left-2 md:before:w-2 md:before:bg-gradient-to-l md:before:from-foreground/8 md:before:to-transparent md:before:pointer-events-none'
+  'md:before:absolute md:before:inset-y-0 md:before:-start-2 md:before:w-2 md:before:bg-gradient-to-l md:before:from-foreground/8 md:before:to-transparent md:before:pointer-events-none'
 const STICKY_LEFT_SHADOW_CLASS =
-  'md:after:absolute md:after:inset-y-0 md:after:-right-2 md:after:w-2 md:after:bg-gradient-to-r md:after:from-foreground/8 md:after:to-transparent md:after:pointer-events-none'
+  'md:after:absolute md:after:inset-y-0 md:after:-end-2 md:after:w-2 md:after:bg-gradient-to-r md:after:from-foreground/8 md:after:to-transparent md:after:pointer-events-none'
 
 export type BulkActionExecuteResult = {
   ok: boolean
@@ -857,7 +860,7 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
   const menuRef = React.useRef<HTMLDivElement>(null)
 
   // Keep the menu inside the viewport on narrow screens: the trigger can sit
-  // near the left edge, and a `right-0` menu would otherwise render off-screen.
+  // near the start edge, and an `end-0` menu would otherwise render off-screen.
   // Measure the untransformed rect and shift it back on-screen, re-measuring on
   // resize/orientation change while the menu stays open.
   React.useLayoutEffect(() => {
@@ -959,7 +962,7 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
         <div
           ref={menuRef}
           role="menu"
-          className="absolute right-0 mt-2 w-60 max-w-[calc(100vw-1rem)] rounded-md border bg-background py-2 shadow z-dropdown"
+          className="absolute end-0 mt-2 w-60 max-w-[calc(100vw-1rem)] rounded-md border bg-background py-2 shadow z-dropdown"
           style={menuOffsetX ? { transform: `translateX(${menuOffsetX}px)` } : undefined}
         >
           {sections.map((section, idx) => (
@@ -1118,7 +1121,7 @@ function ColumnResizeHandle({
       onPointerDown={handlePointerDown}
       onClick={(event) => event.stopPropagation()}
       onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); onReset(columnId) }}
-      className="group/resize absolute right-0 top-0 z-10 flex h-full w-3 translate-x-1/2 cursor-col-resize touch-none select-none items-center justify-center"
+      className="group/resize absolute end-0 top-0 z-10 flex h-full w-3 translate-x-1/2 cursor-col-resize touch-none select-none items-center justify-center"
     >
       {/* Always-visible short grip marks the column edge as resizable; it grows
           to full height and brightens on header/handle hover and while dragging. */}
@@ -1182,9 +1185,9 @@ function ViewSwitcherDropdown({
         variant="ghost"
         size="sm"
         onClick={onOpenSidebar}
-        className="h-full rounded-none rounded-l-md px-3 font-medium"
+        className="h-full rounded-none rounded-s-md px-3 font-medium"
       >
-        <SlidersHorizontal className="size-4 mr-1.5" />
+        <SlidersHorizontal className="size-4 me-1.5" />
         {t('ui.dataTable.perspectives.button', 'Views')}
       </Button>
       <div className="h-5 w-px bg-border" />
@@ -1194,10 +1197,10 @@ function ViewSwitcherDropdown({
             type="button"
             variant="ghost"
             size="sm"
-            className="h-full max-w-[200px] rounded-none rounded-r-md px-3 font-normal text-muted-foreground"
+            className="h-full max-w-[200px] rounded-none rounded-e-md px-3 font-normal text-muted-foreground"
           >
             <span className="truncate">{activeLabel}</span>
-            <ChevronDown className="size-3.5 shrink-0 ml-1.5" />
+            <ChevronDown className="size-3.5 shrink-0 ms-1.5" />
           </Button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-[220px] p-1">
@@ -1211,7 +1214,7 @@ function ViewSwitcherDropdown({
             )}
             onClick={() => { onClear(); setOpen(false) }}
           >
-            <Check className={cn('size-4 shrink-0 mr-2', activePerspectiveId ? 'invisible' : '')} />
+            <Check className={cn('size-4 shrink-0 me-2', activePerspectiveId ? 'invisible' : '')} />
             {t('ui.dataTable.perspectives.noView', '— No view —')}
           </Button>
           {perspectives.map((p) => (
@@ -1226,7 +1229,7 @@ function ViewSwitcherDropdown({
               )}
               onClick={() => { onActivate(p, 'personal'); setOpen(false) }}
             >
-              <Check className={cn('size-4 shrink-0 mr-2', activePerspectiveId !== p.id ? 'invisible' : '')} />
+              <Check className={cn('size-4 shrink-0 me-2', activePerspectiveId !== p.id ? 'invisible' : '')} />
               <span className="truncate">{p.name.trim() || t('ui.perspectives.untitled', 'Untitled view')}</span>
             </Button>
           ))}
@@ -1242,7 +1245,7 @@ function ViewSwitcherDropdown({
               )}
               onClick={() => { onActivate(p, 'role'); setOpen(false) }}
             >
-              <Check className={cn('size-4 shrink-0 mr-2', activePerspectiveId !== p.id ? 'invisible' : '')} />
+              <Check className={cn('size-4 shrink-0 me-2', activePerspectiveId !== p.id ? 'invisible' : '')} />
               <span className="truncate">{p.name.trim() || t('ui.perspectives.untitled', 'Untitled view')}</span>
             </Button>
           ))}
@@ -3237,7 +3240,7 @@ export function DataTable<T extends RowData>({
         <Filter className="h-4 w-4" />
         <span>{t('ui.dataTable.filters', 'Filters')}</span>
         {advancedFilterRuleCount > 0 ? (
-          <span className="ml-1 inline-flex h-5 min-w-5 px-1.5 items-center justify-center rounded-full bg-muted-foreground/30 text-background text-xs">
+          <span className="ms-1 inline-flex h-5 min-w-5 px-1.5 items-center justify-center rounded-full bg-muted-foreground/30 text-background text-xs">
             {advancedFilterRuleCount}
           </span>
         ) : null}
@@ -3297,7 +3300,7 @@ export function DataTable<T extends RowData>({
           : <Save className="h-4 w-4" />}
         <span>{t('ui.dataTable.saveView.button', 'Save view')}</span>
         {viewDirtyState.changedCount > 0 ? (
-          <span className="ml-1 inline-flex h-5 min-w-5 px-1.5 items-center justify-center rounded-full bg-muted-foreground/30 text-background text-xs">
+          <span className="ms-1 inline-flex h-5 min-w-5 px-1.5 items-center justify-center rounded-full bg-muted-foreground/30 text-background text-xs">
             {viewDirtyState.changedCount}
           </span>
         ) : null}
@@ -3499,7 +3502,7 @@ export function DataTable<T extends RowData>({
                 {renderToolbarInline ? builtToolbar : titleContent}
               </div>
               {shouldRenderActionsWrapper ? (
-                <div className="flex flex-wrap items-center gap-2 min-h-[2.25rem] sm:ml-auto sm:justify-end">
+                <div className="flex flex-wrap items-center gap-2 min-h-[2.25rem] sm:ms-auto sm:justify-end">
                   {refreshButtonConfig ? (
                     <Button
                       type="button"
@@ -3612,7 +3615,7 @@ export function DataTable<T extends RowData>({
                   const columnMeta = (header.column.columnDef as any)?.meta
                   const priority = resolvePriority(header.column)
                   const isFirstDataColumn = headerIndex === 0
-                  const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` md:sticky md:left-0 md:z-10 md:bg-background ${STICKY_LEFT_SHADOW_CLASS}` : ''
+                  const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` md:sticky md:start-0 md:z-10 md:bg-background ${STICKY_LEFT_SHADOW_CLASS}` : ''
                   const isColumnSortable = sortable && !!header.column.getCanSort?.()
                   const headerContent = header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())
                   // Columns that can't be sorted (e.g. a manual "select" checkbox column) may render
@@ -3629,9 +3632,9 @@ export function DataTable<T extends RowData>({
                       {headerContent}
                       {(() => {
                         const sortState = header.column.getIsSorted()
-                        if (sortState === 'asc') return <ChevronUp className="ml-1 size-3.5 shrink-0 text-foreground" aria-hidden="true" />
-                        if (sortState === 'desc') return <ChevronDown className="ml-1 size-3.5 shrink-0 text-foreground" aria-hidden="true" />
-                        return <ChevronsUpDown className="ml-1 size-3.5 shrink-0 text-muted-foreground/50" aria-hidden="true" />
+                        if (sortState === 'asc') return <ChevronUp className="ms-1 size-3.5 shrink-0 text-foreground" aria-hidden="true" />
+                        if (sortState === 'desc') return <ChevronDown className="ms-1 size-3.5 shrink-0 text-foreground" aria-hidden="true" />
+                        return <ChevronsUpDown className="ms-1 size-3.5 shrink-0 text-muted-foreground/50" aria-hidden="true" />
                       })()}
                     </Button>
                   ) : (
@@ -3667,8 +3670,8 @@ export function DataTable<T extends RowData>({
                 {rowActions || injectedRowActions.length > 0 ? (
                   <TableHead
                     className={cn(
-                      actionsColumnAlign === 'center' ? 'w-0 text-center' : 'w-0 text-right',
-                      stickyActionsColumn && `md:sticky md:right-0 md:z-20 md:bg-background ${STICKY_RIGHT_SHADOW_CLASS}`,
+                      actionsColumnAlign === 'center' ? 'w-0 text-center' : 'w-0 text-end',
+                      stickyActionsColumn && `md:sticky md:end-0 md:z-20 md:bg-background ${STICKY_RIGHT_SHADOW_CLASS}`,
                     )}
                   >
                     {t('ui.dataTable.actionsColumn', 'Actions')}
@@ -3829,7 +3832,7 @@ export function DataTable<T extends RowData>({
                       return (
                         <TableCell
                           key={cell.id}
-                          className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ` md:sticky md:left-0 md:z-10 md:bg-background ${STICKY_LEFT_SHADOW_CLASS}` : '')}
+                          className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ` md:sticky md:start-0 md:z-10 md:bg-background ${STICKY_LEFT_SHADOW_CLASS}` : '')}
                           style={typeof sizedWidth === 'number' ? { width: sizedWidth, minWidth: sizedWidth, maxWidth: sizedWidth } : undefined}
                         >
                           {expandAffordance ? (
@@ -3844,8 +3847,8 @@ export function DataTable<T extends RowData>({
                     {rowActions || injectedRowActions.length > 0 ? (
                       <TableCell
                         className={cn(
-                          actionsColumnAlign === 'center' ? 'text-center whitespace-nowrap' : 'text-right whitespace-nowrap',
-                          stickyActionsColumn && `md:sticky md:right-0 md:z-10 md:bg-background ${STICKY_RIGHT_SHADOW_CLASS}`,
+                          actionsColumnAlign === 'center' ? 'text-center whitespace-nowrap' : 'text-end whitespace-nowrap',
+                          stickyActionsColumn && `md:sticky md:end-0 md:z-10 md:bg-background ${STICKY_RIGHT_SHADOW_CLASS}`,
                         )}
                         data-actions-cell
                       >
@@ -3866,7 +3869,7 @@ export function DataTable<T extends RowData>({
               <TableRow>
                 <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="p-0">
                   <div
-                    className={cn('sticky left-0 flex justify-center py-6', emptyStateViewportWidth ? '' : 'w-fit')}
+                    className={cn('sticky start-0 flex justify-center py-6', emptyStateViewportWidth ? '' : 'w-fit')}
                     style={emptyStateViewportWidth ? { width: emptyStateViewportWidth } : undefined}
                   >
                     {filterAwareEmptyState?.active ? (

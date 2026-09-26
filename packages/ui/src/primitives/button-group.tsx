@@ -28,7 +28,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
  * Visual joining is handled at the wrapper level via descendant CSS
  * selectors — children render normally, the wrapper strips their own
  * corners, shadow, and outer borders, and adds an internal separator
- * (`border-r` / `border-b`) between siblings. This way no `cloneElement`
+ * (`border-e` / `border-b`) between siblings. This way no `cloneElement`
  * is required and any element that accepts a `className` (Button,
  * IconButton, LinkButton, asChild wrappers, etc.) can be a group member.
  *
@@ -60,7 +60,7 @@ const buttonGroupVariants = cva(
     variants: {
       orientation: {
         horizontal:
-          'flex-row [&>*:not(:last-child)]:border-r [&>*:not(:last-child)]:border-input',
+          'flex-row [&>*:not(:last-child)]:border-e [&>*:not(:last-child)]:border-input',
         vertical:
           'flex-col [&>*:not(:last-child)]:border-b [&>*:not(:last-child)]:border-input',
       },

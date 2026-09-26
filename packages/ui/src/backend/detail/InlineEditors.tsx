@@ -399,7 +399,7 @@ export function InlineTextEditor({
                 return (
               <div className="flex items-center gap-2">
                 <Button type="submit" size="sm" disabled={saving}>
-                  {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                  {saving ? <Loader2 className="me-2 h-3.5 w-3.5 animate-spin" /> : null}
                   {computedSaveLabel}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditingSafe(false)} disabled={saving}>
@@ -654,7 +654,7 @@ export function InlineMultilineEditor({
               {error ? <p className="text-xs text-destructive">{error}</p> : null}
               <div className="flex items-center gap-2">
                 <Button type="submit" size="sm" disabled={saving}>
-                  {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                  {saving ? <Loader2 className="me-2 h-3.5 w-3.5 animate-spin" /> : null}
                   {t('ui.detail.inline.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
@@ -845,7 +845,7 @@ export function InlineSelectEditor({
               )}
               <div className="flex items-center gap-2">
                 <Button type="button" size="sm" onClick={() => void handleSave()} disabled={saving}>
-                  {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                  {saving ? <Loader2 className="me-2 h-3.5 w-3.5 animate-spin" /> : null}
                   {t('ui.detail.inline.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>

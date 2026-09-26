@@ -190,7 +190,7 @@ export function CompanyDetailHeader({
               className="h-auto rounded-sm px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground"
               onClick={() => setManageTagsOpen(true)}
             >
-              <Pencil className="mr-1 size-3" />
+              <Pencil className="me-1 size-3" />
               {t('customers.companies.detail.actions.manageTags', 'Edit tags')}
             </Button>
           </div>

@@ -96,7 +96,7 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
               )}
               {person.status && (
                 <Badge variant="outline" className="shrink-0 px-2 py-0.5 text-xs font-medium">
-                  <span className="mr-1 inline-block size-1.5 rounded-full bg-status-success-icon" />
+                  <span className="me-1 inline-block size-1.5 rounded-full bg-status-success-icon" />
                   {person.status}
                 </Badge>
               )}
@@ -124,7 +124,7 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
                 className="w-full justify-start text-xs text-destructive hover:text-destructive"
                 onClick={() => onUnlink(person.id)}
               >
-                <Unlink className="mr-1.5 size-3" />
+                <Unlink className="me-1.5 size-3" />
                 {t('customers.people.card.unlink', 'Unlink')}
               </Button>
             )}
@@ -187,7 +187,7 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
             ) : null}
           </div>
           {temperature ? (
-            <div className="space-y-1 sm:ml-auto sm:text-right">
+            <div className="space-y-1 sm:ms-auto sm:text-end">
               <div className="flex items-center gap-1 text-overline font-bold text-muted-foreground sm:justify-end">
                 <span>{t(temperature.labelKey, temperature.fallback)}</span>
               </div>
@@ -216,7 +216,7 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
           className="h-8 w-full text-xs font-semibold sm:min-w-[9rem] sm:flex-1"
         >
           <Link href={`/backend/customers/people-v2/${person.id}`}>
-            <ArrowUpRight className="mr-1 size-3" />
+            <ArrowUpRight className="me-1 size-3" />
             {t('customers.people.card.open', 'Open person')}
           </Link>
         </Button>

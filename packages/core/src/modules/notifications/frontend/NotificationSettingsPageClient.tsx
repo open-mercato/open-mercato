@@ -436,7 +436,7 @@ export function NotificationSettingsPageClient() {
             <div className="overflow-x-auto rounded-lg border border-border">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border bg-muted/50 text-left">
+                  <tr className="border-b border-border bg-muted/50 text-start">
                     <th className="px-4 py-3 font-medium">
                       {t('notifications.settings.types.typeColumn', 'Notification type')}
                     </th>
@@ -480,7 +480,7 @@ export function NotificationSettingsPageClient() {
                                 }
                               />
                               {savingTypeCell === cellKey ? (
-                                <Spinner size="sm" className="absolute left-full ml-2" />
+                                <Spinner size="sm" className="absolute start-full ms-2" />
                               ) : null}
                             </span>
                           </td>
@@ -495,7 +495,7 @@ export function NotificationSettingsPageClient() {
                             onCheckedChange={(checked) => handleTypeNonOptOutToggle(type, checked)}
                           />
                           {savingTypeCell === `${type.id}::nonOptOut` ? (
-                            <Spinner size="sm" className="absolute left-full ml-2" />
+                            <Spinner size="sm" className="absolute start-full ms-2" />
                           ) : null}
                         </span>
                       </td>

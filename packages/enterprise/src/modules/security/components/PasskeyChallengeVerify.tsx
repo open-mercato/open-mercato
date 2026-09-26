@@ -75,7 +75,7 @@ export default function PasskeyChallengeVerify({
       </p>
       <div>
         <Button type="submit" disabled={loading} className="mt-2 h-10 w-full">
-          {loading ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+          {loading ? <Loader2 className="me-2 size-4 animate-spin" /> : null}
           {t('security.login.mfaChallenge.passkey.action', 'Use passkey')}
         </Button>
       </div>

@@ -161,7 +161,7 @@ export function ModelPicker({
           role="listbox"
           aria-label={t('ai_assistant.modelPicker.listAriaLabel', 'Available models')}
           className={cn(
-            'absolute bottom-full left-0 z-50 mb-1 max-h-72 min-w-56 overflow-y-auto',
+            'absolute bottom-full start-0 z-50 mb-1 max-h-72 min-w-56 overflow-y-auto',
             'rounded-md border border-border bg-popover shadow-md',
           )}
           data-ai-model-picker-dropdown
@@ -211,7 +211,7 @@ export function ModelPicker({
                     tabIndex={0}
                     className={cn(
                       'cursor-pointer px-3 py-2 text-xs hover:bg-accent hover:text-accent-foreground',
-                      'flex items-center gap-2 pl-5',
+                      'flex items-center gap-2 ps-5',
                       isSelected && 'bg-accent/50',
                     )}
                     onClick={() => handleSelect(provider.id, model.id)}

@@ -220,7 +220,7 @@ export function NotificationPreferenceMatrix({
     <div className="overflow-x-auto rounded-lg border border-border">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border bg-muted/50 text-left">
+          <tr className="border-b border-border bg-muted/50 text-start">
             <th className="px-4 py-3 font-medium">{t('notifications.preferences.columns.type', 'Notification type')}</th>
             {channels.map((channel) => (
               <th key={channel.key} className="px-4 py-3 font-medium">

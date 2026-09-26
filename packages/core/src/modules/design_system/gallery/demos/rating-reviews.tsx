@@ -33,7 +33,7 @@ export function RatingReviewDemo({ icon, alignment }: { icon: 'star' | 'heart'; 
       <DialogContent onKeyDownCapture={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); setOpen(false) } }}>
         <DialogHeader><DialogTitle>{reviews}</DialogTitle><DialogDescription>{summary}</DialogDescription></DialogHeader>
         <ScrollArea className="h-72" scrollbarSize="md">
-          <ol className="flex flex-col gap-3 pr-6">
+          <ol className="flex flex-col gap-3 pe-6">
             {Array.from({ length: 18 }, (_, index) => <li key={index} className="flex items-center justify-between gap-3 text-sm"><span>{t('design_system.gallery.samples.rating.reviewNumber', 'Review {number}', { number: index + 1 })}</span><Rating value={index < 9 ? 5 : 4} icon={icon} /></li>)}
           </ol>
         </ScrollArea>

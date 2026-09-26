@@ -215,7 +215,7 @@ export function InspectorPanel({
       data-slot="workflow-inspector"
       data-variant="docked"
       onKeyDown={handleKeyDown}
-      className={`flex ${DOCKED_WIDTH_CLASS} min-h-0 shrink-0 flex-col overflow-hidden border-l border-border bg-card`}
+      className={`flex ${DOCKED_WIDTH_CLASS} min-h-0 shrink-0 flex-col overflow-hidden border-s border-border bg-card`}
     >
       <div className="flex shrink-0 items-start gap-2 border-b border-border/70 px-4 py-3">
         <div className="flex min-w-0 flex-1 flex-col gap-1">

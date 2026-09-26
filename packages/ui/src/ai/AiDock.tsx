@@ -281,7 +281,7 @@ export function AiDockProvider({ children }: { children: React.ReactNode }) {
       <div
         // The dock is desktop-only (`lg+`); reserve right-side padding only
         // at that breakpoint so mobile layout stays full-width.
-        className={reservedWidth != null ? 'lg:pr-[var(--om-ai-dock-width)]' : undefined}
+        className={reservedWidth != null ? 'lg:pe-[var(--om-ai-dock-width)]' : undefined}
         style={
           reservedWidth != null
             ? ({ ['--om-ai-dock-width' as string]: `${reservedWidth}px` } as React.CSSProperties)
@@ -382,7 +382,7 @@ function AiDockPanel({
         // primary surface (full-screen sheet) and a fixed side panel would
         // crowd the viewport.
         'hidden lg:flex',
-        'fixed top-0 right-0 z-overlay h-svh min-w-0 flex-col overflow-hidden border-l bg-background shadow-lg',
+        'fixed top-0 end-0 z-overlay h-svh min-w-0 flex-col overflow-hidden border-s bg-background shadow-lg',
         collapsed ? 'w-12' : '',
       )}
       style={collapsed ? undefined : { width }}
@@ -397,7 +397,7 @@ function AiDockPanel({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
-          className="absolute left-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/20"
+          className="absolute start-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/20"
           data-ai-dock-resize-handle=""
         />
       ) : null}

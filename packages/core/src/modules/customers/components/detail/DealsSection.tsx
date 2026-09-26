@@ -936,7 +936,7 @@ export function DealsSection({
           onClick={openLinkDialog}
           disabled={!scope || pendingAction !== null}
         >
-          <Link2 className="mr-1.5 size-3.5" />
+          <Link2 className="me-1.5 size-3.5" />
           {t('customers.people.detail.deals.linkExisting', 'Link existing deal')}
         </Button>
         <Button
@@ -946,7 +946,7 @@ export function DealsSection({
           onClick={openCreateDialog}
           disabled={!scope || pendingAction !== null}
         >
-          <Plus className="mr-1.5 size-3.5" />
+          <Plus className="me-1.5 size-3.5" />
           {addActionLabel}
         </Button>
       </div>

@@ -112,7 +112,7 @@ function PickerRow({
     >
       {avatarLabel ? <Avatar size="xs" label={avatarLabel} variant="monochrome" /> : null}
       <span className="truncate text-foreground">{label}</span>
-      {selected ? <Check className="ml-auto size-3.5 text-muted-foreground" aria-hidden="true" /> : null}
+      {selected ? <Check className="ms-auto size-3.5 text-muted-foreground" aria-hidden="true" /> : null}
     </Button>
   )
 }

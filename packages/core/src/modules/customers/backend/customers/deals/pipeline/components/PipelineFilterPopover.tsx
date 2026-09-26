@@ -127,7 +127,7 @@ export function PipelineFilterPopover({
             role="radio"
             aria-checked={allSelected}
             onClick={() => setDraft(null)}
-            className={`h-auto w-full justify-start gap-3 px-4 py-2.5 text-left font-normal ${allRowClass}`}
+            className={`h-auto w-full justify-start gap-3 px-4 py-2.5 text-start font-normal ${allRowClass}`}
           >
             <RadioDot selected={allSelected} />
             <div className="flex min-w-0 flex-1 flex-col gap-px">
@@ -163,7 +163,7 @@ export function PipelineFilterPopover({
                 role="radio"
                 aria-checked={isSelected}
                 onClick={() => setDraft(pipeline.id)}
-                className={`h-auto w-full justify-start gap-3 px-4 py-2.5 text-left font-normal ${rowClass}`}
+                className={`h-auto w-full justify-start gap-3 px-4 py-2.5 text-start font-normal ${rowClass}`}
               >
                 <RadioDot selected={isSelected} />
                 <span

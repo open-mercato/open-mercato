@@ -130,7 +130,7 @@ export default function GenericProviderSetup({
           />
           <div className="flex items-center gap-2">
             <Button type="button" onClick={handleSetup} disabled={working}>
-              {working ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+              {working ? <Loader2 className="me-2 size-4 animate-spin" /> : null}
               {t('security.profile.mfa.generic.start', 'Start setup')}
             </Button>
             {onCancel ? (
@@ -159,7 +159,7 @@ export default function GenericProviderSetup({
           />
           <div className="flex items-center gap-2">
             <Button type="button" onClick={handleConfirm} disabled={working}>
-              {working ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+              {working ? <Loader2 className="me-2 size-4 animate-spin" /> : null}
               {t('security.profile.mfa.generic.confirm', 'Confirm setup')}
             </Button>
             <Button

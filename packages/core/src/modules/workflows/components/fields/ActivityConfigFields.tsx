@@ -153,7 +153,7 @@ function KeyValueRowsEditor({ idPrefix, label, value, onChange, disabled }: KeyV
         onClick={() => setRows([...rows, { key: '', value: '' }])}
         disabled={disabled}
       >
-        <Plus className="size-3 mr-1" />
+        <Plus className="size-3 me-1" />
         {t('workflows.fieldEditors.activities.keyValueAddRow')}
       </Button>
     </div>
@@ -331,7 +331,7 @@ function AssignmentRowsEditor({ idPrefix, label, value, onChange, disabled }: As
         onClick={() => setRows([...rows, { path: '', jsonMode: false, text: '', invalid: false }])}
         disabled={disabled}
       >
-        <Plus className="size-3 mr-1" />
+        <Plus className="size-3 me-1" />
         {t('workflows.fieldEditors.activities.assignmentAddRow')}
       </Button>
     </div>

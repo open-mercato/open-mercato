@@ -356,7 +356,7 @@ function KanbanCardImpl({
                 })}
                 data-testid={`kanban-card-move-menu-${task.id}`}
                 onKeyDown={handleMoveMenuKeyDown}
-                className="absolute bottom-full left-0 z-dropdown mb-1 flex min-w-40 flex-col gap-0.5 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
+                className="absolute bottom-full start-0 z-dropdown mb-1 flex min-w-40 flex-col gap-0.5 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
               >
                 {moveTargets.map((target, index) => (
                   <Button

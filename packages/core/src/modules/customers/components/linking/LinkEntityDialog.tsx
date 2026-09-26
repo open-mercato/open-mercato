@@ -561,19 +561,19 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
           </DialogHeader>
 
           <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-            <div className="flex min-h-0 flex-col gap-3 border-b border-border/70 bg-card p-4 lg:w-[480px] lg:shrink-0 lg:border-b-0 lg:border-r">
+            <div className="flex min-h-0 flex-col gap-3 border-b border-border/70 bg-card p-4 lg:w-[480px] lg:shrink-0 lg:border-b-0 lg:border-e">
               <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Search className="pointer-events-none absolute start-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder={adapter.searchPlaceholder}
-                  className="h-10 rounded-md pl-9 pr-20 text-sm"
+                  className="h-10 rounded-md ps-9 pe-20 text-sm"
                   autoFocus
                   aria-label={adapter.searchPlaceholder}
                 />
                 {searchTotal !== null && !searchLoading ? (
-                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                  <span className="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
                     {t('customers.linking.resultsCount', '{{count}} results', {
                       count: String(searchTotal),
                     })}
@@ -689,7 +689,7 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
                   <button
                     type="button"
                     onClick={() => setNestedOpen(true)}
-                    className="mt-2 flex items-center gap-3 rounded-lg border border-dashed border-border px-4 py-3.5 text-left transition-colors hover:bg-muted/30 focus:outline-none focus:ring-2 focus:ring-ring/40"
+                    className="mt-2 flex items-center gap-3 rounded-lg border border-dashed border-border px-4 py-3.5 text-start transition-colors hover:bg-muted/30 focus:outline-none focus:ring-2 focus:ring-ring/40"
                   >
                     <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
                       <Plus className="size-4" />
@@ -769,7 +769,7 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
                           <button
                             type="button"
                             onClick={() => setFocusedId(option.id)}
-                            className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                            className="flex min-w-0 flex-1 items-center gap-3 text-start"
                           >
                             <Avatar
                               label={option.label}
@@ -901,12 +901,12 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
               >
                 {saving ? (
                   <>
-                    <Loader2 className="mr-2 size-4 animate-spin" />
+                    <Loader2 className="me-2 size-4 animate-spin" />
                     {t('customers.linking.actions.saving', 'Saving…')}
                   </>
                 ) : (
                   <>
-                    <Link2 className="mr-2 size-4" />
+                    <Link2 className="me-2 size-4" />
                     {adapter.confirmButtonLabel}
                   </>
                 )}

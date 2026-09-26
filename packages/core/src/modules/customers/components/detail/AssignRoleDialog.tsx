@@ -472,7 +472,7 @@ export function AssignRoleDialog({
                             href={MANAGE_ROLE_TYPES_HREF}
                             data-testid="assign-role-dialog-manage-role-types-step2"
                           >
-                            <Settings2 className="mr-1 size-3.5" aria-hidden="true" />
+                            <Settings2 className="me-1 size-3.5" aria-hidden="true" />
                             {t('customers.roles.dialog.manageRoleTypes', 'Manage role types')}
                           </Link>
                         </Button>
@@ -494,7 +494,7 @@ export function AssignRoleDialog({
                     {t('customers.roles.dialog.teamLabel', 'Select a team member')}
                   </p>
                   <div className="relative">
-                    <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <Search className="absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       value={searchQuery}
                       onChange={(event) => setSearchQuery(event.target.value)}
@@ -502,7 +502,7 @@ export function AssignRoleDialog({
                         'customers.roles.dialog.searchPlaceholder',
                         'Search by name, e-mail or team...',
                       )}
-                      className="h-10 rounded-md border-border/80 pl-9 shadow-none"
+                      className="h-10 rounded-md border-border/80 ps-9 shadow-none"
                     />
                   </div>
                 </div>

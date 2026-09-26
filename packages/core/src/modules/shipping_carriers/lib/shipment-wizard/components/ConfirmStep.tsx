@@ -200,7 +200,7 @@ export const ConfirmStep = (props: ConfirmStepProps) => {
         >
           {isSubmitting ? (
             <>
-              <Spinner className="mr-2 h-4 w-4" />
+              <Spinner className="me-2 h-4 w-4" />
               {t('shipping_carriers.create.submitting', 'Creating shipment...')}
             </>
           ) : (

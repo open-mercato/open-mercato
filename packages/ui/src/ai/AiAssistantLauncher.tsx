@@ -536,7 +536,7 @@ function AiAssistantLauncherContent({
       >
         <AiIcon className="size-4 text-foreground" />
         <span>{shortLabel}</span>
-        <span className="ml-2 rounded border px-1 text-xs text-muted-foreground">
+        <span className="ms-2 rounded border px-1 text-xs text-muted-foreground">
           ⌘L
         </span>
       </Button>
@@ -570,7 +570,7 @@ function AiAssistantLauncherContent({
           <div className="border-y border-border bg-muted/30 px-3 py-2">
             <div className="relative">
               <Search
-                className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                className="pointer-events-none absolute start-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
                 aria-hidden
               />
               <input
@@ -614,7 +614,7 @@ function AiAssistantLauncherContent({
                     data-ai-launcher-agent-id={agent.id}
                     data-active={isActive ? 'true' : 'false'}
                     className={cn(
-                      'flex w-full items-start gap-3 px-3 py-2 text-left text-sm transition-colors',
+                      'flex w-full items-start gap-3 px-3 py-2 text-start text-sm transition-colors',
                       isActive ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/60',
                     )}
                   >
@@ -673,7 +673,7 @@ function AiAssistantLauncherContent({
               className="border-t border-status-error-border bg-status-error-bg px-3 py-1.5 text-[11px] text-status-error-foreground"
               data-ai-launcher-error=""
             >
-              <Loader2 className="mr-1 inline size-3 animate-spin" aria-hidden />
+              <Loader2 className="me-1 inline size-3 animate-spin" aria-hidden />
               {agentsError}
             </div>
           ) : null}
@@ -696,15 +696,15 @@ function AiAssistantLauncherContent({
             // sm:-translate-y-1/2 sm:inset-auto`); each piece must be
             // overridden at the same breakpoint or the panel renders half
             // off the viewport on the left.
-            'top-0 left-0 right-0 bottom-0 translate-x-0 translate-y-0 max-w-none w-screen h-svh max-h-svh rounded-none',
-            'sm:top-0 sm:bottom-0 sm:right-0 sm:left-auto sm:translate-x-0 sm:translate-y-0',
-            'sm:max-w-xl sm:w-[36rem] sm:rounded-l-2xl sm:h-screen sm:max-h-screen',
+            'top-0 start-0 end-0 bottom-0 translate-x-0 translate-y-0 max-w-none w-screen h-svh max-h-svh rounded-none',
+            'sm:top-0 sm:bottom-0 sm:end-0 sm:start-auto sm:translate-x-0 sm:translate-y-0',
+            'sm:max-w-xl sm:w-[36rem] sm:rounded-s-2xl sm:h-screen sm:max-h-screen',
             'flex flex-col gap-3 p-4 z-[70]',
           )}
           data-ai-launcher-sheet=""
         >
           <DialogHeader>
-            <div className="flex items-center gap-3 pr-8">
+            <div className="flex items-center gap-3 pe-8">
               {/* Dock button on the LEFT to avoid colliding with the
                   Dialog primitive's auto-rendered X close button in the
                   top-right corner. Desktop-only — the side dock panel
@@ -892,13 +892,13 @@ function AiProviderSetupPanel({ t }: AiProviderSetupPanelProps) {
               <Button asChild size="sm" variant="outline">
                 <a href={AI_ASSISTANT_DOCS_URL} target="_blank" rel="noreferrer">
                   {t('ai_assistant.launcher.setup.docs', 'AI assistant docs')}
-                  <ExternalLink className="ml-1 size-3" aria-hidden />
+                  <ExternalLink className="ms-1 size-3" aria-hidden />
                 </a>
               </Button>
               <Button asChild size="sm" variant="ghost">
                 <a href={AI_ASSISTANT_SETTINGS_DOCS_URL} target="_blank" rel="noreferrer">
                   {t('ai_assistant.launcher.setup.settingsDocs', 'Provider settings')}
-                  <ExternalLink className="ml-1 size-3" aria-hidden />
+                  <ExternalLink className="ms-1 size-3" aria-hidden />
                 </a>
               </Button>
             </div>

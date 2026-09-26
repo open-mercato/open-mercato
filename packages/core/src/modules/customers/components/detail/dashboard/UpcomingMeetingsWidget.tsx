@@ -31,7 +31,7 @@ export function UpcomingMeetingsWidget({ meetings, t }: { meetings: InteractionS
         </h3>
         <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs">
           {t('customers.companies.dashboard.seeAll', 'See all')}
-          <ChevronRight className="ml-0.5 size-3" />
+          <ChevronRight className="ms-0.5 size-3" />
         </Button>
       </div>
       <div className="mt-3 divide-y">

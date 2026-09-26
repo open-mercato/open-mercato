@@ -1,6 +1,6 @@
 # Arabic-First RTL and Saudi Localization
 
-**Status:** Phase 0 implemented (2026-09-25); Phases 1–4 planned
+**Status:** Phase 0 and Phase 1 implemented (2026-09-25); Phase 1b–4 planned
 **Scope:** OSS (`packages/shared`, `packages/ui`, `apps/mercato`) + planned app-local modules
 **Related:** [`.ai/specs/2026-09-03-extensible-locale-set.md`](2026-09-03-extensible-locale-set.md), [`.ai/specs/2026-05-18-date-locale-settings.md`](2026-05-18-date-locale-settings.md)
 
@@ -72,21 +72,42 @@ Today the gap is structural, not cosmetic:
    attribute also follows a client-side locale change. The create-app template
    mirrors every touched file.
 
-### Phase 1 — RTL-safe UI (next)
+### Phase 1 — RTL-safe UI (implemented)
 
-1. Migrate directional Tailwind utilities in `packages/ui/src` to logical
-   equivalents (`ml-/mr-` → `ms-/me-`, `pl-/pr-` → `ps-/pe-`, `left-/right-` →
-   `start-/end-`, `text-left/right` → `text-start/end`, `border-l/r` →
-   `border-s/e`, `rounded-l/r` → `rounded-s/e`) — Tailwind v4 flips these
-   automatically under `[dir=rtl]`.
-2. Add a repo-wide guard test that fails on *new* physical directional utilities
-   in backend/portal components, mirroring the guard style already used in
-   `packages/core/src/__tests__/`.
-3. Extend the design-system rules (`.ai/ds-rules.md`) with the logical-property
-   requirement. **Design-system governance file — needs maintainer approval
-   before it is touched.**
-4. Audit the RTL-sensitive primitives that utilities cannot express:
-   `ScrollArea` (has a `dir` prop), chevrons, drag handles,
+1. **Done.** Directional Tailwind utilities migrated to logical equivalents
+   repo-wide: 574 source files, ~2 000 class tokens (`ml-/mr-/pl-/pr-` →
+   `ms-/me-/ps-/pe-`, `text-left/right` → `text-start/end`, `left-/right-` →
+   `start-/end-`, `border-l/r` → `border-s/e`, `rounded-l/r` → `rounded-s/e`,
+   `rounded-tl/tr/bl/br` → `rounded-ss/se/es/ee`, `float-left/right` →
+   `float-start/end`). Tailwind v4 resolves these to the same physical edge in
+   LTR and mirrors them under `[dir=rtl]`.
+2. **Done.** `packages/core/src/__tests__/rtl-safe-utilities.test.ts` fails on any
+   physical directional utility in `packages/*/src` or `apps/*/src`, with an
+   `rtl-physical` line marker as the reviewable escape hatch; it is registered in
+   `scripts/repo-wide-guards.mjs`.
+3. **Done.** `.ai/ds-rules.md` gained a Direction (RTL / Arabic) section.
+4. **Done for the migration's scope.** The centred-overlay idiom now pairs
+   `start-1/2` with `rtl:translate-x-1/2` (19 sites).
+
+### Phase 1b — patterns with no logical equivalent
+
+Not renames, so each is a per-site decision and is deliberately outside the
+guard:
+
+1. `bg-gradient-to-l/r` — a physical gradient step. The DataTable sticky-column
+   shadows are the canonical case: they need `rtl:bg-gradient-to-l/r` overrides on
+   the `before:`/`after:` shadow classes.
+2. `space-x-*` (14 sites) and `divide-x` — sibling spacing. Verify against the
+   installed Tailwind version whether `space-x-*` already resolves to
+   `margin-inline-*`; if not, migrate the call sites.
+3. Inline `style={{ left }}` / `style={{ right }}` in canvas and diagram code
+   (workflow nodes, run gantt, agent trace timelines, app shell aside width) —
+   coordinates are physical by construction; mirroring needs measured-value
+   arithmetic, not classes.
+4. `origin-left/right`, `bg-left/right` and `translate-x-*` outside the centring
+   idiom — audit each occurrence.
+5. The primitives that consume direction as data rather than as layout:
+   `ScrollArea` (`dir` prop, already supported), chevrons/drag handles,
    `InlineGranularitySelect`, `ScheduleGrid`, chart axis origin, code editor.
 
 ### Phase 2 — Arabic content completeness
@@ -212,3 +233,9 @@ new ACL features (`saudi_localization.*`) and built on `makeCrudRoute`.
   `useDirection()`, `<html dir>` in the app shell plus `DocumentDirection` for
   client-side locale changes, with unit, context and layout tests. Phases 1–4
   scoped for follow-up.
+- **2026-09-25 (Phase 1)** — logical-utility migration applied repo-wide (574
+  files, ~2 000 tokens), `rtl-safe-utilities.test.ts` added to the repo-wide
+  guard enumeration, `.ai/ds-rules.md` gained the Direction section, and the
+  centred-overlay idiom was made direction-correct (19 sites). Twelve further
+  direction-dependent patterns that have no logical equivalent are enumerated as
+  Phase 1b.

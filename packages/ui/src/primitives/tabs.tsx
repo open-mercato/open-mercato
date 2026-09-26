@@ -126,7 +126,7 @@ export function TabsList({ children, className, 'aria-label': ariaLabel }: TabsL
       ? // Underline strip — flat, full-width border-bottom for the rail,
         // selected trigger gets its own border-b-2 accent below.
         orientation === 'vertical'
-          ? 'inline-flex flex-col items-stretch gap-1 border-r border-input pr-3'
+          ? 'inline-flex flex-col items-stretch gap-1 border-e border-input pe-3'
           : 'inline-flex h-10 items-center justify-start gap-4 border-b border-input text-muted-foreground'
       : // Pill strip (original) — rounded container, bg-muted shell.
         orientation === 'vertical'
@@ -204,7 +204,7 @@ export function TabsTrigger({
       className={cn('h-9 justify-start gap-1.5 rounded-md p-2 text-sm font-medium shadow-none', isSelected ? 'bg-muted text-foreground' : 'bg-background text-muted-foreground hover:bg-muted', className)}
     >
       {leading && <span data-slot="tabs-trigger-leading" aria-hidden="true" className="inline-flex size-5 shrink-0 items-center justify-center [&>svg]:size-5">{leading}</span>}
-      <span className="min-w-0 flex-1 truncate text-left">{children}</span>
+      <span className="min-w-0 flex-1 truncate text-start">{children}</span>
       {count !== undefined && <span data-slot="tabs-trigger-count" className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-xs">{count}</span>}
     </Button>
   }

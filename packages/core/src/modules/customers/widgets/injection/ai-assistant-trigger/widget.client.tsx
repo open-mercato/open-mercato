@@ -540,7 +540,7 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
           <span>{labelText}</span>
           {hasSelection ? (
             <span
-              className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium leading-none text-primary-foreground"
+              className="absolute -top-1 -end-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium leading-none text-primary-foreground"
               data-ai-customers-inject-selected-count={selectedCount}
             >
               {selectedCount}
@@ -571,7 +571,7 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
                     type="button"
                     onClick={() => handleSelectAgent(agent.id)}
                     data-ai-customers-inject-agent-option={agent.id}
-                    className="flex items-start gap-2 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
+                    className="flex items-start gap-2 rounded-sm px-2 py-2 text-start text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
                   >
                     <span className="mt-0.5 inline-flex size-6 items-center justify-center rounded-full bg-secondary text-secondary-foreground">
                       {agent.icon}
@@ -599,15 +599,15 @@ export default function AiAssistantTriggerWidget({ context }: AiAssistantTrigger
             // sm:-translate-y-1/2 sm:inset-auto`); each must be overridden
             // at the same `sm:` breakpoint or the panel renders half off
             // the viewport.
-            'top-0 left-0 right-0 bottom-0 translate-x-0 translate-y-0 max-w-none w-screen h-svh max-h-svh rounded-none',
-            'sm:top-0 sm:bottom-0 sm:right-0 sm:left-auto sm:translate-x-0 sm:translate-y-0',
-            'sm:max-w-xl sm:w-[36rem] sm:rounded-l-2xl sm:h-screen sm:max-h-screen',
+            'top-0 start-0 end-0 bottom-0 translate-x-0 translate-y-0 max-w-none w-screen h-svh max-h-svh rounded-none',
+            'sm:top-0 sm:bottom-0 sm:end-0 sm:start-auto sm:translate-x-0 sm:translate-y-0',
+            'sm:max-w-xl sm:w-[36rem] sm:rounded-s-2xl sm:h-screen sm:max-h-screen',
             'flex flex-col gap-3 p-4 z-[70]',
           )}
           data-ai-customers-inject-sheet=""
         >
           <DialogHeader>
-            <div className="flex items-center gap-3 pr-8">
+            <div className="flex items-center gap-3 pe-8">
               {/* Dock button lives on the LEFT — the Dialog primitive
                   auto-renders an X close button absolutely positioned in
                   the top-right corner, so anything we drop in the header's

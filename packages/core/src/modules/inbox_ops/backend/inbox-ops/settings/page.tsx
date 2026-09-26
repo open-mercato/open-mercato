@@ -121,7 +121,7 @@ export default function InboxSettingsPage() {
                   </div>
                   <Button type="button" variant="outline" size="sm" className="h-11 md:h-9" onClick={handleCopy}>
                     {copied ? <CheckCircle className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
-                    <span className="ml-1">{copied ? t('inbox_ops.settings.copied', 'Copied') : t('inbox_ops.settings.copy', 'Copy')}</span>
+                    <span className="ms-1">{copied ? t('inbox_ops.settings.copied', 'Copied') : t('inbox_ops.settings.copy', 'Copy')}</span>
                   </Button>
                 </div>
               </div>

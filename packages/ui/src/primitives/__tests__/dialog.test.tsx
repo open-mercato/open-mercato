@@ -200,7 +200,7 @@ describe('Dialog (Phase B.7)', () => {
     )
     const leading = document.querySelector('[data-slot="dialog-footer-leading"]') as HTMLElement
     expect(leading).not.toBeNull()
-    expect(leading.className).toContain('sm:mr-auto')
+    expect(leading.className).toContain('sm:me-auto')
     expect(leading.querySelector('[data-testid="dont-show"]')).not.toBeNull()
     const trailing = document.querySelector('[data-slot="dialog-footer-trailing"]') as HTMLElement
     expect(trailing).not.toBeNull()

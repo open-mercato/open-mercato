@@ -21,7 +21,7 @@ export function MessageDetailAttachmentsSection(props: AttachmentsPanelProps) {
 
   if (props.attachmentsQuery.isLoading) {
     return (
-      <section className="space-y-3 pl-4 py-2">
+      <section className="space-y-3 ps-4 py-2">
         <h2 className="text-base font-semibold">{t('messages.attachedFiles', 'Attachments')}</h2>
         <p className="text-sm text-muted-foreground">{t('messages.loading.attachments', 'Loading attachments...')}</p>
       </section>
@@ -30,7 +30,7 @@ export function MessageDetailAttachmentsSection(props: AttachmentsPanelProps) {
 
   if (props.attachmentsQuery.error) {
     return (
-      <section className="space-y-3 pl-4 py-2">
+      <section className="space-y-3 ps-4 py-2">
         <h2 className="text-base font-semibold">{t('messages.attachedFiles', 'Attachments')}</h2>
         <p className="text-sm text-destructive">
           {props.attachmentsQuery.error instanceof Error
@@ -44,7 +44,7 @@ export function MessageDetailAttachmentsSection(props: AttachmentsPanelProps) {
   if ((props.attachments ?? []).length === 0) return null
 
   return (
-    <section className="space-y-3 pl-4 py-2">
+    <section className="space-y-3 ps-4 py-2">
       <h2 className="text-base font-semibold">{t('messages.attachedFiles', 'Attachments')}</h2>
       <div className="space-y-2">
         {(props.attachments ?? []).map((attachment) => (

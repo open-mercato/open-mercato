@@ -106,7 +106,7 @@ export function ScheduleAgenda({ items, range, timezone, onItemClick, onSlotClic
                       key={item.id}
                       type="button"
                       variant="ghost"
-                      className="flex h-auto w-full cursor-pointer flex-col items-stretch gap-3 whitespace-normal rounded-lg border px-3 py-3 text-left text-sm transition-shadow hover:shadow-sm"
+                      className="flex h-auto w-full cursor-pointer flex-col items-stretch gap-3 whitespace-normal rounded-lg border px-3 py-3 text-start text-sm transition-shadow hover:shadow-sm"
                       style={getScheduleItemStyle(item)}
                       onClick={() => onItemClick?.(item)}
                     >

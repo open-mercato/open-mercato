@@ -323,12 +323,12 @@ export default function IntegrationsMarketplacePage() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <div className="relative w-full min-w-[200px] max-w-xs lg:w-64">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+                <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
                 <Input
                   placeholder={t('integrations.marketplace.search')}
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  className="pl-8"
+                  className="ps-8"
                 />
               </div>
               <label className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -380,7 +380,7 @@ export default function IntegrationsMarketplacePage() {
                   size="sm"
                   onClick={() => setFilterValues(normalizeIntegrationMarketplaceFilterValues({ category }))}
                 >
-                  {Icon ? <Icon className="mr-1.5 h-3.5 w-3.5" /> : null}
+                  {Icon ? <Icon className="me-1.5 h-3.5 w-3.5" /> : null}
                   {t(`integrations.marketplace.categories.${category}`)}
                 </Button>
               )
@@ -442,7 +442,7 @@ export default function IntegrationsMarketplacePage() {
                   </div>
                   <Button asChild variant="outline" size="sm">
                     <Link href={`/backend/integrations/bundle/${encodeURIComponent(bundle.id)}`}>
-                      <Cog className="mr-1.5 h-4 w-4" />
+                      <Cog className="me-1.5 h-4 w-4" />
                       {t('integrations.marketplace.configure')}
                     </Link>
                   </Button>
@@ -545,7 +545,7 @@ export default function IntegrationsMarketplacePage() {
                   <div className="px-6 pb-4">
                     <Button asChild variant="outline" size="sm" className="w-full">
                       <Link href={`/backend/integrations/${encodeURIComponent(item.id)}`}>
-                        <Cog className="mr-1.5 h-4 w-4" />
+                        <Cog className="me-1.5 h-4 w-4" />
                         {t('integrations.marketplace.configure')}
                       </Link>
                     </Button>

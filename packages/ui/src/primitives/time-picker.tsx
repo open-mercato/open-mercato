@@ -158,7 +158,7 @@ const statusColorMap: Record<
 }
 
 const slotVariants = cva(
-  'flex h-9 w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors text-left',
+  'flex h-9 w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors text-start',
   {
     variants: {
       state: {
@@ -316,7 +316,7 @@ export const TimePickerDurationChip = React.forwardRef<HTMLButtonElement, TimePi
 TimePickerDurationChip.displayName = 'TimePickerDurationChip'
 
 const statusChipBaseVariants = cva(
-  'inline-flex h-7 items-center justify-center gap-1 rounded-md pl-1.5 pr-2.5 text-sm font-medium transition-colors whitespace-nowrap border',
+  'inline-flex h-7 items-center justify-center gap-1 rounded-md ps-1.5 pe-2.5 text-sm font-medium transition-colors whitespace-nowrap border',
   {
     variants: {
       state: {
@@ -461,8 +461,8 @@ export function HorizontalScrollRow({
       <div
         className={cn(
           'transition-[padding]',
-          canScrollLeft ? 'pl-9' : 'pl-4',
-          canScrollRight ? 'pr-9' : 'pr-4',
+          canScrollLeft ? 'ps-9' : 'ps-4',
+          canScrollRight ? 'pe-9' : 'pe-4',
         )}
       >
         <div
@@ -483,13 +483,13 @@ export function HorizontalScrollRow({
       {canScrollLeft ? (
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 left-9 w-6 bg-gradient-to-r from-background to-transparent"
+          className="pointer-events-none absolute inset-y-0 start-9 w-6 bg-gradient-to-r from-background to-transparent"
         />
       ) : null}
       {canScrollRight ? (
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 right-9 w-6 bg-gradient-to-l from-background to-transparent"
+          className="pointer-events-none absolute inset-y-0 end-9 w-6 bg-gradient-to-l from-background to-transparent"
         />
       ) : null}
       {canScrollLeft ? (
@@ -498,7 +498,7 @@ export function HorizontalScrollRow({
           onClick={() => scrollBy('left')}
           aria-label={scrollLeftAriaLabel}
           className={cn(
-            'absolute left-1 top-1/2 z-10 flex -translate-y-1/2 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-xs transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+            'absolute start-1 top-1/2 z-10 flex -translate-y-1/2 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-xs transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
             arrowButtonClass,
           )}
           data-slot="time-picker-scroll-left"
@@ -512,7 +512,7 @@ export function HorizontalScrollRow({
           onClick={() => scrollBy('right')}
           aria-label={scrollRightAriaLabel}
           className={cn(
-            'absolute right-1 top-1/2 z-10 flex -translate-y-1/2 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-xs transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+            'absolute end-1 top-1/2 z-10 flex -translate-y-1/2 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-xs transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
             arrowButtonClass,
           )}
           data-slot="time-picker-scroll-right"
@@ -728,7 +728,7 @@ function TimePickerCard({
           </span>
           <p className="flex-1 min-w-0 truncate text-base font-medium text-muted-foreground">
             <span>{headerDisplay.main}</span>
-            {headerDisplay.suffix ? <span className="ml-1 text-muted-foreground/60">{headerDisplay.suffix}</span> : null}
+            {headerDisplay.suffix ? <span className="ms-1 text-muted-foreground/60">{headerDisplay.suffix}</span> : null}
           </p>
           {onClose ? (
             <button
@@ -811,7 +811,7 @@ function TimePickerCard({
                   {action.icon}
                 </span>
               ) : null}
-              <span className="flex-1 text-left">{action.label}</span>
+              <span className="flex-1 text-start">{action.label}</span>
               {action.rightText ? (
                 <span className="text-primary/60">{action.rightText}</span>
               ) : null}
@@ -853,7 +853,7 @@ function TimePickerCard({
           data-slot="time-picker-footer"
         >
           {legacyFooterActions && legacyFooterActions.length > 0 ? (
-            <div className="mr-auto flex items-center gap-1">
+            <div className="me-auto flex items-center gap-1">
               {legacyFooterActions.map((action) => (
                 <Button
                   key={action.label}
@@ -867,7 +867,7 @@ function TimePickerCard({
                   {action.label}
                 </Button>
               ))}
-              <span aria-hidden="true" className="ml-2 mr-1 h-5 w-px bg-border" />
+              <span aria-hidden="true" className="ms-2 me-1 h-5 w-px bg-border" />
             </div>
           ) : null}
           <Button

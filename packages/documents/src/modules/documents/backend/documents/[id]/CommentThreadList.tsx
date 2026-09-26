@@ -83,7 +83,7 @@ function CommentItem({
   return (
     <article className="space-y-3 rounded-lg border border-border bg-background p-3">
       {canJump ? (
-        <Button type="button" variant="ghost" className="h-auto w-full flex-col items-stretch gap-2 p-0 text-left hover:bg-transparent" onClick={() => onJump(comment)}>
+        <Button type="button" variant="ghost" className="h-auto w-full flex-col items-stretch gap-2 p-0 text-start hover:bg-transparent" onClick={() => onJump(comment)}>
           {content}
         </Button>
       ) : <div className="space-y-2">{content}</div>}
@@ -101,7 +101,7 @@ function CommentItem({
         ) : null}
       </div>
       {comment.replies.length > 0 ? (
-        <div className="space-y-2 border-l border-border pl-3">
+        <div className="space-y-2 border-s border-border ps-3">
           {comment.replies.map((reply) => (
             <CommentItem
               key={reply.id}

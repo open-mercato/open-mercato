@@ -178,7 +178,7 @@ export function TokenUsageCard({ agent }: { agent: AgentDetailView }) {
             <Coins className="size-3.5 shrink-0" />
             <span className="text-xs">{t('agent_orchestrator.agentDetail.tokens.estimate', 'Estimated with o200k_base — an approximation, not an exact model count.')}</span>
           </div>
-          <div className="text-right">
+          <div className="text-end">
             <div className="text-2xl font-bold tabular-nums text-foreground">{formatNumber(usage.total, locale)}</div>
             <div className="text-xs text-muted-foreground">{t('agent_orchestrator.agentDetail.tokens.totalTokens', 'tokens total')}</div>
           </div>
@@ -198,7 +198,7 @@ export function TokenUsageCard({ agent }: { agent: AgentDetailView }) {
                 <div key={skill.id} className="space-y-1">
                   <TokenRow label={<span className="font-mono">{skill.id}</span>} tokens={skill.tokens} max={max} locale={locale} />
                   {skill.files.length ? (
-                    <ul className="space-y-0.5 pl-4">
+                    <ul className="space-y-0.5 ps-4">
                       {skill.files.map((file) => (
                         <li key={file.path} className="flex items-baseline justify-between gap-3">
                           <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">{file.path.replace(`skills/${skill.id}/`, '')}</span>

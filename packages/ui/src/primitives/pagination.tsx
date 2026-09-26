@@ -228,7 +228,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
   ) => {
     const t = useT()
     const grouped = appearance === 'group'
-    const shapeClass = appearance === 'circle' ? 'rounded-full' : grouped ? 'w-10 rounded-none border-y-0 border-l-0 hover:border-border' : 'rounded-md'
+    const shapeClass = appearance === 'circle' ? 'rounded-full' : grouped ? 'w-10 rounded-none border-y-0 border-s-0 hover:border-border' : 'rounded-md'
     const navClassName = cn(navButtonVariants(), appearance && sourceCellClass, appearance && shapeClass, grouped && 'focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring')
     const resolvedFormatPageInfo =
       formatPageInfo ??
@@ -290,7 +290,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
 
         <div
           data-slot="pagination-controls"
-          className={cn('flex items-center justify-center', grouped ? 'max-w-full justify-start gap-0 overflow-x-auto rounded-md border border-border [&>button:last-child]:border-r-0 [&>ol:last-child>li:last-child>button]:border-r-0' : 'flex-wrap gap-2')}
+          className={cn('flex items-center justify-center', grouped ? 'max-w-full justify-start gap-0 overflow-x-auto rounded-md border border-border [&>button:last-child]:border-e-0 [&>ol:last-child>li:last-child>button]:border-e-0' : 'flex-wrap gap-2')}
         >
           {showFirstLast ? (
             <button
@@ -328,7 +328,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
                     key={`${entry}-${index}`}
                     data-slot="pagination-ellipsis"
                     aria-hidden="true"
-                    className={cn('inline-flex size-8 shrink-0 items-center justify-center text-sm text-muted-foreground', grouped && 'w-10 border-r border-border')}
+                    className={cn('inline-flex size-8 shrink-0 items-center justify-center text-sm text-muted-foreground', grouped && 'w-10 border-e border-border')}
                   >
                     …
                   </li>

@@ -205,7 +205,7 @@ export const renderMultilineMarkdownDisplay: InlineMultilineDisplayRenderer = ({
     <MarkdownContent
       format="markdown"
       body={raw}
-      className="text-sm text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
+      className="text-sm text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ms-4 [&_ul]:list-disc [&_ol]:ms-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
     />
   )
 }
@@ -534,7 +534,7 @@ export function InlineNextInteractionEditor({
         variant="ghost"
         size="sm"
         className={cn(
-          'absolute right-3 top-3 transition-opacity duration-150',
+          'absolute end-3 top-3 transition-opacity duration-150',
           editing
             ? 'opacity-100'
             : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100',
@@ -627,7 +627,7 @@ export function InlineNextInteractionEditor({
               ) : null}
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="submit" size="sm" disabled={saving}>
-                  {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                  {saving ? <Loader2 className="me-2 h-3.5 w-3.5 animate-spin" /> : null}
                   {t('customers.people.detail.inline.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>

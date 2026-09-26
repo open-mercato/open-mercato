@@ -155,7 +155,7 @@ function TableEntryDefaultPreview() {
           <TableHead>{t('design_system.gallery.samples.content.order')}</TableHead>
           <TableHead>{t('design_system.gallery.samples.content.customer')}</TableHead>
           <TableHead>{t('design_system.gallery.samples.content.status')}</TableHead>
-          <TableHead className="text-right">{t('design_system.gallery.samples.content.total')}</TableHead>
+          <TableHead className="text-end">{t('design_system.gallery.samples.content.total')}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -167,7 +167,7 @@ function TableEntryDefaultPreview() {
               {t('design_system.gallery.samples.content.paid')}
             </StatusBadge>
           </TableCell>
-          <TableCell className="text-right">$1,250.00</TableCell>
+          <TableCell className="text-end">$1,250.00</TableCell>
         </TableRow>
         <TableRow>
           <TableCell>#1041</TableCell>
@@ -177,7 +177,7 @@ function TableEntryDefaultPreview() {
               {t('design_system.gallery.samples.content.pending')}
             </StatusBadge>
           </TableCell>
-          <TableCell className="text-right">$310.50</TableCell>
+          <TableCell className="text-end">$310.50</TableCell>
         </TableRow>
         <TableRow>
           <TableCell>#1040</TableCell>
@@ -187,7 +187,7 @@ function TableEntryDefaultPreview() {
               {t('design_system.gallery.samples.content.draft')}
             </StatusBadge>
           </TableCell>
-          <TableCell className="text-right">$89.00</TableCell>
+          <TableCell className="text-end">$89.00</TableCell>
         </TableRow>
       </TableBody>
     </Table>
@@ -201,29 +201,29 @@ function TableEntryStripedPreview() {
         <TableRow>
           <TableHead>SKU</TableHead>
           <TableHead>{t('design_system.gallery.samples.content.product')}</TableHead>
-          <TableHead className="text-right">{t('design_system.gallery.samples.content.stock')}</TableHead>
+          <TableHead className="text-end">{t('design_system.gallery.samples.content.stock')}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         <TableRow>
           <TableCell>AP-100</TableCell>
           <TableCell>{t('design_system.gallery.samples.content.apexDeskLamp')}</TableCell>
-          <TableCell className="text-right">120</TableCell>
+          <TableCell className="text-end">120</TableCell>
         </TableRow>
         <TableRow>
           <TableCell>AP-101</TableCell>
           <TableCell>{t('design_system.gallery.samples.content.apexMonitorStand')}</TableCell>
-          <TableCell className="text-right">64</TableCell>
+          <TableCell className="text-end">64</TableCell>
         </TableRow>
         <TableRow>
           <TableCell>AP-102</TableCell>
           <TableCell>{t('design_system.gallery.samples.content.apexCableKit')}</TableCell>
-          <TableCell className="text-right">310</TableCell>
+          <TableCell className="text-end">310</TableCell>
         </TableRow>
         <TableRow>
           <TableCell>AP-103</TableCell>
           <TableCell>{t('design_system.gallery.samples.content.apexLaptopRiser')}</TableCell>
-          <TableCell className="text-right">18</TableCell>
+          <TableCell className="text-end">18</TableCell>
         </TableRow>
       </TableBody>
     </Table>
@@ -236,23 +236,23 @@ function TableEntryWithFooterPreview() {
       <TableHeader>
         <TableRow>
           <TableHead>{t('design_system.gallery.samples.content.line')}</TableHead>
-          <TableHead className="text-right">{t('design_system.gallery.samples.content.amount')}</TableHead>
+          <TableHead className="text-end">{t('design_system.gallery.samples.content.amount')}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         <TableRow>
           <TableCell>{t('design_system.gallery.samples.content.subtotal')}</TableCell>
-          <TableCell className="text-right">$1,560.50</TableCell>
+          <TableCell className="text-end">$1,560.50</TableCell>
         </TableRow>
         <TableRow>
           <TableCell>{t('design_system.gallery.samples.content.shipping')}</TableCell>
-          <TableCell className="text-right">$24.00</TableCell>
+          <TableCell className="text-end">$24.00</TableCell>
         </TableRow>
       </TableBody>
       <TableFooter>
         <TableRow>
           <TableCell>{t('design_system.gallery.samples.content.total')}</TableCell>
-          <TableCell className="text-right">$1,584.50</TableCell>
+          <TableCell className="text-end">$1,584.50</TableCell>
         </TableRow>
       </TableFooter>
     </Table>
@@ -1475,7 +1475,7 @@ import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
       <TableHead>Order</TableHead>
       <TableHead>Customer</TableHead>
       <TableHead>Status</TableHead>
-      <TableHead className="text-right">Total</TableHead>
+      <TableHead className="text-end">Total</TableHead>
     </TableRow>
   </TableHeader>
   <TableBody>
@@ -1483,7 +1483,7 @@ import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
       <TableCell>#1042</TableCell>
       <TableCell>Wei Chen</TableCell>
       <TableCell><StatusBadge variant="success" dot>Paid</StatusBadge></TableCell>
-      <TableCell className="text-right">$1,250.00</TableCell>
+      <TableCell className="text-end">$1,250.00</TableCell>
     </TableRow>
   </TableBody>
 </Table>`,
@@ -1499,7 +1499,7 @@ import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
     <TableRow>
       <TableHead>SKU</TableHead>
       <TableHead>Product</TableHead>
-      <TableHead className="text-right">Stock</TableHead>
+      <TableHead className="text-end">Stock</TableHead>
     </TableRow>
   </TableHeader>
   <TableBody>{/* rows */}</TableBody>
@@ -1517,7 +1517,7 @@ import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
   <TableFooter>
     <TableRow>
       <TableCell>Total</TableCell>
-      <TableCell className="text-right">$1,584.50</TableCell>
+      <TableCell className="text-end">$1,584.50</TableCell>
     </TableRow>
   </TableFooter>
 </Table>`,
@@ -1804,7 +1804,7 @@ function FigmaScrollDemo({
       scrollbars={horizontal ? 'horizontal' : 'vertical'}
       className="h-60 w-full max-w-xs rounded-md border border-border"
     >
-      <div className={horizontal ? 'flex w-max gap-4 p-6' : 'flex flex-col gap-2 p-4 pr-8'}>
+      <div className={horizontal ? 'flex w-max gap-4 p-6' : 'flex flex-col gap-2 p-4 pe-8'}>
         {Array.from(
           {
             length: 20,
@@ -1837,7 +1837,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 const t = useT()
 
 <ScrollArea type="always" scrollbarSize="md" scrollbarVariant="default" className="h-60 w-full max-w-xs rounded-md border border-border">
-  <div className="flex flex-col gap-2 p-4 pr-8">
+  <div className="flex flex-col gap-2 p-4 pe-8">
     {Array.from({ length: 20 }, (_, index) => <p key={index} className="whitespace-nowrap text-sm">{t('design_system.gallery.samples.scroll.row', { number: index + 1 })}</p>)}
   </div>
 </ScrollArea>`,
@@ -1852,7 +1852,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 const t = useT()
 
 <ScrollArea type="always" scrollbarSize="sm" scrollbarVariant="default" className="h-60 w-full max-w-xs rounded-md border border-border">
-  <div className="flex flex-col gap-2 p-4 pr-8">
+  <div className="flex flex-col gap-2 p-4 pe-8">
     {Array.from({ length: 20 }, (_, index) => <p key={index} className="whitespace-nowrap text-sm">{t('design_system.gallery.samples.scroll.row', { number: index + 1 })}</p>)}
   </div>
 </ScrollArea>`,
@@ -1867,7 +1867,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 const t = useT()
 
 <ScrollArea type="always" scrollbarSize="xs" scrollbarVariant="default" className="h-60 w-full max-w-xs rounded-md border border-border">
-  <div className="flex flex-col gap-2 p-4 pr-8">
+  <div className="flex flex-col gap-2 p-4 pe-8">
     {Array.from({ length: 20 }, (_, index) => <p key={index} className="whitespace-nowrap text-sm">{t('design_system.gallery.samples.scroll.row', { number: index + 1 })}</p>)}
   </div>
 </ScrollArea>`,
@@ -1882,7 +1882,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 const t = useT()
 
 <ScrollArea type="always" scrollbarSize="md" scrollbarVariant="lighter" className="h-60 w-full max-w-xs rounded-md border border-border">
-  <div className="flex flex-col gap-2 p-4 pr-8">
+  <div className="flex flex-col gap-2 p-4 pe-8">
     {Array.from({ length: 20 }, (_, index) => <p key={index} className="whitespace-nowrap text-sm">{t('design_system.gallery.samples.scroll.row', { number: index + 1 })}</p>)}
   </div>
 </ScrollArea>`,
@@ -1897,7 +1897,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 const t = useT()
 
 <ScrollArea type="always" scrollbarSize="sm" scrollbarVariant="lighter" className="h-60 w-full max-w-xs rounded-md border border-border">
-  <div className="flex flex-col gap-2 p-4 pr-8">
+  <div className="flex flex-col gap-2 p-4 pe-8">
     {Array.from({ length: 20 }, (_, index) => <p key={index} className="whitespace-nowrap text-sm">{t('design_system.gallery.samples.scroll.row', { number: index + 1 })}</p>)}
   </div>
 </ScrollArea>`,
@@ -1912,7 +1912,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 const t = useT()
 
 <ScrollArea type="always" scrollbarSize="xs" scrollbarVariant="lighter" className="h-60 w-full max-w-xs rounded-md border border-border">
-  <div className="flex flex-col gap-2 p-4 pr-8">
+  <div className="flex flex-col gap-2 p-4 pe-8">
     {Array.from({ length: 20 }, (_, index) => <p key={index} className="whitespace-nowrap text-sm">{t('design_system.gallery.samples.scroll.row', { number: index + 1 })}</p>)}
   </div>
 </ScrollArea>`,

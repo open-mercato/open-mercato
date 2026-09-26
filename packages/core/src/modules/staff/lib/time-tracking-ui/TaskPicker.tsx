@@ -419,9 +419,9 @@ export function TaskPicker({
               <Kbd>↑</Kbd>
               <Kbd>↓</Kbd>
               {labels.move}
-              <Kbd className="ml-1">↵</Kbd>
+              <Kbd className="ms-1">↵</Kbd>
               {labels.pick}
-              <Kbd className="ml-1">esc</Kbd>
+              <Kbd className="ms-1">esc</Kbd>
               {labels.close}
             </span>
             <span>{labels.count.replace('{shown}', String(flat.length)).replace('{total}', String(items.length))}</span>

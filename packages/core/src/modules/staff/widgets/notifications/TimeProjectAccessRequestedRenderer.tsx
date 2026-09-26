@@ -64,7 +64,7 @@ export function TimeProjectAccessRequestedRenderer({
         <UserPlus className="size-5 text-status-info-icon" aria-hidden="true" />
         {isUnread ? (
           <span
-            className="absolute -right-1 -top-1 size-3 rounded-full bg-status-info-icon ring-2 ring-background"
+            className="absolute -end-1 -top-1 size-3 rounded-full bg-status-info-icon ring-2 ring-background"
             aria-hidden="true"
           />
         ) : null}
@@ -101,7 +101,7 @@ export function TimeProjectAccessRequestedRenderer({
           >
             <Users className="size-3.5" aria-hidden="true" />
             {t('staff.notifications.timeProjectAccess.actions.openTeam', 'Open project team')}
-            {executing ? <Loader2 className="ml-1 size-3 animate-spin" /> : null}
+            {executing ? <Loader2 className="ms-1 size-3 animate-spin" /> : null}
           </Button>
           <Button
             type="button"
@@ -122,7 +122,7 @@ export function TimeProjectAccessRequestedRenderer({
         type="button"
         variant="ghost"
         size="xs"
-        className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+        className="absolute end-2 top-2 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
         onClick={(event) => {
           event.stopPropagation()
           onDismiss()

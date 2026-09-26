@@ -251,8 +251,8 @@ describe('AvatarStack', () => {
       </>,
     )
     const stacks = container.querySelectorAll('[data-slot="avatar-stack"]')
-    expect(stacks[0].children[1]).toHaveClass('-ml-3')
-    expect(stacks[1].children[1]).toHaveClass('-ml-1.5')
+    expect(stacks[0].children[1]).toHaveClass('-ms-3')
+    expect(stacks[1].children[1]).toHaveClass('-ms-1.5')
   })
 
   it('limits mixed-size overlap and keeps numeric overflow counts complete', () => {
@@ -263,7 +263,7 @@ describe('AvatarStack', () => {
       </AvatarStack>,
     )
     const items = container.querySelectorAll('[data-slot="avatar-stack-item"]')
-    expect(items[1]).toHaveClass('-ml-1')
+    expect(items[1]).toHaveClass('-ms-1')
     const overflow = screen.getByRole('img', { name: '+105' })
     expect(overflow).toHaveTextContent('+105')
     expect(overflow).toHaveClass('size-20', 'min-w-20', 'w-auto')

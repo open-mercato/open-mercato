@@ -149,7 +149,7 @@ export default function OtpEmailProviderDetails({
               void handleEnable()
             }}
           >
-            {loading ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+            {loading ? <Loader2 className="me-2 size-4 animate-spin" /> : null}
             {t('security.profile.mfa.providers.setupOtpEmail', 'Enable email OTP')}
           </Button>
         </div>

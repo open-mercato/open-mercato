@@ -95,10 +95,10 @@ const drawerContentVariants = cva(
       side: {
         right:
           // Figma Drawer [1.1] width: 400px (not the Tailwind max-w-md 448px)
-          'inset-y-0 right-0 h-full w-full max-w-[400px] rounded-l-xl ' +
+          'inset-y-0 end-0 h-full w-full max-w-[400px] rounded-s-xl ' +
           'data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-right',
         left:
-          'inset-y-0 left-0 h-full w-full max-w-[400px] rounded-r-xl ' +
+          'inset-y-0 start-0 h-full w-full max-w-[400px] rounded-e-xl ' +
           'data-[state=open]:slide-in-from-left data-[state=closed]:slide-out-to-left',
         top:
           'inset-x-0 top-0 max-h-[80vh] w-full rounded-b-xl ' +
@@ -152,7 +152,7 @@ const DrawerContent = React.forwardRef<
             data-slot="drawer-close-button"
             aria-label={closeAriaLabel}
             className={cn(
-              'absolute right-4 top-4 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors',
+              'absolute end-4 top-4 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors',
               'hover:bg-muted/40 hover:text-foreground',
               'focus-visible:shadow-focus',
             )}
@@ -186,7 +186,7 @@ const DrawerHeader = React.forwardRef<HTMLDivElement, DrawerHeaderProps>(
       className={cn(
         // Per Figma: no chrome border below the header. Padding-right
         // reserves room for the auto-close button at top-right.
-        'flex items-start gap-3 px-6 pt-5 pb-4 pr-14',
+        'flex items-start gap-3 px-6 pt-5 pb-4 pe-14',
         className,
       )}
       {...props}
@@ -277,7 +277,7 @@ const DrawerFooter = React.forwardRef<HTMLDivElement, DrawerFooterProps>(
         {leading ? (
           <div
             data-slot="drawer-footer-leading"
-            className="mr-auto inline-flex items-center gap-2"
+            className="me-auto inline-flex items-center gap-2"
           >
             {leading}
           </div>
@@ -287,7 +287,7 @@ const DrawerFooter = React.forwardRef<HTMLDivElement, DrawerFooterProps>(
             data-slot="drawer-footer-trailing"
             className={cn(
               'inline-flex items-center gap-3',
-              leading ? '' : 'ml-auto',
+              leading ? '' : 'ms-auto',
             )}
           >
             {childArray}

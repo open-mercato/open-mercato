@@ -60,7 +60,7 @@ function CalendarMarkedDemo() {
   const marked = [new Date(2026, 5, 8), new Date(2026, 5, 12), new Date(2026, 5, 20)]
   return <Calendar mode="single" daySize={40} defaultMonth={new Date(2026, 5, 1)} today={new Date(2026, 5, 12)} selected={selected} onSelect={setSelected}
     disabled={[new Date(2026, 5, 20)]} modifiers={{ marked }}
-    modifiersClassNames={{ marked: "after:absolute after:bottom-1.5 after:left-1/2 after:size-0.75 after:-translate-x-1/2 after:rounded-full after:bg-current after:content-['']" }}
+    modifiersClassNames={{ marked: "after:absolute after:bottom-1.5 after:start-1/2 after:size-0.75 after:-translate-x-1/2 after:rounded-full after:bg-current after:content-[''] after:rtl:translate-x-1/2" }}
     labels={{ labelDayButton: (day, modifiers) => modifiers.marked
       ? t('design_system.gallery.examples.controls.markedDate', { date: new Intl.DateTimeFormat(undefined, { dateStyle: 'full' }).format(day) })
       : new Intl.DateTimeFormat(undefined, { dateStyle: 'full' }).format(day) }} />
@@ -152,7 +152,7 @@ function CalendarMarkedDemo() {
   const marked = [new Date(2026, 5, 8), new Date(2026, 5, 12), new Date(2026, 5, 20)]
   return <Calendar mode="single" daySize={40} defaultMonth={new Date(2026, 5, 1)} today={new Date(2026, 5, 12)} selected={selected} onSelect={setSelected}
     disabled={[new Date(2026, 5, 20)]} modifiers={{ marked }}
-    modifiersClassNames={{ marked: "after:absolute after:bottom-1.5 after:left-1/2 after:size-0.75 after:-translate-x-1/2 after:rounded-full after:bg-current after:content-['']" }}
+    modifiersClassNames={{ marked: "after:absolute after:bottom-1.5 after:start-1/2 after:size-0.75 after:-translate-x-1/2 after:rounded-full after:bg-current after:content-[''] after:rtl:translate-x-1/2" }}
     labels={{ labelDayButton: (day, modifiers) => modifiers.marked
       ? t('design_system.gallery.examples.controls.markedDate', { date: new Intl.DateTimeFormat(undefined, { dateStyle: 'full' }).format(day) })
       : new Intl.DateTimeFormat(undefined, { dateStyle: 'full' }).format(day) }} />

@@ -88,11 +88,11 @@ const ScrollAreaScrollbar = React.forwardRef<
         data-slot="scroll-area-scrollbar"
         className={cn(
           'flex touch-none select-none transition-colors',
-          !styled && orientation === 'vertical' && 'h-full w-2.5 border-l border-l-transparent p-px',
+          !styled && orientation === 'vertical' && 'h-full w-2.5 border-s border-s-transparent p-px',
           !styled && orientation === 'horizontal' && 'h-2.5 w-full border-t border-t-transparent p-px',
           styled && 'justify-center border-border',
           styled && (resolvedVariant === 'lighter' ? 'bg-muted' : 'bg-background'),
-          styled && orientation === 'vertical' && 'h-full border-l py-2',
+          styled && orientation === 'vertical' && 'h-full border-s py-2',
           styled && orientation === 'horizontal' && 'w-full flex-col border-t px-2',
           styled && orientation === 'vertical' && { md: 'w-5', sm: 'w-4', xs: 'w-3' }[resolvedSize],
           styled && orientation === 'horizontal' && { md: 'h-5', sm: 'h-4', xs: 'h-3' }[resolvedSize],

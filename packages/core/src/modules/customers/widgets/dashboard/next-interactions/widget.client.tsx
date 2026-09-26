@@ -197,7 +197,7 @@ const CustomerNextInteractionsWidget: React.FC<DashboardWidgetComponentProps<Cus
                       ) : null}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 text-right text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2 text-end text-xs text-muted-foreground">
                     <div>
                       <p>{absolute || t('customers.widgets.common.unknownDate')}</p>
                       {relative ? <p>{relative}</p> : null}

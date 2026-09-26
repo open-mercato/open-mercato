@@ -71,7 +71,7 @@ const DialogOverlay = React.forwardRef<
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 
 const dialogContentVariants = cva(
-  'fixed inset-x-0 bottom-0 flex max-h-[90vh] w-full translate-x-0 translate-y-0 flex-col gap-4 overflow-y-auto rounded-t-xl border-t bg-card p-6 shadow-lg sm:inset-auto sm:left-1/2 sm:top-1/2 sm:min-h-0 sm:h-auto sm:w-full sm:max-h-[90vh] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:border focus-visible:outline-none data-[state=open]:animate-in data-[state=closed]:animate-out',
+  'fixed inset-x-0 bottom-0 flex max-h-[90vh] w-full translate-x-0 translate-y-0 flex-col gap-4 overflow-y-auto rounded-t-xl border-t bg-card p-6 shadow-lg sm:inset-auto sm:start-1/2 sm:top-1/2 sm:min-h-0 sm:h-auto sm:w-full sm:max-h-[90vh] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:border focus-visible:outline-none data-[state=open]:animate-in data-[state=closed]:animate-out sm:rtl:translate-x-1/2',
   {
     variants: {
       size: {
@@ -150,7 +150,7 @@ const DialogContent = React.forwardRef<
             <DialogClose
               data-dialog-close=""
               data-slot="dialog-close-button"
-              className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="absolute end-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               aria-label={closeAriaLabel ?? t('ui.dialog.close.ariaLabel', 'Close')}
             >
               <X className="h-4 w-4" />
@@ -223,7 +223,7 @@ const DialogHeader = ({
     className={cn(
       alignment === 'vertical'
         ? 'flex flex-col items-center gap-4 text-center'
-        : leading ? 'flex items-start gap-3 text-left' : 'flex flex-col space-y-1.5 text-center sm:text-left',
+        : leading ? 'flex items-start gap-3 text-start' : 'flex flex-col space-y-1.5 text-center sm:text-start',
       className,
     )}
     {...props}
@@ -246,7 +246,7 @@ const DialogHeader = ({
     {leading ? (
       <div
         data-slot="dialog-header-text"
-        className={cn('flex min-w-0 flex-col gap-1', alignment === 'vertical' ? 'w-full text-center' : 'flex-1 text-left')}
+        className={cn('flex min-w-0 flex-col gap-1', alignment === 'vertical' ? 'w-full text-center' : 'flex-1 text-start')}
       >
         {children}
       </div>
@@ -336,7 +336,7 @@ const DialogFooter = ({
       >
         <div
           data-slot="dialog-footer-leading"
-          className="inline-flex items-center gap-2 sm:mr-auto"
+          className="inline-flex items-center gap-2 sm:me-auto"
         >
           {leading}
         </div>

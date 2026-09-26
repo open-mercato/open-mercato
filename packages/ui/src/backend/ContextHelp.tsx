@@ -21,13 +21,13 @@ export function ContextHelp({ title, children, defaultOpen = false, bulb = true,
       <Button
         type="button"
         variant="ghost"
-        className="w-full justify-start gap-2 px-4 py-3 text-left hover:bg-accent/50"
+        className="w-full justify-start gap-2 px-4 py-3 text-start hover:bg-accent/50"
         aria-expanded={open}
         onClick={() => setOpen(v => !v)}
       >
         <Icon size={16} className={`shrink-0 ${open ? 'text-amber-500' : 'text-muted-foreground'}`} />
         <span className="font-medium">{title}</span>
-        <span className="ml-auto text-xs text-muted-foreground">{open ? t('ui.contextHelp.hide', 'Hide') : t('ui.contextHelp.show', 'Show')}</span>
+        <span className="ms-auto text-xs text-muted-foreground">{open ? t('ui.contextHelp.hide', 'Hide') : t('ui.contextHelp.show', 'Show')}</span>
       </Button>
       {open ? (
         <div className="px-4 pb-4 pt-1 border-t text-sm leading-relaxed">

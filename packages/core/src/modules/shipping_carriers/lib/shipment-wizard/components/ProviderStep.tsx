@@ -39,7 +39,7 @@ export const ProviderStep = (props: ProviderStepProps) => {
           <button
             key={provider.providerKey}
             type="button"
-            className="flex cursor-pointer items-center gap-3 rounded-lg border bg-card p-4 text-left transition-colors hover:border-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex cursor-pointer items-center gap-3 rounded-lg border bg-card p-4 text-start transition-colors hover:border-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => onSelect(provider.providerKey)}
           >
             <Truck className="h-6 w-6 shrink-0 text-muted-foreground" />

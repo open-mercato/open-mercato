@@ -1464,7 +1464,7 @@ function IntegrationExample({ brandUrl, alignment, appearance }: { brandUrl: str
           <p className={cn('text-muted-foreground', card ? 'text-xs leading-4' : 'text-sm leading-5')}>Seamless collaboration and document management.</p>
         </div>
         <Button asChild variant="outline" size="default" className={horizontal ? undefined : 'w-full'}><DialogTrigger><Settings aria-hidden="true" />Manage</DialogTrigger></Button>
-        <Switch aria-labelledby={id} checked={checked} onCheckedChange={setChecked} className={horizontal ? undefined : card ? 'absolute top-5 right-5' : 'absolute top-3 right-3'} />
+        <Switch aria-labelledby={id} checked={checked} onCheckedChange={setChecked} className={horizontal ? undefined : card ? 'absolute top-5 end-5' : 'absolute top-3 end-3'} />
       </div>
         <DialogContent onKeyDownCapture={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); setOpen(false) } }}>
           <DialogHeader><DialogTitle>Microsoft Office 365 settings</DialogTitle><DialogDescription>Seamless collaboration and document management.</DialogDescription></DialogHeader>
@@ -1510,7 +1510,7 @@ function IntegrationExample({ brandUrl, alignment, appearance }: { brandUrl: str
           <p className={cn('text-muted-foreground', card ? 'text-xs leading-4' : 'text-sm leading-5')}>Seamless collaboration and document management.</p>
         </div>
         <Button asChild variant="outline" size="default" className={horizontal ? undefined : 'w-full'}><DialogTrigger><Settings aria-hidden="true" />Manage</DialogTrigger></Button>
-        <Switch aria-labelledby={id} checked={checked} onCheckedChange={setChecked} className={horizontal ? undefined : card ? 'absolute top-5 right-5' : 'absolute top-3 right-3'} />
+        <Switch aria-labelledby={id} checked={checked} onCheckedChange={setChecked} className={horizontal ? undefined : card ? 'absolute top-5 end-5' : 'absolute top-3 end-3'} />
       </div>
         <DialogContent onKeyDownCapture={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); setOpen(false) } }}>
           <DialogHeader><DialogTitle>Microsoft Office 365 settings</DialogTitle><DialogDescription>Seamless collaboration and document management.</DialogDescription></DialogHeader>
@@ -1556,7 +1556,7 @@ function IntegrationExample({ brandUrl, alignment, appearance }: { brandUrl: str
           <p className={cn('text-muted-foreground', card ? 'text-xs leading-4' : 'text-sm leading-5')}>Seamless collaboration and document management.</p>
         </div>
         <Button asChild variant="outline" size="default" className={horizontal ? undefined : 'w-full'}><DialogTrigger><Settings aria-hidden="true" />Manage</DialogTrigger></Button>
-        <Switch aria-labelledby={id} checked={checked} onCheckedChange={setChecked} className={horizontal ? undefined : card ? 'absolute top-5 right-5' : 'absolute top-3 right-3'} />
+        <Switch aria-labelledby={id} checked={checked} onCheckedChange={setChecked} className={horizontal ? undefined : card ? 'absolute top-5 end-5' : 'absolute top-3 end-3'} />
       </div>
         <DialogContent onKeyDownCapture={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); setOpen(false) } }}>
           <DialogHeader><DialogTitle>Microsoft Office 365 settings</DialogTitle><DialogDescription>Seamless collaboration and document management.</DialogDescription></DialogHeader>
@@ -1602,7 +1602,7 @@ function IntegrationExample({ brandUrl, alignment, appearance }: { brandUrl: str
           <p className={cn('text-muted-foreground', card ? 'text-xs leading-4' : 'text-sm leading-5')}>Seamless collaboration and document management.</p>
         </div>
         <Button asChild variant="outline" size="default" className={horizontal ? undefined : 'w-full'}><DialogTrigger><Settings aria-hidden="true" />Manage</DialogTrigger></Button>
-        <Switch aria-labelledby={id} checked={checked} onCheckedChange={setChecked} className={horizontal ? undefined : card ? 'absolute top-5 right-5' : 'absolute top-3 right-3'} />
+        <Switch aria-labelledby={id} checked={checked} onCheckedChange={setChecked} className={horizontal ? undefined : card ? 'absolute top-5 end-5' : 'absolute top-3 end-3'} />
       </div>
         <DialogContent onKeyDownCapture={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); setOpen(false) } }}>
           <DialogHeader><DialogTitle>Microsoft Office 365 settings</DialogTitle><DialogDescription>Seamless collaboration and document management.</DialogDescription></DialogHeader>

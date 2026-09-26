@@ -459,7 +459,7 @@ export function AclEditor({
                         {t('auth.acl.allModuleFeatures', 'All')}{' '}
                         {moduleWildcard && !hasGlobalWildcard ? <span className="font-medium text-status-info-text">({group.moduleId}.*)</span> : ''}
                         {moduleRestricted ? (
-                          <span className="ml-2 text-xs font-medium text-muted-foreground">
+                          <span className="ms-2 text-xs font-medium text-muted-foreground">
                             {t('auth.acl.manageViaSuperAdmin', '(manage via super admin)')}
                           </span>
                         ) : null}
@@ -490,17 +490,17 @@ export function AclEditor({
                                 {formatWildcardLabel(t, group.moduleId, wildcard)}{' '}
                                 <span className="text-muted-foreground text-xs font-mono">({wildcard})</span>
                                 {wildcardRestricted ? (
-                                  <span className="ml-2 text-xs font-medium text-muted-foreground">
+                                  <span className="ms-2 text-xs font-medium text-muted-foreground">
                                     {t('auth.acl.restricted', 'Restricted')}
                                   </span>
                                 ) : null}
                               </label>
                             </div>
                             {wildcardFeatures.length > 0 && (
-                              <div className="relative ml-6 pl-4 text-sm text-muted-foreground space-y-1">
-                                <div className="absolute left-0 top-1 bottom-1 w-px bg-border" aria-hidden />
+                              <div className="relative ms-6 ps-4 text-sm text-muted-foreground space-y-1">
+                                <div className="absolute start-0 top-1 bottom-1 w-px bg-border" aria-hidden />
                                 {wildcardFeatures.map((wf) => (
-                                  <div key={`${wildcard}-${wf.id}`} className="pl-2">
+                                  <div key={`${wildcard}-${wf.id}`} className="ps-2">
                                     <span>
                                       {wf.title}{' '}
                                       <span className="text-xs font-mono text-muted-foreground">({wf.id})</span>
@@ -543,7 +543,7 @@ export function AclEditor({
                           >
                             {f.title} <span className="text-muted-foreground text-xs">({f.id})</span>
                             {restricted ? (
-                              <span className="ml-2 text-xs font-medium text-muted-foreground">
+                              <span className="ms-2 text-xs font-medium text-muted-foreground">
                                 {t('auth.acl.restricted', 'Restricted')}
                               </span>
                             ) : null}

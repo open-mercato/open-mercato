@@ -18,35 +18,35 @@ interface MobileWorkflowTimelineProps {
 
 const STATUS_CONFIG = {
   completed: {
-    borderColor: 'border-l-status-success-border',
+    borderColor: 'border-s-status-success-border',
     bgColor: 'bg-status-success-bg',
     icon: CheckCircle2,
     iconColor: 'text-status-success-icon',
     dotColor: 'bg-status-success-icon',
   },
   active: {
-    borderColor: 'border-l-status-info-border',
+    borderColor: 'border-s-status-info-border',
     bgColor: 'bg-status-info-bg',
     icon: Loader2,
     iconColor: 'text-status-info-icon',
     dotColor: 'bg-status-info-icon',
   },
   pending: {
-    borderColor: 'border-l-status-neutral-border',
+    borderColor: 'border-s-status-neutral-border',
     bgColor: 'bg-status-neutral-bg',
     icon: Circle,
     iconColor: 'text-status-neutral-icon',
     dotColor: 'bg-status-neutral-icon',
   },
   failed: {
-    borderColor: 'border-l-status-error-border',
+    borderColor: 'border-s-status-error-border',
     bgColor: 'bg-status-error-bg',
     icon: AlertCircle,
     iconColor: 'text-status-error-icon',
     dotColor: 'bg-status-error-icon',
   },
   skipped: {
-    borderColor: 'border-l-status-warning-border',
+    borderColor: 'border-s-status-warning-border',
     bgColor: 'bg-status-warning-bg',
     icon: Circle,
     iconColor: 'text-status-warning-icon',
@@ -80,7 +80,7 @@ export function MobileWorkflowTimeline({ steps }: MobileWorkflowTimelineProps) {
               {!isLast && <div className="w-0.5 flex-1 bg-border" />}
             </div>
 
-            <div className={`mb-2 flex-1 rounded-lg border-l-4 ${config.borderColor} ${config.bgColor} p-3`}>
+            <div className={`mb-2 flex-1 rounded-lg border-s-4 ${config.borderColor} ${config.bgColor} p-3`}>
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">

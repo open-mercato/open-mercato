@@ -442,7 +442,7 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
                     />
                     <div>
                       <span className="text-sm font-medium">{t('sso.admin.field.jitEnabled', 'Just-in-Time Provisioning')}</span>
-                      <span className="text-xs text-muted-foreground ml-2">
+                      <span className="text-xs text-muted-foreground ms-2">
                         {config.hasActiveScimTokens
                           ? t('sso.admin.field.jitDisabledByScim', 'Unavailable — SCIM directory sync is active. Revoke SCIM tokens to enable JIT.')
                           : t('sso.admin.field.jitEnabledDesc', 'Automatically create user accounts on first SSO login')}
@@ -458,7 +458,7 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
                     />
                     <div>
                       <span className="text-sm font-medium">{t('sso.admin.field.autoLinkByEmail', 'Auto-link by Email')}</span>
-                      <span className="text-xs text-muted-foreground ml-2">
+                      <span className="text-xs text-muted-foreground ms-2">
                         {t('sso.admin.field.autoLinkByEmailDesc', 'Automatically link existing users by matching email address')}
                       </span>
                     </div>
@@ -933,7 +933,7 @@ function ScimProvisioningTab({ configId, jitEnabled, issuer, onProvisioningChang
                 <div className="flex items-center gap-3">
                   <div>
                     <span className="text-sm font-medium">{token.name}</span>
-                    <span className="text-xs text-muted-foreground ml-2 font-mono">{token.tokenPrefix}...</span>
+                    <span className="text-xs text-muted-foreground ms-2 font-mono">{token.tokenPrefix}...</span>
                   </div>
                   <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
                     token.isActive ? 'bg-status-success-bg text-status-success-text' : 'bg-status-neutral-bg text-status-neutral-text'
@@ -965,11 +965,11 @@ function ScimProvisioningTab({ configId, jitEnabled, issuer, onProvisioningChang
             <table className="w-full text-sm">
               <thead className="bg-muted/50">
                 <tr>
-                  <th className="text-left px-3 py-2 font-medium">{t('sso.admin.scim.log.time', 'Time')}</th>
-                  <th className="text-left px-3 py-2 font-medium">{t('sso.admin.scim.log.operation', 'Operation')}</th>
-                  <th className="text-left px-3 py-2 font-medium">{t('sso.admin.scim.log.resource', 'Resource')}</th>
-                  <th className="text-left px-3 py-2 font-medium">{t('sso.admin.scim.log.status', 'Status')}</th>
-                  <th className="text-left px-3 py-2 font-medium">{t('sso.admin.scim.log.error', 'Error')}</th>
+                  <th className="text-start px-3 py-2 font-medium">{t('sso.admin.scim.log.time', 'Time')}</th>
+                  <th className="text-start px-3 py-2 font-medium">{t('sso.admin.scim.log.operation', 'Operation')}</th>
+                  <th className="text-start px-3 py-2 font-medium">{t('sso.admin.scim.log.resource', 'Resource')}</th>
+                  <th className="text-start px-3 py-2 font-medium">{t('sso.admin.scim.log.status', 'Status')}</th>
+                  <th className="text-start px-3 py-2 font-medium">{t('sso.admin.scim.log.error', 'Error')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1040,7 +1040,7 @@ function SsoActivityTab({ configId }: { configId: string }) {
         <div key={identity.id} className="flex items-center justify-between p-3 border rounded-md">
           <div>
             <span className="text-sm font-medium">{identity.idpEmail}</span>
-            {identity.idpName && <span className="text-sm text-muted-foreground ml-2">({identity.idpName})</span>}
+            {identity.idpName && <span className="text-sm text-muted-foreground ms-2">({identity.idpName})</span>}
           </div>
           <span className="text-xs text-muted-foreground">
             {identity.lastLoginAt ? new Date(identity.lastLoginAt).toLocaleString() : '—'}

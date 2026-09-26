@@ -64,7 +64,7 @@ export function AnnotationGroupNode({ id, data, isConnectable, selected }: NodeP
           <button
             type="button"
             aria-label={t('workflows.annotations.group.delete', 'Delete group')}
-            className="nodrag nopan -mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-status-error-icon focus-visible:opacity-100 group-hover:opacity-100"
+            className="nodrag nopan -me-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-status-error-icon focus-visible:opacity-100 group-hover:opacity-100"
             onClick={(event) => {
               event.stopPropagation()
               event.preventDefault()

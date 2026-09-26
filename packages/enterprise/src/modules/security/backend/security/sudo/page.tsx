@@ -254,7 +254,7 @@ function SecuritySudoPageInner() {
               size="sm"
             >
               <Link href="/backend/security/sudo/create">
-                <Plus className="mr-2 size-4" />
+                <Plus className="me-2 size-4" />
                 {t('security.admin.sudo.actions.add', 'Add rule')}
               </Link>
             </Button>

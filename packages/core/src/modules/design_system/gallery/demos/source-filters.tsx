@@ -36,7 +36,7 @@ export function SourceFilterPanel({ value, onApply }: { value?: Filters; onApply
   function clear() { setDraft(emptyFilters()); setApplied(false) }
   return <div className="w-full min-w-0 bg-background" data-example="filter-panel">
     <div className="flex flex-col sm:flex-row">
-      <div className="flex shrink-0 flex-wrap gap-1 border-b border-border p-3 sm:w-[224px] sm:flex-col sm:border-b-0 sm:border-r" role="group" aria-label={copy('categories')}>
+      <div className="flex shrink-0 flex-wrap gap-1 border-b border-border p-3 sm:w-[224px] sm:flex-col sm:border-b-0 sm:border-e" role="group" aria-label={copy('categories')}>
         <FilterPanelItem active={section === 'date'} leading={<CalendarDays />} aria-controls={panelId} onClick={() => setSection('date')}>{copy('date')}</FilterPanelItem>
         <FilterPanelItem active={section === 'status'} leading={<Check />} aria-controls={panelId} onClick={() => setSection('status')}>{copy('status')}</FilterPanelItem>
       </div>
@@ -111,8 +111,8 @@ export function SourceFilterToolbar({ type }: { type: 'table' | 'calendar' }) {
     </FilterToolbar>
     <p role="status" className="text-sm text-muted-foreground">{copy('results', { count: rows.length })}</p>
     <div className="overflow-x-auto rounded-md border border-border"><Table className="min-w-[440px]">
-      <TableHeader><TableRow><TableHead>{copy('name')}</TableHead><TableHead>{copy('status')}</TableHead>{showAmount ? <TableHead className="text-right">{copy('amount')}</TableHead> : null}</TableRow></TableHeader>
-      <TableBody>{rows.map(row => <TableRow key={row.name}><TableCell className="font-medium">{row.name}</TableCell><TableCell>{copy(row.status)}</TableCell>{showAmount ? <TableCell className="text-right tabular-nums">{row.amount.toLocaleString(undefined, { style: 'currency', currency: 'USD' })}</TableCell> : null}</TableRow>)}</TableBody>
+      <TableHeader><TableRow><TableHead>{copy('name')}</TableHead><TableHead>{copy('status')}</TableHead>{showAmount ? <TableHead className="text-end">{copy('amount')}</TableHead> : null}</TableRow></TableHeader>
+      <TableBody>{rows.map(row => <TableRow key={row.name}><TableCell className="font-medium">{row.name}</TableCell><TableCell>{copy(row.status)}</TableCell>{showAmount ? <TableCell className="text-end tabular-nums">{row.amount.toLocaleString(undefined, { style: 'currency', currency: 'USD' })}</TableCell> : null}</TableRow>)}</TableBody>
     </Table></div>
     <Button size="sm" variant="ghost" onClick={() => { setQuery(''); setCategory('all'); setFilters(emptyFilters()); setPeriod('7'); setEndDate(new Date(2023, 7, 11)); setSort('recent'); setShowAmount(true) }}>{copy('reset')}</Button>
   </div>

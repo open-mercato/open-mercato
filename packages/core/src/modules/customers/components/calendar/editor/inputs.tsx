@@ -176,7 +176,7 @@ export function PersonChip({
   return (
     <span
       className={cn(
-        'inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted pl-1 pr-2',
+        'inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted ps-1 pe-2',
         compact ? 'py-0.5' : 'py-1',
       )}
     >

@@ -31,7 +31,7 @@ export function ExtensionPointList({ extensions }: { extensions: UmesExtensionIn
             <span className={`inline-block size-2 rounded-full ${TYPE_COLORS[type] ?? 'bg-muted-foreground'}`} />
             {type} ({items.length})
           </div>
-          <div className="pl-3.5">
+          <div className="ps-3.5">
             {items.map((ext, idx) => (
               <div
                 key={`${ext.id}-${idx}`}
@@ -39,7 +39,7 @@ export function ExtensionPointList({ extensions }: { extensions: UmesExtensionIn
               >
                 <div>
                   <span className="font-medium">{ext.id}</span>
-                  <span className="ml-1.5 text-muted-foreground">[{ext.moduleId}]</span>
+                  <span className="ms-1.5 text-muted-foreground">[{ext.moduleId}]</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-overline text-muted-foreground">{ext.target}</span>

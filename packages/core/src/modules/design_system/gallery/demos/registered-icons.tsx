@@ -48,7 +48,7 @@ function IconTile({ name }: { name: string }) {
               type="button"
               variant="ghost"
               onClick={() => copy(name)}
-              className="h-auto w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:shadow-focus"
+              className="h-auto w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-start transition-colors hover:bg-muted focus-visible:outline-none focus-visible:shadow-focus"
             >
               <span className="text-xs font-medium text-foreground">
                 {t('design_system.gallery.iconCopyMeta', 'Copy name for page.meta icon')}
@@ -61,7 +61,7 @@ function IconTile({ name }: { name: string }) {
               type="button"
               variant="ghost"
               onClick={() => copy(jsxSnippet)}
-              className="h-auto w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:shadow-focus"
+              className="h-auto w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-start transition-colors hover:bg-muted focus-visible:outline-none focus-visible:shadow-focus"
             >
               <span className="text-xs font-medium text-foreground">
                 {t('design_system.gallery.iconCopyJsx', 'Copy JSX (lucide-react)')}

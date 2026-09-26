@@ -263,7 +263,7 @@ export function WorkflowNodeCard({
           role="status"
           aria-label={errorBadgeLabel}
           title={errorBadgeLabel}
-          className="absolute -top-2 -right-2 z-10 inline-flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-background bg-status-error-icon px-1 text-xs font-bold text-primary-foreground"
+          className="absolute -top-2 -end-2 z-10 inline-flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-background bg-status-error-icon px-1 text-xs font-bold text-primary-foreground"
         >
           {typeof errorCount === 'number' && errorCount > 0 ? (
             errorCount
@@ -281,7 +281,7 @@ export function WorkflowNodeCard({
           data-testid="workflow-node-compensation-badge"
           aria-label={compensationBadgeLabel}
           title={compensationBadgeLabel}
-          className="absolute -bottom-2 -right-2 z-10 inline-flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-background bg-status-warning-bg px-1 text-status-warning-text"
+          className="absolute -bottom-2 -end-2 z-10 inline-flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-background bg-status-warning-bg px-1 text-status-warning-text"
         >
           <ShieldMinus className="h-3 w-3" aria-hidden="true" />
         </span>
@@ -293,7 +293,7 @@ export function WorkflowNodeCard({
     <button
       type="button"
       aria-label={t('workflows.visualEditor.deleteStep', 'Delete step')}
-      className="nodrag nopan -mr-1 -mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-status-error-icon focus-visible:opacity-100 group-hover:opacity-100"
+      className="nodrag nopan -me-1 -mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-status-error-icon focus-visible:opacity-100 group-hover:opacity-100"
       onClick={(event) => {
         event.stopPropagation()
         event.preventDefault()

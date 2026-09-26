@@ -209,7 +209,7 @@ export function CollapsibleZoneLayout({
                     >
                       <SectionIcon className="size-4" />
                       {hasErrors ? (
-                        <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-destructive" />
+                        <span className="absolute end-1.5 top-1.5 size-1.5 rounded-full bg-destructive" />
                       ) : null}
                     </IconButton>
                   )
@@ -260,7 +260,7 @@ export function CollapsibleZoneLayout({
 
           {/* Divider with collapse toggle */}
           <div className="hidden lg:flex relative shrink-0 w-8 items-start justify-center pt-4">
-            <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border" />
+            <div className="absolute inset-y-0 start-1/2 w-px -translate-x-1/2 bg-border rtl:translate-x-1/2" />
             <Button
               type="button"
               variant="outline"

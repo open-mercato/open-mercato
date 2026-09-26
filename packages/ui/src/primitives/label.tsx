@@ -29,6 +29,6 @@ export function FieldLabel({ children, required = false, sublabel, information, 
     <Label className={cn('gap-px leading-5', disabled && 'cursor-not-allowed')} {...props}>{children}{required ? <span aria-hidden="true" className={disabled ? 'text-text-disabled' : 'text-accent-indigo'}>*</span> : null}</Label>
     {sublabel ? <span className={cn('font-normal', disabled ? 'text-text-disabled' : 'text-muted-foreground')}>{sublabel}</span> : null}
     {information ? <span className="inline-flex size-5 shrink-0 items-center justify-center">{information}</span> : null}
-    {action ? <span className="ml-auto inline-flex shrink-0 items-center justify-end">{action}</span> : null}
+    {action ? <span className="ms-auto inline-flex shrink-0 items-center justify-end">{action}</span> : null}
   </div>
 }

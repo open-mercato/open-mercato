@@ -64,12 +64,12 @@ function FilterPopover({ allLabel, options, values, triggerLabel, onChange }: Fi
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72 space-y-3 p-3">
         <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Search className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder={t('customers.changelog.filters.search', 'Search')}
-            className="h-8 pl-8 text-xs"
+            className="h-8 ps-8 text-xs"
           />
         </div>
 
@@ -81,7 +81,7 @@ function FilterPopover({ allLabel, options, values, triggerLabel, onChange }: Fi
             onClick={() => onChange([])}
             className="h-auto w-full justify-start px-2 py-1.5 text-xs"
           >
-            {values.length === 0 ? <Check className="mr-2 size-3.5 text-foreground" /> : <span className="mr-5" />}
+            {values.length === 0 ? <Check className="me-2 size-3.5 text-foreground" /> : <span className="me-5" />}
             {allLabel}
           </Button>
           {filteredOptions.map((option) => (
@@ -93,7 +93,7 @@ function FilterPopover({ allLabel, options, values, triggerLabel, onChange }: Fi
               onClick={() => toggleValue(option.value)}
               className="h-auto w-full justify-start px-2 py-1.5 text-xs"
             >
-              {valuesSet.has(option.value) ? <Check className="mr-2 size-3.5 text-foreground" /> : <span className="mr-5" />}
+              {valuesSet.has(option.value) ? <Check className="me-2 size-3.5 text-foreground" /> : <span className="me-5" />}
               <span className="truncate">{option.label}</span>
             </Button>
           ))}
@@ -165,13 +165,13 @@ export function ChangelogFilters({
           <select
             value={dateRange}
             onChange={(event) => onDateRangeChange(event.target.value as '7d' | '30d' | '90d')}
-            className="h-8 min-w-32 appearance-none rounded-lg border bg-background pl-3 pr-8 text-xs text-foreground outline-none ring-offset-background focus:ring-2 focus:ring-ring"
+            className="h-8 min-w-32 appearance-none rounded-lg border bg-background ps-3 pe-8 text-xs text-foreground outline-none ring-offset-background focus:ring-2 focus:ring-ring"
           >
             <option value="7d">{t('customers.changelog.last7days', 'Last 7 days')}</option>
             <option value="30d">{t('customers.changelog.last30days', 'Last 30 days')}</option>
             <option value="90d">{t('customers.changelog.last90days', 'Last 90 days')}</option>
           </select>
-          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <ChevronDown className="pointer-events-none absolute end-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
         </div>
 
         <Button
@@ -182,7 +182,7 @@ export function ChangelogFilters({
           disabled={exportDisabled}
           className="h-8 rounded-lg px-3 text-xs"
         >
-          <Download className="mr-1.5 size-3.5" />
+          <Download className="me-1.5 size-3.5" />
           {t('customers.changelog.exportCsv', 'Export CSV')}
         </Button>
       </div>

@@ -56,7 +56,7 @@ function RequiredMark({ required }: { required: boolean }) {
   const t = useT()
   if (!required) return null
   return (
-    <span className="ml-1 text-status-error-text" aria-label={t('workflows.portal.tasks.form.required', 'Required')}>
+    <span className="ms-1 text-status-error-text" aria-label={t('workflows.portal.tasks.form.required', 'Required')}>
       *
     </span>
   )

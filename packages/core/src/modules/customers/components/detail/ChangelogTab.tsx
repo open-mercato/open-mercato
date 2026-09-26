@@ -601,7 +601,7 @@ export function ChangelogTab({ entityId, entityType }: ChangelogTabProps) {
               disabled={!hasNewer || loading}
               className="h-8 rounded-lg px-3 text-xs"
             >
-              <ArrowLeft className="mr-1.5 size-3.5" />
+              <ArrowLeft className="me-1.5 size-3.5" />
               {previousPageLabel}
             </Button>
             <Button
@@ -613,7 +613,7 @@ export function ChangelogTab({ entityId, entityType }: ChangelogTabProps) {
               className="h-8 rounded-lg px-3 text-xs"
             >
               {nextPageLabel}
-              <ArrowRight className="ml-1.5 size-3.5" />
+              <ArrowRight className="ms-1.5 size-3.5" />
             </Button>
           </div>
         </div>

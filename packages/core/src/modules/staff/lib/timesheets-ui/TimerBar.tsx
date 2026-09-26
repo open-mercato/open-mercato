@@ -257,12 +257,12 @@ function DefaultTimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
               className="text-xs font-medium"
             >
               {selectedProject
-                ? (<><ProjectColorDot colorKey={selectedProject.color} projectName={selectedProject.name} size="xs" /><span className="ml-1">{selectedProject.name}</span></>)
+                ? (<><ProjectColorDot colorKey={selectedProject.color} projectName={selectedProject.name} size="xs" /><span className="ms-1">{selectedProject.name}</span></>)
                 : t('staff.timesheets.my.timer.selectProject', 'Project')}
             </Button>
 
             {showProjectDropdown && (
-              <div className="absolute right-0 top-full mt-1 z-50 min-w-[200px] rounded-md border bg-popover p-1 shadow-md">
+              <div className="absolute end-0 top-full mt-1 z-50 min-w-[200px] rounded-md border bg-popover p-1 shadow-md">
                 <input
                   type="text"
                   value={projectFilter}
@@ -297,9 +297,9 @@ function DefaultTimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
                         }}
                       >
                         <ProjectColorDot colorKey={project.color} projectName={project.name} size="xs" />
-                        <span className="ml-1">{project.name}</span>
+                        <span className="ms-1">{project.name}</span>
                         {project.code ? (
-                          <span className="ml-1 text-muted-foreground">
+                          <span className="ms-1 text-muted-foreground">
                             ({project.code})
                           </span>
                         ) : null}
@@ -313,7 +313,7 @@ function DefaultTimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
         )}
       </div>
 
-      <span className="font-mono text-sm tabular-nums min-w-[64px] text-right">
+      <span className="font-mono text-sm tabular-nums min-w-[64px] text-end">
         {formatElapsed(elapsedSeconds)}
       </span>
 

@@ -353,7 +353,7 @@ export function createCompanyLinkAdapter(
                   <Users className="size-3 text-muted-foreground" />
                   <span className="text-xs font-semibold text-foreground">{person.name}</span>
                   {person.role ? (
-                    <span className="ml-auto inline-flex items-center rounded-sm border border-border px-1.5 py-0.5 text-xs font-semibold text-muted-foreground">
+                    <span className="ms-auto inline-flex items-center rounded-sm border border-border px-1.5 py-0.5 text-xs font-semibold text-muted-foreground">
                       {person.role}
                     </span>
                   ) : null}

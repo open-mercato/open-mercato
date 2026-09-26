@@ -151,7 +151,7 @@ export function EntitySettingsManager(): React.ReactElement {
 
       <div className="flex items-center justify-end gap-3 border-t pt-4">
         <Button type="submit" disabled={saving}>
-          {saving ? <Spinner className="mr-2 h-4 w-4" /> : null}
+          {saving ? <Spinner className="me-2 h-4 w-4" /> : null}
           {t('common.save', 'Save')}
         </Button>
       </div>

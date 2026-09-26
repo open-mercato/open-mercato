@@ -62,7 +62,7 @@ function FieldLabel({
   return (
     <label htmlFor={fieldName} className={LABEL_CLASSES}>
       {title}
-      {required ? <span className="text-status-error-text ml-1">*</span> : null}
+      {required ? <span className="text-status-error-text ms-1">*</span> : null}
     </label>
   )
 }
@@ -255,11 +255,11 @@ export function TaskFormFields({
               />
               <label htmlFor={fieldName} className="text-sm font-medium text-foreground">
                 {fieldTitle}
-                {required ? <span className="text-status-error-text ml-1">*</span> : null}
+                {required ? <span className="text-status-error-text ms-1">*</span> : null}
               </label>
             </div>
             {fieldDescription ? (
-              <p className="text-xs text-muted-foreground ml-6">{fieldDescription}</p>
+              <p className="text-xs text-muted-foreground ms-6">{fieldDescription}</p>
             ) : null}
           </div>
         )

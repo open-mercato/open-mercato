@@ -90,7 +90,7 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
 
   return (
     <div
-      className="relative inline-block text-left"
+      className="relative inline-block text-start"
       onPointerEnter={handlePointerEnter}
       onPointerLeave={handlePointerLeave}
     >
@@ -123,7 +123,7 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
               <a
                 key={idx}
                 href={it.href}
-                className={`block w-full text-left px-2 py-1 text-sm rounded hover:bg-accent ${it.destructive ? 'text-destructive' : ''}`}
+                className={`block w-full text-start px-2 py-1 text-sm rounded hover:bg-accent ${it.destructive ? 'text-destructive' : ''}`}
                 role="menuitem"
                 onClick={(event) => {
                   event.stopPropagation()

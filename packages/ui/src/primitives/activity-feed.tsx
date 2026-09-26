@@ -144,7 +144,7 @@ const ActivityFeedItem = React.forwardRef<HTMLLIElement, ActivityFeedItemProps>(
       {actions ? (
         <div
           data-slot="activity-feed-item-actions"
-          className="ml-auto inline-flex shrink-0 items-start"
+          className="ms-auto inline-flex shrink-0 items-start"
         >
           {actions}
         </div>
@@ -194,7 +194,7 @@ const ActivityFeedFileChip = React.forwardRef<HTMLDivElement, ActivityFeedFileCh
           aria-label={downloadAriaLabel}
           onClick={onDownload}
           className={cn(
-            'ml-1 inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors',
+            'ms-1 inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors',
             'hover:bg-muted/40 hover:text-foreground focus-visible:shadow-focus',
           )}
         >

@@ -177,7 +177,7 @@ export function ScheduleToolbar({
           <ChevronRight className="size-4" aria-hidden />
         </IconButton>
       </div>
-      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 md:ml-auto">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 md:ms-auto">
         {onTimezoneChange ? (
           <Select value={timezone ?? undefined} onValueChange={onTimezoneChange}>
             <SelectTrigger

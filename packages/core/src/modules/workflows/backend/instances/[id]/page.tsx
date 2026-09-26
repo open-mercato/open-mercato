@@ -959,16 +959,16 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
                     <table className="min-w-full divide-y divide-border">
                       <thead className="bg-muted">
                         <tr>
-                          <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                          <th className="px-4 py-3 text-start text-xs font-medium uppercase tracking-wider text-muted-foreground">
                             {t('workflows.events.occurredAt')}
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                          <th className="px-4 py-3 text-start text-xs font-medium uppercase tracking-wider text-muted-foreground">
                             {t('workflows.events.eventType')}
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                          <th className="px-4 py-3 text-start text-xs font-medium uppercase tracking-wider text-muted-foreground">
                             {t('workflows.events.eventData')}
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                          <th className="px-4 py-3 text-start text-xs font-medium uppercase tracking-wider text-muted-foreground">
                             {t('workflows.events.userId')}
                           </th>
                         </tr>

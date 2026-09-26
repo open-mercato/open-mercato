@@ -89,7 +89,7 @@ export function PortalNotificationPanel({
       {/* Panel */}
       <div
         ref={panelRef}
-        className="fixed right-0 top-0 z-modal flex h-full w-full max-w-md flex-col border-l bg-background shadow-2xl"
+        className="fixed end-0 top-0 z-modal flex h-full w-full max-w-md flex-col border-s bg-background shadow-2xl"
       >
         {/* Header */}
         <div className="flex h-16 items-center justify-between border-b px-5">
@@ -110,7 +110,7 @@ export function PortalNotificationPanel({
                 className="text-xs text-muted-foreground"
                 onClick={() => onMarkAllRead()}
               >
-                <CheckIcon className="mr-1 size-3.5" />
+                <CheckIcon className="me-1 size-3.5" />
                 {t('portal.notifications.markAllRead', 'Mark all read')}
               </Button>
             ) : null}
@@ -137,7 +137,7 @@ export function PortalNotificationPanel({
                 ? t('portal.notifications.tab.all', 'All')
                 : t('portal.notifications.tab.unread', 'Unread')}
               {tabId === 'unread' && unreadCount > 0 ? (
-                <span className="ml-1.5 inline-flex size-5 items-center justify-center rounded-full bg-foreground text-overline font-bold text-background">
+                <span className="ms-1.5 inline-flex size-5 items-center justify-center rounded-full bg-foreground text-overline font-bold text-background">
                   {unreadCount}
                 </span>
               ) : null}
@@ -209,7 +209,7 @@ export function PortalNotificationPanel({
                     {notification.linkHref ? (
                       <a
                         href={notification.linkHref}
-                        className="ml-auto text-overline font-medium text-foreground underline underline-offset-2 hover:opacity-80"
+                        className="ms-auto text-overline font-medium text-foreground underline underline-offset-2 hover:opacity-80"
                         onClick={() => {
                           if (notification.status === 'unread') onMarkAsRead(notification.id)
                           onClose()

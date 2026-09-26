@@ -39,7 +39,7 @@ export function SegmentGroup<T extends string>({
             className={cn(
               'h-auto min-w-0 flex-1 justify-center gap-1 rounded-none border-0 px-1.5 text-sm font-medium leading-5 shadow-none',
               size === 'md' ? 'py-2' : 'py-1.5',
-              index > 0 && 'border-l border-border',
+              index > 0 && 'border-s border-border',
               isActive
                 // Keep the indigo fill on hover in BOTH themes — the ghost Button
                 // ships `dark:hover:bg-accent/50`, which would otherwise wash the

@@ -46,9 +46,9 @@ export const Banner = React.forwardRef<HTMLDivElement, BannerProps>(
         <div className="flex min-w-0 flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center text-sm leading-5">
           <span className="font-medium">{title}</span>
           {description ? <><span aria-hidden="true" className="hidden sm:inline">·</span><span>{description}</span></> : null}
-          {action ? <span className="ml-1 inline-flex items-center">{action}</span> : null}
+          {action ? <span className="ms-1 inline-flex items-center">{action}</span> : null}
         </div>
-        {onDismiss ? <Button type="button" variant="ghost" size="icon" className="absolute right-3 top-1/2 size-5 -translate-y-1/2 p-0 text-inherit hover:text-inherit" onClick={onDismiss} aria-label={dismissAriaLabel ?? t('ui.banner.dismiss', 'Dismiss banner')}><X aria-hidden="true" className="size-5" /></Button> : null}
+        {onDismiss ? <Button type="button" variant="ghost" size="icon" className="absolute end-3 top-1/2 size-5 -translate-y-1/2 p-0 text-inherit hover:text-inherit" onClick={onDismiss} aria-label={dismissAriaLabel ?? t('ui.banner.dismiss', 'Dismiss banner')}><X aria-hidden="true" className="size-5" /></Button> : null}
       </div>
     )
   },

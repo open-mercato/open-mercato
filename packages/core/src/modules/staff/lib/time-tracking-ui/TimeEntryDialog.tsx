@@ -1841,7 +1841,7 @@ function DefaultTimeEntryDialog({
             * competes with the buttons for room it does not deserve, and a
             * keyboard hint is useless on a touch device anyway.
             */}
-          <span className="mr-auto hidden items-center gap-1 whitespace-nowrap text-xs text-muted-foreground sm:flex">
+          <span className="me-auto hidden items-center gap-1 whitespace-nowrap text-xs text-muted-foreground sm:flex">
             <Kbd>⌘</Kbd>
             <Kbd>↵</Kbd>
             {t('staff.time_tracking.entryDialog.shortcutSave', 'save')}

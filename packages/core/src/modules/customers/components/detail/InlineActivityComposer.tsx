@@ -260,12 +260,12 @@ export function InlineActivityComposer({
           >
             {weekPreviewHidden ? (
               <>
-                <ChevronDown className="mr-1 size-3" />
+                <ChevronDown className="me-1 size-3" />
                 {t('customers.activityComposer.showWeekPreview', 'Show week preview')}
               </>
             ) : (
               <>
-                <ChevronUp className="mr-1 size-3" />
+                <ChevronUp className="me-1 size-3" />
                 {t('customers.activityComposer.hideWeekPreview', 'Hide week preview')}
               </>
             )}

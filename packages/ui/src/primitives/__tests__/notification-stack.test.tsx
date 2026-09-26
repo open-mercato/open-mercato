@@ -70,7 +70,7 @@ describe('NotificationStack + useNotification', () => {
     const stack = container.querySelector('[data-slot="notification-stack"]')
     expect(stack).toHaveAttribute('data-placement', 'bottom-left')
     expect(stack).toHaveClass('bottom-4')
-    expect(stack).toHaveClass('left-4')
+    expect(stack).toHaveClass('start-4')
   })
 
   it('dismiss button on a notification removes it from the queue', () => {

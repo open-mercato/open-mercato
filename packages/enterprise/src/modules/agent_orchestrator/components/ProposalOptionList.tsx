@@ -250,7 +250,7 @@ export function ProposalOptionList({
                 onClick={() => onSelect?.(option.id)}
                 onKeyDown={(event) => onKeyDown(event, index)}
                 className={cn(
-                  'w-full rounded-lg border p-3 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  'w-full rounded-lg border p-3 text-start transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   selected
                     ? 'border-brand-violet bg-brand-violet/10'
                     : 'border-border bg-card hover:bg-muted/40',

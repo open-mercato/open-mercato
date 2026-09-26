@@ -174,7 +174,7 @@ export function EmailThreadsPanel({
                       variant="ghost"
                       onClick={() => setSelectedKey(thread.threadKey)}
                       className={cn(
-                        'h-auto w-full flex-col items-stretch justify-start gap-1 whitespace-normal rounded-none p-3 text-left hover:bg-muted',
+                        'h-auto w-full flex-col items-stretch justify-start gap-1 whitespace-normal rounded-none p-3 text-start hover:bg-muted',
                         isSelected ? 'bg-muted' : 'bg-transparent',
                       )}
                       aria-current={isSelected}

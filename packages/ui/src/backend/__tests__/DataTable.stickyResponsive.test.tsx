@@ -62,10 +62,10 @@ describe('DataTable sticky columns are viewport-gated', () => {
       for (const cell of [firstHeader, firstBodyCell]) {
         const tokens = tokensOf(cell)
         expect(tokens).toEqual(
-          expect.arrayContaining(['md:sticky', 'md:left-0', 'md:bg-background', 'md:after:absolute']),
+          expect.arrayContaining(['md:sticky', 'md:start-0', 'md:bg-background', 'md:after:absolute']),
         )
         expect(tokens).not.toContain('sticky')
-        expect(tokens).not.toContain('left-0')
+        expect(tokens).not.toContain('start-0')
         expect(tokens).not.toContain('bg-background')
         expect(tokens).not.toContain('after:absolute')
       }
@@ -85,10 +85,10 @@ describe('DataTable sticky columns are viewport-gated', () => {
       for (const cell of [actionsHeader, actionsBodyCell]) {
         const tokens = tokensOf(cell)
         expect(tokens).toEqual(
-          expect.arrayContaining(['md:sticky', 'md:right-0', 'md:bg-background', 'md:before:absolute']),
+          expect.arrayContaining(['md:sticky', 'md:end-0', 'md:bg-background', 'md:before:absolute']),
         )
         expect(tokens).not.toContain('sticky')
-        expect(tokens).not.toContain('right-0')
+        expect(tokens).not.toContain('end-0')
         expect(tokens).not.toContain('bg-background')
         expect(tokens).not.toContain('before:absolute')
       }

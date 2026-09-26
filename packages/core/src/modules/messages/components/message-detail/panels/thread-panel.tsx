@@ -15,7 +15,7 @@ export function MessageDetailThreadSection({ detail }: { detail: MessageDetail }
   if ((detail.thread ?? []).length === 0) return null
 
   return (
-    <section className="space-y-3 border-l pl-4 py-2">
+    <section className="space-y-3 border-s ps-4 py-2">
       <h2 className="text-base font-semibold">{t('messages.detail.thread', 'Thread')}</h2>
       <div className="space-y-3">
         {(detail.thread ?? []).map((threadItem) => (
@@ -23,11 +23,11 @@ export function MessageDetailThreadSection({ detail }: { detail: MessageDetail }
             <p className="text-xs text-muted-foreground">
               {getMessageParticipantLabel(threadItem)} • {formatDateTime(threadItem.sentAt)}
             </p>
-            <div className="mt-2 max-h-[60vh] overflow-y-auto pr-1">
+            <div className="mt-2 max-h-[60vh] overflow-y-auto pe-1">
               <MarkdownContent
                 body={threadItem.body}
                 format={threadItem.bodyFormat ?? 'text'}
-                className="text-sm whitespace-pre-wrap [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
+                className="text-sm whitespace-pre-wrap [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ms-4 [&_ul]:list-disc [&_ol]:ms-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
               />
             </div>
 

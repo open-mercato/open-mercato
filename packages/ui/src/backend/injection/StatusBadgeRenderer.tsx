@@ -69,7 +69,7 @@ export function StatusBadgeRenderer({ widget, context }: StatusBadgeRendererProp
       <StatusDot status={result.status} />
       <span className="truncate">{label}</span>
       {result.count != null && (
-        <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-xs">
+        <Badge variant="secondary" className="ms-0.5 px-1.5 py-0 text-xs">
           {result.count}
         </Badge>
       )}

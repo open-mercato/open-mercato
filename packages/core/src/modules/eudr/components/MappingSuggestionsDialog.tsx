@@ -360,7 +360,7 @@ export function MappingSuggestionsDialog({
         </div>
 
         <DialogFooter>
-          <span className="mr-auto text-sm text-muted-foreground">
+          <span className="me-auto text-sm text-muted-foreground">
             {t('eudr.suggestions.selectedCount', { count: selectedCount })}
           </span>
           <Button

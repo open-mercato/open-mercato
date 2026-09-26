@@ -123,7 +123,7 @@ Workflow (use this order):
         <div className="space-y-4">
           {isGenerating && !sessionToken ? (
             <div className="flex items-center justify-center py-8 text-muted-foreground">
-              <RefreshCw className="h-5 w-5 animate-spin mr-2" />
+              <RefreshCw className="h-5 w-5 animate-spin me-2" />
               {t('ai_assistant.session.generating')}
             </div>
           ) : sessionToken ? (

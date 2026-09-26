@@ -36,7 +36,7 @@ function SwatchCard({ copyText, label, children }: { copyText: string; label: st
       type="button"
       variant="ghost"
       onClick={onCopy}
-      className="h-auto w-44 max-w-full flex-col items-start gap-3 whitespace-normal border border-border bg-background p-3 text-left hover:bg-muted/50"
+      className="h-auto w-44 max-w-full flex-col items-start gap-3 whitespace-normal border border-border bg-background p-3 text-start hover:bg-muted/50"
       title={copyLabel}
       aria-label={copyLabel}
     >
@@ -391,7 +391,7 @@ function RoleCard({ role }: { role: ColorRole }) {
       onClick={onCopy}
       title={copyLabel}
       aria-label={copyLabel}
-      className="h-auto w-full whitespace-normal p-0 text-left transition-opacity hover:bg-transparent hover:opacity-90"
+      className="h-auto w-full whitespace-normal p-0 text-start transition-opacity hover:bg-transparent hover:opacity-90"
     >
       <span className={`flex h-36 w-full flex-col items-start justify-between rounded-lg border p-4 ${role.surfaceCls} ${role.onSurfaceCls} ${role.borderCls ?? 'border-border'}`}>
         <span className="text-base font-medium leading-tight">{role.surface}</span>
@@ -499,7 +499,7 @@ function RadiusCard({ cls, label, px }: { cls: string; label: string; px: string
       onClick={onCopy}
       title={copyLabel}
       aria-label={copyLabel}
-      className="h-auto w-36 flex-col items-start gap-2 border border-border bg-background p-2 text-left hover:bg-muted/50"
+      className="h-auto w-36 flex-col items-start gap-2 border border-border bg-background p-2 text-start hover:bg-muted/50"
     >
       <span aria-hidden className={`h-14 w-full border-2 border-dashed border-status-pink-icon bg-status-pink-bg ${cls}`} />
       <span className="space-y-0.5">
@@ -656,8 +656,8 @@ function SpacingScalePreview() {
       {SPACING_SCALE.map((item) => (
         <div key={item.token} className="flex items-center gap-4 py-2">
           <code className="w-12 shrink-0 text-sm text-muted-foreground">p-{item.token}</code>
-          <div className="min-w-0 flex-1"><span aria-hidden className="block h-8 rounded-sm border-l-4 border-primary bg-muted" style={{ width: `${item.pixels / 48 * 100}%` }} /></div>
-          <span className="w-28 shrink-0 font-mono text-xs"><span>{item.pixels / 16} rem</span><span className="ml-3 text-muted-foreground">{item.pixels} px</span></span>
+          <div className="min-w-0 flex-1"><span aria-hidden className="block h-8 rounded-sm border-s-4 border-primary bg-muted" style={{ width: `${item.pixels / 48 * 100}%` }} /></div>
+          <span className="w-28 shrink-0 font-mono text-xs"><span>{item.pixels / 16} rem</span><span className="ms-3 text-muted-foreground">{item.pixels} px</span></span>
         </div>
       ))}
     </div>

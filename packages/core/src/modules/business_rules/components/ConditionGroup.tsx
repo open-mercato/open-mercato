@@ -135,7 +135,7 @@ export function ConditionGroup({ group, onChange, onDelete, depth, maxDepth = 5,
           <button
             type="button"
             onClick={onDelete}
-            className="ml-auto p-1 text-muted-foreground hover:text-status-error-text hover:bg-status-error-bg rounded transition-colors"
+            className="ms-auto p-1 text-muted-foreground hover:text-status-error-text hover:bg-status-error-bg rounded transition-colors"
             title={t('business_rules.components.conditionGroup.deleteGroup')}
           >
             <X className="w-4 h-4" />
@@ -179,7 +179,7 @@ export function ConditionGroup({ group, onChange, onDelete, depth, maxDepth = 5,
           size="sm"
           className="text-xs"
         >
-          <Plus className="w-3 h-3 mr-1" />
+          <Plus className="w-3 h-3 me-1" />
           {t('business_rules.components.conditionGroup.addCondition')}
         </Button>
 
@@ -191,7 +191,7 @@ export function ConditionGroup({ group, onChange, onDelete, depth, maxDepth = 5,
             size="sm"
             className="text-xs"
           >
-            <Plus className="w-3 h-3 mr-1" />
+            <Plus className="w-3 h-3 me-1" />
             {t('business_rules.components.conditionGroup.addGroup', { depth: depth + 2 })}
           </Button>
         )}

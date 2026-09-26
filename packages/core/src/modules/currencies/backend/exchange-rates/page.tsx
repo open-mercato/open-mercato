@@ -307,7 +307,7 @@ export default function ExchangeRatesPage() {
           actions={
             <Button asChild>
               <Link href="/backend/exchange-rates/create">
-                <Plus className="mr-2 h-4 w-4" />
+                <Plus className="me-2 h-4 w-4" />
                 {t('exchangeRates.list.actions.create')}
               </Link>
             </Button>

@@ -396,12 +396,12 @@ describe('DataTable extensions', () => {
     try {
       const actionsHeader = screen.getByRole('columnheader', { name: 'Actions' })
       expect(actionsHeader.className).toContain('sticky')
-      expect(actionsHeader.className).toContain('right-0')
+      expect(actionsHeader.className).toContain('end-0')
 
       const actionsCell = rendered.container.querySelector('[data-actions-cell]')
       expect(actionsCell).not.toBeNull()
       expect(actionsCell?.className).toContain('sticky')
-      expect(actionsCell?.className).toContain('right-0')
+      expect(actionsCell?.className).toContain('end-0')
     } finally {
       rendered.cleanupQueryClient()
     }

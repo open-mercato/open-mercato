@@ -205,7 +205,7 @@ export function ProductMediaManager({
                       <ImageIcon className="h-8 w-8" />
                     </div>
                   )}
-                  <div className="absolute right-1 top-1 flex gap-1">
+                  <div className="absolute end-1 top-1 flex gap-1">
                     <Button
                       type="button"
                       variant={isDefault ? 'default' : 'secondary'}

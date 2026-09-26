@@ -66,7 +66,7 @@ function Pagination({
           onClick={() => onPageChange(Math.max(1, page - 1))}
           disabled={page <= 1}
         >
-          <ArrowLeft className="mr-1.5 size-3.5" />
+          <ArrowLeft className="me-1.5 size-3.5" />
           Previous
         </Button>
         <Button
@@ -77,7 +77,7 @@ function Pagination({
           disabled={page >= totalPages}
         >
           Next
-          <ArrowRight className="ml-1.5 size-3.5" />
+          <ArrowRight className="ms-1.5 size-3.5" />
         </Button>
       </div>
     </div>
@@ -413,7 +413,7 @@ export function PersonCompaniesSection({
               size="sm"
               onClick={() => setDialogOpen(true)}
             >
-              <Link2 className="mr-2 size-4" />
+              <Link2 className="me-2 size-4" />
               {t('customers.people.detail.companies.manageAction', 'Manage links')}
             </Button>
           </div>

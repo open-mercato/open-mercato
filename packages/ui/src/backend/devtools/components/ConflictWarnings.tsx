@@ -18,8 +18,8 @@ export function ConflictWarnings({ conflicts }: { conflicts: UmesConflict[] }) {
           key={idx}
           className={`mb-1.5 rounded border-l-[3px] p-2 text-xs ${
             conflict.severity === 'error'
-              ? 'border-l-status-error-border bg-status-error-bg'
-              : 'border-l-status-warning-border bg-status-warning-bg'
+              ? 'border-s-status-error-border bg-status-error-bg'
+              : 'border-s-status-warning-border bg-status-warning-bg'
           }`}
         >
           <div className="mb-0.5 font-semibold">

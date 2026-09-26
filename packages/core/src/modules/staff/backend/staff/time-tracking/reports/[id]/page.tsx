@@ -474,19 +474,19 @@ export default function TimeTrackingReportDetailPage({ params }: { params?: { id
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="px-4 py-2 text-left font-medium">
+                    <th className="px-4 py-2 text-start font-medium">
                       {t('staff.time_tracking.reports.export.date', 'Date')}
                     </th>
-                    <th className="px-4 py-2 text-left font-medium">
+                    <th className="px-4 py-2 text-start font-medium">
                       {t('staff.time_tracking.reports.export.task', 'Task')}
                     </th>
-                    <th className="px-4 py-2 text-left font-medium">
+                    <th className="px-4 py-2 text-start font-medium">
                       {t('staff.time_tracking.reports.export.person', 'Person')}
                     </th>
-                    <th className="px-4 py-2 text-right font-medium">
+                    <th className="px-4 py-2 text-end font-medium">
                       {t('staff.time_tracking.reports.sheet.time', 'Time')}
                     </th>
-                    <th className="px-4 py-2 text-right font-medium">
+                    <th className="px-4 py-2 text-end font-medium">
                       {t('staff.time_tracking.reports.sheet.amount', 'Amount')}
                     </th>
                     <th className="w-10 px-4 py-2" />
@@ -498,8 +498,8 @@ export default function TimeTrackingReportDetailPage({ params }: { params?: { id
                       <td className="px-4 py-2 text-muted-foreground">{row.date}</td>
                       <td className="px-4 py-2">{row.taskLabel}</td>
                       <td className="px-4 py-2">{row.personLabel}</td>
-                      <td className="px-4 py-2 text-right font-mono tabular-nums">{row.hours}</td>
-                      <td className="px-4 py-2 text-right font-mono tabular-nums">{money(row.amount)}</td>
+                      <td className="px-4 py-2 text-end font-mono tabular-nums">{row.hours}</td>
+                      <td className="px-4 py-2 text-end font-mono tabular-nums">{money(row.amount)}</td>
                       <td className="px-4 py-2 text-muted-foreground">
                         <Lock aria-hidden="true" className="size-4" />
                       </td>

@@ -238,10 +238,10 @@ export const Badge = React.forwardRef<HTMLDivElement, BadgeProps>(
         data-numeric={numeric || undefined}
         className={cn(
           badgeVariants({ variant, size }),
-          sourceSize && leadingIcon != null && 'pl-1',
-          sourceSize && trailingIcon != null && 'pr-1',
+          sourceSize && leadingIcon != null && 'ps-1',
+          sourceSize && trailingIcon != null && 'pe-1',
           sourceSize && dot && 'gap-0',
-          sourceSize && dot && (resolvedSize === 20 ? 'pl-0.5' : 'pl-0'),
+          sourceSize && dot && (resolvedSize === 20 ? 'ps-0.5' : 'ps-0'),
           numeric && 'justify-center px-0.5 tabular-nums',
           numeric && (resolvedSize === 16 ? 'min-w-4' : resolvedSize === 20 ? 'min-w-5' : 'min-w-6'),
           resolvedAppearance && 'shadow-none',
@@ -269,7 +269,7 @@ export const Badge = React.forwardRef<HTMLDivElement, BadgeProps>(
             aria-label={removeAriaLabel}
             onClick={onRemove}
             className={cn(
-              '-mr-0.5 ml-0.5 inline-flex shrink-0 items-center justify-center rounded-full p-0 text-inherit outline-none transition-opacity hover:bg-transparent hover:text-inherit focus-visible:shadow-focus',
+              '-me-0.5 ms-0.5 inline-flex shrink-0 items-center justify-center rounded-full p-0 text-inherit outline-none transition-opacity hover:bg-transparent hover:text-inherit focus-visible:shadow-focus',
               'opacity-70 hover:opacity-100 focus-visible:opacity-100',
               resolvedSize === 'lg' ? 'size-4' : 'size-3.5',
             )}

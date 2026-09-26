@@ -53,7 +53,7 @@ async function loadMarkdownPlugins(): Promise<PluggableList> {
 
 const MARKDOWN_FIELD_TYPES = new Set<CrudField['type']>(['text', 'textarea', 'richtext'])
 const MARKDOWN_CLASSNAME =
-  'text-sm text-foreground break-words [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs'
+  'text-sm text-foreground break-words [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ms-4 [&_ul]:list-disc [&_ol]:ms-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs'
 
 function renderMarkdownValue(content: string, remarkPlugins: PluggableList) {
   return (
@@ -221,7 +221,7 @@ function formatFieldValue(
     return value.map((entry, index) => (
       <span
         key={`${field.id}-${index}`}
-        className="mr-1 inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs"
+        className="me-1 inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs"
       >
         {(() => {
           const display = resolveOptionDisplay(entry)

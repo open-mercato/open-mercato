@@ -244,7 +244,7 @@ export function AdapterRow({
           </div>
           <p className="truncate text-xs text-muted-foreground">
             <span className="font-mono">{meta?.packageName ?? '—'}</span>
-            {statusDetail ? <span className="ml-2">{statusDetail}</span> : null}
+            {statusDetail ? <span className="ms-2">{statusDetail}</span> : null}
           </p>
         </div>
 
@@ -331,7 +331,7 @@ export function AdapterRow({
               <div key={field.name} className="space-y-1.5">
                 <Label>
                   {humanizeFieldName(field.name)}
-                  {field.required ? <span className="ml-0.5 text-status-error-text">*</span> : null}
+                  {field.required ? <span className="ms-0.5 text-status-error-text">*</span> : null}
                 </Label>
                 <OptionInput
                   field={field}

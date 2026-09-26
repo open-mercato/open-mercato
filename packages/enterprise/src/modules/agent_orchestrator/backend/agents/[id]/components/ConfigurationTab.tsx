@@ -38,7 +38,7 @@ export function ConfigurationTab({ agent, runtimeTokens, onSkillClick }: Configu
           <div className="flex items-center justify-between gap-2">
             <SectionHeader title={t('agent_orchestrator.agentDetail.fields.instructions', 'Instructions')} />
             <Button type="button" variant="outline" size="sm" disabled={!agent.instructions} onClick={copyInstructions}>
-              <Copy className="mr-1.5 size-3.5" />
+              <Copy className="me-1.5 size-3.5" />
               {t('agent_orchestrator.agentDetail.copy', 'Copy')}
             </Button>
           </div>
@@ -143,7 +143,7 @@ export function ConfigurationTab({ agent, runtimeTokens, onSkillClick }: Configu
                     type="button"
                     variant="ghost"
                     onClick={() => onSkillClick(skill)}
-                    className="h-auto w-full items-start justify-start gap-3 rounded-lg border border-border bg-card p-3 text-left font-normal hover:bg-accent/30"
+                    className="h-auto w-full items-start justify-start gap-3 rounded-lg border border-border bg-card p-3 text-start font-normal hover:bg-accent/30"
                     aria-label={t('agent_orchestrator.agentDetail.viewSkill', undefined, { skill: skill.label })}
                   >
                     <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">

@@ -42,7 +42,7 @@ function UpcomingCardStatus({
 
   if (kind === 'today') {
     return (
-      <div className="flex w-full items-center gap-1.5 rounded-lg bg-status-success-bg py-2 pl-2 pr-3">
+      <div className="flex w-full items-center gap-1.5 rounded-lg bg-status-success-bg py-2 ps-2 pe-3">
         <Clock className="size-4 shrink-0 text-status-success-icon" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
           {t('customers.calendar.cards.today', 'Today')}
@@ -64,7 +64,7 @@ function UpcomingCardStatus({
 
   if (kind === 'conflicted') {
     return (
-      <div className="flex w-full items-center gap-1.5 rounded-lg bg-status-warning-bg py-2 pl-2 pr-3">
+      <div className="flex w-full items-center gap-1.5 rounded-lg bg-status-warning-bg py-2 ps-2 pe-3">
         <AlertTriangle className="size-4 shrink-0 text-status-warning-icon" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
           {t('customers.calendar.cards.conflictedCount', '{count} Conflicted', {
@@ -86,7 +86,7 @@ function UpcomingCardStatus({
 
   if (kind === 'cancelled') {
     return (
-      <div className="flex w-full items-center gap-1.5 rounded-lg bg-status-error-bg py-2 pl-2 pr-3">
+      <div className="flex w-full items-center gap-1.5 rounded-lg bg-status-error-bg py-2 ps-2 pe-3">
         <Clock className="size-4 shrink-0 text-status-error-icon" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
           {t('customers.calendar.cards.cancelled', 'Cancelled')}
@@ -100,7 +100,7 @@ function UpcomingCardStatus({
 
   const daysLater = Math.max(0, differenceInCalendarDays(item.start, new Date()))
   return (
-    <div className="flex w-full items-center gap-1.5 rounded-lg bg-muted py-2 pl-2 pr-3">
+    <div className="flex w-full items-center gap-1.5 rounded-lg bg-muted py-2 ps-2 pe-3">
       <Clock className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
       <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
         {daysLater === 1

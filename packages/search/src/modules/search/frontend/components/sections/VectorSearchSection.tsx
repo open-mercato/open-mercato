@@ -609,7 +609,7 @@ export function VectorSearchSection({
                           aria-pressed={isSelected}
                           aria-expanded={isConfigured ? isSelected : undefined}
                           aria-controls={isSelected && isConfigured ? `provider-${providerId}-configuration` : undefined}
-                          className="h-auto w-full justify-start whitespace-normal rounded-lg p-3 text-left"
+                          className="h-auto w-full justify-start whitespace-normal rounded-lg p-3 text-start"
                         >
                           <div className="flex w-full items-start justify-between gap-2">
                             <div className="min-w-0 flex-1">
@@ -735,7 +735,7 @@ export function VectorSearchSection({
                             {hasUnsavedEmbeddingChanges && (
                               <div className="flex gap-2 pt-1">
                                 <Button type="button" variant="default" size="sm" className="flex-1" onClick={handleApplyEmbeddingChanges} disabled={embeddingLoading || embeddingSaving}>
-                                  {embeddingSaving ? <Spinner size="sm" className="mr-1" /> : null}
+                                  {embeddingSaving ? <Spinner size="sm" className="me-1" /> : null}
                                   {t('search.settings.actions.apply', 'Apply')}
                                 </Button>
                                 <Button type="button" variant="outline" size="sm" onClick={handleCancelEmbeddingSelection} disabled={embeddingLoading || embeddingSaving}>
@@ -819,11 +819,11 @@ export function VectorSearchSection({
                     </Label>
                     {embeddingSaving ? <Spinner size="sm" className="text-muted-foreground" /> : null}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1 ml-6">
+                  <p className="text-xs text-muted-foreground mt-1 ms-6">
                     {t('search.settings.autoIndexing.description', 'Automatically index new and updated records for vector search.')}
                   </p>
                   {embeddingSettings?.autoIndexingLocked && (
-                    <p className="text-xs text-destructive mt-1 ml-6">
+                    <p className="text-xs text-destructive mt-1 ms-6">
                       {t('search.settings.autoIndexing.locked', 'Disabled via environment variable.')}
                     </p>
                   )}
@@ -874,7 +874,7 @@ export function VectorSearchSection({
                 >
                   {vectorReindexing || vectorReindexLock !== null ? (
                     <>
-                      <Spinner size="sm" className="mr-2" />
+                      <Spinner size="sm" className="me-2" />
                       {t('search.settings.vectorReindex.running', 'Reindexing...')}
                     </>
                   ) : (
@@ -944,7 +944,7 @@ export function VectorSearchSection({
             >
               {activityLoading ? (
                 <>
-                  <Spinner size="sm" className="mr-2" />
+                  <Spinner size="sm" className="me-2" />
                   {t('search.settings.loadingLabel', 'Loading...')}
                 </>
               ) : (
@@ -1010,7 +1010,7 @@ export function VectorSearchSection({
                 {t('search.settings.actions.cancel', 'Cancel')}
               </Button>
               <Button type="button" variant="destructive-solid" onClick={handleEmbeddingConfirmChange} disabled={embeddingSaving}>
-                {embeddingSaving ? <Spinner size="sm" className="mr-2" /> : null}
+                {embeddingSaving ? <Spinner size="sm" className="me-2" /> : null}
                 {t('search.settings.actions.confirm', 'Confirm')}
               </Button>
             </div>

@@ -35,32 +35,32 @@ export function DefaultActions({
     <div className="flex flex-wrap items-center gap-2">
       {showCheckNow ? (
         <Button type="button" variant="outline" size="sm" onClick={onCheckNow} disabled={busy}>
-          <RefreshCw className="mr-1.5 h-4 w-4" aria-hidden />
+          <RefreshCw className="me-1.5 h-4 w-4" aria-hidden />
           {t('customer_accounts.domainMapping.verifyNow', 'Check Now')}
         </Button>
       ) : null}
       {showRetryTls ? (
         <Button type="button" variant="outline" size="sm" onClick={onRetryTls} disabled={busy}>
-          <RefreshCw className="mr-1.5 h-4 w-4" aria-hidden />
+          <RefreshCw className="me-1.5 h-4 w-4" aria-hidden />
           {t('customer_accounts.domainMapping.tls.retryButton', 'Retry SSL')}
         </Button>
       ) : null}
       {showTestDomain ? (
         <Button type="button" variant="outline" size="sm" asChild>
           <a href={`https://${mapping.hostname}`} target="_blank" rel="noopener noreferrer">
-            <ExternalLink className="mr-1.5 h-4 w-4" aria-hidden />
+            <ExternalLink className="me-1.5 h-4 w-4" aria-hidden />
             {t('customer_accounts.domainMapping.preview', 'Test Domain')}
           </a>
         </Button>
       ) : null}
       {showChangeDomain ? (
         <Button type="button" variant="outline" size="sm" onClick={onChangeDomain} disabled={busy}>
-          <Replace className="mr-1.5 h-4 w-4" aria-hidden />
+          <Replace className="me-1.5 h-4 w-4" aria-hidden />
           {t('customer_accounts.domainMapping.changeDomain', 'Change Domain')}
         </Button>
       ) : null}
       <Button type="button" variant="outline" size="sm" onClick={onRemove} disabled={busy}>
-        <Trash2 className="mr-1.5 h-4 w-4" aria-hidden />
+        <Trash2 className="me-1.5 h-4 w-4" aria-hidden />
         {t('customer_accounts.domainMapping.removeDomain', 'Remove Domain')}
       </Button>
     </div>

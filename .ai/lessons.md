@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 143 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 144 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -167,6 +167,7 @@ This catalog indexes 143 focused lessons. Route the task first, then read only r
 
 ### testing
 
+- [A component added to an always-mounted provider tree breaks partial module mocks](lessons/provider-tree-additions-break-partial-module-mocks.md) — area:testing,backend-ui; module:platform,ui; topic:testing,template-sync
 - [Validate downloaded design assets before integration](lessons/validate-downloaded-design-assets-before-integration.md) — area:testing,backend-ui; module:design_system; topic:figma,asset-integrity,downloads
 
 - [Determine super-admin via the immutable `isSuperAdmin` flag, never by role name](lessons/determine-super-admin-via-the-immutable-issuperadmin.md) — area:testing,module-data,debugging; module:auth,events; topic:access-control,command-pattern,data-scoping

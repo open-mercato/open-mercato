@@ -108,7 +108,7 @@ export default function ProductSeoWidget({ data }: InjectionWidgetComponentProps
         >
           {validation.message ? <div className="font-medium">{validation.message}</div> : null}
           {validation.issues.length ? (
-            <ul className="ml-4 list-disc space-y-1 pt-1">
+            <ul className="ms-4 list-disc space-y-1 pt-1">
               {validation.issues.map((issue) => (
                 <li key={issue}>{translateIssue(issue)}</li>
               ))}

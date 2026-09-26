@@ -121,7 +121,7 @@ export function WorkflowCodeView({
               <ol
                 aria-hidden="true"
                 data-testid="workflow-code-view-gutter"
-                className="shrink-0 select-none border-r border-border px-2 py-3 text-right font-mono text-xs leading-5 text-muted-foreground"
+                className="shrink-0 select-none border-e border-border px-2 py-3 text-end font-mono text-xs leading-5 text-muted-foreground"
               >
                 {Array.from({ length: lineCount }, (unused, index) => {
                   const line = index + 1
@@ -167,7 +167,7 @@ export function WorkflowCodeView({
               <Alert status="error" className="mt-2" icon={<CircleAlert aria-hidden="true" />}>
                 <AlertTitle>{t('workflows.visualEditor.codeView.cannotApply', 'This JSON cannot be applied yet')}</AlertTitle>
                 <AlertDescription>
-                  <ul data-testid="workflow-code-view-blocking" className="list-disc space-y-0.5 pl-4">
+                  <ul data-testid="workflow-code-view-blocking" className="list-disc space-y-0.5 ps-4">
                     {draftStatus.blockingMessages.map((message) => (
                       <li key={message}>{message}</li>
                     ))}
@@ -209,7 +209,7 @@ export function WorkflowCodeView({
                         onClick={() => handleIssueRow(issue)}
                         disabled={!isNavigable}
                         data-issue-line={line ?? undefined}
-                        className={`flex h-auto w-full items-start justify-start gap-2 rounded-none px-3 py-1.5 text-left text-sm font-normal ${isNavigable ? 'hover:bg-muted' : 'cursor-default hover:bg-transparent'}`}
+                        className={`flex h-auto w-full items-start justify-start gap-2 rounded-none px-3 py-1.5 text-start text-sm font-normal ${isNavigable ? 'hover:bg-muted' : 'cursor-default hover:bg-transparent'}`}
                       >
                         {issue.severity === 'error' ? (
                           <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-status-error-text" aria-hidden="true" />
@@ -236,15 +236,15 @@ export function WorkflowCodeView({
         </DrawerBody>
         <DrawerFooter>
           <Button variant="outline" onClick={onCopy}>
-            <Copy className="mr-1.5 h-4 w-4" aria-hidden="true" />
+            <Copy className="me-1.5 h-4 w-4" aria-hidden="true" />
             {t('workflows.visualEditor.codeView.copy', 'Copy JSON')}
           </Button>
           <Button variant="outline" onClick={onPasteSubgraph} disabled={!canPaste}>
-            <ClipboardPaste className="mr-1.5 h-4 w-4" aria-hidden="true" />
+            <ClipboardPaste className="me-1.5 h-4 w-4" aria-hidden="true" />
             {t('workflows.visualEditor.codeView.pasteSubgraph', 'Paste steps')}
           </Button>
           <Button variant="outline" onClick={onRevert} disabled={!draftStatus.dirty}>
-            <RotateCcw className="mr-1.5 h-4 w-4" aria-hidden="true" />
+            <RotateCcw className="me-1.5 h-4 w-4" aria-hidden="true" />
             {t('workflows.visualEditor.codeView.revert', 'Discard edits')}
           </Button>
           <Button onClick={onApply} disabled={!draftStatus.canApply} data-testid="workflow-code-view-apply">

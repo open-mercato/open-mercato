@@ -169,7 +169,7 @@ export default function ReactionBarWidget({
           })}
         >
           <span aria-hidden>{group.emoji}</span>
-          <span className="ml-1 text-xs">{group.count}</span>
+          <span className="ms-1 text-xs">{group.count}</span>
         </Button>
       ))}
     </div>

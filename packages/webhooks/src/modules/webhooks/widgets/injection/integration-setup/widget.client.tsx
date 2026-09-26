@@ -174,13 +174,13 @@ export default function IntegrationSetupWidget({ context }: InjectionWidgetCompo
       <div className="flex flex-wrap gap-3">
         <Button asChild>
           <Link href="/backend/webhooks">
-            <ExternalLink className="mr-2 h-4 w-4" />
+            <ExternalLink className="me-2 h-4 w-4" />
             {t('webhooks.integrationSetup.actions.openList', 'Open webhook list')}
           </Link>
         </Button>
         <Button asChild variant="outline">
           <Link href="/backend/webhooks/create">
-            <Plus className="mr-2 h-4 w-4" />
+            <Plus className="me-2 h-4 w-4" />
             {t('webhooks.integrationSetup.actions.create', 'Create webhook')}
           </Link>
         </Button>
@@ -279,7 +279,7 @@ export default function IntegrationSetupWidget({ context }: InjectionWidgetCompo
 
                 <Button asChild variant="ghost" size="sm" className="w-fit">
                   <Link href={`/backend/webhooks/${encodeURIComponent(item.id)}`}>
-                    <PencilLine className="mr-2 h-4 w-4" />
+                    <PencilLine className="me-2 h-4 w-4" />
                     {t('webhooks.integrationSetup.actions.edit', 'Edit webhook')}
                   </Link>
                 </Button>

@@ -121,7 +121,7 @@ export default function PortalTimeReportDetailPage({ params }: Props) {
       <div>
         <Button variant="ghost" asChild>
           <Link href={`/${params.orgSlug}/portal/time-reports`}>
-            <ArrowLeft className="mr-2 h-4 w-4" />
+            <ArrowLeft className="me-2 h-4 w-4" />
             {t('staff.portal.timeReports.backToList', 'All time reports')}
           </Link>
         </Button>
@@ -185,14 +185,14 @@ export default function PortalTimeReportDetailPage({ params }: Props) {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-border text-left text-muted-foreground">
-                      <th className="py-2 pr-4 font-medium">
+                    <tr className="border-b border-border text-start text-muted-foreground">
+                      <th className="py-2 pe-4 font-medium">
                         {t('staff.portal.timeReports.projectColumn', 'Project')}
                       </th>
-                      <th className="py-2 pr-4 text-right font-medium">
+                      <th className="py-2 pe-4 text-end font-medium">
                         {t('staff.portal.timeReports.billableHours', 'Billable hours')}
                       </th>
-                      <th className="py-2 text-right font-medium">
+                      <th className="py-2 text-end font-medium">
                         {t('staff.portal.timeReports.nonBillableHours', 'Non-billable hours')}
                       </th>
                     </tr>
@@ -200,13 +200,13 @@ export default function PortalTimeReportDetailPage({ params }: Props) {
                   <tbody>
                     {report.projects.map((line) => (
                       <tr key={line.timeProjectId ?? line.projectName ?? 'unassigned'} className="border-b border-border/60">
-                        <td className="py-2 pr-4 text-foreground">
+                        <td className="py-2 pe-4 text-foreground">
                           {line.projectName ?? t('staff.portal.timeReports.projectUnassigned', 'Unassigned')}
                         </td>
-                        <td className="py-2 pr-4 text-right tabular-nums">
+                        <td className="py-2 pe-4 text-end tabular-nums">
                           {formatDuration(line.billableMinutes, 'hm')}
                         </td>
-                        <td className="py-2 text-right tabular-nums">
+                        <td className="py-2 text-end tabular-nums">
                           {formatDuration(line.nonbillableMinutes, 'hm')}
                         </td>
                       </tr>

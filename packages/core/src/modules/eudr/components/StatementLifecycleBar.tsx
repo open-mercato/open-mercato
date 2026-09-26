@@ -298,7 +298,7 @@ export function StatementLifecycleBar({
         <Alert status="warning" style="lighter">
           <AlertTitle>{translate('eudr.lifecycle.gateFailureTitle')}</AlertTitle>
           <div className="text-sm leading-5">
-            <ul className="list-disc space-y-1 pl-5">
+            <ul className="list-disc space-y-1 ps-5">
               {gateReasons.map((reason) => (
                 <li key={reason}>{translate(reason)}</li>
               ))}

@@ -45,10 +45,10 @@ export const runStatusMap: Record<RunStatusState, StatusBadgeVariant> = {
  * the brand-violet accent; the other verbs use status tokens per ds-rules.
  */
 export const verbAccentClass: Record<CockpitVerb, string> = {
-  decide: 'border-l-4 border-status-warning-border',
-  answer: 'border-l-4 border-brand-violet',
-  do: 'border-l-4 border-status-info-border',
-  know: 'border-l-4 border-status-neutral-border',
+  decide: 'border-s-4 border-status-warning-border',
+  answer: 'border-s-4 border-brand-violet',
+  do: 'border-s-4 border-status-info-border',
+  know: 'border-s-4 border-status-neutral-border',
 }
 
 export function dispositionVariant(value: string | null | undefined): StatusBadgeVariant {

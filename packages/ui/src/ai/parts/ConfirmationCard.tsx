@@ -228,7 +228,7 @@ function ConfirmationErrorAlert({
             )}
           </p>
           {failedRecords.length > 0 ? (
-            <ul className="mt-2 list-disc pl-5 text-xs">
+            <ul className="mt-2 list-disc ps-5 text-xs">
               {failedRecords.map((record, idx) => (
                 <li
                   key={`${record.recordId ?? idx}`}
@@ -296,7 +296,7 @@ function ConfirmationErrorAlert({
         {t('ai_assistant.chat.mutation_cards.confirmation.errorTitle', 'Confirm failed')}
       </AlertTitle>
       <AlertDescription>
-        <span className="mr-2 font-mono text-xs">{code}</span>
+        <span className="me-2 font-mono text-xs">{code}</span>
         <span>{error.message}</span>
       </AlertDescription>
     </Alert>

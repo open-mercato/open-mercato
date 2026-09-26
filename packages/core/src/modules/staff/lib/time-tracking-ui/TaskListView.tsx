@@ -161,7 +161,7 @@ export function TaskListView({
             {t('staff.time_tracking.board.list.caption', 'Tasks')}
           </caption>
           <thead>
-            <tr className="border-b border-border bg-muted/40 text-left">
+            <tr className="border-b border-border bg-muted/40 text-start">
               <th scope="col" className="px-3 py-2.5 font-semibold text-muted-foreground">
                 {t('staff.time_tracking.board.list.columns.reference', 'Ref.')}
               </th>
@@ -177,7 +177,7 @@ export function TaskListView({
               <th scope="col" className="px-3 py-2.5 font-semibold text-muted-foreground">
                 {t('staff.time_tracking.board.list.columns.tags', 'Tags')}
               </th>
-              <th scope="col" className="px-3 py-2.5 text-right font-semibold text-muted-foreground">
+              <th scope="col" className="px-3 py-2.5 text-end font-semibold text-muted-foreground">
                 {t('staff.time_tracking.board.list.columns.hours', 'Logged')}
               </th>
             </tr>
@@ -198,7 +198,7 @@ export function TaskListView({
                     variant="link"
                     size="2xs"
                     onClick={() => onOpenTask(task.id)}
-                    className="h-auto px-0 text-left text-sm font-semibold text-foreground"
+                    className="h-auto px-0 text-start text-sm font-semibold text-foreground"
                   >
                     {task.title}
                   </Button>
@@ -227,7 +227,7 @@ export function TaskListView({
                     })}
                   </span>
                 </td>
-                <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-foreground">
+                <td className="px-3 py-2.5 text-end font-semibold tabular-nums text-foreground">
                   {formatBoardMinutes(task.loggedMinutes)}
                 </td>
               </tr>

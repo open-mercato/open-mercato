@@ -1135,7 +1135,7 @@ export function LineItemsEditor({
                 </div>
               </div>
             ) : null}
-            <div className="max-h-[50vh] space-y-3 overflow-y-auto pr-1">
+            <div className="max-h-[50vh] space-y-3 overflow-y-auto pe-1">
             {visibleOrderLines.map((line) => {
               const checked = selectedOrderLineIds.has(line.id)
               const label = line.name ?? line.sku ?? t('warranty_claims.form.lines.unnamed', 'Unnamed line')

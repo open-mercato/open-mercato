@@ -260,7 +260,7 @@ export function DevRuntimeDiagnosticsBanner() {
       // very high z-index, so the banner stacks ABOVE the bubble rather than
       // trying to outrank it. `max-w-4xl` keeps the action row on one line on
       // desktop; it still wraps (never scrolls) once the viewport is narrow.
-      className={`fixed inset-x-3 bottom-20 z-banner flex flex-col gap-2 rounded-lg border px-4 py-3 text-sm shadow-lg sm:inset-x-auto sm:right-4 sm:max-w-4xl ${TONE_CLASSES[tone]}`}
+      className={`fixed inset-x-3 bottom-20 z-banner flex flex-col gap-2 rounded-lg border px-4 py-3 text-sm shadow-lg sm:inset-x-auto sm:end-4 sm:max-w-4xl ${TONE_CLASSES[tone]}`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
@@ -295,8 +295,8 @@ export function DevRuntimeDiagnosticsBanner() {
               className={`whitespace-nowrap ${TONE_ACTION_CLASSES[tone]}`}
             >
               {expanded
-                ? <ChevronUp className="mr-1 size-4" aria-hidden="true" />
-                : <ChevronDown className="mr-1 size-4" aria-hidden="true" />}
+                ? <ChevronUp className="me-1 size-4" aria-hidden="true" />
+                : <ChevronDown className="me-1 size-4" aria-hidden="true" />}
               {expanded
                 ? t('ui.devRuntime.actions.hideDetails', 'Hide details')
                 : t('ui.devRuntime.actions.showDetails', 'Show details')}
@@ -310,7 +310,7 @@ export function DevRuntimeDiagnosticsBanner() {
               onClick={reloadPage}
               className={`whitespace-nowrap ${TONE_ACTION_CLASSES[tone]}`}
             >
-              <RefreshCw className="mr-1 size-4" aria-hidden="true" />
+              <RefreshCw className="me-1 size-4" aria-hidden="true" />
               {t('ui.devRuntime.actions.retry', 'Retry')}
             </Button>
           ) : null}
@@ -327,7 +327,7 @@ export function DevRuntimeDiagnosticsBanner() {
                     onClick={() => { void runRecoveryAction(action) }}
                     className={`whitespace-nowrap ${TONE_ACTION_CLASSES[tone]}`}
                   >
-                    <ActionIcon className="mr-1 size-4" aria-hidden="true" />
+                    <ActionIcon className="me-1 size-4" aria-hidden="true" />
                     {t(`ui.devRuntime.actions.${action}`, DEFAULT_ACTION_COPY[action])}
                   </Button>
                 )
@@ -342,7 +342,7 @@ export function DevRuntimeDiagnosticsBanner() {
               onClick={() => { void toggleLogs() }}
               className={`whitespace-nowrap ${TONE_ACTION_CLASSES[tone]}`}
             >
-              <ScrollText className="mr-1 size-4" aria-hidden="true" />
+              <ScrollText className="me-1 size-4" aria-hidden="true" />
               {logsOpen
                 ? t('ui.devRuntime.actions.hideLogs', 'Hide logs')
                 : t('ui.devRuntime.actions.viewLogs', 'View logs')}

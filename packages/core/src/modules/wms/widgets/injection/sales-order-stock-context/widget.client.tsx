@@ -414,7 +414,7 @@ export default function SalesOrderStockContextWidget(
                   className="h-6 shrink-0 px-2 text-xs text-status-error-fg hover:text-status-error-fg"
                   onClick={() => setReleaseReservationId(rid)}
                 >
-                  <ShieldOff className="size-3 mr-1" />
+                  <ShieldOff className="size-3 me-1" />
                   {t('wms.widgets.sales.stockContext.releaseBtn', 'Release')}
                 </Button>
               </div>
@@ -432,7 +432,7 @@ export default function SalesOrderStockContextWidget(
             disabled={rerunning}
             onClick={() => void handleRerunReservation()}
           >
-            <RefreshCw className={`size-3 mr-1.5 ${rerunning ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`size-3 me-1.5 ${rerunning ? 'animate-spin' : ''}`} />
             {t(
               'wms.widgets.sales.stockContext.actions.rerunReservation',
               'Re-run reservation',

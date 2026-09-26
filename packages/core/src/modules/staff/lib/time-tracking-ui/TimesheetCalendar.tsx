@@ -196,7 +196,7 @@ function CalendarDayCell({
           onClick={() => onSelectEntry(entry)}
           title={entry.isBillable ? undefined : nonBillableLabel}
           className={cn(
-            'flex w-full items-center justify-between gap-1 rounded px-1 py-0.5 text-left text-xs',
+            'flex w-full items-center justify-between gap-1 rounded px-1 py-0.5 text-start text-xs',
             'hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
             entry.isBillable ? 'border border-transparent bg-muted/60' : 'border border-dashed border-border',
           )}
@@ -214,7 +214,7 @@ function CalendarDayCell({
           onClick={() => onAddEntry(cell.date)}
           aria-label={`${addLabel} — ${fullDate}`}
           className={cn(
-            'mt-auto inline-flex items-center gap-1 rounded px-1 py-0.5 text-left text-xs text-muted-foreground',
+            'mt-auto inline-flex items-center gap-1 rounded px-1 py-0.5 text-start text-xs text-muted-foreground',
             'opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100',
             'hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
           )}

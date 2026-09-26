@@ -150,7 +150,7 @@ export function VersionHistoryPanel({
         aria-hidden="true"
       />
       <div
-        className="fixed right-0 top-0 z-modal h-full w-full max-w-md border-l bg-background shadow-lg"
+        className="fixed end-0 top-0 z-modal h-full w-full max-w-md border-s bg-background shadow-lg"
         role="dialog"
         aria-modal="true"
         aria-label={t('audit_logs.version_history.title')}
@@ -243,12 +243,12 @@ export function VersionHistoryPanel({
                       return (
                         <div
                           key={entry.id}
-                          className={`flex items-start justify-between gap-3 py-3 transition-colors hover:bg-muted/50 ${isRelatedEntry ? 'pl-8 pr-4 border-l-2 border-l-muted-foreground/20' : 'px-4'}`}
+                          className={`flex items-start justify-between gap-3 py-3 transition-colors hover:bg-muted/50 ${isRelatedEntry ? 'pl-8 pe-4 border-s-2 border-s-muted-foreground/20' : 'px-4'}`}
                         >
                           <Button
                             type="button"
                             variant="ghost"
-                            className="h-auto min-w-0 flex-1 flex-col items-start justify-start gap-1 whitespace-normal px-0 py-0 text-left hover:bg-transparent"
+                            className="h-auto min-w-0 flex-1 flex-col items-start justify-start gap-1 whitespace-normal px-0 py-0 text-start hover:bg-transparent"
                             onClick={() => setSelectedEntry(entry)}
                           >
                             {isRelatedEntry ? (
@@ -320,7 +320,7 @@ export function VersionHistoryPanel({
                       disabled={isLoading}
                     >
                       {isLoading ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        <Loader2 className="me-2 h-4 w-4 animate-spin" />
                       ) : null}
                       {t('audit_logs.version_history.load_more')}
                     </Button>

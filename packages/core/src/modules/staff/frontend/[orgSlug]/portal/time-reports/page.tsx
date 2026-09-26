@@ -146,7 +146,7 @@ export default function PortalTimeReportsPage({ params }: Props) {
                     {report.reference} · {report.periodFrom} – {report.periodTo}
                   </p>
                 </div>
-                <div className="text-right">
+                <div className="text-end">
                   <p className="text-base font-medium text-foreground">
                     {formatDuration(report.totalBillableMinutes, 'hm')}
                   </p>

@@ -267,7 +267,7 @@ export function GalleryShell() {
         const family = galleryFamilies.find(family => family.id === id)
         if (family) loadFamily(family)
       }} />
-      <div className="min-w-0 flex-1 py-4 lg:pl-6">
+      <div className="min-w-0 flex-1 py-4 lg:ps-6">
       <div className="@container mx-auto w-full max-w-6xl space-y-6">
         {showingStyleAgents ? <StyleAgents /> : showingHome ? <DesignSystemHome /> : showingPrinciples ? <div id="gallery-page-heading" className="scroll-mt-36 lg:scroll-mt-24 space-y-8 py-8"><h1 className="text-3xl font-medium tracking-tight">{t('design_system.portal.nav.principles')}</h1><DesignSystemPrinciples /></div> : <>
         <header id="gallery-page-heading" className="scroll-mt-36 lg:scroll-mt-24 space-y-3">

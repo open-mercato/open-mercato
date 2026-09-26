@@ -622,7 +622,7 @@ export default function PipelineSettings(): React.ReactElement {
               {t('customers.pipelines.dialog.cancel', 'Cancel')}
             </Button>
             <Button onClick={() => void handlePipelineSubmit()} disabled={submittingPipeline || !pipelineForm.name.trim()}>
-              {submittingPipeline ? <Spinner className="mr-2 h-4 w-4" /> : null}
+              {submittingPipeline ? <Spinner className="me-2 h-4 w-4" /> : null}
               {t('customers.pipelines.dialog.save', 'Save')}
             </Button>
           </DialogFooter>
@@ -665,7 +665,7 @@ export default function PipelineSettings(): React.ReactElement {
               {t('customers.pipelines.stageDialog.cancel', 'Cancel')}
             </Button>
             <Button onClick={() => void handleStageSubmit()} disabled={submittingStage || !stageForm.label.trim()}>
-              {submittingStage ? <Spinner className="mr-2 h-4 w-4" /> : null}
+              {submittingStage ? <Spinner className="me-2 h-4 w-4" /> : null}
               {t('customers.pipelines.stageDialog.save', 'Save')}
             </Button>
           </DialogFooter>

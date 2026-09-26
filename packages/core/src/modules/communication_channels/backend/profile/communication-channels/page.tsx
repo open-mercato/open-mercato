@@ -789,7 +789,7 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
         </div>
 
         <DialogFooter>
-          <span className="mr-auto text-xs text-muted-foreground">
+          <span className="me-auto text-xs text-muted-foreground">
             <KbdShortcut keys={['⌘', 'Enter']} />
           </span>
           <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
@@ -911,7 +911,7 @@ function DisconnectChannelDialog({
         ) : null}
 
         <DialogFooter>
-          <span className="mr-auto text-xs text-muted-foreground">
+          <span className="me-auto text-xs text-muted-foreground">
             <KbdShortcut keys={['⌘', 'Enter']} />
           </span>
           <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>

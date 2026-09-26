@@ -85,7 +85,7 @@ export function NewFromTemplateDialog(props: NewFromTemplateDialogProps) {
                     <Label
                       key={template.id}
                       htmlFor={optionId}
-                      className={`flex w-full cursor-pointer items-center justify-between gap-3 rounded-md border p-3 text-left font-normal transition-colors ${template.id === flow.selectedTemplateId ? 'border-accent-indigo bg-accent-indigo/5' : 'border-border bg-background hover:bg-muted/50'}`}
+                      className={`flex w-full cursor-pointer items-center justify-between gap-3 rounded-md border p-3 text-start font-normal transition-colors ${template.id === flow.selectedTemplateId ? 'border-accent-indigo bg-accent-indigo/5' : 'border-border bg-background hover:bg-muted/50'}`}
                     >
                       <span className="flex min-w-0 items-center gap-3">
                         <Radio id={optionId} value={template.id} />

@@ -331,13 +331,13 @@ export function Calendar({
               '[&_button:focus-visible]:!bg-transparent [&_button:focus-visible]:!text-primary-foreground',
             ),
             range_start: cn(
-              '!bg-primary !text-primary-foreground rounded-l-md !rounded-r-none',
+              '!bg-primary !text-primary-foreground rounded-s-md !rounded-e-none',
               '[&_button]:!bg-transparent [&_button]:!text-primary-foreground',
               '[&_button:hover]:!bg-transparent [&_button:hover]:!text-primary-foreground',
               '[&_button:focus-visible]:!bg-transparent [&_button:focus-visible]:!text-primary-foreground',
             ),
             range_end: cn(
-              '!bg-primary !text-primary-foreground rounded-r-md !rounded-l-none',
+              '!bg-primary !text-primary-foreground rounded-e-md !rounded-s-none',
               '[&_button]:!bg-transparent [&_button]:!text-primary-foreground',
               '[&_button:hover]:!bg-transparent [&_button:hover]:!text-primary-foreground',
               '[&_button:focus-visible]:!bg-transparent [&_button:focus-visible]:!text-primary-foreground',

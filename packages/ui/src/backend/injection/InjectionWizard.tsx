@@ -303,7 +303,7 @@ export function InjectionWizard({ widget, context, onClose }: InjectionWizardPro
             >
               {completing ? (
                 <>
-                  <Spinner size="sm" className="mr-2" />
+                  <Spinner size="sm" className="me-2" />
                   {t('ui.wizard.completing', 'Completing...')}
                 </>
               ) : (
@@ -318,7 +318,7 @@ export function InjectionWizard({ widget, context, onClose }: InjectionWizardPro
             >
               {validating ? (
                 <>
-                  <Spinner size="sm" className="mr-2" />
+                  <Spinner size="sm" className="me-2" />
                   {t('ui.wizard.validating', 'Validating...')}
                 </>
               ) : (

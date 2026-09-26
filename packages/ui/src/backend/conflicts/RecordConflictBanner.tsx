@@ -43,13 +43,13 @@ export function RecordConflictBanner() {
     <div
       role="alert"
       data-testid="record-conflict-banner"
-      className="mb-4 flex items-center justify-between gap-3 rounded-md border border-status-error-border bg-status-error-bg pl-3 pr-2 py-2 text-sm text-status-error-text shadow-xs sm:pr-3"
+      className="mb-4 flex items-center justify-between gap-3 rounded-md border border-status-error-border bg-status-error-bg ps-3 pe-2 py-2 text-sm text-status-error-text shadow-xs sm:pe-3"
     >
       <div className="min-w-0">
         <span className="font-medium text-status-error-text">
           {conflict.title ?? t('ui.forms.conflict.title', 'Record changed')}
         </span>
-        <span className="ml-2 text-status-error-text">{conflict.message}</span>
+        <span className="ms-2 text-status-error-text">{conflict.message}</span>
       </div>
       <div className="flex items-center gap-1">
         <Button
@@ -59,7 +59,7 @@ export function RecordConflictBanner() {
           onClick={handleRefresh}
           className="border-status-error-border bg-status-error-bg text-status-error-text hover:bg-status-error-border hover:text-status-error-text px-2.5 sm:px-3"
         >
-          <RefreshCw className="mr-1 size-4" aria-hidden="true" />
+          <RefreshCw className="me-1 size-4" aria-hidden="true" />
           {t('ui.forms.conflict.refresh', 'Refresh')}
         </Button>
         <IconButton

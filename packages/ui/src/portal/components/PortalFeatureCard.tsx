@@ -35,7 +35,7 @@ export function PortalFeatureCard({ icon, title, description, href, onClick }: P
     return <a href={href} className={cls}>{content}</a>
   }
   if (onClick) {
-    return <button type="button" onClick={onClick} className={`${cls} text-left`}>{content}</button>
+    return <button type="button" onClick={onClick} className={`${cls} text-start`}>{content}</button>
   }
   return <div className="flex flex-col rounded-xl border bg-card p-5">{content}</div>
 }

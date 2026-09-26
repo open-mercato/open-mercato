@@ -214,7 +214,7 @@ function StripePaymentForm({
           onClick={() => void handleConfirmPayment()}
           disabled={disabled || isSubmitting || !stripe || !elements}
         >
-          {isSubmitting ? <Spinner className="mr-2 size-4" /> : <CreditCard className="mr-2 size-4" />}
+          {isSubmitting ? <Spinner className="me-2 size-4" /> : <CreditCard className="me-2 size-4" />}
           {t('example.payments.stripe.form.submit', 'Confirm test payment')}
         </Button>
         <p className="text-xs text-muted-foreground">
@@ -409,7 +409,7 @@ export default function PaymentGatewayDemoPage() {
               onClick={() => createSession('mock')}
               disabled={loading}
             >
-              {loading ? <Spinner className="mr-2 size-4" /> : <Zap className="mr-2 size-4" />}
+              {loading ? <Spinner className="me-2 size-4" /> : <Zap className="me-2 size-4" />}
               {t('example.payments.payMock', 'Pay with Mock Gateway')}
             </Button>
 
@@ -420,7 +420,7 @@ export default function PaymentGatewayDemoPage() {
               disabled={loading || stripeAvailable === false}
               className="border-indigo-300 text-indigo-700 hover:bg-indigo-50 dark:border-indigo-600 dark:text-indigo-300 dark:hover:bg-indigo-950"
             >
-              {loading ? <Spinner className="mr-2 size-4" /> : <CreditCard className="mr-2 size-4" />}
+              {loading ? <Spinner className="me-2 size-4" /> : <CreditCard className="me-2 size-4" />}
               {t('example.payments.payStripe', 'Pay with Stripe')}
             </Button>
 
@@ -510,7 +510,7 @@ export default function PaymentGatewayDemoPage() {
                     disabled={loading || !canCapture}
                     className="bg-emerald-600 hover:bg-emerald-700 text-white"
                   >
-                    <ArrowDownToLine className="mr-1.5 size-3.5" />
+                    <ArrowDownToLine className="me-1.5 size-3.5" />
                     {t('example.payments.capture', 'Capture')}
                   </Button>
                   <Button
@@ -521,7 +521,7 @@ export default function PaymentGatewayDemoPage() {
                     disabled={loading || !canRefund}
                     className="border-amber-400 text-amber-700 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-300 dark:hover:bg-amber-950"
                   >
-                    <Undo2 className="mr-1.5 size-3.5" />
+                    <Undo2 className="me-1.5 size-3.5" />
                     {t('example.payments.refund', 'Refund')}
                   </Button>
                   <Button
@@ -531,7 +531,7 @@ export default function PaymentGatewayDemoPage() {
                     onClick={() => performAction('cancel')}
                     disabled={loading || !canCancel}
                   >
-                    <Ban className="mr-1.5 size-3.5" />
+                    <Ban className="me-1.5 size-3.5" />
                     {t('example.payments.cancel', 'Cancel')}
                   </Button>
                   <Button
@@ -541,7 +541,7 @@ export default function PaymentGatewayDemoPage() {
                     onClick={() => void refreshStatus()}
                     disabled={loading}
                   >
-                    <RefreshCw className="mr-1.5 size-3.5" />
+                    <RefreshCw className="me-1.5 size-3.5" />
                     {t('example.payments.refresh', 'Refresh Status')}
                   </Button>
                 </div>

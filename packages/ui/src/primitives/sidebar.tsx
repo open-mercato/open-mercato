@@ -46,7 +46,7 @@ export function SidebarItem({ children, icon, trailing, collapsed: collapsedProp
       active && 'bg-muted text-foreground hover:text-foreground',
       className)} {...props}>
     <span className="flex size-5 shrink-0 items-center justify-center [&_svg]:size-5" aria-hidden="true">{icon}</span>
-    <span className={collapsed ? 'sr-only' : 'min-w-0 flex-1 truncate text-left'}>{children}</span>
+    <span className={collapsed ? 'sr-only' : 'min-w-0 flex-1 truncate text-start'}>{children}</span>
     {!collapsed && trailing ? <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden="true">{trailing}</span> : null}
   </Button>
 }
@@ -63,7 +63,7 @@ export type SidebarIdentityProps = Omit<React.ComponentProps<typeof Button>, 'si
 export function SidebarIdentity({ label, description, leading, trailing, badge, collapsed: collapsedProp, className, ...props }: SidebarIdentityProps) {
   const inheritedCollapsed = React.useContext(SidebarContext)
   const collapsed = collapsedProp ?? inheritedCollapsed
-  return <Button type="button" variant="ghost" data-slot="sidebar-identity" data-collapsed={collapsed} className={cn('h-16 gap-3 rounded-lg p-3 text-left hover:bg-muted data-[state=open]:bg-muted', collapsed ? 'w-16' : 'w-full justify-start', className)} {...props}>
+  return <Button type="button" variant="ghost" data-slot="sidebar-identity" data-collapsed={collapsed} className={cn('h-16 gap-3 rounded-lg p-3 text-start hover:bg-muted data-[state=open]:bg-muted', collapsed ? 'w-16' : 'w-full justify-start', className)} {...props}>
     <span className="flex size-10 shrink-0 items-center justify-center" aria-hidden="true">{leading}</span>
     <span className={collapsed ? 'sr-only' : 'flex min-w-0 flex-1 flex-col gap-1'}>
       <span className="flex items-center gap-1 text-sm font-medium leading-5"><span className="truncate">{label}</span>{badge}</span>

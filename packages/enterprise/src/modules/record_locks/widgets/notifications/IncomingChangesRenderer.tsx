@@ -42,12 +42,12 @@ export function IncomingChangesRenderer({ notification }: NotificationRendererPr
   return (
     <div
       className={cn(
-        'group relative px-4 py-3 hover:bg-muted/50 transition-colors border-l-4 border-l-status-info-border',
+        'group relative px-4 py-3 hover:bg-muted/50 transition-colors border-s-4 border-s-status-info-border',
         isUnread && 'bg-status-info-bg',
       )}
     >
       {isUnread ? (
-        <div className="absolute left-1.5 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full bg-primary" />
+        <div className="absolute start-1.5 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full bg-primary" />
       ) : null}
 
       <div className="flex gap-3">
@@ -72,9 +72,9 @@ export function IncomingChangesRenderer({ notification }: NotificationRendererPr
             <table className="w-full text-xs">
               <thead className="bg-muted/50">
                 <tr>
-                  <th className="px-2 py-1.5 text-left font-medium">{t('record_locks.conflict.field', 'Field')}</th>
-                  <th className="px-2 py-1.5 text-left font-medium">{t('record_locks.conflict.incoming_label', 'Incoming')}</th>
-                  <th className="px-2 py-1.5 text-left font-medium">{t('record_locks.conflict.current_label', 'Current')}</th>
+                  <th className="px-2 py-1.5 text-start font-medium">{t('record_locks.conflict.field', 'Field')}</th>
+                  <th className="px-2 py-1.5 text-start font-medium">{t('record_locks.conflict.incoming_label', 'Incoming')}</th>
+                  <th className="px-2 py-1.5 text-start font-medium">{t('record_locks.conflict.current_label', 'Current')}</th>
                 </tr>
               </thead>
               <tbody>

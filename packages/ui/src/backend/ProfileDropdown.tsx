@@ -286,14 +286,14 @@ export function ProfileDropdown({
               <span className="text-xs text-muted-foreground">{resolveLocaleLabel(currentLocale)}</span>
               <ChevronRight
                 className={cn(
-                  'ml-auto size-3.5 shrink-0 text-muted-foreground transition-transform',
+                  'ms-auto size-3.5 shrink-0 text-muted-foreground transition-transform',
                   languageOpen && 'rotate-90',
                 )}
                 aria-hidden="true"
               />
             </button>
             {languageOpen && (
-              <div className="ml-7 mr-1 flex flex-col gap-0.5 border-l pl-2 py-1">
+              <div className="ms-7 me-1 flex flex-col gap-0.5 border-s ps-2 py-1">
                 {supportedLocales.map((locale) => (
                   <button
                     key={locale}
@@ -323,7 +323,7 @@ export function ProfileDropdown({
               role="menuitem"
             >
               <LogOut className={menuIconClass} />
-              <span className="flex-1 truncate text-left">{t('ui.userMenu.logout', 'Sign Out')}</span>
+              <span className="flex-1 truncate text-start">{t('ui.userMenu.logout', 'Sign Out')}</span>
             </button>
           </form>
         )

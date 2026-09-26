@@ -52,7 +52,7 @@ export function CurrencyBreakdownTable({
             'Native total',
           )}
         </span>
-        <span className="pl-6 text-overline font-semibold uppercase tracking-wider text-muted-foreground">
+        <span className="ps-6 text-overline font-semibold uppercase tracking-wider text-muted-foreground">
           {translateWithFallback(t, 'customers.deals.kanban.currencyBreakdown.colDeals', 'Deals')}
         </span>
       </div>
@@ -88,7 +88,7 @@ export function CurrencyBreakdownTable({
               <span className="text-sm font-semibold leading-normal text-foreground tabular-nums">
                 {formatAmount(row.total)}
               </span>
-              <span className="pl-6 text-sm font-normal leading-normal text-muted-foreground tabular-nums">
+              <span className="ps-6 text-sm font-normal leading-normal text-muted-foreground tabular-nums">
                 {row.count}
               </span>
             </li>

@@ -188,7 +188,7 @@ export default function ProfileChangePasswordPage() {
           </p>
         </div>
         <Button type="submit" form={formId}>
-          <Save className="size-4 mr-2" />
+          <Save className="size-4 me-2" />
           {t('auth.profile.form.save', 'Save changes')}
         </Button>
       </header>

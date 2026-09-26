@@ -38,7 +38,7 @@ export const ButtonInput = React.forwardRef<HTMLInputElement, ButtonInputProps>(
         className={cn(inputWrapperVariants({ size }), 'px-0 overflow-hidden', className)}
         data-slot="button-input-wrapper"
       >
-        <div className="flex flex-1 min-w-0 items-center gap-2 pl-3 pr-2">
+        <div className="flex flex-1 min-w-0 items-center gap-2 ps-3 pe-2">
           {leftIcon ? (
             <span
               className="flex shrink-0 items-center text-muted-foreground [&_svg]:size-4"

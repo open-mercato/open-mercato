@@ -591,7 +591,7 @@ export function CompanyPeopleSection({
       size="sm"
       onClick={() => setLinkDialogOpen(true)}
     >
-      <Link2 className="mr-1.5 h-4 w-4" />
+      <Link2 className="me-1.5 h-4 w-4" />
       {translate(
         'customers.companies.detail.people.linkAction',
         'Link existing person',
@@ -600,7 +600,7 @@ export function CompanyPeopleSection({
   )
   const addPersonAction = (
     <Button type="button" size="sm" onClick={() => setCreateDialogOpen(true)}>
-      <Plus className="mr-1.5 h-4 w-4" />
+      <Plus className="me-1.5 h-4 w-4" />
       {addActionLabel}
     </Button>
   )
@@ -705,7 +705,7 @@ export function CompanyPeopleSection({
                     onClick={() => setFiltersOpen((current) => !current)}
                     className="h-10"
                   >
-                    <Filter className="mr-1.5 h-4 w-4" />
+                    <Filter className="me-1.5 h-4 w-4" />
                     {translate(
                       'customers.companies.detail.people.filter',
                       'Filters',

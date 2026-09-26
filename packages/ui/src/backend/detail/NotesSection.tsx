@@ -590,7 +590,7 @@ function NotesSectionImpl<C = unknown>({
       label: addActionLabel,
       onClick: focusComposer,
       disabled: isSubmitting || isLoading || !hasEntity,
-      icon: <Plus className="mr-2 h-4 w-4" />,
+      icon: <Plus className="me-2 h-4 w-4" />,
     })
     return () => onActionChange(null)
   }, [onActionChange, addActionLabel, focusComposer, hasEntity, isLoading, isSubmitting, notes.length])
@@ -1156,7 +1156,7 @@ function NotesSectionImpl<C = unknown>({
                 size="sm"
                 disabled={isSubmitting || isLoading || !hasEntity}
               >
-                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {isSubmitting ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}
                 {composerSubmitLabel}
               </Button>
             </div>
@@ -1294,7 +1294,7 @@ function NotesSectionImpl<C = unknown>({
                       <Button type="button" size="sm" onClick={handleContentSave} disabled={contentSavingId === note.id}>
                         {contentSavingId === note.id ? (
                           <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            <Loader2 className="me-2 h-4 w-4 animate-spin" />
                             {label('saving')}
                           </>
                         ) : (
@@ -1335,7 +1335,7 @@ function NotesSectionImpl<C = unknown>({
                   >
                     <MarkdownPreview
                       remarkPlugins={markdownPlugins}
-                      className="break-words text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
+                      className="break-words text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ms-4 [&_ul]:list-disc [&_ol]:ms-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
                     >
                       {note.body}
                     </MarkdownPreview>

@@ -157,7 +157,7 @@ function RailFact({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-3 border-b py-2 text-sm last:border-b-0">
       <dt className="shrink-0 text-muted-foreground">{label}</dt>
-      <dd className="text-right font-medium tabular-nums">{value}</dd>
+      <dd className="text-end font-medium tabular-nums">{value}</dd>
     </div>
   )
 }
@@ -838,12 +838,12 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
             {canManageProjects && (
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" onClick={openTeamDrawer}>
-                  <Users className="mr-2 h-4 w-4" aria-hidden />
+                  <Users className="me-2 h-4 w-4" aria-hidden />
                   {t('staff.time_tracking.projects.team.manage', 'Manage team')}
                 </Button>
                 <Button variant="outline" size="sm" asChild>
                   <Link href={`/backend/staff/time-tracking/projects/${projectId}/edit`}>
-                    <Pencil className="mr-2 h-4 w-4" aria-hidden />
+                    <Pencil className="me-2 h-4 w-4" aria-hidden />
                     {t('staff.timesheets.projects.form.actions.edit', 'Edit Project')}
                   </Link>
                 </Button>
@@ -998,7 +998,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
               <span />
               {canManageProjects && (
                 <Button size="sm" onClick={openAddDialog}>
-                  <Plus className="mr-2 h-4 w-4" aria-hidden />
+                  <Plus className="me-2 h-4 w-4" aria-hidden />
                   {t('staff.timesheets.projects.add_employee', 'Add Employee')}
                 </Button>
               )}
@@ -1026,7 +1026,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
                       {/* Collapsed view: name, role, status badge, start date, expand toggle */}
                       <button
                         type="button"
-                        className="flex w-full items-center justify-between p-4 text-left hover:bg-muted/50 transition-colors"
+                        className="flex w-full items-center justify-between p-4 text-start hover:bg-muted/50 transition-colors"
                         onClick={() => toggleCard(emp.id)}
                       >
                         <div className="flex items-center gap-3 min-w-0">
@@ -1103,7 +1103,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
                                 className="text-destructive hover:text-destructive"
                                 onClick={() => { void handleRemoveEmployee(emp) }}
                               >
-                                <Trash2 className="mr-2 h-3.5 w-3.5" aria-hidden />
+                                <Trash2 className="me-2 h-3.5 w-3.5" aria-hidden />
                                 {t('staff.timesheets.projects.employees.remove', 'Remove')}
                               </Button>
                             </div>
@@ -1134,7 +1134,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
                 <div className="overflow-x-auto rounded-lg border">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b bg-muted/40 text-left">
+                      <tr className="border-b bg-muted/40 text-start">
                         <th className="px-3 py-2 font-medium text-muted-foreground">
                           {t('staff.timesheets.projects.detail.colDate', 'Date')}
                         </th>
@@ -1144,7 +1144,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
                         <th className="px-3 py-2 font-medium text-muted-foreground">
                           {t('staff.timesheets.projects.detail.colDescription', 'Description')}
                         </th>
-                        <th className="px-3 py-2 text-right font-medium text-muted-foreground">
+                        <th className="px-3 py-2 text-end font-medium text-muted-foreground">
                           {t('staff.timesheets.projects.detail.colHours', 'Hours')}
                         </th>
                       </tr>
@@ -1166,7 +1166,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
                               )}
                             </span>
                           </td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums">
+                          <td className="whitespace-nowrap px-3 py-2 text-end font-mono tabular-nums">
                             {formatHours(entry.durationMinutes)}
                           </td>
                         </tr>

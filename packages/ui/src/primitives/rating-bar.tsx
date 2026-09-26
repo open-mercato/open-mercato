@@ -41,7 +41,7 @@ export const RatingBar = React.forwardRef<HTMLDivElement, RatingBarProps>(
             variant="ghost"
             asChild
             aria-label={t('ui.rating.item.ariaLabel', '{position} of {max}', { position: index + 1, max: 5 })}
-            className="h-full min-w-0 flex-1 rounded-none border-r border-border px-1 py-0 text-muted-foreground last:border-r-0 hover:bg-muted hover:text-foreground focus-visible:z-10 data-[state=checked]:bg-muted data-[state=checked]:text-foreground disabled:opacity-60 dark:hover:bg-muted"
+            className="h-full min-w-0 flex-1 rounded-none border-e border-border px-1 py-0 text-muted-foreground last:border-e-0 hover:bg-muted hover:text-foreground focus-visible:z-10 data-[state=checked]:bg-muted data-[state=checked]:text-foreground disabled:opacity-60 dark:hover:bg-muted"
           >
             <RadioGroupPrimitive.Item value={String(index + 1)}>
               {variant === 'number' ? index + 1 : variant === 'emoji' ? (

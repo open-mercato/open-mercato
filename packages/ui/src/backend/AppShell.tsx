@@ -438,7 +438,7 @@ function NavItemBadge({ href, compact }: { href: string; compact: boolean }) {
   return (
     <span
       className={`ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-medium ${tone} ${
-        compact ? 'absolute right-0 top-0 -mr-1 -mt-1' : ''
+        compact ? 'absolute end-0 top-0 -me-1 -mt-1' : ''
       }`}
       aria-label={badge.label ?? display}
     >
@@ -832,7 +832,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
 
   const asideWidth = effectiveCollapsed ? '80px' : expandedSidebarWidth
   // Use min-h-svh so the border extends with tall content; no overflow so sticky bottom works
-  const asideClassesBase = `border-r bg-background py-4`;
+  const asideClassesBase = `border-e bg-background py-4`;
 
   // Persist collapse state to localStorage and cookie. Both writes can throw in
   // private/incognito mode (storage blocked) or when cookies are disabled —
@@ -1000,7 +1000,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                     onClick={() => setMobileOpen(false)}
                   >
                     {isActive && (
-                      <span aria-hidden className={`absolute ${compact ? 'left-[-20px]' : 'left-[-12px]'} top-2 w-1 h-5 rounded-r bg-foreground`} />
+                      <span aria-hidden className={`absolute ${compact ? 'left-[-20px]' : 'left-[-12px]'} top-2 w-1 h-5 rounded-e bg-foreground`} />
                     )}
                     <span className="flex items-center justify-center shrink-0">
                       {renderIcon(
@@ -1071,7 +1071,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           <div className="flex flex-1 flex-col gap-3">
             <div className="space-y-3">
               <div className="h-8 rounded bg-muted/50" />
-              <div className="space-y-2 pl-1">
+              <div className="space-y-2 ps-1">
                 <div className="h-8 rounded bg-muted/50" />
                 <div className="h-8 rounded bg-muted/50" />
                 <div className="h-8 rounded bg-muted/50" />
@@ -1079,7 +1079,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
             </div>
             <div className="space-y-3">
               <div className="h-8 rounded bg-muted/50" />
-              <div className="space-y-2 pl-1">
+              <div className="space-y-2 ps-1">
                 <div className="h-8 rounded bg-muted/50" />
                 <div className="h-8 rounded bg-muted/50" />
               </div>
@@ -1245,7 +1245,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                                       onClick={() => setMobileOpen(false)}
                                     >
                                       {isParentActive ? (
-                                        <span aria-hidden className={`absolute ${compact ? 'left-[-20px]' : 'left-[-12px]'} top-2 w-1 h-5 rounded-r bg-foreground`} />
+                                        <span aria-hidden className={`absolute ${compact ? 'left-[-20px]' : 'left-[-12px]'} top-2 w-1 h-5 rounded-e bg-foreground`} />
                                       ) : null}
                                       <span className="flex items-center justify-center shrink-0">
                                         {renderIcon(
@@ -1260,11 +1260,11 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                                     {showChildren ? (
                                       <div className={`relative flex flex-col ${compact ? 'items-center' : ''} gap-1`}>
                                         {!compact && (
-                                          <span aria-hidden className="pointer-events-none absolute left-1.5 top-1 bottom-1 w-px bg-border" />
+                                          <span aria-hidden className="pointer-events-none absolute start-1.5 top-1 bottom-1 w-px bg-border" />
                                         )}
                                         {childItems.map((c) => {
                                           const childActive = pathname?.startsWith(c.href)
-                                          const childBase = compact ? 'w-10 h-8 justify-center' : 'w-full pl-5 pr-3 py-2 gap-2'
+                                          const childBase = compact ? 'w-10 h-8 justify-center' : 'w-full ps-5 pe-3 py-2 gap-2'
                                           return (
                                             <Link
                                               key={c.href}
@@ -1278,7 +1278,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                                               onClick={() => setMobileOpen(false)}
                                             >
                                               {childActive ? (
-                                                <span aria-hidden className={`absolute ${compact ? 'left-[-20px]' : 'left-[-12px]'} top-2 w-1 h-5 rounded-r bg-foreground`} />
+                                                <span aria-hidden className={`absolute ${compact ? 'left-[-20px]' : 'left-[-12px]'} top-2 w-1 h-5 rounded-e bg-foreground`} />
                                               ) : null}
                                               <span className="flex items-center justify-center shrink-0">
                                                 {renderIcon(
@@ -1430,7 +1430,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     >
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-tooltip focus:rounded-md focus:border focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-focus"
+        className="sr-only focus:not-sr-only focus:fixed focus:start-4 focus:top-4 focus:z-tooltip focus:rounded-md focus:border focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-focus"
       >
         {t('appShell.skipToMainContent', 'Skip to main content')}
       </a>
@@ -1538,7 +1538,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
               const mid = items.slice(1, -1)
               const hasMid = mid.length > 0
               return (
-                <BreadcrumbNav divider="arrow" className="ml-2 lg:ml-3 text-sm">
+                <BreadcrumbNav divider="arrow" className="ms-2 lg:ms-3 text-sm">
                   <BreadcrumbList className="[&_[data-slot=breadcrumb-separator]_svg]:size-4">
                     <BreadcrumbItem>
                       {home.href && current ? (
@@ -1653,7 +1653,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0 z-modal">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setMobileOpen(false)} aria-hidden="true" />
-          <aside className="absolute left-0 top-0 flex h-full w-[280px] max-w-[85vw] flex-col bg-background border-r shadow-lg overflow-hidden">
+          <aside className="absolute start-0 top-0 flex h-full w-[280px] max-w-[85vw] flex-col bg-background border-e shadow-lg overflow-hidden">
             <div className="shrink-0 flex items-center justify-between gap-2 border-b px-4 py-3">
               <Link href="/backend" className="flex items-center gap-2 min-w-0 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
                 <ShellBrandLogo logo={resolvedLogo} brandName={resolvedBrandName} mobile unoptimized={resolvedLogoBypassesOptimization} />
@@ -1698,7 +1698,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                       <span>{tab.label}</span>
                       {isActive ? (
                         <span
-                          className="absolute -bottom-px left-0 right-0 h-0.5 bg-accent-indigo"
+                          className="absolute -bottom-px start-0 end-0 h-0.5 bg-accent-indigo"
                           aria-hidden="true"
                         />
                       ) : null}

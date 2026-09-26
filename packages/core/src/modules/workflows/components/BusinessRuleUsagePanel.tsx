@@ -94,7 +94,7 @@ export function BusinessRuleUsagePanel({ ruleId, className }: BusinessRuleUsageP
                   className="text-xs text-muted-foreground"
                 >
                   <span className="font-medium text-foreground">{reference.workflowName || reference.workflowId}</span>
-                  <span className="ml-1">{t(`workflows.businessRules.usage.kinds.${reference.kind}`)}</span>
+                  <span className="ms-1">{t(`workflows.businessRules.usage.kinds.${reference.kind}`)}</span>
                 </li>
               ))}
             </ul>

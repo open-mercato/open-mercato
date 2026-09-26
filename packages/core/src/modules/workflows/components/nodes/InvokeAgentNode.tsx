@@ -147,7 +147,7 @@ export function InvokeAgentNode({ id, data, isConnectable, selected }: NodeProps
         />
         {chip && (
           <span
-            className={`absolute bottom-2 right-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${chip.className}`}
+            className={`absolute bottom-2 end-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${chip.className}`}
           >
             {chip.label}
           </span>

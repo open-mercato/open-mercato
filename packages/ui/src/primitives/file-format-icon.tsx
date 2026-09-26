@@ -27,9 +27,9 @@ export function FileFormatIcon({ format, tone = 'red', size = 'default', classNa
   const artwork = fileFormatArtwork[size]
   return (
     <span role="img" aria-label={ariaLabel ?? format} data-slot="file-format-icon" data-size={size} data-tone={tone} className={cn('relative inline-flex shrink-0', small ? 'size-8' : 'size-10', className)} {...props}>
-      <img src={artwork.body} alt="" aria-hidden="true" width={small ? 26 : 32} height={small ? 32 : 40} className="absolute top-0 left-1/2 -translate-x-1/2" />
-      <img src={artwork.fold} alt="" aria-hidden="true" width={small ? 11 : 13} height={small ? 11 : 13} className={cn('absolute top-0', small ? 'right-0.5' : 'right-0.75')} />
-      <span aria-hidden="true" className={cn('absolute left-0 flex items-center justify-center rounded-sm font-semibold', formatColors[tone], small ? 'bottom-1 h-3.5 min-w-6 px-0.5' : 'bottom-1.5 h-4 min-w-7 px-0.75')}>
+      <img src={artwork.body} alt="" aria-hidden="true" width={small ? 26 : 32} height={small ? 32 : 40} className="absolute top-0 start-1/2 -translate-x-1/2 rtl:translate-x-1/2" />
+      <img src={artwork.fold} alt="" aria-hidden="true" width={small ? 11 : 13} height={small ? 11 : 13} className={cn('absolute top-0', small ? 'end-0.5' : 'end-0.75')} />
+      <span aria-hidden="true" className={cn('absolute start-0 flex items-center justify-center rounded-sm font-semibold', formatColors[tone], small ? 'bottom-1 h-3.5 min-w-6 px-0.5' : 'bottom-1.5 h-4 min-w-7 px-0.75')}>
         <span className={cn('text-overline leading-3 tracking-wide', small && 'scale-80')}>{format}</span>
       </span>
     </span>

@@ -311,7 +311,7 @@ export default function InboxOpsProposalsPage() {
           </Button>
         </div>
       )}
-      <ol className="mt-6 text-sm text-muted-foreground text-left space-y-2">
+      <ol className="mt-6 text-sm text-muted-foreground text-start space-y-2">
         <li>1. {t('inbox_ops.empty.step1', 'Forward any email thread to this address')}</li>
         <li>2. {t('inbox_ops.empty.step2', "We'll analyze it and propose actions")}</li>
         <li>3. {t('inbox_ops.empty.step3', 'Review and accept with one click')}</li>
@@ -345,7 +345,7 @@ export default function InboxOpsProposalsPage() {
               {settings?.inboxAddress && (
                 <Button type="button" variant="outline" size="sm" onClick={handleCopyAddress}>
                   <Copy className="h-4 w-4" />
-                  <span className="hidden md:inline ml-1">
+                  <span className="hidden md:inline ms-1">
                     {copied ? t('inbox_ops.settings.copied', 'Copied') : t('inbox_ops.settings.copy', 'Copy')}
                   </span>
                 </Button>
@@ -353,7 +353,7 @@ export default function InboxOpsProposalsPage() {
               <Button variant="outline" size="sm" asChild>
                 <Link href="/backend/inbox-ops/settings">
                   <Settings className="h-4 w-4" />
-                  <span className="hidden md:inline ml-1">{t('inbox_ops.list.actions.settings', 'Settings')}</span>
+                  <span className="hidden md:inline ms-1">{t('inbox_ops.list.actions.settings', 'Settings')}</span>
                 </Link>
               </Button>
             </div>

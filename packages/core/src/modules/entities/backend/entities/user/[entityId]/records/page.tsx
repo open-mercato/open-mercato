@@ -389,7 +389,7 @@ export RECORD_ID="<record uuid>"`}</code></pre>
 
             <div className="text-muted-foreground">
               Security notes:
-              <ul className="list-disc pl-5 mt-1 space-y-1">
+              <ul className="list-disc ps-5 mt-1 space-y-1">
                 <li>All endpoints require a valid API key. Keys inherit tenant, organization, and feature scope.</li>
                 <li>Rotate keys regularly and delete unused ones in the admin UI.</li>
                 <li>Store the secret in a secure vault; anyone with the header can act within the key&apos;s permissions.</li>

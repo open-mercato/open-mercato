@@ -662,7 +662,7 @@ function DefaultGridView({
           </colgroup>
           <thead>
             <tr className="border-b bg-muted/50">
-              <th scope="col" className="sticky left-0 z-10 bg-muted px-3 py-2 text-left font-medium">
+              <th scope="col" className="sticky start-0 z-10 bg-muted px-3 py-2 text-start font-medium">
                 {t('staff.timesheets.my.project', 'Project')}
               </th>
               {days.map((date) => {
@@ -688,7 +688,7 @@ function DefaultGridView({
                   </th>
                 )
               })}
-              <th scope="col" className="px-3 py-2 text-right font-medium">
+              <th scope="col" className="px-3 py-2 text-end font-medium">
                 {t('staff.timesheets.my.total', 'Total')}
               </th>
             </tr>
@@ -697,7 +697,7 @@ function DefaultGridView({
             {isLoading
               ? Array.from({ length: SKELETON_ROW_COUNT }).map((_, index) => (
                   <tr key={`grid-skeleton-${index}`} data-testid="grid-skeleton-row" className="border-b">
-                    <th scope="row" className="sticky left-0 z-10 bg-background px-3 py-1.5 text-left font-medium">
+                    <th scope="row" className="sticky start-0 z-10 bg-background px-3 py-1.5 text-start font-medium">
                       {index === 0 ? <span className="sr-only">{loadingLabel}</span> : null}
                       <span aria-hidden="true" className="block h-4 w-32 animate-pulse rounded bg-muted" />
                     </th>
@@ -710,7 +710,7 @@ function DefaultGridView({
                       </td>
                     ))}
                     <td className="px-3 py-1.5">
-                      <span aria-hidden="true" className="ml-auto block h-4 w-8 animate-pulse rounded bg-muted" />
+                      <span aria-hidden="true" className="ms-auto block h-4 w-8 animate-pulse rounded bg-muted" />
                     </td>
                   </tr>
                 ))
@@ -735,8 +735,8 @@ function DefaultGridView({
                 <th
                   scope="row"
                   className={cn(
-                    'sticky left-0 z-10 bg-background px-3 py-1.5 text-left font-medium text-foreground',
-                    row.taskId ? 'pl-6' : null,
+                    'sticky start-0 z-10 bg-background px-3 py-1.5 text-start font-medium text-foreground',
+                    row.taskId ? 'ps-6' : null,
                   )}
                 >
                   <div className="flex items-center justify-between gap-2">
@@ -851,14 +851,14 @@ function DefaultGridView({
                     </td>
                   )
                 })}
-                <td className="px-3 py-1.5 text-right font-semibold text-xs tabular-nums">
+                <td className="px-3 py-1.5 text-end font-semibold text-xs tabular-nums">
                   {formatTrimmedDecimalDuration(rowTotal(row.key)) || '0'}
                 </td>
               </tr>
             ))}
             {editable && !isLoading ? (
               <tr className="border-b">
-                <td colSpan={days.length + 2} className="sticky left-0 bg-background px-1 py-0.5">
+                <td colSpan={days.length + 2} className="sticky start-0 bg-background px-1 py-0.5">
                   <AddRowDropdown
                     assignedProjects={allAssignedProjects.map((project) => ({
                       id: project.id,
@@ -884,7 +884,7 @@ function DefaultGridView({
           </tbody>
           <tfoot>
             <tr className="border-t bg-muted/50 font-semibold">
-              <th scope="row" className="sticky left-0 z-10 bg-muted px-3 py-2 text-left">
+              <th scope="row" className="sticky start-0 z-10 bg-muted px-3 py-2 text-start">
                 {t('staff.timesheets.my.daily_total', 'Daily Total')}
               </th>
               {days.map((date) => {
@@ -902,7 +902,7 @@ function DefaultGridView({
                   </td>
                 )
               })}
-              <td className="px-3 py-2 text-right tabular-nums font-semibold">
+              <td className="px-3 py-2 text-end tabular-nums font-semibold">
                 {formatTrimmedDecimalDuration(grandTotal) || '0'}
               </td>
             </tr>

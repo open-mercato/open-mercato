@@ -104,7 +104,7 @@ export function MobileVisualEditor({
             aria-label={isSaving ? t('workflows.mobile.saving') : t('workflows.mobile.save')}
           >
             <Save className="h-4 w-4" />
-            <span className="ml-1 text-xs">{isSaving ? '...' : definitionId ? t('workflows.common.update') : t('workflows.common.save')}</span>
+            <span className="ms-1 text-xs">{isSaving ? '...' : definitionId ? t('workflows.common.update') : t('workflows.common.save')}</span>
           </Button>
           <Button
             variant="ghost"
@@ -180,7 +180,7 @@ export function MobileVisualEditor({
           <DrawerBody className="space-y-2 pb-5">
             <button
               onClick={() => { onLoadExample(); setShowMoreActions(false) }}
-              className="flex w-full items-center gap-3 rounded-lg border p-3 text-left text-sm hover:bg-muted active:bg-muted"
+              className="flex w-full items-center gap-3 rounded-lg border p-3 text-start text-sm hover:bg-muted active:bg-muted"
             >
               {t('workflows.mobile.loadExample', 'Load Example')}
             </button>
@@ -188,7 +188,7 @@ export function MobileVisualEditor({
               <button
                 onClick={() => { onStartInstance(); setShowMoreActions(false) }}
                 disabled={isSaving}
-                className="flex w-full items-center gap-3 rounded-lg border p-3 text-left text-sm hover:bg-muted active:bg-muted disabled:opacity-50"
+                className="flex w-full items-center gap-3 rounded-lg border p-3 text-start text-sm hover:bg-muted active:bg-muted disabled:opacity-50"
               >
                 <Play className="h-4 w-4" />
                 {t('workflows.actions.startInstance')}
@@ -197,7 +197,7 @@ export function MobileVisualEditor({
             <button
               onClick={() => { onClear(); setShowMoreActions(false) }}
               disabled={isSaving}
-              className="flex w-full items-center gap-3 rounded-lg border p-3 text-left text-sm text-destructive hover:bg-muted active:bg-muted disabled:opacity-50"
+              className="flex w-full items-center gap-3 rounded-lg border p-3 text-start text-sm text-destructive hover:bg-muted active:bg-muted disabled:opacity-50"
             >
               <Trash2 className="h-4 w-4" />
               {t('workflows.mobile.clear', 'Clear')}

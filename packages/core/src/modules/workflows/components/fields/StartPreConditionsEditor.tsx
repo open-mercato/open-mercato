@@ -250,7 +250,7 @@ export function StartPreConditionsEditor({
           disabled={disabled}
           className="w-full sm:w-auto"
         >
-          <Plus className="h-4 w-4 mr-1" />
+          <Plus className="h-4 w-4 me-1" />
           {t('workflows.fieldEditors.preConditions.addRule')}
         </Button>
       </div>

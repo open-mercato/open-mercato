@@ -100,7 +100,7 @@ describe('DataTable header row wrapping', () => {
           'flex-wrap',
           'items-center',
           'gap-2',
-          'sm:ml-auto',
+          'sm:ms-auto',
           'sm:justify-end',
         ]),
       )

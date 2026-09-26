@@ -300,7 +300,7 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
   )
 
   const renderMenu = () => (
-    <div className="absolute right-0 z-dropdown mt-2 w-48 rounded border bg-popover p-1 shadow-lg">
+    <div className="absolute end-0 z-dropdown mt-2 w-48 rounded border bg-popover p-1 shadow-lg">
       <button
         type="button"
         className="flex w-full items-center gap-2 rounded px-2 py-2 text-sm hover:bg-muted"

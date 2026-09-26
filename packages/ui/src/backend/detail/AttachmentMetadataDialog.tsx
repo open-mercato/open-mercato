@@ -569,7 +569,7 @@ export function AttachmentMetadataDialog({ open, onOpenChange, item, availableTa
               {downloadUrl ? (
                 <Button variant="outline" size="sm" asChild className="shrink-0">
                   <a href={downloadUrl} download>
-                    <Download className="mr-2 h-4 w-4" />
+                    <Download className="me-2 h-4 w-4" />
                     {t('attachments.library.metadata.download', 'Download')}
                   </a>
                 </Button>

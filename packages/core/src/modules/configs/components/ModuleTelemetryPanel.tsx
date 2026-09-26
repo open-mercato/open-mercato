@@ -651,18 +651,18 @@ function TopOperationsBreakdown({
       <table className="w-full text-xs">
         <thead>
           <tr className="text-muted-foreground">
-            <th className="pb-1 pr-2 text-left font-medium">{translate('configs.moduleTelemetry.table.topOperation', 'Top operation')}</th>
-            <th className="pb-1 pr-2 text-right font-medium">{translate('configs.moduleTelemetry.table.calls', 'Calls')}</th>
-            <th className="pb-1 pr-2 text-right font-medium">{translate('configs.moduleTelemetry.table.worstP95', 'Worst p95')}</th>
-            <th className="pb-1 pr-2 text-right font-medium">{translate('configs.moduleTelemetry.table.cpu', 'CPU')}</th>
-            <th className="pb-1 pr-2 text-right font-medium">{translate('configs.moduleTelemetry.table.heap', 'Heap growth')}</th>
-            <th className="pb-1 text-right font-medium">{translate('configs.moduleTelemetry.table.rss', 'RSS growth')}</th>
+            <th className="pb-1 pe-2 text-start font-medium">{translate('configs.moduleTelemetry.table.topOperation', 'Top operation')}</th>
+            <th className="pb-1 pe-2 text-end font-medium">{translate('configs.moduleTelemetry.table.calls', 'Calls')}</th>
+            <th className="pb-1 pe-2 text-end font-medium">{translate('configs.moduleTelemetry.table.worstP95', 'Worst p95')}</th>
+            <th className="pb-1 pe-2 text-end font-medium">{translate('configs.moduleTelemetry.table.cpu', 'CPU')}</th>
+            <th className="pb-1 pe-2 text-end font-medium">{translate('configs.moduleTelemetry.table.heap', 'Heap growth')}</th>
+            <th className="pb-1 text-end font-medium">{translate('configs.moduleTelemetry.table.rss', 'RSS growth')}</th>
           </tr>
         </thead>
         <tbody>
           {operations.map((operation, index) => (
             <tr key={`${operation.surface} ${operation.operation} ${index}`} className="border-t border-border/50">
-              <td className="py-1 pr-2 align-top">
+              <td className="py-1 pe-2 align-top">
                 <div className="font-medium text-foreground">{operation.operation}</div>
                 <div className="text-muted-foreground">
                   {operation.surface}
@@ -680,11 +680,11 @@ function TopOperationsBreakdown({
                   </div>
                 ) : null}
               </td>
-              <td className="py-1 pr-2 text-right align-top">{formatCount(operation.calls)}</td>
-              <td className="py-1 pr-2 text-right align-top">{formatMs(operation.p95DurationMs)}</td>
-              <td className="py-1 pr-2 text-right align-top">{formatMs(operation.totalCpuUserMs + operation.totalCpuSystemMs)}</td>
-              <td className="py-1 pr-2 text-right align-top">{formatBytes(operation.positiveHeapDeltaBytes)}</td>
-              <td className="py-1 text-right align-top">{formatBytes(operation.positiveRssDeltaBytes)}</td>
+              <td className="py-1 pe-2 text-end align-top">{formatCount(operation.calls)}</td>
+              <td className="py-1 pe-2 text-end align-top">{formatMs(operation.p95DurationMs)}</td>
+              <td className="py-1 pe-2 text-end align-top">{formatMs(operation.totalCpuUserMs + operation.totalCpuSystemMs)}</td>
+              <td className="py-1 pe-2 text-end align-top">{formatBytes(operation.positiveHeapDeltaBytes)}</td>
+              <td className="py-1 text-end align-top">{formatBytes(operation.positiveRssDeltaBytes)}</td>
             </tr>
           ))}
         </tbody>
@@ -716,9 +716,9 @@ function RangeModuleTable({
         <table className="w-full min-w-[980px] text-sm">
           <thead>
             <tr className="text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-3 py-2 text-left">{translate('configs.moduleTelemetry.table.module', 'Module')}</th>
-              <th className="px-3 py-2 text-left">{translate('configs.moduleTelemetry.table.stage', 'Stage')}</th>
-              <th className="px-3 py-2 text-left">
+              <th className="px-3 py-2 text-start">{translate('configs.moduleTelemetry.table.module', 'Module')}</th>
+              <th className="px-3 py-2 text-start">{translate('configs.moduleTelemetry.table.stage', 'Stage')}</th>
+              <th className="px-3 py-2 text-start">
                 <MetricTitle
                   label={translate('configs.moduleTelemetry.table.signals', 'Signals')}
                   tooltip={translate(
@@ -727,13 +727,13 @@ function RangeModuleTable({
                   )}
                 />
               </th>
-              <th className="px-3 py-2 text-right">{translate('configs.moduleTelemetry.table.calls', 'Calls')}</th>
-              <th className="px-3 py-2 text-right">{translate('configs.moduleTelemetry.table.worstP95', 'Worst p95')}</th>
-              <th className="px-3 py-2 text-right">{translate('configs.moduleTelemetry.table.cpu', 'CPU')}</th>
-              <th className="px-3 py-2 text-right">{translate('configs.moduleTelemetry.table.heap', 'Heap growth')}</th>
-              <th className="px-3 py-2 text-right">{translate('configs.moduleTelemetry.table.rss', 'RSS growth')}</th>
-              <th className="px-3 py-2 text-left">{translate('configs.moduleTelemetry.table.topOperation', 'Top operation')}</th>
-              <th className="px-3 py-2 text-right">{translate('configs.moduleTelemetry.table.actions', 'Actions')}</th>
+              <th className="px-3 py-2 text-end">{translate('configs.moduleTelemetry.table.calls', 'Calls')}</th>
+              <th className="px-3 py-2 text-end">{translate('configs.moduleTelemetry.table.worstP95', 'Worst p95')}</th>
+              <th className="px-3 py-2 text-end">{translate('configs.moduleTelemetry.table.cpu', 'CPU')}</th>
+              <th className="px-3 py-2 text-end">{translate('configs.moduleTelemetry.table.heap', 'Heap growth')}</th>
+              <th className="px-3 py-2 text-end">{translate('configs.moduleTelemetry.table.rss', 'RSS growth')}</th>
+              <th className="px-3 py-2 text-start">{translate('configs.moduleTelemetry.table.topOperation', 'Top operation')}</th>
+              <th className="px-3 py-2 text-end">{translate('configs.moduleTelemetry.table.actions', 'Actions')}</th>
             </tr>
           </thead>
           <tbody>
@@ -778,7 +778,7 @@ function RangeModuleTable({
                       <td className="px-3 py-3 align-top">
                         <CandidateBadges module={module} translate={translate} />
                       </td>
-                      <td className="px-3 py-3 align-top text-right">
+                      <td className="px-3 py-3 align-top text-end">
                         <div className="flex flex-col gap-1">
                           <span>{formatCount(module.calls)}</span>
                           {module.errors > 0 ? (
@@ -788,10 +788,10 @@ function RangeModuleTable({
                           ) : null}
                         </div>
                       </td>
-                      <td className="px-3 py-3 align-top text-right">{formatMs(module.p95DurationMs)}</td>
-                      <td className="px-3 py-3 align-top text-right">{formatMs(module.totalCpuMs)}</td>
-                      <td className="px-3 py-3 align-top text-right">{formatBytes(module.positiveHeapDeltaBytes)}</td>
-                      <td className="px-3 py-3 align-top text-right">{formatBytes(module.positiveRssDeltaBytes)}</td>
+                      <td className="px-3 py-3 align-top text-end">{formatMs(module.p95DurationMs)}</td>
+                      <td className="px-3 py-3 align-top text-end">{formatMs(module.totalCpuMs)}</td>
+                      <td className="px-3 py-3 align-top text-end">{formatBytes(module.positiveHeapDeltaBytes)}</td>
+                      <td className="px-3 py-3 align-top text-end">{formatBytes(module.positiveRssDeltaBytes)}</td>
                       <td className="px-3 py-3 align-top">
                         {topOperation ? (
                           <Tooltip delayDuration={200}>
@@ -821,7 +821,7 @@ function RangeModuleTable({
                           <span className="text-muted-foreground">{translate('configs.moduleTelemetry.table.none', 'None')}</span>
                         )}
                       </td>
-                      <td className="px-3 py-3 align-top text-right">
+                      <td className="px-3 py-3 align-top text-end">
                         <SimpleTooltip
                           content={translate('configs.moduleTelemetry.table.copyStats', 'Copy row stats for debugging')}
                           side="top"

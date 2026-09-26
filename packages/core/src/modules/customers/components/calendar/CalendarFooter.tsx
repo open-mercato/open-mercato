@@ -55,7 +55,7 @@ export function CalendarFooter({ timezoneLabel, onOpenShortcuts }: CalendarFoote
           </span>
         )
       })}
-      <span className="ml-auto text-xs text-muted-foreground">{timezoneLabel}</span>
+      <span className="ms-auto text-xs text-muted-foreground">{timezoneLabel}</span>
     </footer>
   )
 }

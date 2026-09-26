@@ -44,7 +44,7 @@ export function DecisionMakersFooter({ names, suggestion, onSendInvitation }: De
             <TooltipTrigger asChild>
               <span className="w-full shrink-0 sm:w-auto">
                 <Button type="button" size="sm" disabled className="pointer-events-none w-full sm:w-auto">
-                  <Send className="mr-1.5 size-3.5" />
+                  <Send className="me-1.5 size-3.5" />
                   {t('customers.people.decisionMakers.sendInvitation', 'Send invitation')}
                 </Button>
               </span>

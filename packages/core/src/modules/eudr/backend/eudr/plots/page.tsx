@@ -372,12 +372,12 @@ export default function EudrPlotsPage() {
           actions={(
             <div className="flex flex-wrap items-center gap-2">
               <Button type="button" variant="outline" onClick={() => setImportOpen(true)}>
-                <Upload className="mr-2 size-4" aria-hidden="true" />
+                <Upload className="me-2 size-4" aria-hidden="true" />
                 {translate('eudr.plots.list.actions.import')}
               </Button>
               <Button asChild>
                 <Link href="/backend/eudr/plots/create">
-                  <Plus className="mr-2 size-4" aria-hidden="true" />
+                  <Plus className="me-2 size-4" aria-hidden="true" />
                   {translate('eudr.plots.list.actions.create')}
                 </Link>
               </Button>

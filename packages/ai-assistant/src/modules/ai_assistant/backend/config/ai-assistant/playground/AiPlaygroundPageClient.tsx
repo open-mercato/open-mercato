@@ -479,7 +479,7 @@ function ObjectLane({ agent }: { agent: PlaygroundAgent }) {
             {t('ai_assistant.playground.object.errorTitle', 'Object run failed')}
           </AlertTitle>
           <AlertDescription>
-            {error.code ? <span className="mr-2 font-mono text-xs">{error.code}</span> : null}
+            {error.code ? <span className="me-2 font-mono text-xs">{error.code}</span> : null}
             {error.error}
           </AlertDescription>
         </Alert>

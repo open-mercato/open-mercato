@@ -313,7 +313,7 @@ export default function EudrStatementsPage() {
           actions={(
             <Button asChild>
               <Link href="/backend/eudr/statements/create">
-                <Plus className="mr-2 h-4 w-4" aria-hidden />
+                <Plus className="me-2 h-4 w-4" aria-hidden />
                 {translate('eudr.statements.list.actions.create')}
               </Link>
             </Button>

@@ -202,7 +202,7 @@ export function PlotMultiSelectField({
                   return (
                     <span
                       key={plotId}
-                      className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/30 py-0.5 pl-3 pr-1 text-sm text-foreground"
+                      className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/30 py-0.5 ps-3 pe-1 text-sm text-foreground"
                     >
                       <span className="max-w-56 truncate">{name}</span>
                       <IconButton

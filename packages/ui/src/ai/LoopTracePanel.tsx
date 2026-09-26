@@ -66,12 +66,12 @@ function LoopStepRow({ step }: { step: LoopStepRecord }) {
         <span className="font-medium text-muted-foreground">Step {step.stepIndex}</span>
         <span className="font-mono text-muted-foreground/60">{step.modelId}</span>
         {hasTools ? (
-          <span className="ml-auto flex items-center gap-1 text-muted-foreground">
+          <span className="ms-auto flex items-center gap-1 text-muted-foreground">
             <Wrench className="size-3" aria-hidden />
             {step.toolCalls.length}
           </span>
         ) : null}
-        <span className="ml-auto font-mono text-muted-foreground/60">{step.finishReason}</span>
+        <span className="ms-auto font-mono text-muted-foreground/60">{step.finishReason}</span>
         <span className="font-mono text-muted-foreground/60">
           {step.usage.inputTokens}↑ {step.usage.outputTokens}↓
         </span>
@@ -154,11 +154,11 @@ export function LoopTracePanel({ trace, className }: LoopTracePanelProps) {
           <ChevronRight className="size-3 shrink-0 text-muted-foreground" aria-hidden />
         )}
         <span className="font-semibold text-muted-foreground">Loop trace</span>
-        <span className="ml-1 font-mono text-muted-foreground/60">
+        <span className="ms-1 font-mono text-muted-foreground/60">
           {trace.steps.length} step{trace.steps.length !== 1 ? 's' : ''}
         </span>
         <span
-          className="ml-auto font-mono text-muted-foreground/60"
+          className="ms-auto font-mono text-muted-foreground/60"
           data-loop-trace-stop-reason={trace.stopReason}
         >
           {trace.stopReason}

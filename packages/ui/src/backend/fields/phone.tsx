@@ -74,7 +74,7 @@ function PhoneFieldDefEditor({
                   <span className="text-base leading-none">{country.flag}</span>
                 </SelectItemLeading>
                 <span className="flex-1 truncate">{country.label}</span>
-                <span className="ml-2 text-xs text-muted-foreground tabular-nums">{country.dialCode}</span>
+                <span className="ms-2 text-xs text-muted-foreground tabular-nums">{country.dialCode}</span>
               </SelectItem>
             ))}
           </SelectContent>

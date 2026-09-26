@@ -180,9 +180,9 @@ export default function StaffTeamMembersPage() {
           )
           : (
             <div className="flex flex-col">
-              <span className="font-medium pl-6">{row.original.displayName}</span>
+              <span className="font-medium ps-6">{row.original.displayName}</span>
               {row.original.description ? (
-                <span className="text-xs text-muted-foreground line-clamp-2 pl-6">{markdownToPlainText(row.original.description)}</span>
+                <span className="text-xs text-muted-foreground line-clamp-2 ps-6">{markdownToPlainText(row.original.description)}</span>
               ) : null}
             </div>
           )

@@ -266,19 +266,19 @@ export function AiUsageStatsPageClient() {
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
-                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">
+                  <th className="px-3 py-2 text-start font-medium text-muted-foreground">
                     {t('ai_assistant.usage.col.day', 'Day')}
                   </th>
-                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">
+                  <th className="px-3 py-2 text-start font-medium text-muted-foreground">
                     {t('ai_assistant.usage.col.agent', 'Agent')}
                   </th>
-                  <th className="px-3 py-2 text-right font-medium text-muted-foreground">
+                  <th className="px-3 py-2 text-end font-medium text-muted-foreground">
                     {t('ai_assistant.usage.col.inputTokens', 'Input')}
                   </th>
-                  <th className="px-3 py-2 text-right font-medium text-muted-foreground">
+                  <th className="px-3 py-2 text-end font-medium text-muted-foreground">
                     {t('ai_assistant.usage.col.outputTokens', 'Output')}
                   </th>
-                  <th className="px-3 py-2 text-right font-medium text-muted-foreground">
+                  <th className="px-3 py-2 text-end font-medium text-muted-foreground">
                     {t('ai_assistant.usage.col.sessions', 'Sessions')}
                   </th>
                 </tr>
@@ -288,9 +288,9 @@ export function AiUsageStatsPageClient() {
                   <tr key={row.id} className="border-b border-border last:border-b-0">
                     <td className="px-3 py-2 tabular-nums">{row.day}</td>
                     <td className="px-3 py-2 font-mono text-xs">{row.agentId}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{formatNumber(parseInt(row.inputTokens, 10))}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{formatNumber(parseInt(row.outputTokens, 10))}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{row.sessionCount}</td>
+                    <td className="px-3 py-2 text-end tabular-nums">{formatNumber(parseInt(row.inputTokens, 10))}</td>
+                    <td className="px-3 py-2 text-end tabular-nums">{formatNumber(parseInt(row.outputTokens, 10))}</td>
+                    <td className="px-3 py-2 text-end tabular-nums">{row.sessionCount}</td>
                   </tr>
                 ))}
               </tbody>
@@ -326,22 +326,22 @@ export function AiUsageStatsPageClient() {
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/40">
-                    <th className="px-3 py-2 text-left font-medium text-muted-foreground">
+                    <th className="px-3 py-2 text-start font-medium text-muted-foreground">
                       {t('ai_assistant.usage.col.session', 'Session')}
                     </th>
-                    <th className="px-3 py-2 text-left font-medium text-muted-foreground">
+                    <th className="px-3 py-2 text-start font-medium text-muted-foreground">
                       {t('ai_assistant.usage.col.agent', 'Agent')}
                     </th>
-                    <th className="px-3 py-2 text-left font-medium text-muted-foreground">
+                    <th className="px-3 py-2 text-start font-medium text-muted-foreground">
                       {t('ai_assistant.usage.col.startedAt', 'Started')}
                     </th>
-                    <th className="px-3 py-2 text-right font-medium text-muted-foreground">
+                    <th className="px-3 py-2 text-end font-medium text-muted-foreground">
                       {t('ai_assistant.usage.col.inputTokens', 'Input')}
                     </th>
-                    <th className="px-3 py-2 text-right font-medium text-muted-foreground">
+                    <th className="px-3 py-2 text-end font-medium text-muted-foreground">
                       {t('ai_assistant.usage.col.outputTokens', 'Output')}
                     </th>
-                    <th className="px-3 py-2 text-right font-medium text-muted-foreground">
+                    <th className="px-3 py-2 text-end font-medium text-muted-foreground">
                       {t('ai_assistant.usage.col.steps', 'Steps')}
                     </th>
                     <th className="w-8" />
@@ -357,9 +357,9 @@ export function AiUsageStatsPageClient() {
                       <td className="px-3 py-2 font-mono text-xs">{shortId(session.sessionId)}…</td>
                       <td className="px-3 py-2 font-mono text-xs">{session.agentId}</td>
                       <td className="px-3 py-2 text-muted-foreground text-xs">{formatDate(session.startedAt)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatNumber(session.inputTokens)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatNumber(session.outputTokens)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{session.stepCount}</td>
+                      <td className="px-3 py-2 text-end tabular-nums">{formatNumber(session.inputTokens)}</td>
+                      <td className="px-3 py-2 text-end tabular-nums">{formatNumber(session.outputTokens)}</td>
+                      <td className="px-3 py-2 text-end tabular-nums">{session.stepCount}</td>
                       <td className="px-3 py-2 text-muted-foreground">
                         <ChevronRight size={14} />
                       </td>
@@ -407,7 +407,7 @@ export function AiUsageStatsPageClient() {
             <DialogTitle>
               {t('ai_assistant.usage.sessionDetail', 'Session detail')}
               {selectedSessionId && (
-                <span className="ml-2 font-mono text-sm text-muted-foreground">
+                <span className="ms-2 font-mono text-sm text-muted-foreground">
                   {shortId(selectedSessionId)}…
                 </span>
               )}
@@ -430,19 +430,19 @@ export function AiUsageStatsPageClient() {
                 <table className="min-w-full text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/40">
-                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">
+                      <th className="px-3 py-2 text-start font-medium text-muted-foreground">
                         {t('ai_assistant.usage.col.step', 'Step')}
                       </th>
-                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">
+                      <th className="px-3 py-2 text-start font-medium text-muted-foreground">
                         {t('ai_assistant.usage.col.model', 'Model')}
                       </th>
-                      <th className="px-3 py-2 text-right font-medium text-muted-foreground">
+                      <th className="px-3 py-2 text-end font-medium text-muted-foreground">
                         {t('ai_assistant.usage.col.inputTokens', 'Input')}
                       </th>
-                      <th className="px-3 py-2 text-right font-medium text-muted-foreground">
+                      <th className="px-3 py-2 text-end font-medium text-muted-foreground">
                         {t('ai_assistant.usage.col.outputTokens', 'Output')}
                       </th>
-                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">
+                      <th className="px-3 py-2 text-start font-medium text-muted-foreground">
                         {t('ai_assistant.usage.col.finishReason', 'Finish')}
                       </th>
                     </tr>
@@ -452,8 +452,8 @@ export function AiUsageStatsPageClient() {
                       <tr key={event.id} className="border-b border-border last:border-b-0">
                         <td className="px-3 py-2 tabular-nums">{event.stepIndex}</td>
                         <td className="px-3 py-2 font-mono text-xs">{event.modelId}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{formatNumber(event.inputTokens)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{formatNumber(event.outputTokens)}</td>
+                        <td className="px-3 py-2 text-end tabular-nums">{formatNumber(event.inputTokens)}</td>
+                        <td className="px-3 py-2 text-end tabular-nums">{formatNumber(event.outputTokens)}</td>
                         <td className="px-3 py-2 text-muted-foreground text-xs">{event.finishReason ?? '—'}</td>
                       </tr>
                     ))}

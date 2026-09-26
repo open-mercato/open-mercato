@@ -455,7 +455,7 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
                   <div key={category.tag} className="space-y-2">
                     <button
                       type="button"
-                      className="flex w-full items-center justify-between rounded-md bg-muted px-3 py-2 text-left font-medium text-foreground hover:bg-muted/50"
+                      className="flex w-full items-center justify-between rounded-md bg-muted px-3 py-2 text-start font-medium text-foreground hover:bg-muted/50"
                       onClick={() =>
                         setExpanded((prev) => ({
                           ...prev,
@@ -467,7 +467,7 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
                       <span className="text-xs text-muted-foreground">{isExpanded ? '−' : '+'}</span>
                     </button>
                     {isExpanded ? (
-                      <ul className="space-y-1 pl-2">
+                      <ul className="space-y-1 ps-2">
                         {category.operations.map((operation) => (
                           <li key={operation.id}>
                             <button
@@ -628,7 +628,7 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
                                 Parameters
                               </h4>
                               <div className="overflow-hidden rounded-lg border">
-                                <table className="min-w-full divide-y divide-border text-left text-xs">
+                                <table className="min-w-full divide-y divide-border text-start text-xs">
                                   <thead className="bg-muted/50 text-overline uppercase tracking-wide text-muted-foreground">
                                     <tr>
                                       <th className="px-3 py-2 font-medium">Name</th>

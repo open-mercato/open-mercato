@@ -138,7 +138,7 @@ export default function PreparingPageClient() {
           </div>
           {statusError ? (
             <div
-              className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-left text-sm text-red-700"
+              className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-start text-sm text-red-700"
               role="alert"
               aria-live="assertive"
             >

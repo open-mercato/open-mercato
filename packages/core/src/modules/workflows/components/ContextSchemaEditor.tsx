@@ -61,7 +61,7 @@ export function ContextSchemaEditor({ value, onChange, className }: ContextSchem
             type="button"
             onClick={() => setCollapsed((previous) => !previous)}
             aria-expanded={!collapsed}
-            className="flex items-center gap-2 text-left focus-visible:outline-none focus-visible:shadow-focus"
+            className="flex items-center gap-2 text-start focus-visible:outline-none focus-visible:shadow-focus"
           >
             <Braces className="w-5 h-5 text-muted-foreground" />
             <h3 className="text-sm font-semibold uppercase text-muted-foreground">
@@ -70,7 +70,7 @@ export function ContextSchemaEditor({ value, onChange, className }: ContextSchem
             <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${collapsed ? '-rotate-90' : ''}`} />
           </button>
           <Button size="sm" variant="outline" onClick={addField} className="w-full sm:w-auto">
-            <Plus className="w-4 h-4 mr-1" />
+            <Plus className="w-4 h-4 me-1" />
             {t('workflows.contextSchema.addField')}
           </Button>
         </div>

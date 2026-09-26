@@ -161,7 +161,7 @@ function DealMapPreviewCard({ preview, onClose }: PreviewCardProps): React.React
   return (
     <div
       data-map-preview-card={preview.id}
-      className="absolute right-3 top-3 z-10 flex w-80 max-w-full flex-col gap-2 rounded-xl border border-border bg-popover p-4 shadow-lg"
+      className="absolute end-3 top-3 z-10 flex w-80 max-w-full flex-col gap-2 rounded-xl border border-border bg-popover p-4 shadow-lg"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 flex-col">
@@ -398,7 +398,7 @@ export default function DealsMapCanvasImpl({
         </div>
       ) : null}
       {legendStages.length > 0 ? (
-        <div className="absolute bottom-3 left-3 z-10 flex flex-col gap-1.5 rounded-lg border border-border bg-card/95 p-3">
+        <div className="absolute bottom-3 start-3 z-10 flex flex-col gap-1.5 rounded-lg border border-border bg-card/95 p-3">
           <span className="text-overline font-bold uppercase leading-normal text-muted-foreground">
             {translateWithFallback(t, 'customers.deals.map.legend.title', 'Stages')}
           </span>

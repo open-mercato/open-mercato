@@ -149,7 +149,7 @@ function EntityLinkSearchPopover({
               className="h-6 text-xs flex-1"
               onClick={() => { setLinkType(type as typeof linkType); setQuery('') }}
             >
-              {type === 'company' ? <Building2 className="mr-1 size-3" /> : type === 'deal' ? <Briefcase className="mr-1 size-3" /> : <FileText className="mr-1 size-3" />}
+              {type === 'company' ? <Building2 className="me-1 size-3" /> : type === 'deal' ? <Briefcase className="me-1 size-3" /> : <FileText className="me-1 size-3" />}
               {type === 'company' ? t('customers.schedule.linkType.company', 'Company') : type === 'deal' ? t('customers.schedule.linkType.deal', 'Deal') : t('customers.schedule.linkType.offer', 'Offer')}
             </Button>
           ))}
@@ -206,7 +206,7 @@ function EntityLinkSearchPopover({
                   setQuery('')
                 }}
                 className={cn(
-                  'h-auto flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
+                  'h-auto flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-sm transition-colors',
                   alreadyLinked ? 'opacity-40 cursor-default' : 'hover:bg-accent cursor-pointer',
                 )}
               >

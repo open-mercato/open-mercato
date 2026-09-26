@@ -117,7 +117,7 @@ export function ResourcesField({
         )}
       >
         {value.map((resource) => (
-          <span key={resource.id} className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted py-1 pl-2 pr-2">
+          <span key={resource.id} className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted py-1 ps-2 pe-2">
             <Box aria-hidden className="size-3.5 text-muted-foreground" />
             <span className="max-w-40 truncate text-xs font-medium text-foreground">{resource.label}</span>
             <IconButton
@@ -222,7 +222,7 @@ export function ResourcesField({
                           onChange([...value, { id: option.id, label: option.label }])
                           setQuery('')
                         }}
-                        className="h-auto w-full justify-start gap-2 whitespace-normal px-2 py-1.5 text-left text-sm font-normal text-foreground"
+                        className="h-auto w-full justify-start gap-2 whitespace-normal px-2 py-1.5 text-start text-sm font-normal text-foreground"
                       >
                         <Box aria-hidden className="size-4 text-muted-foreground" />
                         <span className="min-w-0 flex-1 truncate">{option.label}</span>
@@ -254,7 +254,7 @@ function TypeRow({ label, count, active, onSelect }: { label: string; count?: nu
       role="option"
       aria-selected={active}
       onClick={onSelect}
-      className={cn('h-auto w-full justify-start gap-2 px-2 py-1.5 text-left text-sm font-normal', active ? 'bg-muted text-foreground' : 'text-foreground')}
+      className={cn('h-auto w-full justify-start gap-2 px-2 py-1.5 text-start text-sm font-normal', active ? 'bg-muted text-foreground' : 'text-foreground')}
     >
       <Check aria-hidden className={cn('size-4 shrink-0', active ? 'opacity-100' : 'opacity-0')} />
       <span className="min-w-0 flex-1 truncate">{label}</span>

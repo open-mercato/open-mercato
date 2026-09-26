@@ -1210,7 +1210,7 @@ export function EntityTagsDialog({
                       variant={isActive ? 'secondary' : 'ghost'}
                       size="sm"
                       className={cn(
-                        'h-auto min-w-[140px] justify-between rounded-lg px-3 py-2 text-left md:w-full',
+                        'h-auto min-w-[140px] justify-between rounded-lg px-3 py-2 text-start md:w-full',
                         isActive ? 'border border-border bg-muted text-foreground' : 'border border-transparent text-muted-foreground',
                       )}
                       onClick={() => setActiveCategoryKind(category.kind)}
@@ -1218,7 +1218,7 @@ export function EntityTagsDialog({
                       <span className="truncate text-xs font-medium">
                         {category.label}
                       </span>
-                      <span className="ml-3 shrink-0 rounded-full bg-background px-2 py-0.5 text-xs font-semibold text-muted-foreground">
+                      <span className="ms-3 shrink-0 rounded-full bg-background px-2 py-0.5 text-xs font-semibold text-muted-foreground">
                         {count}
                       </span>
                     </Button>
@@ -1430,7 +1430,7 @@ export function EntityTagsDialog({
               disabled={saving || !hasChanges}
               className="rounded-md bg-foreground px-4 py-2 text-sm font-semibold text-background hover:bg-foreground/90"
             >
-              <Check className="mr-2 size-3.5" />
+              <Check className="me-2 size-3.5" />
               {saving
                 ? t('customers.personTags.saving', 'Saving...')
                 : t('customers.personTags.save', 'Save')}

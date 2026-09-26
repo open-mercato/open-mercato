@@ -225,7 +225,7 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
         </div>
       ) : (
         <Button onClick={() => setShowAddForm(true)} variant="outline" size="sm">
-          <Plus className="w-4 h-4 mr-2" />
+          <Plus className="w-4 h-4 me-2" />
           {t('business_rules.sets.members.actions.addRule')}
         </Button>
       )}

@@ -342,11 +342,11 @@ export function FulltextSearchSection({
                       <div className="flex-1 text-xs text-muted-foreground">
                         <span>{status.hint}</span>
                         {status.set ? (
-                          <span className="ml-2 text-status-success-text">
+                          <span className="ms-2 text-status-success-text">
                             ({t('search.settings.fulltext.currentValue', 'Current')}: {String(status.value)})
                           </span>
                         ) : (
-                          <span className="ml-2">
+                          <span className="ms-2">
                             ({t('search.settings.fulltext.defaultValue', 'Default')}: {String(status.default)})
                           </span>
                         )}
@@ -453,7 +453,7 @@ export function FulltextSearchSection({
                       >
                         {reindexing === 'clear' ? (
                           <>
-                            <Spinner size="sm" className="mr-2" />
+                            <Spinner size="sm" className="me-2" />
                             {t('search.settings.processingLabel', 'Processing...')}
                           </>
                         ) : (
@@ -474,7 +474,7 @@ export function FulltextSearchSection({
                       >
                         {reindexing === 'recreate' ? (
                           <>
-                            <Spinner size="sm" className="mr-2" />
+                            <Spinner size="sm" className="me-2" />
                             {t('search.settings.processingLabel', 'Processing...')}
                           </>
                         ) : (
@@ -497,7 +497,7 @@ export function FulltextSearchSection({
                   >
                     {reindexing === 'reindex' || fulltextReindexLock !== null ? (
                       <>
-                        <Spinner size="sm" className="mr-2" />
+                        <Spinner size="sm" className="me-2" />
                         {t('search.settings.processingLabel', 'Processing...')}
                       </>
                     ) : (
@@ -571,7 +571,7 @@ export function FulltextSearchSection({
             >
               {activityLoading ? (
                 <>
-                  <Spinner size="sm" className="mr-2" />
+                  <Spinner size="sm" className="me-2" />
                   {t('search.settings.loadingLabel', 'Loading...')}
                 </>
               ) : (

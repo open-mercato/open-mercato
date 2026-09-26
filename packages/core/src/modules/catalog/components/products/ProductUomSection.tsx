@@ -590,7 +590,7 @@ export function ProductUomSection({
             size="sm"
             onClick={addConversion}
           >
-            <Plus className="mr-1.5 h-4 w-4" />
+            <Plus className="me-1.5 h-4 w-4" />
             {t("catalog.products.uom.addConversion", "Add conversion")}
           </Button>
         </div>
@@ -676,7 +676,7 @@ export function ProductUomSection({
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="h-9 w-9 rounded-none border-r"
+                      className="h-9 w-9 rounded-none border-e"
                       onClick={() => moveConversion(index, "up")}
                       disabled={index === 0}
                       aria-label={t(

@@ -864,7 +864,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                         size="sm"
                         onClick={addFormField}
                       >
-                        <Plus className="size-3 mr-1" />
+                        <Plus className="size-3 me-1" />
                         {t('workflows.form.addField')}
                       </Button>
                     </div>
@@ -893,7 +893,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                               type="button"
                               variant="ghost"
                               onClick={() => toggleFieldExpanded(index)}
-                              className="h-auto w-full justify-between rounded-t-lg px-4 py-3 text-left hover:bg-muted/80"
+                              className="h-auto w-full justify-between rounded-t-lg px-4 py-3 text-start hover:bg-muted/80"
                             >
                               <div className="flex-1">
                                 <div className="flex items-center gap-2">
@@ -1031,7 +1031,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                     size="sm"
                                     onClick={() => removeFormField(index)}
                                   >
-                                    <Trash2 className="size-4 mr-1" />
+                                    <Trash2 className="size-4 me-1" />
                                     {t('workflows.form.removeField')}
                                   </Button>
                                 </div>
@@ -1074,7 +1074,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                           ])
                         }}
                       >
-                        <Plus className="size-3 mr-1" />
+                        <Plus className="size-3 me-1" />
                         {t('workflows.form.addActivity')}
                       </Button>
                     </div>
@@ -1103,7 +1103,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                 }
                                 setExpandedStepActivities(newExpanded)
                               }}
-                              className="h-auto w-full justify-between rounded-t-lg px-4 py-3 text-left hover:bg-muted/80"
+                              className="h-auto w-full justify-between rounded-t-lg px-4 py-3 text-start hover:bg-muted/80"
                             >
                               <div className="flex-1">
                                 <div className="flex items-center gap-2">
@@ -1366,7 +1366,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                       setExpandedStepActivities(newExpanded)
                                     }}
                                   >
-                                    <Trash2 className="size-3 mr-1" />
+                                    <Trash2 className="size-3 me-1" />
                                     {t('workflows.form.deleteActivity')}
                                   </Button>
                                 </div>
@@ -1454,7 +1454,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                         size="sm"
                         onClick={() => setInputMappings(prev => [...prev, { key: '', value: '' }])}
                       >
-                        <Plus className="size-3 mr-1" />
+                        <Plus className="size-3 me-1" />
                         {t('workflows.form.addMapping')}
                       </Button>
                     </div>
@@ -1527,7 +1527,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                         size="sm"
                         onClick={() => setOutputMappings(prev => [...prev, { key: '', value: '' }])}
                       >
-                        <Plus className="size-3 mr-1" />
+                        <Plus className="size-3 me-1" />
                         {t('workflows.form.addMapping')}
                       </Button>
                     </div>
@@ -1758,7 +1758,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                         variant="outline"
                         onClick={() => setAgentInputRows([...agentInputRows, { key: '', value: '' }])}
                       >
-                        <Plus className="size-3 mr-1" />
+                        <Plus className="size-3 me-1" />
                         {t('workflows.form.addMapping')}
                       </Button>
                     </div>
@@ -1871,7 +1871,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                           setAgentOutputMappings([...agentOutputMappings, { key: '', value: '' }])
                         }
                       >
-                        <Plus className="size-3 mr-1" />
+                        <Plus className="size-3 me-1" />
                         {t('workflows.form.addMapping')}
                       </Button>
                     </div>
@@ -1942,7 +1942,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                   type="button"
                   variant="ghost"
                   onClick={() => setShowAdvanced(!showAdvanced)}
-                  className="h-auto w-full justify-between px-0 py-0 text-left hover:bg-transparent"
+                  className="h-auto w-full justify-between px-0 py-0 text-start hover:bg-transparent"
                 >
                   <h3 className="text-sm font-semibold text-foreground">
                     {t('workflows.form.advancedConfiguration')}
@@ -1978,7 +1978,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
               {t('workflows.form.deleteStep')}
             </Button>
           )}
-          <div className="flex gap-2 ml-auto">
+          <div className="flex gap-2 ms-auto">
             <Button
               type="button"
               variant="outline"

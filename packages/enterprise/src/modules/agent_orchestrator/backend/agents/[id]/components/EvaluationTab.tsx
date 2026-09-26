@@ -528,7 +528,7 @@ export default function EvaluationTab({ agentId, agentLabel, active, initialSect
         <TabsContent value="assertions" className="space-y-3">
           <div className="flex items-center justify-end">
             <Button type="button" size="sm" onClick={() => setAssertionDrawer({ open: true, row: null })}>
-              <Plus className="mr-1.5 size-4" />
+              <Plus className="me-1.5 size-4" />
               {t('agent_orchestrator.evalAssertions.actions.new')}
             </Button>
           </div>
@@ -545,7 +545,7 @@ export default function EvaluationTab({ agentId, agentLabel, active, initialSect
                 const TypeIcon = TYPE_ICON[row.type]
                 return (
                   <AccordionItem key={row.id} value={row.id}>
-                    <div className="flex items-center gap-2 pr-3.5">
+                    <div className="flex items-center gap-2 pe-3.5">
                       <AccordionTrigger triggerIcon="chevron" headerClassName="flex-1 min-w-0">
                         <span className="flex min-w-0 flex-wrap items-center gap-2">
                           <span className="truncate font-medium text-foreground">{row.title || row.key}</span>
@@ -617,7 +617,7 @@ export default function EvaluationTab({ agentId, agentLabel, active, initialSect
               ))}
             </SegmentedControl>
             <Button type="button" size="sm" onClick={() => setCaseDrawer({ open: true, mode: 'create', id: null })}>
-              <Plus className="mr-1.5 size-4" />
+              <Plus className="me-1.5 size-4" />
               {t('agent_orchestrator.evalCases.actions.new')}
             </Button>
           </div>
@@ -659,7 +659,7 @@ export default function EvaluationTab({ agentId, agentLabel, active, initialSect
           <div className="flex items-center justify-end">
             {canRun ? (
               <Button type="button" size="sm" onClick={() => setRunDrawerOpen(true)}>
-                <Play className="mr-1.5 size-4" />
+                <Play className="me-1.5 size-4" />
                 {t('agent_orchestrator.agentDetail.evaluation.run.title', 'Run evaluation')}
               </Button>
             ) : null}

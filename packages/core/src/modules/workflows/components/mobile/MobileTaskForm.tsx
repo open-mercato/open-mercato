@@ -77,7 +77,7 @@ export function MobileTaskForm({
         <div key={fieldName} className="space-y-2">
           <Label htmlFor={fieldName}>
             {fieldTitle}
-            {required && <span className="text-status-error-text ml-1">*</span>}
+            {required && <span className="text-status-error-text ms-1">*</span>}
           </Label>
           {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
           <Select
@@ -104,7 +104,7 @@ export function MobileTaskForm({
             <div key={fieldName} className="space-y-2">
               <Label htmlFor={fieldName}>
                 {fieldTitle}
-                {required && <span className="text-status-error-text ml-1">*</span>}
+                {required && <span className="text-status-error-text ms-1">*</span>}
               </Label>
               {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
               <Textarea
@@ -122,7 +122,7 @@ export function MobileTaskForm({
           <div key={fieldName} className="space-y-2">
             <Label htmlFor={fieldName}>
               {fieldTitle}
-              {required && <span className="text-status-error-text ml-1">*</span>}
+              {required && <span className="text-status-error-text ms-1">*</span>}
             </Label>
             {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
             <Input
@@ -142,7 +142,7 @@ export function MobileTaskForm({
           <div key={fieldName} className="space-y-2">
             <Label htmlFor={fieldName}>
               {fieldTitle}
-              {required && <span className="text-status-error-text ml-1">*</span>}
+              {required && <span className="text-status-error-text ms-1">*</span>}
             </Label>
             {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
             <Input
@@ -168,7 +168,7 @@ export function MobileTaskForm({
               />
               <Label htmlFor={fieldName} className="font-medium">
                 {fieldTitle}
-                {required && <span className="text-status-error-text ml-1">*</span>}
+                {required && <span className="text-status-error-text ms-1">*</span>}
               </Label>
             </div>
             {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
@@ -180,7 +180,7 @@ export function MobileTaskForm({
           <div key={fieldName} className="space-y-2">
             <Label htmlFor={fieldName}>
               {fieldTitle}
-              {required && <span className="text-status-error-text ml-1">*</span>}
+              {required && <span className="text-status-error-text ms-1">*</span>}
             </Label>
             {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
             <Input
@@ -220,12 +220,12 @@ export function MobileTaskForm({
         <div className="space-y-2 text-sm">
           <div className="flex justify-between">
             <span className="text-muted-foreground">{t('workflows.tasks.fields.createdAt')}:</span>
-            <span className="text-right text-xs">{new Date(task.createdAt).toLocaleString()}</span>
+            <span className="text-end text-xs">{new Date(task.createdAt).toLocaleString()}</span>
           </div>
           {task.dueDate && (
             <div className="flex justify-between">
               <span className="text-muted-foreground">{t('workflows.tasks.fields.dueDate')}:</span>
-              <span className={`text-right text-xs ${isOverdue ? 'text-status-error-text font-medium' : ''}`}>
+              <span className={`text-end text-xs ${isOverdue ? 'text-status-error-text font-medium' : ''}`}>
                 {new Date(task.dueDate).toLocaleString()}
               </span>
             </div>
@@ -233,7 +233,7 @@ export function MobileTaskForm({
           {task.assignedTo && (
             <div className="flex justify-between">
               <span className="text-muted-foreground">{t('workflows.tasks.detail.assignedTo')}:</span>
-              <span className="text-right">{task.assignedTo}</span>
+              <span className="text-end">{task.assignedTo}</span>
             </div>
           )}
           <div className="flex justify-between">

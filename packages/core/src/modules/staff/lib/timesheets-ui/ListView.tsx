@@ -189,7 +189,7 @@ function InlineDescription({
         type="button"
         onClick={() => setEditing(true)}
         className={cn(
-          'text-left text-xs hover:underline',
+          'text-start text-xs hover:underline',
           entry.description ? 'text-muted-foreground' : 'italic text-muted-foreground/70',
         )}
       >
@@ -262,7 +262,7 @@ function DefaultListView({
               aria-expanded={expanded}
               onClick={() => onExpandedDateChange(expanded ? null : day.date)}
               className={cn(
-                'flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors',
+                'flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-start transition-colors',
                 'hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
                 expanded ? 'bg-muted/50' : null,
               )}
@@ -280,7 +280,7 @@ function DefaultListView({
               </span>
               <span
                 className={cn(
-                  'w-16 shrink-0 text-right font-mono text-sm tabular-nums',
+                  'w-16 shrink-0 text-end font-mono text-sm tabular-nums',
                   day.totalMinutes > 0 ? 'text-foreground' : 'text-muted-foreground',
                 )}
               >
@@ -414,10 +414,10 @@ function ExpandedDay({
                     <div className="text-xs text-muted-foreground">{entry.description}</div>
                   ) : null}
                 </td>
-                <td className="w-20 py-2 text-right align-top font-mono font-semibold tabular-nums">
+                <td className="w-20 py-2 text-end align-top font-mono font-semibold tabular-nums">
                   {formatDuration(entry.durationMinutes, 'clock')}
                 </td>
-                <td className="w-24 py-2 text-right align-top">
+                <td className="w-24 py-2 text-end align-top">
                   {canManage ? (
                     <span className="inline-flex items-center gap-1">
                       <Button

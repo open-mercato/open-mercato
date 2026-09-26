@@ -272,7 +272,7 @@ const NotificationFeedItem = React.forwardRef<HTMLLIElement, NotificationFeedIte
         {actions ? (
           <div
             data-slot="notification-feed-item-actions"
-            className="ml-auto inline-flex shrink-0 items-start opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+            className="ms-auto inline-flex shrink-0 items-start opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
             onClick={(event) => event.stopPropagation()}
           >
             {actions}

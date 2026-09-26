@@ -238,7 +238,7 @@ export default function AgentsRegistryPage() {
     {
       accessorKey: 'runs',
       header: t('agent_orchestrator.agents.list.col.runs', 'Runs'),
-      cell: ({ row }) => <div className="text-right text-sm tabular-nums">{formatNumber(row.original.runs, locale) ?? '0'}</div>,
+      cell: ({ row }) => <div className="text-end text-sm tabular-nums">{formatNumber(row.original.runs, locale) ?? '0'}</div>,
     },
     {
       accessorKey: 'evalPass',
@@ -411,7 +411,7 @@ export default function AgentsRegistryPage() {
           {previewUi ? (
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm">
-                <Download className="mr-2 size-4" />
+                <Download className="me-2 size-4" />
                 {t('agent_orchestrator.agents.actions.export', 'Export')}
               </Button>
               {/* Disabled, not clickable-then-apologetic: there is no create

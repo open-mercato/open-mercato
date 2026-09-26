@@ -591,8 +591,8 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
         className="max-w-2xl gap-0 overflow-hidden p-0"
         onKeyDown={handleDialogKeyDown}
       >
-        <div className="border-b px-6 py-4 pr-12">
-          <DialogHeader className="space-y-1 text-left">
+        <div className="border-b px-6 py-4 pe-12">
+          <DialogHeader className="space-y-1 text-start">
             <DialogTitle>{t('wms.backend.inventory.import.dialog.title', 'Import CSV')}</DialogTitle>
             <DialogDescription>{stepSubtitle}</DialogDescription>
             <ImportStepIndicator step={step} />
@@ -765,7 +765,7 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
                   <span>{t('wms.backend.inventory.import.mapping.csvColumn', 'CSV column')}</span>
                   <span aria-hidden="true" />
                   <span>{t('wms.backend.inventory.import.mapping.targetField', 'Target field')}</span>
-                  <span className="text-right">
+                  <span className="text-end">
                     {t('wms.backend.inventory.import.mapping.status', 'Status')}
                   </span>
                 </div>
@@ -945,7 +945,7 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
                     <span>{t('wms.backend.inventory.import.columns.sku', 'SKU')}</span>
                     <span>{t('wms.backend.inventory.import.columns.location', 'Location')}</span>
                     <span>{t('wms.backend.inventory.import.review.preview.lot', 'Lot')}</span>
-                    <span className="text-right">
+                    <span className="text-end">
                       {t('wms.backend.inventory.import.review.preview.qty', 'Qty')}
                     </span>
                   </div>
@@ -964,7 +964,7 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
                         <span className="truncate text-muted-foreground">
                           {row.resolved?.serialNumber ?? row.resolved?.lotId ?? '—'}
                         </span>
-                        <span className="text-right font-semibold tabular-nums text-foreground">
+                        <span className="text-end font-semibold tabular-nums text-foreground">
                           {row.resolved?.quantity ?? '—'}
                         </span>
                       </div>

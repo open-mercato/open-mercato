@@ -1048,7 +1048,7 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
             <>
               <Select value={warehouseId} onValueChange={setWarehouseId}>
                 <SelectTrigger className="w-full max-w-xs sm:w-56">
-                  <Warehouse className="mr-2 size-4 shrink-0 text-muted-foreground" />
+                  <Warehouse className="me-2 size-4 shrink-0 text-muted-foreground" />
                   <SelectValue placeholder={warehouseLabel} />
                 </SelectTrigger>
                 <SelectContent>

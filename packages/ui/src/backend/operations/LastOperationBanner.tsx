@@ -79,12 +79,12 @@ export function LastOperationBanner() {
   }
 
   return (
-    <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-status-warning-border bg-status-warning-bg pl-3 pr-2 py-2 text-sm text-status-warning-text shadow-xs sm:pr-3">
+    <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-status-warning-border bg-status-warning-bg ps-3 pe-2 py-2 text-sm text-status-warning-text shadow-xs sm:pe-3">
       <div className="min-w-0 truncate">
         <span className="font-medium text-status-warning-text">
           {t('audit_logs.banner.last_operation')}
         </span>
-        <span className="ml-2 truncate text-status-warning-text">
+        <span className="ms-2 truncate text-status-warning-text">
           {label}
         </span>
       </div>
@@ -95,7 +95,7 @@ export function LastOperationBanner() {
         disabled={isPending}
         className="border-status-warning-border bg-status-warning-bg text-status-warning-text hover:bg-status-warning-border hover:text-status-warning-text px-2.5 sm:px-3"
       >
-        <Undo2 className="mr-1 size-4" aria-hidden="true" />
+        <Undo2 className="me-1 size-4" aria-hidden="true" />
         {isPending ? t('audit_logs.actions.undoing') : t('audit_logs.banner.undo')}
       </Button>
     </div>

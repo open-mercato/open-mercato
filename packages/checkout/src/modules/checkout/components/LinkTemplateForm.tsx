@@ -91,7 +91,7 @@ const DEFAULT_COLORS = {
 } as const
 
 const SETTINGS_TABS_LIST_CLASS = 'h-auto w-full justify-start overflow-x-auto rounded-none border-b border-border bg-transparent p-0'
-const SETTINGS_TABS_TRIGGER_CLASS = 'mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0'
+const SETTINGS_TABS_TRIGGER_CLASS = 'me-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:me-0'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -422,12 +422,12 @@ export function PriceListEditor({
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] table-fixed">
               <thead className="border-b bg-muted/30">
-                <tr className="text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <tr className="text-start text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   <th className="px-3 py-2 w-[22%]">{t('checkout.linkTemplateForm.priceList.columns.itemCode')}</th>
                   <th className="px-3 py-2">{t('checkout.linkTemplateForm.priceList.columns.description')}</th>
                   <th className="px-3 py-2 w-[16%]">{t('checkout.linkTemplateForm.priceList.columns.amount')}</th>
                   <th className="px-3 py-2 w-[24%]">{t('checkout.linkTemplateForm.priceList.columns.currency')}</th>
-                  <th className="px-3 py-2 w-[110px] text-right">{t('checkout.linkTemplateForm.priceList.columns.actions')}</th>
+                  <th className="px-3 py-2 w-[110px] text-end">{t('checkout.linkTemplateForm.priceList.columns.actions')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/70">
@@ -473,14 +473,14 @@ export function PriceListEditor({
                         placeholder={t('checkout.currencySelect.placeholder')}
                       />
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-3 py-2 text-end">
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
                         onClick={() => onChange(items.filter((_, currentIndex) => currentIndex !== index))}
                       >
-                        <Trash2 className="mr-2 h-4 w-4" />
+                        <Trash2 className="me-2 h-4 w-4" />
                         {t('checkout.common.actions.remove')}
                       </Button>
                     </td>
@@ -501,7 +501,7 @@ export function PriceListEditor({
       </div>
 
       <Button type="button" variant="outline" size="sm" onClick={addItem}>
-        <Plus className="mr-2 h-4 w-4" />
+        <Plus className="me-2 h-4 w-4" />
         {t('checkout.linkTemplateForm.priceList.actions.addItem')}
       </Button>
     </div>
@@ -540,7 +540,7 @@ export function PricingSection({ values, setValue, errors }: CrudFormGroupCompon
               size="sm"
               onClick={() => setValue('pricingMode', mode.id)}
             >
-              <Icon className="mr-2 h-4 w-4" />
+              <Icon className="me-2 h-4 w-4" />
               {mode.label}
             </Button>
           )
@@ -783,7 +783,7 @@ function GeneralSection({
                 variant="outline"
                 onClick={() => setValue('slug', fallbackSlug)}
               >
-                <Sparkles className="mr-2 h-4 w-4" />
+                <Sparkles className="me-2 h-4 w-4" />
                 {t('checkout.linkTemplateForm.general.actions.generateSlug')}
               </Button>
             </div>
@@ -1004,11 +1004,11 @@ function LegalSection({ values, setValue, errors }: CrudFormGroupComponentProps)
       <Tabs value={tab} onValueChange={(next) => setTab(next as 'terms' | 'privacyPolicy')}>
         <TabsList className={SETTINGS_TABS_LIST_CLASS}>
           <TabsTrigger value="terms" className={SETTINGS_TABS_TRIGGER_CLASS}>
-            <Shield className="mr-2 h-4 w-4" />
+            <Shield className="me-2 h-4 w-4" />
             {t('checkout.linkTemplateForm.legal.tabs.terms')}
           </TabsTrigger>
           <TabsTrigger value="privacyPolicy" className={SETTINGS_TABS_TRIGGER_CLASS}>
-            <FileCheck2 className="mr-2 h-4 w-4" />
+            <FileCheck2 className="me-2 h-4 w-4" />
             {t('checkout.linkTemplateForm.legal.tabs.privacy')}
           </TabsTrigger>
         </TabsList>
@@ -1115,7 +1115,7 @@ function MessagesSection({ values, setValue, errors }: CrudFormGroupComponentPro
         <TabsList className={SETTINGS_TABS_LIST_CLASS}>
           {(['success', 'cancel', 'error'] as const).map((item) => (
             <TabsTrigger key={item} value={item} className={SETTINGS_TABS_TRIGGER_CLASS}>
-              <MessageSquare className="mr-2 h-4 w-4" />
+              <MessageSquare className="me-2 h-4 w-4" />
               {config[item].label}
             </TabsTrigger>
           ))}
@@ -1217,7 +1217,7 @@ function EmailsSection({ values, setValue, errors }: CrudFormGroupComponentProps
             const Icon = config[item].Icon
             return (
               <TabsTrigger key={item} value={item} className={SETTINGS_TABS_TRIGGER_CLASS}>
-                <Icon className="mr-2 h-4 w-4" />
+                <Icon className="me-2 h-4 w-4" />
                 {config[item].title}
               </TabsTrigger>
             )
@@ -1624,7 +1624,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
                       target="_blank"
                       rel="noreferrer"
                     >
-                      <Eye className="mr-2 h-4 w-4" />
+                      <Eye className="me-2 h-4 w-4" />
                       {t('checkout.common.actions.preview')}
                     </a>
                   </Button>
@@ -1636,7 +1636,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
                     name="submitIntent"
                     value="preview"
                   >
-                    <Eye className="mr-2 h-4 w-4" />
+                    <Eye className="me-2 h-4 w-4" />
                     {t('checkout.common.actions.preview')}
                   </Button>
                 )}
@@ -1647,7 +1647,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
                     name="submitIntent"
                     value="publish"
                   >
-                    <BadgeCheck className="mr-2 h-4 w-4" />
+                    <BadgeCheck className="me-2 h-4 w-4" />
                     {t('checkout.common.actions.saveAndPublish')}
                   </Button>
                 ) : null}

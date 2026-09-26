@@ -142,7 +142,7 @@ export function EvalResultsDrawer({ open, onOpenChange, suiteRunId, agentLabel }
                     {t('agent_orchestrator.evalRuns.col.passScore')}: {formatPassScore(run.passScore)}
                   </span>
                 ) : null}
-                <Button asChild variant="ghost" size="sm" className="ml-auto">
+                <Button asChild variant="ghost" size="sm" className="ms-auto">
                   <Link href={`/backend/eval-runs/${encodeURIComponent(run.id)}`}>
                     {t('agent_orchestrator.agentDetail.evaluation.results.openFull', 'Open full run')}
                   </Link>
@@ -209,7 +209,7 @@ export function EvalResultsDrawer({ open, onOpenChange, suiteRunId, agentLabel }
                                 {t('agent_orchestrator.evalRuns.detail.score')}: {caseRun.score.toFixed(2)}
                               </span>
                             ) : null}
-                            <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+                            <span className="ms-auto text-xs tabular-nums text-muted-foreground">
                               {formatDurationMs(caseRun.latencyMs) ?? '—'}
                             </span>
                           </div>
@@ -217,7 +217,7 @@ export function EvalResultsDrawer({ open, onOpenChange, suiteRunId, agentLabel }
                             <p className="mt-1.5 text-xs text-status-warning-text">{caseRun.errorMessage}</p>
                           ) : null}
                           {caseRun.agentRunId ? (
-                            <Button asChild variant="ghost" size="sm" className="mt-1 -ml-2">
+                            <Button asChild variant="ghost" size="sm" className="mt-1 -ms-2">
                               <Link href={`/backend/traces/${encodeURIComponent(caseRun.agentRunId)}`}>
                                 {t('agent_orchestrator.evalRuns.detail.openTrace')}
                               </Link>

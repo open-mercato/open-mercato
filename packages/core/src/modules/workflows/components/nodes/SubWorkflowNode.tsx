@@ -84,7 +84,7 @@ export function SubWorkflowNode({ id, data, isConnectable, selected }: NodeProps
         : undefined}
     >
       {isNavigable && (
-        <span className="absolute -right-1.5 -top-1.5 z-10 inline-flex items-center gap-0.5 rounded-full border border-border bg-background px-1.5 py-0.5 text-xs font-medium text-primary shadow-sm">
+        <span className="absolute -end-1.5 -top-1.5 z-10 inline-flex items-center gap-0.5 rounded-full border border-border bg-background px-1.5 py-0.5 text-xs font-medium text-primary shadow-sm">
           {childInstanceCount > 1 && <span>{childInstanceCount}</span>}
           <ArrowUpRight className="size-3" aria-hidden="true" />
         </span>

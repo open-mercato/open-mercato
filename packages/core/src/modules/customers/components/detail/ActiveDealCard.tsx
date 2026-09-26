@@ -165,7 +165,7 @@ export function ActiveDealCard({ deals, onHide }: ActiveDealCardProps) {
         {Number.isFinite(amount) && amount > 0 && (
           <p className="mt-2 text-lg font-bold text-foreground">
             {formatCurrency(amount, topDeal.valueCurrency)}
-            <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+            <span className="ms-1.5 text-xs font-normal text-muted-foreground">
               {t('customers.companies.dashboard.potentialValue', 'potential value')}
             </span>
           </p>

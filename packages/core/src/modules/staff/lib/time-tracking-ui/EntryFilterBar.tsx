@@ -93,7 +93,7 @@ export function EntryFilterChips({
       {chips.map((chip) => (
         <span
           key={chip.id}
-          className="inline-flex h-6 items-center gap-1.5 rounded-sm border border-status-info-border bg-status-info-bg py-0 pl-2 pr-1 text-xs text-status-info-text"
+          className="inline-flex h-6 items-center gap-1.5 rounded-sm border border-status-info-border bg-status-info-bg py-0 ps-2 pe-1 text-xs text-status-info-text"
         >
           <span className="text-status-info-text/80">{chip.label}</span>
           <b className="font-semibold">{chip.value}</b>

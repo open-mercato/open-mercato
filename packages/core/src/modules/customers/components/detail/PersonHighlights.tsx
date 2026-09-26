@@ -273,7 +273,7 @@ export function PersonHighlights({
               {companyError ? <p className="text-xs text-status-error-text">{companyError}</p> : null}
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="button" size="sm" onClick={handleCompanySave} disabled={companySaving}>
-                  {companySaving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                  {companySaving ? <Loader2 className="me-2 h-3.5 w-3.5 animate-spin" /> : null}
                   {t('ui.forms.actions.save')}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => {

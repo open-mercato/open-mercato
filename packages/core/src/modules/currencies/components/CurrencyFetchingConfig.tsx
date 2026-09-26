@@ -372,11 +372,11 @@ export default function CurrencyFetchingConfig() {
                     onClick={() => fetchNow(config.provider)}
                     disabled={fetching === config.provider}
                     size="default"
-                    className="ml-auto min-w-32"
+                    className="ms-auto min-w-32"
                   >
                     {fetching === config.provider ? (
                       <div>
-                        <Spinner className="mr-1.5" size='sm' />
+                        <Spinner className="me-1.5" size='sm' />
                         {t('currencies.fetch.fetching')}
                       </div>
                     ) : (

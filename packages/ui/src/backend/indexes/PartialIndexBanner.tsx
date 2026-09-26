@@ -77,7 +77,7 @@ export function PartialIndexBanner() {
           className="text-status-warning-text hover:bg-status-warning-bg"
           aria-label={t('query_index.banner.dismiss')}
         >
-          <X className="mr-1 size-4" aria-hidden="true" />
+          <X className="me-1 size-4" aria-hidden="true" />
           {t('query_index.banner.dismiss')}
         </Button>
       </div>

@@ -70,9 +70,9 @@ export function ActivityTab({ runs, proposals }: ActivityTabProps) {
                 <TableRow>
                   <TableHead>{t('agent_orchestrator.agentDetail.recent.claim', 'Claim')}</TableHead>
                   <TableHead>{t('agent_orchestrator.agentDetail.recent.decision', 'Decision')}</TableHead>
-                  <TableHead className="text-right">{t('agent_orchestrator.agentDetail.recent.conf', 'Conf.')}</TableHead>
+                  <TableHead className="text-end">{t('agent_orchestrator.agentDetail.recent.conf', 'Conf.')}</TableHead>
                   <TableHead>{t('agent_orchestrator.agentDetail.recent.outcome', 'Outcome')}</TableHead>
-                  <TableHead className="text-right">{t('agent_orchestrator.agentDetail.recent.when', 'When')}</TableHead>
+                  <TableHead className="text-end">{t('agent_orchestrator.agentDetail.recent.when', 'When')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -93,7 +93,7 @@ export function ActivityTab({ runs, proposals }: ActivityTabProps) {
                   >
                     <TableCell className="font-mono text-xs text-foreground">{run.claim}</TableCell>
                     <TableCell className="text-foreground">{run.decision}</TableCell>
-                    <TableCell className="text-right text-muted-foreground">
+                    <TableCell className="text-end text-muted-foreground">
                       <ConfidenceFaceValue
                         confidence={run.confidence}
                         display={run.confidence == null ? undefined : run.confidence.toFixed(2)}
@@ -105,7 +105,7 @@ export function ActivityTab({ runs, proposals }: ActivityTabProps) {
                         {t(`agent_orchestrator.agentDetail.outcome.${run.outcome}`, titleCase(run.outcome))}
                       </StatusBadge>
                     </TableCell>
-                    <TableCell className="text-right tabular-nums text-muted-foreground">{formatTimeShort(run.when) ?? ''}</TableCell>
+                    <TableCell className="text-end tabular-nums text-muted-foreground">{formatTimeShort(run.when) ?? ''}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

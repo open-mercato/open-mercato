@@ -200,7 +200,7 @@ export function JobHistorySection({ memberId }: { memberId: string | null }) {
         <h2 className="text-lg font-semibold text-foreground">{labels.title}</h2>
         {hasItems ? (
           <Button type="button" size="sm" onClick={openCreateDialog} disabled={!memberId}>
-            <Plus className="mr-2 h-4 w-4" aria-hidden />
+            <Plus className="me-2 h-4 w-4" aria-hidden />
             {labels.add}
           </Button>
         ) : null}

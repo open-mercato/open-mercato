@@ -283,7 +283,7 @@ export default function SudoChallengeModal({
                   onClick={() => setShowMoreOptions((current) => !current)}
                 >
                   {t('security.admin.sudo.challenge.actions.moreOptions', 'Use another method')}
-                  {showMoreOptions ? <ChevronUp className="ml-2 size-4" /> : <ChevronDown className="ml-2 size-4" />}
+                  {showMoreOptions ? <ChevronUp className="ms-2 size-4" /> : <ChevronDown className="ms-2 size-4" />}
                 </Button>
                 {showMoreOptions ? (
                   <div className="space-y-2">

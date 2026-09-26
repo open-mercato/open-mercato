@@ -369,7 +369,7 @@ function AiAssistantSettingsContent() {
       <div className="rounded-lg border bg-card p-6">
         <button
           onClick={() => setToolsExpanded(!toolsExpanded)}
-          className="w-full flex items-center justify-between text-left"
+          className="w-full flex items-center justify-between text-start"
         >
           <h2 className="text-sm font-semibold flex items-center gap-2">
             <Wrench className="h-4 w-4" />
@@ -391,7 +391,7 @@ function AiAssistantSettingsContent() {
                 </h3>
                 <div className="space-y-1">
                   {moduleTools.map((tool) => (
-                    <div key={tool.name} className="pl-2 border-l-2 border-muted py-1">
+                    <div key={tool.name} className="ps-2 border-s-2 border-muted py-1">
                       <p className="text-sm font-medium">{tool.name}</p>
                       <p className="text-xs text-muted-foreground">{tool.description}</p>
                     </div>

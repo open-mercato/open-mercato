@@ -46,9 +46,9 @@ const sheetVariants = cva(
         bottom:
           'inset-x-0 bottom-0 border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom',
         left:
-          'top-[var(--topbar-height,0px)] bottom-0 left-0 w-3/4 border-r data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left sm:max-w-md',
+          'top-[var(--topbar-height,0px)] bottom-0 start-0 w-3/4 border-e data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left sm:max-w-md',
         right:
-          'top-[var(--topbar-height,0px)] bottom-0 right-0 w-full sm:max-w-md border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right',
+          'top-[var(--topbar-height,0px)] bottom-0 end-0 w-full sm:max-w-md border-s data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right',
       },
     },
     defaultVariants: {
@@ -99,7 +99,7 @@ const SheetContent = React.forwardRef<
       {children}
       {!hideClose ? (
         <DialogPrimitive.Close
-          className="absolute right-4 top-4 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:shadow-focus"
+          className="absolute end-4 top-4 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:shadow-focus"
           aria-label={closeLabel}
         >
           <X className="size-4" aria-hidden="true" />
@@ -114,7 +114,7 @@ const SheetHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDi
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn('flex flex-col gap-1.5 border-b px-4 py-3 pr-12 text-left', className)}
+      className={cn('flex flex-col gap-1.5 border-b px-4 py-3 pe-12 text-start', className)}
       {...props}
     />
   ),

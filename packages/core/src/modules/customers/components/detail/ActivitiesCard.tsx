@@ -252,7 +252,7 @@ function PlannedEventRow({ activity, onClick, entityCompanyName, t }: PlannedEve
         onClick={interactive ? () => onClick?.(activity) : undefined}
         disabled={!interactive}
         className={cn(
-          'flex w-full items-start gap-[9px] pt-[8px] text-left transition-colors',
+          'flex w-full items-start gap-[9px] pt-[8px] text-start transition-colors',
           interactive ? 'cursor-pointer rounded-md hover:bg-accent/30 px-1' : 'px-1',
         )}
       >
@@ -273,7 +273,7 @@ function PlannedEventRow({ activity, onClick, entityCompanyName, t }: PlannedEve
           </span>
           {duration ? (
             <span className={cn(
-              'inline-flex w-fit items-center gap-[2px] rounded-full pl-[4px] pr-[8px] py-[2px] text-xs font-medium leading-[16px]',
+              'inline-flex w-fit items-center gap-[2px] rounded-full ps-[4px] pe-[8px] py-[2px] text-xs font-medium leading-[16px]',
               overdue
                 ? 'bg-status-error-bg text-status-error-text'
                 : 'bg-status-warning-bg text-status-warning-text',

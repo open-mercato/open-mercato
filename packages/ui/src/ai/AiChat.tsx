@@ -381,7 +381,7 @@ function resolveChatErrorMessage(
 
 const MARKDOWN_TYPOGRAPHY_CLASS = cn(
   '[&_p]:my-1 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0',
-  '[&_ul]:my-2 [&_ol]:my-2 [&_ul]:ml-4 [&_ol]:ml-4 [&_ul]:list-disc [&_ol]:list-decimal',
+  '[&_ul]:my-2 [&_ol]:my-2 [&_ul]:ms-4 [&_ol]:ms-4 [&_ul]:list-disc [&_ol]:list-decimal',
   '[&_li]:my-0.5',
   '[&_h1]:mt-3 [&_h1]:mb-2 [&_h1]:text-base [&_h1]:font-semibold',
   '[&_h2]:mt-3 [&_h2]:mb-2 [&_h2]:text-sm [&_h2]:font-semibold',
@@ -390,9 +390,9 @@ const MARKDOWN_TYPOGRAPHY_CLASS = cn(
   '[&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-xs',
   '[&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border [&_pre]:bg-muted [&_pre]:p-3',
   '[&_pre_code]:bg-transparent [&_pre_code]:p-0',
-  '[&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground',
+  '[&_blockquote]:my-2 [&_blockquote]:border-s-2 [&_blockquote]:border-border [&_blockquote]:ps-3 [&_blockquote]:text-muted-foreground',
   '[&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_table]:text-xs',
-  '[&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-medium',
+  '[&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-start [&_th]:font-medium',
   '[&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1',
 )
 
@@ -487,7 +487,7 @@ function AiChatTaskPlan({ tasks }: { tasks: AiAgentTaskSnapshot[] }) {
       <div className="flex items-center gap-2 border-b border-border/60 px-2 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         <ListChecks className="size-3.5 text-muted-foreground" aria-hidden />
         <span>{t('ai_assistant.chat.taskPlanTitle', 'Plan')}</span>
-        <span className="ml-auto font-mono">{tasks.length}</span>
+        <span className="ms-auto font-mono">{tasks.length}</span>
       </div>
       <ul className="divide-y divide-border/60" data-ai-chat-task-plan-list="">
         {tasks.map((task) => (
@@ -529,7 +529,7 @@ function AiChatTaskRow({ task }: { task: AiAgentTaskSnapshot }) {
     task.state === 'pending' && 'text-muted-foreground',
   )
   const statusBadgeClassName = cn(
-    'ml-auto text-[10px] uppercase tracking-wide',
+    'ms-auto text-[10px] uppercase tracking-wide',
     task.state === 'done' && 'text-status-success-text',
     task.state === 'failed' && 'text-destructive',
     task.state !== 'done' && task.state !== 'failed' && 'text-muted-foreground',
@@ -564,7 +564,7 @@ function ToolCallList({ toolCalls }: { toolCalls: AiChatToolCallSnapshot[] }) {
       <div className="flex items-center gap-2 border-b border-border/60 px-2 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         <Wrench className="size-3.5 text-muted-foreground" aria-hidden />
         <span>{t('ai_assistant.chat.agentTasksTitle', 'Tool calls')}</span>
-        <span className="ml-auto font-mono">{toolCalls.length}</span>
+        <span className="ms-auto font-mono">{toolCalls.length}</span>
       </div>
       <ul className="divide-y divide-border/60">
       {toolCalls.map((call) => {
@@ -591,7 +591,7 @@ function ToolCallList({ toolCalls }: { toolCalls: AiChatToolCallSnapshot[] }) {
               size="2xs"
               type="button"
               onClick={() => setOpenId(isOpen ? null : call.id)}
-              className="w-full justify-start rounded-none px-2 text-left hover:bg-muted/60"
+              className="w-full justify-start rounded-none px-2 text-start hover:bg-muted/60"
             >
               {isOpen ? (
                 <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden />
@@ -614,7 +614,7 @@ function ToolCallList({ toolCalls }: { toolCalls: AiChatToolCallSnapshot[] }) {
               </span>
               <span
                 className={cn(
-                  'ml-auto text-[10px] uppercase tracking-wide',
+                  'ms-auto text-[10px] uppercase tracking-wide',
                   isError
                     ? 'text-destructive'
                     : isComplete
@@ -672,7 +672,7 @@ function ReasoningPanel({ text, streaming }: { text: string; streaming: boolean 
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs font-medium hover:bg-muted/60"
+        className="flex w-full items-center gap-2 px-2 py-1.5 text-start text-xs font-medium hover:bg-muted/60"
       >
         {open ? (
           <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden />
@@ -683,7 +683,7 @@ function ReasoningPanel({ text, streaming }: { text: string; streaming: boolean 
         <span>{t('ai_assistant.chat.reasoning', 'Reasoning')}</span>
         {streaming ? (
           <Loader2
-            className="ml-1 size-3 animate-spin text-muted-foreground"
+            className="ms-1 size-3 animate-spin text-muted-foreground"
             aria-hidden
           />
         ) : null}
@@ -731,7 +731,7 @@ function MessageFileAttachment({ file }: { file: AiChatMessageFile }) {
             asChild
             variant="ghost"
             size="xs"
-            className="-mr-1 size-5 shrink-0"
+            className="-me-1 size-5 shrink-0"
           >
             <a href={downloadUrl} download={file.name} aria-label={downloadLabel}>
               <Download className="size-3" aria-hidden />
@@ -757,7 +757,7 @@ function MessageFileAttachment({ file }: { file: AiChatMessageFile }) {
             alt={file.name}
             className="max-h-32 max-w-[200px] rounded-md object-cover"
           />
-          <span className="pointer-events-none absolute right-1 top-1 inline-flex size-6 items-center justify-center rounded-md bg-background/90 text-muted-foreground opacity-0 shadow-xs transition-opacity group-hover/file:opacity-100 group-focus-within/file:opacity-100">
+          <span className="pointer-events-none absolute end-1 top-1 inline-flex size-6 items-center justify-center rounded-md bg-background/90 text-muted-foreground opacity-0 shadow-xs transition-opacity group-hover/file:opacity-100 group-focus-within/file:opacity-100">
             <Maximize2 className="size-3.5" aria-hidden />
           </span>
         </button>
@@ -766,7 +766,7 @@ function MessageFileAttachment({ file }: { file: AiChatMessageFile }) {
             asChild
             variant="white"
             size="xs"
-            className="absolute bottom-1 right-1 opacity-0 shadow-xs transition-opacity group-hover/file:opacity-100 group-focus-within/file:opacity-100"
+            className="absolute bottom-1 end-1 opacity-0 shadow-xs transition-opacity group-hover/file:opacity-100 group-focus-within/file:opacity-100"
           >
             <a
               href={downloadUrl}
@@ -783,7 +783,7 @@ function MessageFileAttachment({ file }: { file: AiChatMessageFile }) {
 
       <Dialog open={zoomOpen} onOpenChange={setZoomOpen}>
         <DialogContent className="gap-3 p-4 sm:max-w-[min(96vw,960px)]">
-          <DialogHeader className="min-w-0 pr-16">
+          <DialogHeader className="min-w-0 pe-16">
             <DialogTitle className="truncate text-sm">{file.name}</DialogTitle>
             <DialogDescription className="sr-only">
               {t('ai_assistant.chat.imagePreviewDialogDescription', 'Image preview')}
@@ -800,7 +800,7 @@ function MessageFileAttachment({ file }: { file: AiChatMessageFile }) {
                 asChild
                 variant="white"
                 size="sm"
-                className="absolute bottom-3 right-3 shadow-xs"
+                className="absolute bottom-3 end-3 shadow-xs"
               >
                 <a
                   href={downloadUrl}
@@ -1115,7 +1115,7 @@ function WelcomeState({
                 variant="outline"
                 key={index}
                 type="button"
-                className="h-auto w-full justify-start whitespace-normal rounded-lg bg-card px-3 py-2.5 text-left text-sm"
+                className="h-auto w-full justify-start whitespace-normal rounded-lg bg-card px-3 py-2.5 text-start text-sm"
                 onClick={() => onSuggestionClick(suggestion.prompt)}
                 data-ai-chat-suggestion={index}
                 data-ai-chat-suggestion-icon={suggestionIcon.name}
@@ -1659,7 +1659,7 @@ export function AiChat({
         role="log"
         aria-live="polite"
         aria-label={t('ai_assistant.chat.transcriptLabel', 'Chat transcript')}
-        className="min-w-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden pr-1"
+        className="min-w-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden pe-1"
       >
         {chat.messages.length === 0 ? (
           <WelcomeState
@@ -1705,7 +1705,7 @@ export function AiChat({
           </AlertTitle>
           <AlertDescription>
             {chat.error.code ? (
-              <span className="mr-2 font-mono text-xs">{chat.error.code}</span>
+              <span className="me-2 font-mono text-xs">{chat.error.code}</span>
             ) : null}
             {resolveChatErrorMessage(chat.error.code, chat.error.message, t)}
           </AlertDescription>
@@ -1751,7 +1751,7 @@ export function AiChat({
                 ) : null}
                 <button
                   type="button"
-                  className="ml-0.5 rounded-full p-0.5 hover:bg-muted"
+                  className="ms-0.5 rounded-full p-0.5 hover:bg-muted"
                   onClick={() => removePendingFile(index)}
                   aria-label={t('ai_assistant.chat.removeFile', 'Remove file')}
                 >
@@ -1917,7 +1917,7 @@ function AiChatDebugPanel({
         <summary className="cursor-pointer px-2 py-1 font-semibold">
           {t('ai_assistant.chat.debug.toolsSection', 'Resolved tools')}
           {tools ? (
-            <span className="ml-2 font-mono text-muted-foreground">({tools.length})</span>
+            <span className="ms-2 font-mono text-muted-foreground">({tools.length})</span>
           ) : null}
         </summary>
         <div className="px-2 pb-2">
@@ -1970,7 +1970,7 @@ function AiChatDebugPanel({
         <summary className="cursor-pointer px-2 py-1 font-semibold">
           {t('ai_assistant.chat.debug.promptSection', 'Prompt sections')}
           {promptSections ? (
-            <span className="ml-2 font-mono text-muted-foreground">({promptSections.length})</span>
+            <span className="ms-2 font-mono text-muted-foreground">({promptSections.length})</span>
           ) : null}
         </summary>
         <div className="px-2 pb-2">

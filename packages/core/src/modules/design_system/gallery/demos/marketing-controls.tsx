@@ -55,7 +55,7 @@ function InlineLanguage({ state = 'placeholder' }: { state?: MarketingControlSta
 function StepItem({ state = 'default' }: { state?: MarketingControlState }) {
   const t = useT()
   const [selected, setSelected] = React.useState(state === 'active')
-  return <Button data-slot="marketing-control" data-kind="step-item" variant="ghost" aria-pressed={selected} onClick={() => setSelected(current => !current)} className={cn('h-11 w-45 max-w-full flex-col items-start justify-start gap-1 rounded-none border-r-2 border-transparent p-0 pr-6 text-sm font-normal hover:bg-transparent', selected && 'border-r-accent-orange')}><span className={cn('flex h-5 items-center gap-1', selected ? 'text-accent-orange-text' : 'text-muted-foreground')}>{t(key('step'), undefined, { current: 1, total: 5 })}{state === 'complete' ? <CheckCircle2 aria-hidden="true" className="size-3.5 fill-status-success-icon text-status-success-foreground" /> : null}</span><span className="h-5">{t(key('generalInformation'))}</span></Button>
+  return <Button data-slot="marketing-control" data-kind="step-item" variant="ghost" aria-pressed={selected} onClick={() => setSelected(current => !current)} className={cn('h-11 w-45 max-w-full flex-col items-start justify-start gap-1 rounded-none border-e-2 border-transparent p-0 pe-6 text-sm font-normal hover:bg-transparent', selected && 'border-e-accent-orange')}><span className={cn('flex h-5 items-center gap-1', selected ? 'text-accent-orange-text' : 'text-muted-foreground')}>{t(key('step'), undefined, { current: 1, total: 5 })}{state === 'complete' ? <CheckCircle2 aria-hidden="true" className="size-3.5 fill-status-success-icon text-status-success-foreground" /> : null}</span><span className="h-5">{t(key('generalInformation'))}</span></Button>
 }
 
 function SelectedAmount({ state = 'default' }: { state?: MarketingControlState }) {
@@ -69,7 +69,7 @@ function SelectedAmount({ state = 'default' }: { state?: MarketingControlState }
 function MenuItem({ state = 'default' }: { state?: MarketingControlState }) {
   const t = useT()
   const [selected,setSelected] = React.useState(state === 'active')
-  return <Button data-slot="marketing-control" data-kind="tab-menu" variant="ghost" aria-pressed={selected} onClick={() => setSelected(current => !current)} className={cn('h-9 w-56 max-w-full justify-start gap-2 rounded-lg p-2 text-sm font-medium', (state === 'hover' || selected) && 'bg-muted')}><UserRound aria-hidden="true" className={cn('size-5', selected ? 'text-accent-orange-text' : 'text-muted-foreground')} /><span className="flex-1 text-left">{t(key('accountSettings'))}</span><ChevronRight aria-hidden="true" className="size-4 text-muted-foreground" /></Button>
+  return <Button data-slot="marketing-control" data-kind="tab-menu" variant="ghost" aria-pressed={selected} onClick={() => setSelected(current => !current)} className={cn('h-9 w-56 max-w-full justify-start gap-2 rounded-lg p-2 text-sm font-medium', (state === 'hover' || selected) && 'bg-muted')}><UserRound aria-hidden="true" className={cn('size-5', selected ? 'text-accent-orange-text' : 'text-muted-foreground')} /><span className="flex-1 text-start">{t(key('accountSettings'))}</span><ChevronRight aria-hidden="true" className="size-4 text-muted-foreground" /></Button>
 }
 
 function ChartTooltipExample({ side = 'right' }: { side?: 'right' | 'left' | 'bottom' | 'top' }) {

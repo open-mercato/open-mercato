@@ -124,7 +124,7 @@ export function CollapsibleNavSection({
           title={compact ? item.title : undefined}
         >
           {isActive && !showChildren && (
-            <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+            <span className="absolute start-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
           )}
           <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
             {item.icon ?? DefaultIcon}

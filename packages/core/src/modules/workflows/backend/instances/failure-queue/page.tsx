@@ -243,7 +243,7 @@ export default function WorkflowFailureQueuePage() {
                       className="max-w-full justify-start"
                     >
                       <span className="truncate">{group.label}</span>
-                      <span className="ml-2 shrink-0 rounded bg-muted px-1.5 text-xs text-muted-foreground">
+                      <span className="ms-2 shrink-0 rounded bg-muted px-1.5 text-xs text-muted-foreground">
                         {group.count}
                       </span>
                     </Button>

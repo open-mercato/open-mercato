@@ -457,7 +457,7 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
           className="w-8 px-0 hover:bg-muted/40 data-[state=open]:bg-muted/40 sm:w-auto sm:justify-start sm:px-3 sm:max-w-48 md:max-w-64"
         >
           <Building2 className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-          <span className="hidden sm:block truncate flex-1 text-left">{activeOrgLabel}</span>
+          <span className="hidden sm:block truncate flex-1 text-start">{activeOrgLabel}</span>
           <ChevronDown className="hidden sm:block size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         </Button>
       </PopoverTrigger>
@@ -501,7 +501,7 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
                   handleChange(null)
                   setPopoverOpen(false)
                 }}
-                className="h-auto w-full justify-between rounded-sm px-2 py-1.5 text-left font-normal hover:bg-muted/40 focus-visible:bg-muted/40"
+                className="h-auto w-full justify-between rounded-sm px-2 py-1.5 text-start font-normal hover:bg-muted/40 focus-visible:bg-muted/40"
               >
                 <span className="truncate min-w-0">{t('organizationSwitcher.allOrganizations', 'All organizations')}</span>
                 {!value ? <Check className="size-4 shrink-0 text-accent-indigo" aria-hidden="true" /> : null}
@@ -523,7 +523,7 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
                   }}
                   // DS-SKIP: dynamic tree indentation depends on organization depth.
                   style={{ paddingLeft: `${0.5 + opt.depth * 0.75}rem` }}
-                  className="h-auto w-full justify-between rounded-sm py-1.5 pr-2 text-left font-normal hover:bg-muted/40 disabled:bg-transparent disabled:text-muted-foreground disabled:shadow-none focus-visible:bg-muted/40"
+                  className="h-auto w-full justify-between rounded-sm py-1.5 pe-2 text-start font-normal hover:bg-muted/40 disabled:bg-transparent disabled:text-muted-foreground disabled:shadow-none focus-visible:bg-muted/40"
                 >
                   <span className="truncate min-w-0">{opt.label.trim()}</span>
                   {isActive ? <Check className="size-4 shrink-0 text-accent-indigo" aria-hidden="true" /> : null}

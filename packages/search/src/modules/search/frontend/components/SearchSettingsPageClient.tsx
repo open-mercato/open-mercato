@@ -453,7 +453,7 @@ export function SearchSettingsPageClient() {
         >
           {loading ? (
             <>
-              <Spinner size="sm" className="mr-2" />
+              <Spinner size="sm" className="me-2" />
               {t('search.settings.loadingLabel', 'Loading settings...')}
             </>
           ) : (

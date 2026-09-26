@@ -110,7 +110,7 @@ export function TimeEntryDurationCell({
         variant="compact"
         displayStyle="clock"
         className="w-20"
-        inputClassName="text-right"
+        inputClassName="text-end"
         ariaLabel={ariaLabel}
         disabled={saving}
         value={draft === undefined ? value : draft}

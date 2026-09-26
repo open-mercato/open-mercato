@@ -187,8 +187,8 @@ export function ActionsDropdown({
             {triggerIcon === false
               ? null
               : triggerIcon
-                ? React.createElement(triggerIcon, { className: 'size-4 ml-1' })
-                : <Zap className="size-4 ml-1" />}
+                ? React.createElement(triggerIcon, { className: 'size-4 ms-1' })
+                : <Zap className="size-4 ms-1" />}
             <ChevronDown className={`size-3.5 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
           </>
         )}
@@ -196,7 +196,7 @@ export function ActionsDropdown({
       {attention && (
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute right-0.5 top-0.5 size-2 rounded-full bg-status-warning-icon ring-2 ring-background"
+          className="pointer-events-none absolute end-0.5 top-0.5 size-2 rounded-full bg-status-warning-icon ring-2 ring-background"
         />
       )}
       {open && anchorRect && createPortal(

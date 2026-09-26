@@ -46,7 +46,7 @@ export function UmesDevToolsPanel() {
   const hasErrors = data.conflicts.some((c) => c.severity === 'error')
 
   return (
-    <div className="fixed inset-y-0 right-0 z-top flex w-[440px] flex-col border-l bg-background text-foreground shadow-lg"
+    <div className="fixed inset-y-0 end-0 z-top flex w-[440px] flex-col border-s bg-background text-foreground shadow-lg"
       style={{ fontSize: '13px' }}
     >
       {/* Header */}

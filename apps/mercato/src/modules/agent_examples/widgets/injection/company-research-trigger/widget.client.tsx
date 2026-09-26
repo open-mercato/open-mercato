@@ -353,8 +353,8 @@ export default function CompanyResearchTriggerWidget({ context, data }: CompanyR
         <DialogContent
           elevated
           className={cn(
-            'sm:max-w-xl sm:top-0 sm:bottom-0 sm:right-0 sm:left-auto sm:translate-x-0 sm:translate-y-0',
-            'sm:h-screen sm:max-h-screen sm:rounded-none sm:rounded-l-2xl',
+            'sm:max-w-xl sm:top-0 sm:bottom-0 sm:end-0 sm:start-auto sm:translate-x-0 sm:translate-y-0',
+            'sm:h-screen sm:max-h-screen sm:rounded-none sm:rounded-s-2xl',
             'flex flex-col gap-3 p-4',
           )}
           data-ai-company-research-sheet=""
@@ -371,7 +371,7 @@ export default function CompanyResearchTriggerWidget({ context, data }: CompanyR
             </DialogDescription>
           </DialogHeader>
 
-          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+          <div className="min-h-0 flex-1 overflow-y-auto pe-1">
             {isRunning ? (
               <div className="space-y-3 py-2">
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">

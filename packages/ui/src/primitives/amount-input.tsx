@@ -123,7 +123,7 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
         className={cn(inputWrapperVariants({ size }), 'px-0 overflow-hidden', className)}
         data-slot="amount-input-wrapper"
       >
-        <div className="flex flex-1 min-w-0 items-center gap-2 pl-3">
+        <div className="flex flex-1 min-w-0 items-center gap-2 ps-3">
           <span
             className="text-sm text-muted-foreground select-none shrink-0 tabular-nums"
             aria-hidden="true"
@@ -140,7 +140,7 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
             disabled={disabled}
             className={cn(
               inputElementVariants({ size }),
-              'pr-3 tabular-nums',
+              'pe-3 tabular-nums',
               inputClassName,
             )}
             {...props}
@@ -174,7 +174,7 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
                       </SelectItemLeading>
                     ) : null}
                     <span className="flex-1 truncate">{c.label}</span>
-                    <span className="ml-2 text-xs text-muted-foreground tabular-nums">{c.code}</span>
+                    <span className="ms-2 text-xs text-muted-foreground tabular-nums">{c.code}</span>
                   </SelectItem>
                 ))}
               </SelectContent>

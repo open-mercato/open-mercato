@@ -70,7 +70,7 @@ export function DocumentTotals({ title, currency, items, className }: DocumentTo
               .map((item) => (
                 <tr key={item.key} className="bg-background/80 transition-colors hover:bg-muted/30">
                   <td className="px-4 py-3 font-medium text-foreground/90">{item.label}</td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 text-end">
                     <PriceWithCurrency amount={item.amount} currency={currency} className="font-mono text-base" />
                   </td>
                 </tr>
@@ -85,7 +85,7 @@ export function DocumentTotals({ title, currency, items, className }: DocumentTo
                     <td className="px-4 py-3 font-semibold uppercase tracking-wide text-foreground">
                       {item.label}
                     </td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-4 py-3 text-end">
                       <PriceWithCurrency
                         amount={item.amount}
                         currency={currency}

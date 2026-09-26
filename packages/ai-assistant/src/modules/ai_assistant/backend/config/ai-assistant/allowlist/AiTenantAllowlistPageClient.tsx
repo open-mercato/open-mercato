@@ -390,7 +390,7 @@ export function AiTenantAllowlistPageClient(): React.JSX.Element {
                   </div>
 
                   {enabled && candidateModels.length > 0 ? (
-                    <div className="ml-7 space-y-2">
+                    <div className="ms-7 space-y-2">
                       <div className="text-xs text-muted-foreground">
                         {t('ai_assistant.allowlist.models.help', 'Tick the models tenants may pick. Empty = no model restriction (inherit env).')}
                       </div>

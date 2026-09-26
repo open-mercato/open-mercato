@@ -77,7 +77,7 @@ const HORIZONTAL_LABELED_SEGMENT: Record<'solid' | 'dashed', string> = {
 
 const VERTICAL_RULE_CLASSES: Record<'solid' | 'dashed', string> = {
   solid: 'w-px bg-border',
-  dashed: 'w-0 border-l border-dashed border-border',
+  dashed: 'w-0 border-s border-dashed border-border',
 }
 
 export function Separator({

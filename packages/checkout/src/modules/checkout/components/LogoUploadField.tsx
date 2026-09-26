@@ -120,7 +120,7 @@ export function LogoUploadField({ entityId, recordId, attachmentId, logoUrl, err
             onClick={() => inputRef.current?.click()}
             disabled={uploading}
           >
-            {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Paperclip className="mr-2 h-4 w-4" />}
+            {uploading ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <Paperclip className="me-2 h-4 w-4" />}
             {uploading ? t('checkout.logoUpload.actions.uploading') : t('checkout.logoUpload.actions.attach')}
           </Button>
           {attachmentId ? (
@@ -130,7 +130,7 @@ export function LogoUploadField({ entityId, recordId, attachmentId, logoUrl, err
               size="sm"
               onClick={() => void handleRemoveUpload()}
             >
-              <Trash2 className="mr-2 h-4 w-4" />
+              <Trash2 className="me-2 h-4 w-4" />
               {t('checkout.logoUpload.actions.removeUpload')}
             </Button>
           ) : null}

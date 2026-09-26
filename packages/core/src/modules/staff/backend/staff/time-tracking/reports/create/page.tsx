@@ -617,7 +617,7 @@ export default function TimeTrackingReportCreatePage() {
                         <span className="font-mono text-sm tabular-nums">
                           {formatReportMinutes(figures?.minutes ?? 0)}
                         </span>
-                        <span className="w-28 text-right font-mono text-sm tabular-nums text-muted-foreground">
+                        <span className="w-28 text-end font-mono text-sm tabular-nums text-muted-foreground">
                           {canSeeMoney ? money(figures?.amount ?? null) : '—'}
                         </span>
                       </li>
@@ -750,7 +750,7 @@ export default function TimeTrackingReportCreatePage() {
                       'A report always covers one currency. Selected projects use {currencies}.',
                     ).replace('{currencies}', conflict.currencies.join(', '))}
                   </p>
-                  <ul className="mt-2 list-disc pl-4">
+                  <ul className="mt-2 list-disc ps-4">
                     {conflict.offenders.map((offender) => (
                       <li key={offender.id}>
                         {offender.name} — {offender.currencyCode ?? '—'}
@@ -779,7 +779,7 @@ export default function TimeTrackingReportCreatePage() {
                     ).replace('{hours}', formatReportMinutes(preview?.alreadyReportedMinutes ?? 0))}
                   </p>
                   {(preview?.alreadyReportedIn.length ?? 0) > 0 ? (
-                    <ul className="mt-2 list-disc pl-4">
+                    <ul className="mt-2 list-disc ps-4">
                       {preview?.alreadyReportedIn.map((source) => (
                         <li key={source.reportId}>
                           <a className="underline" href={`${REPORTS_HREF}/${source.reportId}`}>

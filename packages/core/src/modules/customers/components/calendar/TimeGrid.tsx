@@ -104,7 +104,7 @@ function ConflictBadge({ count }: ConflictBadgeProps) {
       ? t('customers.calendar.grid.conflictCount', '1 conflict')
       : t('customers.calendar.grid.conflictsCount', '{count} conflicts', { count })
   return (
-    <span className="pointer-events-none absolute left-2 top-1 z-40 inline-flex items-center gap-1 rounded-full bg-status-error-bg px-2 py-0.5 text-overline font-medium uppercase tracking-wide text-status-error-text">
+    <span className="pointer-events-none absolute start-2 top-1 z-40 inline-flex items-center gap-1 rounded-full bg-status-error-bg px-2 py-0.5 text-overline font-medium uppercase tracking-wide text-status-error-text">
       <span aria-hidden className="size-1.5 rounded-full bg-status-error-icon" />
       {label}
     </span>

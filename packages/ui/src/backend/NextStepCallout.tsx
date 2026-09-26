@@ -107,7 +107,7 @@ export function NextStepCallout({
           <p className="mt-3 text-xs text-muted-foreground">{disabledMessage}</p>
         ) : null}
         {status ? (
-          <div className={cn('mt-4 w-full rounded-lg border px-4 py-3 text-left', STATUS_STYLES[status.tone ?? 'default'])}>
+          <div className={cn('mt-4 w-full rounded-lg border px-4 py-3 text-start', STATUS_STYLES[status.tone ?? 'default'])}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2 text-sm font-medium">
                 {status.icon ? <span className="shrink-0">{status.icon}</span> : null}

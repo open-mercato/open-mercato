@@ -95,7 +95,7 @@ function GateList() {
     ),
   ]
   return (
-    <ul className="list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
+    <ul className="list-disc space-y-1.5 ps-5 text-sm text-muted-foreground">
       {gates.map((gate) => (
         <li key={gate}>{gate}</li>
       ))}
@@ -278,7 +278,7 @@ export default function AutoApprovalSettingsPage() {
             {canManage ? (
               <div className="flex justify-end">
                 <Button onClick={() => void save()} disabled={!isDirty || isSaving}>
-                  {isSaving ? <Spinner className="mr-2 size-4" /> : null}
+                  {isSaving ? <Spinner className="me-2 size-4" /> : null}
                   {t('agent_orchestrator.settings.autoApproval.save', 'Save')}
                 </Button>
               </div>

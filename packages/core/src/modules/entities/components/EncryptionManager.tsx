@@ -339,13 +339,13 @@ export function EncryptionManager() {
         <table className="w-full min-w-[720px] text-sm">
           <thead>
             <tr className="text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-3 py-2 text-left">
+              <th className="px-3 py-2 text-start">
                 {t('entities.encryption.fields.field', 'Field name')}
               </th>
-              <th className="px-3 py-2 text-left">
+              <th className="px-3 py-2 text-start">
                 {t('entities.encryption.fields.hash', 'Hash field (optional)')}
               </th>
-              <th className="px-3 py-2 text-right">
+              <th className="px-3 py-2 text-end">
                 {t('entities.encryption.fields.actions', 'Actions')}
               </th>
             </tr>
@@ -393,7 +393,7 @@ export function EncryptionManager() {
                       {t('entities.encryption.fields.hashHint', 'Use when lookups must stay deterministic (e.g., login by email).')}
                     </p>
                   </td>
-                  <td className="px-3 py-2 align-top text-right">
+                  <td className="px-3 py-2 align-top text-end">
                     <Button
                       type="button"
                       variant="ghost"
@@ -476,7 +476,7 @@ export function EncryptionManager() {
               </p>
             </div>
             <Button type="button" variant="outline" size="sm" onClick={addField}>
-              <Plus className="mr-2 h-4 w-4" />
+              <Plus className="me-2 h-4 w-4" />
               {t('entities.encryption.actions.add', 'Add field')}
             </Button>
           </div>
@@ -488,7 +488,7 @@ export function EncryptionManager() {
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending || loadingEntities || !!entitiesError || !selectedEntityId}
           >
-            <Save className="mr-2 h-4 w-4" />
+            <Save className="me-2 h-4 w-4" />
             {mutation.isPending
               ? t('entities.encryption.actions.saving', 'Saving…')
               : t('entities.encryption.actions.save', 'Save encryption map')}

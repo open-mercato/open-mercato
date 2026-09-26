@@ -177,7 +177,7 @@ export function BusinessRuleConditionsEditor({
           onClick={() => setIsModalOpen(true)}
           disabled={disabled}
         >
-          <Plus className="size-3 mr-1" />
+          <Plus className="size-3 me-1" />
           {t('workflows.fieldEditors.businessRuleConditions.addRule')}
         </Button>
       </div>
@@ -215,7 +215,7 @@ export function BusinessRuleConditionsEditor({
                         <div>
                           <span className="text-sm font-semibold text-foreground">{condition.ruleName}</span>
                           {condition.ruleType && (
-                            <Badge variant="secondary" className="text-xs ml-2">
+                            <Badge variant="secondary" className="text-xs ms-2">
                               {condition.ruleType}
                             </Badge>
                           )}
@@ -243,7 +243,7 @@ export function BusinessRuleConditionsEditor({
                       variant="ghost"
                       size="sm"
                       disabled={disabled}
-                      className="ml-2 flex-shrink-0"
+                      className="ms-2 flex-shrink-0"
                       aria-label={t('workflows.businessRules.editRule')}
                       onClick={() => setEditingRule({ recordId: condition.recordId as string, ruleId: condition.ruleId })}
                     >
@@ -259,7 +259,7 @@ export function BusinessRuleConditionsEditor({
                         variant="destructive-ghost"
                         size="sm"
                         disabled={disabled}
-                        className="ml-2 flex-shrink-0"
+                        className="ms-2 flex-shrink-0"
                       >
                         <Trash2 className="size-4" />
                       </Button>

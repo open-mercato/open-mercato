@@ -393,7 +393,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
               dictionaryQuery.refetch().catch(() => {})
             }}
           >
-            <RefreshCw className="mr-2 h-4 w-4" />
+            <RefreshCw className="me-2 h-4 w-4" />
             {t('dictionaries.config.entries.actions.refresh', 'Refresh')}
           </Button>
           <Button
@@ -403,7 +403,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
             disabled={readOnly}
             title={readOnly ? readOnlyMessage : undefined}
           >
-            <Plus className="mr-2 h-4 w-4" />
+            <Plus className="me-2 h-4 w-4" />
             {t('dictionaries.config.entries.actions.add', 'Add entry')}
           </Button>
         </div>
@@ -416,7 +416,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
               <TableHead className="w-48">{t('dictionaries.config.entries.columns.value', 'Value')}</TableHead>
               <TableHead className="w-48">{t('dictionaries.config.entries.columns.label', 'Label')}</TableHead>
               <TableHead>{t('dictionaries.config.entries.columns.appearance', 'Appearance')}</TableHead>
-              <TableHead className="w-32 text-right">{t('dictionaries.config.entries.columns.actions', 'Actions')}</TableHead>
+              <TableHead className="w-32 text-end">{t('dictionaries.config.entries.columns.actions', 'Actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>{tableContent}</TableBody>
@@ -444,7 +444,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
             <div className="space-y-2">
               <label htmlFor="dictionary-entry-value" className="text-sm font-medium">
                 {t('dictionaries.config.entries.dialog.valueLabel', 'Value')}
-                <span className="ml-1 text-destructive">*</span>
+                <span className="ms-1 text-destructive">*</span>
               </label>
               <Input
                 id="dictionary-entry-value"
@@ -520,7 +520,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
               onClick={handleSave}
               disabled={isSaving}
             >
-              {isSaving ? <Spinner className="mr-2 h-4 w-4" /> : null}
+              {isSaving ? <Spinner className="me-2 h-4 w-4" /> : null}
               {t('dictionaries.config.entries.dialog.save', 'Save')}
             </Button>
           </DialogFooter>

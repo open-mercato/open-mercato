@@ -266,23 +266,23 @@ export default function IntegrationDeliveriesWidget(_props: InjectionWidgetCompo
               <div className="grid gap-2 md:grid-cols-2">
                 <div>
                   <span className="text-muted-foreground">{t('webhooks.integrationDeliveries.columns.webhook', 'Webhook')}:</span>
-                  <span className="ml-2">{selectedRow?.webhookName ?? selectedDelivery.webhookId}</span>
+                  <span className="ms-2">{selectedRow?.webhookName ?? selectedDelivery.webhookId}</span>
                 </div>
                 <div>
                   <span className="text-muted-foreground">{t('webhooks.deliveries.columns.status')}:</span>
-                  <span className="ml-2">{selectedDelivery.status}</span>
+                  <span className="ms-2">{selectedDelivery.status}</span>
                 </div>
                 <div>
                   <span className="text-muted-foreground">{t('webhooks.deliveries.columns.responseStatus')}:</span>
-                  <span className="ml-2">{selectedDelivery.responseStatus ?? '—'}</span>
+                  <span className="ms-2">{selectedDelivery.responseStatus ?? '—'}</span>
                 </div>
                 <div>
                   <span className="text-muted-foreground">{t('webhooks.deliveries.columns.duration')}:</span>
-                  <span className="ml-2">{selectedDelivery.durationMs != null ? `${selectedDelivery.durationMs}ms` : '—'}</span>
+                  <span className="ms-2">{selectedDelivery.durationMs != null ? `${selectedDelivery.durationMs}ms` : '—'}</span>
                 </div>
                 <div className="md:col-span-2">
                   <span className="text-muted-foreground">{t('webhooks.integrationDeliveries.errorMessage', 'Error message')}:</span>
-                  <span className="ml-2">{selectedDelivery.errorMessage ?? '—'}</span>
+                  <span className="ms-2">{selectedDelivery.errorMessage ?? '—'}</span>
                 </div>
               </div>
 

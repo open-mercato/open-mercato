@@ -166,14 +166,14 @@ export function ConfirmDealLostDialog({
             <div className="space-y-2">
               <label className="text-sm font-semibold text-foreground">
                 {t('customers.deals.detail.lost.reasonLabel', 'Loss reason')}
-                <span className="ml-1 text-destructive">*</span>
+                <span className="ms-1 text-destructive">*</span>
               </label>
               <div className="space-y-3">
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => setReasonListOpen((current) => !current)}
-                  className="h-auto flex w-full items-center justify-between rounded-md border-2 border-foreground bg-background px-4 py-3 text-left"
+                  className="h-auto flex w-full items-center justify-between rounded-md border-2 border-foreground bg-background px-4 py-3 text-start"
                 >
                   <div className="min-w-0">
                     <div className="truncate text-base font-semibold text-foreground">
@@ -186,7 +186,7 @@ export function ConfirmDealLostDialog({
                       {reasonHelpText}
                     </div>
                   </div>
-                  <ChevronDown className="ml-3 size-4 shrink-0 text-muted-foreground" />
+                  <ChevronDown className="ms-3 size-4 shrink-0 text-muted-foreground" />
                 </Button>
 
                 {reasonListOpen ? (
@@ -214,7 +214,7 @@ export function ConfirmDealLostDialog({
                             </div>
                           </div>
                           {isSelected ? (
-                            <span className="ml-3 flex size-6 shrink-0 items-center justify-center rounded-full bg-foreground text-background">
+                            <span className="ms-3 flex size-6 shrink-0 items-center justify-center rounded-full bg-foreground text-background">
                               <Check className="size-3.5" />
                             </span>
                           ) : null}

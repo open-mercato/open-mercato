@@ -210,7 +210,7 @@ export function StartHereGuide() {
               <button
                 type="button"
                 onClick={() => router.push(step.href)}
-                className="flex w-full items-start gap-3 rounded-md border border-transparent px-2 py-2 text-left hover:border-border hover:bg-muted/50"
+                className="flex w-full items-start gap-3 rounded-md border border-transparent px-2 py-2 text-start hover:border-border hover:bg-muted/50"
               >
                 <span
                   className={`mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${

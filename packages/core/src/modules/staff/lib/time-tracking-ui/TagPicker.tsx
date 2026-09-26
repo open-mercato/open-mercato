@@ -155,7 +155,7 @@ export function TagPicker({
                 type="button"
                 role="option"
                 aria-selected="false"
-                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-start text-sm hover:bg-accent"
                 onClick={() => {
                   onAssign(tag.id)
                   setQuery('')
@@ -177,7 +177,7 @@ export function TagPicker({
           {canCreate ? (
             <button
               type="button"
-              className="mt-1 flex w-full items-center gap-2 rounded-sm border-t border-border px-2 py-1.5 text-left text-sm hover:bg-accent"
+              className="mt-1 flex w-full items-center gap-2 rounded-sm border-t border-border px-2 py-1.5 text-start text-sm hover:bg-accent"
               disabled={creating}
               onClick={() => { void create() }}
               data-testid={`${testIdPrefix}-tag-create`}

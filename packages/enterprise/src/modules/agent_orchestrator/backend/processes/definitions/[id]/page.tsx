@@ -518,7 +518,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
             </div>
             <div className="flex flex-col items-end gap-1">
               <Button size="sm" onClick={openRunDialog} disabled={!task.enabled || !allowsManual}>
-                <Play className="mr-2 size-4" />
+                <Play className="me-2 size-4" />
                 {t('agent_orchestrator.processDefinitions.detail.runNow')}
               </Button>
               {!allowsManual ? (
@@ -558,7 +558,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
               {apiUrl}
             </code>
             <Button type="button" variant="outline" size="sm" onClick={() => void copyToClipboard(apiUrl)}>
-              <Copy className="mr-2 size-4" />
+              <Copy className="me-2 size-4" />
               {t('agent_orchestrator.processDefinitions.api.copyUrl')}
             </Button>
           </div>
@@ -568,7 +568,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
                 {t('agent_orchestrator.processDefinitions.api.curlTitle')}
               </p>
               <Button type="button" variant="ghost" size="sm" onClick={() => void copyToClipboard(curlExample)}>
-                <Copy className="mr-2 size-3.5" />
+                <Copy className="me-2 size-3.5" />
                 {t('agent_orchestrator.processDefinitions.api.copyCurl')}
               </Button>
             </div>
@@ -587,7 +587,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
               <p className="mt-0.5 text-sm text-muted-foreground">{t('agent_orchestrator.processDefinitions.triggers.description')}</p>
             </div>
             <Button size="sm" onClick={() => { void saveTriggers() }} disabled={triggerBusy}>
-              <Save className="mr-2 size-4" />
+              <Save className="me-2 size-4" />
               {t('agent_orchestrator.processDefinitions.triggers.save')}
             </Button>
           </div>
@@ -627,7 +627,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
                 </p>
               </div>
               <Button size="sm" onClick={() => { void saveMilestones() }} disabled={milestoneBusy}>
-                <Save className="mr-2 size-4" />
+                <Save className="me-2 size-4" />
                 {t('agent_orchestrator.processDefinitions.milestones.save')}
               </Button>
             </div>
@@ -692,7 +692,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
                 {t('agent_orchestrator.processDefinitions.run.cancel')}
               </Button>
               <Button size="sm" onClick={() => { void submitRun() }} disabled={runBusy}>
-                <Play className="mr-2 size-4" />
+                <Play className="me-2 size-4" />
                 {t('agent_orchestrator.processDefinitions.run.submit')}
               </Button>
             </div>

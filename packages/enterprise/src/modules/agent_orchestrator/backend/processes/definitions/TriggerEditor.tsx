@@ -373,11 +373,11 @@ export function TriggerEditor({ value, onChange, onValidityChange, disabled, loc
 
       <div className="flex flex-wrap items-center gap-2">
         <Button type="button" variant="outline" size="sm" disabled={disabled || atCap} onClick={addSchedule}>
-          <Plus className="mr-2 size-4" />
+          <Plus className="me-2 size-4" />
           {t('agent_orchestrator.processDefinitions.triggers.addSchedule')}
         </Button>
         <Button type="button" variant="outline" size="sm" disabled={disabled || atCap} onClick={addEvent}>
-          <Plus className="mr-2 size-4" />
+          <Plus className="me-2 size-4" />
           {t('agent_orchestrator.processDefinitions.triggers.addEvent')}
         </Button>
         {atCap ? (

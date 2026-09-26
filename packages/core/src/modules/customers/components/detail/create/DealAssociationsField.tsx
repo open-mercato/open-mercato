@@ -225,7 +225,7 @@ export function DealAssociationsField({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-auto justify-start px-2 py-1 text-left font-normal"
+              className="h-auto justify-start px-2 py-1 text-start font-normal"
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => addOption(option)}
               disabled={disabled}

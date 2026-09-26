@@ -90,7 +90,7 @@ export function InputDataPanel({ entries, stepId, samples, className, defaultCol
         type="button"
         onClick={() => setCollapsed((previous) => !previous)}
         aria-expanded={!collapsed}
-        className="flex items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-foreground"
+        className="flex items-center gap-2 px-3 py-2 text-start text-xs font-semibold text-foreground"
       >
         {collapsed ? <ChevronRight className="size-3.5" /> : <ChevronDown className="size-3.5" />}
         <Database className="size-3.5 text-muted-foreground" />
@@ -136,7 +136,7 @@ export function InputDataPanel({ entries, stepId, samples, className, defaultCol
                         onDragStart={(event) => handleDragStart(event, entry.path)}
                         onClick={() => handleCopy(entry.path)}
                         title={t('workflows.inputDataPanel.rowHint')}
-                        className="flex w-full cursor-grab items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
+                        className="flex w-full cursor-grab items-center gap-2 rounded-md px-2 py-1.5 text-start hover:bg-accent hover:text-accent-foreground"
                       >
                         <span className="min-w-0 truncate font-mono text-xs">{entry.path}</span>
                         <Badge
@@ -153,7 +153,7 @@ export function InputDataPanel({ entries, stepId, samples, className, defaultCol
                         {sample && (
                           <span
                             className={cn(
-                              'ml-auto min-w-0 truncate text-xs text-muted-foreground',
+                              'ms-auto min-w-0 truncate text-xs text-muted-foreground',
                               sample.numeric && 'tabular-nums',
                             )}
                           >

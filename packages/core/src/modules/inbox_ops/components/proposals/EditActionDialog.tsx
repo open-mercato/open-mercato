@@ -585,7 +585,7 @@ export function EditActionDialog({
             {t('inbox_ops.edit_dialog.cancel', 'Cancel')}
           </Button>
           <Button type="button" onClick={handleSave} disabled={isSaving}>
-            {isSaving && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+            {isSaving && <Loader2 className="h-4 w-4 animate-spin me-1" />}
             {t('inbox_ops.edit_dialog.save', 'Save Changes')}
           </Button>
         </DialogFooter>

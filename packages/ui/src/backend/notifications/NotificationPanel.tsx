@@ -186,7 +186,7 @@ export function NotificationPanel({
                 {t('notifications.toast.dismissed', 'Notification dismissed')}
               </span>
               <Button variant="ghost" size="sm" onClick={() => onUndoDismiss()}>
-                <RotateCcw className="mr-1 h-3 w-3" />
+                <RotateCcw className="me-1 h-3 w-3" />
                 {t('notifications.actions.undo', 'Undo')}
               </Button>
             </div>

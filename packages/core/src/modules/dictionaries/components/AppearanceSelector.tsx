@@ -172,7 +172,7 @@ export function AppearanceSelector({
             </Button>
           </div>
           {pickerOpen ? (
-            <div className="absolute left-0 right-0 top-full z-dropdown mt-2 rounded-md border border-border bg-popover p-3 shadow-lg">
+            <div className="absolute start-0 end-0 top-full z-dropdown mt-2 rounded-md border border-border bg-popover p-3 shadow-lg">
               <div className="space-y-3">
                 <Input
                   ref={searchInputRef}
@@ -183,7 +183,7 @@ export function AppearanceSelector({
                   aria-label={labels.iconSearchPlaceholder}
                   autoComplete="off"
                 />
-                <div className="max-h-64 overflow-y-auto pr-1">
+                <div className="max-h-64 overflow-y-auto pe-1">
                   {filteredIcons.length ? (
                     <div className="grid grid-cols-6 gap-2 sm:grid-cols-8">
                       {filteredIcons.map((option) => {

@@ -280,7 +280,7 @@ export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }
           description={emptyState.description}
           action={{
             label: t('sales.returns.create', 'Create return'),
-            icon: <Plus className="mr-2 h-4 w-4" aria-hidden />,
+            icon: <Plus className="me-2 h-4 w-4" aria-hidden />,
             onClick: () => setDialogOpen(true),
           }}
         />
@@ -303,7 +303,7 @@ export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }
     <div className="space-y-4">
       <div className="flex items-center justify-end">
         <Button type="button" onClick={() => setDialogOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" aria-hidden />
+          <Plus className="me-2 h-4 w-4" aria-hidden />
           {t('sales.returns.create', 'Create return')}
         </Button>
       </div>
@@ -311,8 +311,8 @@ export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }
       <div className="overflow-hidden rounded-md border">
         <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 border-b bg-muted/30 px-4 py-2 text-xs font-medium text-muted-foreground">
           <div>{t('sales.returns.returnNumber', 'Return')}</div>
-          <div className="text-right">{t('sales.returns.returnedAt', 'Returned at')}</div>
-          <div className="text-right">{t('sales.returns.total', 'Total')}</div>
+          <div className="text-end">{t('sales.returns.returnedAt', 'Returned at')}</div>
+          <div className="text-end">{t('sales.returns.total', 'Total')}</div>
           <div className="sr-only">{t('sales.returns.actions', 'Actions')}</div>
         </div>
         <div className="divide-y">
@@ -325,14 +325,14 @@ export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }
                   {ret.status ? <Badge variant="secondary">{ret.status}</Badge> : null}
                 </div>
               </div>
-              <div className="whitespace-nowrap text-right text-sm text-muted-foreground">
+              <div className="whitespace-nowrap text-end text-sm text-muted-foreground">
                 {/* `returnedAt` is submitted as a bare `yyyy-MM-dd` by `ReturnEditDialog`, coerced by
                     `z.coerce.date()` and returned via `.toISOString()`, and that dialog seeds itself
                     back from the UTC day — unconditionally, however the row was written. Matching the
                     dialog is the invariant, so the row cannot contradict itself west of UTC. */}
                 {formatDisplayDate(toUtcDateInputValue(ret.returnedAt), locale) ?? t('sales.returns.notSet', 'Not set')}
               </div>
-              <div className="whitespace-nowrap text-right text-sm font-medium">
+              <div className="whitespace-nowrap text-end text-sm font-medium">
                 {formatMoney(ret.total, currencyCode ?? null, locale)}
               </div>
               <div className="flex justify-end">

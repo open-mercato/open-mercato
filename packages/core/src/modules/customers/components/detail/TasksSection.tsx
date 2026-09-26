@@ -591,7 +591,7 @@ export function TasksSection({
                 <Button type="button" variant="outline" size="sm" onClick={() => loadMore().catch(() => {})} disabled={isLoadingMore}>
                   {isLoadingMore ? (
                     <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Loader2 className="me-2 h-4 w-4 animate-spin" />
                       {t('customers.people.detail.tasks.loadingMore', 'Loading…')}
                     </>
                   ) : (
@@ -602,7 +602,7 @@ export function TasksSection({
             ) : null}
             {isLoadingMore ? (
               <div className="flex justify-center text-xs text-muted-foreground">
-                <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                <Loader2 className="me-2 h-3 w-3 animate-spin" />
                 {t('customers.people.detail.tasks.loadingMore', 'Loading…')}
               </div>
             ) : null}

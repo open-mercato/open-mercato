@@ -143,7 +143,7 @@ export function MetadataEditor({
               : t('catalog.products.edit.metadata.collapse', 'Hide metadata')}
           </Button>
           <Button type="button" size="sm" variant="outline" onClick={addEntry}>
-            <Plus className="mr-1 h-4 w-4" />
+            <Plus className="me-1 h-4 w-4" />
             {t('catalog.products.edit.metadata.add', 'Add entry')}
           </Button>
         </div>

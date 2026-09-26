@@ -1023,7 +1023,7 @@ export function SidebarCustomizationEditor({
                                 }}
                                 placeholder={t('appShell.sidebarCustomizationVariantNamePlaceholder', 'My preferences')}
                                 disabled={isBusy}
-                                className="w-full pr-10"
+                                className="w-full pe-10"
                               />
                               <Select
                                 value={selectValue}
@@ -1311,7 +1311,7 @@ export function SidebarCustomizationEditor({
           <aside className="hidden lg:block">
             <div className="sticky top-6">
               <div className="relative">
-                <span className="absolute left-1/2 top-0 z-10 -translate-x-1/2 -translate-y-1/2 rounded-md bg-accent-indigo px-3 py-1 text-xs font-semibold uppercase tracking-wider text-accent-indigo-foreground shadow-sm">
+                <span className="absolute start-1/2 top-0 z-10 -translate-x-1/2 -translate-y-1/2 rounded-md bg-accent-indigo px-3 py-1 text-xs font-semibold uppercase tracking-wider text-accent-indigo-foreground shadow-sm rtl:translate-x-1/2">
                   {t('appShell.sidebarCustomizationPreview', 'Preview')}
                 </span>
                 <SidebarPreview
@@ -1596,7 +1596,7 @@ function SidebarPreview({
         </div>
         {/* Search input mock — same container styling as the real sidebar */}
         <div className="px-3">
-          <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-background pl-2.5 pr-2 py-2 shadow-sm">
+          <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-background ps-2.5 pe-2 py-2 shadow-sm">
             <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden />
             <span className="min-w-0 flex-1 text-sm text-muted-foreground/70 truncate">
               {t('appShell.sidebarCustomizationPreviewSearchPlaceholder', 'Search...')}
@@ -1634,7 +1634,7 @@ function SidebarPreview({
                           {isActive ? (
                             <span
                               aria-hidden
-                              className="absolute left-[-12px] top-2 w-1 h-5 rounded-r bg-foreground"
+                              className="absolute start-[-12px] top-2 w-1 h-5 rounded-e bg-foreground"
                             />
                           ) : null}
                           <span className="flex items-center justify-center shrink-0">

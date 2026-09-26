@@ -173,7 +173,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled,
           onClick={addActivity}
           disabled={disabled}
         >
-          <Plus className="size-3 mr-1" />
+          <Plus className="size-3 me-1" />
           {t('workflows.fieldEditors.activities.addActivity')}
         </Button>
       </div>
@@ -193,7 +193,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled,
                   type="button"
                   onClick={() => toggleExpanded(index)}
                   disabled={disabled}
-                  className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-gray-100 transition-colors rounded-t-lg disabled:opacity-50"
+                  className="w-full px-4 py-3 text-start flex items-center justify-between hover:bg-gray-100 transition-colors rounded-t-lg disabled:opacity-50"
                 >
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
@@ -423,7 +423,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled,
                               aria-expanded={advancedIndices.has(index)}
                             >
                               <ChevronDown
-                                className={`size-4 mr-1 transition-transform ${advancedIndices.has(index) ? 'rotate-180' : ''}`}
+                                className={`size-4 me-1 transition-transform ${advancedIndices.has(index) ? 'rotate-180' : ''}`}
                               />
                               {t('workflows.fieldEditors.activities.advancedJson')}
                             </Button>
@@ -484,7 +484,7 @@ export function ActivityArrayEditor({ id, value = [], error, setValue, disabled,
                         onClick={() => removeActivity(index)}
                         disabled={disabled}
                       >
-                        <Trash2 className="size-4 mr-1" />
+                        <Trash2 className="size-4 me-1" />
                         {t('workflows.fieldEditors.activities.removeActivity')}
                       </Button>
                     </div>

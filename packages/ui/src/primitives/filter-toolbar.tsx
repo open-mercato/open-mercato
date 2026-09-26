@@ -33,7 +33,7 @@ export const FilterPanelItem = React.forwardRef<HTMLButtonElement, FilterPanelIt
     {...props}
   >
     {leading ? <span aria-hidden="true" className={cn('flex size-5 shrink-0 items-center justify-center [&>svg]:size-5', active && 'text-status-info-text')}>{leading}</span> : null}
-    <span className="min-w-0 flex-1 text-left">{children}</span>
+    <span className="min-w-0 flex-1 text-start">{children}</span>
     <ChevronRight aria-hidden="true" className="size-5 shrink-0 text-muted-foreground" />
   </Button>,
 )

@@ -123,7 +123,7 @@ export function TableHead({
       ref={ref}
       data-slot="table-head"
       className={cn(
-        'text-left font-medium px-4 py-2 whitespace-nowrap text-muted-foreground',
+        'text-start font-medium px-4 py-2 whitespace-nowrap text-muted-foreground',
         className,
       )}
       {...props}

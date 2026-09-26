@@ -247,9 +247,9 @@ export const Avatar = React.forwardRef<HTMLDivElement, AvatarProps>((props, ref)
   const statusSize = AVATAR_STATUS_SIZE[size ?? 'md']
   const statusPositionClass =
     statusPosition === 'top-right'
-      ? '-right-0 -top-0 translate-x-1/4 -translate-y-1/4'
-      : '-right-0 -bottom-0 translate-x-1/4 translate-y-1/4'
-  const badgePositionClass = '-right-0 -top-0 translate-x-1/4 -translate-y-1/4'
+      ? '-end-0 -top-0 translate-x-1/4 -translate-y-1/4'
+      : '-end-0 -bottom-0 translate-x-1/4 translate-y-1/4'
+  const badgePositionClass = '-end-0 -top-0 translate-x-1/4 -translate-y-1/4'
 
   return (
     <span
@@ -345,12 +345,12 @@ const AVATAR_STACK_TEXT_OVERLAP: Record<AvatarSize, AvatarStackOverlap> = {
 }
 
 const AVATAR_STACK_OVERLAP_CLASS: Record<AvatarStackOverlap, string> = {
-  0: 'ml-0',
-  4: '-ml-1',
-  6: '-ml-1.5',
-  8: '-ml-2',
-  12: '-ml-3',
-  16: '-ml-4',
+  0: 'ms-0',
+  4: '-ms-1',
+  6: '-ms-1.5',
+  8: '-ms-2',
+  12: '-ms-3',
+  16: '-ms-4',
 }
 
 const AVATAR_STACK_MIN_WIDTH: Record<AvatarSize, string> = {

@@ -120,7 +120,7 @@ export function AgentTimeline({ workflowInstanceId }: AgentTimelineProps) {
             return (
               <li
                 key={proposal.id}
-                className="rounded-lg border border-border bg-card p-3 border-l-4 border-l-brand-violet"
+                className="rounded-lg border border-border bg-card p-3 border-s-4 border-s-brand-violet"
               >
                 <div className="flex items-center gap-3">
                   <Avatar label={proposal.agentId} size="sm" ring icon={agentAvatarIcon(agentIcons.get(proposal.agentId)?.icon ?? null, agentIcons.get(proposal.agentId)?.resultKind)} />

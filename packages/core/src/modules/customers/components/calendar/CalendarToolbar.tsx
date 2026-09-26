@@ -102,7 +102,7 @@ export function CalendarToolbar(props: CalendarToolbarProps) {
             onValueChange={(value) => onPresetChange(value as CalendarRangePreset)}
           >
             <SelectTrigger
-              className="hidden w-auto min-w-32 rounded-r-none sm:flex"
+              className="hidden w-auto min-w-32 rounded-e-none sm:flex"
               aria-label={t('customers.calendar.toolbar.presetLabel', 'Date range preset')}
             >
               <SelectValue
@@ -122,7 +122,7 @@ export function CalendarToolbar(props: CalendarToolbarProps) {
               <Button
                 type="button"
                 variant="outline"
-                className="min-w-0 text-muted-foreground sm:-ml-px sm:rounded-l-none"
+                className="min-w-0 text-muted-foreground sm:-ms-px sm:rounded-s-none"
               >
                 <CalendarRange aria-hidden="true" />
                 <span className="truncate">{formatDateRangeLabel(locale, range.from, range.to)}</span>
@@ -143,7 +143,7 @@ export function CalendarToolbar(props: CalendarToolbarProps) {
           </Popover>
         </div>
       </div>
-      <div className="flex w-full min-w-0 items-center gap-2 sm:ml-auto sm:w-auto sm:flex-none sm:gap-3">
+      <div className="flex w-full min-w-0 items-center gap-2 sm:ms-auto sm:w-auto sm:flex-none sm:gap-3">
         <div className="relative min-w-0 flex-1 sm:w-72 sm:flex-none">
           <SearchInput
             value={search}
@@ -153,7 +153,7 @@ export function CalendarToolbar(props: CalendarToolbarProps) {
             data-calendar-search=""
           />
           {search.length === 0 ? (
-            <Kbd className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 sm:inline-flex">/</Kbd>
+            <Kbd className="pointer-events-none absolute end-2 top-1/2 hidden -translate-y-1/2 sm:inline-flex">/</Kbd>
           ) : null}
         </div>
         <Popover open={filtersOpen} onOpenChange={handleFiltersOpenChange}>

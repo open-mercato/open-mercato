@@ -317,7 +317,7 @@ export default function OrderApprovalWidget({ data }: InjectionWidgetComponentPr
     return (
       <div className="flex items-center justify-center p-4">
         <Spinner size="sm" />
-        <span className="ml-2 text-sm text-muted-foreground">{t('common.loading', 'Loading...')}</span>
+        <span className="ms-2 text-sm text-muted-foreground">{t('common.loading', 'Loading...')}</span>
       </div>
     )
   }
@@ -374,7 +374,7 @@ export default function OrderApprovalWidget({ data }: InjectionWidgetComponentPr
             variant="default"
             size="sm"
           >
-            {isSubmitting && <Spinner size="sm" className="mr-2" />}
+            {isSubmitting && <Spinner size="sm" className="me-2" />}
             {t('workflows.orderApproval.requestApproval', 'Request Approval')}
           </Button>
         </div>
@@ -434,7 +434,7 @@ export default function OrderApprovalWidget({ data }: InjectionWidgetComponentPr
             size="sm"
             className="w-full"
           >
-            {isSubmitting && <Spinner size="sm" className="mr-2" />}
+            {isSubmitting && <Spinner size="sm" className="me-2" />}
             {t('workflows.orderApproval.submitDecision', 'Submit Decision')}
           </Button>
         </div>

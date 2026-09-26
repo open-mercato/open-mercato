@@ -659,7 +659,7 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
                 `/backend/eudr/statements/create?duplicateFrom=${encodeURIComponent(record.id)}`,
               )}
             >
-              <Copy className="mr-2 h-4 w-4" aria-hidden />
+              <Copy className="me-2 h-4 w-4" aria-hidden />
               {translate('eudr.statements.duplicateAction')}
             </Button>
           )}
@@ -761,7 +761,7 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
               onClick={() => void handleExport('json')}
               disabled={exportingFormat !== null}
             >
-              <Download className="mr-2 h-4 w-4" aria-hidden />
+              <Download className="me-2 h-4 w-4" aria-hidden />
               {translate('eudr.statements.detail.export')}
             </Button>
             <Button
@@ -770,7 +770,7 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
               onClick={() => void handleExport('geojson')}
               disabled={exportingFormat !== null}
             >
-              <Download className="mr-2 h-4 w-4" aria-hidden />
+              <Download className="me-2 h-4 w-4" aria-hidden />
               {translate('eudr.statements.detail.exportGeoJson')}
             </Button>
           </div>

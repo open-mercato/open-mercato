@@ -78,7 +78,7 @@ export function OpenTasksWidget({
             onClick={() => setTaskFilter(tab.key)}
           >
             {tab.label}
-            <span className="ml-1 rounded-full bg-muted/50 px-1 text-overline">{tab.count}</span>
+            <span className="ms-1 rounded-full bg-muted/50 px-1 text-overline">{tab.count}</span>
           </Button>
         ))}
       </div>
@@ -92,7 +92,7 @@ export function OpenTasksWidget({
                 <p className="truncate text-sm text-foreground">{task.title || '—'}</p>
                 {task.dueAt && (
                   <p className={cn('mt-0.5 text-xs', overdue ? 'text-destructive' : 'text-muted-foreground')}>
-                    {overdue && <AlertCircle className="mr-1 inline size-3" />}
+                    {overdue && <AlertCircle className="me-1 inline size-3" />}
                     {overdue
                       ? t('customers.companies.dashboard.overdueBy', 'Overdue by {{days}} days', { days: Math.ceil((Date.now() - new Date(task.dueAt).getTime()) / 86_400_000) })
                       : t('customers.companies.dashboard.dueOn', 'Due: {{date}}', { date: new Date(task.dueAt).toLocaleDateString() })

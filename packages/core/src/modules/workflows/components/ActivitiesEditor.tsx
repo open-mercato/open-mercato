@@ -144,7 +144,7 @@ export function ActivitiesEditor({ value = [], onChange, onInvalidActivityConfig
           {error && <p className="text-sm text-status-error-text mt-1">{error}</p>}
         </div>
         <Button type="button" onClick={addActivity} variant="outline" size="sm" className="w-full sm:w-auto">
-          <Plus className="h-4 w-4 mr-1" />
+          <Plus className="h-4 w-4 me-1" />
           {t('workflows.form.addActivity')}
         </Button>
       </div>
@@ -164,7 +164,7 @@ export function ActivitiesEditor({ value = [], onChange, onInvalidActivityConfig
           // edit would write the config onto the wrong activity.
           <div
             key={activity.activityId || `activity-${index}`}
-            className="p-4 border rounded-md bg-card shadow-sm border-l-4 border-l-green-500"
+            className="p-4 border rounded-md bg-card shadow-sm border-s-4 border-s-green-500"
           >
             <div className="space-y-3">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

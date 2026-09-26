@@ -81,7 +81,7 @@ export function SalesOrderCreatedRenderer({
         <ShoppingCart className="size-5 text-status-info-icon" aria-hidden="true" />
         {isUnread ? (
           <span
-            className="absolute -right-1 -top-1 size-3 rounded-full bg-accent-indigo ring-2 ring-background"
+            className="absolute -end-1 -top-1 size-3 rounded-full bg-accent-indigo ring-2 ring-background"
             aria-hidden="true"
           />
         ) : null}
@@ -132,7 +132,7 @@ export function SalesOrderCreatedRenderer({
           >
             <ExternalLink className="size-3.5" aria-hidden="true" />
             {t('sales.notifications.renderer.viewOrder', 'View Order')}
-            {executing ? <Loader2 className="ml-1 size-3 animate-spin" /> : null}
+            {executing ? <Loader2 className="ms-1 size-3 animate-spin" /> : null}
           </Button>
           <Button
             type="button"
@@ -153,7 +153,7 @@ export function SalesOrderCreatedRenderer({
         type="button"
         variant="ghost"
         size="xs"
-        className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+        className="absolute end-2 top-2 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
         onClick={(e) => {
           e.stopPropagation()
           onDismiss()

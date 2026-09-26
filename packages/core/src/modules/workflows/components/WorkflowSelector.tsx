@@ -253,7 +253,7 @@ export function WorkflowSelector({
                   <button
                     key={workflow.id}
                     onClick={() => handleSelect(workflow)}
-                    className="text-left p-4 border-2 border-border rounded-lg hover:border-primary hover:bg-accent transition-all group"
+                    className="text-start p-4 border-2 border-border rounded-lg hover:border-primary hover:bg-accent transition-all group"
                   >
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex-1 min-w-0">
@@ -264,7 +264,7 @@ export function WorkflowSelector({
                           {workflow.workflowId}
                         </p>
                       </div>
-                      <Plus className="size-5 text-muted-foreground group-hover:text-primary transition-colors flex-shrink-0 ml-2" />
+                      <Plus className="size-5 text-muted-foreground group-hover:text-primary transition-colors flex-shrink-0 ms-2" />
                     </div>
 
                     <div className="flex items-center gap-2 mb-2 flex-wrap">

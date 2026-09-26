@@ -604,7 +604,7 @@ export const RichEditor = React.memo(function RichEditor({
                   {maxLength ? (
                     <span
                       className={cn(
-                        'pointer-events-none absolute bottom-2 right-3 select-none text-xs leading-4 text-muted-foreground',
+                        'pointer-events-none absolute bottom-2 end-3 select-none text-xs leading-4 text-muted-foreground',
                         (draftLength ?? plaintextLength) > maxLength && 'text-destructive',
                       )}
                       data-slot="rich-editor-counter"
@@ -737,13 +737,13 @@ const richEditorItemVariants = cva(
     variants: {
       type: {
         // Figma 166251:2698 — pl-[10px] pr-[4px] py-[4px], gap-[2px].
-        text: 'min-w-0 gap-0.5 pl-2.5 pr-1 py-1 tracking-[-0.084px] [&_svg]:size-4',
+        text: 'min-w-0 gap-0.5 ps-2.5 pe-1 py-1 tracking-[-0.084px] [&_svg]:size-4',
         // Figma 166251:2700 — square icon button p-[4px].
         icon: 'aspect-square p-1 [&_svg]:size-4',
         // Figma 166251:3337 — icon + caret p-[4px] gap-[2px].
         dropdown: 'gap-0.5 p-1 [&_svg]:size-4',
         // Figma 166331:4437 — color swatch + caret pl-[8px] pr-[4px] py-[4px].
-        color: 'gap-0.5 pl-2 pr-1 py-1 [&_svg]:size-4',
+        color: 'gap-0.5 ps-2 pe-1 py-1 [&_svg]:size-4',
       },
     },
     defaultVariants: { type: 'icon' },
@@ -1000,7 +1000,7 @@ export function RichEditorColorPalette({ value, onChange, labels, palette, class
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => onChange?.(key)}
             className={cn(
-              'flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+              'flex items-center gap-2 rounded-md px-2 py-1.5 text-start text-sm transition-colors hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
               isActive && 'font-medium text-foreground',
             )}
             data-color-key={key}
@@ -1045,7 +1045,7 @@ export const RichEditorMenuItem = React.forwardRef<HTMLButtonElement, RichEditor
         onMouseDown?.(e)
       }}
       className={cn(
-        'flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50',
+        'flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-start text-sm text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50',
         destructive && 'text-destructive hover:bg-destructive/10',
         className,
       )}
@@ -1117,14 +1117,14 @@ export const RichEditorContent = React.forwardRef<HTMLDivElement, RichEditorCont
           '[&_h2]:mt-3 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold',
           '[&_h3]:mt-3 [&_h3]:mb-1 [&_h3]:text-lg [&_h3]:font-semibold',
           '[&_p]:my-1',
-          '[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-6',
-          '[&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-6',
+          '[&_ul]:my-2 [&_ul]:list-disc [&_ul]:ps-6',
+          '[&_ol]:my-2 [&_ol]:list-decimal [&_ol]:ps-6',
           '[&_li]:my-0.5',
           // Task list checklist override — when <ul data-task-list> we drop the
           // disc bullet so the <input type=checkbox> child stands alone.
-          '[&_ul[data-task-list]]:list-none [&_ul[data-task-list]]:pl-0',
-          '[&_ul[data-task-list]_input[type=checkbox]]:mr-2',
-          '[&_blockquote]:my-2 [&_blockquote]:border-l-4 [&_blockquote]:border-border [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-muted-foreground',
+          '[&_ul[data-task-list]]:list-none [&_ul[data-task-list]]:ps-0',
+          '[&_ul[data-task-list]_input[type=checkbox]]:me-2',
+          '[&_blockquote]:my-2 [&_blockquote]:border-s-4 [&_blockquote]:border-border [&_blockquote]:ps-4 [&_blockquote]:italic [&_blockquote]:text-muted-foreground',
           '[&_pre]:my-2 [&_pre]:rounded [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:font-mono [&_pre]:text-xs',
           '[&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:font-mono [&_code]:text-xs',
           '[&_a]:text-primary [&_a]:underline',
@@ -1361,7 +1361,7 @@ function usePresetToolbarItems({
       <button
         type="button"
         role="menuitem"
-        className="cursor-pointer rounded px-2 py-1 text-left text-sm hover:bg-muted"
+        className="cursor-pointer rounded px-2 py-1 text-start text-sm hover:bg-muted"
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => exec('formatBlock', '<p>')}
       >
@@ -1370,7 +1370,7 @@ function usePresetToolbarItems({
       <button
         type="button"
         role="menuitem"
-        className="cursor-pointer rounded px-2 py-1 text-left text-lg font-semibold hover:bg-muted"
+        className="cursor-pointer rounded px-2 py-1 text-start text-lg font-semibold hover:bg-muted"
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => exec('formatBlock', '<h1>')}
       >
@@ -1379,7 +1379,7 @@ function usePresetToolbarItems({
       <button
         type="button"
         role="menuitem"
-        className="cursor-pointer rounded px-2 py-1 text-left text-base font-semibold hover:bg-muted"
+        className="cursor-pointer rounded px-2 py-1 text-start text-base font-semibold hover:bg-muted"
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => exec('formatBlock', '<h2>')}
       >
@@ -1388,7 +1388,7 @@ function usePresetToolbarItems({
       <button
         type="button"
         role="menuitem"
-        className="cursor-pointer rounded px-2 py-1 text-left text-sm font-semibold hover:bg-muted"
+        className="cursor-pointer rounded px-2 py-1 text-start text-sm font-semibold hover:bg-muted"
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => exec('formatBlock', '<h3>')}
       >
@@ -1417,7 +1417,7 @@ function usePresetToolbarItems({
           key={size}
           type="button"
           role="menuitem"
-          className="cursor-pointer rounded px-2 py-1 text-left text-sm hover:bg-muted"
+          className="cursor-pointer rounded px-2 py-1 text-start text-sm hover:bg-muted"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => {
             const range = getSelectionRange()
@@ -1459,7 +1459,7 @@ function usePresetToolbarItems({
             key={option}
             type="button"
             role="menuitem"
-            className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-muted"
+            className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-start text-sm hover:bg-muted"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => exec(command)}
           >
@@ -1637,7 +1637,7 @@ function RichEditorAutoToolbar({
       >
         <div
           ref={measureRef}
-          className="invisible absolute left-0 top-0 flex flex-row flex-nowrap items-center gap-0.5"
+          className="invisible absolute start-0 top-0 flex flex-row flex-nowrap items-center gap-0.5"
         >
           {arrangedItems.map(renderItem)}
           <RichEditorDropdownButton icon={<MoreVertical />} ariaLabel={labels.more} showChevron={false} menu={<div />} />

@@ -81,7 +81,7 @@ export function TaskRemindersField({ id, value, setValue, disabled }: CrudCustom
         disabled={disabled}
         onClick={() => setValue([...offsets, ''])}
       >
-        <Plus className="size-3.5 mr-1" />
+        <Plus className="size-3.5 me-1" />
         {t('workflows.tasks.inspector.when.addReminder')}
       </Button>
     </div>

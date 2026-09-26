@@ -75,12 +75,12 @@ export default function OtpEmailChallengeVerify({
       </div>
       <div className="grid gap-2">
         <Button type="submit" disabled={!canSubmit} className="h-10 w-full">
-          {submitting ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+          {submitting ? <Loader2 className="me-2 size-4 animate-spin" /> : null}
           {submitLabel}
         </Button>
         {onResend ? (
           <Button type="button" variant="outline" disabled={resending} className="h-10 w-full" onClick={handleResend}>
-            {resending ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+            {resending ? <Loader2 className="me-2 size-4 animate-spin" /> : null}
             {t('security.login.mfaChallenge.otpEmail.resend', 'Resend code')}
           </Button>
         ) : null}

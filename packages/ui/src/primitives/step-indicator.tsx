@@ -216,7 +216,7 @@ export const StepIndicator = React.forwardRef<HTMLOListElement, StepIndicatorPro
             isVertical && step.status === 'current' ? (
               <ChevronRight
                 aria-hidden="true"
-                className="ml-auto size-4 text-muted-foreground"
+                className="ms-auto size-4 text-muted-foreground"
               />
             ) : null
 
@@ -255,7 +255,7 @@ export const StepIndicator = React.forwardRef<HTMLOListElement, StepIndicatorPro
                   className={cn(
                     'inline-flex items-center gap-2',
                     isVertical && 'w-full',
-                    'rounded-md outline-none focus-visible:shadow-focus text-left',
+                    'rounded-md outline-none focus-visible:shadow-focus text-start',
                   )}
                 >
                   {itemBody}

@@ -55,7 +55,7 @@ export function ColorStudioSpecimen({ theme, tokens, logo }: { logo?: string | n
         size="sm"
         aria-pressed={row.original.id === selectedId}
         onClick={() => setSelectedId(row.original.id)}
-        className="h-auto w-full justify-start gap-3 whitespace-normal rounded-md px-0 py-1 text-left shadow-none"
+        className="h-auto w-full justify-start gap-3 whitespace-normal rounded-md px-0 py-1 text-start shadow-none"
         style={{ backgroundColor: 'transparent', color: tokens['--foreground'] }}
       >
         <span className="flex size-8 shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: row.original.id === selectedId ? tokens['--accent'] : tokens['--muted'], color: row.original.id === selectedId ? tokens['--accent-foreground'] : tokens['--muted-foreground'] }}>{row.original.id === selectedId ? <Check className="size-4" aria-hidden /> : <FolderKanban className="size-4" aria-hidden />}</span>

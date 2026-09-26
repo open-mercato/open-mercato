@@ -326,7 +326,7 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
                   onClick={() => router.push(createTeamHref)}
                   disabled={disabled}
                 >
-                  <Plus className="mr-2 h-4 w-4" aria-hidden />
+                  <Plus className="me-2 h-4 w-4" aria-hidden />
                   {translate('staff.teamMembers.form.actions.createTeam', 'Create new team')}
                 </Button>
               </div>
@@ -400,7 +400,7 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
                   onClick={() => router.push(createRoleHref)}
                   disabled={disabled}
                 >
-                  <Plus className="mr-2 h-4 w-4" aria-hidden />
+                  <Plus className="me-2 h-4 w-4" aria-hidden />
                   {translate('staff.teamMembers.form.actions.defineRole', 'Define new role')}
                 </Button>
               </div>
@@ -428,7 +428,7 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
                         }
                         setValue(Array.from(next))
                       }}
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-muted ${isSelected ? 'bg-muted' : ''}`}
+                      className={`w-full text-start px-3 py-2 text-sm hover:bg-muted ${isSelected ? 'bg-muted' : ''}`}
                       disabled={disabled}
                     >
                       <span className="inline-flex items-center gap-2">

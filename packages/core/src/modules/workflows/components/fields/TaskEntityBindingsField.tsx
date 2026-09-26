@@ -148,7 +148,7 @@ export function TaskEntityBindingsField({
         disabled={disabled}
         onClick={() => setValue([...drafts, newEntityBindingDraft()])}
       >
-        <Plus className="size-3.5 mr-1" />
+        <Plus className="size-3.5 me-1" />
         {t('workflows.tasks.inspector.bindings.add')}
       </Button>
     </div>

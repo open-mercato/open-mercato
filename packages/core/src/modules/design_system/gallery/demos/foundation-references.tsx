@@ -107,7 +107,7 @@ function SourceSwatch({ item }: { item: typeof colors[number] }) {
       flash(t('design_system.gallery.tokenCopyFailed'), 'error')
     }
   }
-  return <Button type="button" variant="ghost" onClick={copy} title={t('design_system.gallery.copyToken', { token: value })} className="h-auto min-w-0 flex-col items-stretch justify-start gap-2 whitespace-normal rounded-md p-1.5 text-left" data-foundation="color">
+  return <Button type="button" variant="ghost" onClick={copy} title={t('design_system.gallery.copyToken', { token: value })} className="h-auto min-w-0 flex-col items-stretch justify-start gap-2 whitespace-normal rounded-md p-1.5 text-start" data-foundation="color">
     <span aria-hidden className="block h-16 shrink-0 overflow-hidden rounded-md border border-border bg-background"><span className="block h-full" style={{ backgroundColor: item.hex, opacity: item.opacity }} /></span>
     <span className="break-words text-xs font-medium">{item.role || item.name}</span>
     <span className="font-mono text-xs text-muted-foreground">{value.toUpperCase()}</span>

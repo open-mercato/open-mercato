@@ -404,7 +404,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                   {t('workflows.edgeEditor.continueOnActivityFailure')}
                 </Label>
               </div>
-              <p className="text-xs text-muted-foreground ml-6">
+              <p className="text-xs text-muted-foreground ms-6">
                 {t('workflows.edgeEditor.continueOnActivityFailureHint')}
               </p>
             </div>
@@ -448,7 +448,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                         type="button"
                         variant="ghost"
                         onClick={() => togglePreCondition(index)}
-                        className="h-auto w-full justify-between rounded-t-lg px-4 py-3 text-left hover:bg-muted/80"
+                        className="h-auto w-full justify-between rounded-t-lg px-4 py-3 text-start hover:bg-muted/80"
                       >
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
@@ -594,7 +594,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                         type="button"
                         variant="ghost"
                         onClick={() => togglePostCondition(index)}
-                        className="h-auto w-full justify-between rounded-t-lg px-4 py-3 text-left hover:bg-muted/80"
+                        className="h-auto w-full justify-between rounded-t-lg px-4 py-3 text-start hover:bg-muted/80"
                       >
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
@@ -734,7 +734,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                         type="button"
                         variant="ghost"
                         onClick={() => toggleActivity(index)}
-                        className="h-auto w-full justify-between rounded-t-lg px-4 py-3 text-left hover:bg-muted/80"
+                        className="h-auto w-full justify-between rounded-t-lg px-4 py-3 text-start hover:bg-muted/80"
                       >
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
@@ -932,7 +932,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                 type="button"
                 variant="ghost"
                 onClick={() => setShowAdvanced(!showAdvanced)}
-                className="h-auto w-full justify-between px-0 py-0 text-left hover:bg-transparent"
+                className="h-auto w-full justify-between px-0 py-0 text-start hover:bg-transparent"
               >
                 <h3 className="text-sm font-semibold text-foreground">
                   {t('workflows.edgeEditor.advancedConfiguration')}

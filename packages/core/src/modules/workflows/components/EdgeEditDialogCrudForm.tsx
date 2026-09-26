@@ -287,7 +287,7 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
                 variant="destructive-outline"
                 onClick={handleDelete}
               >
-                <Trash2 className="size-4 mr-2" />
+                <Trash2 className="size-4 me-2" />
                 {t('workflows.edgeEditor.deleteTransition')}
               </Button>
             }

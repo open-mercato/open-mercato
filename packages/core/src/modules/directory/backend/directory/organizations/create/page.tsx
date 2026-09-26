@@ -49,7 +49,7 @@ function ChildTreeSelect({ nodes, value, onChange }: ChildTreeSelectProps) {
 
 function TreeCheckboxGroup({ nodes, selected, onToggle, level }: { nodes: OrganizationTreeNode[]; selected: Set<string>; onToggle: (id: string) => void; level: number }) {
   return (
-    <div className={level === 0 ? 'space-y-1' : 'space-y-1 pl-5'}>
+    <div className={level === 0 ? 'space-y-1' : 'space-y-1 ps-5'}>
       {nodes.map((node) => (
         <div key={node.id} className="space-y-1">
           <label className="inline-flex items-start gap-2 text-sm">

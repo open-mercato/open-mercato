@@ -148,7 +148,7 @@ function DetailHeader({
             href={backHref}
             className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground shrink-0"
           >
-            <span aria-hidden className="mr-1 text-base">&larr;</span>
+            <span aria-hidden className="me-1 text-base">&larr;</span>
             <span className="sr-only">{resolvedBackLabel}</span>
           </Link>
         ) : null}
@@ -191,9 +191,9 @@ function DetailHeader({
                   disabled={isDeleting}
                 >
                   {isDeleting ? (
-                    <Loader2 className="size-4 mr-2 animate-spin" />
+                    <Loader2 className="size-4 me-2 animate-spin" />
                   ) : (
-                    <Trash2 className="size-4 mr-2" />
+                    <Trash2 className="size-4 me-2" />
                   )}
                   {resolvedDeleteLabel}
                 </Button>

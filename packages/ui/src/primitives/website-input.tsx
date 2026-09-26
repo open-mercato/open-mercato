@@ -44,7 +44,7 @@ export const WebsiteInput = React.forwardRef<HTMLInputElement, WebsiteInputProps
         {showPrefix ? (
           <>
             <span
-              className="flex shrink-0 items-center self-stretch border-r border-input px-3 text-sm text-muted-foreground select-none"
+              className="flex shrink-0 items-center self-stretch border-e border-input px-3 text-sm text-muted-foreground select-none"
               aria-hidden="true"
             >
               {prefix}

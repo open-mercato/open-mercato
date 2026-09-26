@@ -66,7 +66,7 @@ export function WebhookSecretPanel({ secret, onClose }: WebhookSecretPanelProps)
         </div>
         <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="outline" onClick={() => { void handleCopySecret() }}>
-            <CopyIcon className={`mr-2 h-4 w-4 ${copied ? 'text-green-600' : ''}`} />
+            <CopyIcon className={`me-2 h-4 w-4 ${copied ? 'text-green-600' : ''}`} />
             {t('webhooks.form.secretCopy')}
           </Button>
           {onClose ? (

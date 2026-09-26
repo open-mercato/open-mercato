@@ -91,9 +91,9 @@ export function TopNTable<T extends Record<string, unknown>>({
   const displayData = maxRows && maxRows > 0 ? data.slice(0, maxRows) : data
 
   const getAlignClass = (align?: 'left' | 'center' | 'right') => {
-    if (align === 'right') return 'text-right'
+    if (align === 'right') return 'text-end'
     if (align === 'center') return 'text-center'
-    return 'text-left'
+    return 'text-start'
   }
 
   return (

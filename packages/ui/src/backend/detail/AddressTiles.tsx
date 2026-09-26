@@ -488,7 +488,7 @@ export function AddressTiles<C = unknown>({
             <Button type="button" onClick={handleSave} disabled={disableActions}>
               {saving ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="me-2 h-4 w-4 animate-spin" />
                   {editingId
                     ? label('updating', 'Updating…')
                     : label('saving', 'Saving…')}
@@ -534,7 +534,7 @@ export function AddressTiles<C = unknown>({
             onClick={openCreateForm}
             disabled={addDisabled}
           >
-            <Plus className="mr-2 h-4 w-4" />
+            <Plus className="me-2 h-4 w-4" />
             {label('add', 'Add address')}
           </Button>
         </div>

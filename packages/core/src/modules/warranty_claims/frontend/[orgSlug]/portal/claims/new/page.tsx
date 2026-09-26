@@ -1337,7 +1337,7 @@ export default function WarrantyClaimPortalNewPage({ params }: Props) {
               <dl className="space-y-3 text-sm">
                 <div className="flex items-center justify-between gap-4">
                   <dt className="text-muted-foreground">{t('warranty_claims.portal.new.reviewOrder')}</dt>
-                  <dd className="text-right font-medium">
+                  <dd className="text-end font-medium">
                     {noOrder
                       ? t('warranty_claims.portal.new.noOrder')
                       : selectedOrderNumber || orderReference.trim() || t('warranty_claims.portal.value.notAvailable')}
@@ -1345,7 +1345,7 @@ export default function WarrantyClaimPortalNewPage({ params }: Props) {
                 </div>
                 <div className="flex items-center justify-between gap-4">
                   <dt className="text-muted-foreground">{t('warranty_claims.form.reasonCode')}</dt>
-                  <dd className="text-right font-medium">{selectedReasonLabel}</dd>
+                  <dd className="text-end font-medium">{selectedReasonLabel}</dd>
                 </div>
                 <div className="flex items-center justify-between gap-4">
                   <dt className="text-muted-foreground">{t('warranty_claims.portal.new.reviewLines')}</dt>

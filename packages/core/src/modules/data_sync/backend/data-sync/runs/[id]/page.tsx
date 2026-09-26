@@ -334,13 +334,13 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
             <>
               {(run.status === 'running' || run.status === 'pending') ? (
                 <Button type="button" variant="destructive" size="sm" onClick={() => void handleCancel()}>
-                  <XCircle className="mr-2 h-4 w-4" />
+                  <XCircle className="me-2 h-4 w-4" />
                   {t('data_sync.runs.detail.cancel')}
                 </Button>
               ) : null}
               {run.status === 'failed' ? (
                 <Button type="button" variant="outline" size="sm" onClick={() => void handleRetry()}>
-                  <RotateCcw className="mr-2 h-4 w-4" />
+                  <RotateCcw className="me-2 h-4 w-4" />
                   {t('data_sync.runs.detail.retry')}
                 </Button>
               ) : null}
@@ -374,8 +374,8 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
               <Progress value={progressPercent} className="h-3" />
             ) : (
               <div className="relative h-3 w-full overflow-hidden rounded-full bg-secondary">
-                <div className="absolute inset-y-0 left-0 w-1/2 animate-pulse rounded-full bg-primary/80" />
-                <div className="absolute inset-y-0 right-0 w-1/3 rounded-full bg-primary/10" />
+                <div className="absolute inset-y-0 start-0 w-1/2 animate-pulse rounded-full bg-primary/80" />
+                <div className="absolute inset-y-0 end-0 w-1/3 rounded-full bg-primary/10" />
               </div>
             )}
             <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">

@@ -244,7 +244,7 @@ export function DealLinkedEntitiesTab({
               onClick={() => setDialogOpen(true)}
               disabled={disabled || savePending}
             >
-              <Link2 className="mr-2 size-4" />
+              <Link2 className="me-2 size-4" />
               {t('customers.deals.detail.linkedEntities.manage', 'Manage links')}
             </Button>
           </div>

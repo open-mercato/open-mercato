@@ -525,7 +525,7 @@ export function CustomerAddressTiles({
             <Button type="button" onClick={handleSave} disabled={disableActions}>
               {saving ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="me-2 h-4 w-4 animate-spin" />
                   {editingId
                     ? t('customers.people.detail.addresses.updating')
                     : t('customers.people.detail.addresses.saving')}
@@ -567,7 +567,7 @@ export function CustomerAddressTiles({
             onClick={openCreateForm}
             disabled={addDisabled}
           >
-            <Plus className="mr-2 h-4 w-4" />
+            <Plus className="me-2 h-4 w-4" />
             {t('customers.people.detail.addresses.add')}
           </Button>
         </div>

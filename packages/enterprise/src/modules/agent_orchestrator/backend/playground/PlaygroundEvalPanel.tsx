@@ -137,7 +137,7 @@ export function PlaygroundEvalPanel({ runId, agentId }: { runId: string; agentId
                   {goldenIcon(detail?.run.goldenPassed ?? null)}
                   <div className="text-sm text-foreground">
                     <span className="font-semibold">{t(goldenTitleKey(detail?.run.goldenPassed ?? null), goldenTitleFallback(detail?.run.goldenPassed ?? null))}</span>
-                    <span className="ml-1 font-mono text-xs text-muted-foreground">{matched.id.slice(0, 8)}</span>
+                    <span className="ms-1 font-mono text-xs text-muted-foreground">{matched.id.slice(0, 8)}</span>
                   </div>
                 </div>
                 {goldenExtra.length > 0 ? <AssertionTable rows={goldenExtra} t={t} /> : null}
@@ -160,7 +160,7 @@ export function PlaygroundEvalPanel({ runId, agentId }: { runId: string; agentId
                   <span className="inline-flex items-center gap-1.5 text-sm text-status-success-text"><ClipboardCheck className="size-4" />{t('agent_orchestrator.playground.eval.savedGoldenShort', 'Saved as draft golden')}</span>
                 ) : (
                   <Button type="button" variant="outline" size="sm" disabled={savingGolden} onClick={saveGolden}>
-                    <Plus className="mr-1.5 size-3.5" />
+                    <Plus className="me-1.5 size-3.5" />
                     {t('agent_orchestrator.playground.eval.saveGolden', 'Save as golden case')}
                   </Button>
                 )}

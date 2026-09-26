@@ -1568,7 +1568,7 @@ export function AvailabilityRulesEditor({
                 </Select>
               )}
               <Button type="button" variant="outline" size="sm" onClick={() => setCreateRuleSetOpen(true)} disabled={isReadOnly}>
-                <Plus className="size-4 mr-2" aria-hidden />
+                <Plus className="size-4 me-2" aria-hidden />
                 {listLabels.ruleSetCreateLabel}
               </Button>
               {effectiveRulesetId && usingRuleSet ? (
@@ -1589,7 +1589,7 @@ export function AvailabilityRulesEditor({
                   onClick={() => { void handleDeleteRuleSet() }}
                   disabled={isReadOnly}
                 >
-                  <Trash2 className="size-4 mr-2" aria-hidden />
+                  <Trash2 className="size-4 me-2" aria-hidden />
                   {listLabels.ruleSetDelete}
                 </Button>
               ) : null}
@@ -1704,7 +1704,7 @@ export function AvailabilityRulesEditor({
                             })
                           )}
                           <Button type="button" variant="outline" size="sm" onClick={() => handleWeeklyWindowAdd(index)} disabled={usingRuleSet || isReadOnly}>
-                            <Plus className="size-4 mr-2" aria-hidden />
+                            <Plus className="size-4 me-2" aria-hidden />
                             {listLabels.addWindow}
                           </Button>
                         </div>
@@ -1720,7 +1720,7 @@ export function AvailabilityRulesEditor({
                     <p className="text-sm text-muted-foreground">{listLabels.dateSpecificSubtitle}</p>
                   </div>
                   <Button type="button" variant="outline" size="sm" onClick={() => openEditor('date')} disabled={usingRuleSet || isReadOnly}>
-                    <Clock className="size-4 mr-2" aria-hidden />
+                    <Clock className="size-4 me-2" aria-hidden />
                     {listLabels.addHours}
                   </Button>
                 </div>
@@ -1761,7 +1761,7 @@ export function AvailabilityRulesEditor({
                                 onClick={() => openEditor('date', { date: new Date(`${date}T00:00:00`), rules })}
                                 disabled={usingRuleSet || isReadOnly || lockUnavailabilityActions}
                               >
-                                <PencilLine className="size-4 mr-2" aria-hidden />
+                                <PencilLine className="size-4 me-2" aria-hidden />
                                 {listLabels.editTitle}
                               </Button>
                               <Button
@@ -1899,7 +1899,7 @@ export function AvailabilityRulesEditor({
                             </div>
                           ))}
                           <Button type="button" variant="outline" size="sm" onClick={handleEditorDateAdd}>
-                            <Plus className="size-4 mr-2" aria-hidden />
+                            <Plus className="size-4 me-2" aria-hidden />
                             {listLabels.addDateLabel}
                           </Button>
                           <label
@@ -2019,7 +2019,7 @@ export function AvailabilityRulesEditor({
                             )
                           })}
                           <Button type="button" variant="outline" size="sm" onClick={handleEditorWindowAdd}>
-                            <Plus className="size-4 mr-2" aria-hidden />
+                            <Plus className="size-4 me-2" aria-hidden />
                             {listLabels.addWindow}
                           </Button>
                         </div>

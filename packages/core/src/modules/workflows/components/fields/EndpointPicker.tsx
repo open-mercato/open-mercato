@@ -217,7 +217,7 @@ export function EndpointPicker({ id, endpoint, method, onApply, ledgerEntries, d
         <Popover open={open} onOpenChange={handleOpenChange}>
           <PopoverTrigger asChild>
             <Button type="button" variant="outline" size="sm" disabled={disabled}>
-              <Globe className="size-3.5 mr-1" />
+              <Globe className="size-3.5 me-1" />
               {t('workflows.endpointPicker.browse')}
             </Button>
           </PopoverTrigger>
@@ -260,7 +260,7 @@ export function EndpointPicker({ id, endpoint, method, onApply, ledgerEntries, d
                           {item.method}
                         </Badge>
                         <span className="min-w-0 truncate font-mono text-xs">{item.path}</span>
-                        <span className="ml-auto min-w-0 truncate text-xs text-muted-foreground">
+                        <span className="ms-auto min-w-0 truncate text-xs text-muted-foreground">
                           {item.summary}
                         </span>
                       </Button>

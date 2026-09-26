@@ -210,7 +210,7 @@ function GlobalOverrideForm({
             type="button"
             variant="ghost"
             size="sm"
-            className="ml-auto h-6 gap-1 text-xs"
+            className="ms-auto h-6 gap-1 text-xs"
             disabled={isBusy}
             onClick={handleClear}
             data-ai-settings-clear-override=""
@@ -345,17 +345,17 @@ function PerAgentOverrideList({
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
-            <tr className="border-b border-border text-left text-muted-foreground">
-              <th className="pb-2 pr-4 font-medium">
+            <tr className="border-b border-border text-start text-muted-foreground">
+              <th className="pb-2 pe-4 font-medium">
                 {t('ai_assistant.settings.agentIdColumn', 'Agent')}
               </th>
-              <th className="pb-2 pr-4 font-medium">
+              <th className="pb-2 pe-4 font-medium">
                 {t('ai_assistant.settings.providerColumn', 'Provider')}
               </th>
-              <th className="pb-2 pr-4 font-medium">
+              <th className="pb-2 pe-4 font-medium">
                 {t('ai_assistant.settings.modelColumn', 'Model')}
               </th>
-              <th className="pb-2 pr-4 font-medium">
+              <th className="pb-2 pe-4 font-medium">
                 {t('ai_assistant.settings.sourceColumn', 'Source')}
               </th>
               <th className="pb-2 font-medium" />
@@ -370,10 +370,10 @@ function PerAgentOverrideList({
                   className="border-b border-border/50 last:border-0"
                   data-ai-settings-agent-row={agent.agentId}
                 >
-                  <td className="py-2 pr-4 font-mono">{agent.agentId}</td>
-                  <td className="py-2 pr-4">{agent.providerId}</td>
-                  <td className="py-2 pr-4">{agent.modelId}</td>
-                  <td className="py-2 pr-4 text-muted-foreground">{agent.source}</td>
+                  <td className="py-2 pe-4 font-mono">{agent.agentId}</td>
+                  <td className="py-2 pe-4">{agent.providerId}</td>
+                  <td className="py-2 pe-4">{agent.modelId}</td>
+                  <td className="py-2 pe-4 text-muted-foreground">{agent.source}</td>
                   <td className="py-2">
                     {hasOverride ? (
                       <Button
@@ -725,7 +725,7 @@ function AiAssistantSettingsContent({
               </span>
             )}
           </div>
-          <p className="ml-6 mt-1 text-xs text-muted-foreground">
+          <p className="ms-6 mt-1 text-xs text-muted-foreground">
             {t(
               'ai_assistant.settings.mcpAuthNote',
               'Required for AI to access platform tools via MCP server.',
@@ -840,7 +840,7 @@ function AiAssistantSettingsContent({
         <button
           type="button"
           onClick={() => setToolsExpanded((prev) => !prev)}
-          className="flex w-full items-center justify-between text-left"
+          className="flex w-full items-center justify-between text-start"
         >
           <h2 className="flex items-center gap-2 text-sm font-semibold">
             <Wrench className="size-4" />
@@ -863,7 +863,7 @@ function AiAssistantSettingsContent({
                 </h3>
                 <div className="space-y-1">
                   {moduleTools.map((tool) => (
-                    <div key={tool.name} className="border-l-2 border-muted py-1 pl-2">
+                    <div key={tool.name} className="border-s-2 border-muted py-1 ps-2">
                       <p className="text-sm font-medium">{tool.name}</p>
                       <p className="text-xs text-muted-foreground">{tool.description}</p>
                     </div>

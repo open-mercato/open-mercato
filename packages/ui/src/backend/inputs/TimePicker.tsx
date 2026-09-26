@@ -75,7 +75,7 @@ export function TimePicker({
       disabled={disabled}
       aria-haspopup="dialog"
       className={cn(
-        'w-full h-10 flex items-center gap-2 rounded-md border bg-background px-3 text-sm text-left transition-colors',
+        'w-full h-10 flex items-center gap-2 rounded-md border bg-background px-3 text-sm text-start transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
         'disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed',
         readOnly && 'cursor-default opacity-70',

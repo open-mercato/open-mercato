@@ -25,7 +25,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
   return (
     <Button type="button" variant="ghost" size="sm" onClick={handleCopy} aria-label={label}>
       {copied ? <Check className="h-4 w-4" aria-hidden /> : <Copy className="h-4 w-4" aria-hidden />}
-      <span className="ml-1.5 text-xs">
+      <span className="ms-1.5 text-xs">
         {copied
           ? t('customer_accounts.domainMapping.copyTarget.copied', 'Copied')
           : t('customer_accounts.domainMapping.copyTarget', 'Copy')}

@@ -111,7 +111,7 @@ export function TroubleshootingWalker({
             key={`${index}-${option.label}`}
             type="button"
             variant="outline"
-            className="justify-start text-left"
+            className="justify-start text-start"
             onClick={() => chooseOption(index)}
           >
             {option.label}

@@ -26,7 +26,7 @@ export default function MfaProviderListRow({
       className="h-auto w-full justify-between rounded-md border border-slate-800 bg-slate-950 px-4 py-3 hover:bg-slate-900"
       onClick={onClick}
     >
-      <span className="min-w-0 text-left">
+      <span className="min-w-0 text-start">
         <span className="flex items-center gap-2">
           <span className="text-slate-100" aria-hidden>{icon}</span>
           <span className="truncate text-sm font-semibold text-slate-100">{title}</span>

@@ -264,7 +264,7 @@ function HistoryDropdown({ open, onOpenChange, closed, onPick }: HistoryDropdown
       </IconButton>
       {open ? (
         <div
-          className="absolute right-0 top-full mt-2 w-72 max-h-[60vh] overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+          className="absolute end-0 top-full mt-2 w-72 max-h-[60vh] overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
           // Inline z-index so the dropdown sits above any host surface
           // (chat dialog at z-[70], dock panel, modal overlays). Inline
           // beats Tailwind JIT for arbitrary high values.
@@ -287,7 +287,7 @@ function HistoryDropdown({ open, onOpenChange, closed, onPick }: HistoryDropdown
                   type="button"
                   role="menuitem"
                   onClick={() => onPick(session.id)}
-                  className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
+                  className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-2 text-start text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
                   data-ai-chat-history-item={session.id}
                 >
                   <span className="min-w-0 flex-1 truncate">

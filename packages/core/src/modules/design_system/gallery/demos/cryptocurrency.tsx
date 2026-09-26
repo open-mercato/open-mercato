@@ -309,7 +309,7 @@ function CryptoTokenList({
                 <span className="font-mono text-xs text-muted-foreground">{`{${token.symbol.toUpperCase()}}`}</span>
               </span>
               {showPrices && (
-                <span className="ml-auto flex shrink-0 items-center gap-2">
+                <span className="ms-auto flex shrink-0 items-center gap-2">
                   <span className="font-mono text-sm">${formatAmount(token.price)}</span>
                   <span
                     className={cn(
@@ -577,13 +577,13 @@ function CryptoNavigationSearch({ state = 'default' }: { state?: CryptoPreviewSt
         size="sm"
         onClick={() => setOpen(true)}
         className={cn(
-          'h-8 w-91 max-w-full justify-start gap-2 rounded-full bg-muted py-1.5 pl-2 pr-1.5 text-compact text-muted-foreground',
+          'h-8 w-91 max-w-full justify-start gap-2 rounded-full bg-muted py-1.5 ps-2 pe-1.5 text-compact text-muted-foreground',
           previewSurface(state),
         )}
       >
         <Search className="size-4" />
         {cryptoLabel('searchPairs')}
-        <span className="ml-auto flex size-5 items-center justify-center rounded-full bg-background text-xs">/</span>
+        <span className="ms-auto flex size-5 items-center justify-center rounded-full bg-background text-xs">/</span>
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="w-120 max-w-full border-0 bg-transparent p-0 shadow-none [&>button]:hidden">
@@ -795,7 +795,7 @@ function CryptoSwap({ step = 1 }: { step?: 1 | 2 | 3 }) {
           type="button"
           variant="ghost"
           size="2xs"
-          className="absolute top-28 left-1/2 z-10 size-9 -translate-x-1/2 rounded-full border-4 border-background bg-muted p-1.5"
+          className="absolute top-28 start-1/2 z-10 size-9 -translate-x-1/2 rounded-full border-4 border-background bg-muted p-1.5 rtl:translate-x-1/2"
           aria-label={cryptoLabel('reverseTokens')}
           onClick={() => {
             setSellingToken(receivingToken)
@@ -916,7 +916,7 @@ function CryptoFilterOptions({
               type="button"
               variant="ghost"
               size="2xs"
-              className="ml-auto h-6 px-1 text-xs text-muted-foreground"
+              className="ms-auto h-6 px-1 text-xs text-muted-foreground"
               onClick={(event) => {
                 event.preventDefault()
                 onChange([])
@@ -998,8 +998,8 @@ function CryptoFilter({
           aria-label={cryptoLabel('filterBy', { filter: cryptoLabel(kind) })}
           className="h-6 gap-0 overflow-hidden rounded-full border border-border p-0 text-xs"
         >
-          <span className="flex h-full items-center border-r border-border px-3 text-muted-foreground">{cryptoLabel(kind)}</span>
-          <span className={cn('flex h-full items-center gap-1 pr-2 pl-2.5', previewSurface(state))}>
+          <span className="flex h-full items-center border-e border-border px-3 text-muted-foreground">{cryptoLabel(kind)}</span>
+          <span className={cn('flex h-full items-center gap-1 pe-2 ps-2.5', previewSurface(state))}>
             {kind === 'token' && value.length === 1 && (
               <TokenIcon symbol={tokenBySymbol(value[0]).symbol} className="size-3.5" />
             )}
@@ -1121,7 +1121,7 @@ function CryptoSocialButton({
         <span>
           {connected ? (
             <>
-              <Check className="mr-1 inline size-4" />
+              <Check className="me-1 inline size-4" />
               {cryptoLabel('connectedProvider', { provider: name })}
             </>
           ) : (
@@ -1253,7 +1253,7 @@ function CryptoMenu({ profile = false }: { profile?: boolean }) {
         <label className="flex h-9 cursor-pointer items-center gap-2 px-2.5 text-sm">
           <Moon className="size-5 text-muted-foreground" />
           {cryptoLabel('darkMode')}
-          <Switch checked={dark} onCheckedChange={setDark} className="ml-auto" />
+          <Switch checked={dark} onCheckedChange={setDark} className="ms-auto" />
         </label>
         {divider}
         {items.map(({ key, Icon }, index) => (
@@ -1268,7 +1268,7 @@ function CryptoMenu({ profile = false }: { profile?: boolean }) {
             >
               <Icon className="size-5 text-muted-foreground" />
               {cryptoLabel(key)}
-              {key === 'preferences' && <ChevronRight className="ml-auto size-5" />}
+              {key === 'preferences' && <ChevronRight className="ms-auto size-5" />}
             </Button>
           </React.Fragment>
         ))}
@@ -1326,7 +1326,7 @@ function CryptoWallet() {
           variant="ghost"
           size="2xs"
           onClick={copy}
-          className="ml-auto h-6 rounded-full bg-muted text-xs"
+          className="ms-auto h-6 rounded-full bg-muted text-xs"
         >
           <Copy className="size-3" />
           {cryptoLabel(copied ? 'copied' : 'copy')}
@@ -1379,7 +1379,7 @@ function CryptoWallet() {
             <span className="text-compact">
               {token.name} <span className="font-mono text-xs text-muted-foreground">{token.symbol.toUpperCase()}</span>
             </span>
-            <span className="ml-auto font-mono text-xs">{formatAmount(token.balance, 6)}</span>
+            <span className="ms-auto font-mono text-xs">{formatAmount(token.balance, 6)}</span>
           </div>
         ))}
       </div>
@@ -1392,7 +1392,7 @@ function CryptoWallet() {
           type="button"
           variant="ghost"
           size="2xs"
-          className="ml-auto rounded-full bg-status-success-bg px-4 text-status-success-text"
+          className="ms-auto rounded-full bg-status-success-bg px-4 text-status-success-text"
           onClick={() => setVerified(!verified)}
         >
           {cryptoLabel(verified ? 'verified' : 'verify')}
@@ -1498,7 +1498,7 @@ function CryptoNotifications() {
           key={id}
           variant="ghost"
           className={cn(
-            'w-full items-start gap-3 rounded-none border-b border-border px-4 py-4 text-left font-normal',
+            'w-full items-start gap-3 rounded-none border-b border-border px-4 py-4 text-start font-normal',
             !read.includes(id) && ['swap', 'login'].includes(id) && 'bg-muted',
             ['security', 'reward'].includes(id) ? 'h-18' : 'h-19',
           )}
@@ -1546,7 +1546,7 @@ function CryptoWalletTrigger({ state = 'default' }: { state?: CryptoPreviewState
           type="button"
           variant="ghost"
           size="2xs"
-          className={cn(pill, 'h-7 gap-1.5 pl-2.5 pr-1.75 text-sm', previewSurface(state))}
+          className={cn(pill, 'h-7 gap-1.5 ps-2.5 pe-1.75 text-sm', previewSurface(state))}
           aria-label={cryptoLabel('wallet')}
         >
           <CryptoGlyph name="crown" className="size-4 text-status-success-icon" />
@@ -1594,7 +1594,7 @@ function CryptoAction({
           ) : kind === 'notification' ? (
             <>
               <Bell className="size-4.5" />
-              <span className="absolute top-1 right-1 size-1 rounded-full bg-status-warning-icon" />
+              <span className="absolute top-1 end-1 size-1 rounded-full bg-status-warning-icon" />
             </>
           ) : (
             <CryptoGlyph name={kind === 'favorite' ? 'star' : 'menu'} />
@@ -1647,7 +1647,7 @@ function CryptoNavigation({ profile = false, mobile = false }: { profile?: boole
           <CryptoNavigationSearch />
         </div>
       )}
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ms-auto flex items-center gap-2">
         {!mobile && (
           <div className="hidden sm:block">
             <CryptoWalletTrigger />
@@ -1721,7 +1721,7 @@ function CryptoBanner() {
         type="button"
         variant="ghost"
         size="2xs"
-        className="ml-auto size-6 p-1 text-muted-foreground"
+        className="ms-auto size-6 p-1 text-muted-foreground"
         aria-label={cryptoLabel('dismissBanner')}
         onClick={() => setVisible(false)}
       >

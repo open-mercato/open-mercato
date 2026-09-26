@@ -564,35 +564,35 @@ export default function WebhookDetailPage({ params }: { params?: { id?: string }
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <span className="text-muted-foreground">{t('webhooks.form.url')}:</span>
-              <code className="ml-2 text-xs break-all">{webhook.url}</code>
+              <code className="ms-2 text-xs break-all">{webhook.url}</code>
             </div>
             <div>
               <span className="text-muted-foreground">{t('webhooks.form.httpMethod')}:</span>
-              <span className="ml-2">{webhook.httpMethod}</span>
+              <span className="ms-2">{webhook.httpMethod}</span>
             </div>
             <div>
               <span className="text-muted-foreground">{t('webhooks.form.subscribedEvents')}:</span>
-              <span className="ml-2 text-xs">{webhook.subscribedEvents.join(', ')}</span>
+              <span className="ms-2 text-xs">{webhook.subscribedEvents.join(', ')}</span>
             </div>
             <div>
               <span className="text-muted-foreground">{t('webhooks.form.maxRetries')}:</span>
-              <span className="ml-2">{webhook.maxRetries}</span>
+              <span className="ms-2">{webhook.maxRetries}</span>
             </div>
             <div>
               <span className="text-muted-foreground">{t('webhooks.form.rateLimitPerMinute')}:</span>
-              <span className="ml-2">{webhook.rateLimitPerMinute}</span>
+              <span className="ms-2">{webhook.rateLimitPerMinute}</span>
             </div>
             <div>
               <span className="text-muted-foreground">{t('webhooks.form.autoDisableThreshold')}:</span>
-              <span className="ml-2">{webhook.autoDisableThreshold}</span>
+              <span className="ms-2">{webhook.autoDisableThreshold}</span>
             </div>
             <div>
               <span className="text-muted-foreground">{t('webhooks.detail.consecutiveFailures')}:</span>
-              <span className="ml-2">{webhook.consecutiveFailures}</span>
+              <span className="ms-2">{webhook.consecutiveFailures}</span>
             </div>
             <div>
               <span className="text-muted-foreground">{t('webhooks.form.secret')}:</span>
-              <span className="ml-2 inline-flex items-center gap-2">
+              <span className="ms-2 inline-flex items-center gap-2">
                 <span className="font-mono text-xs">{webhook.maskedSecret}</span>
                 {access.canSecrets ? (
                   <Button
@@ -602,7 +602,7 @@ export default function WebhookDetailPage({ params }: { params?: { id?: string }
                     className="h-7 px-2 text-xs"
                     onClick={() => { void handleRotateSecret() }}
                   >
-                    <RotateCw className="mr-1.5 size-3.5" />
+                    <RotateCw className="me-1.5 size-3.5" />
                     {t('webhooks.detail.actions.rotateSecret')}
                   </Button>
                 ) : null}
@@ -610,11 +610,11 @@ export default function WebhookDetailPage({ params }: { params?: { id?: string }
             </div>
             <div>
               <span className="text-muted-foreground">{t('webhooks.list.columns.lastDelivery')}:</span>
-              <span className="ml-2">{webhook.lastSuccessAt ?? webhook.lastFailureAt ?? '—'}</span>
+              <span className="ms-2">{webhook.lastSuccessAt ?? webhook.lastFailureAt ?? '—'}</span>
             </div>
             <div>
               <span className="text-muted-foreground">{t('webhooks.detail.previousSecretSetAt')}:</span>
-              <span className="ml-2">{webhook.previousSecretSetAt ?? '—'}</span>
+              <span className="ms-2">{webhook.previousSecretSetAt ?? '—'}</span>
             </div>
             <div className="col-span-2">
               <span className="text-muted-foreground">{t('webhooks.form.customHeaders')}:</span>

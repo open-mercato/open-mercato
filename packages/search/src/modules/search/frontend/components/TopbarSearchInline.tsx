@@ -482,7 +482,7 @@ export function TopbarSearchInline({
                     role="option"
                     aria-selected={isActive}
                     className={cn(
-                      'flex w-full items-start gap-3 rounded-sm px-2 py-2 text-left transition-colors',
+                      'flex w-full items-start gap-3 rounded-sm px-2 py-2 text-start transition-colors',
                       isActive ? 'bg-muted' : 'hover:bg-muted/60',
                       !hasLink && 'opacity-60',
                     )}

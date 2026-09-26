@@ -94,7 +94,7 @@ export function CalendarSettingsModal({
         <VisuallyHidden>
           <DialogTitle>{title}</DialogTitle>
         </VisuallyHidden>
-        <div className="flex shrink-0 items-start gap-3.5 border-b border-border py-4 pl-5 pr-4">
+        <div className="flex shrink-0 items-start gap-3.5 border-b border-border py-4 ps-5 pe-4">
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <p className="text-sm font-medium leading-5 text-foreground">{title}</p>
             <p className="text-xs leading-4 text-muted-foreground">
@@ -150,7 +150,7 @@ export function CalendarSettingsModal({
                 <span className="text-sm leading-5 text-foreground">{row.label}</span>
               </div>
               {row.key === 'conflictWarnings' && draft.conflictWarnings ? (
-                <div className="flex flex-col gap-1.5 pl-11">
+                <div className="flex flex-col gap-1.5 ps-11">
                   <span className="text-xs leading-4 text-muted-foreground">
                     {t(
                       'customers.calendar.settings.conflictScopeHint',

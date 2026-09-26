@@ -425,15 +425,15 @@ export function TranslationManager({
         <table className="w-full min-w-[480px] text-sm">
           <thead>
             <tr className="text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-3 py-2 text-left w-[140px]">
+              <th className="px-3 py-2 text-start w-[140px]">
                 {t('translations.manager.fields.field', 'Field')}
               </th>
               {!compact && (
-                <th className="px-3 py-2 text-left">
+                <th className="px-3 py-2 text-start">
                   {t('translations.manager.fields.baseValue', 'Base value')}
                 </th>
               )}
-              <th className="px-3 py-2 text-left">
+              <th className="px-3 py-2 text-start">
                 {t('translations.manager.fields.translation', 'Translation')} ({activeLocale.toUpperCase()})
               </th>
             </tr>
@@ -507,7 +507,7 @@ export function TranslationManager({
             disabled={mutation.isPending || !entityType || !recordId}
             data-testid="translations-save"
           >
-            <Save className="mr-2 h-3 w-3" />
+            <Save className="me-2 h-3 w-3" />
             {mutation.isPending
               ? t('translations.manager.actions.saving', 'Saving...')
               : t('translations.manager.actions.save', 'Save translations')}
@@ -574,7 +574,7 @@ export function TranslationManager({
             disabled={mutation.isPending || loadingEntities || !!entitiesError || !entityType || !recordId}
             data-testid="translations-save"
           >
-            <Save className="mr-2 h-4 w-4" />
+            <Save className="me-2 h-4 w-4" />
             {mutation.isPending
               ? t('translations.manager.actions.saving', 'Saving...')
               : t('translations.manager.actions.save', 'Save translations')}
@@ -757,7 +757,7 @@ export function LocaleManager() {
           onClick={addLocale}
           disabled={mutation.isPending || !newLocale.trim() || !isValidIso639(newLocale) || locales.includes(newLocale.toLowerCase().trim())}
         >
-          <Plus className="mr-1 h-3 w-3" />
+          <Plus className="me-1 h-3 w-3" />
           {t('translations.locales.add', 'Add')}
         </Button>
       </div>

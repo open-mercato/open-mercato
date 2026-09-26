@@ -761,7 +761,7 @@ export default function TimesheetProjectsPage() {
   const someSelected = selectedIds.length > 0 && !allSelected
 
   const columns = React.useMemo<ColumnDef<ProjectRow>[]>(() => {
-    const rightHeader = (label: string) => () => <span className="block text-right">{label}</span>
+    const rightHeader = (label: string) => () => <span className="block text-end">{label}</span>
     const defs: ColumnDef<ProjectRow>[] = []
 
     if (canSelectRows) {
@@ -887,7 +887,7 @@ export default function TimesheetProjectsPage() {
         enableSorting: false,
         meta: { priority: 5 },
         cell: ({ row }) => (
-          <span className="block text-right font-mono text-sm tabular-nums text-foreground">
+          <span className="block text-end font-mono text-sm tabular-nums text-foreground">
             {formatCurrency(row.original.hourlyRate, row.original.currencyCode) ?? '—'}
           </span>
         ),
@@ -901,7 +901,7 @@ export default function TimesheetProjectsPage() {
       enableSorting: false,
       meta: { priority: 5 },
       cell: ({ row }) => (
-        <span className="block text-right font-mono text-sm font-semibold tabular-nums text-foreground">
+        <span className="block text-end font-mono text-sm font-semibold tabular-nums text-foreground">
           {row.original.totalMinutes > 0 ? formatDuration(row.original.totalMinutes, 'clock') : '—'}
         </span>
       ),
@@ -915,7 +915,7 @@ export default function TimesheetProjectsPage() {
         enableSorting: false,
         meta: { priority: 5 },
         cell: ({ row }) => (
-          <span className="block text-right font-mono text-sm tabular-nums text-foreground">
+          <span className="block text-end font-mono text-sm tabular-nums text-foreground">
             {formatCurrency(row.original.cost, row.original.currencyCode) ?? '—'}
           </span>
         ),

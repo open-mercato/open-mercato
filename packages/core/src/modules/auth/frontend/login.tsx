@@ -397,7 +397,7 @@ export default function LoginPage() {
                 <div className="rounded-md border border-status-error-border bg-status-error-bg px-3 py-2 text-center text-xs text-status-error-text">
                   <div className="font-medium">{translate('auth.login.errors.tenantInvalid', 'Tenant not found. Clear the tenant selection and try again.')}</div>
                   <Button type="button" variant="outline" size="sm" className="mt-2 border-status-error-border text-status-error-text hover:text-status-error-text" onClick={handleClearTenant}>
-                    <X className="mr-2 size-4" aria-hidden="true" />
+                    <X className="me-2 size-4" aria-hidden="true" />
                     {translate('auth.login.tenantClear', 'Clear')}
                   </Button>
                 </div>
@@ -411,7 +411,7 @@ export default function LoginPage() {
                         })}
                   </div>
                   <Button type="button" variant="outline" size="sm" className="mt-2 border-status-success-border text-status-success-text hover:text-status-success-text" onClick={handleClearTenant}>
-                    <X className="mr-2 size-4" aria-hidden="true" />
+                    <X className="me-2 size-4" aria-hidden="true" />
                     {translate('auth.login.tenantClear', 'Clear')}
                   </Button>
                 </div>

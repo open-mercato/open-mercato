@@ -116,7 +116,7 @@ export function MentionPicker({ documentId, onPick, disabled = false }: MentionP
               type="button"
               disabled={model.isDisabled}
               variant={index === model.activeIndex ? 'secondary' : 'ghost'}
-              className="h-auto w-full justify-start px-3 py-2 text-left"
+              className="h-auto w-full justify-start px-3 py-2 text-start"
               onMouseEnter={() => model.activate(index, model.resultQuery)}
               onClick={() => model.pick(user, model.resultQuery)}
             >

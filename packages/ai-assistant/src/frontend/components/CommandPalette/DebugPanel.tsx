@@ -97,8 +97,8 @@ function parseNestedJson(data: unknown): unknown {
 // Custom dark styles for better readability (no external CSS needed)
 const customDarkStyles: Record<string, string> = {
   container: 'bg-transparent text-overline leading-relaxed font-mono',
-  basicChildStyle: 'pl-4 ml-0',
-  label: 'text-purple-400 mr-1',
+  basicChildStyle: 'ps-4 ms-0',
+  label: 'text-purple-400 me-1',
   nullValue: 'text-gray-500 italic',
   undefinedValue: 'text-gray-500 italic',
   stringValue: 'text-green-400',
@@ -106,8 +106,8 @@ const customDarkStyles: Record<string, string> = {
   numberValue: 'text-blue-400',
   otherValue: 'text-gray-300',
   punctuation: 'text-gray-500',
-  collapseIcon: 'text-gray-400 cursor-pointer select-none mr-1',
-  expandIcon: 'text-gray-400 cursor-pointer select-none mr-1',
+  collapseIcon: 'text-gray-400 cursor-pointer select-none me-1',
+  expandIcon: 'text-gray-400 cursor-pointer select-none me-1',
   collapsedContent: 'text-gray-500',
 }
 
@@ -143,7 +143,7 @@ function DebugEventRow({ event }: { event: DebugEvent }) {
     <div className="text-xs font-mono">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full text-left flex items-center gap-2 hover:bg-gray-800 rounded px-1 py-0.5"
+        className="w-full text-start flex items-center gap-2 hover:bg-gray-800 rounded px-1 py-0.5"
       >
         <span className="text-gray-500 flex-shrink-0">
           {formatTime(event.timestamp)}

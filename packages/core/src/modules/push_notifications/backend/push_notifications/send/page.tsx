@@ -160,7 +160,7 @@ function DataField({ value, setValue }: CrudCustomFieldRenderProps) {
         </div>
       ))}
       <Button type="button" variant="outline" size="sm" onClick={() => update([...pairs, { key: '', value: '' }])}>
-        <Plus className="h-4 w-4 mr-1" />
+        <Plus className="h-4 w-4 me-1" />
         {t('push_notifications.send.dataAdd')}
       </Button>
     </div>

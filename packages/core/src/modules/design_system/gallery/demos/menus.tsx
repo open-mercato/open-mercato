@@ -28,7 +28,7 @@ export function SelectSourceExample({ kind, size = 36, state = 'filled' }: {
       <FormField label={label} disabled={disabled} description={t('design_system.gallery.samples.menu.hint')} error={state === 'error' ? t('design_system.gallery.samples.menu.required') : undefined}>
         <SelectTrigger size={size} className={providerPadding}>
           {kind !== 'basic' && <SelectTriggerLeading><MenuVisual kind={kind} alternative={selected?.alternative} providerSize="select" /></SelectTriggerLeading>}
-          <SelectValue className="min-w-0 flex-1 text-left" placeholder={t('design_system.gallery.samples.menu.placeholder')} />
+          <SelectValue className="min-w-0 flex-1 text-start" placeholder={t('design_system.gallery.samples.menu.placeholder')} />
         </SelectTrigger>
       </FormField>
       <SelectContent>

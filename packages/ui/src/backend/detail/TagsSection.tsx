@@ -392,7 +392,7 @@ function TagsSectionImpl({
                 <div className="flex items-center gap-2 mt-3 mb-2">
                   <Button type="button" size="sm" onClick={handleSave} disabled={saving || isSubmitting}>
                     {saving ? (
-                      <span className="mr-2 h-4 w-4 animate-spin rounded-full border border-background border-t-primary" />
+                      <span className="me-2 h-4 w-4 animate-spin rounded-full border border-background border-t-primary" />
                     ) : null}
                     {labels.saveShortcut}
                   </Button>
@@ -426,7 +426,7 @@ function TagsSectionImpl({
         >
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute right-3 top-3 text-muted-foreground opacity-0 transition-opacity duration-150 group-hover/tags:opacity-100 group-focus-within/tags:opacity-100"
+            className="pointer-events-none absolute end-3 top-3 text-muted-foreground opacity-0 transition-opacity duration-150 group-hover/tags:opacity-100 group-focus-within/tags:opacity-100"
           >
             <Pencil className="h-4 w-4" />
           </span>

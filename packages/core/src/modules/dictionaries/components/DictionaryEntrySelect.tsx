@@ -405,7 +405,7 @@ export function DictionaryEntrySelect({
                     {labels.cancelLabel}
                   </Button>
                   <Button type="button" onClick={handleCreate} disabled={saving || !newValue.trim()}>
-                    {saving ? <Spinner className="mr-2 h-4 w-4" /> : <Save className="mr-2 h-4 w-4" />}
+                    {saving ? <Spinner className="me-2 h-4 w-4" /> : <Save className="me-2 h-4 w-4" />}
                     <span className="flex items-center gap-2">
                       <span>{labels.saveLabel}</span>
                       {!saving ? (

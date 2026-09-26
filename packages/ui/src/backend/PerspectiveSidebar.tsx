@@ -414,14 +414,14 @@ export function PerspectiveSidebar({
   return (
     <div className="fixed inset-0 z-modal">
       <div className="absolute inset-0 bg-black/20" onClick={() => onOpenChange(false)} role="presentation" />
-      <div className="fixed right-0 top-0 h-full w-full sm:w-80 bg-background shadow-xl border-l flex flex-col">
+      <div className="fixed end-0 top-0 h-full w-full sm:w-80 bg-background shadow-xl border-s flex flex-col">
         <div className="flex items-center p-4 border-b">
           <Button
             type="button"
             variant="ghost"
             size="sm"
             onClick={() => onOpenChange(false)}
-            className="h-auto -ml-2 gap-2 px-2 text-lg font-semibold hover:bg-transparent"
+            className="h-auto -ms-2 gap-2 px-2 text-lg font-semibold hover:bg-transparent"
             aria-label={t('ui.perspectives.close', 'Close')}
           >
             <ArrowLeft className="size-5" />
@@ -442,7 +442,7 @@ export function PerspectiveSidebar({
                 className={`h-8 px-3 py-1.5 text-sm ${!isNew ? 'border-dashed' : ''}`}
                 onClick={startNewMode}
               >
-                <Plus className="size-3 mr-1" />
+                <Plus className="size-3 me-1" />
                 {t('ui.perspectives.savedViews.new', 'New')}
               </Button>
               {(perspectives ?? emptyArray).map((p) => {

@@ -142,7 +142,7 @@ export function WorkflowSelectorField({
             onClick={() => setIsModalOpen(true)}
             disabled={disabled}
           >
-            <Search className="size-3 mr-1" />
+            <Search className="size-3 me-1" />
             {t('workflows.fieldEditors.workflowSelector.browseWorkflows')}
           </Button>
         </div>
@@ -198,7 +198,7 @@ export function WorkflowSelectorField({
             </div>
 
             {/* Actions */}
-            <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+            <div className="flex items-center gap-2 ms-4 flex-shrink-0">
               <Button
                 type="button"
                 variant="outline"
@@ -206,7 +206,7 @@ export function WorkflowSelectorField({
                 onClick={() => setIsModalOpen(true)}
                 disabled={disabled}
               >
-                <Search className="size-3 mr-1" />
+                <Search className="size-3 me-1" />
                 {t('workflows.common.change')}
               </Button>
               <Button

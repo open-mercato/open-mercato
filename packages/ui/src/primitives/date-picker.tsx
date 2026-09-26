@@ -220,7 +220,7 @@ export function DatePicker({
           data-slot="date-picker-trigger"
           disabled={disabled}
           className={cn(
-            'w-full inline-flex items-center gap-2 rounded-md border border-input bg-background shadow-xs transition-colors text-left',
+            'w-full inline-flex items-center gap-2 rounded-md border border-input bg-background shadow-xs transition-colors text-start',
             'focus-visible:outline-none focus-visible:shadow-focus focus-visible:border-foreground',
             'hover:bg-muted/40',
             'disabled:bg-bg-disabled disabled:border-border-disabled disabled:shadow-none disabled:hover:bg-bg-disabled disabled:cursor-not-allowed',
@@ -279,7 +279,7 @@ export function DatePicker({
               </LinkButton>
             ) : null}
             {showClearButton ? (
-              <LinkButton type="button" variant="gray" onClick={handleClear} className="ml-auto">
+              <LinkButton type="button" variant="gray" onClick={handleClear} className="ms-auto">
                 {t('ui.datePicker.clearButton', 'Clear')}
               </LinkButton>
             ) : null}

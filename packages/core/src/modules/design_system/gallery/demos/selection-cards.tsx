@@ -85,7 +85,7 @@ export function IntegrationSwitchDemo({ alignment, appearance }: { alignment: 'h
           <p className={cn('text-muted-foreground', card ? 'text-xs leading-4' : 'text-sm leading-5')}>{t('design_system.gallery.samples.selection.integrationDescription')}</p>
         </div>
         <Button asChild variant="outline" size="default" className={horizontal ? undefined : 'w-full'}><DialogTrigger><Settings aria-hidden="true" />{t('design_system.gallery.samples.selection.integrationManage')}</DialogTrigger></Button>
-        <Switch aria-labelledby={id} checked={checked} onCheckedChange={setChecked} className={horizontal ? undefined : card ? 'absolute top-5 right-5' : 'absolute top-3 right-3'} />
+        <Switch aria-labelledby={id} checked={checked} onCheckedChange={setChecked} className={horizontal ? undefined : card ? 'absolute top-5 end-5' : 'absolute top-3 end-3'} />
       </div>
         <DialogContent onKeyDownCapture={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); setOpen(false) } }}>
           <DialogHeader><DialogTitle>{t('design_system.gallery.samples.selection.integrationDialog')}</DialogTitle><DialogDescription>{t('design_system.gallery.samples.selection.integrationDescription')}</DialogDescription></DialogHeader>

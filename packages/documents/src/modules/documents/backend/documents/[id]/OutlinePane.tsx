@@ -34,9 +34,9 @@ function collectHeadings(editor: Editor): OutlineHeading[] {
 }
 
 function getIndentClass(level: number): string {
-  if (level <= 1) return 'pl-2'
-  if (level === 2) return 'pl-5'
-  return 'pl-8'
+  if (level <= 1) return 'ps-2'
+  if (level === 2) return 'ps-5'
+  return 'ps-8'
 }
 
 export function OutlinePane({ editor }: OutlinePaneProps) {
@@ -84,7 +84,7 @@ export function OutlinePane({ editor }: OutlinePaneProps) {
                 type="button"
                 size="sm"
                 variant="ghost"
-                className={cn('h-auto w-full justify-start py-1 pr-2 text-left text-sm', getIndentClass(heading.level))}
+                className={cn('h-auto w-full justify-start py-1 pe-2 text-start text-sm', getIndentClass(heading.level))}
                 onClick={() => jumpToHeading(heading)}
               >
                 <span className="truncate">{heading.text}</span>

@@ -234,7 +234,7 @@ export function ColumnChooserSection({
                     {columns.map((col) => (
                       <div
                         key={col.key}
-                        className="flex items-center gap-2 rounded pl-7 pr-2 py-1.5 text-sm hover:bg-muted/50 cursor-pointer"
+                        className="flex items-center gap-2 rounded ps-7 pe-2 py-1.5 text-sm hover:bg-muted/50 cursor-pointer"
                         onClick={() => { if (!col.alwaysVisible) onToggleColumn(col.key) }}
                       >
                         <span className="truncate flex-1 min-w-0">{col.label}</span>
@@ -274,7 +274,7 @@ export function ColumnChooserPanel({
   }, [open])
   if (!open) return null
   return (
-    <div className="fixed inset-y-0 right-0 z-modal w-80 border-l bg-background shadow-lg flex flex-col">
+    <div className="fixed inset-y-0 end-0 z-modal w-80 border-s bg-background shadow-lg flex flex-col">
       <div className="flex items-center justify-between border-b px-4 py-3">
         <h3 className="font-semibold text-sm">
           {t('ui.columnChooser.title', 'Columns')}

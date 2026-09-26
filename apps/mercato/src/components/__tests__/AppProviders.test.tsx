@@ -14,6 +14,9 @@ jest.mock('next/navigation', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   I18nProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  // `AppProviders` mounts `DocumentDirection`, which reads the direction from
+  // this module — the mock has to expose it or the provider tree throws.
+  useDirection: () => 'ltr',
 }))
 
 jest.mock('@open-mercato/ui/theme/ThemeProvider', () => ({

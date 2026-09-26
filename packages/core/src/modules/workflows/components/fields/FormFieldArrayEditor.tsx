@@ -127,7 +127,7 @@ export function FormFieldArrayEditor({
           disabled={disabled}
           className="w-full sm:w-auto"
         >
-          <Plus className="size-3 mr-1" />
+          <Plus className="size-3 me-1" />
           {t('workflows.fieldEditors.formFields.addField')}
         </Button>
       </div>
@@ -156,7 +156,7 @@ export function FormFieldArrayEditor({
                   type="button"
                   onClick={() => toggleExpanded(index)}
                   disabled={disabled}
-                  className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-gray-100 transition-colors rounded-t-lg disabled:opacity-50"
+                  className="w-full px-4 py-3 text-start flex items-center justify-between hover:bg-gray-100 transition-colors rounded-t-lg disabled:opacity-50"
                 >
                   <div className="flex-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -334,7 +334,7 @@ export function FormFieldArrayEditor({
                         onClick={() => removeFormField(index)}
                         disabled={disabled}
                       >
-                        <Trash2 className="size-4 mr-1" />
+                        <Trash2 className="size-4 me-1" />
                         {t('workflows.fieldEditors.formFields.removeField')}
                       </Button>
                     </div>

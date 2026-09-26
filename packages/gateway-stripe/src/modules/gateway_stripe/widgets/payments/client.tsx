@@ -154,7 +154,7 @@ function StripeEmbeddedPaymentForm({
         disabled={disabled || isSubmitting || !stripe || !elements}
         onClick={() => { void handleSubmit() }}
       >
-        {isSubmitting ? <Spinner className="mr-2 size-4" /> : null}
+        {isSubmitting ? <Spinner className="me-2 size-4" /> : null}
         {isSubmitting
           ? t('gateway_stripe.payments.processing', 'Confirming payment...')
           : t('gateway_stripe.payments.submit', 'Pay securely')}

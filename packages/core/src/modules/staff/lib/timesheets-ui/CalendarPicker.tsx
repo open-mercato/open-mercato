@@ -126,7 +126,7 @@ export function CalendarPicker({ selectedWeekStart, onWeekSelect }: CalendarPick
       </IconButton>
 
       {open && (
-        <div className="absolute left-0 z-20 mt-1 w-[280px] rounded-lg border bg-popover p-3 shadow-lg">
+        <div className="absolute start-0 z-20 mt-1 w-[280px] rounded-lg border bg-popover p-3 shadow-lg">
           {/* Quick links */}
           <div className="mb-3 flex gap-2 border-b pb-2">
             <Button

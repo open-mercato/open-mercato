@@ -363,14 +363,14 @@ export function ActivityHistorySection({
       <div className="space-y-4 px-5 py-4">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="relative w-full max-w-md">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={searchInput}
               onChange={(event) => {
                 setSearchInput(event.target.value)
               }}
               placeholder={t('customers.activityLog.searchPlaceholder', 'Search by title, note, or author')}
-              className="h-9 pl-9"
+              className="h-9 ps-9"
             />
           </div>
 
@@ -390,7 +390,7 @@ export function ActivityHistorySection({
                   className="h-auto rounded-full px-2.5 py-1 text-xs"
                 >
                   {t(filter.labelKey, filter.fallback)}
-                  <span className={isActive ? 'ml-1 text-primary-foreground/80' : 'ml-1 text-muted-foreground'}>
+                  <span className={isActive ? 'ms-1 text-primary-foreground/80' : 'ms-1 text-muted-foreground'}>
                     {counts[filter.value] ?? 0}
                   </span>
                 </Button>

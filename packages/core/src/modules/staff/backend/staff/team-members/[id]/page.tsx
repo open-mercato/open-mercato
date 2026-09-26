@@ -38,7 +38,7 @@ import { TranslationDrawerAction } from '@open-mercato/core/modules/translations
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 
 const MARKDOWN_CLASSNAME =
-  'text-sm text-muted-foreground break-words [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs'
+  'text-sm text-muted-foreground break-words [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ms-4 [&_ul]:list-disc [&_ol]:ms-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs'
 
 type TeamMemberRecord = {
   id: string
@@ -392,7 +392,7 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
                 href="/backend/staff/team-members"
                 className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
               >
-                <span aria-hidden className="mr-1 text-base">←</span>
+                <span aria-hidden className="me-1 text-base">←</span>
                 <span className="sr-only">{t('staff.teamMembers.detail.back', 'Back to team members')}</span>
               </Link>
               <div className="space-y-1">
@@ -514,7 +514,7 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
                           disabled={sectionAction.disabled}
                           onClick={() => sectionAction.onClick()}
                         >
-                          {sectionAction.icon ?? (activeTab === 'addresses' ? <Plus className="mr-2 h-4 w-4" /> : null)}
+                          {sectionAction.icon ?? (activeTab === 'addresses' ? <Plus className="me-2 h-4 w-4" /> : null)}
                           {sectionAction.label}
                         </Button>
                       ) : null}

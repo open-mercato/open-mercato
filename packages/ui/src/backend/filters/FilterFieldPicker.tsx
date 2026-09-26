@@ -89,14 +89,14 @@ export function FilterFieldPicker({ fields, open, onOpenChange, onSelect, trigge
       <PopoverContent className="w-80 p-0" align="start" data-advanced-filter-portal="">
         <div className="flex flex-col">
           <div className="relative p-2 border-b border-border">
-            <Search className="absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Search className="absolute start-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <input
               ref={searchRef}
               type="text"
               value={query}
               onChange={(e) => { setQuery(e.target.value); setActiveIdx(0) }}
               placeholder={t('ui.advancedFilter.fieldPicker.search', 'Search field…')}
-              className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+              className="h-8 w-full rounded-md border border-input bg-background ps-8 pe-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
               aria-label={t('ui.advancedFilter.fieldPicker.search', 'Search field…')}
             />
           </div>
@@ -119,7 +119,7 @@ export function FilterFieldPicker({ fields, open, onOpenChange, onSelect, trigge
                       aria-selected={active}
                       onClick={() => { onSelect(f); onOpenChange(false) }}
                       onMouseEnter={() => setActiveIdx(flatIdx)}
-                      className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent ${active ? 'bg-secondary' : ''}`}
+                      className={`flex w-full items-center gap-2 px-3 py-1.5 text-start text-sm hover:bg-accent ${active ? 'bg-secondary' : ''}`}
                     >
                       <Icon className="size-4 text-muted-foreground" />
                       <span>{f.label}</span>

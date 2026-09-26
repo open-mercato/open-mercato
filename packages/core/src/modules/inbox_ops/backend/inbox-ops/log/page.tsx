@@ -168,7 +168,7 @@ export default function ProcessingLogPage() {
             disabled={isRetrying}
             onClick={() => handleRetryEmail(row.original.id)}
           >
-            <RefreshCw className={`h-3.5 w-3.5 mr-1 ${isRetrying ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-3.5 w-3.5 me-1 ${isRetrying ? 'animate-spin' : ''}`} />
             {t('inbox_ops.action.retry', 'Retry')}
           </Button>
         )

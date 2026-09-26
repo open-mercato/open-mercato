@@ -104,6 +104,10 @@ export const REPO_WIDE_GUARDS = [
         path: 'src/modules/design_system/gallery/__tests__/inventory-parity.test.ts',
         scans: 'packages/create-app/scripts/design-system-sources.mjs and its derived inventory asset — the only guard that compares the runtime gallery registry against the statically derived inventory, so a reader change that silently under-reports a family is caught here and nowhere else. It lives in core while the reader lives in create-app, and core is a dependency of create-app rather than a dependent, so the turbo filter never selects it for a reader-only PR (#4991).',
       },
+      {
+        path: 'src/__tests__/rtl-safe-utilities.test.ts',
+        scans: 'every packages/*/src and apps/*/src tree — physical directional Tailwind utilities, which do not mirror under [dir=rtl] (2026-09-25 Arabic-first RTL spec)',
+      },
     ],
   },
   {

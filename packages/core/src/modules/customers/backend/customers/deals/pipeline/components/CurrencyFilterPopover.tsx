@@ -248,7 +248,7 @@ function CurrencyRow({
       role="radio"
       aria-checked={selected}
       onClick={onClick}
-      className={`h-auto w-full justify-start gap-3 rounded-none px-6 py-2.5 text-left font-normal ${rowBg}`}
+      className={`h-auto w-full justify-start gap-3 rounded-none px-6 py-2.5 text-start font-normal ${rowBg}`}
     >
       <RadioDot selected={selected} />
       <span className="flex items-center gap-1.5">
@@ -273,7 +273,7 @@ function CurrencyRow({
           <span className={`text-xs leading-normal ${currencyColor}`}>{amountCurrency}</span>
         ) : null}
       </span>
-      <span className={`pl-5 text-xs leading-normal tabular-nums ${countColor}`}>{count}</span>
+      <span className={`ps-5 text-xs leading-normal tabular-nums ${countColor}`}>{count}</span>
     </Button>
   )
 }

@@ -150,7 +150,7 @@ export function ActivityTestPanel({
           onClick={runTest}
           disabled={disabled || isRunning || !definitionId}
         >
-          <Play className="size-3 mr-1" />
+          <Play className="size-3 me-1" />
           {isRunning ? t('workflows.testStep.running') : t('workflows.testStep.run')}
         </Button>
         <span className="text-xs text-muted-foreground">
@@ -169,7 +169,7 @@ export function ActivityTestPanel({
             onClick={onUnpinSample}
             disabled={disabled}
           >
-            <PinOff className="size-3 mr-1" />
+            <PinOff className="size-3 me-1" />
             {t('workflows.testStep.unpin')}
           </Button>
         </div>
@@ -194,7 +194,7 @@ export function ActivityTestPanel({
               onClick={() => onPinSample(outcome.output)}
               disabled={disabled}
             >
-              <Pin className="size-3 mr-1" />
+              <Pin className="size-3 me-1" />
               {t('workflows.testStep.pin')}
             </Button>
             <span className="text-xs text-muted-foreground">
@@ -211,7 +211,7 @@ export function ActivityTestPanel({
                 aria-expanded={showInterpolated}
               >
                 <ChevronDown
-                  className={`size-4 mr-1 transition-transform ${showInterpolated ? 'rotate-180' : ''}`}
+                  className={`size-4 me-1 transition-transform ${showInterpolated ? 'rotate-180' : ''}`}
                 />
                 {t('workflows.testStep.interpolatedConfig')}
               </Button>

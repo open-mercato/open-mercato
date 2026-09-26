@@ -39,12 +39,12 @@ describe('Separator', () => {
       expect(sep.className).toContain('bg-border')
     })
 
-    it('vertical + dashed switches to border-l-dashed', () => {
+    it('vertical + dashed switches to border-s-dashed', () => {
       const { container } = render(
         <Separator orientation="vertical" variant="dashed" />,
       )
       const sep = container.querySelector('[data-slot="separator"]') as HTMLElement
-      expect(sep.className).toContain('border-l')
+      expect(sep.className).toContain('border-s')
       expect(sep.className).toContain('border-dashed')
       expect(sep.className).not.toContain('bg-border')
     })

@@ -111,7 +111,7 @@ export function ViewChip({
         disabled={disabled}
         aria-current={isActive ? 'true' : undefined}
       >
-        {showUsersIcon ? <Users className="size-3 mr-1 opacity-50" /> : null}
+        {showUsersIcon ? <Users className="size-3 me-1 opacity-50" /> : null}
         {label}
       </Button>
       <ViewChipMenu

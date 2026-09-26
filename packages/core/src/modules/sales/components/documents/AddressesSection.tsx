@@ -1251,7 +1251,7 @@ export function SalesDocumentAddressesSection({
             onClick={() => setAdditionalFormOpen(true)}
             disabled={customerRequired || locked}
           >
-            <Plus className="mr-2 h-4 w-4" />
+            <Plus className="me-2 h-4 w-4" />
             {t('sales.documents.detail.addresses.add', 'Add address')}
           </Button>
         </div>
@@ -1457,7 +1457,7 @@ export function SalesDocumentAddressesSection({
               t('sales.documents.form.address.saving', 'Saving…')
             ) : (
               <>
-                <Save className="mr-2 h-4 w-4" />
+                <Save className="me-2 h-4 w-4" />
                 {t('sales.documents.detail.addresses.update', 'Update addresses')}
               </>
             )}

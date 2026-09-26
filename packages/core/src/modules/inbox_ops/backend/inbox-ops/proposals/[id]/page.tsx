@@ -118,7 +118,7 @@ function CategoryEditDropdown({
         </Button>
       </div>
       {isOpen && (
-        <div className="absolute top-full left-0 mt-1 z-dropdown w-48 rounded-md border bg-popover shadow-md">
+        <div className="absolute top-full start-0 mt-1 z-dropdown w-48 rounded-md border bg-popover shadow-md">
           <div className="p-1">
             {ALL_CATEGORIES.map((cat) => {
               const config = CATEGORY_CONFIG[cat]
@@ -476,13 +476,13 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
               onClick={handleRejectAll}
               disabled={isProcessing}
             >
-              <XCircle className="h-4 w-4 mr-1" />
+              <XCircle className="h-4 w-4 me-1" />
               <span className="hidden md:inline">{t('inbox_ops.action.reject_all', 'Reject Proposal')}</span>
             </Button>
           )}
           {pendingActions.length > 1 && (
             <Button type="button" size="sm" className="h-11 md:h-9" onClick={handleAcceptAll} disabled={isProcessing}>
-              {isProcessing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <CheckCheck className="h-4 w-4 mr-1" />}
+              {isProcessing ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : <CheckCheck className="h-4 w-4 me-1" />}
               <span className="hidden md:inline">{t('inbox_ops.action.accept_all', 'Accept All')}</span>
             </Button>
           )}
@@ -513,7 +513,7 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
                   <p className="text-xs text-status-error-text mb-3">{email.processingError}</p>
                 )}
                 <Button type="button" size="sm" variant="outline" onClick={handleRetryExtraction} disabled={isProcessing}>
-                  <RefreshCw className="h-4 w-4 mr-1" />
+                  <RefreshCw className="h-4 w-4 me-1" />
                   {t('inbox_ops.action.retry', 'Retry')}
                 </Button>
               </div>
@@ -533,9 +533,9 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
                         disabled={isTranslating}
                       >
                         {isTranslating ? (
-                          <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                          <Loader2 className="h-3 w-3 animate-spin me-1" />
                         ) : (
-                          <Languages className="h-3 w-3 mr-1" />
+                          <Languages className="h-3 w-3 me-1" />
                         )}
                         {showTranslation
                           ? t('inbox_ops.translate.show_original', 'Show original')
@@ -642,7 +642,7 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
                             resolveDiscrepancyDescription={resolveDiscrepancyDescription}
                           />
                           {action.actionType === 'draft_reply' && (action.status === 'executed' || action.status === 'accepted') && (
-                            <div className="mt-2 pl-7">
+                            <div className="mt-2 ps-7">
                               <Button
                                 type="button"
                                 size="sm"
@@ -652,9 +652,9 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
                                 onClick={() => handleSendReply(action.id)}
                               >
                                 {sendingReplyId === action.id ? (
-                                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                                  <Loader2 className="h-4 w-4 animate-spin me-1" />
                                 ) : (
-                                  <ExternalLink className="h-4 w-4 mr-1" />
+                                  <ExternalLink className="h-4 w-4 me-1" />
                                 )}
                                 {sendingReplyId === action.id
                                   ? t('inbox_ops.reply.sending', 'Sending...')

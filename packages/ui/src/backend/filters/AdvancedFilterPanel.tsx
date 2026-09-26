@@ -242,7 +242,7 @@ function SavedFiltersSection({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-8 min-w-0 rounded-r-none px-3 gap-1.5"
+                className="h-8 min-w-0 rounded-e-none px-3 gap-1.5"
                 title={filter.name}
                 onClick={() => onApply(filter)}
               >
@@ -253,7 +253,7 @@ function SavedFiltersSection({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-8 w-8 rounded-l-none px-0 text-muted-foreground hover:text-status-error-text"
+                className="h-8 w-8 rounded-s-none px-0 text-muted-foreground hover:text-status-error-text"
                 aria-label={`${t('ui.advancedFilter.savedFilters.delete', 'Delete saved filter')}: ${filter.name}`}
                 onClick={() => onDelete(filter.id)}
               >

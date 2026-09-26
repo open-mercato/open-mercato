@@ -407,8 +407,10 @@ export function DockableChat() {
     <div
       className={cn(
         'bg-background border shadow-xl flex flex-col',
-        panelPosition === 'right' && 'border-l',
-        panelPosition === 'left' && 'border-r',
+        // rtl-physical: `panelPosition` is the operator's dock edge, not a
+        // start/end preference, so these borders track the chosen side literally.
+        panelPosition === 'right' && 'border-l', // rtl-physical
+        panelPosition === 'left' && 'border-r', // rtl-physical
         panelPosition === 'bottom' && 'border-t'
       )}
       style={positionStyles[panelPosition]}
@@ -511,9 +513,9 @@ export function DockableChat() {
         <div
           className={cn(
             'bg-gray-900 border-gray-700 flex flex-col overflow-hidden',
-            panelPosition === 'right' && 'absolute left-0 top-0 bottom-0 w-[400px] -translate-x-full border-r',
-            panelPosition === 'left' && 'absolute right-0 top-0 bottom-0 w-[400px] translate-x-full border-l',
-            panelPosition === 'bottom' && 'absolute bottom-full left-0 right-0 h-[300px] border-t'
+            panelPosition === 'right' && 'absolute left-0 top-0 bottom-0 w-[400px] -translate-x-full border-r', // rtl-physical
+            panelPosition === 'left' && 'absolute right-0 top-0 bottom-0 w-[400px] translate-x-full border-l', // rtl-physical
+            panelPosition === 'bottom' && 'absolute bottom-full start-0 end-0 h-[300px] border-t'
           )}
         >
           <DebugPanel

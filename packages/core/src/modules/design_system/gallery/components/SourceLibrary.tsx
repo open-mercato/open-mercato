@@ -69,7 +69,7 @@ export function SourceLibrary() {
           </ul> : <p className="text-sm text-muted-foreground">{t('design_system.gallery.sourceLibrary.referenceOnly')}</p>}
           {hasInventory ? <section className="text-sm">
             <h4 className="text-xs font-medium text-muted-foreground">{t('design_system.gallery.sourceLibrary.details')}</h4>
-            <div className="mt-3 space-y-4 border-l border-border pl-4">
+            <div className="mt-3 space-y-4 border-s border-border ps-4">
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                 {item.sets.length ? <span>{t('design_system.gallery.sourceLibrary.componentSets', { count: item.sets.length })}</span> : null}
                 {variantCount ? <span>{t('design_system.gallery.sourceLibrary.variants', { count: variantCount })}</span> : null}

@@ -372,7 +372,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
         <PageBody>
           <div className="flex items-center justify-center py-12">
             <Spinner />
-            <span className="ml-3 text-muted-foreground">{t('workflows.tasks.detail.loading')}</span>
+            <span className="ms-3 text-muted-foreground">{t('workflows.tasks.detail.loading')}</span>
           </div>
         </PageBody>
       </Page>
@@ -767,13 +767,13 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                 <div className="space-y-1 text-sm">
                   <div>
                     <span className="text-muted-foreground">{t('workflows.tasks.fields.createdAt')}:</span>
-                    <span className="ml-2 text-foreground">{new Date(task.createdAt).toLocaleString()}</span>
+                    <span className="ms-2 text-foreground">{new Date(task.createdAt).toLocaleString()}</span>
                   </div>
                   {task.dueDate ? (
                     <div>
                       <span className="text-muted-foreground">{t('workflows.tasks.fields.dueDate')}:</span>
                       <span
-                        className={`ml-2 ${isOverdue ? `${WORK_INBOX_OVERDUE_TONE.text} font-medium` : 'text-foreground'}`}
+                        className={`ms-2 ${isOverdue ? `${WORK_INBOX_OVERDUE_TONE.text} font-medium` : 'text-foreground'}`}
                       >
                         {new Date(task.dueDate).toLocaleString()}
                       </span>
@@ -782,19 +782,19 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                   {task.assignedTo ? (
                     <div>
                       <span className="text-muted-foreground">{t('workflows.tasks.detail.assignedTo')}:</span>
-                      <span className="ml-2 text-foreground">{task.assignedTo}</span>
+                      <span className="ms-2 text-foreground">{task.assignedTo}</span>
                     </div>
                   ) : null}
                   {task.assignedToRoles?.length ? (
                     <div>
                       <span className="text-muted-foreground">{t('workflows.tasks.roles')}:</span>
-                      <span className="ml-2 text-foreground">{task.assignedToRoles.join(', ')}</span>
+                      <span className="ms-2 text-foreground">{task.assignedToRoles.join(', ')}</span>
                     </div>
                   ) : null}
                   {task.claimedBy ? (
                     <div>
                       <span className="text-muted-foreground">{t('workflows.tasks.claimedBy')}:</span>
-                      <span className="ml-2 text-foreground">{task.claimedBy}</span>
+                      <span className="ms-2 text-foreground">{task.claimedBy}</span>
                     </div>
                   ) : null}
                   <div>
@@ -803,7 +803,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                     </span>
                     <Link
                       href={`/backend/instances/${task.workflowInstanceId}`}
-                      className="ml-2 text-primary hover:underline text-xs font-mono"
+                      className="ms-2 text-primary hover:underline text-xs font-mono"
                     >
                       {task.workflowInstanceId.slice(0, 8)}...
                     </Link>

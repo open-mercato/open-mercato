@@ -47,7 +47,7 @@ function formatNumber(value: number, options?: Intl.NumberFormatOptions): string
 
 function KpiItem({ icon: Icon, label, description, value, detail, onClick }: KpiItemProps) {
   const content = (
-    <div className="flex min-h-24 w-full items-start gap-3 px-5 py-1 text-left">
+    <div className="flex min-h-24 w-full items-start gap-3 px-5 py-1 text-start">
       <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
         <Icon aria-hidden="true" className="size-4" />
       </span>

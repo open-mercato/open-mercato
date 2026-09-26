@@ -212,7 +212,7 @@ export default function MfaChallengePanel({
                   onClick={() => setShowMoreOptions((current) => !current)}
                 >
                   {t('security.login.mfaChallenge.actions.moreOptions', 'More options')}
-                  {showMoreOptions ? <ChevronUp className="ml-2 size-4" aria-hidden="true" /> : <ChevronDown className="ml-2 size-4" aria-hidden="true" />}
+                  {showMoreOptions ? <ChevronUp className="ms-2 size-4" aria-hidden="true" /> : <ChevronDown className="ms-2 size-4" aria-hidden="true" />}
                 </Button>
 
                 {showMoreOptions ? (

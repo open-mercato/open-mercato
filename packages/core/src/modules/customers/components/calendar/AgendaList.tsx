@@ -139,7 +139,7 @@ function AgendaRow({
       aria-label={`${title} · ${ariaTime}`}
       onClick={() => onItemClick(item)}
       className={cn(
-        'h-auto w-full justify-start whitespace-normal rounded-none bg-background px-3 py-3 text-left transition-colors hover:bg-muted/30 sm:gap-3.5 sm:px-5',
+        'h-auto w-full justify-start whitespace-normal rounded-none bg-background px-3 py-3 text-start transition-colors hover:bg-muted/30 sm:gap-3.5 sm:px-5',
         canceled && 'opacity-60',
       )}
     >

@@ -248,7 +248,7 @@ export function ColorPlayground({ initialSeeds, initialActionShades, initialView
         ] as const).map(({ role, scale, seed }) => <div key={role} className="space-y-2">
           <h4 className="text-xs font-medium text-muted-foreground">{t(`design_system.colorStudio.${role}`)}</h4>
           <div className="grid grid-cols-3 gap-1 sm:grid-cols-6 xl:grid-cols-11">
-            {scale.map(stop => <Button type="button" key={stop.step} variant="ghost" className="h-24 min-w-0 flex-col items-start justify-end gap-1 rounded-lg px-2 py-3 text-left" style={{ backgroundColor: stop.hex, color: contrastRatio(stop.hex, '#FFFFFF') >= contrastRatio(stop.hex, '#000000') ? '#FFFFFF' : '#000000' }} aria-label={`${t('design_system.colorStudio.copyColor')} ${t(`design_system.colorStudio.${role}`)} ${stop.step} ${stop.hex}`} onClick={() => copy(stop.hex, `${t('design_system.colorStudio.copiedColor')}: ${stop.hex}`)}>
+            {scale.map(stop => <Button type="button" key={stop.step} variant="ghost" className="h-24 min-w-0 flex-col items-start justify-end gap-1 rounded-lg px-2 py-3 text-start" style={{ backgroundColor: stop.hex, color: contrastRatio(stop.hex, '#FFFFFF') >= contrastRatio(stop.hex, '#000000') ? '#FFFFFF' : '#000000' }} aria-label={`${t('design_system.colorStudio.copyColor')} ${t(`design_system.colorStudio.${role}`)} ${stop.step} ${stop.hex}`} onClick={() => copy(stop.hex, `${t('design_system.colorStudio.copiedColor')}: ${stop.hex}`)}>
               <span className="flex w-full items-center justify-between gap-1 text-xs"><span className="font-semibold">{stop.step}</span>{stop.hex === seed ? <span title={t('design_system.colorStudio.base')}><Paintbrush className="size-3" aria-hidden /><span className="sr-only">{t('design_system.colorStudio.base')}</span></span> : null}</span>
               <code className="text-xs font-normal">{stop.hex}</code>
             </Button>)}
@@ -292,7 +292,7 @@ export function ColorPlayground({ initialSeeds, initialActionShades, initialView
         </div>
         <div className="flex items-center justify-between gap-4 rounded-lg p-6" style={{ backgroundColor: matrixSurface, color: matrixText }}>
           <div className="space-y-2"><span className="text-4xl font-medium">Aa</span><p className="text-sm">{t('design_system.colorStudio.pair.body')}</p></div>
-          <div className="space-y-2 rounded-md bg-card px-3 py-2 text-right text-card-foreground"><p className="font-mono text-xl font-semibold">{matrixRatio.toFixed(2)}:1</p><p className="text-xs">{t(`design_system.colorStudio.${matrixRatio >= 4.5 ? 'pass' : 'fail'}`)}</p></div>
+          <div className="space-y-2 rounded-md bg-card px-3 py-2 text-end text-card-foreground"><p className="font-mono text-xl font-semibold">{matrixRatio.toFixed(2)}:1</p><p className="text-xs">{t(`design_system.colorStudio.${matrixRatio >= 4.5 ? 'pass' : 'fail'}`)}</p></div>
         </div>
       </div>
       <div className="overflow-hidden rounded-xl border border-border">

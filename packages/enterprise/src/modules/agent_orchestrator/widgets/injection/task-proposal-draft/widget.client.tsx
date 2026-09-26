@@ -116,7 +116,7 @@ export default function TaskProposalDraftWidget({ context }: InjectionWidgetComp
               size="sm"
               onClick={() => router.push(`/backend/traces/${encodeURIComponent(proposal.runId as string)}`)}
             >
-              <ExternalLink className="size-3.5 mr-1" aria-hidden="true" />
+              <ExternalLink className="size-3.5 me-1" aria-hidden="true" />
               {t('agent_orchestrator.proposal.openTrace')}
             </Button>
           ) : null}

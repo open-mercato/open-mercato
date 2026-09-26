@@ -39,7 +39,7 @@ export function ActivitiesAddNewMenu({ onSelect, disabled }: ActivitiesAddNewMen
           type="button"
           disabled={disabled}
           aria-label={t('customers.activities.addNew', 'Add new')}
-          className="gap-1.5 overflow-hidden rounded-md bg-foreground pl-3 pr-3.5 py-2 text-xs font-semibold text-background hover:bg-foreground/90 disabled:opacity-60"
+          className="gap-1.5 overflow-hidden rounded-md bg-foreground ps-3 pe-3.5 py-2 text-xs font-semibold text-background hover:bg-foreground/90 disabled:opacity-60"
         >
           <Check className="size-3.5" />
           {t('customers.activities.addNew', 'Add new')}

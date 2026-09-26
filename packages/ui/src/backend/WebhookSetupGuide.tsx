@@ -41,7 +41,7 @@ export function WebhookSetupGuide({
         className="h-auto px-0 text-xs font-medium"
         onClick={() => setIsOpen((current) => !current)}
       >
-        {isOpen ? <ChevronDown className="mr-1 h-3.5 w-3.5" /> : <ChevronRight className="mr-1 h-3.5 w-3.5" />}
+        {isOpen ? <ChevronDown className="me-1 h-3.5 w-3.5" /> : <ChevronRight className="me-1 h-3.5 w-3.5" />}
         {isOpen ? t('ui.webhookGuide.hideDetails', 'Hide details') : resolvedButtonLabel}
       </Button>
 
@@ -68,7 +68,7 @@ export function WebhookSetupGuide({
             <p className="text-overline font-medium uppercase tracking-wide text-muted-foreground">
               {t('ui.webhookGuide.steps', 'Setup steps')}
             </p>
-            <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
+            <ol className="list-decimal space-y-2 ps-5 text-sm text-muted-foreground">
               {guide.steps.map((step) => (
                 <li key={step}>{step}</li>
               ))}

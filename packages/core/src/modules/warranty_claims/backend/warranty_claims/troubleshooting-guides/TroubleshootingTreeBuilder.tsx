@@ -254,7 +254,7 @@ export function TroubleshootingTreeBuilder({ value, setValue, disabled }: Builde
                         key={`${option.label}:${optionIndex}`}
                         type="button"
                         variant="outline"
-                        className="h-auto w-full justify-between whitespace-normal py-3 text-left"
+                        className="h-auto w-full justify-between whitespace-normal py-3 text-start"
                         onClick={() => chooseTestAnswer(optionIndex)}
                       >
                         {option.label}
@@ -283,7 +283,7 @@ export function TroubleshootingTreeBuilder({ value, setValue, disabled }: Builde
               )}
             </div>
           </div>
-          <aside className="w-full border-t border-border bg-card p-5 lg:w-80 lg:border-l lg:border-t-0">
+          <aside className="w-full border-t border-border bg-card p-5 lg:w-80 lg:border-s lg:border-t-0">
             <h3 className="text-sm font-semibold text-foreground">
               {t('warranty_claims.troubleshootingGuides.builder.effectReport', 'Would do, dry-run effect report')}
             </h3>
@@ -306,7 +306,7 @@ export function TroubleshootingTreeBuilder({ value, setValue, disabled }: Builde
       ) : (
         <div className="flex min-h-96 flex-col lg:flex-row">
           <div className="flex min-w-0 flex-1 bg-muted/20">
-            <div className="flex w-14 shrink-0 flex-col items-center gap-2 border-r border-border bg-card py-3">
+            <div className="flex w-14 shrink-0 flex-col items-center gap-2 border-e border-border bg-card py-3">
               <IconButton
                 type="button"
                 variant="ghost"
@@ -364,7 +364,7 @@ export function TroubleshootingTreeBuilder({ value, setValue, disabled }: Builde
                             type="button"
                             variant="ghost"
                             className={cn(
-                              'h-auto w-full justify-start overflow-hidden rounded-lg border bg-card p-0 text-left shadow-sm transition-colors hover:border-foreground/30 hover:bg-card focus-visible:shadow-focus focus-visible:outline-none',
+                              'h-auto w-full justify-start overflow-hidden rounded-lg border bg-card p-0 text-start shadow-sm transition-colors hover:border-foreground/30 hover:bg-card focus-visible:shadow-focus focus-visible:outline-none',
                               selected ? 'border-accent-indigo ring-1 ring-accent-indigo' : 'border-border',
                             )}
                             onClick={() => setSelectedPath(item.nodePath)}
@@ -396,7 +396,7 @@ export function TroubleshootingTreeBuilder({ value, setValue, disabled }: Builde
             </div>
           </div>
 
-          <aside className="w-full border-t border-border bg-card lg:w-80 lg:border-l lg:border-t-0">
+          <aside className="w-full border-t border-border bg-card lg:w-80 lg:border-s lg:border-t-0">
             <div className="border-b border-border px-4 py-3">
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 {t('warranty_claims.troubleshootingGuides.builder.inspector', 'Inspector')}

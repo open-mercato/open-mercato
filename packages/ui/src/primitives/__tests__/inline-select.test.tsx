@@ -82,10 +82,10 @@ describe('InlineSelect primitive', () => {
 
   it('merges consumer className alongside the borderless baseline', () => {
     const { container } = renderInlineSelect({
-      className: 'text-right font-mono',
+      className: 'text-end font-mono',
     })
     const trigger = container.querySelector('[data-slot="inline-select-trigger"]')
-    expect(trigger).toHaveClass('text-right')
+    expect(trigger).toHaveClass('text-end')
     expect(trigger).toHaveClass('font-mono')
     expect(trigger).toHaveClass('border-transparent')
   })

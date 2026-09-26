@@ -350,7 +350,7 @@ export default function AgentFleetOverviewPage() {
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <ContextChip>
                 {t('agent_orchestrator.overview.processesHandled', '{count} processes handled', { count: formatNumber(metrics?.runsTotal ?? 0, locale) ?? '0' })}
-                <span className="ml-1 text-muted-foreground/70">· {windowLabel}</span>
+                <span className="ms-1 text-muted-foreground/70">· {windowLabel}</span>
               </ContextChip>
             </div>
           </div>
@@ -450,7 +450,7 @@ export default function AgentFleetOverviewPage() {
                         <TableHead className={WRAPPING_HEAD}>{t('agent_orchestrator.overview.stuck.col.process', 'Process')}</TableHead>
                         <TableHead className={WRAPPING_HEAD}>{t('agent_orchestrator.overview.stuck.col.agent', 'Agent')}</TableHead>
                         <TableHead className={WRAPPING_HEAD}>{t('agent_orchestrator.overview.stuck.col.waitingFor', 'Waiting for')}</TableHead>
-                        <TableHead className={`${WRAPPING_HEAD} text-right`}>{t('agent_orchestrator.overview.stuck.col.waitingTime', 'Waiting time')}</TableHead>
+                        <TableHead className={`${WRAPPING_HEAD} text-end`}>{t('agent_orchestrator.overview.stuck.col.waitingTime', 'Waiting time')}</TableHead>
                         <TableHead className={WRAPPING_HEAD}>{t('agent_orchestrator.overview.stuck.col.sla', 'SLA')}</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -490,7 +490,7 @@ export default function AgentFleetOverviewPage() {
                           </TableCell>
                           <TableCell className="text-foreground">{row.agentLabel}</TableCell>
                           <TableCell className="text-foreground">{t(`agent_orchestrator.overview.interventions.${row.waitingFor}`, titleCase(row.waitingFor))}</TableCell>
-                          <TableCell className="text-right tabular-nums text-muted-foreground">{formatWaitMinutes(row.waitingMin) ?? '—'}</TableCell>
+                          <TableCell className="text-end tabular-nums text-muted-foreground">{formatWaitMinutes(row.waitingMin) ?? '—'}</TableCell>
                           <TableCell>
                             <StatusBadge variant={slaVariant[row.sla]} dot>
                               {t(`agent_orchestrator.overview.stuck.sla.${row.sla}`, titleCase(row.sla))}
@@ -532,7 +532,7 @@ export default function AgentFleetOverviewPage() {
                             and the header wraps to whatever the locale needs — a header
                             sized to the longest translation would spend the agent name's
                             space on whitespace in every other language. */}
-                        <TableHead className={`${WRAPPING_HEAD} w-32 text-right`}>{t('agent_orchestrator.overview.trust.col.runs', 'Runs')}</TableHead>
+                        <TableHead className={`${WRAPPING_HEAD} w-32 text-end`}>{t('agent_orchestrator.overview.trust.col.runs', 'Runs')}</TableHead>
                         {/* The panel is 2/5 of the row, so four columns leave the agent
                             name ~59px to live in below 2xl. Override is the least
                             identifying of them — a meter and a percentage — so it is the
@@ -568,7 +568,7 @@ export default function AgentFleetOverviewPage() {
                               </div>
                             </div>
                           </TableCell>
-                          <TableCell className="text-right tabular-nums text-foreground">{formatNumber(row.runs, locale) ?? '0'}</TableCell>
+                          <TableCell className="text-end tabular-nums text-foreground">{formatNumber(row.runs, locale) ?? '0'}</TableCell>
                           <TableCell className="hidden 2xl:table-cell"><OverrideMeter pct={row.overridePct} /></TableCell>
                           <TableCell>
                             <StatusBadge variant={statusVariant[row.status]} dot>
@@ -646,7 +646,7 @@ function KpiTile({ icon: Icon, label, caption, value, chip, sub }: { icon: React
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm text-muted-foreground">
           {label}
-          {caption ? <span className="ml-1.5 text-xs text-muted-foreground/70">· {caption}</span> : null}
+          {caption ? <span className="ms-1.5 text-xs text-muted-foreground/70">· {caption}</span> : null}
         </p>
         <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-brand-violet">
           <Icon className="size-4" />
@@ -684,7 +684,7 @@ function Panel({ title, caption, viewAll, onViewAll, children, className }: { ti
       <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
         <div className="text-sm font-semibold text-foreground">
           {title}
-          {caption ? <span className="ml-1.5 text-xs font-normal text-muted-foreground/70">· {caption}</span> : null}
+          {caption ? <span className="ms-1.5 text-xs font-normal text-muted-foreground/70">· {caption}</span> : null}
         </div>
         <button type="button" onClick={onViewAll} className="inline-flex items-center gap-1 text-xs font-medium text-brand-violet transition-opacity hover:opacity-80">
           {viewAll}

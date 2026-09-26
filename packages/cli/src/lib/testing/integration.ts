@@ -3635,7 +3635,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       OM_EVENTS_SINGLE_DELIVERY: process.env.OM_EVENTS_SINGLE_DELIVERY ?? 'false',
       AUTO_SPAWN_SCHEDULER: 'false',
       // Hide the demo feedback floating action button — it lives at
-      // `fixed bottom-6 right-6 z-banner` and consistently intercepts pointer
+      // `fixed bottom-6 end-6 z-banner` and consistently intercepts pointer
       // events on row-action menus and other bottom-of-viewport UI elements
       // (e.g. TC-WF-006 Delete menuitem click). The widget is already gated
       // on `DEMO_MODE !== 'false'` in the backend layout, so opting out here

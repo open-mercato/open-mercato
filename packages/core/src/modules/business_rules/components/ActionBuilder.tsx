@@ -172,7 +172,7 @@ export function ActionBuilder({
             {emptyMessage || t('business_rules.components.actionBuilder.emptyMessage')}
           </p>
           <Button type="button" onClick={handleAddAction} variant="outline" size="sm">
-            <Plus className="w-4 h-4 mr-2" />
+            <Plus className="w-4 h-4 me-2" />
             {t('business_rules.components.actionBuilder.addAction')}
           </Button>
         </div>
@@ -199,7 +199,7 @@ export function ActionBuilder({
           {/* Add More / Clear All */}
           <div className="flex items-center justify-between">
             <Button type="button" onClick={handleAddAction} variant="outline" size="sm">
-              <Plus className="w-4 h-4 mr-2" />
+              <Plus className="w-4 h-4 me-2" />
               {t('business_rules.components.actionBuilder.addAction')}
             </Button>
             {actions.length > 1 && (

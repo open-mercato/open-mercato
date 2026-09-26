@@ -288,8 +288,8 @@ export function ReleaseReservationDialog({
         className="max-w-lg gap-0 overflow-hidden p-0"
         onKeyDown={handleDialogKeyDown}
       >
-        <div className="border-b px-6 py-4 pr-12">
-          <DialogHeader className="space-y-1 text-left">
+        <div className="border-b px-6 py-4 pe-12">
+          <DialogHeader className="space-y-1 text-start">
             <DialogTitle>
               {t('wms.backend.inventory.release.dialog.title', 'Release reservation')}
             </DialogTitle>

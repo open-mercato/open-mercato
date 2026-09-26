@@ -735,7 +735,7 @@ export default function CheckoutDemoPage() {
         <div key={fieldName} className="space-y-1">
           <label htmlFor={fieldName} className={labelClasses}>
             {fieldTitle}
-            {required && <span className="text-status-error-text ml-1">*</span>}
+            {required && <span className="text-status-error-text ms-1">*</span>}
           </label>
           {fieldDescription && (
             <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
@@ -767,7 +767,7 @@ export default function CheckoutDemoPage() {
             <div key={fieldName} className="space-y-1">
               <label htmlFor={fieldName} className={labelClasses}>
                 {fieldTitle}
-                {required && <span className="text-status-error-text ml-1">*</span>}
+                {required && <span className="text-status-error-text ms-1">*</span>}
               </label>
               {fieldDescription && (
                 <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
@@ -786,7 +786,7 @@ export default function CheckoutDemoPage() {
             <div key={fieldName} className="space-y-1">
               <label htmlFor={fieldName} className={labelClasses}>
                 {fieldTitle}
-                {required && <span className="text-status-error-text ml-1">*</span>}
+                {required && <span className="text-status-error-text ms-1">*</span>}
               </label>
               {fieldDescription && (
                 <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
@@ -806,7 +806,7 @@ export default function CheckoutDemoPage() {
             <div key={fieldName} className="space-y-1">
               <label htmlFor={fieldName} className={labelClasses}>
                 {fieldTitle}
-                {required && <span className="text-status-error-text ml-1">*</span>}
+                {required && <span className="text-status-error-text ms-1">*</span>}
               </label>
               {fieldDescription && (
                 <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
@@ -825,7 +825,7 @@ export default function CheckoutDemoPage() {
           <div key={fieldName} className="space-y-1">
             <label htmlFor={fieldName} className={labelClasses}>
               {fieldTitle}
-              {required && <span className="text-status-error-text ml-1">*</span>}
+              {required && <span className="text-status-error-text ms-1">*</span>}
             </label>
             {fieldDescription && (
               <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
@@ -846,7 +846,7 @@ export default function CheckoutDemoPage() {
           <div key={fieldName} className="space-y-1">
             <label htmlFor={fieldName} className={labelClasses}>
               {fieldTitle}
-              {required && <span className="text-status-error-text ml-1">*</span>}
+              {required && <span className="text-status-error-text ms-1">*</span>}
             </label>
             {fieldDescription && (
               <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
@@ -873,11 +873,11 @@ export default function CheckoutDemoPage() {
               />
               <label htmlFor={fieldName} className="text-sm font-medium text-gray-700">
                 {fieldTitle}
-                {required && <span className="text-status-error-text ml-1">*</span>}
+                {required && <span className="text-status-error-text ms-1">*</span>}
               </label>
             </div>
             {fieldDescription && (
-              <p className="text-xs text-gray-500 ml-6">{fieldDescription}</p>
+              <p className="text-xs text-gray-500 ms-6">{fieldDescription}</p>
             )}
           </div>
         )
@@ -887,7 +887,7 @@ export default function CheckoutDemoPage() {
           <div key={fieldName} className="space-y-1">
             <label htmlFor={fieldName} className={labelClasses}>
               {fieldTitle}
-              {required && <span className="text-status-error-text ml-1">*</span>}
+              {required && <span className="text-status-error-text ms-1">*</span>}
             </label>
             {fieldDescription && (
               <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
@@ -934,7 +934,7 @@ export default function CheckoutDemoPage() {
                   </label>
                   {customersLoading ? (
                     <div className="flex items-center justify-center py-3 text-sm text-gray-500">
-                      <Spinner size="sm" className="mr-2" />
+                      <Spinner size="sm" className="me-2" />
                       {t('workflows.checkoutDemo.customer.loading', 'Loading customers...')}
                     </div>
                   ) : customers.length === 0 ? (
@@ -988,7 +988,7 @@ export default function CheckoutDemoPage() {
                   </label>
                   {productsLoading ? (
                     <div className="flex items-center justify-center py-3 text-sm text-gray-500">
-                      <Spinner size="sm" className="mr-2" />
+                      <Spinner size="sm" className="me-2" />
                       {t('workflows.checkoutDemo.product.loading', 'Loading products...')}
                     </div>
                   ) : products.length === 0 ? (
@@ -1078,7 +1078,7 @@ export default function CheckoutDemoPage() {
                           </IconButton>
                         </div>
                         <div className="flex items-center gap-2">
-                          <p className="font-medium text-gray-900 min-w-[80px] text-right">
+                          <p className="font-medium text-gray-900 min-w-[80px] text-end">
                             {currencySymbol}{(item.price * item.quantity).toFixed(2)}
                           </p>
                           <IconButton
@@ -1233,7 +1233,7 @@ export default function CheckoutDemoPage() {
                     <div className="bg-status-info-bg border border-status-info-border rounded-lg p-4">
                       <div className="flex items-center justify-center py-4">
                         <Spinner size="lg" />
-                        <p className="ml-3 text-sm text-gray-600">{t('workflows.checkoutDemo.customerInfo.loading', 'Loading task...')}</p>
+                        <p className="ms-3 text-sm text-gray-600">{t('workflows.checkoutDemo.customerInfo.loading', 'Loading task...')}</p>
                       </div>
                     </div>
                   ) : userTasks.length > 0 ? (
@@ -1353,7 +1353,7 @@ export default function CheckoutDemoPage() {
                     <div className="bg-status-error-bg border border-status-error-border rounded-lg p-4">
                       <div className="flex items-start">
                         <AlertCircle className="h-5 w-5 text-status-error-text mt-0.5 flex-shrink-0" />
-                        <div className="ml-3">
+                        <div className="ms-3">
                           <h3 className="text-sm font-medium text-status-error-text">{t('workflows.checkoutDemo.waitPayment.signalErrorTitle', 'Signal Error')}</h3>
                           <p className="text-sm text-status-error-text mt-1 whitespace-pre-wrap">{signalError}</p>
                           <Button
@@ -1540,7 +1540,7 @@ export default function CheckoutDemoPage() {
               <div className="bg-status-error-bg border border-status-error-border rounded-lg p-4">
                 <div className="flex items-start">
                   <AlertCircle className="h-5 w-5 text-status-error-text mt-0.5 flex-shrink-0" />
-                  <div className="ml-3 flex-1">
+                  <div className="ms-3 flex-1">
                     <h3 className="text-sm font-medium text-status-error-text">{t('workflows.checkoutDemo.progress.errorTitle', 'Error')}</h3>
                     <p className="mt-1 text-sm text-status-error-text whitespace-pre-wrap">{error}</p>
                     <Button
@@ -1594,20 +1594,20 @@ export default function CheckoutDemoPage() {
                             <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white flex items-center justify-center font-bold text-sm">
                               {status === 'completed' ? '✓' : isPaused ? '⏸' : index + 1}
                             </div>
-                            <div className="ml-3 flex-1">
+                            <div className="ms-3 flex-1">
                               <p className="font-medium">{step.stepName}</p>
                               {step.description && (
                                 <p className="text-xs opacity-75 mt-0.5">{step.description}</p>
                               )}
                             </div>
                             {status === 'current' && !isLastStep && !isPaused && (
-                              <span className="ml-2 text-xs font-medium flex items-center gap-1">
+                              <span className="ms-2 text-xs font-medium flex items-center gap-1">
                                 <span className="inline-block w-2 h-2 bg-current rounded-full animate-pulse"></span>
                                 {t('workflows.checkoutDemo.progress.processing', 'Processing...')}
                               </span>
                             )}
                             {isPaused && (
-                              <span className="ml-2 text-xs font-medium flex items-center gap-1">
+                              <span className="ms-2 text-xs font-medium flex items-center gap-1">
                                 <span className="inline-block w-2 h-2 bg-current rounded-full"></span>
                                 {t('workflows.checkoutDemo.progress.waitingForInput', 'Waiting for input')}
                               </span>
@@ -1625,7 +1625,7 @@ export default function CheckoutDemoPage() {
                     <div className="bg-status-warning-bg border border-status-warning-border rounded-lg p-4">
                       <div className="flex items-start mb-3">
                         <AlertTriangle className="h-5 w-5 text-status-warning-text mt-0.5" />
-                        <div className="ml-3">
+                        <div className="ms-3">
                           <h3 className="text-sm font-medium text-status-warning-text">
                             {t('workflows.checkoutDemo.progress.userActionTitle', 'User Action Required')}
                           </h3>
@@ -1689,7 +1689,7 @@ export default function CheckoutDemoPage() {
                   <div className="bg-status-success-bg border border-status-success-border rounded-lg p-4">
                     <div className="flex items-start">
                       <CheckCircle2 className="h-5 w-5 text-status-success-text mt-0.5" />
-                      <div className="ml-3">
+                      <div className="ms-3">
                         <h3 className="text-sm font-medium text-status-success-text">
                           {t('workflows.checkoutDemo.progress.workflowCompleted', 'Workflow Completed!')}
                         </h3>
@@ -1732,7 +1732,7 @@ export default function CheckoutDemoPage() {
               <div className="flex items-center gap-3">
                 <h2 className="text-xl font-semibold text-gray-900">
                   {t('workflows.checkoutDemo.events.title', 'Workflow Events')}
-                  <span className="ml-2 text-sm font-normal text-gray-500">
+                  <span className="ms-2 text-sm font-normal text-gray-500">
                     ({events.length})
                   </span>
                 </h2>
@@ -1810,7 +1810,7 @@ export default function CheckoutDemoPage() {
         <div className="mt-4 bg-status-info-bg border border-status-info-border rounded-lg p-4">
           <div className="flex items-start">
             <Info className="h-5 w-5 text-status-info-text mt-0.5" />
-            <div className="ml-3">
+            <div className="ms-3">
               <h3 className="text-sm font-medium text-status-info-text">{t('workflows.checkoutDemo.features.title', 'Features')}</h3>
               <div className="mt-2 text-sm text-status-info-text">
                 <ul className="list-disc list-inside space-y-1">

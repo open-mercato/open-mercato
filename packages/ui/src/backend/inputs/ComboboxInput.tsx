@@ -430,7 +430,7 @@ export function ComboboxInput({
             type="text"
             className={[
               'w-full h-9 rounded-md border border-input bg-background px-3 text-sm shadow-xs transition-colors outline-none placeholder:text-muted-foreground focus-visible:shadow-focus focus-visible:border-foreground disabled:bg-bg-disabled disabled:border-border-disabled disabled:text-muted-foreground disabled:cursor-not-allowed',
-              showClearButton ? 'pr-9' : '',
+              showClearButton ? 'pe-9' : '',
             ]
               .filter(Boolean)
               .join(' ')}
@@ -488,7 +488,7 @@ export function ComboboxInput({
               variant="ghost"
               size="xs"
               aria-label={resolvedClearLabel}
-              className="absolute right-1 top-1/2 -translate-y-1/2"
+              className="absolute end-1 top-1/2 -translate-y-1/2"
               onMouseDown={(event) => event.preventDefault()}
               onClick={handleClear}
             >
@@ -538,7 +538,7 @@ export function ComboboxInput({
                   role="option"
                   aria-selected={index === selectedIndex}
                   className={[
-                    'w-full h-auto justify-start font-normal text-left flex flex-col items-start rounded-lg p-2',
+                    'w-full h-auto justify-start font-normal text-start flex flex-col items-start rounded-lg p-2',
                     index === selectedIndex ? 'bg-muted' : '',
                   ]
                     .filter(Boolean)

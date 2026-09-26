@@ -17,7 +17,7 @@ function Swatch({ color, label }: { color: string | undefined; label: string }) 
     <li className="flex min-w-0 items-center gap-2">
       <span aria-hidden className="size-4 shrink-0 rounded-sm border border-border" style={{ backgroundColor: color }} />
       <span className="min-w-0 truncate text-xs text-muted-foreground">{label}</span>
-      <code className="ml-auto shrink-0 text-xs uppercase text-foreground">{color}</code>
+      <code className="ms-auto shrink-0 text-xs uppercase text-foreground">{color}</code>
     </li>
   )
 }

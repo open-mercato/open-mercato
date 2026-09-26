@@ -75,7 +75,7 @@ function MonthPill({ item, onItemClick }: { item: CalendarItem; onItemClick: (it
         onItemClick(item)
       }}
       className={cn(
-        'h-4 w-full min-w-0 justify-center gap-0 rounded-full p-0 pr-2',
+        'h-4 w-full min-w-0 justify-center gap-0 rounded-full p-0 pe-2',
         !item.color && 'bg-muted text-muted-foreground',
         canceled && 'opacity-60',
       )}
@@ -122,7 +122,7 @@ function MonthDayCell({
   return (
     <div
       className={cn(
-        'relative flex h-full min-w-0 flex-1 flex-col items-start gap-1 overflow-hidden border-r border-border p-2 text-left last:border-r-0',
+        'relative flex h-full min-w-0 flex-1 flex-col items-start gap-1 overflow-hidden border-e border-border p-2 text-start last:border-e-0',
         isWeekend(day) ? 'bg-muted/40' : 'bg-background',
       )}
     >
@@ -196,7 +196,7 @@ export function MonthGrid({ anchor, items, onItemClick, onDayOpen }: MonthGridPr
           return (
             <div
               key={dayKeyOf(day)}
-              className="flex min-w-0 flex-1 items-center justify-center border-r border-border last:border-r-0 sm:justify-start sm:pl-2.5"
+              className="flex min-w-0 flex-1 items-center justify-center border-e border-border last:border-e-0 sm:justify-start sm:ps-2.5"
             >
               <span className="truncate text-overline font-medium uppercase tracking-widest text-muted-foreground">
                 <span className="sm:hidden">{label.charAt(0)}</span>

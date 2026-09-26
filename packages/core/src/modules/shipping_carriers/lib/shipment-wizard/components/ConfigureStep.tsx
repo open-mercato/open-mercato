@@ -233,7 +233,7 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
           <CardContent className="space-y-4">
             {targetPoint && (
               <div className="rounded border border-primary bg-primary/5 px-3 py-2 text-sm">
-                <span className="font-medium text-xs text-muted-foreground mr-2">
+                <span className="font-medium text-xs text-muted-foreground me-2">
                   {t('shipping_carriers.create.field.selectedPoint', 'Selected:')}
                 </span>
                 <span className="font-mono font-medium">{targetPoint}</span>
@@ -241,7 +241,7 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="ml-2 h-auto py-0 text-xs"
+                  className="ms-2 h-auto py-0 text-xs"
                   onClick={() => onTargetPointChange('')}
                   disabled={isFetchingRates}
                 >
@@ -290,11 +290,11 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
                   <li key={point.id}>
                     <button
                       type="button"
-                      className={`w-full px-3 py-2 text-left hover:bg-accent ${targetPoint === point.id ? 'bg-primary/5 font-medium' : ''}`}
+                      className={`w-full px-3 py-2 text-start hover:bg-accent ${targetPoint === point.id ? 'bg-primary/5 font-medium' : ''}`}
                       onClick={() => onTargetPointChange(point.id)}
                       disabled={isFetchingRates}
                     >
-                      <span className="font-mono mr-2">{point.name}</span>
+                      <span className="font-mono me-2">{point.name}</span>
                       <span className="text-muted-foreground text-xs">
                         {[point.street, point.city, point.postalCode].filter(Boolean).join(', ')}
                       </span>
@@ -344,7 +344,7 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
         <Button type="button" onClick={onNext} disabled={!canProceed || isFetchingRates}>
           {isFetchingRates ? (
             <>
-              <Spinner className="mr-2 h-4 w-4" />
+              <Spinner className="me-2 h-4 w-4" />
               {t('shipping_carriers.create.fetchingRates', 'Fetching rates...')}
             </>
           ) : (

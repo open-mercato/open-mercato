@@ -127,13 +127,13 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
                   {t('startPage.onboarding.description', 'Create a tenant, organization, and administrator account in minutes. We\'ll verify your email and deliver a pre-seeded environment so you can explore Open Mercato with real data.')}
                 </p>
               </div>
-              <ul className="text-sm text-status-success-text/90 space-y-1 list-disc pl-5 marker:text-status-success-icon">
+              <ul className="text-sm text-status-success-text/90 space-y-1 list-disc ps-5 marker:text-status-success-icon">
                 <li>{t('startPage.onboarding.feature1', 'Automatic tenant and sample data provisioning')}</li>
                 <li>{t('startPage.onboarding.feature2', 'Ready-to-use superadmin credentials after verification')}</li>
               </ul>
             </div>
           </div>
-          <div className="md:ml-auto">
+          <div className="md:ms-auto">
             <Button asChild size="lg" className="font-semibold shadow-md">
               <Link href="/onboarding">
                 {t('startPage.onboarding.cta', 'Start onboarding')}

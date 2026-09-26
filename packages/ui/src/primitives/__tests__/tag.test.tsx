@@ -114,14 +114,14 @@ describe('Tag primitive', () => {
 
   it('forwards arbitrary HTMLSpan props (id, data-*, className)', () => {
     render(
-      <Tag id="tag-1" data-testid="leading-tag" className="ml-2">
+      <Tag id="tag-1" data-testid="leading-tag" className="ms-2">
         Forwarded
       </Tag>,
     )
     const root = document.getElementById('tag-1')
     expect(root).not.toBeNull()
     expect(root).toHaveAttribute('data-testid', 'leading-tag')
-    expect(root!.className).toContain('ml-2')
+    expect(root!.className).toContain('ms-2')
   })
 
   it('uses smaller close icon for pill shape and larger for square shape', () => {

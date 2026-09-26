@@ -907,7 +907,7 @@ export default function TimeTrackingEntriesPage() {
   }, [filterValues, filters, labels.filters.entrySelection, labels.noTask, rows, unlistedFilters])
 
   const columns = React.useMemo<ColumnDef<TimeEntryListRow>[]>(() => {
-    const rightHeader = (label: string) => () => <span className="block text-right">{label}</span>
+    const rightHeader = (label: string) => () => <span className="block text-end">{label}</span>
     const defs: ColumnDef<TimeEntryListRow>[] = []
 
     if (canManage) {
@@ -1053,13 +1053,13 @@ export default function TimeTrackingEntriesPage() {
             row.original.cost === null ? null : formatCurrency(row.original.cost, row.original.currencyCode)
           return formatted ? (
             <span
-              className="block text-right font-mono text-sm tabular-nums text-foreground"
+              className="block text-end font-mono text-sm tabular-nums text-foreground"
               data-testid="entry-cost"
             >
               {formatted}
             </span>
           ) : (
-            <span className="block text-right text-xs text-muted-foreground/70" data-testid="entry-cost-empty">
+            <span className="block text-end text-xs text-muted-foreground/70" data-testid="entry-cost-empty">
               —
             </span>
           )

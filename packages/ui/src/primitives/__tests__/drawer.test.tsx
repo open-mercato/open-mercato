@@ -84,21 +84,21 @@ describe('Drawer', () => {
   it('applies right-side positioning classes + inner rounded corners by default', () => {
     const { container } = render(<ExampleDrawer />)
     const content = document.querySelector('[data-slot="drawer-content"]') as HTMLElement
-    expect(content.className).toContain('right-0')
+    expect(content.className).toContain('end-0')
     expect(content.className).toContain('inset-y-0')
     // Figma Drawer [1.1] width contract: 400px
     expect(content.className).toContain('max-w-[400px]')
     // Per Figma: inner edge rounded, no panel border on the seam.
-    expect(content.className).toContain('rounded-l-xl')
+    expect(content.className).toContain('rounded-s-xl')
     expect(content.className).not.toMatch(/\bborder-l\b/)
   })
 
   it('applies left-side classes (rounded right edge) when side="left"', () => {
     const { container } = render(<ExampleDrawer side="left" />)
     const content = document.querySelector('[data-slot="drawer-content"]') as HTMLElement
-    expect(content.className).toContain('left-0')
+    expect(content.className).toContain('start-0')
     expect(content.className).toContain('inset-y-0')
-    expect(content.className).toContain('rounded-r-xl')
+    expect(content.className).toContain('rounded-e-xl')
     expect(content.className).not.toMatch(/\bborder-r\b/)
     expect(content.getAttribute('data-side')).toBe('left')
   })
@@ -192,7 +192,7 @@ describe('Drawer', () => {
     const trailing = document.querySelector('[data-slot="drawer-footer-trailing"]') as HTMLElement
     expect(trailing).not.toBeNull()
     // Without a leading slot the trailing group anchors itself to the right.
-    expect(trailing.className).toContain('ml-auto')
+    expect(trailing.className).toContain('ms-auto')
   })
 
   it('stretches children evenly when footer layout="equal"', () => {
@@ -237,9 +237,9 @@ describe('Drawer', () => {
     )
     const leading = document.querySelector('[data-slot="drawer-footer-leading"]') as HTMLElement
     expect(leading).not.toBeNull()
-    expect(leading.className).toContain('mr-auto')
+    expect(leading.className).toContain('me-auto')
     expect(leading.querySelector('[data-testid="dont-show"]')).not.toBeNull()
-    // When a leading slot is present the trailing wrapper drops `ml-auto`
+    // When a leading slot is present the trailing wrapper drops `ms-auto`
     // (the leading mr-auto already pushes them apart).
     const trailing = document.querySelector('[data-slot="drawer-footer-trailing"]') as HTMLElement
     expect(trailing).not.toBeNull()
@@ -259,7 +259,7 @@ describe('Drawer', () => {
     )
     const content = document.querySelector('[data-slot="drawer-content"]') as HTMLElement
     expect(content.className).toContain('custom-class')
-    expect(content.className).toContain('right-0')
-    expect(content.className).toContain('rounded-l-xl')
+    expect(content.className).toContain('end-0')
+    expect(content.className).toContain('rounded-s-xl')
   })
 })

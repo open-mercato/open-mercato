@@ -517,7 +517,7 @@ export default function PaymentTransactionsPage() {
                 onClick={() => void handleRefreshStatus()}
                 disabled={isRefreshingStatus || isLoadingDetail || isCapturing}
               >
-                {isRefreshingStatus ? <Spinner className="mr-2 h-4 w-4" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                {isRefreshingStatus ? <Spinner className="me-2 h-4 w-4" /> : <RefreshCw className="me-2 h-4 w-4" />}
                 {t('payment_gateways.transactions.actions.refreshStatus', 'Refresh status')}
               </Button>
               {canCaptureSelected ? (
@@ -527,7 +527,7 @@ export default function PaymentTransactionsPage() {
                   onClick={() => void handleCapturePayment()}
                   disabled={isRefreshingStatus || isLoadingDetail || isCapturing}
                 >
-                  {isCapturing ? <Spinner className="mr-2 h-4 w-4" /> : <HandCoins className="mr-2 h-4 w-4" />}
+                  {isCapturing ? <Spinner className="me-2 h-4 w-4" /> : <HandCoins className="me-2 h-4 w-4" />}
                   {t('payment_gateways.transactions.actions.capture', 'Capture payment')}
                 </Button>
               ) : null}
@@ -595,10 +595,10 @@ export default function PaymentTransactionsPage() {
                             <table className="w-full text-sm">
                               <thead>
                                 <tr className="border-b bg-muted/50">
-                                  <th className="px-4 py-2 text-left font-medium">{t('payment_gateways.transactions.columns.eventType', 'Event')}</th>
-                                  <th className="px-4 py-2 text-left font-medium">{t('payment_gateways.transactions.columns.status', 'Status')}</th>
-                                  <th className="px-4 py-2 text-left font-medium">{t('payment_gateways.transactions.columns.processed', 'Processed')}</th>
-                                  <th className="px-4 py-2 text-left font-medium">{t('payment_gateways.transactions.columns.receivedAt', 'Received')}</th>
+                                  <th className="px-4 py-2 text-start font-medium">{t('payment_gateways.transactions.columns.eventType', 'Event')}</th>
+                                  <th className="px-4 py-2 text-start font-medium">{t('payment_gateways.transactions.columns.status', 'Status')}</th>
+                                  <th className="px-4 py-2 text-start font-medium">{t('payment_gateways.transactions.columns.processed', 'Processed')}</th>
+                                  <th className="px-4 py-2 text-start font-medium">{t('payment_gateways.transactions.columns.receivedAt', 'Received')}</th>
                                 </tr>
                               </thead>
                               <tbody>

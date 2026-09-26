@@ -129,7 +129,7 @@ const CommandMenuContent = React.forwardRef<
         className={cn(
           // top-1/4 places content roughly 25% from viewport top (Tailwind fraction scale);
           // w-[calc(100%-2rem)] kept — no DS token expresses "viewport minus 2rem gutters".
-          'fixed left-1/2 top-1/4 z-popover w-[calc(100%-2rem)] -translate-x-1/2 outline-none',
+          'fixed start-1/2 top-1/4 z-popover w-[calc(100%-2rem)] -translate-x-1/2 outline-none rtl:translate-x-1/2',
           'data-[state=open]:animate-in data-[state=closed]:animate-out',
           'data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0',
           'data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95',
@@ -440,7 +440,7 @@ const CommandMenuItem = React.forwardRef<
       {shortcut ? (
         <span
           data-slot="command-menu-item-shortcut"
-          className="ml-auto shrink-0"
+          className="ms-auto shrink-0"
         >
           {shortcut}
         </span>
@@ -448,7 +448,7 @@ const CommandMenuItem = React.forwardRef<
         <ChevronRight
           aria-hidden="true"
           data-slot="command-menu-item-chevron"
-          className={cn("ml-auto size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-data-[selected=true]:opacity-100", size && "size-5 opacity-100")}
+          className={cn("ms-auto size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-data-[selected=true]:opacity-100", size && "size-5 opacity-100")}
         />
       ) : null}
     </CommandPrimitive.Item>

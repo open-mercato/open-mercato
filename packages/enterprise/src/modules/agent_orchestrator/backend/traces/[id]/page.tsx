@@ -238,7 +238,7 @@ function GuardrailsCard({ checks }: { checks: GuardrailCheckView[] }) {
                   aria-expanded={expandable ? open : undefined}
                   onClick={() => setOpenId(open ? null : check.id)}
                   disabled={!expandable}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors enabled:hover:bg-muted/40"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-start transition-colors enabled:hover:bg-muted/40"
                 >
                   {check.result === 'pass' ? (
                     <ShieldCheck className="size-4 shrink-0 text-status-success-text" />
@@ -310,8 +310,8 @@ function ModelComparisonCard({ currentModel }: { currentModel: string | null }) 
     >
       <div className="flex items-center gap-3 pb-2 text-xs text-muted-foreground">
         <span className="min-w-0 flex-1" />
-        <span className="w-16 text-right">{t('agent_orchestrator.traces.detail.confidence')}</span>
-        <span className="w-16 text-right">{t('agent_orchestrator.traces.detail.cost')}</span>
+        <span className="w-16 text-end">{t('agent_orchestrator.traces.detail.confidence')}</span>
+        <span className="w-16 text-end">{t('agent_orchestrator.traces.detail.cost')}</span>
       </div>
       <ul className="space-y-2">
         {rows.map((row) => (
@@ -330,7 +330,7 @@ function ModelComparisonCard({ currentModel }: { currentModel: string | null }) 
               ) : null}
             </span>
             <ConfidenceFaceValue confidence={row.confidence} display={row.confidence.toFixed(2)} className="w-16 justify-end text-muted-foreground" />
-            <span className="w-16 text-right font-medium tabular-nums text-foreground">{row.cost.toFixed(2)} zł</span>
+            <span className="w-16 text-end font-medium tabular-nums text-foreground">{row.cost.toFixed(2)} zł</span>
           </li>
         ))}
       </ul>
@@ -430,7 +430,7 @@ function ToolCallsCard({ toolCalls, runId }: { toolCalls: ToolCallView[]; runId:
                   type="button"
                   aria-expanded={open}
                   onClick={() => setOpenId(open ? null : toolCall.id)}
-                  className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/40"
+                  className="flex w-full items-center gap-3 px-3 py-2.5 text-start transition-colors hover:bg-muted/40"
                 >
                   <span className="size-2 shrink-0 rounded-sm bg-accent-indigo" />
                   <span className="flex-1 truncate font-mono text-sm text-foreground">{toolCall.toolName}</span>
@@ -586,7 +586,7 @@ function DispositionCard({ proposals }: { proposals: ProposalView[] }) {
                   {t(`agent_orchestrator.caseload.status.${proposalCaseStatus(proposal.disposition)}`)}
                 </StatusBadge>
                 <span className="font-mono text-xs text-muted-foreground">{proposal.id.slice(0, 8)}</span>
-                <span className="ml-auto text-xs text-muted-foreground">
+                <span className="ms-auto text-xs text-muted-foreground">
                   {formatDateTime(proposal.updatedAt, locale) ?? ''}
                 </span>
               </div>
@@ -1013,7 +1013,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                                     key={proposal.id}
                                     type="button"
                                     onClick={() => router.push(`/backend/caseload/${encodeURIComponent(proposal.id)}`)}
-                                    className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-muted/60"
+                                    className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-start text-sm text-foreground transition-colors hover:bg-muted/60"
                                   >
                                     <span className="truncate font-mono text-xs">{proposal.id.slice(0, 8)}</span>
                                     <span className="shrink-0 text-xs text-muted-foreground">
@@ -1197,7 +1197,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                                     style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
                                   />
                                 </div>
-                                <span className="w-14 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                                <span className="w-14 shrink-0 text-end text-xs tabular-nums text-muted-foreground">
                                   {formatDurationMs(span.durationMs) ?? ''}
                                 </span>
                               </div>
@@ -1276,7 +1276,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                                   })}
                             </span>
                             {evalSkipped > 0 ? (
-                              <span className="ml-auto text-xs text-muted-foreground">
+                              <span className="ms-auto text-xs text-muted-foreground">
                                 {t('agent_orchestrator.traces.detail.evalSkippedCount', undefined, {
                                   skipped: evalSkipped,
                                 })}

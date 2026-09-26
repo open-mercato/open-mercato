@@ -69,7 +69,7 @@ export function SectionNav({
         title={collapsed ? label : undefined}
       >
         {isActive && (
-          <span aria-hidden className={`absolute ${collapsed ? 'left-[-20px]' : 'left-[-12px]'} top-2 w-1 h-5 rounded-r bg-foreground`} />
+          <span aria-hidden className={`absolute ${collapsed ? 'left-[-20px]' : 'left-[-12px]'} top-2 w-1 h-5 rounded-e bg-foreground`} />
         )}
         <span className="flex items-center justify-center shrink-0">
           {item.icon ?? DefaultIcon}

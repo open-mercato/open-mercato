@@ -22,7 +22,7 @@ export function CalendarHeader({ view, anchor, onNewEvent }: CalendarHeaderProps
     <header className="flex items-center gap-3 border-b py-4">
       <h1 className="min-w-0 truncate text-xl font-semibold text-foreground">{title}</h1>
       {onNewEvent ? (
-        <div className="ml-auto flex shrink-0 items-center">
+        <div className="ms-auto flex shrink-0 items-center">
           <Button
             type="button"
             onClick={onNewEvent}

@@ -31,13 +31,13 @@ export function NewViewForm({ name, onNameChange, onSubmit, onCancel, saving }: 
           placeholder={t('ui.perspectives.form.namePlaceholder', 'View name...')}
           autoFocus
           aria-describedby={trimmed ? undefined : hintId}
-          className="w-full h-9 rounded border border-primary pl-2 pr-16 text-sm"
+          className="w-full h-9 rounded border border-primary ps-2 pe-16 text-sm"
           onKeyDown={(e) => {
             if (e.key === 'Enter' && trimmed) onSubmit()
             if (e.key === 'Escape') onCancel()
           }}
         />
-        <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+        <div className="absolute end-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
           <IconButton
             type="button"
             variant="ghost"

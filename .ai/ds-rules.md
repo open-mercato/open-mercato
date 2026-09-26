@@ -154,6 +154,32 @@ Pill vs no-pill chips: the shipped primitives (`Badge`, `Tag` pill variant, `Seg
 | Page-level section separation | `space-y-8` (32px) or `py-8` |
 | Margin below heading / above content | `mb-2` inline, `mb-4` sections |
 
+## Direction (RTL / Arabic)
+
+The app serves right-to-left locales (Arabic) and the shell renders `<html dir>`;
+direction comes from `getLocaleDirection()` in
+`@open-mercato/shared/lib/i18n/direction`. Physical directional utilities never
+mirror, so every class MUST be logical:
+
+- USE `ms-*` / `me-*` / `ps-*` / `pe-*` — NOT `ml-*` / `mr-*` / `pl-*` / `pr-*`
+- USE `text-start` / `text-end` — NOT `text-left` / `text-right`
+- USE `start-*` / `end-*` and `-start-*` / `-end-*` — NOT `left-*` / `right-*`
+- USE `border-s` / `border-e` and `rounded-s` / `rounded-e` / `rounded-ss` / `rounded-se` / `rounded-es` / `rounded-ee` — NOT `border-l` / `border-r` / `rounded-l` / `rounded-r` / `rounded-tl` / `rounded-tr` / `rounded-bl` / `rounded-br`
+- USE `float-start` / `float-end` — NOT `float-left` / `float-right`
+
+`packages/core/src/__tests__/rtl-safe-utilities.test.ts` fails on a physical
+utility, so a slip is caught in CI instead of in Arabic QA.
+
+Patterns with no logical equivalent are a per-site decision, never a rename:
+`translate-x-*`, `space-x-*`, `divide-x`, `bg-gradient-to-l/r`,
+`origin-left/right` and inline `style={{ left }}`. The centred-overlay idiom
+keeps `start-1/2` and pairs the physical `-translate-x-1/2` with
+`rtl:translate-x-1/2`.
+
+A genuinely physical utility — an operator-chosen dock edge, a measured canvas
+coordinate — opts out on its own line with the `rtl-physical` marker **and a
+reason**, so the exception is reviewable.
+
 ## Opacity & Transparency
 - NEVER invent new opacity values ad hoc — stick to the DS scale
 - NEVER use arbitrary opacity (`opacity-[0.33]`, `bg-black/[0.22]`)

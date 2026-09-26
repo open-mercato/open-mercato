@@ -39,9 +39,9 @@ function FolderNodes({ nodes, selectedFolderId, onSelect, onRename, onDelete }: 
               ]} />
             ) : null}
           </div>
-          {node.visibility === 'ancestor' ? <p className="pl-3 text-xs text-muted-foreground">{t('documents.folders.visibility.ancestor')}</p> : null}
-          {node.visibility === 'contains-visible' ? <p className="pl-3 text-xs text-muted-foreground">{t('documents.folders.visibility.shared')}</p> : null}
-          {node.children.length > 0 ? <div className="ml-4"><FolderNodes nodes={node.children} selectedFolderId={selectedFolderId} onSelect={onSelect} onRename={onRename} onDelete={onDelete} /></div> : null}
+          {node.visibility === 'ancestor' ? <p className="ps-3 text-xs text-muted-foreground">{t('documents.folders.visibility.ancestor')}</p> : null}
+          {node.visibility === 'contains-visible' ? <p className="ps-3 text-xs text-muted-foreground">{t('documents.folders.visibility.shared')}</p> : null}
+          {node.children.length > 0 ? <div className="ms-4"><FolderNodes nodes={node.children} selectedFolderId={selectedFolderId} onSelect={onSelect} onRename={onRename} onDelete={onDelete} /></div> : null}
         </li>
       ))}
     </ul>

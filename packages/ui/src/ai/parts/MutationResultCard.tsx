@@ -94,7 +94,7 @@ export function MutationResultCard(props: MutationResultCardProps) {
             )}
           </p>
           <ul
-            className="mt-2 list-disc space-y-1 pl-5 text-xs"
+            className="mt-2 list-disc space-y-1 ps-5 text-xs"
             data-ai-mutation-failed-records
           >
             {failedRecords.map((record) => (
@@ -290,14 +290,14 @@ export function MutationResultCard(props: MutationResultCardProps) {
         </AlertTitle>
         <div className="text-sm leading-relaxed">
           <div>
-            <span className="mr-2 font-mono text-xs" data-ai-mutation-result-code>
+            <span className="me-2 font-mono text-xs" data-ai-mutation-result-code>
               {code}
             </span>
             <span>{message}</span>
           </div>
           {visibleIssues.length > 0 ? (
             <ul
-              className="mt-2 list-disc space-y-0.5 pl-5 text-xs"
+              className="mt-2 list-disc space-y-0.5 ps-5 text-xs"
               data-ai-mutation-result-issues
             >
               {visibleIssues.map((issue, index) => {

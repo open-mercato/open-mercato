@@ -206,7 +206,7 @@ export const OrganizationSelect = React.forwardRef<HTMLSelectElement, Organizati
       onChange={handleChange}
       disabled={disabled || isLoading || isError}
       required={required}
-      className={className ?? 'h-9 rounded border pl-2 pr-7 text-sm truncate'}
+      className={className ?? 'h-9 rounded border ps-2 pe-7 text-sm truncate'}
     >
       {resolvedAllOptionLabel ? <option value="">{resolvedAllOptionLabel}</option> : null}
       {resolvedEmptyOptionLabel ? <option value="">{resolvedEmptyOptionLabel}</option> : null}

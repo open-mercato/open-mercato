@@ -28,7 +28,7 @@ export function AiActionChips({ activityType }: AiActionChipsProps) {
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-auto gap-1 rounded-[4px] border-dashed bg-card pl-1.5 pr-[7px] py-[3px] text-[9px] font-medium text-muted-foreground/70 shadow-none hover:border-muted-foreground hover:text-foreground"
+                className="h-auto gap-1 rounded-[4px] border-dashed bg-card ps-1.5 pe-[7px] py-[3px] text-[9px] font-medium text-muted-foreground/70 shadow-none hover:border-muted-foreground hover:text-foreground"
               >
                 <AiIcon className="size-2.5 shrink-0" />
                 {t(action.i18nKey, action.fallback)}

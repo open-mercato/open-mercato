@@ -277,7 +277,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot, confirm }
     }
 
     return (
-        <div className={cn("pl-0", !isRoot && "pl-4 border-l border-border ml-1")}>
+        <div className={cn("ps-0", !isRoot && "ps-4 border-s border-border ms-1")}>
             <div className="flex items-start gap-2 py-1 group">
 
                 {isContainer && (
@@ -374,14 +374,14 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot, confirm }
             </div>
 
             {isContainer && !collapsed && (
-                <div className="flex flex-col gap-1 w-full pl-2">
+                <div className="flex flex-col gap-1 w-full ps-2">
                     {type === 'object' && Object.entries(data).map(([key, val], idx) => (
                         <div key={idx} className="flex">
                             <div className="pt-2">
                                 {/* Key Renamer */}
                                 <InlineInput
                                     className="w-full sm:w-[100px]"
-                                    inputClassName="text-right text-xs font-mono pr-1"
+                                    inputClassName="text-end text-xs font-mono pe-1"
                                     value={key}
                                     onChange={(e) => handleKeyRename(key, e.target.value)}
                                     disabled={readOnly}
@@ -412,7 +412,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot, confirm }
                     ))}
 
                     {!readOnly && (
-                        <div className="pl-4 mt-1">
+                        <div className="ps-4 mt-1">
                             <Button
                                 type="button"
                                 variant="outline"
@@ -420,7 +420,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot, confirm }
                                 onClick={handleAddKey}
                                 className="h-6 text-xs"
                             >
-                                <Plus className="w-3 h-3 mr-1" />
+                                <Plus className="w-3 h-3 me-1" />
                                 Add {type === 'object' ? 'Property' : 'Item'}
                             </Button>
                         </div>

@@ -10,9 +10,9 @@ const inputWrapperVariants = cva(
         sm: 'h-8 px-2.5',
         default: 'h-9 px-3',
         lg: 'h-10 rounded-lg px-3',
-        32: 'h-8 gap-1.5 pl-2 pr-1.5 [&_svg]:size-5',
-        36: 'h-9 gap-2 pl-2.5 pr-2 [&_svg]:size-5',
-        40: 'h-10 gap-2 rounded-lg pl-3 pr-2.5 [&_svg]:size-5',
+        32: 'h-8 gap-1.5 ps-2 pe-1.5 [&_svg]:size-5',
+        36: 'h-9 gap-2 ps-2.5 pe-2 [&_svg]:size-5',
+        40: 'h-10 gap-2 rounded-lg ps-3 pe-2.5 [&_svg]:size-5',
       },
     },
     defaultVariants: {

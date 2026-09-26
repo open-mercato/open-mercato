@@ -23,7 +23,7 @@ function MenuShortcut({ children }: { children: React.ReactNode }): React.ReactE
   return (
     <kbd
       aria-hidden="true"
-      className="ml-auto inline-flex items-center rounded border border-border bg-muted px-1.5 py-px font-mono text-[10px] font-medium leading-none text-muted-foreground"
+      className="ms-auto inline-flex items-center rounded border border-border bg-muted px-1.5 py-px font-mono text-[10px] font-medium leading-none text-muted-foreground"
     >
       {children}
     </kbd>

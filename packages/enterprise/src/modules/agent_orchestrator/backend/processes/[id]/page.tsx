@@ -318,7 +318,7 @@ function StepDetailPanel({
                       >
                         {row.label}
                       </dt>
-                      <dd className="truncate text-right text-xs font-medium text-foreground">{row.value}</dd>
+                      <dd className="truncate text-end text-xs font-medium text-foreground">{row.value}</dd>
                     </div>
                   ))}
                 </dl>
@@ -763,7 +763,7 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
                       {showDay ? (
                         <div className="flex items-center gap-2">
                           <span className="relative flex w-5 flex-none items-center justify-center self-stretch py-1.5">
-                            <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border" />
+                            <span className="absolute inset-y-0 start-1/2 w-px -translate-x-1/2 bg-border rtl:translate-x-1/2" />
                             <span className="relative size-1.5 rounded-full bg-muted-foreground ring-2 ring-card" />
                           </span>
                           <p className="py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -775,10 +775,10 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
                         type="button"
                         onClick={() => setSelectedId(step.id)}
                         aria-pressed={isSelected}
-                        className="flex w-full items-stretch gap-2 text-left"
+                        className="flex w-full items-stretch gap-2 text-start"
                       >
                         <span className="relative flex w-5 flex-none items-center justify-center">
-                          <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border" />
+                          <span className="absolute inset-y-0 start-1/2 w-px -translate-x-1/2 bg-border rtl:translate-x-1/2" />
                           <span
                             className={`relative rounded-full ring-2 ring-card ${ACTOR_DOT[step.actorKind]} ${isSelected ? 'size-3' : 'size-2.5'}`}
                           />

@@ -330,7 +330,7 @@ export function TaskAssignmentField({
                 disabled={disabled}
                 onClick={() => setRuleSelectorOpen(true)}
               >
-                <Pencil className="size-3.5 mr-1" />
+                <Pencil className="size-3.5 me-1" />
                 {t('workflows.tasks.inspector.who.pickRule')}
               </Button>
             </div>

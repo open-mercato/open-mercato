@@ -57,7 +57,7 @@ export function ShareDialogList({
       ) : (
         <div className="space-y-2">
           <p className="text-sm font-medium">{t('documents.share.dialog.current')}</p>
-          <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+          <div className="max-h-64 space-y-2 overflow-y-auto pe-1">
             {shares.map((share) => {
               const isPending = pendingShareIds.has(share.id)
               const principalTypeLabel = t(`documents.share.principalTypes.${share.principalType}`)

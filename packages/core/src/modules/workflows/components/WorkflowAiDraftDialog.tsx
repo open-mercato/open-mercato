@@ -361,9 +361,9 @@ export function WorkflowAiDraftDialog({
             data-testid="workflow-ai-draft-generate"
           >
             {isGenerating ? (
-              <Spinner className="mr-1.5 h-4 w-4" />
+              <Spinner className="me-1.5 h-4 w-4" />
             ) : (
-              <Sparkles className="mr-1.5 h-4 w-4" aria-hidden="true" />
+              <Sparkles className="me-1.5 h-4 w-4" aria-hidden="true" />
             )}
             {state.kind === 'ready'
               ? t('workflows.aiDraft.regenerate', 'Generate again')

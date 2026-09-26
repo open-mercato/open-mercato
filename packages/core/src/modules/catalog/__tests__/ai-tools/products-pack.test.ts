@@ -219,7 +219,7 @@ describe('catalog.get_product', () => {
       .mockResolvedValueOnce([{ category: { id: 'cat-1', name: 'Root', slug: 'root' }, tenantId: 'tenant-1' }])
       .mockResolvedValueOnce([{ tag: { id: 'tag-1', label: 'Hot', slug: 'hot' }, tenantId: 'tenant-1' }])
       .mockResolvedValueOnce([{ id: 'var-1', tenantId: 'tenant-1', name: 'Default', sku: 'SKU-1', isActive: true, isDefault: true }])
-      .mockResolvedValueOnce([{ id: 'pr-1', tenantId: 'tenant-1', currencyCode: 'EUR', kind: 'regular', minQuantity: 1 }])
+      .mockResolvedValueOnce([{ id: 'pe-1', tenantId: 'tenant-1', currencyCode: 'EUR', kind: 'regular', minQuantity: 1 }])
       .mockResolvedValueOnce([{ id: 'att-1', tenantId: 'tenant-1', fileName: 'a.jpg', mimeType: 'image/jpeg', fileSize: 100, url: '/a' }])
       .mockResolvedValueOnce([{ id: 'uc-1', tenantId: 'tenant-1', unitCode: 'kg', toBaseFactor: '1', sortOrder: 0, isActive: true }])
     loadCustomFieldValuesMock.mockResolvedValue({ [existingId]: { note: 'vip' } })

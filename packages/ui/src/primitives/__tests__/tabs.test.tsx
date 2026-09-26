@@ -135,7 +135,7 @@ describe('Tabs Phase B.5 — variant + orientation + leading + count', () => {
       </Tabs>,
     )
     const list = container.querySelector('[data-slot="tabs-list"]') as HTMLElement
-    expect(list.className).toContain('border-r')
+    expect(list.className).toContain('border-e')
     const active = container.querySelector('[data-state="active"]') as HTMLElement
     expect(active.className).toContain('bg-muted/40')
     expect(active.className).toContain('text-foreground')

@@ -78,12 +78,12 @@ export function JsonDisplay({
             >
               {copied ? (
                 <>
-                  <Check className="h-3 w-3 mr-1" />
+                  <Check className="h-3 w-3 me-1" />
                   <span className="text-xs">Copied</span>
                 </>
               ) : (
                 <>
-                  <Copy className="h-3 w-3 mr-1" />
+                  <Copy className="h-3 w-3 me-1" />
                   <span className="text-xs">Copy</span>
                 </>
               )}
@@ -165,9 +165,9 @@ const JsonNode = React.memo<JsonNodeProps>(({ data, depth, maxInitialDepth, them
           onClick={() => setIsExpanded(!isExpanded)}
         >
           {isExpanded ? (
-            <ChevronDown className="h-3 w-3 mr-1" />
+            <ChevronDown className="h-3 w-3 me-1" />
           ) : (
-            <ChevronRight className="h-3 w-3 mr-1" />
+            <ChevronRight className="h-3 w-3 me-1" />
           )}
           <span className={themeClasses.punctuation}>
             [{data.length}]
@@ -217,9 +217,9 @@ const JsonNode = React.memo<JsonNodeProps>(({ data, depth, maxInitialDepth, them
           onClick={() => setIsExpanded(!isExpanded)}
         >
           {isExpanded ? (
-            <ChevronDown className="h-3 w-3 mr-1" />
+            <ChevronDown className="h-3 w-3 me-1" />
           ) : (
-            <ChevronRight className="h-3 w-3 mr-1" />
+            <ChevronRight className="h-3 w-3 me-1" />
           )}
           <span className={themeClasses.punctuation}>
             {'{'}{entries.length}{'}'}

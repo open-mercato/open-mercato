@@ -96,7 +96,7 @@ export function LogList({ entries, emptyMessage, className }: LogListProps) {
               <span className="justify-self-start">
                 <LogLevelBadge level={entry.level} label={entry.levelLabel} />
               </span>
-              <span className="min-w-0 truncate text-left text-sm font-normal">
+              <span className="min-w-0 truncate text-start text-sm font-normal">
                 {entry.message}
               </span>
             </span>

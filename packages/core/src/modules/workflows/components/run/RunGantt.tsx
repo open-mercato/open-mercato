@@ -138,7 +138,7 @@ export function RunGantt({
                 <div className="w-48 shrink-0 truncate text-xs" title={bar.stepName}>
                   <span className="text-foreground">{bar.stepName}</span>
                   {bar.branchInstanceId ? (
-                    <span className="ml-1 text-muted-foreground">
+                    <span className="ms-1 text-muted-foreground">
                       {t('workflows.instances.run.gantt.lane', 'lane {lane}', { lane: String(bar.lane + 1) })}
                     </span>
                   ) : null}
@@ -151,10 +151,10 @@ export function RunGantt({
                     onSelect={onSelectStep ? () => onSelectStep(bar.stepId) : undefined}
                   />
                 </div>
-                <div className="w-24 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                <div className="w-24 shrink-0 text-end text-xs tabular-nums text-muted-foreground">
                   {durationLabel}
                   {bar.running ? (
-                    <span className="ml-1 text-status-info-text">
+                    <span className="ms-1 text-status-info-text">
                       {t('workflows.instances.run.gantt.running', '(running)')}
                     </span>
                   ) : null}

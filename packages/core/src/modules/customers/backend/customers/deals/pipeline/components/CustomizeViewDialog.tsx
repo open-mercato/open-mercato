@@ -73,7 +73,7 @@ export function CustomizeViewDialog({
             </span>
             <Link
               href="/backend/config/customers/pipeline-stages"
-              className="flex items-center justify-between gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="flex items-center justify-between gap-2 rounded-md px-3 py-2 text-start transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               onClick={() => onClose()}
             >
               <span className="flex flex-col">
@@ -103,7 +103,7 @@ export function CustomizeViewDialog({
                   onResetColumnWidths()
                   onClose()
                 }}
-                className="flex items-center justify-between gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                className="flex items-center justify-between gap-2 rounded-md px-3 py-2 text-start transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 <span className="flex flex-col">
                   <span className="text-sm font-medium text-foreground">
@@ -138,7 +138,7 @@ export function CustomizeViewDialog({
                 onResetToDefault()
                 onClose()
               }}
-              className="flex items-center justify-between gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="flex items-center justify-between gap-2 rounded-md px-3 py-2 text-start transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <span className="flex flex-col">
                 <span className="text-sm font-medium text-foreground">

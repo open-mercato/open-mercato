@@ -59,7 +59,7 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
         </div>
         {onSchedule && (
           <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={onSchedule}>
-            <Plus className="mr-1 size-3" />
+            <Plus className="me-1 size-3" />
             {t('customers.timeline.planned.schedule', 'Schedule')}
           </Button>
         )}
@@ -72,7 +72,7 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
           return (
             <div
               key={activity.id}
-              className="flex items-center gap-3 border-l-2 border-l-destructive px-4 py-3 cursor-pointer hover:bg-accent/50 transition-colors"
+              className="flex items-center gap-3 border-s-2 border-s-destructive px-4 py-3 cursor-pointer hover:bg-accent/50 transition-colors"
               onClick={() => onEdit?.(activity)}
               role="button"
               tabIndex={0}
@@ -111,7 +111,7 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
                     onComplete(activity.id)
                   }}
                 >
-                  <Check className="mr-1 size-3" />
+                  <Check className="me-1 size-3" />
                   {t('customers.timeline.planned.markDone', 'Mark done')}
                 </Button>
               )}

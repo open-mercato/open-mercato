@@ -69,7 +69,7 @@ describe('catalog.list_prices', () => {
       data: {
         items: [
           {
-            id: 'pr-1',
+            id: 'pe-1',
             tenant_id: 'tenant-1',
             organization_id: 'org-1',
             currency_code: 'EUR',
@@ -88,7 +88,7 @@ describe('catalog.list_prices', () => {
     const result = (await tool.handler({}, ctx as any)) as Record<string, unknown>
     const items = result.items as Array<Record<string, unknown>>
     expect(items).toHaveLength(1)
-    expect(items[0].id).toBe('pr-1')
+    expect(items[0].id).toBe('pe-1')
     expect(items[0].currencyCode).toBe('EUR')
     expect(items[0].kind).toBe('regular')
     expect(items[0].minQuantity).toBe(1)

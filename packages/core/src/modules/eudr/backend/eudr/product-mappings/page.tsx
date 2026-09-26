@@ -274,12 +274,12 @@ export default function EudrProductMappingsPage() {
                 variant="outline"
                 onClick={() => setSuggestionsOpen(true)}
               >
-                <Sparkles className="mr-2 h-4 w-4" aria-hidden />
+                <Sparkles className="me-2 h-4 w-4" aria-hidden />
                 {translate('eudr.suggestions.open')}
               </Button>
               <Button asChild>
                 <Link href="/backend/eudr/product-mappings/create">
-                  <Plus className="mr-2 h-4 w-4" aria-hidden />
+                  <Plus className="me-2 h-4 w-4" aria-hidden />
                   {translate('eudr.productMappings.list.actions.create')}
                 </Link>
               </Button>

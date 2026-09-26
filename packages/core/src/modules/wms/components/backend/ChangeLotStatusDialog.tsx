@@ -225,8 +225,8 @@ export function ChangeLotStatusDialog({
         className="max-w-md gap-0 overflow-hidden p-0"
         onKeyDown={handleKeyDown}
       >
-        <div className="border-b px-6 py-4 pr-12">
-          <DialogHeader className="space-y-1 text-left">
+        <div className="border-b px-6 py-4 pe-12">
+          <DialogHeader className="space-y-1 text-start">
             <DialogTitle>
               {t('wms.backend.lot.changeStatus.dialog.title', 'Change lot status')}
             </DialogTitle>

@@ -83,7 +83,7 @@ export function NextStepCard({ nextInteractionAt, nextInteractionName, onHide }:
         <Tooltip>
           <TooltipTrigger asChild>
             <Button type="button" variant="outline" size="sm" className="h-7 text-xs" disabled>
-              <Phone className="mr-1 size-3" />
+              <Phone className="me-1 size-3" />
               {t('customers.companies.detail.nextStep.call', 'Call')}
             </Button>
           </TooltipTrigger>
@@ -92,7 +92,7 @@ export function NextStepCard({ nextInteractionAt, nextInteractionName, onHide }:
         <Tooltip>
           <TooltipTrigger asChild>
             <Button type="button" variant="outline" size="sm" className="h-7 text-xs" disabled>
-              <FileText className="mr-1 size-3" />
+              <FileText className="me-1 size-3" />
               {t('customers.companies.detail.nextStep.proposal', 'Proposal')}
             </Button>
           </TooltipTrigger>

@@ -61,7 +61,7 @@ export default function RecoveryCodeChallengeVerify({
       </div>
       <div>
         <Button type="submit" disabled={!canSubmit} className="mt-2 h-10 w-full">
-          {submitting ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+          {submitting ? <Loader2 className="me-2 size-4 animate-spin" /> : null}
           {submitLabel}
         </Button>
       </div>

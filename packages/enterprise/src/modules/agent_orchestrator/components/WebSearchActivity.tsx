@@ -165,7 +165,7 @@ export function WebSearchActivity({ runId, maxSteps = DEFAULT_MAX_STEPS, classNa
                   {/* Only failures carry a reason worth the extra line; a healthy
                       adapter's detail just repeats what the badge already says. */}
                   {row.detail && FAILED_EVENTS.has(row.event) ? (
-                    <p className="pl-1 text-xs text-muted-foreground">{row.detail}</p>
+                    <p className="ps-1 text-xs text-muted-foreground">{row.detail}</p>
                   ) : null}
                 </li>
               ))}

@@ -51,7 +51,7 @@ export function EntryHeader({ entry, variants }: { entry: GalleryEntry; variants
           <span>{t('design_system.gallery.patternNote', 'This is a sample layout composed from library components, not an importable component. Use it as a pattern.')}</span>
         </p>
       ) : (
-        <div className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-muted/50 py-1 pl-3 pr-1">
+        <div className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-muted/50 py-1 ps-3 pe-1">
           <span className="shrink-0 text-xs font-medium uppercase tracking-wider text-muted-foreground">{t('design_system.gallery.importLabel', 'Import')}</span>
           <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap py-1 text-xs">{importStatement}</code>
           <IconButton type="button" variant="ghost" size="sm" aria-label={copyLabel} title={copyLabel} onClick={onCopy}><Copy /></IconButton>

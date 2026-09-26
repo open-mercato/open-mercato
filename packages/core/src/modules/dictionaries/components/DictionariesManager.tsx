@@ -397,7 +397,7 @@ export function DictionariesManager() {
             {t('dictionaries.config.list.title', 'Dictionaries')}
           </h2>
           <Button type="button" size="sm" onClick={openCreateDialog}>
-            <Plus className="mr-2 h-4 w-4" />
+            <Plus className="me-2 h-4 w-4" />
             {t('dictionaries.config.list.add', 'New dictionary')}
           </Button>
         </div>
@@ -582,7 +582,7 @@ export function DictionariesManager() {
               {t('dictionaries.config.dialog.cancel', 'Cancel')}
             </Button>
             <Button type="button" onClick={handleSubmit} disabled={submitting}>
-              {submitting ? <Spinner className="mr-2 h-4 w-4" /> : null}
+              {submitting ? <Spinner className="me-2 h-4 w-4" /> : null}
               {t('dictionaries.config.dialog.save', 'Save')}
             </Button>
           </DialogFooter>

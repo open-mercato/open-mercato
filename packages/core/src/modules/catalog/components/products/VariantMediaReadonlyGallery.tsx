@@ -56,7 +56,7 @@ export function VariantMediaReadonlyGallery({ groups }: Props) {
                   <div className="relative aspect-square overflow-hidden rounded-t-md bg-muted">
                     <img src={thumbnail} alt={item.fileName} className="h-full w-full object-cover" />
                     {isDefault ? (
-                      <div className="absolute right-1 top-1">
+                      <div className="absolute end-1 top-1">
                         <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
                           <Star className="h-3.5 w-3.5" />
                         </div>

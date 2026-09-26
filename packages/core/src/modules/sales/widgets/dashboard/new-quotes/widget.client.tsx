@@ -266,7 +266,7 @@ const SalesNewQuotesWidget: React.FC<DashboardWidgetComponentProps<SalesNewQuote
                 </p>
                 <p className="text-xs text-muted-foreground">{createdLabel}</p>
               </div>
-              <div className="text-right">
+              <div className="text-end">
                 <p className="text-sm font-semibold">{amountLabel}</p>
               </div>
             </div>

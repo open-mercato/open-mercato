@@ -184,7 +184,7 @@ export function DateRangePicker({
           data-slot="date-range-picker-trigger"
           disabled={disabled}
           className={cn(
-            'w-full inline-flex items-center gap-2 rounded-md border border-input bg-background shadow-xs transition-colors text-left',
+            'w-full inline-flex items-center gap-2 rounded-md border border-input bg-background shadow-xs transition-colors text-start',
             'focus-visible:outline-none focus-visible:shadow-focus focus-visible:border-foreground',
             'hover:bg-muted/40',
             'disabled:bg-bg-disabled disabled:border-border-disabled disabled:shadow-none disabled:hover:bg-bg-disabled disabled:cursor-not-allowed',
@@ -214,7 +214,7 @@ export function DateRangePicker({
           {showPresets ? (
             <div
               data-slot="date-range-presets"
-              className="flex w-[200px] shrink-0 flex-col gap-0.5 overflow-y-auto border-r p-2"
+              className="flex w-[200px] shrink-0 flex-col gap-0.5 overflow-y-auto border-e p-2"
             >
               {resolvedPresets.map((preset) => {
                 const isActive = activePresetId === preset.id
@@ -224,7 +224,7 @@ export function DateRangePicker({
                     type="button"
                     onClick={() => handlePresetClick(preset)}
                     className={cn(
-                      'inline-flex h-8 items-center rounded-md px-3 text-left text-sm transition-colors shrink-0',
+                      'inline-flex h-8 items-center rounded-md px-3 text-start text-sm transition-colors shrink-0',
                       'hover:bg-accent hover:text-accent-foreground',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
                       isActive && 'bg-muted font-medium text-foreground',

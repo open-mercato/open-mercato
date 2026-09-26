@@ -2780,9 +2780,9 @@ export default function DealsKanbanPage(): React.ReactElement {
             {/*
               Lane rail reads as an elevated tab over the kanban scroller (round-2 UX item 31,
               revised): `bg-card shadow-lg` gives it a real surface and a soft drop-shadow;
-              `z-10` keeps it above the scroller. `mr-2` adds an 8px gap between the rail and
+              `z-10` keeps it above the scroller. `me-2` adds an 8px gap between the rail and
               the first lane so card edges don't touch the rail (UX-designer round-3 feedback —
-              the prior `-mr-2` tuck-under overlap was reverted; a small positive gap reads
+              the prior `-me-2` tuck-under overlap was reverted; a small positive gap reads
               cleaner than the overlap).
 
               `shadow-lg` glows in all four directions by default, but the LEFT side of the
@@ -2793,7 +2793,7 @@ export default function DealsKanbanPage(): React.ReactElement {
               and clips flush at the LEFT edge (the page-chrome side). Right rail mirrors with
               `inset(-40px 0 -40px -40px)`.
             */}
-            <div className="relative z-10 flex w-11 mr-2 shrink-0 items-center justify-center bg-card shadow-lg [clip-path:inset(-40px_-40px_-40px_0)]">
+            <div className="relative z-10 flex w-11 me-2 shrink-0 items-center justify-center bg-card shadow-lg [clip-path:inset(-40px_-40px_-40px_0)]">
               <IconButton
                 variant="outline"
                 size="lg"
@@ -2865,17 +2865,17 @@ export default function DealsKanbanPage(): React.ReactElement {
                 </>
               )}
             </div>
-            {/* Mirror of the left rail; `ml-3.5` adds a 14px gap between the last lane and the
-              right rail. The right gap is intentionally wider than the left (`mr-2` = 8px)
+            {/* Mirror of the left rail; `ms-3.5` adds a 14px gap between the last lane and the
+              right rail. The right gap is intentionally wider than the left (`me-2` = 8px)
               because the trailing tile here is `AddStageLane` — its dashed border reads more
               subtly than a regular lane's saturated color bar, so the same 8px on the right
               perceptually feels like a "tucked under" overlap (round-3 UX-designer feedback).
-              `ml-3.5` matches the scroller's inter-lane `gap-3.5` so the visual rhythm stays
+              `ms-3.5` matches the scroller's inter-lane `gap-3.5` so the visual rhythm stays
               consistent. `clip-path:inset(-40px 0 -40px -40px)` is the right-rail mirror of the
               left rail's clip — keeps the shadow on top/left/bottom (40px extend) and clips
               flush at the RIGHT edge so it doesn't spill onto the page background past the
               page chrome. */}
-            <div className="relative z-10 flex w-11 ml-3.5 shrink-0 items-center justify-center bg-card shadow-lg [clip-path:inset(-40px_0_-40px_-40px)]">
+            <div className="relative z-10 flex w-11 ms-3.5 shrink-0 items-center justify-center bg-card shadow-lg [clip-path:inset(-40px_0_-40px_-40px)]">
               <IconButton
                 variant="outline"
                 size="lg"
@@ -2937,7 +2937,7 @@ export default function DealsKanbanPage(): React.ReactElement {
                         '{count} more selected',
                         { count: selectedDealIds.size - 1 },
                       )}
-                      className="pointer-events-none absolute -right-3 -top-3 inline-flex h-7 min-w-7 rotate-2 items-center justify-center rounded-full border-2 border-card bg-foreground px-2 text-xs font-bold tabular-nums text-background shadow-lg"
+                      className="pointer-events-none absolute -end-3 -top-3 inline-flex h-7 min-w-7 rotate-2 items-center justify-center rounded-full border-2 border-card bg-foreground px-2 text-xs font-bold tabular-nums text-background shadow-lg"
                     >
                       +{selectedDealIds.size - 1}
                     </span>

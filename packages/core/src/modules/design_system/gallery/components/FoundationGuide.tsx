@@ -34,7 +34,7 @@ export function FoundationGuide({ entries }: { entries: GalleryEntry[] }) {
         <div className="grid gap-6 border-t border-border p-4 sm:grid-cols-2">
           {(['do', 'dont'] as const).map(kind => entry.usage?.[kind]?.length ? <div key={kind} className="space-y-3">
             <h3 className="text-sm font-medium">{t(kind === 'do' ? 'design_system.gallery.usageDo' : 'design_system.gallery.usageDont')}</h3>
-            <ul className="list-disc space-y-2 pl-4 text-sm leading-relaxed text-muted-foreground">{entry.usage[kind]?.map((rule, index) => <li key={rule}>{t(`design_system.gallery.usage.${entry.id}.${kind}.${index}`, rule)}</li>)}</ul>
+            <ul className="list-disc space-y-2 ps-4 text-sm leading-relaxed text-muted-foreground">{entry.usage[kind]?.map((rule, index) => <li key={rule}>{t(`design_system.gallery.usage.${entry.id}.${kind}.${index}`, rule)}</li>)}</ul>
           </div> : null)}
         </div>
       </section> : null}

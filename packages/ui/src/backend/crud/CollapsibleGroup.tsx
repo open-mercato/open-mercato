@@ -120,7 +120,7 @@ export const CollapsibleGroup = React.forwardRef<CollapsibleGroupHandle, Collaps
                 <>
                   {chevronIcon}
                   <span className="flex items-center gap-2">
-                    {icon && <span className="relative shrink-0 text-muted-foreground">{icon}{!expanded && errorCount > 0 && <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-destructive" />}</span>}
+                    {icon && <span className="relative shrink-0 text-muted-foreground">{icon}{!expanded && errorCount > 0 && <span className="absolute -end-0.5 -top-0.5 size-2 rounded-full bg-destructive" />}</span>}
                     <span>{title}</span>
                     {fieldCountLabel}
                     {errorBadge}
@@ -129,7 +129,7 @@ export const CollapsibleGroup = React.forwardRef<CollapsibleGroupHandle, Collaps
               ) : (
                 <>
                   <span className="flex items-center gap-2">
-                    {icon && <span className="relative shrink-0 text-muted-foreground">{icon}{!expanded && errorCount > 0 && <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-destructive" />}</span>}
+                    {icon && <span className="relative shrink-0 text-muted-foreground">{icon}{!expanded && errorCount > 0 && <span className="absolute -end-0.5 -top-0.5 size-2 rounded-full bg-destructive" />}</span>}
                     <span>{title}</span>
                     {fieldCountLabel}
                     {errorBadge}

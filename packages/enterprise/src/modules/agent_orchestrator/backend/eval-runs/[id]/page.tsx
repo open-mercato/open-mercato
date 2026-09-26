@@ -230,7 +230,7 @@ function GoldenCase({ state, evalCaseId }: { state: EvalCaseState; evalCaseId: s
         {evalCase.processType ? (
           <span className="font-mono text-xs text-muted-foreground">{evalCase.processType}</span>
         ) : null}
-        <Button asChild variant="ghost" size="sm" className="ml-auto">
+        <Button asChild variant="ghost" size="sm" className="ms-auto">
           <Link href={`/backend/eval-cases/${encodeURIComponent(evalCaseId)}`}>
             {t('agent_orchestrator.evalRuns.detail.openEvalCase')}
           </Link>
@@ -290,7 +290,7 @@ function AssertionResults({ state }: { state: ResultsState }) {
                   {t('agent_orchestrator.evalRuns.detail.resultScore', undefined, { value: result.score.toFixed(2) })}
                 </span>
               ) : null}
-              <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+              <span className="ms-auto text-xs tabular-nums text-muted-foreground">
                 {formatDateTime(result.evaluatedAt, locale) ?? '—'}
               </span>
             </div>

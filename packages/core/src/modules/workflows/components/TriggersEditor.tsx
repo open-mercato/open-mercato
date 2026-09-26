@@ -126,7 +126,7 @@ export function TriggersEditor({ value, onChange }: TriggersEditorProps) {
               <button
                 type="button"
                 onClick={() => setExpandedId(expanded ? null : trigger.triggerId)}
-                className="flex min-w-0 flex-1 flex-col items-start text-left focus-visible:outline-none"
+                className="flex min-w-0 flex-1 flex-col items-start text-start focus-visible:outline-none"
               >
                 <span className="truncate text-sm font-semibold text-foreground">
                   {trigger.name || t('workflows.triggers.placeholders.name', 'New trigger')}

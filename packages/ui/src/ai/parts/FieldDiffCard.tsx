@@ -38,11 +38,11 @@ function DiffRow({ entry }: { entry: AiPendingActionCardFieldDiff }) {
   const field = entry.fieldLabel ?? entry.field
   return (
     <tr className="border-b border-border last:border-b-0" data-ai-field-diff-row>
-      <td className="py-1.5 pr-4 text-xs font-mono text-muted-foreground align-top">
+      <td className="py-1.5 pe-4 text-xs font-mono text-muted-foreground align-top">
         {field}
       </td>
       <td
-        className="py-1.5 pr-4 text-sm align-top text-status-warning-text"
+        className="py-1.5 pe-4 text-sm align-top text-status-warning-text"
         data-ai-field-diff-before
       >
         <span className="line-through break-all">{before || '—'}</span>
@@ -67,13 +67,13 @@ function DiffTable({ rows, fieldHeader, beforeHeader, afterHeader }: {
     <table className="w-full" data-ai-field-diff-table>
       <thead>
         <tr className="border-b border-border">
-          <th className="py-1 pr-4 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <th className="py-1 pe-4 text-start text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {fieldHeader}
           </th>
-          <th className="py-1 pr-4 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <th className="py-1 pe-4 text-start text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {beforeHeader}
           </th>
-          <th className="py-1 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <th className="py-1 text-start text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {afterHeader}
           </th>
         </tr>

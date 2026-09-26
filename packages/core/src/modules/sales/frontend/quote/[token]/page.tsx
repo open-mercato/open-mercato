@@ -180,7 +180,7 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
                   </p>
                 ) : null}
               </div>
-              <div className="text-right text-sm">
+              <div className="text-end text-sm">
                 <p>
                   {line.totalGrossAmount} {line.currencyCode}
                 </p>
@@ -222,7 +222,7 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
         <div className="space-y-2">
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <Button onClick={() => void handleAccept()} disabled={accepting}>
-            {accepting ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {accepting ? <Spinner className="me-2 h-4 w-4 animate-spin" /> : null}
             {t('sales.quotes.public.acceptButton')}
           </Button>
         </div>

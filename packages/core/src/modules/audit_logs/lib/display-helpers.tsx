@@ -89,13 +89,13 @@ export function ChangedFieldsTable({ changeRows, noneLabel, t, beforeLabel, afte
             <table className="block w-full divide-y text-sm @lg/changes:table @lg/changes:min-w-full">
               <thead className="hidden bg-muted/50 @lg/changes:table-header-group">
                 <tr>
-                  <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
+                  <th scope="col" className="px-4 py-2 text-start font-medium text-muted-foreground">
                     {t('audit_logs.actions.details.field')}
                   </th>
-                  <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
+                  <th scope="col" className="px-4 py-2 text-start font-medium text-muted-foreground">
                     {beforeHeading}
                   </th>
-                  <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
+                  <th scope="col" className="px-4 py-2 text-start font-medium text-muted-foreground">
                     {afterHeading}
                   </th>
                 </tr>

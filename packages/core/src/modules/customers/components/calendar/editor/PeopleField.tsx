@@ -167,7 +167,7 @@ export function PeopleField({
                 onChange([...value, participant])
                 setQuery('')
               }}
-              className="h-auto w-full justify-start gap-2 whitespace-normal px-2 py-1.5 text-left text-sm font-normal text-foreground"
+              className="h-auto w-full justify-start gap-2 whitespace-normal px-2 py-1.5 text-start text-sm font-normal text-foreground"
             >
               <Avatar size="xs" label={guestEmail} />
               <span className="min-w-0 flex-1 truncate">{guestLabel}</span>
@@ -199,12 +199,12 @@ export function PeopleField({
                     setQuery('')
                     if (mode === 'single') setOpen(false)
                   }}
-                  className="h-auto w-full justify-start gap-2 whitespace-normal px-2 py-1.5 text-left text-sm font-normal text-foreground"
+                  className="h-auto w-full justify-start gap-2 whitespace-normal px-2 py-1.5 text-start text-sm font-normal text-foreground"
                 >
                   <Avatar size="xs" label={option.name} />
                   <span className="min-w-0 flex-1 truncate">
                     {option.name}
-                    {option.email ? <span className="ml-1.5 text-xs text-muted-foreground">{option.email}</span> : null}
+                    {option.email ? <span className="ms-1.5 text-xs text-muted-foreground">{option.email}</span> : null}
                   </span>
                   {option.isCustomer ? customerBadge : null}
                 </Button>

@@ -300,7 +300,7 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
           size="sm"
           onClick={() => openDialog(null)}
         >
-          <Plus className="mr-1 size-3.5" />
+          <Plus className="me-1 size-3.5" />
           {t('customers.roles.addRole', 'Add role')}
         </Button>
       ) : (

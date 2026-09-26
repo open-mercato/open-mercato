@@ -509,7 +509,7 @@ export function CalendarEventEditor({
         <VisuallyHidden>
           <DialogTitle>{dialogTitle}</DialogTitle>
         </VisuallyHidden>
-        <div className="flex shrink-0 items-center gap-3 border-b border-border bg-background py-4 pl-5 pr-4">
+        <div className="flex shrink-0 items-center gap-3 border-b border-border bg-background py-4 ps-5 pe-4">
           <Calendar aria-hidden className="size-6 shrink-0 text-foreground" strokeWidth={1.75} />
           <p className="min-w-0 flex-1 text-sm font-medium leading-5 text-foreground">{dialogTitle}</p>
           <IconButton

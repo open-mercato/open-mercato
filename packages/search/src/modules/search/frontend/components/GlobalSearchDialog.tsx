@@ -330,7 +330,7 @@ export function GlobalSearchDialog({
       >
         <Search className="h-4 w-4 text-foreground" />
         <span>{t('search.dialog.actions.search')}</span>
-        <span className="ml-2 rounded border px-1 text-xs text-muted-foreground">⌘K</span>
+        <span className="ms-2 rounded border px-1 text-xs text-muted-foreground">⌘K</span>
       </Button>
       <Button
         type="button"
@@ -398,7 +398,7 @@ export function GlobalSearchDialog({
                       onClick={() => openResult(result)}
                       onMouseEnter={() => setSelectedIndex(index)}
                       className={cn(
-                        'w-full rounded-lg px-4 py-3 text-left transition border',
+                        'w-full rounded-lg px-4 py-3 text-start transition border',
                         isActive
                           ? 'border-primary bg-primary/10 text-foreground shadow-sm'
                           : 'border-transparent hover:border-muted-foreground/30 hover:bg-muted/50',

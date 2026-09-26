@@ -77,11 +77,11 @@ export function CustomerAccountsSettingsPageClient({ portalOrigin, portalOrgSlug
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b text-left">
-                    <th className="pb-2 pr-4 font-medium text-muted-foreground">
+                  <tr className="border-b text-start">
+                    <th className="pb-2 pe-4 font-medium text-muted-foreground">
                       {t('customer_accounts.settings.demo_credentials.email', 'Email')}
                     </th>
-                    <th className="pb-2 pr-4 font-medium text-muted-foreground">
+                    <th className="pb-2 pe-4 font-medium text-muted-foreground">
                       {t('customer_accounts.settings.demo_credentials.password', 'Password')}
                     </th>
                     <th className="pb-2 font-medium text-muted-foreground">
@@ -92,8 +92,8 @@ export function CustomerAccountsSettingsPageClient({ portalOrigin, portalOrgSlug
                 <tbody>
                   {demoAccounts.map((account) => (
                     <tr key={account.email} className="border-b last:border-0">
-                      <td className="py-2 pr-4 font-mono text-xs">{account.email}</td>
-                      <td className="py-2 pr-4 font-mono text-xs">{account.password}</td>
+                      <td className="py-2 pe-4 font-mono text-xs">{account.email}</td>
+                      <td className="py-2 pe-4 font-mono text-xs">{account.password}</td>
                       <td className="py-2 text-xs">
                         {account.roles.length > 0
                           ? account.roles.map((role) => role.name).join(', ')

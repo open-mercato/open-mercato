@@ -236,7 +236,7 @@ function CurrencyInlineEditor({
               {error ? <p className="text-xs text-destructive">{error}</p> : null}
               <div className="flex items-center gap-2">
                 <Button type="button" size="sm" onClick={() => void handleSave()} disabled={saving}>
-                  {saving ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  {saving ? <Spinner className="me-2 h-4 w-4 animate-spin" /> : null}
                   {t('customers.people.detail.inline.saveShortcut')}
                 </Button>
                 <Button
@@ -583,7 +583,7 @@ function CustomerInlineEditor({
             {error ? <p className="text-xs text-destructive">{error}</p> : null}
             <div className="flex items-center gap-2">
               <Button type="button" size="sm" onClick={() => void handleSaveSelection()} disabled={saving}>
-                {saving ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {saving ? <Spinner className="me-2 h-4 w-4 animate-spin" /> : null}
                 {t('customers.people.detail.inline.saveShortcut')}
               </Button>
               <Button type="button" size="sm" variant="ghost" onClick={handleCancel} disabled={saving}>
@@ -746,7 +746,7 @@ function CustomerInlineEditor({
 
           <div className="flex items-center gap-2">
             <Button type="button" size="sm" onClick={() => void handleSaveSnapshot()} disabled={saving || !phoneIsValid}>
-              {saving ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {saving ? <Spinner className="me-2 h-4 w-4 animate-spin" /> : null}
               {t('customers.people.detail.inline.saveShortcut')}
             </Button>
             <Button type="button" size="sm" variant="ghost" onClick={handleCancel} disabled={saving}>
@@ -1198,7 +1198,7 @@ function ContactEmailInlineEditor({
               ) : null}
               <div className="flex items-center gap-2">
                 <Button type="submit" size="sm" disabled={saving}>
-                  {saving ? <Spinner className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                  {saving ? <Spinner className="me-2 h-3.5 w-3.5 animate-spin" /> : null}
                   {t('customers.people.detail.inline.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')}
                 </Button>
                 <Button
@@ -1391,7 +1391,7 @@ function ChannelInlineEditor({
               {error ? <p className="text-xs text-destructive">{error}</p> : null}
               <div className="flex items-center gap-2">
                 <Button type="button" size="sm" onClick={() => void handleSave()} disabled={saving}>
-                  {saving ? <Spinner className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                  {saving ? <Spinner className="me-2 h-3.5 w-3.5 animate-spin" /> : null}
                   {saveLabel}
                 </Button>
                 <Button
@@ -1642,7 +1642,7 @@ function MethodInlineEditor({
               {error ? <p className="text-xs text-destructive">{error}</p> : null}
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="button" size="sm" onClick={() => void handleSave()} disabled={saving}>
-                  {saving ? <Spinner className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                  {saving ? <Spinner className="me-2 h-3.5 w-3.5 animate-spin" /> : null}
                   {saveLabel}
                 </Button>
                 {allowClear ? (
@@ -1840,7 +1840,7 @@ function StatusInlineEditor({
               {error ? <p className="text-xs text-destructive">{error}</p> : null}
               <div className="flex items-center gap-2">
                 <Button type="button" size="sm" onClick={() => void handleSave()} disabled={saving}>
-                  {saving ? <Spinner className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                  {saving ? <Spinner className="me-2 h-3.5 w-3.5 animate-spin" /> : null}
                   {saveLabel}
                 </Button>
                 <Button
@@ -4879,7 +4879,7 @@ export default function SalesDocumentDetailPage({
                 onClick={handleSectionAction}
                 disabled={sectionAction.disabled}
               >
-                {sectionAction.icon ?? <Plus className="mr-2 h-4 w-4" />}
+                {sectionAction.icon ?? <Plus className="me-2 h-4 w-4" />}
                 {sectionAction.label}
               </Button>
             ) : null}
@@ -4962,7 +4962,7 @@ export default function SalesDocumentDetailPage({
               {t('sales.quotes.send.cancel', 'Cancel')}
             </Button>
             <Button onClick={() => void handleSendQuote()} disabled={sending || !contactEmail}>
-              {sending ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {sending ? <Spinner className="me-2 h-4 w-4 animate-spin" /> : null}
               {t('sales.quotes.send.submit', 'Send quote')}
             </Button>
           </DialogFooter>

@@ -198,7 +198,7 @@ export function AgentInvokeConfigField({
               {t('workflows.fieldEditors.agentSelector.noAgentSelected')}
             </p>
             <Button type="button" size="sm" onClick={() => setIsPickerOpen(true)} disabled={disabled}>
-              <Search className="size-3 mr-1" />
+              <Search className="size-3 me-1" />
               {t('workflows.fieldEditors.agentSelector.browseAgents')}
             </Button>
           </div>
@@ -246,7 +246,7 @@ export function AgentInvokeConfigField({
                 )}
               </div>
 
-              <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+              <div className="flex items-center gap-2 ms-4 flex-shrink-0">
                 <Button
                   type="button"
                   variant="outline"
@@ -254,7 +254,7 @@ export function AgentInvokeConfigField({
                   onClick={() => setIsPickerOpen(true)}
                   disabled={disabled}
                 >
-                  <Search className="size-3 mr-1" />
+                  <Search className="size-3 me-1" />
                   {t('workflows.common.change')}
                 </Button>
                 <Button
@@ -288,7 +288,7 @@ export function AgentInvokeConfigField({
                 disabled={disabled}
                 onClick={() => update({ inputs: sampleInputRows })}
               >
-                <Wand2 className="size-3 mr-1" />
+                <Wand2 className="size-3 me-1" />
                 {t('workflows.form.invokeAgent.insertSample')}
               </Button>
             )}
@@ -299,7 +299,7 @@ export function AgentInvokeConfigField({
               disabled={disabled}
               onClick={() => update({ inputs: [...inputs, { key: '', value: '' }] })}
             >
-              <Plus className="size-3 mr-1" />
+              <Plus className="size-3 me-1" />
               {t('workflows.form.addMapping')}
             </Button>
           </div>
@@ -391,7 +391,7 @@ export function AgentInvokeConfigField({
             express an exact value, and removing it would take a capability
             away.
           */}
-          <div className="flex items-center gap-3 pl-6">
+          <div className="flex items-center gap-3 ps-6">
             <Slider
               aria-label={t('workflows.form.invokeAgent.autoApprove')}
               value={[thresholdSliderValue]}
@@ -435,7 +435,7 @@ export function AgentInvokeConfigField({
             disabled={disabled}
             onClick={() => update({ outputs: [...outputs, { key: '', value: '' }] })}
           >
-            <Plus className="size-3 mr-1" />
+            <Plus className="size-3 me-1" />
             {t('workflows.form.addMapping')}
           </Button>
         </div>

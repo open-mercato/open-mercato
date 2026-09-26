@@ -110,7 +110,7 @@ function StatTile({
 }) {
   const content = (
     <span className="flex w-full items-center justify-between gap-3">
-      <span className="text-left text-xs font-medium text-muted-foreground">{label}</span>
+      <span className="text-start text-xs font-medium text-muted-foreground">{label}</span>
       <span className="text-lg font-semibold text-foreground">{value}</span>
     </span>
   )

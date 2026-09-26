@@ -93,7 +93,7 @@ const sliderThumbVariants = cva(
   //     border is what makes the thumb still legible against the track
   //     when shadow + indigo are both gone.
   'relative block size-4 rounded-full bg-background shadow-sm transition-shadow ' +
-    "after:content-[''] after:absolute after:left-1/2 after:top-1/2 after:size-1.5 after:-translate-x-1/2 after:-translate-y-1/2 after:rounded-full after:bg-accent-indigo " +
+    "after:content-[''] after:absolute after:start-1/2 after:top-1/2 after:size-1.5 after:-translate-x-1/2 after:-translate-y-1/2 after:rounded-full after:bg-accent-indigo after:rtl:translate-x-1/2" +
     'hover:shadow-md ' +
     'focus-visible:outline-none focus-visible:shadow-focus ' +
     'data-[disabled]:pointer-events-none data-[disabled]:shadow-none data-[disabled]:border data-[disabled]:border-muted-foreground/30 ' +

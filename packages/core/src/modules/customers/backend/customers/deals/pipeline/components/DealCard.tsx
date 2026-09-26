@@ -550,7 +550,7 @@ function DealCardImpl({
                 label={`+${ownerOverflow}`}
                 size="sm"
                 variant="monochrome"
-                className="size-7 -ml-2.5 text-xs font-bold ring-2 ring-card"
+                className="size-7 -ms-2.5 text-xs font-bold ring-2 ring-card"
               />
             ) : null}
           </div>

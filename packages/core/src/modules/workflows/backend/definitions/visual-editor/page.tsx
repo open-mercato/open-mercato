@@ -3212,7 +3212,7 @@ export default function VisualEditorPage() {
                     variant="ghost"
                     onClick={() => handleProblemClick(issue)}
                     disabled={!isNavigable}
-                    className={`flex h-auto w-full items-start justify-start gap-2 rounded-none px-3 py-1.5 text-left text-sm font-normal ${isNavigable ? 'hover:bg-muted' : 'cursor-default hover:bg-transparent'}`}
+                    className={`flex h-auto w-full items-start justify-start gap-2 rounded-none px-3 py-1.5 text-start text-sm font-normal ${isNavigable ? 'hover:bg-muted' : 'cursor-default hover:bg-transparent'}`}
                   >
                     {issue.severity === 'error' ? (
                       <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-status-error-text" aria-hidden="true" />
@@ -3308,7 +3308,7 @@ export default function VisualEditorPage() {
                 </span>
               )}
               {!isCodeOnly && definitionId && autosaveState !== 'idle' && (
-                <span className="mr-1 text-xs text-muted-foreground" aria-live="polite">
+                <span className="me-1 text-xs text-muted-foreground" aria-live="polite">
                   {autosaveState === 'saving' ? t('workflows.visualEditor.autosaving') : t('workflows.visualEditor.autosaved')}
                 </span>
               )}
@@ -3324,7 +3324,7 @@ export default function VisualEditorPage() {
                   className="h-8 px-2 text-xs"
                   aria-label={t('workflows.visualEditor.exitFocusMode')}
                 >
-                  <Minimize2 className="mr-1.5 h-4 w-4" />
+                  <Minimize2 className="me-1.5 h-4 w-4" />
                   {t('workflows.visualEditor.exitFocusMode')}
                 </Button>
               ) : (
@@ -3343,13 +3343,13 @@ export default function VisualEditorPage() {
                     : t('workflows.visualEditor.validate')}
                 >
                   {problemErrorCount > 0 ? (
-                    <CircleAlert className="mr-1.5 h-4 w-4 text-destructive" aria-hidden="true" />
+                    <CircleAlert className="me-1.5 h-4 w-4 text-destructive" aria-hidden="true" />
                   ) : (
-                    <CircleQuestionMark className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                    <CircleQuestionMark className="me-1.5 h-4 w-4" aria-hidden="true" />
                   )}
                   {t('workflows.visualEditor.validate')}
                   {problemErrorCount > 0 && (
-                    <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs font-semibold text-white">
+                    <span className="ms-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs font-semibold text-white">
                       {problemErrorCount}
                     </span>
                   )}
@@ -3404,10 +3404,10 @@ export default function VisualEditorPage() {
                     className="h-8 px-2 text-xs"
                     aria-label={t('workflows.lastRun.toggle', 'Show the last run on the canvas')}
                   >
-                    <History className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                    <History className="me-1.5 h-4 w-4" aria-hidden="true" />
                     {t('workflows.lastRun.toggleShort', 'Last run')}
                     {showLastRun && lastRunOverlay.isUnavailable ? (
-                      <span className="ml-1.5 text-muted-foreground">
+                      <span className="ms-1.5 text-muted-foreground">
                         {t('workflows.lastRun.never', '(never run)')}
                       </span>
                     ) : null}
@@ -3421,7 +3421,7 @@ export default function VisualEditorPage() {
                     disabled={isSaving}
                     className="h-8 text-xs"
                   >
-                    <Play className="mr-1.5 h-4 w-4" />
+                    <Play className="me-1.5 h-4 w-4" />
                     {t('workflows.actions.startInstance')}
                   </Button>
                 )}
@@ -3444,7 +3444,7 @@ export default function VisualEditorPage() {
                   className="h-8 px-2 text-xs md:px-3"
                   aria-label={isSaving ? t('workflows.mobile.saving') : definitionId ? t('workflows.common.update') : t('workflows.common.save')}
                 >
-                  <Save className="mr-1.5 h-4 w-4" />
+                  <Save className="me-1.5 h-4 w-4" />
                   {isSaving ? t('workflows.mobile.saving') : definitionId ? t('workflows.common.update') : t('workflows.common.save')}
                 </Button>
               )}
@@ -3545,10 +3545,10 @@ export default function VisualEditorPage() {
           )}
         </div>
       ) : (
-        <div data-testid="workflow-editor-row" className="flex min-h-0 min-w-0 flex-1 border-t border-border pl-3 md:pl-6">
+        <div data-testid="workflow-editor-row" className="flex min-h-0 min-w-0 flex-1 border-t border-border ps-3 md:ps-6">
           {/* Left Sidebar - Step Palette rail (hidden in read-only mode) */}
           {!isCodeOnly && (
-          <div className={`${paletteCollapsed ? 'w-14' : 'w-48'} shrink-0 overflow-y-auto border-r border-border bg-background p-2`}>
+          <div className={`${paletteCollapsed ? 'w-14' : 'w-48'} shrink-0 overflow-y-auto border-e border-border bg-background p-2`}>
             <div className={`mb-2 flex items-center ${paletteCollapsed ? 'justify-center' : 'justify-between'}`}>
               {!paletteCollapsed && (
                 <h2 className="px-1 text-xs font-semibold uppercase text-muted-foreground">{t('workflows.visualEditor.stepPalette')}</h2>
@@ -3598,7 +3598,7 @@ export default function VisualEditorPage() {
                     onDragStart={(event) => handlePaletteStepDragStart(event, nodeType)}
                     onClick={() => handleAddNode(nodeType)}
                     title={label.description}
-                    className="flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs hover:bg-muted"
+                    className="flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-start text-xs hover:bg-muted"
                   >
                     <Icon className={`h-4 w-4 shrink-0 ${NODE_TYPE_COLORS[nodeType]}`} />
                     <span className="truncate font-medium text-foreground">{label.title}</span>
@@ -3629,7 +3629,7 @@ export default function VisualEditorPage() {
                         onDragStart={(event) => handlePaletteActivityDragStart(event, option.value, option.label)}
                         onClick={() => flash(t('workflows.visualEditor.palette.dragActionHint', 'Drop an action onto a route to add it there'), 'info')}
                         title={t('workflows.visualEditor.palette.dragActionHint', 'Drop an action onto a route to add it there')}
-                        className="flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs hover:bg-muted"
+                        className="flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-start text-xs hover:bg-muted"
                       >
                         <ActionIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
                         <span className="truncate font-medium text-foreground">{option.label}</span>
@@ -3655,7 +3655,7 @@ export default function VisualEditorPage() {
                     type="button"
                     onClick={() => handleAddAnnotation('note')}
                     title={t('workflows.annotations.note.addHint', 'Add a markdown sticky note to the canvas')}
-                    className="flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs hover:bg-muted"
+                    className="flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-start text-xs hover:bg-muted"
                   >
                     <StickyNote className="h-4 w-4 shrink-0 text-status-warning-text" aria-hidden="true" />
                     <span className="truncate font-medium text-foreground">{t('workflows.annotations.note.add', 'Note')}</span>
@@ -3664,7 +3664,7 @@ export default function VisualEditorPage() {
                     type="button"
                     onClick={() => handleAddAnnotation('group')}
                     title={t('workflows.annotations.group.addHint', 'Add a named region around part of the canvas')}
-                    className="flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs hover:bg-muted"
+                    className="flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-start text-xs hover:bg-muted"
                   >
                     <Group className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                     <span className="truncate font-medium text-foreground">{t('workflows.annotations.group.add', 'Group')}</span>

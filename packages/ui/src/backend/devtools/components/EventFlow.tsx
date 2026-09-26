@@ -30,7 +30,7 @@ export function EventFlow({ entries }: { entries: EventFlowEntry[] }) {
           >
             <div>
               <span className="font-medium">{entry.eventName}</span>
-              <span className="ml-1.5 text-overline text-muted-foreground">
+              <span className="ms-1.5 text-overline text-muted-foreground">
                 {entry.widgetId}
               </span>
             </div>

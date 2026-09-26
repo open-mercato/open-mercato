@@ -55,7 +55,7 @@ export function MobileDefinitionDetail({
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold">{t('workflows.form.stepsLabel', 'Steps')} ({steps.length})</h2>
           <Button variant="outline" size="sm" onClick={onAddStep} className="h-8 text-xs">
-            <Plus className="mr-1 h-3.5 w-3.5" />
+            <Plus className="me-1 h-3.5 w-3.5" />
             {t('workflows.mobile.addStep', 'Add Step')}
           </Button>
         </div>
@@ -108,7 +108,7 @@ export function MobileDefinitionDetail({
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold">{t('workflows.form.transitionsLabel', 'Transitions')} ({transitions.length})</h2>
           <Button variant="outline" size="sm" onClick={onAddTransition} className="h-8 text-xs">
-            <Plus className="mr-1 h-3.5 w-3.5" />
+            <Plus className="me-1 h-3.5 w-3.5" />
             {t('workflows.mobile.addTransition', 'Add Transition')}
           </Button>
         </div>

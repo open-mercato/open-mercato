@@ -207,7 +207,7 @@ export function TaskDecisionsField({
                       ))}
                     </SelectContent>
                   </Select>
-                  <Badge variant="muted" className="ml-auto font-mono text-xs">
+                  <Badge variant="muted" className="ms-auto font-mono text-xs">
                     {draft.id}
                   </Badge>
                 </div>
@@ -225,7 +225,7 @@ export function TaskDecisionsField({
           disabled={disabled}
           onClick={() => setValue([...drafts, newDecisionDraft(routes[drafts.length]?.transitionId ?? '')])}
         >
-          <Plus className="size-3.5 mr-1" />
+          <Plus className="size-3.5 me-1" />
           {t('workflows.tasks.inspector.decisions.add')}
         </Button>
         <Button
@@ -235,7 +235,7 @@ export function TaskDecisionsField({
           disabled={disabled}
           onClick={applyApprovalPreset}
         >
-          <Wand2 className="size-3.5 mr-1" />
+          <Wand2 className="size-3.5 me-1" />
           {t('workflows.tasks.inspector.decisions.applyApprovalPreset')}
         </Button>
       </div>

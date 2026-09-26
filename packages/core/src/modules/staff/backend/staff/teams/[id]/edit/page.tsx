@@ -420,7 +420,7 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
               actions={(
                 <Button asChild size="sm">
                   <Link href={`/backend/staff/team-members/create?teamId=${encodeURIComponent(teamId ?? '')}`}>
-                    <Plus className="mr-2 h-4 w-4" aria-hidden />
+                    <Plus className="me-2 h-4 w-4" aria-hidden />
                     {memberLabels.actions.add}
                   </Link>
                 </Button>

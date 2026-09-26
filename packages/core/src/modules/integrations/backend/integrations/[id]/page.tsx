@@ -246,8 +246,8 @@ function RunActivityStrip({
           {t('integrations.detail.runActivity.lastRefreshed', 'Last refreshed')}: {new Date(refreshedAt).toLocaleTimeString()}
         </span>
       ) : null}
-      <Button type="button" variant="outline" size="sm" className="ml-auto" onClick={onRefresh} disabled={isRefreshing}>
-        {isRefreshing ? <Spinner className="mr-2 h-4 w-4" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+      <Button type="button" variant="outline" size="sm" className="ms-auto" onClick={onRefresh} disabled={isRefreshing}>
+        {isRefreshing ? <Spinner className="me-2 h-4 w-4" /> : <RefreshCw className="me-2 h-4 w-4" />}
         {t('integrations.detail.runActivity.refresh', 'Refresh')}
       </Button>
     </div>
@@ -1310,12 +1310,12 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                           <span className="text-sm font-medium">{version.label ?? version.id}</span>
                           <Badge
                             variant={version.status === 'stable' ? 'default' : version.status === 'deprecated' ? 'destructive' : 'secondary'}
-                            className="ml-2"
+                            className="ms-2"
                           >
                             {t(`integrations.detail.version.${version.status}`)}
                           </Badge>
                           {version.status === 'deprecated' && version.sunsetAt ? (
-                            <span className="ml-2 text-xs text-muted-foreground">
+                            <span className="ms-2 text-xs text-muted-foreground">
                               {t('integrations.detail.version.sunsetAt', { date: new Date(version.sunsetAt).toLocaleDateString() })}
                             </span>
                           ) : null}
@@ -1360,7 +1360,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                         onClick={() => void refreshRunActivity({ showLoading: true })}
                         disabled={isRefreshingRunActivity || !runIdFromUrl}
                       >
-                        {isRefreshingRunActivity ? <Spinner className="mr-2 h-4 w-4" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                        {isRefreshingRunActivity ? <Spinner className="me-2 h-4 w-4" /> : <RefreshCw className="me-2 h-4 w-4" />}
                         {t('integrations.detail.runActivity.refresh', 'Refresh')}
                       </Button>
                       <Button
@@ -1370,7 +1370,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                         onClick={() => void handleHealthCheck()}
                         disabled={isCheckingHealth}
                       >
-                        {isCheckingHealth ? <Spinner className="mr-2 h-4 w-4" /> : <Zap className="mr-2 h-4 w-4" />}
+                        {isCheckingHealth ? <Spinner className="me-2 h-4 w-4" /> : <Zap className="me-2 h-4 w-4" />}
                         {isCheckingHealth ? t('integrations.detail.health.checking') : t('integrations.detail.health.check')}
                       </Button>
                     </div>
@@ -1392,7 +1392,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                     {healthStatusDescription ? (
                       <p className="min-w-0 flex-1 text-sm text-muted-foreground">{healthStatusDescription}</p>
                     ) : null}
-                    <p className="text-xs text-muted-foreground md:ml-auto">
+                    <p className="text-xs text-muted-foreground md:ms-auto">
                       {resolvedState.lastHealthCheckedAt
                         ? t('integrations.detail.health.lastChecked', { date: new Date(resolvedState.lastHealthCheckedAt).toLocaleString() })
                         : t('integrations.detail.health.neverChecked')
@@ -1463,7 +1463,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                 onClick={() => void refreshRunActivity({ showLoading: true })}
                 disabled={isRefreshingRunActivity || !runIdFromUrl}
               >
-                {isRefreshingRunActivity ? <Spinner className="mr-2 h-4 w-4" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                {isRefreshingRunActivity ? <Spinner className="me-2 h-4 w-4" /> : <RefreshCw className="me-2 h-4 w-4" />}
                 {t('integrations.detail.runActivity.refresh', 'Refresh')}
               </Button>
             </div>

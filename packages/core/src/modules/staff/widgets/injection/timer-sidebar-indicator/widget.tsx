@@ -56,7 +56,7 @@ function TimerSidebarIndicator() {
           <span className="truncate">{timer.projectName}</span>
         </span>
       ) : null}
-      <span className="ml-auto font-mono tabular-nums shrink-0">{formatElapsed(elapsed)}</span>
+      <span className="ms-auto font-mono tabular-nums shrink-0">{formatElapsed(elapsed)}</span>
     </Link>
   )
 }

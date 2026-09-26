@@ -369,7 +369,7 @@ export function AdjustmentDialog({
 
   const fields = React.useMemo<CrudField<AdjustmentFormState>[]>(() => {
     const percentSuffix = (
-      <div className="flex h-9 items-center rounded-r-md border border-l-0 bg-muted px-3 text-sm font-semibold text-muted-foreground">
+      <div className="flex h-9 items-center rounded-e-md border border-s-0 bg-muted px-3 text-sm font-semibold text-muted-foreground">
         %
       </div>
     )
@@ -480,7 +480,7 @@ export function AdjustmentDialog({
               onChange={(event) => setValue(event.target.value)}
               placeholder="0.00"
               disabled={mode !== 'rate'}
-              className="rounded-r-none"
+              className="rounded-e-none"
             />
             {percentSuffix}
           </div>

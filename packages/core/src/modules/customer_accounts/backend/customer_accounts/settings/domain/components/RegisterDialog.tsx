@@ -165,7 +165,7 @@ export function RegisterDialog({
               {t('customer_accounts.domainMapping.dialog.cancel', 'Cancel')}
             </Button>
             <Button type="submit" size="default" disabled={submitting}>
-              {submitting ? <Spinner className="mr-2 h-4 w-4" /> : null}
+              {submitting ? <Spinner className="me-2 h-4 w-4" /> : null}
               {submitLabel}
             </Button>
           </DialogFooter>

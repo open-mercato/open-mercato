@@ -45,7 +45,7 @@ export default function CompanyUsersWidget({ context }: CompanyUsersProps) {
     <div className="rounded-md border p-3">
       <div className="text-sm font-medium mb-2">
         {t('customer_accounts.widgets.portalUsers', 'Portal Users')}
-        {users.length > 0 && <span className="ml-1 text-muted-foreground">({users.length})</span>}
+        {users.length > 0 && <span className="ms-1 text-muted-foreground">({users.length})</span>}
       </div>
       {users.length === 0 ? (
         <div className="text-sm text-muted-foreground">

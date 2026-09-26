@@ -206,7 +206,7 @@ export default function CheckoutPayLinksPage() {
           actions={(
             <Button asChild>
               <Link href="/backend/checkout/pay-links/create">
-                <Plus className="mr-2 h-4 w-4" />
+                <Plus className="me-2 h-4 w-4" />
                 {t('checkout.admin.payLinks.actions.create')}
               </Link>
             </Button>

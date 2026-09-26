@@ -148,7 +148,7 @@ export function AddRowDropdown({
               onClick={() => handleSelectProject(project)}
             >
               <ProjectColorDot colorKey={project.color} projectName={project.name} size="sm" />
-              <span className="ml-1.5">{project.name}</span>
+              <span className="ms-1.5">{project.name}</span>
             </Button>
           ))
         )}
@@ -161,7 +161,7 @@ export function AddRowDropdown({
           className="w-full justify-start rounded-none px-3 py-2 text-sm text-primary cursor-pointer hover:bg-muted border-t"
           onClick={handleCreateProject}
         >
-          <Plus className="h-4 w-4 mr-1" />
+          <Plus className="h-4 w-4 me-1" />
           {t('staff.timesheets.my.addRow.createProject', 'Create a new project')}
         </Button>
       )}

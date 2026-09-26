@@ -205,7 +205,7 @@ export default function PasskeyProviderDetails({
           variant="outline"
           className="h-10 border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-slate-100"
         >
-          {loading ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+          {loading ? <Loader2 className="me-2 size-4 animate-spin" /> : null}
           {t('ui.actions.add', 'Add')}
         </Button>
       </form>

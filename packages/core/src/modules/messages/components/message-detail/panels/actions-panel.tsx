@@ -22,7 +22,7 @@ export function MessageDetailActionsSection(props: ActionsPanelProps) {
   if (!props.messageActions.length) return null
 
   return (
-    <section className="space-y-3 border-l pl-4 py-2">
+    <section className="space-y-3 border-s ps-4 py-2">
       <h2 className="text-base font-semibold">{t('messages.actions.title', 'Actions')}</h2>
       {props.ActionsComponent ? (
         <props.ActionsComponent

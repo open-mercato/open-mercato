@@ -233,7 +233,7 @@ function FlashMessagesInner() {
   if (!msg || !isPrimaryHost) return null
 
   return (
-    <div className="pointer-events-none fixed left-3 right-3 top-3 z-toast sm:left-auto sm:right-4 sm:w-[380px]">
+    <div className="pointer-events-none fixed start-3 end-3 top-3 z-toast sm:start-auto sm:end-4 sm:w-[380px]">
       <div className="pointer-events-auto">
         <Alert
           status={flashKindToAlertStatus[kind]}

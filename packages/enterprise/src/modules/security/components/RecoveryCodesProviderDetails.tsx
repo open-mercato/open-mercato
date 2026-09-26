@@ -64,12 +64,12 @@ export default function RecoveryCodesProviderDetails() {
           {recoveryCodes.length > 0 ? (
             <>
               <div className="grid gap-4 md:grid-cols-2">
-                <ul className="space-y-2 pl-7">
+                <ul className="space-y-2 ps-7">
                   {leftCodes.map((code) => (
                     <li key={`left:${code}`} className="font-mono text-sm text-slate-100">{code}</li>
                   ))}
                 </ul>
-                <ul className="space-y-2 pl-7">
+                <ul className="space-y-2 ps-7">
                   {rightCodes.map((code) => (
                     <li key={`right:${code}`} className="font-mono text-sm text-slate-100">{code}</li>
                   ))}
@@ -78,15 +78,15 @@ export default function RecoveryCodesProviderDetails() {
 
               <div className="flex flex-wrap gap-3">
                 <Button type="button" variant="outline" className="h-10 border-slate-700 bg-slate-800" onClick={handleDownload}>
-                  <Download className="mr-2 size-4" aria-hidden />
+                  <Download className="me-2 size-4" aria-hidden />
                   {t('security.profile.mfa.recovery.downloadAction', 'Download')}
                 </Button>
                 <Button type="button" variant="outline" className="h-10 border-slate-700 bg-slate-800" onClick={handlePrint}>
-                  <Printer className="mr-2 size-4" aria-hidden />
+                  <Printer className="me-2 size-4" aria-hidden />
                   {t('security.profile.mfa.recovery.print', 'Print')}
                 </Button>
                 <Button type="button" variant="outline" className="h-10 border-slate-700 bg-slate-800" onClick={handleCopy}>
-                  <ClipboardCopy className="mr-2 size-4" aria-hidden />
+                  <ClipboardCopy className="me-2 size-4" aria-hidden />
                   {t('security.profile.mfa.recovery.copyAction', 'Copy')}
                 </Button>
               </div>
@@ -113,7 +113,7 @@ export default function RecoveryCodesProviderDetails() {
           )}
         </p>
         <Button type="button" className="mt-3 h-10" onClick={() => void handleGenerate()} disabled={saving}>
-          {saving ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+          {saving ? <Loader2 className="me-2 size-4 animate-spin" /> : null}
           {t('security.profile.mfa.recovery.regenerate', 'Generate new recovery codes')}
         </Button>
       </section>

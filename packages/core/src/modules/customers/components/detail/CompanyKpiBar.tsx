@@ -180,7 +180,7 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
               variant="ghost"
               size="xs"
               onClick={() => toggleTile(tile.id)}
-              className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-60"
+              className="absolute end-2 top-2 opacity-0 transition-opacity group-hover:opacity-60"
               aria-label={t('customers.companies.dashboard.hideTile', 'Hide tile')}
             >
               <EyeOff className="size-3.5" />

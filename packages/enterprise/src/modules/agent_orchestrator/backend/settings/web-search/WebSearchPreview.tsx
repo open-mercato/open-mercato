@@ -161,7 +161,7 @@ export function WebSearchPreview() {
                   <ol className="mt-2 space-y-1">
                     {payload.results.map((hit, index) => (
                       <li key={`${hit.url}:${index}`} className="flex items-baseline gap-2 text-sm">
-                        <span className="w-5 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                        <span className="w-5 shrink-0 text-end text-xs tabular-nums text-muted-foreground">
                           {index + 1}
                         </span>
                         <a

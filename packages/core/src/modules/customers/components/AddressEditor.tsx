@@ -430,12 +430,12 @@ export function AddressEditor({
               disabled={disabled}
               aria-invalid={errors.country ? 'true' : undefined}
             >
-              <span className="truncate text-left">
+              <span className="truncate text-start">
                 {selectedCountry
                   ? `${selectedCountry.label}`
                   : t('customers.people.detail.addresses.countryPlaceholder', 'Select country')}
               </span>
-              <span className="ml-2 text-xs text-muted-foreground">
+              <span className="ms-2 text-xs text-muted-foreground">
                 {selectedCountry ? selectedCountry.code : null}
               </span>
             </Button>

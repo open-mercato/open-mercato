@@ -152,7 +152,7 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
           <div>{t('checkout.customerFieldsEditor.columns.placeholder')}</div>
           <div>{t('checkout.customerFieldsEditor.columns.type')}</div>
           <div>{t('checkout.customerFieldsEditor.columns.required')}</div>
-          <div className="text-right">{t('checkout.customerFieldsEditor.columns.actions')}</div>
+          <div className="text-end">{t('checkout.customerFieldsEditor.columns.actions')}</div>
         </div>
 
         {fields.length > 0 ? (
@@ -243,7 +243,7 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
                           size="sm"
                           onClick={() => removeField(index)}
                         >
-                          <Trash2 className="mr-2 h-4 w-4" />
+                          <Trash2 className="me-2 h-4 w-4" />
                           {t('checkout.common.actions.remove')}
                         </Button>
                       ) : (
@@ -264,10 +264,10 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
                       <div className="overflow-hidden rounded-lg border border-border/70 bg-background">
                         <table className="w-full table-fixed">
                           <thead className="border-b bg-muted/30">
-                            <tr className="text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            <tr className="text-start text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                               <th className="px-3 py-2 w-[40%]">{t('checkout.customerFieldsEditor.options.value')}</th>
                               <th className="px-3 py-2">{t('checkout.customerFieldsEditor.options.label')}</th>
-                              <th className="px-3 py-2 w-[96px] text-right">{t('checkout.customerFieldsEditor.columns.actions')}</th>
+                              <th className="px-3 py-2 w-[96px] text-end">{t('checkout.customerFieldsEditor.columns.actions')}</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border/70">
@@ -301,7 +301,7 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
                                       <p className="mt-1 text-xs text-destructive">{optionLabelError}</p>
                                     ) : null}
                                   </td>
-                                  <td className="px-3 py-2 text-right">
+                                  <td className="px-3 py-2 text-end">
                                     <Button
                                       type="button"
                                       variant="outline"
@@ -318,7 +318,7 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
                         </table>
                       </div>
                       <Button type="button" variant="outline" size="sm" onClick={() => addOption(index)}>
-                        <Plus className="mr-2 h-4 w-4" />
+                        <Plus className="me-2 h-4 w-4" />
                         {t('checkout.customerFieldsEditor.options.add')}
                       </Button>
                     </div>
@@ -342,7 +342,7 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
         variant="outline"
         onClick={() => onChange(withSortOrder([...fields, createField(fields.length, t)]))}
       >
-        <Plus className="mr-2 h-4 w-4" />
+        <Plus className="me-2 h-4 w-4" />
         {t('checkout.customerFieldsEditor.addField')}
       </Button>
     </div>

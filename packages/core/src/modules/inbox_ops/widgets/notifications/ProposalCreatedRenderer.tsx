@@ -40,7 +40,7 @@ export function ProposalCreatedRenderer({
   return (
     <div
       className={cn(
-        'group relative px-4 py-3 hover:bg-muted/50 cursor-pointer transition-colors border-l-4 border-l-status-warning-border',
+        'group relative px-4 py-3 hover:bg-muted/50 cursor-pointer transition-colors border-s-4 border-s-status-warning-border',
         isUnread && 'bg-status-warning-bg',
       )}
       onClick={handleReview}
@@ -54,7 +54,7 @@ export function ProposalCreatedRenderer({
       tabIndex={0}
     >
       {isUnread && (
-        <div className="absolute left-1.5 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full bg-primary" />
+        <div className="absolute start-1.5 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full bg-primary" />
       )}
 
       <div className="flex gap-3">

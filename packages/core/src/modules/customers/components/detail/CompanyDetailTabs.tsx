@@ -161,9 +161,9 @@ function DefaultCompanyDetailTabs({
             size="sm"
             onClick={sectionAction.onClick}
             disabled={sectionAction.disabled}
-            className="mb-1.5 mr-1 shrink-0"
+            className="mb-1.5 me-1 shrink-0"
           >
-            <Plus className="mr-1.5 h-4 w-4" />
+            <Plus className="me-1.5 h-4 w-4" />
             {sectionAction.label}
           </Button>
         ) : null}

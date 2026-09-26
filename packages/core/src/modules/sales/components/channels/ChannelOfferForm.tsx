@@ -1237,7 +1237,7 @@ function DefaultMediaSelect({
             key={tile.id}
             type="button"
             className={cn(
-              'flex flex-col rounded border text-left transition-colors',
+              'flex flex-col rounded border text-start transition-colors',
               tile.selected ? 'border-primary shadow-sm' : 'hover:border-primary/60',
             )}
             onClick={tile.onClick}
@@ -1251,7 +1251,7 @@ function DefaultMediaSelect({
                 </div>
               )}
               {tile.selected ? (
-                <div className="absolute right-2 top-2 rounded-full bg-primary/90 px-2 py-0.5 text-xs font-semibold text-primary-foreground">
+                <div className="absolute end-2 top-2 rounded-full bg-primary/90 px-2 py-0.5 text-xs font-semibold text-primary-foreground">
                   {t('sales.channels.offers.form.mediaSelected', 'Active')}
                 </div>
               ) : null}
@@ -1875,12 +1875,12 @@ function PriceOverridesEditor({
               </Select>
               <div className="relative">
                 {(row.currencyCode ?? basePrice?.currencyCode) ? (
-                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground">
+                  <span className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground">
                     {row.currencyCode ?? basePrice?.currencyCode}
                   </span>
                 ) : null}
                 <Input
-                  inputClassName={cn(row.currencyCode || basePrice?.currencyCode ? 'pl-13' : '')}
+                  inputClassName={cn(row.currencyCode || basePrice?.currencyCode ? 'ps-13' : '')}
                   type="number"
                   placeholder={t('sales.channels.offers.pricing.amount', 'Amount')}
                   value={row.amount ?? ''}
@@ -1978,7 +1978,7 @@ function ProductVariantsList({ variants }: { variants: ProductVariantPreview[] }
   return (
     <div className="space-y-2">
       <div className="text-sm font-medium">{t('sales.channels.offers.form.variantsTitle', 'Variants')}</div>
-      <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+      <div className="space-y-2 max-h-64 overflow-y-auto pe-1">
         {variants.map((variant) => (
           <div key={variant.id} className="flex gap-3 rounded border bg-card p-2">
             <div className="h-10 w-10 overflow-hidden rounded border bg-muted">

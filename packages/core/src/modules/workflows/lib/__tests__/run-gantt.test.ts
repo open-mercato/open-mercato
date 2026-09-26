@@ -171,17 +171,17 @@ describe('buildRunGantt — lanes', () => {
     const model = buildRunGantt({
       stepInstances: [
         step('fork', 0, 1),
-        step('left-1', 1, 2, { branchInstanceId: 'branch-left' }),
-        step('right-1', 1, 2, { branchInstanceId: 'branch-right' }),
-        step('left-2', 3, 2, { branchInstanceId: 'branch-left' }),
-        step('right-2', 3, 2, { branchInstanceId: 'branch-right' }),
+        step('start-1', 1, 2, { branchInstanceId: 'branch-left' }),
+        step('end-1', 1, 2, { branchInstanceId: 'branch-right' }),
+        step('start-2', 3, 2, { branchInstanceId: 'branch-left' }),
+        step('end-2', 3, 2, { branchInstanceId: 'branch-right' }),
       ],
     })
 
     const laneOf = (stepId: string) => model.bars.find((bar) => bar.stepId === stepId)!.lane
-    expect(laneOf('left-1')).toBe(laneOf('left-2'))
-    expect(laneOf('right-1')).toBe(laneOf('right-2'))
-    expect(laneOf('left-1')).not.toBe(laneOf('right-1'))
-    expect(laneOf('fork')).not.toBe(laneOf('left-1'))
+    expect(laneOf('start-1')).toBe(laneOf('start-2'))
+    expect(laneOf('end-1')).toBe(laneOf('end-2'))
+    expect(laneOf('start-1')).not.toBe(laneOf('end-1'))
+    expect(laneOf('fork')).not.toBe(laneOf('start-1'))
   })
 })

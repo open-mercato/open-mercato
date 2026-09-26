@@ -438,7 +438,7 @@ export function AvailabilitySchedule({
             {availabilityLabels.sectionTitle}
           </h2>
           <Button type="button" variant="outline" onClick={openCreateDialog}>
-            <GanttChart className="mr-2 h-4 w-4" aria-hidden="true" />
+            <GanttChart className="me-2 h-4 w-4" aria-hidden="true" />
             {availabilityLabels.addAction}
           </Button>
         </div>

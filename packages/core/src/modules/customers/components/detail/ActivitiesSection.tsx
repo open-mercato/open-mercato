@@ -353,7 +353,7 @@ export function ActivitiesSection({
       </div>
 
       <label className="relative flex items-center">
-        <Search className="pointer-events-none absolute left-2.5 size-5 text-muted-foreground" aria-hidden />
+        <Search className="pointer-events-none absolute start-2.5 size-5 text-muted-foreground" aria-hidden />
         <input
           ref={searchInputRef}
           type="search"
@@ -361,9 +361,9 @@ export function ActivitiesSection({
           onChange={(event) => setSearchTerm(event.target.value)}
           placeholder={t('customers.timeline.history.searchPlaceholder', 'Search...')}
           aria-label={t('customers.timeline.history.searchAriaLabel', 'Search interaction history')}
-          className="h-9 w-full rounded-[10px] border border-border bg-card pl-9 pr-14 text-sm text-foreground shadow-xs placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
+          className="h-9 w-full rounded-[10px] border border-border bg-card ps-9 pe-14 text-sm text-foreground shadow-xs placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden"
         />
-        <Kbd className="pointer-events-none absolute right-2 hidden text-[11px] uppercase tracking-[0.48px] sm:inline-flex">
+        <Kbd className="pointer-events-none absolute end-2 hidden text-[11px] uppercase tracking-[0.48px] sm:inline-flex">
           ⌘1
         </Kbd>
       </label>

@@ -106,7 +106,7 @@ function DefaultReportSheet({
           <h2 className="text-lg font-semibold">{customerName}</h2>
           <span className="text-sm text-muted-foreground">{periodLabel}</span>
         </div>
-        <div className="flex flex-col items-end gap-1 text-right">
+        <div className="flex flex-col items-end gap-1 text-end">
           {issuedByLabel ? (
             <>
               <span className="text-xs text-muted-foreground">
@@ -205,18 +205,18 @@ function ReportSheetGroup({ group, showRates, money }: GroupProps) {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-6 py-2 text-left font-medium">
+              <th className="px-6 py-2 text-start font-medium">
                 {t('staff.time_tracking.reports.sheet.lineLabel', 'Line')}
               </th>
-              <th className="px-3 py-2 text-right font-medium">
+              <th className="px-3 py-2 text-end font-medium">
                 {t('staff.time_tracking.reports.sheet.time', 'Time')}
               </th>
               {showRates ? (
-                <th className="px-3 py-2 text-right font-medium">
+                <th className="px-3 py-2 text-end font-medium">
                   {t('staff.time_tracking.reports.sheet.rate', 'Rate')}
                 </th>
               ) : null}
-              <th className="px-6 py-2 text-right font-medium">
+              <th className="px-6 py-2 text-end font-medium">
                 {t('staff.time_tracking.reports.sheet.amount', 'Amount')}
               </th>
             </tr>
@@ -285,13 +285,13 @@ function ReportSheetLine({ line, depth, isNonBillable, showRates, money }: LineP
             ) : null}
           </div>
         </td>
-        <td className="px-3 py-2 text-right font-mono tabular-nums">{formatReportMinutes(line.minutes)}</td>
+        <td className="px-3 py-2 text-end font-mono tabular-nums">{formatReportMinutes(line.minutes)}</td>
         {showRates ? (
-          <td className="px-3 py-2 text-right font-mono tabular-nums">
+          <td className="px-3 py-2 text-end font-mono tabular-nums">
             {isNonBillable ? EM_DASH : money(line.rate)}
           </td>
         ) : null}
-        <td className="px-6 py-2 text-right font-mono tabular-nums">
+        <td className="px-6 py-2 text-end font-mono tabular-nums">
           {isNonBillable ? EM_DASH : money(line.amount)}
         </td>
       </tr>

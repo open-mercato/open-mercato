@@ -54,7 +54,7 @@ export function FilterBarRow({
           />
         ))}
       </div>
-      <div className="sm:ml-auto">{sortNode}</div>
+      <div className="sm:ms-auto">{sortNode}</div>
     </div>
   )
 }

@@ -70,9 +70,9 @@ export function FormActionButtons({
           disabled={isDeleting}
         >
           {isDeleting ? (
-            <Loader2 className="size-4 mr-2 animate-spin" />
+            <Loader2 className="size-4 me-2 animate-spin" />
           ) : (
-            <Trash2 className="size-4 mr-2" />
+            <Trash2 className="size-4 me-2" />
           )}
           {resolvedDeleteLabel}
         </Button>
@@ -88,7 +88,7 @@ export function FormActionButtons({
           form={submit.formId}
           disabled={submit.pending}
         >
-          {submit.pending ? <Loader2 className="size-4 mr-2 animate-spin" /> : <SubmitIcon className="size-4 mr-2" />}
+          {submit.pending ? <Loader2 className="size-4 me-2 animate-spin" /> : <SubmitIcon className="size-4 me-2" />}
           {submit.pending ? resolvedPendingLabel : resolvedSubmitLabel}
         </Button>
       ) : null}

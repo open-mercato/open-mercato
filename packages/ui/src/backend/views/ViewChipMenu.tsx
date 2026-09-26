@@ -43,7 +43,7 @@ export function ViewChipMenu({ kind, canApplyToRoles, deleting, onRenameStart, o
               className="w-full justify-start h-9 py-2 px-3 text-sm"
               onClick={onRenameStart}
             >
-              <Pencil className="size-3 mr-2" />
+              <Pencil className="size-3 me-2" />
               {t('ui.perspectives.menu.rename', 'Rename')}
             </Button>
           </PopoverClose>
@@ -56,7 +56,7 @@ export function ViewChipMenu({ kind, canApplyToRoles, deleting, onRenameStart, o
             className="w-full justify-start h-9 py-2 px-3 text-sm"
             onClick={onClone}
           >
-            <Copy className="size-3 mr-2" />
+            <Copy className="size-3 me-2" />
             {t('ui.perspectives.menu.clone', 'Clone')}
           </Button>
         </PopoverClose>
@@ -69,7 +69,7 @@ export function ViewChipMenu({ kind, canApplyToRoles, deleting, onRenameStart, o
               className="w-full justify-start h-9 py-2 px-3 text-sm"
               onClick={onShareStart}
             >
-              <Users className="size-3 mr-2" />
+              <Users className="size-3 me-2" />
               {t('ui.perspectives.menu.share', 'Share with roles...')}
             </Button>
           </PopoverClose>
@@ -84,7 +84,7 @@ export function ViewChipMenu({ kind, canApplyToRoles, deleting, onRenameStart, o
             onClick={onDelete}
             disabled={deleting}
           >
-            <Trash2 className="size-3 mr-2" />
+            <Trash2 className="size-3 me-2" />
             {deleting ? t('ui.perspectives.actions.removing', 'Removing…') : t('common.delete', 'Delete')}
           </Button>
         </PopoverClose>

@@ -290,7 +290,7 @@ function AttachmentsSectionImpl({
               <div
                 key={item.id}
                 role="group"
-                className="group relative flex flex-col overflow-hidden rounded-lg border bg-card text-left transition-shadow hover:shadow-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2"
+                className="group relative flex flex-col overflow-hidden rounded-lg border bg-card text-start transition-shadow hover:shadow-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2"
               >
                 <Button
                   type="button"
@@ -303,7 +303,7 @@ function AttachmentsSectionImpl({
                       openMetadataDialog(item)
                     }
                   }}
-                  className="flex h-auto w-full flex-col items-stretch rounded-lg p-0 text-left hover:bg-transparent focus-visible:outline-none focus-visible:ring-0"
+                  className="flex h-auto w-full flex-col items-stretch rounded-lg p-0 text-start hover:bg-transparent focus-visible:outline-none focus-visible:ring-0"
                 >
                   <AttachmentVisualPreview
                     fileName={item.fileName}
@@ -324,7 +324,7 @@ function AttachmentsSectionImpl({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="absolute right-2 top-2 z-10 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100"
+                  className="absolute end-2 top-2 z-10 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100"
                   onClick={(event) => {
                     event.stopPropagation()
                     openDeleteDialog(item)

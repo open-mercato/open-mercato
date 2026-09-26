@@ -96,14 +96,14 @@ export function MobileInstanceOverview({
           </div>
           <div className="flex items-start justify-between">
             <dt className="text-xs font-medium text-muted-foreground">{t('workflows.instances.fields.workflowId')}</dt>
-            <dd className="text-right">
+            <dd className="text-end">
               <div className="text-sm font-mono">{instance.workflowId}</div>
               <div className="text-overline text-muted-foreground">v{instance.version}</div>
             </dd>
           </div>
           <div className="flex items-start justify-between">
             <dt className="text-xs font-medium text-muted-foreground">{t('workflows.instances.fields.currentStep')}</dt>
-            <dd className="text-sm font-mono text-right">{instance.currentStepId || '-'}</dd>
+            <dd className="text-sm font-mono text-end">{instance.currentStepId || '-'}</dd>
           </div>
           <div className="flex items-start justify-between">
             <dt className="text-xs font-medium text-muted-foreground">{t('workflows.instances.fields.duration')}</dt>
@@ -132,7 +132,7 @@ export function MobileInstanceOverview({
         <div className="rounded-lg border bg-card p-4">
           <div className="flex items-center justify-center py-6">
             <Spinner className="h-5 w-5" />
-            <span className="ml-2 text-sm text-muted-foreground">{t('common.loading')}</span>
+            <span className="ms-2 text-sm text-muted-foreground">{t('common.loading')}</span>
           </div>
         </div>
       )}
@@ -146,7 +146,7 @@ export function MobileInstanceOverview({
               onClick={() => setShowFullGraph(true)}
               className="h-7 text-xs"
             >
-              <Maximize2 className="mr-1 h-3 w-3" />
+              <Maximize2 className="me-1 h-3 w-3" />
               {t('workflows.mobile.viewFullGraph', 'View Full Graph')}
             </Button>
           </div>

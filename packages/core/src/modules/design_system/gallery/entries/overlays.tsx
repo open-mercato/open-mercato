@@ -98,8 +98,8 @@ function DialogExample({ header = 'basic', compact = false, footer = 'basic', al
   return (
     <Dialog>
       <section data-dialog-preview="" aria-label={t('design_system.gallery.samples.overlay.title')} className="relative w-full max-w-md overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm">
-        {!status ? <X aria-hidden="true" className="absolute right-4 top-4 size-4 text-muted-foreground" /> : null}
-        <DialogHeader className={status ? 'p-6' : 'p-4 pr-12'} compact={compact} alignment={alignment} leadingTone={header === 'basic' ? 'default' : header} leading={Icon ? <Icon className={compact || status ? 'size-6' : 'size-5'} /> : undefined}>
+        {!status ? <X aria-hidden="true" className="absolute end-4 top-4 size-4 text-muted-foreground" /> : null}
+        <DialogHeader className={status ? 'p-6' : 'p-4 pe-12'} compact={compact} alignment={alignment} leadingTone={header === 'basic' ? 'default' : header} leading={Icon ? <Icon className={compact || status ? 'size-6' : 'size-5'} /> : undefined}>
           <DialogTitle className={status ? 'text-base font-medium leading-6 tracking-normal' : 'text-sm font-medium leading-5 tracking-normal'}>{t('design_system.gallery.samples.overlay.title')}</DialogTitle>
           <DialogDescription className={compact ? 'sr-only' : undefined}>{t('design_system.gallery.samples.overlay.description')}</DialogDescription>
         </DialogHeader>
@@ -124,7 +124,7 @@ function DrawerExample({ header = 'basic', compact = false, footer = 'basic' }: 
           <DrawerDescription className={compact ? 'sr-only' : undefined}>{t('design_system.gallery.samples.overlay.description')}</DrawerDescription>
         </DrawerHeader>
         <DrawerBody><p className="py-6 text-sm text-muted-foreground">{t('design_system.gallery.samples.overlay.body')}</p></DrawerBody>
-        <DrawerFooter layout={footer === 'equal' ? 'equal' : 'default'} leading={footer === 'basic' || footer === 'equal' ? undefined : <FooterLeading kind={footer} />} className="flex-wrap [&_[data-slot=drawer-footer-trailing]]:ml-auto">
+        <DrawerFooter layout={footer === 'equal' ? 'equal' : 'default'} leading={footer === 'basic' || footer === 'equal' ? undefined : <FooterLeading kind={footer} />} className="flex-wrap [&_[data-slot=drawer-footer-trailing]]:ms-auto">
           <DrawerClose asChild><Button variant="outline">{t('design_system.gallery.samples.overlay.cancel')}</Button></DrawerClose>
           <DrawerClose asChild><Button variant="primary-filled">{t('design_system.gallery.samples.overlay.continue')}</Button></DrawerClose>
         </DrawerFooter>
@@ -143,7 +143,7 @@ import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter } fr
 
 <Dialog>
   <section aria-label="Workspace settings" className="relative w-full max-w-md overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm">
-    ${example.status ? '' : '<X aria-hidden="true" className="absolute right-4 top-4 size-4 text-muted-foreground" />'}
+    ${example.status ? '' : '<X aria-hidden="true" className="absolute end-4 top-4 size-4 text-muted-foreground" />'}
     <DialogHeader className="${example.status ? 'p-6' : 'p-4 pr-12'}" alignment="${example.alignment ?? 'horizontal'}" leadingTone="${header === 'basic' ? 'default' : header}"${example.compact ? ' compact' : ''}${icon ? ` leading={<${icon} className="${example.compact || example.status ? 'size-6' : 'size-5'}" />}` : ''}>
       <DialogTitle className="${example.status ? 'text-base font-medium leading-6 tracking-normal' : 'text-sm font-medium leading-5 tracking-normal'}">Workspace settings</DialogTitle>
       <DialogDescription${example.compact ? ' className="sr-only"' : ''}>Choose how these changes apply to your workspace.</DialogDescription>
@@ -166,7 +166,7 @@ import { ${kind}, ${kind}Trigger, ${kind}Content, ${kind}Header, ${kind}Title, $
       <${kind}Description${example.compact ? ' className="sr-only"' : ''}>Choose how these changes apply to your workspace.</${kind}Description>
     </${kind}Header>
     <DrawerBody><p className="py-6 text-sm text-muted-foreground">Review your settings before continuing.</p></DrawerBody>
-    <${kind}Footer layout="${footer === 'equal' ? 'equal' : 'default'}"${leading ? ` leading={${leading}}` : ''} className="flex-wrap [&_[data-slot=drawer-footer-trailing]]:ml-auto">
+    <${kind}Footer layout="${footer === 'equal' ? 'equal' : 'default'}"${leading ? ` leading={${leading}}` : ''} className="flex-wrap [&_[data-slot=drawer-footer-trailing]]:ms-auto">
       <${kind}Close asChild><Button variant="outline">Cancel</Button></${kind}Close>
       <${kind}Close asChild><Button variant="primary-filled">Continue</Button></${kind}Close>
     </${kind}Footer>
@@ -229,7 +229,7 @@ function PopoverExample({ placements = false, footer = 'equal' }: { placements?:
         <div className="flex flex-wrap items-center gap-3 px-5 py-4">
           {footer === 'stepper' ? <StepperDots count={3} activeStep={step} size="sm" aria-label={t('design_system.gallery.samples.overlay.steps')} /> : null}
           {footer === 'text' ? <span className="text-xs text-muted-foreground">{step + 1} / 3</span> : null}
-          <div className={footer === 'equal' ? 'flex w-full gap-3 [&>*]:flex-1' : 'ml-auto flex gap-3'}>
+          <div className={footer === 'equal' ? 'flex w-full gap-3 [&>*]:flex-1' : 'ms-auto flex gap-3'}>
             <Button variant="outline" size="sm" disabled={step === 0} onClick={() => setStep(previous => Math.max(0, previous - 1))}>{t('design_system.gallery.samples.overlay.back')}</Button>
             {step === 2 ? <PopoverClose asChild><Button variant="primary-filled" size="sm">{t('design_system.gallery.samples.overlay.done')}</Button></PopoverClose> : <Button variant="primary-filled" size="sm" onClick={() => setStep(previous => Math.min(2, previous + 1))}>{t('design_system.gallery.samples.overlay.next')}</Button>}
           </div>

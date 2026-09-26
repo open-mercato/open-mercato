@@ -1350,7 +1350,7 @@ function ProductBuilder({
               t("catalog.products.create.steps.variants", "Variants")}
             {(stepErrors[step]?.length ?? 0) > 0 ? (
               <span
-                className="absolute -right-2 top-0 h-2 w-2 rounded-full bg-destructive"
+                className="absolute -end-2 top-0 h-2 w-2 rounded-full bg-destructive"
                 aria-hidden="true"
               />
             ) : null}
@@ -1525,7 +1525,7 @@ function ProductBuilder({
                   size="sm"
                   onClick={addOption}
                 >
-                  <Plus className="mr-2 h-4 w-4" />
+                  <Plus className="me-2 h-4 w-4" />
                   {t(
                     "catalog.products.create.optionsBuilder.add",
                     "Add option",
@@ -1599,26 +1599,26 @@ function ProductBuilder({
               <table className="w-full min-w-[900px] table-fixed border-collapse text-sm">
                 <thead className="bg-muted/50">
                   <tr>
-                    <th className="px-3 py-2 text-left">
+                    <th className="px-3 py-2 text-start">
                       {t(
                         "catalog.products.create.variantsBuilder.defaultOption",
                         "Default option",
                       )}
                     </th>
-                    <th className="px-3 py-2 text-left">
+                    <th className="px-3 py-2 text-start">
                       {t("catalog.products.form.variants", "Variant title")}
                     </th>
-                    <th className="px-3 py-2 text-left">
+                    <th className="px-3 py-2 text-start">
                       {t("catalog.products.create.variantsBuilder.sku", "SKU")}
                     </th>
-                    <th className="px-3 py-2 text-left">
+                    <th className="px-3 py-2 text-start">
                       {t(
                         "catalog.products.create.variantsBuilder.vatColumn",
                         "Tax class",
                       )}
                     </th>
                     {priceKinds.map((kind) => (
-                      <th key={kind.id} className="px-3 py-2 text-left">
+                      <th key={kind.id} className="px-3 py-2 text-start">
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center gap-1">
                             <span>

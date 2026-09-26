@@ -1489,7 +1489,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
             actionLabel={firstImportBusy
               ? t('sync_akeneo.firstImport.running', 'Running full import sequence...')
               : t('sync_akeneo.firstImport.action', 'Run the first full import')}
-            actionIcon={firstImportBusy ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
+            actionIcon={firstImportBusy ? <RefreshCw className="me-2 h-4 w-4 animate-spin" /> : <Wand2 className="me-2 h-4 w-4" />}
             onAction={() => void runFirstFullImport()}
             disabled={isLoading || isSaving || deleteImportedProductsBusy || !firstImportReady}
             busy={firstImportBusy}
@@ -1529,7 +1529,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="rounded-lg border p-4">
             <h4 className="text-sm font-medium">{t('sync_akeneo.setup.credentials.title', 'Create API credentials in Akeneo')}</h4>
-            <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
+            <ol className="mt-3 list-decimal space-y-2 ps-5 text-sm text-muted-foreground">
               <li>{t('sync_akeneo.setup.credentials.step1', 'In Akeneo, open Settings -> Connections and create a new API connection or connected app for Open Mercato.')}</li>
               <li>{t('sync_akeneo.setup.credentials.step2', 'Copy the Akeneo base URL, client id, and client secret into the Integration credentials tab in Open Mercato.')}</li>
               <li>{t('sync_akeneo.setup.credentials.step3', 'Create a dedicated Akeneo API user, assign it to the right catalog permissions, and use that username/password in the credential form.')}</li>
@@ -1538,7 +1538,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
           </div>
           <div className="rounded-lg border p-4">
             <h4 className="text-sm font-medium">{t('sync_akeneo.setup.docs.title', 'Operational notes')}</h4>
-            <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-muted-foreground">
+            <ul className="mt-3 list-disc space-y-2 ps-5 text-sm text-muted-foreground">
               <li>{t('sync_akeneo.setup.docs.note1', 'Akeneo authentication uses client id, client secret, username, and password. Open Mercato exchanges those for access/refresh tokens automatically.')}</li>
               <li>{t('sync_akeneo.setup.docs.note2', 'For large catalogs, keep batch sizes at 100 and prefer incremental product syncs. The importer resumes from the last processed Akeneo updated timestamp plus search_after pagination state.')}</li>
               <li>{t('sync_akeneo.setup.docs.note3', 'Simple Akeneo products still create a default Open Mercato variant. Variant Akeneo products flatten the full Akeneo product-model tree into one configurable product plus child variants.')}</li>
@@ -1566,11 +1566,11 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
           </div>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={() => void refreshDiscoveredMappings()} disabled={isLoading || isSaving || deleteImportedProductsBusy || firstImportBusy}>
-              <RefreshCw className="mr-2 h-4 w-4" />
+              <RefreshCw className="me-2 h-4 w-4" />
               {t('sync_akeneo.mapping.refresh', 'Refresh discovery')}
             </Button>
             <Button type="button" variant="destructive" onClick={() => void deleteImportedProducts()} disabled={isLoading || isSaving || deleteImportedProductsBusy || firstImportBusy}>
-              <Trash2 className="mr-2 h-4 w-4" />
+              <Trash2 className="me-2 h-4 w-4" />
               {deleteImportedProductsBusy
                 ? t('sync_akeneo.deleteImportedProducts.inProgress', 'Deletion in progress...')
                 : t('sync_akeneo.deleteImportedProducts.action', 'Force delete all imported products')}
@@ -1778,11 +1778,11 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
                   <Label>{t('sync_akeneo.mapping.customFields', 'Custom field mappings')}</Label>
                   <div className="flex flex-wrap items-center gap-2">
                     <Button type="button" variant="outline" onClick={() => openCustomFieldDialog()} disabled={isLoading || isSaving}>
-                      <PencilLine className="mr-2 h-4 w-4" />
+                      <PencilLine className="me-2 h-4 w-4" />
                       {t('sync_akeneo.mapping.customFields.editor', 'Open editor')}
                     </Button>
                     <Button type="button" variant="outline" onClick={() => void createMissingCustomFields()} disabled={isLoading || isSaving || isCreatingCustomFields || customFieldRows.length === 0}>
-                      {isCreatingCustomFields ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
+                      {isCreatingCustomFields ? <RefreshCw className="me-2 h-4 w-4 animate-spin" /> : <Wand2 className="me-2 h-4 w-4" />}
                       {isCreatingCustomFields
                         ? t('sync_akeneo.mapping.customFields.creating', 'Creating...')
                         : t('sync_akeneo.mapping.customFields.createMissing', 'Pre-create missing fields')}
@@ -1801,7 +1801,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
                 {customFieldRows.length > 0 ? (
                   <div className="overflow-x-auto rounded-lg border">
                     <table className="w-full min-w-[760px] text-sm">
-                      <thead className="bg-muted/50 text-left">
+                      <thead className="bg-muted/50 text-start">
                         <tr>
                           <th className="px-3 py-2 font-medium">{t('sync_akeneo.mapping.from', 'From')}</th>
                           <th className="px-3 py-2 font-medium">{t('sync_akeneo.customFields.columns.target', 'Target')}</th>
@@ -1867,7 +1867,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
                     ])}
                     disabled={isLoading || isSaving}
                   >
-                    <Plus className="mr-2 h-4 w-4" />
+                    <Plus className="me-2 h-4 w-4" />
                     {t('sync_akeneo.mapping.addRow', 'Add row')}
                   </Button>
                 </div>
@@ -1876,7 +1876,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
                 </p>
                 <div className="overflow-x-auto rounded-lg border">
                   <table className="w-full min-w-[900px] text-sm">
-                    <thead className="bg-muted/50 text-left">
+                    <thead className="bg-muted/50 text-start">
                       <tr>
                         <th className="px-3 py-2 font-medium">{t('sync_akeneo.mapping.from', 'From')}</th>
                         <th className="px-3 py-2 font-medium">{t('sync_akeneo.mapping.priceKind', 'Price kind')}</th>
@@ -1959,7 +1959,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
                               onClick={() => updatePriceMappingRows(priceMappingRows.filter((_, rowIndex) => rowIndex !== index))}
                               disabled={isLoading || isSaving}
                             >
-                              <Trash2 className="mr-2 h-4 w-4" />
+                              <Trash2 className="me-2 h-4 w-4" />
                               {t('sync_akeneo.customFields.actions.remove', 'Remove')}
                             </Button>
                           </td>
@@ -1987,7 +1987,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
                     ])}
                     disabled={isLoading || isSaving}
                   >
-                    <Plus className="mr-2 h-4 w-4" />
+                    <Plus className="me-2 h-4 w-4" />
                     {t('sync_akeneo.mapping.addRow', 'Add row')}
                   </Button>
                 </div>
@@ -1996,7 +1996,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
                 </p>
                 <div className="overflow-x-auto rounded-lg border">
                   <table className="w-full min-w-[760px] text-sm">
-                    <thead className="bg-muted/50 text-left">
+                    <thead className="bg-muted/50 text-start">
                       <tr>
                         <th className="px-3 py-2 font-medium">{t('sync_akeneo.mapping.from', 'From')}</th>
                         <th className="px-3 py-2 font-medium">{t('sync_akeneo.customFields.columns.target', 'Target')}</th>
@@ -2057,7 +2057,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
                               onClick={() => updateMediaMappingRows(mediaMappingRows.filter((_, rowIndex) => rowIndex !== index))}
                               disabled={isLoading || isSaving}
                             >
-                              <Trash2 className="mr-2 h-4 w-4" />
+                              <Trash2 className="me-2 h-4 w-4" />
                               {t('sync_akeneo.customFields.actions.remove', 'Remove')}
                             </Button>
                           </td>
@@ -2092,7 +2092,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
                     ])}
                     disabled={isLoading || isSaving}
                   >
-                    <Plus className="mr-2 h-4 w-4" />
+                    <Plus className="me-2 h-4 w-4" />
                     {t('sync_akeneo.mapping.addRow', 'Add row')}
                   </Button>
                 </div>
@@ -2101,7 +2101,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
                 </p>
                 <div className="overflow-x-auto rounded-lg border">
                   <table className="w-full min-w-[1100px] text-sm">
-                    <thead className="bg-muted/50 text-left">
+                    <thead className="bg-muted/50 text-start">
                       <tr>
                         <th className="px-3 py-2 font-medium">{t('sync_akeneo.mapping.sourceType', 'Source type')}</th>
                         <th className="px-3 py-2 font-medium">{t('sync_akeneo.mapping.sourceCode', 'Akeneo code')}</th>
@@ -2211,7 +2211,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
                               onClick={() => updateFieldsetMappingRows(fieldsetMappingRows.filter((_, rowIndex) => rowIndex !== index))}
                               disabled={isLoading || isSaving}
                             >
-                              <Trash2 className="mr-2 h-4 w-4" />
+                              <Trash2 className="me-2 h-4 w-4" />
                               {t('sync_akeneo.customFields.actions.remove', 'Remove')}
                             </Button>
                           </td>
@@ -2306,7 +2306,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
 
             <div className="flex justify-end">
               <Button type="button" onClick={() => void saveMappings()} disabled={isLoading || isSaving}>
-                <Save className="mr-2 h-4 w-4" />
+                <Save className="me-2 h-4 w-4" />
                 {isSaving ? t('sync_akeneo.mapping.saving', 'Saving...') : t('sync_akeneo.mapping.save', 'Save mappings')}
               </Button>
             </div>
@@ -2372,7 +2372,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
               </div>
               <div>
                 <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">{t('sync_akeneo.discovery.attributes', 'Attributes')}</div>
-                <div className="max-h-80 space-y-2 overflow-auto pr-1">
+                <div className="max-h-80 space-y-2 overflow-auto pe-1">
                   {(discovery?.attributes ?? []).map((attribute) => (
                     <div key={attribute.code} className="rounded border p-2 text-xs">
                       <div className="font-medium">{attribute.code}</div>
@@ -2444,7 +2444,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
 
             <div className="overflow-x-auto rounded-lg border">
               <table className="w-full min-w-[780px] text-sm">
-                <thead className="bg-muted/50 text-left">
+                <thead className="bg-muted/50 text-start">
                   <tr>
                     <th className="px-3 py-2 font-medium">{t('sync_akeneo.customFields.columns.attribute', 'Akeneo attribute')}</th>
                     <th className="px-3 py-2 font-medium">{t('sync_akeneo.customFields.columns.skip', 'Skip import')}</th>
@@ -2556,7 +2556,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
                             }}
                             disabled={isLoading || isSaving || isCreatingCustomFields}
                           >
-                            <Trash2 className="mr-2 h-4 w-4" />
+                            <Trash2 className="me-2 h-4 w-4" />
                             {t('sync_akeneo.customFields.actions.remove', 'Remove')}
                           </Button>
                         </td>
@@ -2583,7 +2583,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
                 ])}
                 disabled={isLoading || isSaving || isCreatingCustomFields}
               >
-                <Plus className="mr-2 h-4 w-4" />
+                <Plus className="me-2 h-4 w-4" />
                 {t('sync_akeneo.customFields.actions.add', 'Add row')}
               </Button>
               <Button
@@ -2592,7 +2592,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
                 onClick={() => void createMissingCustomFields(customFieldEditorRows)}
                 disabled={isLoading || isSaving || isCreatingCustomFields || customFieldEditorRows.length === 0}
               >
-                {isCreatingCustomFields ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                {isCreatingCustomFields ? <RefreshCw className="me-2 h-4 w-4 animate-spin" /> : <Sparkles className="me-2 h-4 w-4" />}
                 {isCreatingCustomFields
                   ? t('sync_akeneo.customFields.actions.creating', 'Creating...')
                   : t('sync_akeneo.customFields.actions.createMissing', 'Pre-create missing fields now')}
@@ -2626,7 +2626,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
                     }}
                     disabled={isLoading || isSaving || isCreatingCustomFields}
                   >
-                    <Plus className="mr-2 h-4 w-4" />
+                    <Plus className="me-2 h-4 w-4" />
                     {attribute.code}
                   </Button>
                 ))}
@@ -2640,11 +2640,11 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
               onClick={() => applyCustomFieldEditor()}
               disabled={isCreatingCustomFields}
             >
-              <Save className="mr-2 h-4 w-4" />
+              <Save className="me-2 h-4 w-4" />
               {t('sync_akeneo.customFields.dialog.apply', 'Apply')}
             </Button>
             <Button type="button" variant="outline" onClick={() => setCustomFieldDialogOpen(false)} disabled={isCreatingCustomFields}>
-              <X className="mr-2 h-4 w-4" />
+              <X className="me-2 h-4 w-4" />
               {t('sync_akeneo.customFields.dialog.close', 'Close')}
             </Button>
           </DialogFooter>

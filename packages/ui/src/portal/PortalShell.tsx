@@ -399,7 +399,7 @@ export function PortalShell({
     <div className="flex min-h-svh bg-background" data-portal-handle={PORTAL_SHELL_HANDLE}>
       {enableEventBridge ? <PortalEventBridgeMount /> : null}
 
-      <aside className="hidden w-[240px] shrink-0 border-r lg:block">
+      <aside className="hidden w-[240px] shrink-0 border-e lg:block">
         {sidebarContent}
       </aside>
 
@@ -407,7 +407,7 @@ export function PortalShell({
         <div className="fixed inset-0 z-modal lg:hidden">
           <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={closeMobile} />
           <aside className="relative z-10 h-full w-[280px] bg-background shadow-2xl">
-            <div className="absolute right-3 top-4 z-20">
+            <div className="absolute end-3 top-4 z-20">
               <IconButton variant="ghost" size="sm" type="button" onClick={closeMobile} aria-label="Close menu">
                 <XIcon className="size-4" />
               </IconButton>

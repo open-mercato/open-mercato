@@ -74,10 +74,10 @@ describe('InlineInput primitive', () => {
 
   it('merges consumer className alongside the borderless baseline', () => {
     const { container } = render(
-      <InlineInput value="x" onChange={() => {}} className="text-right font-mono" />,
+      <InlineInput value="x" onChange={() => {}} className="text-end font-mono" />,
     )
     const wrapper = container.querySelector('[data-slot="input-wrapper"]')
-    expect(wrapper).toHaveClass('text-right')
+    expect(wrapper).toHaveClass('text-end')
     expect(wrapper).toHaveClass('font-mono')
     expect(wrapper).toHaveClass('border-transparent')
   })

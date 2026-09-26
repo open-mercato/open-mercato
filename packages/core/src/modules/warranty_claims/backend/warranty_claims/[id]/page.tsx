@@ -638,7 +638,7 @@ function RiskSignalChips({ signals, t }: { signals: ClaimRiskSignal[]; t: Transl
         <span key={signal.id} className="min-w-0 max-w-full" title={buildRiskSignalTitle(signal)}>
           <StatusBadge
             variant={riskSignalVariant(signal)}
-            className="h-auto max-w-full rounded-md py-1 whitespace-normal break-words text-left leading-snug"
+            className="h-auto max-w-full rounded-md py-1 whitespace-normal break-words text-start leading-snug"
           >
             {t(signal.messageKey, signal.params)}
           </StatusBadge>
@@ -1883,7 +1883,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="inline-flex items-center rounded-md border border-border bg-background px-2.5 py-1 text-xs text-muted-foreground">
                   {t(`warranty_claims.claimType.${claim.claimType ?? 'warranty'}`)}
-                  <span className="ml-1 font-semibold text-foreground">
+                  <span className="ms-1 font-semibold text-foreground">
                     {claim.claimNumber ?? t('warranty_claims.detail.unnumbered', 'Unnumbered claim')}
                   </span>
                 </div>
@@ -2038,7 +2038,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                       {t('warranty_claims.detail.lines.count', { count: lines.length })}
                     </p>
                   </div>
-                  <div className="xl:border-l xl:border-border xl:pl-5">
+                  <div className="xl:border-s xl:border-border xl:ps-5">
                     <p className="text-xs text-muted-foreground">{t('warranty_claims.detail.totalApproved')}</p>
                     <p className="mt-1 text-base font-semibold text-foreground">
                       {formatAmount(claim.totalApprovedAmount, claim.currencyCode, noValue)}
@@ -2047,7 +2047,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                       {t('warranty_claims.detail.lines.approvedCount', { count: approvedLineCount })}
                     </p>
                   </div>
-                  <div className="xl:border-l xl:border-border xl:pl-5">
+                  <div className="xl:border-s xl:border-border xl:ps-5">
                     <p className="text-xs text-muted-foreground">{t('warranty_claims.detail.totalRecovered')}</p>
                     <p className="mt-1 text-base font-semibold text-foreground">
                       {formatAmount(claim.totalRecoveredAmount, claim.currencyCode, noValue)}

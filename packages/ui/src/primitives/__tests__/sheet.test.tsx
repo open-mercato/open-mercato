@@ -101,14 +101,14 @@ describe('Sheet primitive', () => {
   it('renders side="right" by default with slide-in-from-right animation class', () => {
     renderControlled(true)
     const dialog = screen.getByRole('dialog')
-    expect(dialog.className).toContain('right-0')
+    expect(dialog.className).toContain('end-0')
     expect(dialog.className).toContain('data-[state=open]:slide-in-from-right')
   })
 
   it('renders side="left" with corresponding slide direction', () => {
     renderControlled(true, { side: 'left' })
     const dialog = screen.getByRole('dialog')
-    expect(dialog.className).toContain('left-0')
+    expect(dialog.className).toContain('start-0')
     expect(dialog.className).toContain('data-[state=open]:slide-in-from-left')
   })
 

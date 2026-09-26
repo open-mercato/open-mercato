@@ -704,7 +704,7 @@ export default function SyncRunsDashboardPage() {
               {selectedIntegration ? (
                 <Button asChild variant="outline">
                   <Link href={selectedIntegration.settingsPath}>
-                    <Settings2 className="mr-2 size-4" />
+                    <Settings2 className="me-2 size-4" />
                     {t('integrations.marketplace.configure')}
                   </Link>
                 </Button>
@@ -901,7 +901,7 @@ export default function SyncRunsDashboardPage() {
                     onClick={() => void handleStartSync()}
                     disabled={!canStartSelectedIntegration}
                   >
-                    <Play className="mr-2 size-4" />
+                    <Play className="me-2 size-4" />
                     {t('data_sync.dashboard.start.submit', 'Start sync')}
                   </Button>
                 </div>
@@ -1047,7 +1047,7 @@ export default function SyncRunsDashboardPage() {
                       onClick={() => void handleSaveSchedule()}
                       disabled={isSavingSchedule || !selectedIntegration || !selectedEntityType}
                     >
-                      <CalendarClock className="mr-2 size-4" />
+                      <CalendarClock className="me-2 size-4" />
                       {isSavingSchedule
                         ? t('data_sync.dashboard.schedule.saving', 'Saving...')
                         : t('data_sync.dashboard.schedule.save', 'Save recurring schedule')}

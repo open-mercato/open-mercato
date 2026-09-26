@@ -311,7 +311,7 @@ export function ProposalCard({
           <p className="truncate font-mono text-xs text-muted-foreground">{agentId}</p>
         </div>
         {confidenceLabel ? (
-          <div className="text-right">
+          <div className="text-end">
             <p className="text-xs text-muted-foreground">
               {t('agent_orchestrator.proposal.confidence')}
             </p>
@@ -512,7 +512,7 @@ export function ProposalCard({
               <Button type="button" variant="outline" onClick={cancel} disabled={busy}>
                 {t('agent_orchestrator.proposal.actions.cancelEdit')}
               </Button>
-              <span className="ml-auto text-xs text-muted-foreground">
+              <span className="ms-auto text-xs text-muted-foreground">
                 <KbdShortcut keys={['⌘', 'Enter']} />
               </span>
             </div>
@@ -546,7 +546,7 @@ export function ProposalCard({
               <Button type="button" variant="outline" onClick={cancel} disabled={busy}>
                 {t('agent_orchestrator.proposal.actions.cancelEdit')}
               </Button>
-              <span className="ml-auto text-xs text-muted-foreground">
+              <span className="ms-auto text-xs text-muted-foreground">
                 <KbdShortcut keys={['⌘', 'Enter']} />
               </span>
             </div>
@@ -562,7 +562,7 @@ export function ProposalCard({
               onClick={startReject}
               disabled={!canDispose || busy}
             >
-              <X className="mr-1.5 size-4 text-status-error-text" />
+              <X className="me-1.5 size-4 text-status-error-text" />
               {t('agent_orchestrator.proposal.actions.reject')}
             </Button>
             <Button
@@ -576,7 +576,7 @@ export function ProposalCard({
             </Button>
             <Button
               type="button"
-              className="ml-auto"
+              className="ms-auto"
               onClick={() => actions.onApprove()}
               disabled={!canDispose || busy || !optionChosen}
               title={optionChosen ? undefined : t('agent_orchestrator.proposal.options.chooseHint')}

@@ -88,13 +88,13 @@ const toneClasses: Record<ClaimNotificationMeta['tone'], {
   info: {
     avatar: 'bg-status-info-bg',
     icon: 'text-status-info-icon',
-    border: 'border-l-status-info-border',
+    border: 'border-s-status-info-border',
     unread: 'bg-status-info-bg',
   },
   warning: {
     avatar: 'bg-status-warning-bg',
     icon: 'text-status-warning-icon',
-    border: 'border-l-status-warning-border',
+    border: 'border-s-status-warning-border',
     unread: 'bg-status-warning-bg',
   },
 }
@@ -173,7 +173,7 @@ export function WarrantyClaimNotificationRenderer({
   return (
     <div
       className={cn(
-        'group relative flex items-start gap-3 rounded-xl border-l-4 p-3 transition-colors hover:bg-muted/40',
+        'group relative flex items-start gap-3 rounded-xl border-s-4 p-3 transition-colors hover:bg-muted/40',
         classes.border,
         isUnread && classes.unread,
       )}
@@ -182,7 +182,7 @@ export function WarrantyClaimNotificationRenderer({
         <meta.Icon className={cn('size-5', classes.icon)} aria-hidden="true" />
         {isUnread ? (
           <span
-            className="absolute -right-1 -top-1 size-3 rounded-full bg-accent-indigo ring-2 ring-background"
+            className="absolute -end-1 -top-1 size-3 rounded-full bg-accent-indigo ring-2 ring-background"
             aria-hidden="true"
           />
         ) : null}
@@ -200,7 +200,7 @@ export function WarrantyClaimNotificationRenderer({
           ) : null}
         </div>
         {body ? (
-          <div className="mt-2 inline-flex max-w-full self-start rounded-tr-lg rounded-br-lg rounded-bl-lg rounded-tl-sm border border-border bg-background px-3 py-2 text-sm leading-5 text-muted-foreground shadow-xs">
+          <div className="mt-2 inline-flex max-w-full self-start rounded-se-lg rounded-ee-lg rounded-es-lg rounded-ss-sm border border-border bg-background px-3 py-2 text-sm leading-5 text-muted-foreground shadow-xs">
             <p className="line-clamp-2 break-words">{body}</p>
           </div>
         ) : null}
@@ -237,7 +237,7 @@ export function WarrantyClaimNotificationRenderer({
         type="button"
         variant="ghost"
         size="xs"
-        className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+        className="absolute end-2 top-2 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
         onClick={(event) => {
           event.stopPropagation()
           onDismiss()

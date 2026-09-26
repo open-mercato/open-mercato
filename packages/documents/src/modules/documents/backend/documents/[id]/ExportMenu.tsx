@@ -129,7 +129,7 @@ export function ExportMenu({ documentId, editor }: ExportMenuProps) {
                 variant="ghost"
                 size="sm"
                 role="menuitem"
-                className="h-auto min-h-8 w-full justify-start py-1.5 text-left leading-snug whitespace-normal"
+                className="h-auto min-h-8 w-full justify-start py-1.5 text-start leading-snug whitespace-normal"
                 onClick={item.onSelect}
               >
                 <Icon className="size-4" aria-hidden="true" />

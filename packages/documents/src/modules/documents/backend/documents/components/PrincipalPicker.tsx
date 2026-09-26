@@ -69,7 +69,7 @@ export function PrincipalPicker({ documentId, principalType, value, onChange, di
               role="option"
               aria-selected={index === picker.activeIndex}
               disabled={disabled}
-              className={cn('h-auto w-full justify-start px-3 py-2 text-left', index === picker.activeIndex && 'bg-accent text-accent-foreground')}
+              className={cn('h-auto w-full justify-start px-3 py-2 text-start', index === picker.activeIndex && 'bg-accent text-accent-foreground')}
               onMouseDown={(event) => event.preventDefault()}
               onMouseEnter={() => picker.setActiveIndex(index)}
               onClick={() => picker.selectOption(item)}

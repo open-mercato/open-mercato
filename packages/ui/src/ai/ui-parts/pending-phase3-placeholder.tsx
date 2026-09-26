@@ -39,7 +39,7 @@ export function PendingPhase3Placeholder({ componentId }: AiUiPartProps) {
             'This interactive card will land in Phase 3 of the unified AI framework.',
           )}
         </span>
-        <span className="ml-1 font-mono text-xs">{componentId}</span>
+        <span className="ms-1 font-mono text-xs">{componentId}</span>
       </AlertDescription>
     </Alert>
   )

@@ -188,7 +188,7 @@ export function MessageComposer(props: MessageComposerProps) {
             }}
             disabled={compose.submitting}
           >
-            <SubmitIcon className="mr-2 size-4" />
+            <SubmitIcon className="me-2 size-4" />
             {compose.submitLabel}
           </Button>
         </div>

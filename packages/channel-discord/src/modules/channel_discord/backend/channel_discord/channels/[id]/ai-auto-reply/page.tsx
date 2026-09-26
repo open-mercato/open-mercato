@@ -274,7 +274,7 @@ export default function DiscordAiAutoReplyPage({ params }: { params?: { id?: str
                     { reason: settings.aiAutoReplyLastError },
                   )}
                   {settings.aiAutoReplyLastErrorAt ? (
-                    <span className="ml-1">
+                    <span className="ms-1">
                       {t('channel_discord.aiAutoReply.lastErrorAt', '(first seen {at})', {
                         at: new Date(settings.aiAutoReplyLastErrorAt).toLocaleString(),
                       })}

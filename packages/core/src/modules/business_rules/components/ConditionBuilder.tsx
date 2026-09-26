@@ -105,7 +105,7 @@ export function ConditionBuilder({
             {t('business_rules.components.conditionBuilder.emptyMessage')}
           </p>
           <Button type="button" onClick={handleInitialize} variant="outline" size="sm">
-            <Plus className="w-4 h-4 mr-2" />
+            <Plus className="w-4 h-4 me-2" />
             {t('business_rules.components.conditionBuilder.addFirstCondition')}
           </Button>
         </div>

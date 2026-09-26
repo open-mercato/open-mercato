@@ -251,7 +251,7 @@ export default function OrganizationBrandingPage() {
 
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="submit" disabled={saving}>
-                  {saving ? <Loader2 className="mr-2 size-4 animate-spin" aria-hidden /> : <Save className="mr-2 size-4" aria-hidden />}
+                  {saving ? <Loader2 className="me-2 size-4 animate-spin" aria-hidden /> : <Save className="me-2 size-4" aria-hidden />}
                   {t('directory.branding.actions.save', 'Save branding')}
                 </Button>
                 <Button
@@ -266,7 +266,7 @@ export default function OrganizationBrandingPage() {
                     void saveBranding('', { skipUpload: true, logoPreserveAspectRatio: false })
                   }}
                 >
-                  <RotateCcw className="mr-2 size-4" aria-hidden />
+                  <RotateCcw className="me-2 size-4" aria-hidden />
                   {t('directory.branding.actions.reset', 'Use default logo')}
                 </Button>
               </div>

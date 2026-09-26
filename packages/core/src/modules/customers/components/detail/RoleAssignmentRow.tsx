@@ -153,7 +153,7 @@ export function RoleAssignmentRow({
       {ConfirmDialogElement}
       <div className="flex h-full min-w-0 flex-col overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <Badge variant="outline" className="max-w-full break-words rounded-full px-2 py-0 text-left text-xs font-semibold">
+          <Badge variant="outline" className="max-w-full break-words rounded-full px-2 py-0 text-start text-xs font-semibold">
             {roleTypeLabel}
           </Badge>
           <IconButton
@@ -224,7 +224,7 @@ export function RoleAssignmentRow({
             type="button"
             variant="ghost"
             size="sm"
-            className="h-auto w-full justify-start px-2 py-1 text-xs sm:ml-auto sm:w-auto"
+            className="h-auto w-full justify-start px-2 py-1 text-xs sm:ms-auto sm:w-auto"
             onClick={() => setChangingUser((current) => !current)}
           >
             {t('customers.roles.changeUser', 'Change user')}

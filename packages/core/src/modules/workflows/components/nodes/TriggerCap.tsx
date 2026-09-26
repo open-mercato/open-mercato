@@ -78,7 +78,7 @@ export function TriggerCap({
       >
         <PowerOff className="h-3 w-3 shrink-0 text-status-warning-icon" aria-hidden="true" />
         <span className="truncate">{definitionDisabledLabel}</span>
-        <ChevronRight className="ml-auto h-3 w-3 shrink-0 text-status-warning-icon" aria-hidden="true" />
+        <ChevronRight className="ms-auto h-3 w-3 shrink-0 text-status-warning-icon" aria-hidden="true" />
       </button>
     )
   }
@@ -97,7 +97,7 @@ export function TriggerCap({
         <MousePointerClick className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
       )}
       <span className="truncate text-muted-foreground">{manualLabel}</span>
-      <ChevronRight className="ml-auto h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <ChevronRight className="ms-auto h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
     </button>
   )
 }

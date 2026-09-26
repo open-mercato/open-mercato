@@ -47,7 +47,7 @@ function CodeView({ content }: { content: string }) {
   const gutter = Array.from({ length: lineCount }, (_, i) => i + 1).join('\n')
   return (
     <div className="flex font-mono text-sm">
-      <pre aria-hidden className="select-none border-r border-border bg-muted/40 px-3 py-4 text-right text-muted-foreground">{gutter}</pre>
+      <pre aria-hidden className="select-none border-e border-border bg-muted/40 px-3 py-4 text-end text-muted-foreground">{gutter}</pre>
       <pre className="flex-1 overflow-x-auto px-4 py-4 text-foreground">{body}</pre>
     </div>
   )
@@ -93,7 +93,7 @@ function FileReader({ file }: { file: AgentSourceFile }) {
           </SegmentedControl>
         ) : null}
         <Button type="button" variant="outline" size="sm" onClick={copy}>
-          <Copy className="mr-1.5 size-3.5" />
+          <Copy className="me-1.5 size-3.5" />
           {t('agent_orchestrator.files.copy', 'Copy')}
         </Button>
       </div>
@@ -148,12 +148,12 @@ function TreeNode({
         type="button"
         onClick={() => node.path && onSelect(node.path)}
         style={pad}
-        className={`flex h-7 w-full items-center gap-1.5 rounded-md pr-2 text-left text-sm ${selected ? 'bg-brand-violet/10 font-medium text-brand-violet' : 'text-foreground hover:bg-accent'}`}
+        className={`flex h-7 w-full items-center gap-1.5 rounded-md pe-2 text-start text-sm ${selected ? 'bg-brand-violet/10 font-medium text-brand-violet' : 'text-foreground hover:bg-accent'}`}
       >
         <span className="w-3.5 shrink-0" />
         <FileGlyph name={node.name} />
         <span className="truncate">{node.name}</span>
-        <span className="ml-auto shrink-0 pl-2 font-mono text-xs tabular-nums text-muted-foreground">
+        <span className="ms-auto shrink-0 ps-2 font-mono text-xs tabular-nums text-muted-foreground">
           {node.inContext ? formatNumber(node.tokens, locale) : t('agent_orchestrator.files.sample', 'sample')}
         </span>
       </button>
@@ -165,13 +165,13 @@ function TreeNode({
         type="button"
         onClick={() => setOpen((prev) => !prev)}
         style={pad}
-        className="flex h-7 w-full items-center gap-1.5 rounded-md pr-2 text-left text-sm text-foreground hover:bg-accent"
+        className="flex h-7 w-full items-center gap-1.5 rounded-md pe-2 text-start text-sm text-foreground hover:bg-accent"
       >
         <ChevronRight className={`size-3.5 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`} />
         <Folder className="size-4 shrink-0 text-muted-foreground" />
         <span className="truncate">{node.name}</span>
         {node.tokens > 0 ? (
-          <span className="ml-auto shrink-0 pl-2 font-mono text-xs tabular-nums text-muted-foreground opacity-70">{formatNumber(node.tokens, locale)}</span>
+          <span className="ms-auto shrink-0 ps-2 font-mono text-xs tabular-nums text-muted-foreground opacity-70">{formatNumber(node.tokens, locale)}</span>
         ) : null}
       </button>
       {open ? (
@@ -297,7 +297,7 @@ export function FilesTab({ agentId, agent, active }: FilesTabProps) {
           <div className="p-6"><ErrorMessage label={t('agent_orchestrator.files.error', 'Could not load the agent files.')} /></div>
         ) : (
           <div className="grid min-h-[520px] grid-cols-1 md:grid-cols-[300px_1fr]">
-            <div className="flex min-h-0 flex-col border-b border-border md:border-b-0 md:border-r">
+            <div className="flex min-h-0 flex-col border-b border-border md:border-b-0 md:border-e">
               <div className="border-b border-border p-2.5">
                 <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t('agent_orchestrator.files.filter', 'Filter files…')} className="h-8" />
               </div>

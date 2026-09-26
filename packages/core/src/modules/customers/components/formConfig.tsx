@@ -849,12 +849,12 @@ export const createDisplayNameSection = (t: Translator) =>
           <Button type="button" variant="ghost" size="sm" onClick={toggleEditing}>
             {editing ? (
               <>
-                <Check className="mr-2 h-4 w-4" />
+                <Check className="me-2 h-4 w-4" />
                 {t('customers.people.form.displayName.done')}
               </>
             ) : (
               <>
-                <Pencil className="mr-2 h-4 w-4" />
+                <Pencil className="me-2 h-4 w-4" />
                 {t('customers.people.form.displayName.edit')}
               </>
             )}

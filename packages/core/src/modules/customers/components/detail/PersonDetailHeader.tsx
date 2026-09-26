@@ -173,7 +173,7 @@ export function PersonDetailHeader({
           {linkedCompanies.length > 0 && (
             <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
               <span className="text-muted-foreground">
-                <Building2 className="mr-1 inline size-3.5" />
+                <Building2 className="me-1 inline size-3.5" />
                 {t('customers.people.detail.header.companies', 'Companies')} ({linkedCompanies.length}):
               </span>
               {visibleCompanies.map((company) => (
@@ -238,7 +238,7 @@ export function PersonDetailHeader({
               className="h-auto rounded-sm px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground"
               onClick={() => setManageTagsOpen(true)}
             >
-              <Pencil className="mr-1 size-3" />
+              <Pencil className="me-1 size-3" />
               {t('customers.people.detail.actions.manageTags', 'Edit tags')}
             </Button>
           </div>

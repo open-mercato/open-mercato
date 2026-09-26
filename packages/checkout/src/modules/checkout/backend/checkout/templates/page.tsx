@@ -130,7 +130,7 @@ export default function CheckoutTemplatesPage() {
           actions={(
             <Button asChild>
               <Link href="/backend/checkout/templates/create">
-                <Plus className="mr-2 h-4 w-4" />
+                <Plus className="me-2 h-4 w-4" />
                 {t('checkout.admin.templates.actions.create')}
               </Link>
             </Button>

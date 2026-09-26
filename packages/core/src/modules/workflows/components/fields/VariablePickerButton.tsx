@@ -157,7 +157,7 @@ export function VariablePickerButton({
                       {sample && (
                         <span
                           className={cn(
-                            'ml-auto min-w-0 truncate text-xs text-muted-foreground',
+                            'ms-auto min-w-0 truncate text-xs text-muted-foreground',
                             sample.numeric && 'tabular-nums',
                           )}
                         >

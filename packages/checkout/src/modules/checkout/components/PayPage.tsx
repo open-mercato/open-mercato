@@ -615,12 +615,12 @@ export function PayPageSurface({
     >
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute left-[-10%] top-[-5%] h-80 w-80 rounded-full blur-3xl"
+        className="pointer-events-none absolute start-[-10%] top-[-5%] h-80 w-80 rounded-full blur-3xl"
         style={{ background: withAlpha(themeTokens.accent, 0.16) }}
       />
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute bottom-[-8%] right-[-4%] h-96 w-96 rounded-full blur-3xl"
+        className="pointer-events-none absolute bottom-[-8%] end-[-4%] h-96 w-96 rounded-full blur-3xl"
         style={{ background: withAlpha(themeTokens.accentSecondary, 0.16) }}
       />
 
@@ -647,7 +647,7 @@ export function PayPageHeader({ payload, preview, themeTokens }: PayPageHeaderPr
     >
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute right-[-4rem] top-[-3rem] h-40 w-40 rounded-full blur-3xl"
+        className="pointer-events-none absolute end-[-4rem] top-[-3rem] h-40 w-40 rounded-full blur-3xl"
         style={{ background: withAlpha(themeTokens.accentSecondary, 0.22) }}
       />
       <div className="relative flex flex-col gap-6">
@@ -1185,7 +1185,7 @@ export function PayPageLegalConsent({
                   : t('checkout.payPage.legal.defaultTermsTitle', 'the terms and conditions'))}
             </DialogTitle>
           </DialogHeader>
-          <div className="overflow-y-auto pr-2">
+          <div className="overflow-y-auto pe-2">
             <div className="prose prose-sm max-w-none">
               <MarkdownContent body={activeDocumentPayload?.markdown ?? ''} format="markdown" />
             </div>
