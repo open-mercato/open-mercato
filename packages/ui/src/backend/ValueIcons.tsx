@@ -9,16 +9,21 @@ export function BooleanIcon({ value, trueLabel, falseLabel, className }: {
   falseLabel?: string
   className?: string
 }) {
+  const t = useT()
   const v = !!value
+  const label = v
+    ? trueLabel ?? t('ui.boolean.true', 'Yes')
+    : falseLabel ?? t('ui.boolean.false', 'No')
   return (
     <span className={`inline-flex items-center gap-1 ${className ?? ''}`}>
       {v ? (
-        <Check className="size-4 text-emerald-600" />
+        <Check aria-hidden="true" className="size-4 text-emerald-600" />
       ) : (
-        <X className="size-4 text-muted-foreground" />
+        <X aria-hidden="true" className="size-4 text-muted-foreground" />
       )}
       {v && trueLabel ? <span className="text-xs">{trueLabel}</span> : null}
       {!v && falseLabel ? <span className="text-xs">{falseLabel}</span> : null}
+      {!(v ? trueLabel : falseLabel) ? <span className="sr-only">{label}</span> : null}
     </span>
   )
 }
@@ -45,4 +50,3 @@ export function useSeverityPreset(): EnumBadgeMap {
     high: { label: t('ui.badges.severity.high', 'High'), className: 'border-red-200 text-red-700 bg-red-50', icon: <AlertTriangle className="size-3" /> },
   }
 }
-
