@@ -33,7 +33,19 @@ type MapCacheKey = {
 }
 
 type SqlConnection = {
-  execute(sql: string, params?: readonly unknown[]): Promise<unknown>
+  execute(sql: string, params?: readonly unknown[], method?: string, ctx?: unknown): Promise<unknown>
+}
+
+/**
+ * Per-call scope that lets an encryption-map lookup join the caller's
+ * transaction instead of taking a second pool connection (issue #6301).
+ *
+ * Only the transaction context is read off `em` — the lookup never injects a
+ * default context, so one request's transaction cannot leak into another
+ * request's decryption.
+ */
+export type EncryptionMapScope = {
+  em?: { getConnection?: () => unknown; getTransactionContext?: () => unknown } | null
 }
 
 const MAP_MISS_TTL_MS = 5 * 60 * 1000
@@ -227,13 +239,31 @@ export function resolveEncryptionKeyId(
   return keyScope === 'system' ? `system:${entityId}` : tenantId ?? null
 }
 
-function getSqlConnection(em: EntityManager): SqlConnection | null {
-  const source = em as { getConnection?: () => unknown }
-  const conn = source.getConnection?.()
+function getSqlConnection(em: { getConnection?: () => unknown } | null | undefined): SqlConnection | null {
+  const conn = em?.getConnection?.()
   if (!conn || typeof conn !== 'object') return null
   const candidate = conn as { execute?: unknown }
   if (typeof candidate.execute !== 'function') return null
   return candidate as SqlConnection
+}
+
+/**
+ * Resolves the connection and transaction context an encryption-map lookup
+ * should run with. Inside a transaction (`ctx !== undefined`) the lookup must
+ * run on the caller's connection — with no pool of its own to wait on, a
+ * saturated pool can no longer deadlock the request (issue #6301). Outside a
+ * transaction the service connection is used exactly as before.
+ */
+function resolveMapLookupTarget(scope: EncryptionMapScope | undefined, fallback: EntityManager): {
+  em: { getConnection?: () => unknown; getTransactionContext?: () => unknown }
+  ctx: unknown
+  scoped: boolean
+} {
+  const ctx = scope?.em?.getTransactionContext?.()
+  if (ctx === undefined || !scope?.em) return { em: fallback, ctx: undefined, scoped: false }
+  const conn = getSqlConnection(scope.em)
+  if (!conn) return { em: fallback, ctx: undefined, scoped: false }
+  return { em: scope.em, ctx, scoped: true }
 }
 
 export class TenantDataEncryptionService {
@@ -243,6 +273,8 @@ export class TenantDataEncryptionService {
   private static globalDekCache = new Map<string, TenantDek>()
   private static globalInflightDeks = new Map<string, Promise<TenantDek | null>>()
   private static globalMissCache = new Map<string, number>()
+  private static txMapCache = new WeakMap<object, Map<string, EncryptionMapRecord | null>>()
+  private static txAggregateCache = new WeakMap<object, Map<string, EncryptedFieldRule[]>>()
   private readonly kms: KmsService
   private readonly cache?: CacheStrategy
   private readonly memoryCache = TenantDataEncryptionService.globalMemoryCache
@@ -335,10 +367,13 @@ export class TenantDataEncryptionService {
     return dek
   }
 
-  private async fetchMap(key: MapCacheKey): Promise<EncryptionMapRecord | null> {
+  private async fetchMap(key: MapCacheKey, scope?: EncryptionMapScope): Promise<EncryptionMapRecord | null> {
     // Bypass ORM lifecycle hooks to avoid recursive decrypt loops by querying directly.
-    const conn = getSqlConnection(this.em)
-    if (!conn) return null
+    const target = resolveMapLookupTarget(scope, this.em)
+    const conn = getSqlConnection(target.em)
+    if (!conn) {
+      throw new Error('TenantDataEncryptionService: database connection could not be resolved for encryption map lookup')
+    }
     const sql = `
       select entity_id, fields_json
       from encryption_maps
@@ -349,7 +384,10 @@ export class TenantDataEncryptionService {
         and deleted_at is null
       limit 1
     `
-    const rows = await conn.execute(sql, [key.entityId, key.tenantId ?? null, key.organizationId ?? null])
+    const params = [key.entityId, key.tenantId ?? null, key.organizationId ?? null]
+    const rows = target.scoped
+      ? await conn.execute(sql, params, 'all', target.ctx)
+      : await conn.execute(sql, params)
     const row = Array.isArray(rows) && rows.length && rows[0] && typeof rows[0] === 'object'
       ? rows[0] as Record<string, unknown>
       : null
@@ -378,7 +416,14 @@ export class TenantDataEncryptionService {
     }
   }
 
-  private async getMap(key: MapCacheKey): Promise<EncryptionMapRecord | null> {
+  private async getMap(key: MapCacheKey, scope?: EncryptionMapScope): Promise<EncryptionMapRecord | null> {
+    const target = resolveMapLookupTarget(scope, this.em)
+    const candidates: MapCacheKey[] = [
+      key,
+      { entityId: key.entityId, tenantId: key.tenantId ?? null, organizationId: null },
+      { entityId: key.entityId, tenantId: null, organizationId: null },
+    ]
+
     const shouldSkipLookup = (tag: string) => {
       const expiresAt = this.missCache.get(tag)
       if (!expiresAt) return false
@@ -390,26 +435,62 @@ export class TenantDataEncryptionService {
       this.missCache.set(tag, Date.now() + MAP_MISS_TTL_MS)
     }
 
-    const candidates: MapCacheKey[] = [
-      key,
-      { entityId: key.entityId, tenantId: key.tenantId ?? null, organizationId: null },
-      { entityId: key.entityId, tenantId: null, organizationId: null },
-    ]
     for (const candidate of candidates) {
       const tag = cacheKey(candidate)
+
+      // 1. Check transaction-scoped memo if scoped
+      if (target.scoped && target.ctx && typeof target.ctx === 'object') {
+        const txMemo = TenantDataEncryptionService.txMapCache.get(target.ctx)
+        if (txMemo?.has(tag)) {
+          const cachedRec = txMemo.get(tag)!
+          if (cachedRec) return this.applySystemDefault(cachedRec, key.entityId)
+          continue
+        }
+      }
+
+      // 2. Check global miss cache (shared miss cache is safely read)
       if (shouldSkipLookup(tag)) continue
-      if (this.inflightMaps.has(tag)) {
+
+      // 3. If unscoped, join in-flight read; scoped reads skip to avoid waiting on pool
+      if (!target.scoped && this.inflightMaps.has(tag)) {
         const pending = this.inflightMaps.get(tag)!
         const resolved = await pending
         if (resolved) return this.applySystemDefault(resolved, key.entityId)
       }
+
+      // 4. Check global memory cache
       const mem = this.memoryCache.get(tag)
       if (mem) return this.applySystemDefault(mem, key.entityId)
+
+      // 5. Check persistent cache
       if (this.cache && typeof this.cache.get === 'function') {
         const cached = await this.cache.get(tag)
-        if (cached) return this.applySystemDefault(cached as EncryptionMapRecord, key.entityId)
+        if (cached) {
+          const record = cached as EncryptionMapRecord
+          if (!target.scoped) {
+            this.memoryCache.set(tag, record)
+          }
+          return this.applySystemDefault(record, key.entityId)
+        }
       }
-      const pending = this.fetchMap(candidate)
+
+      // 6. Scoped lookup: execute on transaction connection, memoize in txMapCache, do not publish to global cache
+      if (target.scoped) {
+        const loaded = await this.fetchMap(candidate, scope)
+        if (target.ctx && typeof target.ctx === 'object') {
+          let txMemo = TenantDataEncryptionService.txMapCache.get(target.ctx)
+          if (!txMemo) {
+            txMemo = new Map()
+            TenantDataEncryptionService.txMapCache.set(target.ctx, txMemo)
+          }
+          txMemo.set(tag, loaded)
+        }
+        if (loaded) return this.applySystemDefault(loaded, key.entityId)
+        continue
+      }
+
+      // 7. Unscoped lookup: execute with in-flight dedupe and publish to global cache
+      const pending = this.fetchMap(candidate, scope)
       this.inflightMaps.set(tag, pending)
       const loaded = await pending
       this.inflightMaps.delete(tag)
@@ -435,9 +516,13 @@ export class TenantDataEncryptionService {
   private async fetchAllOrganizationFieldRules(
     entityId: string,
     tenantId: string | null,
+    scope?: EncryptionMapScope,
   ): Promise<EncryptedFieldRule[]> {
-    const conn = getSqlConnection(this.em)
-    if (!conn) return []
+    const target = resolveMapLookupTarget(scope, this.em)
+    const conn = getSqlConnection(target.em)
+    if (!conn) {
+      throw new Error('TenantDataEncryptionService: database connection could not be resolved for encryption map lookup')
+    }
     const sql = `
       select fields_json
       from encryption_maps
@@ -447,7 +532,10 @@ export class TenantDataEncryptionService {
         and is_active = true
         and deleted_at is null
     `
-    const rows = await conn.execute(sql, [entityId, tenantId])
+    const params = [entityId, tenantId]
+    const rows = target.scoped
+      ? await conn.execute(sql, params, 'all', target.ctx)
+      : await conn.execute(sql, params)
     if (!Array.isArray(rows) || rows.length === 0) return []
     const groups: EncryptedFieldRule[][] = []
     for (const row of rows) {
@@ -465,8 +553,18 @@ export class TenantDataEncryptionService {
   private async getAllOrganizationFieldRules(
     entityId: string,
     tenantId: string | null,
+    scope?: EncryptionMapScope,
   ): Promise<EncryptedFieldRule[]> {
+    const target = resolveMapLookupTarget(scope, this.em)
     const tag = allOrganizationsCacheKey(entityId, tenantId)
+
+    if (target.scoped && target.ctx && typeof target.ctx === 'object') {
+      const txMemo = TenantDataEncryptionService.txAggregateCache.get(target.ctx)
+      if (txMemo?.has(tag)) {
+        return txMemo.get(tag)!
+      }
+    }
+
     const missExpiresAt = this.missCache.get(tag)
     if (missExpiresAt) {
       if (missExpiresAt > Date.now()) return []
@@ -481,14 +579,30 @@ export class TenantDataEncryptionService {
       const cached = await this.cache.get(tag)
       if (cached) {
         const record = cached as EncryptionMapRecord
-        this.aggregateMemoryCache.set(tag, { at: Date.now(), record })
+        if (!target.scoped) {
+          this.aggregateMemoryCache.set(tag, { at: Date.now(), record })
+        }
         return record.fields
       }
     }
+
+    if (target.scoped) {
+      const fields = await this.fetchAllOrganizationFieldRules(entityId, tenantId, scope)
+      if (target.ctx && typeof target.ctx === 'object') {
+        let txMemo = TenantDataEncryptionService.txAggregateCache.get(target.ctx)
+        if (!txMemo) {
+          txMemo = new Map()
+          TenantDataEncryptionService.txAggregateCache.set(target.ctx, txMemo)
+        }
+        txMemo.set(tag, fields)
+      }
+      return fields
+    }
+
     const inflight = this.inflightMaps.get(tag)
     if (inflight) return (await inflight)?.fields ?? []
     const pending = (async (): Promise<EncryptionMapRecord | null> => {
-      const fields = await this.fetchAllOrganizationFieldRules(entityId, tenantId)
+      const fields = await this.fetchAllOrganizationFieldRules(entityId, tenantId, scope)
       return fields.length ? { entityId, fields } : null
     })()
     this.inflightMaps.set(tag, pending)
@@ -524,10 +638,11 @@ export class TenantDataEncryptionService {
     tenantId: string | null,
     organizationId: string | null,
     map: EncryptionMapRecord | null,
+    scope?: EncryptionMapScope,
   ): Promise<EncryptedFieldRule[]> {
     const mapRules = normalizeEncryptedFieldRules(map?.fields)
     if (organizationId != null) return mapRules
-    return mergeEncryptedFieldRules([mapRules, await this.getAllOrganizationFieldRules(entityId, tenantId)])
+    return mergeEncryptedFieldRules([mapRules, await this.getAllOrganizationFieldRules(entityId, tenantId, scope)])
   }
 
   async invalidateMap(entityId: string, tenantId: string | null, organizationId: string | null): Promise<void> {
@@ -565,19 +680,21 @@ export class TenantDataEncryptionService {
     entityId: string,
     tenantId: string | null | undefined,
     organizationId?: string | null,
-    options?: { ignoreRuntimeHealth?: boolean }
+    options?: { ignoreRuntimeHealth?: boolean; em?: EncryptionMapScope['em'] }
   ): Promise<string[]> {
     if (options?.ignoreRuntimeHealth) {
       if (!isTenantDataEncryptionEnabled()) return []
     } else if (!this.isEnabled()) {
       return []
     }
-    const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null })
+    const scope = options?.em ? { em: options.em } : undefined
+    const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null }, scope)
     const fields = await this.resolveFieldRulesForScope(
       entityId,
       tenantId ?? null,
       organizationId ?? null,
       map,
+      scope,
     )
     return fields.map((rule) => rule.field)
   }
@@ -666,18 +783,20 @@ export class TenantDataEncryptionService {
     payload: Record<string, unknown>,
     tenantId: string | null | undefined,
     organizationId?: string | null,
-    options?: { createMissingDek?: boolean }
+    options?: { createMissingDek?: boolean; em?: EncryptionMapScope['em'] }
   ): Promise<Record<string, unknown>> {
     if (!this.isEnabled()) {
       debug('⚪️ encrypt.skip.disabled', { entityId, tenantId })
       return payload
     }
-    const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null })
+    const scope = options?.em ? { em: options.em } : undefined
+    const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null }, scope)
     const fields = await this.resolveFieldRulesForScope(
       entityId,
       tenantId ?? null,
       organizationId ?? null,
       map,
+      scope,
     )
     if (!fields.length) {
       debug('⚪️ encrypt.skip.no-map', { entityId, tenantId })
@@ -697,18 +816,21 @@ export class TenantDataEncryptionService {
     entityId: string,
     payload: Record<string, unknown>,
     tenantId: string | null | undefined,
-    organizationId?: string | null
+    organizationId?: string | null,
+    options?: { em?: EncryptionMapScope['em'] }
   ): Promise<Record<string, unknown>> {
     if (!isTenantDataEncryptionEnabled()) {
       debug('⚪️ decrypt.skip.disabled', { entityId, tenantId })
       return payload
     }
-    const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null })
+    const scope = options?.em ? { em: options.em } : undefined
+    const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null }, scope)
     const fields = await this.resolveFieldRulesForScope(
       entityId,
       tenantId ?? null,
       organizationId ?? null,
       map,
+      scope,
     )
     if (!fields.length) {
       debug('⚪️ decrypt.skip.no-map', { entityId, tenantId })
