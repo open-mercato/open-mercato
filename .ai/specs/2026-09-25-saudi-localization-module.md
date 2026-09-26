@@ -68,11 +68,29 @@ and irrelevant elsewhere, so the OSS core stays jurisdiction-neutral:
      than on its binary approximation (the `"1.005e2"` shift).
    - `computeVatFromNet` — net/VAT/gross that add up after rounding.
 
+### Implemented since (settings)
+
+3. **`lib/vat-settings.ts` + `data/validators.ts` + `api/vat-settings/route.ts`** —
+   the seller identity as tenant-scoped settings, stored in the platform's
+   `module_configs` store through `ModuleConfigService` (no bespoke entity, no
+   migration):
+   - `GET /api/saudi/vat-settings` returns the stored values merged with the
+     shipped defaults (`15%`, QR on), `isComplete` and the record's `updatedAt`;
+   - `PUT /api/saudi/vat-settings` replaces them, validated by zod (VAT-number
+     pattern, seller name capped at the 255-byte TLV limit, rate 0–1), behind
+     `saudi_localization.settings.view|manage`, through the mutation guard;
+   - **optimistic locking is on**: the client sends the record's `updatedAt` in
+     `x-om-ext-optimistic-lock-expected-updated-at`, the route enforces it with
+     `enforceCommandOptimisticLockWithGuards`, and a stale write is refused with
+     the platform's standard 409 `optimistic_lock_conflict` body. The settings
+     screen renders the unified conflict banner through `useGuardedMutation`.
+4. **`backend/saudi/vat-settings/page.tsx`** — the settings screen: seller
+   identity, VAT rate and QR toggle, a banner while the identity is incomplete,
+   and save-through-`runMutation` (the write path a `CrudForm` would own, wired
+   by hand because a singleton has no list/create/delete).
+
 ### Planned
 
-- Settings: a per-organization `saudi_vat_settings` record (seller name, VAT
-  number, CR number, rate, effective dates) seeded at 15% today and kept
-  history-aware so a reissued invoice keeps the rate it was issued under.
 - Invoice integration: attach the payload to generated invoices and to the print
   view, and store the payload with the invoice so a reprint is byte-identical.
 - Phase 2: UBL 2.1 XML, invoice hash, previous-invoice-hash chain, ICV counter,
@@ -103,23 +121,25 @@ The module is mirrored into the create-app template the way every app module is
 
 ## Data Models
 
-None in this change.
+None in this change: the settings live in the platform's shared
+`module_configs` table (module id `saudi_localization`, key `vat`, tenant-scoped),
+which already provides the version column the settings screen uses.
 
-Planned: `saudi_vat_settings` (`id`, `organization_id`, `tenant_id`,
-`seller_name`, `vat_registration_number`, `commercial_registration_number`,
-`vat_rate`, `effective_from`, timestamps, soft delete) and
-`saudi_einvoice_submission` (`invoice_id`, `uuid`, `icv`, `invoice_hash`,
+Planned: `saudi_einvoice_submission` (`invoice_id`, `uuid`, `icv`, `invoice_hash`,
 `previous_invoice_hash`, `status`, `submitted_at`, `cleared_at`, `response_jsonb`).
 Amounts and hashes are stored as text to preserve ZATCA's exact serialization.
 
 ## API Contracts
 
-None in this change.
+`GET /api/saudi/vat-settings` → `{ sellerName, vatRegistrationNumber,
+commercialRegistrationNumber, vatRate, invoiceQrEnabled, isComplete, updatedAt }`,
+behind `saudi_localization.settings.view`.
 
-Planned: `GET/PUT /api/saudi/vat-settings`,
-`POST /api/saudi/zatca/submit`, `GET /api/saudi/zatca/submissions`, guarded by
-new ACL features (`saudi_localization.settings.view|manage`, `saudi_localization.zatca.submit`)
-with their catalogue entries in `packages/core/src/modules/auth/i18n/*.json`.
+`PUT /api/saudi/vat-settings` → the same shape, a full replacement, behind
+`saudi_localization.settings.manage`. `400` on validation failure, `409`
+`optimistic_lock_conflict` when the expected version header is stale.
+
+Planned: `POST /api/saudi/zatca/submit`, `GET /api/saudi/zatca/submissions`.
 
 ## Integration Coverage
 
@@ -158,5 +178,8 @@ with their catalogue entries in `packages/core/src/modules/auth/i18n/*.json`.
 
 - **2026-09-25** — Module created with the ZATCA Phase 1 QR payload builder and
   the Saudi VAT primitives, both pure and unit-tested against hand-built vectors.
-  Settings, invoice integration, Hijri dates and Phase 2 clearance are scoped as
-  follow-ups.
+- **2026-09-25 (settings)** — Seller VAT settings (API + screen) over
+  `module_configs`, with zod validation at the byte level, `isComplete` for the
+  invoice pipeline, and optimistic locking wired the platform's way
+  (`updatedAt` + extension header + the standard 409 body). 55 module tests.
+  Invoice integration, Hijri dates and Phase 2 clearance remain scoped.

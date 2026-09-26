@@ -4,14 +4,15 @@ const userId = '33333333-3333-4333-8333-333333333333'
 
 const validateCrudMutationGuardMock = jest.fn()
 const runCrudMutationGuardAfterSuccessMock = jest.fn()
-const getValueMock = jest.fn()
+const enforceOptimisticLockMock = jest.fn()
+const getRecordMock = jest.fn()
 const setValueMock = jest.fn()
 
 const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'moduleConfigService') {
       return {
-        getValue: (...args: unknown[]) => getValueMock(...args),
+        getRecord: (...args: unknown[]) => getRecordMock(...args),
         setValue: (...args: unknown[]) => setValueMock(...args),
       }
     }
@@ -34,6 +35,10 @@ jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
   runCrudMutationGuardAfterSuccess: (...args: unknown[]) => runCrudMutationGuardAfterSuccessMock(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/crud/optimistic-lock-command', () => ({
+  enforceCommandOptimisticLockWithGuards: (...args: unknown[]) => enforceOptimisticLockMock(...args),
+}))
+
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
     locale: 'en',
@@ -43,6 +48,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { GET, PUT } from '../route'
 
 const validBody = {
@@ -60,14 +66,29 @@ const makePutRequest = (body: unknown) =>
     body: JSON.stringify(body),
   })
 
+const STORED_UPDATED_AT = '2026-01-31T09:15:00.000Z'
+const WRITTEN_UPDATED_AT = '2026-02-01T10:00:00.000Z'
+
+const configRecord = (value: unknown, updatedAt: string) => ({
+  moduleId: 'saudi_localization',
+  name: 'vat',
+  value,
+  tenantId,
+  organizationId,
+  source: 'tenant' as const,
+  createdAt: updatedAt,
+  updatedAt,
+})
+
 describe('saudi VAT settings route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     authValue = { tenantId, sub: userId, orgId: organizationId }
     validateCrudMutationGuardMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { token: 'guard' } })
     runCrudMutationGuardAfterSuccessMock.mockResolvedValue(undefined)
-    getValueMock.mockResolvedValue(null)
-    setValueMock.mockResolvedValue(null)
+    enforceOptimisticLockMock.mockResolvedValue(undefined)
+    getRecordMock.mockResolvedValue(null)
+    setValueMock.mockResolvedValue(configRecord(validBody, WRITTEN_UPDATED_AT))
   })
 
   it('rejects unauthenticated requests', async () => {
@@ -89,32 +110,51 @@ describe('saudi VAT settings route', () => {
       vatRate: 0.15,
       invoiceQrEnabled: true,
       isComplete: false,
+      updatedAt: null,
     })
-    expect(getValueMock).toHaveBeenCalledWith(
+    expect(getRecordMock).toHaveBeenCalledWith(
       'saudi_localization',
       'vat',
-      { scope: { tenantId, organizationId } },
+      { tenantId, organizationId },
     )
   })
 
-  it('returns the stored tenant values and marks them complete', async () => {
-    getValueMock.mockResolvedValue(validBody)
+  it('returns the stored tenant values, their version and completeness', async () => {
+    getRecordMock.mockResolvedValue(configRecord(validBody, STORED_UPDATED_AT))
 
     const response = await GET(new Request('http://localhost/api/saudi/vat-settings'))
 
-    await expect(response.json()).resolves.toEqual({ ...validBody, isComplete: true })
+    await expect(response.json()).resolves.toEqual({
+      ...validBody,
+      isComplete: true,
+      updatedAt: STORED_UPDATED_AT,
+    })
   })
 
-  it('persists the tenant-scoped settings and runs the mutation guard', async () => {
+  it('persists the tenant-scoped settings, checks the expected version and runs the mutation guard', async () => {
+    getRecordMock.mockResolvedValue(configRecord(validBody, STORED_UPDATED_AT))
+
     const response = await PUT(makePutRequest(validBody))
 
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ ...validBody, isComplete: true })
+    await expect(response.json()).resolves.toEqual({
+      ...validBody,
+      isComplete: true,
+      updatedAt: WRITTEN_UPDATED_AT,
+    })
     expect(setValueMock).toHaveBeenCalledWith(
       'saudi_localization',
       'vat',
       validBody,
       { tenantId, organizationId },
+    )
+    expect(enforceOptimisticLockMock).toHaveBeenCalledWith(
+      container,
+      expect.objectContaining({
+        resourceKind: 'saudi_localization.settings',
+        resourceId: 'vat',
+        current: STORED_UPDATED_AT,
+      }),
     )
     expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(
       container,
@@ -127,6 +167,26 @@ describe('saudi VAT settings route', () => {
       }),
     )
     expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses a stale write with the optimistic-lock conflict', async () => {
+    getRecordMock.mockResolvedValue(configRecord(validBody, STORED_UPDATED_AT))
+    enforceOptimisticLockMock.mockRejectedValue(
+      new CrudHttpError(409, {
+        error: 'record_modified',
+        code: 'optimistic_lock_conflict',
+        currentUpdatedAt: STORED_UPDATED_AT,
+        expectedUpdatedAt: '2026-01-01T00:00:00.000Z',
+      }),
+    )
+
+    const response = await PUT(makePutRequest(validBody))
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({ code: 'optimistic_lock_conflict' }),
+    )
+    expect(setValueMock).not.toHaveBeenCalled()
   })
 
   it('rejects a malformed VAT number without touching the store', async () => {

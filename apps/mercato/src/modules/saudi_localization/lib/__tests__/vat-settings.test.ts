@@ -8,6 +8,7 @@ import {
   mergeSaudiVatSettings,
   parseSaudiVatSettingsInput,
   readSaudiVatSettings,
+  readSaudiVatSettingsRecord,
   writeSaudiVatSettings,
 } from '../vat-settings'
 
@@ -21,16 +22,20 @@ const VALID_INPUT = {
 
 type Call = { kind: 'get' | 'set'; moduleId: string; name: string; value?: unknown; scope?: unknown }
 
+const STORED_UPDATED_AT = '2026-01-31T09:15:00.000Z'
+const WRITTEN_UPDATED_AT = '2026-02-01T10:00:00.000Z'
+
 function fakeConfigService(seed: unknown = null) {
   const calls: Call[] = []
   const service = {
-    getValue: async (moduleId: string, name: string, options?: { scope?: unknown }) => {
-      calls.push({ kind: 'get', moduleId, name, scope: options?.scope })
-      return seed as never
+    getRecord: async (moduleId: string, name: string, scope?: unknown) => {
+      calls.push({ kind: 'get', moduleId, name, scope })
+      if (seed === null) return null
+      return { moduleId, name, value: seed, tenantId: null, organizationId: null, source: 'tenant', createdAt: STORED_UPDATED_AT, updatedAt: STORED_UPDATED_AT }
     },
     setValue: async (moduleId: string, name: string, value: unknown, scope?: unknown) => {
       calls.push({ kind: 'set', moduleId, name, value, scope })
-      return null
+      return { moduleId, name, value, tenantId: null, organizationId: null, source: 'tenant', createdAt: WRITTEN_UPDATED_AT, updatedAt: WRITTEN_UPDATED_AT }
     },
   } as unknown as ModuleConfigService
   return { service, calls }
@@ -66,13 +71,14 @@ describe('isSaudiVatSettingsComplete', () => {
 })
 
 describe('readSaudiVatSettings', () => {
-  it('reads the tenant scope and merges the defaults', async () => {
+  it('reads the tenant scope, merges the defaults and exposes the version', async () => {
     const { service, calls } = fakeConfigService({ sellerName: 'Apex' })
 
-    const settings = await readSaudiVatSettings(service, { tenantId: 'tenant-1' })
+    const record = await readSaudiVatSettingsRecord(service, { tenantId: 'tenant-1' })
 
-    expect(settings.sellerName).toBe('Apex')
-    expect(settings.vatRate).toBe(SAUDI_STANDARD_VAT_RATE)
+    expect(record.settings.sellerName).toBe('Apex')
+    expect(record.settings.vatRate).toBe(SAUDI_STANDARD_VAT_RATE)
+    expect(record.updatedAt).toBe(STORED_UPDATED_AT)
     expect(calls[0]).toEqual({
       kind: 'get',
       moduleId: SAUDI_VAT_SETTINGS_MODULE_ID,
@@ -80,10 +86,19 @@ describe('readSaudiVatSettings', () => {
       scope: { tenantId: 'tenant-1' },
     })
   })
+
+  it('reports no version before the first write', async () => {
+    const { service } = fakeConfigService(null)
+
+    const record = await readSaudiVatSettingsRecord(service, { tenantId: 'tenant-1' })
+
+    expect(record).toEqual({ settings: SAUDI_VAT_SETTINGS_DEFAULTS, updatedAt: null })
+    await expect(readSaudiVatSettings(service, { tenantId: 'tenant-1' })).resolves.toEqual(SAUDI_VAT_SETTINGS_DEFAULTS)
+  })
 })
 
 describe('writeSaudiVatSettings', () => {
-  it('normalizes the input and writes it under the tenant scope', async () => {
+  it('normalizes the input, writes it under the tenant scope and returns the new version', async () => {
     const { service, calls } = fakeConfigService()
     const input = parseSaudiVatSettingsInput({
       ...VALID_INPUT,
@@ -91,15 +106,16 @@ describe('writeSaudiVatSettings', () => {
       vatRegistrationNumber: ' 300000000000003 ',
     })
 
-    const settings = await writeSaudiVatSettings(service, input, { tenantId: 'tenant-1' })
+    const record = await writeSaudiVatSettings(service, input, { tenantId: 'tenant-1' })
 
-    expect(settings.sellerName).toBe('Apex Trading Est.')
-    expect(settings.vatRegistrationNumber).toBe('300000000000003')
+    expect(record.settings.sellerName).toBe('Apex Trading Est.')
+    expect(record.settings.vatRegistrationNumber).toBe('300000000000003')
+    expect(record.updatedAt).toBe(WRITTEN_UPDATED_AT)
     expect(calls[0]).toEqual({
       kind: 'set',
       moduleId: SAUDI_VAT_SETTINGS_MODULE_ID,
       name: SAUDI_VAT_SETTINGS_KEY,
-      value: settings,
+      value: record.settings,
       scope: { tenantId: 'tenant-1' },
     })
   })

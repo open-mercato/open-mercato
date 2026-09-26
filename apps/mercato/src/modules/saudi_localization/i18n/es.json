@@ -1,3 +1,26 @@
 {
-  "saudi_localization.errors.invalid_vat_settings": "Invalid Saudi VAT settings"
+  "saudi_localization.errors.invalid_rate": "Enter a VAT rate between 0 and 100.",
+  "saudi_localization.errors.invalid_vat_settings": "Invalid Saudi VAT settings",
+  "saudi_localization.errors.load_failed": "Unable to load the Saudi VAT settings.",
+  "saudi_localization.errors.save_failed": "Unable to save the Saudi VAT settings.",
+  "saudi_localization.nav.group": "Saudi localization",
+  "saudi_localization.vat_settings.actions.save": "Save",
+  "saudi_localization.vat_settings.fields.cr_number": "Commercial registration number",
+  "saudi_localization.vat_settings.fields.invoice_qr": "Print the ZATCA QR code on invoices",
+  "saudi_localization.vat_settings.fields.invoice_qr_hint": "Required on simplified tax invoices. Turn it off only for an entity that is not VAT-registered.",
+  "saudi_localization.vat_settings.fields.seller_name": "Seller name",
+  "saudi_localization.vat_settings.fields.seller_name_hint": "Up to 255 bytes: 255 Latin characters or 127 Arabic characters.",
+  "saudi_localization.vat_settings.fields.vat_number": "VAT registration number",
+  "saudi_localization.vat_settings.fields.vat_number_hint": "15 digits, starting and ending with 3.",
+  "saudi_localization.vat_settings.fields.vat_rate": "VAT rate (%)",
+  "saudi_localization.vat_settings.fields.vat_rate_hint": "The standard rate in Saudi Arabia is 15%.",
+  "saudi_localization.vat_settings.incomplete.body": "Invoices cannot carry a ZATCA QR code until the seller name and a valid VAT registration number are saved.",
+  "saudi_localization.vat_settings.incomplete.title": "VAT settings are incomplete",
+  "saudi_localization.vat_settings.loading": "Loading settings...",
+  "saudi_localization.vat_settings.messages.saved": "Saudi VAT settings saved.",
+  "saudi_localization.vat_settings.page_description": "The seller identity printed on every tax invoice and encoded in the ZATCA QR code.",
+  "saudi_localization.vat_settings.page_title": "Saudi VAT settings",
+  "saudi_localization.vat_settings.sections.seller": "Seller identity",
+  "saudi_localization.vat_settings.sections.seller_hint": "Exactly as registered with ZATCA.",
+  "saudi_localization.vat_settings.sections.tax": "VAT and invoice output"
 }

@@ -9,6 +9,7 @@ import {
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -16,9 +17,9 @@ import { saudiVatSettingsInputSchema } from '../../data/validators'
 import {
   SAUDI_VAT_SETTINGS_KEY,
   isSaudiVatSettingsComplete,
-  readSaudiVatSettings,
+  readSaudiVatSettingsRecord,
   writeSaudiVatSettings,
-  type SaudiVatSettings,
+  type SaudiVatSettingsRecord,
   type SaudiVatSettingsScope,
 } from '../../lib/vat-settings'
 
@@ -71,15 +72,15 @@ function configService(context: SettingsContext): ModuleConfigService {
   return context.container.resolve('moduleConfigService') as ModuleConfigService
 }
 
-function toResponse(settings: SaudiVatSettings) {
-  return { ...settings, isComplete: isSaudiVatSettingsComplete(settings) }
+function toResponse(record: SaudiVatSettingsRecord) {
+  return { ...record.settings, isComplete: isSaudiVatSettingsComplete(record.settings), updatedAt: record.updatedAt }
 }
 
 async function GET(req: Request) {
   try {
     const context = await resolveSettingsContext(req)
-    const settings = await readSaudiVatSettings(configService(context), context.scope)
-    return NextResponse.json(toResponse(settings))
+    const record = await readSaudiVatSettingsRecord(configService(context), context.scope)
+    return NextResponse.json(toResponse(record))
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     logger.error('saudi_localization.vat_settings.GET failed', { err })
@@ -108,7 +109,18 @@ async function PUT(req: Request) {
       return NextResponse.json(guardResult.body, { status: guardResult.status })
     }
 
-    const settings = await writeSaudiVatSettings(configService(context), input, context.scope)
+    const existing = await readSaudiVatSettingsRecord(configService(context), context.scope)
+    // Refuse a stale overwrite when two tabs edit the same VAT identity: the
+    // expected version travels in the extension header the same way it does for
+    // every CRUD entity. Strictly additive — a no-op without the header.
+    await enforceCommandOptimisticLockWithGuards(context.container, {
+      resourceKind: SETTINGS_RESOURCE_KIND,
+      resourceId: SAUDI_VAT_SETTINGS_KEY,
+      current: existing.updatedAt,
+      request: req,
+    })
+
+    const record = await writeSaudiVatSettings(configService(context), input, context.scope)
 
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(context.container, {
@@ -124,7 +136,7 @@ async function PUT(req: Request) {
       })
     }
 
-    return NextResponse.json(toResponse(settings))
+    return NextResponse.json(toResponse(record))
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     if (err instanceof z.ZodError) {
@@ -149,6 +161,8 @@ const settingsResponseSchema = z.object({
   vatRate: z.number(),
   invoiceQrEnabled: z.boolean(),
   isComplete: z.boolean(),
+  /** Version to send back on the next write; `null` before the first one. */
+  updatedAt: z.string().nullable(),
 })
 
 const getDoc: OpenApiMethodDoc = {

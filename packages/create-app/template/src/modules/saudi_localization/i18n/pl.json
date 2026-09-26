@@ -1,3 +1,26 @@
 {
-  "saudi_localization.errors.invalid_vat_settings": "Invalid Saudi VAT settings"
+  "saudi_localization.errors.invalid_rate": "Podaj stawkę VAT od 0 do 100.",
+  "saudi_localization.errors.invalid_vat_settings": "Nieprawidłowe saudyjskie ustawienia VAT",
+  "saudi_localization.errors.load_failed": "Nie udało się wczytać saudyjskich ustawień VAT.",
+  "saudi_localization.errors.save_failed": "Nie udało się zapisać saudyjskich ustawień VAT.",
+  "saudi_localization.nav.group": "Lokalizacja saudyjska",
+  "saudi_localization.vat_settings.actions.save": "Zapisz",
+  "saudi_localization.vat_settings.fields.cr_number": "Numer rejestracji handlowej",
+  "saudi_localization.vat_settings.fields.invoice_qr": "Drukuj kod QR ZATCA na fakturach",
+  "saudi_localization.vat_settings.fields.invoice_qr_hint": "Wymagany na uproszczonych fakturach podatkowych. Wyłącz tylko dla podmiotu niebędącego podatnikiem VAT.",
+  "saudi_localization.vat_settings.fields.seller_name": "Nazwa sprzedawcy",
+  "saudi_localization.vat_settings.fields.seller_name_hint": "Do 255 bajtów: 255 znaków łacińskich lub 127 znaków arabskich.",
+  "saudi_localization.vat_settings.fields.vat_number": "Numer rejestracyjny VAT",
+  "saudi_localization.vat_settings.fields.vat_number_hint": "15 cyfr, zaczyna się i kończy na 3.",
+  "saudi_localization.vat_settings.fields.vat_rate": "Stawka VAT (%)",
+  "saudi_localization.vat_settings.fields.vat_rate_hint": "Stawka standardowa w Arabii Saudyjskiej wynosi 15%.",
+  "saudi_localization.vat_settings.incomplete.body": "Faktury nie mogą zawierać kodu QR ZATCA, dopóki nazwa sprzedawcy i prawidłowy numer VAT nie zostaną zapisane.",
+  "saudi_localization.vat_settings.incomplete.title": "Ustawienia VAT są niekompletne",
+  "saudi_localization.vat_settings.loading": "Ładowanie ustawień...",
+  "saudi_localization.vat_settings.messages.saved": "Zapisano saudyjskie ustawienia VAT.",
+  "saudi_localization.vat_settings.page_description": "Dane sprzedawcy drukowane na każdej fakturze podatkowej i kodowane w kodzie QR ZATCA.",
+  "saudi_localization.vat_settings.page_title": "Ustawienia saudyjskiego VAT",
+  "saudi_localization.vat_settings.sections.seller": "Dane sprzedawcy",
+  "saudi_localization.vat_settings.sections.seller_hint": "Dokładnie tak, jak zarejestrowano w ZATCA.",
+  "saudi_localization.vat_settings.sections.tax": "VAT i dane na fakturze"
 }
