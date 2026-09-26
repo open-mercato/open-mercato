@@ -32,7 +32,7 @@ type PlannedActivitiesCacheEntry = {
 const plannedActivitiesCache = new Map<string, PlannedActivitiesCacheEntry>()
 
 function fetchPlannedActivities(dealId: string, useCache: boolean): Promise<InteractionSummary[]> {
-  const url = `/api/customers/interactions?dealId=${encodeURIComponent(dealId)}&status=planned&excludeInteractionType=task&limit=100&sortField=scheduledAt&sortDir=asc`
+  const url = `/api/customers/interactions?dealId=${encodeURIComponent(dealId)}&status=planned&limit=100&sortField=scheduledAt&sortDir=asc`
   const cached = plannedActivitiesCache.get(url)
   if (useCache && cached) return cached.promise
   const entry: PlannedActivitiesCacheEntry = {
