@@ -152,3 +152,138 @@ registerCrudCommands({
     }, scope)
   },
 })
+
+registerCrudCommands({
+  entity: HrDriverProfile,
+  entityId: HR_DRIVER_PROFILE_ENTITY_ID,
+  resource: 'driver_profiles',
+  createSchema: createDriverProfileSchema,
+  updateSchema: updateDriverProfileSchema,
+  toCreateData: (input) => ({
+    ...input,
+    licenseExpiry: toDate(input.licenseExpiry),
+    ...(optionalDate(input.medicalCheckExpiry) ? { medicalCheckExpiry: optionalDate(input.medicalCheckExpiry) } : {}),
+  }),
+  toUpdateData: (input) => {
+    const { licenseExpiry, medicalCheckExpiry, ...patch } = patched(input)
+    return {
+      ...patch,
+      ...(licenseExpiry === undefined ? {} : { licenseExpiry: toDate(licenseExpiry) }),
+      ...(medicalCheckExpiry === undefined ? {} : { medicalCheckExpiry: optionalDate(medicalCheckExpiry) ?? null }),
+    }
+  },
+  events: hrDriverProfileEvents,
+  indexer: hrDriverProfileIndexer,
+})
+
+registerCrudCommands({
+  entity: HrAttendanceRecord,
+  entityId: HR_ATTENDANCE_ENTITY_ID,
+  resource: 'attendance',
+  createSchema: createAttendanceRecordSchema,
+  updateSchema: updateAttendanceRecordSchema,
+  toCreateData: (input) => ({
+    ...input,
+    date: toDate(input.date),
+    ...(optionalDate(input.checkInAt) ? { checkInAt: optionalDate(input.checkInAt) } : {}),
+    ...(optionalDate(input.checkOutAt) ? { checkOutAt: optionalDate(input.checkOutAt) } : {}),
+  }),
+  toUpdateData: (input) => {
+    const { date, checkInAt, checkOutAt, ...patch } = patched(input)
+    return {
+      ...patch,
+      ...(date === undefined ? {} : { date: toDate(date) }),
+      ...(checkInAt === undefined ? {} : { checkInAt: optionalDate(checkInAt) ?? null }),
+      ...(checkOutAt === undefined ? {} : { checkOutAt: optionalDate(checkOutAt) ?? null }),
+    }
+  },
+  events: hrAttendanceEvents,
+  indexer: hrAttendanceIndexer,
+  beforeCreate: async (input, scope, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await assertAttendanceRecordable(em, {
+      employeeId: String(input.employeeId),
+      date: input.date instanceof Date ? input.date : String(input.date),
+    }, scope)
+  },
+})
+
+registerCrudCommands({
+  entity: HrLeaveRequest,
+  entityId: HR_LEAVE_REQUEST_ENTITY_ID,
+  resource: 'leave_requests',
+  createSchema: createLeaveRequestSchema,
+  updateSchema: updateLeaveRequestSchema,
+  toCreateData: (input) => ({
+    ...input,
+    startDate: toDate(input.startDate),
+    endDate: toDate(input.endDate),
+    status: 'pending' as const,
+  }),
+  toUpdateData: (input) => {
+    const { startDate, endDate, decidedAt, ...patch } = patched(input)
+    return {
+      ...patch,
+      ...(startDate === undefined ? {} : { startDate: toDate(startDate) }),
+      ...(endDate === undefined ? {} : { endDate: toDate(endDate) }),
+      ...(decidedAt === undefined ? {} : { decidedAt: optionalDate(decidedAt) ?? null }),
+    }
+  },
+  events: hrLeaveRequestEvents,
+  indexer: hrLeaveRequestIndexer,
+  beforeCreate: async (input, scope, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await assertLeaveRequestBookable(em, {
+      employeeId: String(input.employeeId),
+      startDate: input.startDate instanceof Date ? input.startDate : String(input.startDate),
+      endDate: input.endDate instanceof Date ? input.endDate : String(input.endDate),
+    }, scope)
+  },
+})
+
+registerCrudCommands({
+  entity: HrEmployeeDocument,
+  entityId: HR_EMPLOYEE_DOCUMENT_ENTITY_ID,
+  resource: 'employee_documents',
+  createSchema: createEmployeeDocumentSchema,
+  updateSchema: updateEmployeeDocumentSchema,
+  toCreateData: (input) => ({
+    ...input,
+    ...(optionalDate(input.issueDate) ? { issueDate: optionalDate(input.issueDate) } : {}),
+    ...(optionalDate(input.expiryDate) ? { expiryDate: optionalDate(input.expiryDate) } : {}),
+  }),
+  toUpdateData: (input) => {
+    const { issueDate, expiryDate, ...patch } = patched(input)
+    return {
+      ...patch,
+      ...(issueDate === undefined ? {} : { issueDate: optionalDate(issueDate) ?? null }),
+      ...(expiryDate === undefined ? {} : { expiryDate: optionalDate(expiryDate) ?? null }),
+    }
+  },
+  events: hrEmployeeDocumentEvents,
+  indexer: hrEmployeeDocumentIndexer,
+})
+
+registerCrudCommands({
+  entity: HrApprovalWorkflow,
+  entityId: HR_APPROVAL_WORKFLOW_ENTITY_ID,
+  resource: 'approval_workflows',
+  createSchema: createApprovalWorkflowSchema,
+  updateSchema: updateApprovalWorkflowSchema,
+  toCreateData: (input) => input,
+  toUpdateData: patched,
+  events: hrApprovalWorkflowEvents,
+  indexer: hrApprovalWorkflowIndexer,
+})
+
+registerCrudCommands({
+  entity: HrApprovalStepDefinition,
+  entityId: HR_APPROVAL_STEP_ENTITY_ID,
+  resource: 'approval_steps',
+  createSchema: createApprovalStepDefinitionSchema,
+  updateSchema: updateApprovalStepDefinitionSchema,
+  toCreateData: (input) => input,
+  toUpdateData: patched,
+  events: hrApprovalStepEvents,
+  indexer: hrApprovalStepIndexer,
+})

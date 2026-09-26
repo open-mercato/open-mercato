@@ -1,0 +1,10 @@
+{
+  "hr_management.errors.attendance_already_recorded": "يوجد سجل حضور لهذا الموظف في ذلك اليوم بالفعل.",
+  "hr_management.errors.department_not_found": "القسم المحدّد غير موجود.",
+  "hr_management.errors.employee_not_found": "الموظف المحدّد غير موجود.",
+  "hr_management.errors.invalid_leave_range": "لا يمكن أن يكون تاريخ نهاية الإجازة قبل تاريخ بدايتها.",
+  "hr_management.errors.leave_overlap": "توجد إجازة محجوزة لهذا الموظف في هذه الفترة بالفعل.",
+  "hr_management.errors.record_id_required": "معرّف السجل مطلوب.",
+  "hr_management.errors.record_not_found": "لم يتم العثور على السجل.",
+  "hr_management.errors.termination_before_hire": "لا يمكن أن يكون تاريخ إنهاء الخدمة قبل تاريخ التعيين."
+}
