@@ -273,6 +273,8 @@
   "auth.acl.features.sales.shipments.manage": "Manage order shipments",
   "auth.acl.features.sales.widgets.new-orders": "View new orders widget",
   "auth.acl.features.sales.widgets.new-quotes": "View new quotes widget",
+  "auth.acl.features.saudi_localization.settings.manage": "Manage Saudi VAT settings",
+  "auth.acl.features.saudi_localization.settings.view": "View Saudi VAT settings",
   "auth.acl.features.scheduler.jobs.manage": "Manage schedules",
   "auth.acl.features.scheduler.jobs.trigger": "Trigger schedules",
   "auth.acl.features.scheduler.jobs.view": "View schedules",
