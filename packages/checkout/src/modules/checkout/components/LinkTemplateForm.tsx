@@ -384,6 +384,7 @@ function ColorField({
           value={value}
           onChange={(event) => onChange(event.target.value.toUpperCase())}
           placeholder="#1E3A8A"
+          aria-label={label}
           className={error ? `min-w-0 ${errorInputClassName(error)}` : 'min-w-0'}
           aria-invalid={Boolean(error)}
         />
