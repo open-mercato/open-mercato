@@ -475,6 +475,7 @@ export default function IntegrationsMarketplacePage() {
                         </div>
                         <Switch
                           checked={item.isEnabled}
+                          aria-label={item.title}
                           disabled={togglingIds.has(item.id)}
                           onCheckedChange={(checked) => void handleToggle(item.id, checked, item.stateUpdatedAt)}
                           className="shrink-0"
@@ -513,6 +514,7 @@ export default function IntegrationsMarketplacePage() {
                       </div>
                       <Switch
                         checked={item.isEnabled}
+                        aria-label={item.title}
                         disabled={togglingIds.has(item.id)}
                         onCheckedChange={(checked) => void handleToggle(item.id, checked, item.stateUpdatedAt)}
                         className="shrink-0"
