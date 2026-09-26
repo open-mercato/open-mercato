@@ -333,6 +333,23 @@ const submitApprovalCommand: CommandHandler<Record<string, unknown>, DecisionOut
         deletedAt: null,
       })
       await transactionEm.persist(created).flush()
+
+      // Links the target record back to its request. Without this the approval completes
+      // and the leave request records the outcome, but nothing on the record says which
+      // request produced it, so the UI cannot show or chase the decision.
+      if (input.entityType === 'hr_leave_request') {
+        const leaveRequest = await transactionEm.findOne(HrLeaveRequest, {
+          id: input.entityId,
+          ...scope,
+          deletedAt: null,
+        }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        if (leaveRequest) {
+          leaveRequest.approvalRequestId = created.id
+          leaveRequest.updatedAt = now
+          await transactionEm.persist(leaveRequest).flush()
+        }
+      }
+
       return created
     })
 
