@@ -44,6 +44,7 @@ function readUpdatedAt(payload: unknown): string | null {
 export function useFallbackContentPersistence(input: {
   documentId: string
   initialUpdatedAt: string | null
+  initialContentHtml?: string
   enabled: boolean
   onConflictRefresh?: () => void
 }) {
@@ -52,6 +53,7 @@ export function useFallbackContentPersistence(input: {
   const [status, setStatus] = React.useState<FallbackSaveStatus>('saved')
   const timerRef = React.useRef<number | null>(null)
   const latestSnapshotRef = React.useRef<ContentSnapshot | null>(null)
+  const savedContentHtmlRef = React.useRef<string | null>(input.initialContentHtml ?? null)
   const updatedAtRef = React.useRef<string | null>(input.initialUpdatedAt)
   const inFlightSaveRef = React.useRef<Promise<boolean> | null>(null)
   const conflictRef = React.useRef(false)
@@ -129,6 +131,7 @@ export function useFallbackContentPersistence(input: {
           mutationPayload: snapshot,
         })
         updatedAtRef.current = readUpdatedAt(call.result) ?? updatedAtRef.current
+        savedContentHtmlRef.current = snapshot.contentHtml
         return true
       } catch (error) {
         const isConflict = surfaceRecordConflict(error, t, {
@@ -160,13 +163,20 @@ export function useFallbackContentPersistence(input: {
 
   const onEditorUpdate = React.useCallback((editor: Editor) => {
     if (!input.enabled || conflictRef.current) return
+    const contentHtml = editor.getHTML()
+    if (savedContentHtmlRef.current !== null && contentHtml === savedContentHtmlRef.current) {
+      clearTimer()
+      latestSnapshotRef.current = null
+      setStatus('saved')
+      return
+    }
     latestSnapshotRef.current = {
-      contentHtml: editor.getHTML(),
+      contentHtml,
       contentText: editor.getText(),
     }
     setStatus('unsaved')
     schedulePendingSave()
-  }, [input.enabled, schedulePendingSave])
+  }, [clearTimer, input.enabled, schedulePendingSave])
 
   const saveNow = React.useCallback(async (): Promise<boolean> => {
     clearTimer()
@@ -175,10 +185,11 @@ export function useFallbackContentPersistence(input: {
 
   React.useEffect(() => {
     updatedAtRef.current = input.initialUpdatedAt
+    savedContentHtmlRef.current = input.initialContentHtml ?? null
     conflictRef.current = false
     latestSnapshotRef.current = null
     setStatus('saved')
-  }, [input.documentId, input.initialUpdatedAt])
+  }, [input.documentId, input.initialContentHtml, input.initialUpdatedAt])
 
   React.useEffect(() => {
     if (input.enabled) return
