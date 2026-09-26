@@ -360,7 +360,7 @@ function SectionLabel({
   )
 }
 
-function ColorField({
+export function ColorField({
   label,
   value,
   onChange,
