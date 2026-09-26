@@ -130,6 +130,42 @@ and irrelevant elsewhere, so the OSS core stays jurisdiction-neutral:
 8. **Dependency**: `qrcode` (plus `@types/qrcode`) added to the app and to the
    create-app template, matching the version the enterprise package already pins.
 
+### Implemented since (Phase 2 groundwork)
+
+9. **`lib/zatca/xml.ts`** — a writer whose output is already canonical (namespaces on the
+   root sorted by prefix, attributes sorted and unprefixed, C14N escaping, `<a></a>`
+   instead of `<a/>`, no declaration/comment/indentation). ZATCA hashes the invoice
+   *after* canonicalizing it, so producing canonical XML by construction is what keeps
+   the hash reproducible; anything the writer cannot represent canonically throws.
+10. **`lib/zatca/hash.ts`** — `sha256Hex`, `toZatcaInvoiceHash`, `computeInvoiceHash`,
+    `resolvePreviousInvoiceHash` and `INITIAL_PREVIOUS_INVOICE_HASH`. The ZATCA
+    convention is Base64 **of the hex digest**, not of the raw 32 bytes; the constant is
+    derived at load time and a test asserts it equals the published first-invoice value
+    (`NWZlY2Vi…`), so the two cannot drift apart.
+11. **`lib/zatca/chain.ts`** — ICV/PIH sequencing behind a store port plus an in-memory
+    implementation. The counter is claimed when an invoice is issued (never reused) and
+    the hash pointer advances only on commit, so an abandoned issuance cannot make the
+    next invoice point at an invoice that does not exist.
+12. **`lib/zatca/ubl.ts`** — UBL 2.1 assembly with the element set and ordering taken from
+    a working ZATCA implementation: `ProfileID`, `UUID` after `ID` (BR-KSA-03),
+    `IssueDate`/`IssueTime` (KSA-25), `InvoiceTypeCode/@name` carrying the KSA-2
+    transaction code (`0100000` standard, `0200000` simplified, position 5 = export),
+    `AdditionalDocumentReference` for QR/PIH/ICV, `cac:Signature` (BR-KSA-29/30), the
+    second `TaxTotal` for BT-110/111 and per-line tax categories with optional exemption
+    codes. `buildZatcaInvoiceDocument` returns the pre-hash projection and hash (usable
+    before the QR exists); `buildZatcaInvoiceXml` returns the document to send.
+13. The invariant that matters is tested from both sides: two final documents differing
+    only in their QR payload project to the same hash, and stripping the QR and signature
+    blocks back out of a final document reproduces the exact hashed bytes. A standard
+    invoice's final document hashes to its projection unchanged.
+14. A real defect the new tests caught: `INITIAL_PREVIOUS_INVOICE_HASH` is derived at
+    module load, so the hex-shape pattern it depends on had to move above it — a
+    temporal-dead-zone crash on import, not a test artifact.
+
+Still open before anything may be called Phase 2 compliant: the XAdES signature and CSID
+onboarding, the `UBLExtensions` wrapper the signature lives in, wiring the chain store to
+persistence inside the invoice pipeline, and validation against the ZATCA sandbox.
+
 ### Planned
 
 - Wiring the dual-calendar label into invoice, HR and fiscal document templates.
@@ -241,3 +277,9 @@ Read responses: every `GET /api/sales/orders` payload carries
   with `qrcode`, prints it as text, dates it in both calendars, and explains every
   non-ready status. `qrcode` added to the app and template dependencies.
   82 module tests.
+- **2026-09-25 (Phase 2 groundwork)** — The deterministic base ZATCA Phase 2 needs: a
+  canonical XML writer, the hash convention (Base64 of the hex digest, proven against the
+  published first-invoice constant), ICV/PIH sequencing behind a store port, and UBL 2.1
+  assembly carrying the sourced business-rule constants (KSA-2 transaction code, BR-KSA-03
+  UUID, KSA-25 issue time, QR/PIH/ICV references, BT-110/111 second tax total). The
+  QR-exclusion invariant is tested from both sides. 128 module tests (46 new).

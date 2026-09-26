@@ -46,6 +46,11 @@ function toAmountLabel(value: unknown): string | null {
   return null
 }
 
+function toDateInput(value: unknown): string | Date | null {
+  if (value instanceof Date) return value
+  return typeof value === 'string' && value.trim().length > 0 ? value : null
+}
+
 export default function ZatcaQrWidget({ data }: InjectionWidgetComponentProps<unknown, ZatcaInvoiceRecord>) {
   const t = useT()
   const enrichment = data?._saudi_localization
@@ -79,7 +84,7 @@ export default function ZatcaQrWidget({ data }: InjectionWidgetComponentProps<un
   // is missing) — rendering nothing is the polite answer, not a warning.
   if (!status) return null
 
-  const placedAt = data?.placedAt ?? data?.createdAt ?? null
+  const placedAt = toDateInput(data?.placedAt ?? data?.createdAt)
   const dualCalendarDate = status === 'ready' ? formatDualCalendarDate(placedAt) : null
   const totalLabel = toAmountLabel(data?.grandTotalGrossAmount)
   const settingsAction = (

@@ -159,6 +159,13 @@ Its own spec is
    (compliance/production CSID), and the clearance (standard invoices) /
    reporting (simplified invoices) pipeline with retry and an audit-trail
    entity.
+   *Deterministic half implemented* (`saudi_localization/lib/zatca/`): a
+   canonical-by-construction XML writer, the hash convention proved against the
+   published first-invoice constant, ICV/PIH sequencing behind a store port, and
+   UBL 2.1 assembly carrying the sourced business rules. Still missing: the XAdES
+   signature and the `UBLExtensions` wrapper it lives in, CSID onboarding, the
+   persistent chain store bound into the invoice pipeline, and sandbox
+   validation.
 4. **Hijri (Umm al-Qura) dates** — *Helpers implemented* in
    `saudi_localization/lib/saudi/hijri.ts` (`Intl` with `islamic-umalqura`,
    `Asia/Riyadh` default, dual-calendar label); wiring them into invoice, HR and
