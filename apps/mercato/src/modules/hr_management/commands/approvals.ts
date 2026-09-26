@@ -63,7 +63,7 @@ const hrApprovalRequestIndexer = makeIndexer<HrApprovalRequest>(HR_APPROVAL_REQU
  * pass them through `parseScopedCommandInput`-style parsing only after the command has been
  * resolved, so the route layer validates nothing itself.
  */
-const submitApprovalInputSchema = z.object({
+export const submitApprovalInputSchema = z.object({
   workflowId: z.string().uuid(),
   entityType: z.string().min(1),
   entityId: z.string().uuid(),
@@ -71,12 +71,12 @@ const submitApprovalInputSchema = z.object({
   payload: z.unknown().optional(),
 })
 
-const decideApprovalInputSchema = z.object({
+export const decideApprovalInputSchema = z.object({
   id: z.string().uuid(),
   comment: z.string().trim().min(1).optional().nullable(),
 })
 
-const reassignApprovalInputSchema = decideApprovalInputSchema.extend({
+export const reassignApprovalInputSchema = decideApprovalInputSchema.extend({
   approverUserId: z.string().uuid(),
 })
 
