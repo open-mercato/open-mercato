@@ -19,7 +19,7 @@ jest.mock('../injection/useInjectionDataWidgets', () => ({
 }))
 
 import * as React from 'react'
-import { act, fireEvent } from '@testing-library/react'
+import { act, fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CrudForm, type CrudField } from '../CrudForm'
 
@@ -67,6 +67,21 @@ describe('CrudForm field-level readOnly (#3704)', () => {
     const textarea = container.querySelector('[data-crud-field-id="description"] textarea') as HTMLTextAreaElement
     expect(textarea).not.toBeNull()
     expect(textarea).toHaveAttribute('readonly')
+  })
+
+  it('associates a textarea with its visible label', () => {
+    const fields: CrudField[] = [{ id: 'notes', label: 'Notes', type: 'textarea' }]
+    renderWithProviders(
+      <CrudForm
+        title="Form"
+        fields={fields}
+        initialValues={{ notes: '' }}
+        onSubmit={() => {}}
+      />,
+      { dict },
+    )
+
+    expect(screen.getByRole('textbox', { name: 'Notes' })).toBeInTheDocument()
   })
 
   it('disables a read-only select trigger so the value cannot be changed', () => {
