@@ -54,7 +54,7 @@ jest.mock('../LogoUploadField', () => ({
   LogoUploadField: () => null,
 }))
 
-import { PricingSection, PriceListEditor, toSubmittedAmount } from '../LinkTemplateForm'
+import { ColorField, PricingSection, PriceListEditor, toSubmittedAmount } from '../LinkTemplateForm'
 
 function renderPricingSection(initialValues: Record<string, unknown>) {
   const setValue = jest.fn()
@@ -158,5 +158,20 @@ describe('LinkTemplateForm locale decimal separator (issue #5828)', () => {
       expect(toSubmittedAmount('', 'pl-PL')).toBeNull()
       expect(toSubmittedAmount(null, 'pl-PL')).toBeNull()
     })
+  })
+})
+
+
+describe('ColorField accessibility', () => {
+  it('uses the visible field label as the hex input accessible name', () => {
+    render(
+      <ColorField
+        label="Secondary color"
+        value="#F59E0B"
+        onChange={jest.fn()}
+      />,
+    )
+
+    expect((screen.getByRole('textbox', { name: 'Secondary color' }) as HTMLInputElement).value).toBe('#F59E0B')
   })
 })
