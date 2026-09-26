@@ -159,9 +159,10 @@ Its own spec is
    (compliance/production CSID), and the clearance (standard invoices) /
    reporting (simplified invoices) pipeline with retry and an audit-trail
    entity.
-4. **Hijri (Umm al-Qura) dates** — `Intl.DateTimeFormat` with
-   `islamic-umalqura` for display and document output, dual-calendar fields
-   where HR/fiscal documents expect both.
+4. **Hijri (Umm al-Qura) dates** — *Helpers implemented* in
+   `saudi_localization/lib/saudi/hijri.ts` (`Intl` with `islamic-umalqura`,
+   `Asia/Riyadh` default, dual-calendar label); wiring them into invoice, HR and
+   fiscal document templates is next.
 5. **Arabic document output** — RTL-safe PDF/invoice templates with embedded
    Arabic-capable fonts.
 

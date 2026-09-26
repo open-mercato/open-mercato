@@ -106,10 +106,22 @@ and irrelevant elsewhere, so the OSS core stays jurisdiction-neutral:
    The payload is computed, never persisted, so reprinting an invoice cannot show
    a stale code.
 
+### Implemented since (Hijri dates)
+
+6. **`lib/saudi/hijri.ts`** — Umm al-Qura dates for display and document output:
+   `toHijriDateParts`, `formatHijriDate` and `formatDualCalendarDate`
+   (`31/01/2026 (١٢/٠٨/١٤٤٧ هـ)`), read from ICU's `islamic-umalqura` calendar
+   rather than a hand-rolled conversion table, with the zone defaulting to
+   `Asia/Riyadh` because the calendar day depends on it (`21:30Z` is 12 Sha'ban in
+   UTC and 13 Sha'ban in Riyadh). Display only: the QR timestamp and every stored
+   value stay Gregorian ISO 8601, and unusable input returns `null` rather than
+   throwing on a document-rendering path.
+
 ### Planned
 
 - A print/PDF view that renders the payload as a QR image (needs an encoder
   dependency decision; the payload itself is already exact).
+- Wiring the dual-calendar label into invoice, HR and fiscal document templates.
 - Phase 2: UBL 2.1 XML, invoice hash, previous-invoice-hash chain, ICV counter,
   CSID-backed cryptographic stamp, and a clearance/reporting submission pipeline
   with an audit-trail entity.
@@ -209,3 +221,6 @@ Read responses: every `GET /api/sales/orders` payload carries
   explicit status (`ready` / `qr_disabled` / `settings_incomplete` /
   `missing_invoice_data`) instead of an absent field. 63 module tests.
   Rendering the payload as a QR image, Hijri dates and Phase 2 clearance remain.
+- **2026-09-25 (Hijri dates)** — Umm al-Qura date helpers (parts, Hijri-only and
+  dual-calendar labels) backed by ICU, pinned to `Asia/Riyadh` by default and
+  documented as display-only. 75 module tests.
