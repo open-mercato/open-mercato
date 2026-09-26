@@ -148,7 +148,7 @@ high-visibility surfaces first: `dashboards` ✅, `notifications` ✅, `currenci
 `dictionaries` ✅, `progress` ✅, `api_keys` ✅, `phone_calls` ✅, `audit_logs` ✅,
 `directory` ✅, `onboarding` ✅, `feature_toggles` ✅, `integrations` ✅,
 `sync_excel` ✅, then the large ones in their own slices: `auth` ✅ (718,
-455 of which are the ACL matrix), `catalog` (724), `sales` (1 494),
+455 of which are the ACL matrix), `catalog` ✅ (724), `sales` (1 494),
 `customers` (2 880), `staff` (2 066).
 
 1. Ship `ar` dictionaries for every module that ships `en` (module-level
@@ -352,3 +352,12 @@ new ACL features (`saudi_localization.*`) and built on `makeCrudRoute`.
   `en.json`, placeholder and `\n` parity, indentation, no blank lines, Arabic coverage,
   and agreement with any key the app dictionary already translates. `yarn i18n:check-sync`
   and the module's own `acl-feature-catalog.i18n` test are green.
+- **2026-09-26 (Phase 2, the large modules: catalog)** — `catalog` ships 724 Arabic keys:
+  the product list plus the create/edit forms (433 keys), variants, price kinds,
+  categories, units of measure, the SEO helper and the merchandising assistant. This
+  slice fixes the vocabulary the remaining ones reuse: المتغيّر (variant),
+  الفئة الضريبية (tax class), معدّل الضريبة (tax rate), قناة البيع (sales channel),
+  المعرّف النصي (handle) as against معرّف الرابط (slug), شرائح (tier pricing). Two values
+  stay Latin on purpose — an example storefront handle and the `1 kg = 1000 g`
+  unit-conversion equation — and `catalog.products.edit.offers.deleteError` deliberately
+  keeps the value the app dictionary already ships, so one key cannot read two ways.
