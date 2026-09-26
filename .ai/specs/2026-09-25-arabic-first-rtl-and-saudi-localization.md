@@ -139,6 +139,13 @@ Closed since (2026-09-26):
    insets, so they now carry `md:rtl:before:bg-gradient-to-r` /
    `md:rtl:after:bg-gradient-to-l`.
 
+2. **Direction-as-data primitives are handled.** Navigation chevrons mirror in RTL
+   (`pagination`'s first/previous/next/last, the calendar's month and year nav, the
+   breadcrumb arrow divider, the step-indicator connector), the recharts `bar` and `line`
+   implementations reverse the category axis and move the value axis to the right, and the
+   rich editor's content is `dir="auto"` so each paragraph follows its own first strong
+   character.
+
 Still open in this phase:
 
 1. The kanban horizontal scroller (`customers` deals pipeline): `stepScroll`,
@@ -146,8 +153,10 @@ Still open in this phase:
    two edge-stepping buttons stay physical behind an `rtl-physical` marker carrying that
    reason. Converting the scroller is a behavioural change and needs a Playwright run
    under `ar` before it ships.
-2. The remaining direction-as-data primitives: chevrons/drag handles, `ScheduleGrid`,
-   chart axis origin, code editor.
+2. `ScheduleGrid` and the customers time grid keep a left-to-right time axis on purpose —
+   a chronological axis that runs right-to-left is genuinely ambiguous for an operator
+   reading a day — but that decision is not yet stated in the primitives, and the drag
+   handles in the customers calendar views have not been audited.
 
 ### Phase 2 — Arabic content completeness
 
@@ -180,12 +189,18 @@ high-visibility surfaces first: `dashboards` ✅, `notifications` ✅, `currenci
    implementing Phase 0: `registerLocales` validates the base subtag against the
    ISO 639-1 table, so a 639-2/3 code such as `ckb` (Central Kurdish) or `nqo`
    cannot be served today — widen the validation or document the limit.
-2. Arabic layout and typography: `dir`-aware font stack (app-level override),
-   larger line-height for Arabic ascenders/descenders, and an explicit policy for
-   Arabic-Indic versus Western numerals.
-3. Locale label coverage for app-registered locales (today `ar` resolves its
-   endonym through `Intl.DisplayNames` because `SHIPPED_LOCALE_LABELS` has no
-   entry).
+2. **Implemented 2026-09-26 — Arabic layout and typography.** The app (and the create-app
+   template) define `--font-arabic` as a platform stack — `"SF Arabic", "Geeza Pro",
+   "Segoe UI", "Noto Naskh Arabic", "Noto Sans Arabic", Tahoma` — and an
+   `html[dir='rtl']` block swaps `--font-sans` for it and loosens the leading to 1.7,
+   because Arabic ascenders, descenders and diacritics sit higher and lower than Latin's.
+   **Numerals policy: Western digits (0-9) everywhere.** Numbers reach the DOM through
+   `Intl` with the `latn` numbering system, so the CSS block changes metrics only.
+3. **Implemented 2026-09-26 — locale labels for app-registered locales.**
+   `SHIPPED_LOCALE_LABELS` gained `ar: { key: 'common.languages.arabic', native: 'العربية' }`
+   and the app dictionaries (en + ar) and their template mirrors carry
+   `common.languages.arabic`, so the switcher renders the language's own name instead of
+   depending on `Intl.DisplayNames`.
 4. Locale-aware `Intl` formatting for numbers, currency and dates everywhere a
    value is formatted, including the decimal-input parser.
 5. **Implemented 2026-09-25 — the app serves English and Arabic only.** The
@@ -395,3 +410,15 @@ new ACL features (`saudi_localization.*`) and built on `makeCrudRoute`.
   Arabic, and the `DataTable` sticky-column gradients mirror with their logical insets.
   What remains is one behavioural item — the kanban scroller's LTR-shaped `scrollLeft`
   math, marked `rtl-physical` with that reason — plus the direction-as-data primitives.
+- **2026-09-26 (Phase 1b + Phase 2, direction-as-data and Arabic typography)** — the
+  primitives that read direction as data now behave in Arabic: navigation chevrons mirror
+  (`pagination`'s four controls, the calendar's month and year navigation, the breadcrumb
+  arrow divider, the step-indicator connector), the recharts `bar` and `line` charts
+  reverse the category axis and move the value axis to the right, and the rich editor's
+  content is `dir="auto"` so every paragraph follows its own first strong character.
+  Typography: `--font-arabic` (platform stack, no webfont payload) is swapped in under
+  `html[dir='rtl']` together with a 1.7 leading for Arabic ascenders and diacritics, with
+  Western digits kept as policy. Locale labels: `ar` joined `SHIPPED_LOCALE_LABELS` and the
+  app dictionaries plus template mirrors carry `common.languages.arabic`. Verified with
+  914 UI primitive/chart tests, the shared i18n suites, both typechecks, `yarn i18n:check`
+  and `yarn template:sync`.

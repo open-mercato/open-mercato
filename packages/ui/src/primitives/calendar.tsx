@@ -28,11 +28,11 @@ export function CalendarMonthSelector({
   return (
     <div data-slot="calendar-month-selector" className={cn('flex h-9 items-center gap-1.5 rounded-md bg-muted p-1.5', className)} {...props}>
       {onPreviousMonth
-        ? <CompactButton appearance="white" size={24} className="shadow-xs" onClick={onPreviousMonth} disabled={disabledPrevious} aria-label={t('ui.calendar.previousMonth', 'Previous month')}><ChevronLeft className="size-5" aria-hidden="true" /></CompactButton>
+        ? <CompactButton appearance="white" size={24} className="shadow-xs" onClick={onPreviousMonth} disabled={disabledPrevious} aria-label={t('ui.calendar.previousMonth', 'Previous month')}><ChevronLeft className="size-5 rtl:rotate-180" aria-hidden="true" /></CompactButton>
         : <span className="size-6 shrink-0" aria-hidden="true" />}
       <span className="min-w-0 flex-1 text-center text-sm font-medium text-muted-foreground" aria-live="polite">{format(month, 'MMMM yyyy', locale ? { locale } : undefined)}</span>
       {onNextMonth
-        ? <CompactButton appearance="white" size={24} className="shadow-xs" onClick={onNextMonth} disabled={disabledNext} aria-label={t('ui.calendar.nextMonth', 'Next month')}><ChevronRight className="size-5" aria-hidden="true" /></CompactButton>
+        ? <CompactButton appearance="white" size={24} className="shadow-xs" onClick={onNextMonth} disabled={disabledNext} aria-label={t('ui.calendar.nextMonth', 'Next month')}><ChevronRight className="size-5 rtl:rotate-180" aria-hidden="true" /></CompactButton>
         : <span className="size-6 shrink-0" aria-hidden="true" />}
     </div>
   )
@@ -72,7 +72,7 @@ function MonthNavButton({
       }}
       className={navButtonClassName}
     >
-      <Icon className="h-4 w-4" aria-hidden="true" />
+      <Icon className="h-4 w-4 rtl:rotate-180" aria-hidden="true" />
     </button>
   )
 }
@@ -174,7 +174,7 @@ function MonthGrid({
           onClick={() => setYear((current) => current - 1)}
           className={navButtonClassName}
         >
-          <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+          <ChevronLeft className="h-4 w-4 rtl:rotate-180" aria-hidden="true" />
         </button>
         <button
           type="button"
@@ -194,7 +194,7 @@ function MonthGrid({
           onClick={() => setYear((current) => current + 1)}
           className={navButtonClassName}
         >
-          <ChevronRight className="h-4 w-4" aria-hidden="true" />
+          <ChevronRight className="h-4 w-4 rtl:rotate-180" aria-hidden="true" />
         </button>
       </div>
       <div className="grid grid-cols-3 gap-2">

@@ -12,6 +12,7 @@ type ShippedLocaleLabel = {
 // (`español`, `polski`), and these strings are already user-visible.
 const SHIPPED_LOCALE_LABELS: Record<string, ShippedLocaleLabel> = {
   en: { key: 'common.languages.english', native: 'English' },
+  ar: { key: 'common.languages.arabic', native: 'العربية' },
   pl: { key: 'common.languages.polish', native: 'Polski' },
   es: { key: 'common.languages.spanish', native: 'Español' },
   de: { key: 'common.languages.german', native: 'Deutsch' },

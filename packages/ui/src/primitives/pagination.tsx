@@ -301,7 +301,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
               onClick={() => goTo(1)}
               className={navClassName}
             >
-              <ChevronsLeft aria-hidden="true" className="size-5" />
+              <ChevronsLeft aria-hidden="true" className="size-5 rtl:rotate-180" />
             </button>
           ) : null}
           {showPrevNext ? (
@@ -313,7 +313,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
               onClick={() => goTo(safePage - 1)}
               className={navClassName}
             >
-              <ChevronLeft aria-hidden="true" className="size-5" />
+              <ChevronLeft aria-hidden="true" className="size-5 rtl:rotate-180" />
             </button>
           ) : null}
 
@@ -367,7 +367,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
               onClick={() => goTo(safePage + 1)}
               className={navClassName}
             >
-              <ChevronRight aria-hidden="true" className="size-5" />
+              <ChevronRight aria-hidden="true" className="size-5 rtl:rotate-180" />
             </button>
           ) : null}
           {/* The last-page jump is suppressed for capped totals: it would land
@@ -381,7 +381,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
               onClick={() => goTo(totalPages)}
               className={navClassName}
             >
-              <ChevronsRight aria-hidden="true" className="size-5" />
+              <ChevronsRight aria-hidden="true" className="size-5 rtl:rotate-180" />
             </button>
           ) : null}
         </div>

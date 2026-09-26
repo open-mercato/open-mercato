@@ -1098,6 +1098,7 @@ export const RichEditorContent = React.forwardRef<HTMLDivElement, RichEditorCont
         contentEditable={!disabled}
         suppressContentEditableWarning
         spellCheck
+        dir="auto"
         role="textbox"
         aria-multiline="true"
         data-slot="rich-editor-content"

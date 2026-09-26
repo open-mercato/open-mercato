@@ -13,6 +13,7 @@ import {
 } from 'recharts'
 import { ChartTooltipContent, resolveChartColor } from './ChartUtils'
 import type { BarChartDataItem, BarChartProps } from './BarChart'
+import { useDirection } from '@open-mercato/shared/lib/i18n/context'
 
 type ImplProps = Pick<
   BarChartProps,
@@ -41,6 +42,8 @@ export default function BarChartImpl({
   categoryLabels,
 }: ImplProps) {
   const isHorizontal = layout === 'horizontal'
+  const direction = useDirection()
+  const isRtl = direction === 'rtl'
   const chartHeight = isHorizontal ? Math.max(200, data.length * 28) : 200
   const getBarColor = (idx: number): string => resolveChartColor(colors?.[idx], idx)
 
@@ -58,12 +61,14 @@ export default function BarChartImpl({
           type={isHorizontal ? 'number' : 'category'}
           dataKey={isHorizontal ? undefined : index}
           tickFormatter={isHorizontal ? valueFormatter : undefined}
+          reversed={isRtl}
           tick={{ fontSize: 11 }}
         />
         <YAxis
           type={isHorizontal ? 'category' : 'number'}
           dataKey={isHorizontal ? index : undefined}
           tickFormatter={isHorizontal ? undefined : valueFormatter}
+          orientation={isRtl ? 'right' : 'left'}
           width={isHorizontal ? 90 : 50}
           interval={0}
           tick={{ fontSize: 10 }}

@@ -160,7 +160,7 @@ export function BreadcrumbSeparator({
 }
 
 function DefaultSeparator({ divider }: { divider: BreadcrumbDivider }) {
-  if (divider === 'arrow') return <ChevronRight aria-hidden="true" />
+  if (divider === 'arrow') return <ChevronRight aria-hidden="true" className="rtl:rotate-180" />
   if (divider === 'dot') return <span aria-hidden="true">·</span>
   return <span aria-hidden="true">/</span>
 }

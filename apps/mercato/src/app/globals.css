@@ -297,6 +297,11 @@ TODO: Fix that latter to have reference by the package names
   color-scheme: light;
   --font-geist-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-geist-mono: ui-monospace, "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+  /* Arabic faces, taken from the platform rather than shipped as a webfont: Naskh on
+     Apple, Segoe UI on Windows, Noto on Linux/Android. A Latin-first stack borrows
+     whatever Arabic face the OS happens to pick, at whatever metrics it happens to
+     have, which is the inconsistency this list removes. */
+  --font-arabic: "SF Arabic", "Geeza Pro", "Segoe UI", "Noto Naskh Arabic", "Noto Sans Arabic", Tahoma, system-ui, sans-serif;
   --radius: 0.625rem;
   /* Vertical space a viewport-pinned floating CTA needs to clear: its bottom
      offset (1.5rem) plus its own height, rounded up to the spacing scale.
@@ -1145,4 +1150,20 @@ body[data-demo-feedback-fab="visible"] main {
 .om-mdx-editor .cm-cursor,
 .om-mdx-editor .cm-dropCursor {
   border-left-color: var(--foreground);
+}
+
+/*
+RTL typography. Every stack above is Latin-first, so an Arabic page otherwise borrows
+the OS Arabic face by accident and renders it at Latin leading. In RTL the family is
+swapped for the Arabic-first list and the leading is loosened: Arabic ascenders,
+descenders and diacritics sit higher and lower than Latin's and collide at Latin
+leading.
+
+Digits stay Western (0-9) by policy. Numbers reach the DOM through `Intl` with the
+`latn` numbering system, so this block changes metrics only — never digits.
+*/
+html[dir='rtl'] {
+  --font-sans: var(--font-arabic);
+  font-family: var(--font-arabic);
+  line-height: 1.7;
 }

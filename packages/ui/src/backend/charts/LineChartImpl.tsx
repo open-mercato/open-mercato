@@ -15,6 +15,7 @@ import {
 } from 'recharts'
 import { ChartTooltipContent, resolveChartColor } from './ChartUtils'
 import type { LineChartProps } from './LineChart'
+import { useDirection } from '@open-mercato/shared/lib/i18n/context'
 
 type ImplProps = Pick<
   LineChartProps,
@@ -48,6 +49,8 @@ export default function LineChartImpl({
 }: ImplProps) {
   const getLineColor = (idx: number): string => resolveChartColor(colors?.[idx], idx)
   const ChartComponent = showArea ? RechartsAreaChart : RechartsLineChart
+  const direction = useDirection()
+  const isRtl = direction === 'rtl'
 
   return (
     <ResponsiveContainer width="100%" height="100%">
@@ -63,12 +66,14 @@ export default function LineChartImpl({
         )}
         <XAxis
           dataKey={index}
+          reversed={isRtl}
           tick={{ fontSize: 12 }}
           tickLine={false}
           axisLine={false}
         />
         <YAxis
           tickFormatter={valueFormatter}
+          orientation={isRtl ? 'right' : 'left'}
           tick={{ fontSize: 12 }}
           tickLine={false}
           axisLine={false}
