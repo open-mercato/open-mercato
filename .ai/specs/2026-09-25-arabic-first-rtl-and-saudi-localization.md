@@ -128,12 +128,16 @@ Still open in this phase:
 
 ### Phase 2 — Arabic content completeness
 
-**Progress 2026-09-25 (module dictionaries):** `dashboards` (117 keys),
+**Progress 2026-09-26 (module dictionaries):** `dashboards` (117 keys),
 `notifications` (96), `currencies` (158), `dictionaries` (128), `progress` (18),
-`api_keys` (40), `phone_calls` (40) and `audit_logs` (64) ship complete `i18n/ar.json`
-files — real translations, with the only Arabic-to-English matches being literal
-examples that must stay that way (`USD` as a code example, `$` as a symbol example,
-`slug_name` as a key example, the `⌘/Ctrl + Enter` shortcut, the `—` empty-value dash).
+`api_keys` (40), `phone_calls` (40), `audit_logs` (64), `directory` (103),
+`onboarding` (103), `feature_toggles` (94), `integrations` (129) and `sync_excel` (105)
+ship complete `i18n/ar.json` files — real translations, with the only
+Arabic-to-English matches being literal examples that must stay that way (`USD` as a
+code example, `$` as a symbol example, `slug_name` as a key example, the
+`⌘/Ctrl + Enter` shortcut, the `—` empty-value dash), plus the `JSON` type name, a logo
+URL placeholder, and one statutory string — `onboarding.form.legalEntity`, the Polish
+entity's register entry, which a translation would misstate.
 Policy that the gate now enforces: a module's `ar.json` must be *whole* — every key
 present, values actually Arabic — because a partially translated file renders a
 half-English screen that looks finished. `scripts/i18n-check-sync.ts` therefore
@@ -141,9 +145,9 @@ treats any locale-shaped dictionary a folder ships as a checked locale (the
 platform's `pl/es/de/ko` parity set is still required everywhere;
 `.hardcoded-allowlist.json` is excluded by pattern). Rollout order, smallest
 high-visibility surfaces first: `dashboards` ✅, `notifications` ✅, `currencies` ✅,
-`dictionaries` ✅, `progress` ✅, `api_keys` ✅, `phone_calls` ✅, `audit_logs` ✅, then
-the remaining small admin modules (`directory`, `onboarding`, `feature_toggles`,
-`integrations`, `sync_excel`), then the large ones in their own slices: `auth` (718,
+`dictionaries` ✅, `progress` ✅, `api_keys` ✅, `phone_calls` ✅, `audit_logs` ✅,
+`directory` ✅, `onboarding` ✅, `feature_toggles` ✅, `integrations` ✅,
+`sync_excel` ✅, then the large ones in their own slices: `auth` (718,
 455 of which are the ACL matrix), `catalog` (724), `sales` (1 494),
 `customers` (2 880), `staff` (2 066).
 
@@ -332,3 +336,10 @@ new ACL features (`saudi_localization.*`) and built on `makeCrudRoute`.
   ship complete Arabic dictionaries (661 keys between them), and `i18n-check-sync` now
   holds any shipped locale to full parity instead of only the platform's `pl/es/de/ko`
   set. Rollout order recorded in the Phase 2 section.
+- **2026-09-26 (Phase 2, Arabic rollout continues)** — the remaining small admin modules
+  ship complete Arabic dictionaries: `directory` (103 keys), `onboarding` (103),
+  `feature_toggles` (94), `integrations` (129) and `sync_excel` (105) — 534 keys, which
+  takes the shipped module total to 1 195. Only four values stay identical to English:
+  the `JSON` type name, a logo URL placeholder, the `—` empty-value dash, and the Polish
+  legal entity's statutory register entry, which is deliberately kept in its registered
+  language.
