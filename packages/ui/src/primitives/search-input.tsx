@@ -75,7 +75,7 @@ export const SearchInput = React.forwardRef<HTMLInputElement, SearchInputProps>(
             type="button"
             onClick={handleClear}
             aria-label={resolvedClearLabel}
-            className="flex shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:shadow-focus"
+            className="flex shrink-0 items-center justify-center rounded-sm text-muted-foreground cursor-pointer transition-colors hover:text-foreground focus-visible:outline-none focus-visible:shadow-focus"
           >
             <X className="size-4" aria-hidden="true" />
           </button>
