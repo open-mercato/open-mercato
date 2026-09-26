@@ -88,6 +88,7 @@ export function FilterBar({
           value={searchDraft}
           onChange={setSearchDraft}
           placeholder={resolvedSearchPlaceholder}
+          aria-label={resolvedSearchPlaceholder}
           suppressHydrationWarning
         />
       </div>
