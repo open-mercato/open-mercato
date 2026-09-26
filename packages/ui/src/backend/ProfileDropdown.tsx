@@ -3,7 +3,7 @@ import * as React from 'react'
 import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { User, LogOut, Bell, Moon, Sun, Globe, Key, Check, ChevronRight } from 'lucide-react'
-import { useT, useLocale, useSupportedLocales } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale, useSupportedLocales, useDirection } from '@open-mercato/shared/lib/i18n/context'
 import type { Locale } from '@open-mercato/shared/lib/i18n/config'
 import { resolveLocaleLabel } from '@open-mercato/shared/lib/i18n/locale-label'
 import { useTheme } from '@open-mercato/ui/theme'
@@ -39,7 +39,8 @@ export function ProfileDropdown({
   const [mounted, setMounted] = React.useState(false)
   const buttonRef = React.useRef<HTMLButtonElement>(null)
   const menuRef = React.useRef<HTMLDivElement>(null)
-  const [menuPosition, setMenuPosition] = React.useState<{ top: number; right: number } | null>(null)
+  const direction = useDirection()
+  const [menuPosition, setMenuPosition] = React.useState<{ top: number; insetInlineEnd: number } | null>(null)
   const { items: injectedItems } = useInjectedMenuItems('menu:topbar:profile-dropdown')
 
   React.useEffect(() => {
@@ -60,7 +61,13 @@ export function ProfileDropdown({
       const rect = trigger.getBoundingClientRect()
       setMenuPosition({
         top: rect.bottom + 8,
-        right: Math.max(0, window.innerWidth - rect.right),
+        // The trigger sits at the inline end of the top bar, so the menu follows that
+        // edge: from the right in LTR, from the left in RTL. Measuring the physical
+        // right edge put the menu on the wrong side of the avatar in Arabic.
+        insetInlineEnd: Math.max(
+          0,
+          direction === 'rtl' ? rect.left : window.innerWidth - rect.right,
+        ),
       })
     }
     updatePosition()
@@ -70,7 +77,7 @@ export function ProfileDropdown({
       window.removeEventListener('resize', updatePosition)
       window.removeEventListener('scroll', updatePosition, true)
     }
-  }, [open])
+  }, [open, direction])
 
   const isDark = resolvedTheme === 'dark'
 
@@ -364,8 +371,7 @@ export function ProfileDropdown({
         <div
           ref={menuRef}
           className="fixed z-popover w-64 overflow-hidden rounded-lg border bg-popover p-0 shadow-lg"
-    // rtl-physical: positioned from a measured getBoundingClientRect
-          style={{ top: menuPosition.top, right: menuPosition.right }}
+          style={{ top: menuPosition.top, insetInlineEnd: menuPosition.insetInlineEnd }}
           role="menu"
           data-testid="profile-dropdown"
         >
