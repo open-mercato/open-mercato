@@ -147,7 +147,7 @@ platform's `pl/es/de/ko` parity set is still required everywhere;
 high-visibility surfaces first: `dashboards` ✅, `notifications` ✅, `currencies` ✅,
 `dictionaries` ✅, `progress` ✅, `api_keys` ✅, `phone_calls` ✅, `audit_logs` ✅,
 `directory` ✅, `onboarding` ✅, `feature_toggles` ✅, `integrations` ✅,
-`sync_excel` ✅, then the large ones in their own slices: `auth` (718,
+`sync_excel` ✅, then the large ones in their own slices: `auth` ✅ (718,
 455 of which are the ACL matrix), `catalog` (724), `sales` (1 494),
 `customers` (2 880), `staff` (2 066).
 
@@ -343,3 +343,12 @@ new ACL features (`saudi_localization.*`) and built on `makeCrudRoute`.
   the `JSON` type name, a logo URL placeholder, the `—` empty-value dash, and the Polish
   legal entity's statutory register entry, which is deliberately kept in its registered
   language.
+- **2026-09-26 (Phase 2, the large modules: auth)** — `auth` ships 718 Arabic keys,
+  including the whole access-control matrix (370 `acl.features.*` permission descriptions
+  and 58 `acl.modules.*` group headers — the surface every role editor renders). Three
+  values stay Latin on purpose: the product name on the login screen, the `SSO` acronym,
+  and the `...` loading placeholder. This slice also adds the rollout verifier in
+  `apps/mercato/.mercato/ar-audit/`, which enforces key set **and** order against
+  `en.json`, placeholder and `\n` parity, indentation, no blank lines, Arabic coverage,
+  and agreement with any key the app dictionary already translates. `yarn i18n:check-sync`
+  and the module's own `acl-feature-catalog.i18n` test are green.
