@@ -94,9 +94,14 @@ export default function InboxSettingsPage() {
   return (
     <Page>
       <div className="flex items-center gap-3 px-3 py-3 md:px-6 md:py-4">
-        <Link href="/backend/inbox-ops">
-          <Button type="button" variant="ghost" size="sm"><ArrowLeft className="h-4 w-4" /></Button>
-        </Link>
+        <Button asChild variant="ghost" size="sm">
+          <Link
+            href="/backend/inbox-ops"
+            aria-label={t('inbox_ops.settings.back', 'Back to AI Inbox Actions')}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+        </Button>
         <h1 className="text-lg font-semibold">{t('inbox_ops.settings.title', 'Inbox Settings')}</h1>
       </div>
 

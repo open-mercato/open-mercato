@@ -69,5 +69,9 @@ describe('InboxSettingsPage (issue #6232)', () => {
     await waitFor(() => {
       expect(screen.getByText('ops-abc@inbox.mercato.local')).toBeTruthy()
     })
+    expect(screen.getByRole('link', { name: 'Back to AI Inbox Actions' })).toHaveAttribute(
+      'href',
+      '/backend/inbox-ops',
+    )
   })
 })
