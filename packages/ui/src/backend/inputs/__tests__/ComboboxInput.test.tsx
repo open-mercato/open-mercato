@@ -7,6 +7,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 import * as React from 'react'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { ComboboxInput } from '../ComboboxInput'
+import { FormField } from '../../../primitives/form-field'
 
 type HarnessProps = Partial<React.ComponentProps<typeof ComboboxInput>> & {
   initialValue?: string
@@ -562,6 +563,18 @@ describe('ComboboxInput — eager label resolution', () => {
 })
 
 describe('ComboboxInput accessibility', () => {
+  it('accepts the accessibility props injected by FormField', () => {
+    render(
+      <FormField label="Warehouse" required description="Choose a warehouse">
+        <ComboboxInput value="" onChange={() => {}} />
+      </FormField>,
+    )
+
+    const input = screen.getByRole('combobox', { name: 'Warehouse' })
+    expect(input).toHaveAttribute('aria-required', 'true')
+    expect(input).toHaveAccessibleDescription('Choose a warehouse')
+  })
+
   it('exposes status text separately and reserves listbox for options', () => {
     render(<Harness />)
     const input = screen.getByRole('combobox')
