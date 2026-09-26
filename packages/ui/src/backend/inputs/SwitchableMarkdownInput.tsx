@@ -34,6 +34,7 @@ import MarkdownField from './MarkdownField'
 
 /** @deprecated See module-level JSDoc. */
 export type SwitchableMarkdownInputProps = {
+  inputId?: string
   value: string
   onChange: (value: string) => void
   isMarkdownEnabled: boolean
@@ -52,6 +53,7 @@ export type SwitchableMarkdownInputProps = {
 
 /** @deprecated Use `RichEditor` from `@open-mercato/ui/primitives/rich-editor` for new code. See module JSDoc. */
 export function SwitchableMarkdownInput({
+  inputId,
   value,
   onChange,
   isMarkdownEnabled,
@@ -78,6 +80,7 @@ export function SwitchableMarkdownInput({
 
   return (
     <textarea
+      id={inputId}
       ref={textareaRef}
       rows={rows}
       className={textareaClasses}
