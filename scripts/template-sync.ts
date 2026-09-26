@@ -202,6 +202,7 @@ const TEMPLATE_DISABLED_MODULE_IDS = [
   'seeds',
   'fleet_management',
   'hr_management',
+  'saudi_localization',
   'transport_operations',
 ] as const
 const ENABLED_MODULES_DECLARATION = 'export const enabledModules: ModuleEntry[] = ['

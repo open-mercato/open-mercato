@@ -2,7 +2,7 @@
 
 **Status:** Phase 0 and Phase 1 implemented (2026-09-25); Phase 1b–4 planned
 **Scope:** OSS (`packages/shared`, `packages/ui`, `apps/mercato`) + planned app-local modules
-**Related:** [`.ai/specs/2026-09-03-extensible-locale-set.md`](2026-09-03-extensible-locale-set.md), [`.ai/specs/2026-05-18-date-locale-settings.md`](2026-05-18-date-locale-settings.md)
+**Related:** [`.ai/specs/2026-09-03-extensible-locale-set.md`](2026-09-03-extensible-locale-set.md), [`.ai/specs/2026-05-18-date-locale-settings.md`](2026-05-18-date-locale-settings.md), [`.ai/specs/2026-09-25-saudi-localization-module.md`](2026-09-25-saudi-localization-module.md)
 
 ## TLDR
 
@@ -129,14 +129,18 @@ guard:
 
 ### Phase 3 — Saudi localization module
 
-A new app-local module `saudi_localization` (working name) owning:
+A new app-local module `saudi_localization` owns the Kingdom-specific surface.
+Its own spec is
+[`.ai/specs/2026-09-25-saudi-localization-module.md`](2026-09-25-saudi-localization-module.md).
 
 1. **VAT 15%** default tax rate plus registration metadata (VAT number, CR
    number), with rate history so historical invoices keep their rate.
+   *Primitives implemented* (rate constant, `isValidSaudiVatNumber`, halala
+   rounding, net/VAT/gross breakdown); the settings entity and API are next.
 2. **ZATCA Phase 1 QR** — the 5-tag TLV (Base64) payload that must appear on
    simplified tax invoices: seller name, VAT registration number, ISO-8601
-   timestamp, invoice total including VAT, VAT total. A pure function, fully
-   unit-testable, no network.
+   timestamp, invoice total including VAT, VAT total. *Implemented* as a pure,
+   vector-tested function.
 3. **ZATCA Phase 2 integration** — UBL 2.1 invoice XML, invoice hash, previous
    invoice hash (PIH), invoice counter value (ICV), cryptographic stamp
    (compliance/production CSID), and the clearance (standard invoices) /
@@ -239,3 +243,8 @@ new ACL features (`saudi_localization.*`) and built on `makeCrudRoute`.
   centred-overlay idiom was made direction-correct (19 sites). Twelve further
   direction-dependent patterns that have no logical equivalent are enumerated as
   Phase 1b.
+- **2026-09-25 (Phase 3, first slice)** — `saudi_localization` created with the
+  ZATCA Phase 1 QR payload builder and the Saudi VAT primitives (rate,
+  VAT-number validation, halala rounding, net/VAT/gross breakdown), 31 unit tests
+  including a hand-built TLV vector and an independent decoder. Module spec:
+  [`.ai/specs/2026-09-25-saudi-localization-module.md`](2026-09-25-saudi-localization-module.md).

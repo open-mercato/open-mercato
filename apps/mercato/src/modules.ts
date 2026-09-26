@@ -177,6 +177,7 @@ export const enabledModules: ModuleEntry[] = [
     },
   },
   { id: 'ratelimit_probe', from: '@app' },
+  { id: 'saudi_localization', from: '@app' },
   { id: 'transport_operations', from: '@app' },
   { id: 'hr_management', from: '@app' },
   { id: 'fleet_management', from: '@app' },
