@@ -433,7 +433,7 @@ function readSubmittedLineValues(value: unknown): ClaimCreateLineValues[] {
   return value.map(normalizeLineValue)
 }
 
-function lineHasContentBeyondQuantity(line: ClaimCreateLineValues): boolean {
+export function lineHasContentBeyondQuantity(line: ClaimCreateLineValues): boolean {
   return Boolean(
     nullableText(line.productId) ||
     nullableText(line.variantId) ||
@@ -1499,7 +1499,7 @@ export default function CreateWarrantyClaimPage() {
             submitLabel={t('warranty_claims.create.submit', 'Create claim')}
             cancelHref="/backend/warranty_claims"
             onSubmit={async (values) => {
-            const lines = readSubmittedLineValues(values.lines).filter(lineHasContent)
+            const lines = readSubmittedLineValues(values.lines).filter(lineHasContentBeyondQuantity)
             if (!lines.length) {
               const message = t('warranty_claims.form.lines.error.required', 'Add at least one claim line.')
               throw createCrudFormError(message, { lines: message })
