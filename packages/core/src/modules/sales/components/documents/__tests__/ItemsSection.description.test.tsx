@@ -121,6 +121,8 @@ describe('SalesDocumentItemsSection line description', () => {
 
     await waitFor(() => expect(screen.getByText('Widget')).toBeInTheDocument())
     expect(screen.getByText('Cut to 120 cm, drilled')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Edit — Widget' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete — Widget' })).toBeInTheDocument()
   })
 
   it('renders no sub-line when the line has no description', async () => {
