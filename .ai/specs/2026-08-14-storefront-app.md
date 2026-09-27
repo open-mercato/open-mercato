@@ -246,7 +246,7 @@ The component exists so that the `format` branch lives in exactly one place. Inl
 
 Added 2026-09-22, resolving §14 Open Question 4. Full behavioural spec: [Offline Field Mode](./2026-09-22-offline-field-mode.md) §3–§6. These are app-level, commerce-specific components under `field/` (§4) — not additions to `@open-mercato/storefront-ui`, per ADR-8.
 
-`OfflinePackStatus` — enable/disable, last-synced-at, the "prices as of `generatedAt`, offline" banner (offline spec §3.2), and the local passcode/biometric gate prompt (offline spec §6). `OfflineCatalog` / `OfflineProductCard` — browse the pack; renders `priceTiers` and `quantityRules` from the pack entry, never recomputed. `OutboxReview` — the local queue, reviewed like `CartLine`s before a connection exists to submit them. `SyncReconciliation` — shown on reconnect; renders the replay result through the **same** `PriceDisplay` (§5.3), `priceChanges` and merge-summary surfaces the cart page already uses for a guest→customer merge (§12), per the offline spec's explicit rule against a second reconciliation screen — it is not a new visual pattern, only a new trigger for the existing one.
+`OfflinePackStatus` — enable/disable, last-synced-at, the "prices as of `generatedAt`, offline" banner (offline spec §3.2), and the local passcode/biometric gate prompt (offline spec §6). `OfflineCatalog` / `OfflineProductCard` — browse the pack; renders `priceTiers` and `quantityRules` from the pack entry, never recomputed. `OutboxReview` — the local queue, reviewed like `CartLine`s before a connection exists to submit them. `SyncReconciliation` — shown on reconnect; renders the replay result through the **same** `PriceDisplay` (§5.3), `priceChanges` and merge-summary visual pattern the cart page already uses for a guest→customer merge (§12), per the offline spec's explicit rule against a second reconciliation screen — it is not a new visual pattern, only a new trigger for the existing one. Its data comes from the offline spec's `reconcileOfflineReplay` (offline spec §4.3), not from a server `mergeSummary`: a replay is a plain `bulkAdd`, so where a queued line was already in the cart the screen shows the queued quantity as added to it. Replay runs through this app's server route handlers, which read the cart-token cookie and resolve the assortment scope server-side (R7; offline spec §3.3).
 
 None of these four components render inside `/field/*` at any URL outside that subtree, and none of the catalogue, PDP, cart or checkout components (§5.1–§5.7) import from `field/` — the boundary in §3.3a is structural, not a convention.
 
@@ -375,7 +375,7 @@ Playwright, headless, against a seeded fixture store. Renumbered from SPEC-029 v
 
 **Content pages:** a published page renders at `/pages/<slug>` with its SEO metadata and appears in the sitemap; an unpublished or unknown slug renders the app's 404 rather than an error; an `html` body renders its sanitized content; a `blocks` body renders through `BlockRenderer`; an unknown `body.format` renders the fallback and no markup originating from `value` (R9); a footer menu item with `target_type: content_page` resolves to the right URL; the same page is byte-identical for an anonymous and an authenticated buyer (§3.3's exception).
 
-**Field mode:** service worker intercepts no route outside `/field/*` (R10); the offline pack is unreadable without the local passcode/biometric gate even with the device unlocked; a replay against an expired cart transparently lands in a new one; reconciliation renders through the existing `PriceDisplay`/`priceChanges`/merge-summary surfaces, not a second screen. Full suite: [Offline Field Mode](./2026-09-22-offline-field-mode.md) §10.
+**Field mode:** service worker intercepts no route outside `/field/*` (R10); the offline pack is unreadable without the local passcode/biometric gate even with the device unlocked; a replay against an expired cart transparently lands in a new one; reconciliation renders through the existing `PriceDisplay`/`priceChanges`/merge-summary visual pattern, not a second screen; replay never exposes the cart token or an assortment scope to client code. Full suite: [Offline Field Mode](./2026-09-22-offline-field-mode.md) §10.
 
 **Accessibility:** axe zero serious/critical on every route in both auth states at both widths; keyboard-only traversal of the full purchase journey; skip link on first Tab; focus returns from every dialog; 200 % zoom without horizontal scroll.
 
@@ -528,13 +528,15 @@ Full behavioural spec: [Offline Field Mode](./2026-09-22-offline-field-mode.md).
   - AC: the outbox persists across an app reload or relaunch while still offline (offline spec §10).
 
 - **US-F5** — As a buyer reconnecting, I want my queued items replayed into my real cart and to see exactly what happened to each one, so that I am never surprised by a price or availability difference between what I saw offline and what actually landed.
-  - AC: the reconciliation screen classifies every intent as accepted, quantity-adjusted, or rejected, reusing the cart's existing `priceChanges`/`warnings`/`mergeSummary` surfaces rather than a second screen (offline spec §2.3, §3.3, §5.8).
+  - AC: the reconciliation screen classifies every intent as accepted, quantity-adjusted, or rejected, reusing the cart's existing `priceChanges`/`warnings` surfaces and merge-summary visual pattern rather than a second screen (offline spec §2.3, §3.3, §5.8).
+  - AC: a queued item whose product was already in the cart is shown as added to the existing quantity, not as a changed quantity (offline spec §9 R4).
+  - AC: queued items are replayed only for the buyer who queued them; another buyer logging in on the same device sees a held queue they cannot read or replay (offline spec §3.3).
   - AC: replay re-resolves the buyer's context online before mutating the cart, so a stale or wrong-identity pack can change what the buyer previewed but never what they purchase (offline spec §9 R5).
   - AC: no route under `/field/*` reaches checkout without a live connectivity check (offline spec §3.3).
 
 - **US-F6** — As a buyer done with field mode on a device, I want my locally stored catalogue cleared — explicitly or automatically — so that handing the device to someone else doesn't hand over my priced catalogue with it.
   - AC: a visible "Clear field data" control purges the local pack on demand (offline spec §6).
-  - AC: logout, TTL expiry, and a resolved-identity mismatch each purge the pack automatically, without user action (offline spec §6, §9 R1/R5).
+  - AC: logout, TTL expiry, a resolved-identity mismatch, and field mode being disabled by the merchant each purge the pack automatically, without user action (offline spec §6, §9 R1/R5).
   - AC: clearing or expiring the pack never deletes a non-empty outbox — the two have independent lifetimes (offline spec §6, §9 R8).
 
 ### Cross-cutting rules
@@ -548,6 +550,10 @@ Full behavioural spec: [Offline Field Mode](./2026-09-22-offline-field-mode.md).
 
 ## 17) Changelog
 
+### 2026-09-27 — field mode review fixes
+- §5.8, §12 and US-F5/US-F6 aligned with the corrected offline spec: replay produces no server `mergeSummary` (it is a plain `bulkAdd`; a queued line already in the cart sums), runs through this app's route handlers with the cookie-held token and a server-resolved scope, and replays only for the buyer who queued it; merchant-disabled field mode added to the automatic purge triggers.
+- The heading-less "§16 user story map added" bullet, which read as part of the 2026-09-22 field-mode entry, now has its own heading. It is dated 2026-09-17, the commit that introduced it (#5384).
+
 ### 2026-09-23 — field mode user stories
 - **§16 Epic F added.** Field mode (§3.3a, §5.8) shipped without user stories, unlike every other epic in §16 — added six stories (US-F1–US-F6) covering opt-in enablement, the local passcode/biometric gate, offline browsing, the outbox, reconnect reconciliation, and data purge, derived from the offline spec's own §3, §5.8, §6, §9 and §10 with no new scope. Written to support an `om-mockup-prototype` click-through of `/field/*`, the same purpose §16 itself was added for.
 
@@ -556,6 +562,7 @@ Full behavioural spec: [Offline Field Mode](./2026-09-22-offline-field-mode.md).
 - Added §3.3a (field mode as a separate client-only route subtree, not this spec's rendering table extended offline), a `field/` entry to the route tree (§4), §5.8 (`OfflinePackStatus`, `OfflineCatalog`/`OfflineProductCard`, `OutboxReview`, `SyncReconciliation` — reusing §5.3's `PriceDisplay` and the existing merge-summary surface rather than a new screen), a `/field/*` budget row (§9), R10 (§11 — the service-worker-scope-creep risk), a Field mode test-coverage block (§12), and a Field mode row in §15.
 - Full design — the offline pack, the intent outbox, device-at-rest protection, and POS as the contract's second consumer — lives in the new [Offline Field Mode](./2026-09-22-offline-field-mode.md) spec, per that document's own architecture decision (roadmap ADR-10) that reading and writing offline are two independently-risked halves and must not be specified inside this app spec.
 
+### 2026-09-17 — user story map
 - **§16 user story map added.** The spec described routes, components and rules but never who wanted what, so a prototype had to infer the flow from a route tree. Six epics derived from §4–§8; no new scope. Checkout and account stories are deliberately left to the specs that own those flows. The changelog moves from §16 to §17.
 
 ### 2026-09-16 (b) — sort control

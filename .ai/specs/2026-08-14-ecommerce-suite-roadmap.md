@@ -352,7 +352,8 @@ The projection itself is **not specified or built here**. This ADR fixes only it
 **Consequence.**
 - The pack is keyed on `BuyerContext`'s named scope components (`assortmentScopeHash`, `priceScopeKey`, `customerOverlayId`, ADR-7 amended) — never a whole-context digest — exactly like every other cached surface in the suite.
 - Because replay always re-resolves `BuyerContext` online before mutating the cart, a stale or wrong-identity pack can produce a bad offline *preview* but never an unauthorized *purchase* — the write path's existing checks (cart spec §6a.1) run against the fresh scope regardless of what the offline pack believed.
-- Reconciliation on reconnect reuses the cart's existing `priceChanges` / `warnings` / `mergeSummary` response envelope (cart spec §7.2, §10.1) rather than a second reconciliation screen.
+- Reconciliation on reconnect reuses the cart's existing `priceChanges` / `warnings` response envelope (cart spec §10.1) and the merge-summary visual pattern (cart spec §7.2) rather than a second reconciliation screen. A replay is a plain `bulkAdd`, not a login merge: identical lines sum by quantity (cart spec §4.2) and cart produces no `mergeSummary` for it, so the per-intent outcome is computed client-side by the shared `reconcileOfflineReplay` from the pre- and post-replay cart lines.
+- Replay goes through the storefront app's server route handlers, which hold the httpOnly cart-token cookie and resolve `assortmentScope` server-side (cart spec §6a.1); the client never supplies either.
 - This spec (14) amends no other child spec's contract. It is additive: two new `ecommerce` read endpoints and one new settings key.
 
 **Rejected alternative.** A generic service-worker cache-first strategy across the whole storefront — the common PWA pattern — rejected for the same reason SPEC-029's zero-shared-UI stance and a naive ISR cache were both rejected elsewhere in this roadmap: it solves a problem this suite does not have (a static site) while reintroducing one it already closed (buyer-aware pricing leaking through a cache keyed on the wrong thing).
@@ -397,7 +398,7 @@ Row 13 is intentionally unassigned — reserved for POS's own offline/sync spec 
 | 8 — Merchandising | Boundary against `content` module pages; per-store vs. per-channel scoping; publishing and scheduling |
 | 9 — Customer account | B2B buyer roster and approvals in the portal; order history sourced from `sales` without cross-module ORM relations |
 | 10 — Storefront app | `@open-mercato/storefront-ui` budget and CI enforcement; WCAG 2.2 AA evidence; RWD; performance targets |
-| 14 — Offline field mode | Reading (server-built offline pack) and writing (client-side intent outbox) specified as two independently-risked halves, never as one PWA feature (ADR-10); pack keyed on named `BuyerContext` components, never a whole-context digest; write replay reuses `cart.lines.bulkAdd`'s existing partial-success and `Idempotency-Key` contract (cart spec §6a.1, §8.2) and reconciliation reuses `mergeSummary`/`priceChanges` (cart spec §7.2) rather than a second screen; POS (SPEC-022 §3, Phase 3 non-goal) named as the contract's second consumer with cash, register session and hardware explicitly excluded |
+| 14 — Offline field mode | Reading (server-built offline pack) and writing (client-side intent outbox) specified as two independently-risked halves, never as one PWA feature (ADR-10); pack keyed on named `BuyerContext` components, never a whole-context digest; write replay reuses `cart.lines.bulkAdd`'s existing partial-success and `Idempotency-Key` contract (cart spec §6a.1, §8.2) and reconciliation reuses `priceChanges`/`warnings` (cart spec §10.1) and the merge-summary visual pattern (cart spec §7.2) rather than a second screen — replay itself produces no `mergeSummary`; POS (SPEC-022 §3, Phase 3 non-goal) named as the contract's second consumer with cash, register session and hardware explicitly excluded |
 
 Specs 3, 6 and 7 are rewrites/amendments of existing documents. Per `.ai/specs/AGENTS.md`, their filenames are left unchanged — renaming legacy `SPEC-*` files is a separate, explicitly-requested normalization.
 
@@ -515,6 +516,9 @@ Every public namespace MUST be rate limited and MUST include the buyer-context d
 ---
 
 ## 13) Changelog
+
+### 2026-09-27
+- ADR-10's reconciliation consequence corrected (and a replay-path consequence added) after review of spec 14: a replay is a plain `bulkAdd`, so cart emits no `mergeSummary` for it — only a guest→customer login merge does (cart spec §7.1–§7.2); and replay goes through the app's route handlers with a server-resolved `assortmentScope`, never a client-supplied one. §6.1's spec 14 row amended to match.
 
 ### 2026-09-22
 - **Added ADR-10** — offline "field mode" splits into a server-built, buyer-priced offline pack (read) and a client-side intent outbox (write), specified separately because the two have unrelated failure modes; no offline checkout anywhere in the suite. Recorded now, alongside its child spec, so the contract lands in `packages/shared` (per ADR-10's own rationale) rather than inside `apps/storefront`, where POS's eventual Phase 3 offline spec (`SPEC-022-2026-02-07-pos-module.md` §3) would have had to either depend on the storefront app or reinvent the contract.

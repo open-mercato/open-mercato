@@ -1,6 +1,8 @@
-# Offline Field Mode interactive backend prototype
+# Offline Field Mode interactive prototype (illustrative only)
 
 This directory contains a static, pre-implementation prototype derived from `.ai/specs/2026-09-22-offline-field-mode.md`.
+
+**Illustrative only — the visual design is not binding.** `/field/*` is a storefront buyer surface built on `@open-mercato/storefront-ui` (storefront-app spec §3.3a, §5.8), not a backoffice page. The prototype was generated with backoffice tooling and uses backoffice design tokens (`tokens.css`); read it for flow, states and copy intent only, never for the storefront's look.
 
 ## Review
 
