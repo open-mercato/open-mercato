@@ -52,6 +52,8 @@ describe('ContextSchemaEditor', () => {
     const requiredCheckboxes = screen.getAllByLabelText(REQUIRED_LABEL_KEY)
     expect(requiredCheckboxes[0]).toHaveAttribute('data-state', 'checked')
     expect(requiredCheckboxes[1]).toHaveAttribute('data-state', 'unchecked')
+    expect(screen.getByRole('button', { name: `${REMOVE_KEY} — dealId` })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: `${REMOVE_KEY} — stage` })).toBeInTheDocument()
   })
 
   it('adds a new text field row through onChange', () => {
@@ -101,7 +103,7 @@ describe('ContextSchemaEditor', () => {
     const onChange = jest.fn()
     renderWithProviders(<ContextSchemaEditor value={twoFieldSchema} onChange={onChange} />)
 
-    fireEvent.click(screen.getAllByRole('button', { name: REMOVE_KEY })[0])
+    fireEvent.click(screen.getByRole('button', { name: `${REMOVE_KEY} — dealId` }))
 
     expect(onChange).toHaveBeenCalledWith({
       input: { fields: [{ name: 'stage', type: 'select', options: ['new', 'won'] }] },
@@ -115,7 +117,7 @@ describe('ContextSchemaEditor', () => {
     }
     renderWithProviders(<ContextSchemaEditor value={singleField} onChange={onChange} />)
 
-    fireEvent.click(screen.getByRole('button', { name: REMOVE_KEY }))
+    fireEvent.click(screen.getByRole('button', { name: `${REMOVE_KEY} — dealId` }))
 
     expect(onChange).toHaveBeenCalledWith(undefined)
   })
