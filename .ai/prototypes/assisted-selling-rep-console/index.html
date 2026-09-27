@@ -482,7 +482,7 @@
   </div>
 
   <div class="notes">
-    <div class="note"><b>1</b><span>Publishing here wraps <code class="t-mono">cart.proposal.create</code> against the <strong>target cart's token</strong> — the buyer's own context, never the rep's (§6.3 step 2, R1).</span></div>
+    <div class="note"><b>1</b><span>Publishing here wraps <code class="t-mono">cart.proposal.create</code> against the <strong>target cart's id</strong>, priced in the buyer's own context and checked against the buyer's assortment resolved on the server — never the rep's (§6.3 steps 2–3, R1).</span></div>
     <div class="note"><b>2</b><span>There is no draft state to save and resume: a half-built proposal in this drawer is unsaved form state, not a row. Closing the drawer discards it (§5.4).</span></div>
     <div class="note"><b>3</b><span><code class="t-mono">max_proposal_lines</code> (default 50) is enforced here, at authoring — a validation error against the rep, not a partial merge against the buyer later (§8.9).</span></div>
   </div>
