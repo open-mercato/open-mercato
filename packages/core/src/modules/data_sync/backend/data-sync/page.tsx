@@ -903,7 +903,11 @@ export default function SyncRunsDashboardPage() {
                               {t('data_sync.dashboard.start.fullSyncHelp', 'Ignore the saved cursor and process the entire source again for this run.')}
                             </p>
                           </div>
-                          <Switch checked={fullSync} onCheckedChange={setFullSync} />
+                          <Switch
+                            checked={fullSync}
+                            onCheckedChange={setFullSync}
+                            aria-label={t('data_sync.dashboard.start.fullSync', 'Run as full sync')}
+                          />
                         </div>
                       </div>
                     ) : null}
@@ -1042,6 +1046,7 @@ export default function SyncRunsDashboardPage() {
                         checked={scheduleEditor.fullSync}
                         onCheckedChange={(checked) => updateScheduleEditor({ fullSync: checked })}
                         disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                        aria-label={t('data_sync.dashboard.schedule.fullSync', 'Run scheduled jobs as full sync')}
                       />
                     </div>
                   </div>
@@ -1057,6 +1062,7 @@ export default function SyncRunsDashboardPage() {
                         checked={scheduleEditor.isEnabled}
                         onCheckedChange={(checked) => updateScheduleEditor({ isEnabled: checked })}
                         disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                        aria-label={t('data_sync.dashboard.schedule.enabled', 'Schedule enabled')}
                       />
                     </div>
                   </div>
