@@ -1783,7 +1783,7 @@ export function AvailabilityRulesEditor({
                                   await refreshRuleSetRules()
                                 }}
                                 disabled={usingRuleSet || isReadOnly || lockUnavailabilityActions}
-                                aria-label={listLabels.removeWindow}
+                                aria-label={`${listLabels.removeWindow} ${date}`}
                               >
                                 <Trash2 className="size-4" aria-hidden />
                               </Button>
