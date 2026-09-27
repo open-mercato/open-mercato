@@ -11,6 +11,7 @@ import {
   HrApprovalRequest,
   HrApprovalStepDefinition,
   HrApprovalWorkflow,
+  HrAttendanceRecord,
   HrLeaveRequest,
 } from '../data/entities'
 import { raiseHrError } from '../lib/errors'
@@ -25,7 +26,10 @@ import {
 import {
   HR_APPROVAL_ACTION_LOG_ENTITY_ID,
   HR_APPROVAL_REQUEST_ENTITY_ID,
+  HR_ATTENDANCE_ENTITY_ID,
   HR_LEAVE_REQUEST_ENTITY_ID,
+  hrAttendanceEvents,
+  hrAttendanceIndexer,
   hrLeaveRequestEvents,
   hrLeaveRequestIndexer,
   makeEvents,
@@ -107,11 +111,22 @@ function appendComment(comment: string | null | undefined, extra: string): strin
 }
 
 /**
+ * Emits the side effects for whatever entity a decision touched.
+ *
+ * Returning a function rather than the entity keeps both branches type-safe: the leave branch
+ * builds an emitter typed for leave requests and the attendance branch one typed for
+ * attendance records, so neither has to be cast at the call site.
+ */
+type TargetEmitter = (dataEngine: DataEngine) => Promise<void>
+
+/**
  * Applies the outcome of a decision to the entity the request is about.
  *
- * Only leave requests are wired today. Anything else completes the approval request and
- * leaves the target alone, which is the honest behaviour: a silent no-op would be worse,
- * and the fleet assignment hook is a separate change.
+ * Wired today: leave requests (a decision records the outcome) and attendance records (an
+ * approved lateness permission turns `late` into `present`, a rejected one leaves the
+ * lateness standing). Anything else completes the approval request and leaves the target
+ * alone, which is stated here rather than silently no-oped; the fleet assignment hook is a
+ * separate change.
  */
 async function applyTargetEffect(
   em: EntityManager,
@@ -120,25 +135,68 @@ async function applyTargetEffect(
   decision: Extract<ApprovalDecision, { kind: 'ok' }>,
   actorUserId: string | null,
   comment: string | null | undefined,
-): Promise<{ entity: HrLeaveRequest; events: typeof hrLeaveRequestEvents; indexer: typeof hrLeaveRequestIndexer } | null> {
+): Promise<TargetEmitter | null> {
   if (!decision.decided) return null
-  if (request.entityType !== 'hr_leave_request') return null
-
-  const leaveRequest = await em.findOne(HrLeaveRequest, {
-    id: request.entityId,
-    ...scope,
-    deletedAt: null,
-  }, { lockMode: LockMode.PESSIMISTIC_WRITE })
-  if (!leaveRequest) return null
-
   const now = new Date()
-  leaveRequest.status = decision.status === 'approved' ? 'approved' : 'rejected'
-  leaveRequest.decidedByUserId = actorUserId
-  leaveRequest.decidedAt = now
-  leaveRequest.decisionComment = comment ?? null
-  leaveRequest.updatedAt = now
-  await em.persist(leaveRequest).flush()
-  return { entity: leaveRequest, events: hrLeaveRequestEvents, indexer: hrLeaveRequestIndexer }
+
+  if (request.entityType === 'hr_leave_request') {
+    const leaveRequest = await em.findOne(HrLeaveRequest, {
+      id: request.entityId,
+      ...scope,
+      deletedAt: null,
+    }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+    if (!leaveRequest) return null
+
+    leaveRequest.status = decision.status === 'approved' ? 'approved' : 'rejected'
+    leaveRequest.decidedByUserId = actorUserId
+    leaveRequest.decidedAt = now
+    leaveRequest.decisionComment = comment ?? null
+    leaveRequest.updatedAt = now
+    await em.persist(leaveRequest).flush()
+
+    return async (dataEngine) => {
+      await emitCrudSideEffects({
+        dataEngine,
+        action: 'updated',
+        entity: leaveRequest,
+        identifiers: { id: leaveRequest.id, ...scope },
+        actorUserId,
+        events: hrLeaveRequestEvents,
+        indexer: hrLeaveRequestIndexer,
+      })
+    }
+  }
+
+  if (request.entityType === 'hr_attendance_record') {
+    // A rejected or cancelled permission must change nothing: the lateness stands.
+    if (decision.status !== 'approved') return null
+    const record = await em.findOne(HrAttendanceRecord, {
+      id: request.entityId,
+      ...scope,
+      deletedAt: null,
+    }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+    // Only an existing late record can be excused; approving a permission for a day the
+    // employee was present would rewrite history that nobody disputed.
+    if (!record || record.status !== 'late') return null
+
+    record.status = 'present'
+    record.updatedAt = now
+    await em.persist(record).flush()
+
+    return async (dataEngine) => {
+      await emitCrudSideEffects({
+        dataEngine,
+        action: 'updated',
+        entity: record,
+        identifiers: { id: record.id, ...scope },
+        actorUserId,
+        events: hrAttendanceEvents,
+        indexer: hrAttendanceIndexer,
+      })
+    }
+  }
+
+  return null
 }
 
 function logActionFor(decision: Extract<ApprovalDecision, { kind: 'ok' }>): ApprovalLogAction | null {
@@ -251,15 +309,7 @@ async function runDecision(
     indexer: hrApprovalRequestIndexer,
   })
   if (result.target) {
-    await emitCrudSideEffects({
-      dataEngine,
-      action: 'updated',
-      entity: result.target.entity,
-      identifiers: { id: result.target.entity.id, ...scope },
-      actorUserId,
-      events: result.target.events,
-      indexer: result.target.indexer,
-    })
+    await result.target(dataEngine)
   }
 
   return {
