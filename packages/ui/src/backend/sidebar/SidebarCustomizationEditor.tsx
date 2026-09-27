@@ -1,5 +1,4 @@
 'use client'
-
 import * as React from 'react'
 import { ChevronUp, ChevronDown, GripVertical, RotateCcw, Trash2, Plus, Search, AlertTriangle } from 'lucide-react'
 import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
@@ -1203,6 +1202,7 @@ export function SidebarCustomizationEditor({
                   const value = draft.groupLabels[groupId] ?? ''
                   const trimmedValue = value.trim()
                   const isGroupModified = trimmedValue.length > 0 && trimmedValue !== placeholder
+                  const groupName = trimmedValue.length > 0 ? trimmedValue : placeholder
                   return (
                     <div key={groupId} className="rounded-lg border bg-background">
                       <div className="flex items-start gap-3 border-b px-4 py-3">
@@ -1242,7 +1242,6 @@ export function SidebarCustomizationEditor({
                         <div className="flex shrink-0 items-center gap-2 mt-6">
                           {(() => {
                             const visibility = resolveGroupVisibility(baseGroup, draft.hiddenItemIds)
-                            const groupName = trimmedValue.length > 0 ? trimmedValue : placeholder
                             const label = visibility === 'partial'
                               ? t('appShell.sidebarCustomizationHideGroupPartial', 'Some items in {group} are hidden — turn off to hide the whole group', { group: groupName })
                               : t('appShell.sidebarCustomizationShowGroup', 'Show {group}', { group: groupName })
@@ -1270,8 +1269,8 @@ export function SidebarCustomizationEditor({
                             className="text-muted-foreground hover:text-foreground"
                             onClick={() => moveGroup(groupId, -1)}
                             disabled={index === 0 || isBusy}
-                            aria-label={t('appShell.sidebarCustomizationMoveUp')}
-                            title={t('appShell.sidebarCustomizationMoveUp')}
+                            aria-label={`${t('appShell.sidebarCustomizationMoveUp')}: ${groupName}`}
+                            title={`${t('appShell.sidebarCustomizationMoveUp')}: ${groupName}`}
                           >
                             <ChevronUp className="size-4" />
                           </IconButton>
@@ -1282,8 +1281,8 @@ export function SidebarCustomizationEditor({
                             className="text-muted-foreground hover:text-foreground"
                             onClick={() => moveGroup(groupId, 1)}
                             disabled={index === totalGroups - 1 || isBusy}
-                            aria-label={t('appShell.sidebarCustomizationMoveDown')}
-                            title={t('appShell.sidebarCustomizationMoveDown')}
+                            aria-label={`${t('appShell.sidebarCustomizationMoveDown')}: ${groupName}`}
+                            title={`${t('appShell.sidebarCustomizationMoveDown')}: ${groupName}`}
                           >
                             <ChevronDown className="size-4" />
                           </IconButton>
@@ -1409,6 +1408,9 @@ type SortableItemRowProps = ItemRowProps & { id: string }
 
 function SortableItemRow({ id, ...rowProps }: SortableItemRowProps) {
   const t = useT()
+  const itemKey = resolveItemKey(rowProps.item)
+  const customLabel = rowProps.draft.itemLabels[itemKey]?.trim()
+  const itemName = customLabel || rowProps.item.defaultTitle || rowProps.item.title
   const { attributes, listeners, setNodeRef, transform, transition, isDragging, setActivatorNodeRef } = useSortable({ id })
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -1422,7 +1424,7 @@ function SortableItemRow({ id, ...rowProps }: SortableItemRowProps) {
       variant="ghost"
       size="sm"
       className="shrink-0 mt-1.5 cursor-grab touch-none active:cursor-grabbing"
-      aria-label={t('appShell.sidebarCustomizationDragToReorder', 'Drag to reorder')}
+      aria-label={`${t('appShell.sidebarCustomizationDragToReorder', 'Drag to reorder')}: ${itemName}`}
       disabled={rowProps.saving}
       {...attributes}
       {...listeners}
