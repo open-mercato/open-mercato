@@ -86,6 +86,23 @@ describe('CurrencyFetchingConfig', () => {
   })
 
   describe('design-system + i18n cleanup (#3192)', () => {
+    it('labels each provider switch with its localized provider name', async () => {
+      apiCallMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        result: { configs: [enabledNbp, disabledRaiffeisen] },
+      })
+
+      renderWithProviders(<CurrencyFetchingConfig />)
+
+      expect(await screen.findByRole('switch', {
+        name: 'currencies.fetch.provider_nbp',
+      })).toBeChecked()
+      expect(screen.getByRole('switch', {
+        name: 'currencies.fetch.provider_raiffeisen',
+      })).not.toBeChecked()
+    })
+
     it('renders an enabled provider with DS primitives instead of raw controls and hardcoded status colors', async () => {
       apiCallMock.mockResolvedValue({ result: { configs: [enabledErrorConfig] } })
 
