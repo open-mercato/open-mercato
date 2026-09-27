@@ -1,4 +1,5 @@
 import {
+  BROADCAST_FLUSH_DEADLINE_MS,
   flushPendingBroadcasts,
   resetBroadcastCoalescerForTests,
   resolveBroadcastCoalesceIntervalMs,
@@ -91,6 +92,27 @@ describe('broadcast coalescer', () => {
     await flushPendingBroadcasts()
 
     expect(delivered).toEqual(['leading', 'tail'])
+  })
+
+  it('bounds a shutdown flush by its deadline when a dispatch hangs', async () => {
+    const delivered: string[] = []
+
+    await submitBroadcast('key', async () => { delivered.push('leading') }, { intervalMs: 10_000 })
+    await submitBroadcast('key', () => new Promise<void>(() => {}), { intervalMs: 10_000 })
+    await submitBroadcast('other', async () => { delivered.push('other-leading') }, { intervalMs: 10_000 })
+    await submitBroadcast('other', async () => { delivered.push('other-tail') }, { intervalMs: 10_000 })
+
+    const startedAt = Date.now()
+    await flushPendingBroadcasts({ deadlineMs: INTERVAL_MS })
+    const elapsedMs = Date.now() - startedAt
+
+    expect(elapsedMs).toBeGreaterThanOrEqual(INTERVAL_MS - 5)
+    expect(elapsedMs).toBeLessThan(INTERVAL_MS * 20)
+    expect(delivered).toEqual(['leading', 'other-leading', 'other-tail'])
+  })
+
+  it('exposes a fixed 3000ms exit deadline', () => {
+    expect(BROADCAST_FLUSH_DEADLINE_MS).toBe(3000)
   })
 
   it('never runs two deliveries of one key concurrently, so an older payload cannot land last', async () => {

@@ -151,10 +151,20 @@ export async function submitBroadcast(
 }
 
 /**
- * Deliver every survivor still awaiting its trailing flush. Wired into the
- * process shutdown hook so a graceful stop does not swallow the tail of a burst.
+ * Upper bound for a flush on the way out of a process. Fixed, and independent of
+ * and shorter than OM_BROADCAST_COALESCE_INTERVAL_MS's own window, so a stalled
+ * Postgres connection at exit degrades to the already-accepted dropped-tail case
+ * instead of hanging the exit.
  */
-export async function flushPendingBroadcasts(): Promise<void> {
+export const BROADCAST_FLUSH_DEADLINE_MS = 3000
+
+/**
+ * Deliver every survivor still awaiting its trailing flush. Wired into the
+ * process shutdown hook and the CLI exit path so a stop does not swallow the tail
+ * of a burst. Never rejects: every entry is settled on its own. With
+ * `deadlineMs`, resolves no later than that even if a dispatch hangs.
+ */
+export async function flushPendingBroadcasts(options?: { deadlineMs?: number }): Promise<void> {
   const entries = getPendingBroadcasts()
   const drained: Array<Promise<void>> = []
   for (const [key, entry] of entries) {
@@ -163,7 +173,25 @@ export async function flushPendingBroadcasts(): Promise<void> {
     entries.delete(key)
     if (pending) drained.push(runDispatch(pending, key))
   }
-  await Promise.all(drained)
+  const settled = Promise.allSettled(drained).then(() => undefined)
+  const deadlineMs = options?.deadlineMs
+  if (deadlineMs === undefined) {
+    await settled
+    return
+  }
+  let expire: () => void = () => {}
+  const expired = new Promise<void>((resolve) => {
+    expire = resolve
+  })
+  const deadline = setTimeout(() => expire(), Math.max(0, deadlineMs))
+  if (typeof (deadline as { unref?: () => void }).unref === 'function') {
+    ;(deadline as { unref: () => void }).unref()
+  }
+  try {
+    await Promise.race([settled, expired])
+  } finally {
+    clearTimeout(deadline)
+  }
 }
 
 /** Drop all pending state without dispatching. Tests only. */

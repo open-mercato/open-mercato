@@ -12,6 +12,7 @@ import {
   isPrivateCrossProcessEventEmitter,
 } from '@open-mercato/shared/modules/events'
 import {
+  BROADCAST_FLUSH_DEADLINE_MS,
   flushPendingBroadcasts,
   resolveBroadcastCoalesceIntervalMs,
   submitBroadcast,
@@ -132,6 +133,13 @@ function sortScopes(scopes: Set<string>): string[] {
  * audience's pending delivery — recipient/role targeting and a portal-only
  * event (which carries no trusted `options` scope at all) included.
  *
+ * Options and payload scope stay in separate segments, never merged: the three
+ * filters each read a different source, so `options` org A + payload org B must
+ * not key like the reverse. The options tenant segment encodes PRESENCE, not
+ * just value — the backoffice `hasTrustedScope` is a presence test, so `{}` and
+ * `{ tenantId: undefined }` take different filter branches and must not share
+ * a key.
+ *
  * Scope is part of the key by necessity, not for granularity: a key with no
  * scope segments would let a burst in one tenant suppress another tenant's
  * delivery and then deliver the first tenant's payload in its place.
@@ -139,18 +147,23 @@ function sortScopes(scopes: Set<string>): string[] {
 function buildBroadcastCoalesceKey(event: string, payload: EventPayload, options?: EmitOptions): string {
   const data = (payload ?? {}) as Record<string, unknown>
 
-  const tenantId = normalizePayloadScope(options?.tenantId) ?? normalizePayloadScope(data.tenantId) ?? ''
+  const payloadTenantId = normalizePayloadScope(data.tenantId) ?? ''
+  const optionsTenantToken = options && Object.prototype.hasOwnProperty.call(options, 'tenantId')
+    ? `=${normalizePayloadScope(options.tenantId) ?? ''}`
+    : 'absent'
 
-  const organizationScopes = new Set<string>()
+  const optionsOrganizationScopes = new Set<string>()
   const optionsOrganizationId = normalizePayloadScope(options?.organizationId)
-  if (optionsOrganizationId) organizationScopes.add(optionsOrganizationId)
+  if (optionsOrganizationId) optionsOrganizationScopes.add(optionsOrganizationId)
   for (const organizationId of collectStringScopes(options?.organizationIds)) {
-    organizationScopes.add(organizationId)
+    optionsOrganizationScopes.add(organizationId)
   }
+
+  const payloadOrganizationScopes = new Set<string>()
   const payloadOrganizationId = normalizePayloadScope(data.organizationId)
-  if (payloadOrganizationId) organizationScopes.add(payloadOrganizationId)
+  if (payloadOrganizationId) payloadOrganizationScopes.add(payloadOrganizationId)
   for (const organizationId of collectStringScopes(data.organizationIds)) {
-    organizationScopes.add(organizationId)
+    payloadOrganizationScopes.add(organizationId)
   }
 
   const recipientUserScopes = new Set<string>()
@@ -169,8 +182,10 @@ function buildBroadcastCoalesceKey(event: string, payload: EventPayload, options
 
   return [
     event,
-    tenantId,
-    sortScopes(organizationScopes).join(','),
+    payloadTenantId,
+    optionsTenantToken,
+    sortScopes(payloadOrganizationScopes).join(','),
+    sortScopes(optionsOrganizationScopes).join(','),
     sortScopes(recipientUserScopes).join(','),
     sortScopes(recipientRoleScopes).join(','),
   ].join('::')
@@ -274,12 +289,13 @@ function registerProducerShutdownHook(): void {
  * (`once` already removed itself before this body runs): a process with its
  * own graceful-shutdown handler (the queue worker, `mercato server`) keeps
  * that handler in charge of the actual exit, and this hook just adds the flush
- * alongside it.
+ * alongside it. Every flush here is capped at BROADCAST_FLUSH_DEADLINE_MS, so a
+ * hung dispatch cannot hold a stop until SIGKILL.
  */
 function registerBroadcastCoalescerShutdownHook(): void {
   if ((globalThis as Record<string, unknown>)[BROADCAST_COALESCER_SHUTDOWN_KEY]) return
   const handleSignal = (signal: NodeJS.Signals) => {
-    void flushPendingBroadcasts()
+    void flushPendingBroadcasts({ deadlineMs: BROADCAST_FLUSH_DEADLINE_MS })
       .catch(() => {})
       .finally(() => {
         if (process.listenerCount(signal) === 0) {
@@ -290,7 +306,7 @@ function registerBroadcastCoalescerShutdownHook(): void {
   process.once('SIGTERM', () => handleSignal('SIGTERM'))
   process.once('SIGINT', () => handleSignal('SIGINT'))
   process.once('beforeExit', () => {
-    void flushPendingBroadcasts().catch(() => {})
+    void flushPendingBroadcasts({ deadlineMs: BROADCAST_FLUSH_DEADLINE_MS }).catch(() => {})
   })
   ;(globalThis as Record<string, unknown>)[BROADCAST_COALESCER_SHUTDOWN_KEY] = true
 }

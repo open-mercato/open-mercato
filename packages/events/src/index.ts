@@ -5,6 +5,7 @@ export * from './bus'
 // re-exporting it from the package root would make it a supported surface
 // under BACKWARD_COMPATIBILITY.md.
 export {
+  BROADCAST_FLUSH_DEADLINE_MS,
   flushPendingBroadcasts,
   resolveBroadcastCoalesceIntervalMs,
   submitBroadcast,

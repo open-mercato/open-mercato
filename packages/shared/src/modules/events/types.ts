@@ -78,8 +78,8 @@ export interface EventDefinition {
   /**
    * When true, browser deliveries of this event coalesce: within
    * OM_BROADCAST_COALESCE_INTERVAL_MS only the newest payload per
-   * (event, tenant, organization) reaches the SSE bridges, and a trailing flush
-   * guarantees the last one is delivered. Subscribers, webhooks and the queue are
+   * audience (event, tenant, organizations, recipients) reaches the SSE bridges,
+   * and a trailing flush guarantees the last one is delivered. Subscribers, webhooks and the queue are
    * unaffected — the domain event still fires once per record.
    *
    * Declare it only on events whose browser consumers react to the fact that

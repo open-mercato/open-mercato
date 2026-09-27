@@ -155,6 +155,116 @@ describe('event bus browser-delivery coalescing', () => {
     expect(registered).toEqual(expect.arrayContaining(['SIGTERM', 'SIGINT', 'beforeExit']))
   })
 
+  it('re-raises a signal after the flush only when no other listener owns the exit', async () => {
+    const handlers = new Map<string, () => void>()
+    const onceSpy = jest.spyOn(process, 'once').mockImplementation(function (this: NodeJS.Process, event: string, handler: () => void) {
+      handlers.set(event, handler)
+      return this
+    } as never)
+    try {
+      delete (globalThis as Record<string, unknown>).__openMercatoBroadcastCoalescerShutdown__
+      createEventBus({ resolve, queueStrategy: 'local' })
+    } finally {
+      onceSpy.mockRestore()
+    }
+
+    const killSpy = jest.spyOn(process, 'kill').mockImplementation(() => true)
+    const listenerCountSpy = jest.spyOn(process, 'listenerCount')
+    const bus = createEventBus({ resolve, queueStrategy: 'local' })
+    const tappedIds: string[] = []
+    unregisterTap = registerGlobalEventTap((_event, payload) => {
+      tappedIds.push(String((payload as { id: string }).id))
+    })
+    try {
+      for (const id of ['first', 'tail']) {
+        await bus.emit(
+          'coalesce_test.bulk.created',
+          { id, tenantId: 'tenant-1', organizationId: 'org-1' },
+          { tenantId: 'tenant-1', organizationId: 'org-1' },
+        )
+      }
+
+      listenerCountSpy.mockReturnValue(0)
+      handlers.get('SIGINT')?.()
+      await wait(INTERVAL_MS / 5)
+      expect(tappedIds).toEqual(['first', 'tail'])
+      expect(killSpy).toHaveBeenCalledWith(process.pid, 'SIGINT')
+
+      killSpy.mockClear()
+      listenerCountSpy.mockReturnValue(1)
+      handlers.get('SIGTERM')?.()
+      await wait(INTERVAL_MS / 5)
+      expect(killSpy).not.toHaveBeenCalled()
+    } finally {
+      killSpy.mockRestore()
+      listenerCountSpy.mockRestore()
+    }
+  })
+
+  it('keys a present-but-empty options tenant per payload tenant, so no tenant suppresses another', async () => {
+    const bus = createEventBus({ resolve, queueStrategy: 'local' })
+    const tenants = ['tenant-a', 'tenant-b']
+
+    for (let round = 0; round < 3; round += 1) {
+      for (const tenantId of tenants) {
+        await bus.emit(
+          'coalesce_test.bulk.created',
+          { id: `${tenantId}-${round}`, tenantId, organizationId: 'org-1' },
+          { tenantId: undefined },
+        )
+      }
+    }
+    await wait(INTERVAL_MS * 2)
+
+    const published = publishCrossProcessEventMock.mock.calls.map((call) => (call as unknown[])[1] as { id: string; tenantId: string })
+    for (const tenantId of tenants) {
+      const forTenant = published.filter((entry) => entry.tenantId === tenantId)
+      expect(forTenant.length).toBeGreaterThanOrEqual(2)
+      expect(forTenant[forTenant.length - 1].id).toBe(`${tenantId}-2`)
+    }
+  })
+
+  it('keys portal organizations from the payload even when options carry a trusted tenant', async () => {
+    const bus = createEventBus({ resolve, queueStrategy: 'local' })
+    const seen: Array<{ organizationId: string; id: string }> = []
+    unregisterTap = registerGlobalEventTap((_event, payload) => {
+      const data = payload as { id: string; organizationId: string }
+      seen.push({ organizationId: data.organizationId, id: data.id })
+    })
+    const organizations = ['org-1', 'org-2']
+
+    for (let round = 0; round < 3; round += 1) {
+      for (const organizationId of organizations) {
+        await bus.emit(
+          'coalesce_test.portal.created',
+          { id: `${organizationId}-${round}`, tenantId: 'tenant-1', organizationId },
+          { tenantId: 'tenant-1' },
+        )
+      }
+    }
+    await wait(INTERVAL_MS * 2)
+
+    for (const organizationId of organizations) {
+      const forOrganization = seen.filter((entry) => entry.organizationId === organizationId)
+      expect(forOrganization.length).toBeGreaterThanOrEqual(2)
+      expect(forOrganization[forOrganization.length - 1].id).toBe(`${organizationId}-2`)
+    }
+  })
+
+  it('does not share a key between absent and present-but-empty options tenants', async () => {
+    const bus = createEventBus({ resolve, queueStrategy: 'local' })
+    const tappedIds: string[] = []
+    unregisterTap = registerGlobalEventTap((_event, payload) => {
+      tappedIds.push(String((payload as { id: string }).id))
+    })
+    const payload = { tenantId: 'tenant-1', organizationId: 'org-1' }
+
+    await bus.emit('coalesce_test.bulk.created', { ...payload, id: 'absent' }, {})
+    await bus.emit('coalesce_test.bulk.created', { ...payload, id: 'present-empty' }, { tenantId: undefined })
+
+    expect(tappedIds).toEqual(['absent', 'present-empty'])
+  })
+
   it('never delivers one recipient user\'s payload under another recipient user\'s key', async () => {
     const bus = createEventBus({ resolve, queueStrategy: 'local' })
     const seen: Array<{ recipientUserId: string; id: string }> = []
