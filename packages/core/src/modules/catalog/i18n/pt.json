@@ -717,6 +717,7 @@
   "catalog.variants.validation.gtinChecksum": "O código de barras não corresponde ao tipo de identificador selecionado.",
   "catalog.widgets.productSeo.groupDescription": "Otimize os títulos e descrições dos produtos antes de publicá-los.",
   "catalog.widgets.productSeo.groupLabel": "Auxiliar de SEO de produtos",
+  "catalog.workflows.commands.products.update": "Update product",
   "customers~catalog.errors.id_required": "O identificador do registro é obrigatório.",
   "customers~catalog.errors.organization_required": "O contexto da organização é obrigatório.",
   "customers~catalog.errors.tenant_required": "O contexto do tenant é obrigatório.",

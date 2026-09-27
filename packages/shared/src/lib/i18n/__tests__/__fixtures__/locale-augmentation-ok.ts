@@ -17,12 +17,13 @@ export const appAddedLocale: Locale = 'cs'
 export const shippedLocale: Locale = 'pl'
 
 // And exhaustiveness is preserved over the app's OWN extended set: this map
-// compiles only because it covers all six.
+// compiles only because it covers all seven.
 export const labels: Record<Locale, string> = {
   en: 'English',
   pl: 'Polski',
   es: 'Español',
   de: 'Deutsch',
   ko: '한국어',
+  pt: 'Português',
   cs: 'čeština',
 }

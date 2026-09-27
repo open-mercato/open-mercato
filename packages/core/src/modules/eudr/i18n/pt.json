@@ -744,5 +744,8 @@
   "eudr.supplierPanel.viewSubmissions": "Ver envios de evidências",
   "eudr.supplierPanel.warnings": "Com avisos",
   "eudr.warnings.harvestBeforeCutoff": "Colheita antes do prazo do EUDR",
-  "eudr.warnings.speciesMissing": "Um mapeamento de madeira vinculado não contém um nome científico ou comum da espécie"
+  "eudr.warnings.speciesMissing": "Um mapeamento de madeira vinculado não contém um nome científico ou comum da espécie",
+  "search.entityType.eudr.eudr_due_diligence_statement": "DDS statement",
+  "search.entityType.eudr.eudr_evidence_submission": "Evidence submission",
+  "search.entityType.eudr.eudr_plot": "Plot"
 }

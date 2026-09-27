@@ -458,6 +458,7 @@
   "customers.changelog.previous": "Anterior",
   "customers.changelog.showing": "Mostrando {{shown}} de {{total}} entradas",
   "customers.changelog.showingWithPeriod": "Mostrando {{shown}} de {{total}} entradas · últimos {{days}} dias",
+  "customers.changelog.source.agent": "Agent",
   "customers.changelog.source.api": "API",
   "customers.changelog.source.system": "Sistema",
   "customers.changelog.source.ui": "UI",
@@ -2201,6 +2202,9 @@
   "customers.people.detail.tasks.cancelSuccess": "Tarefa cancelada",
   "customers.people.detail.tasks.completeSuccess": "Tarefa marcada como concluída",
   "customers.people.detail.tasks.createSuccess": "Tarefa criada",
+  "customers.people.detail.tasks.deleteConfirmAction": "Remove task",
+  "customers.people.detail.tasks.deleteConfirmDescription": "This task will be removed from every view it appears in. This action cannot be undone.",
+  "customers.people.detail.tasks.deleteConfirmTitle": "Remove task?",
   "customers.people.detail.tasks.deleteError": "Falha ao remover tarefa",
   "customers.people.detail.tasks.deleteSuccess": "Tarefa removida",
   "customers.people.detail.tasks.dialog.context": "Esta tarefa será vinculada a {{name}}",
@@ -2871,5 +2875,8 @@
   "customers.workPlan.customerTodos.table.state.empty": "Ainda não há tarefas do cliente.",
   "customers.workPlan.customerTodos.table.state.noMatches": "Nenhuma tarefa corresponde aos seus filtros.",
   "customers.workPlan.customerTodos.table.title": "Tarefas relacionadas ao cliente",
+  "customers.workflows.commands.companies.update": "Update company",
+  "customers.workflows.commands.deals.update": "Update deal",
+  "customers.workflows.commands.people.update": "Update person",
   "notifications.categories.customers": "Clientes"
 }
