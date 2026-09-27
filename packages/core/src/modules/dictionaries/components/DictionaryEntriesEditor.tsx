@@ -353,7 +353,12 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
                   variant="ghost"
                   size="icon"
                   onClick={() => setTranslateEntry(entry)}
-                  title={t('dictionaries.config.entries.actions.translate', 'Translate')}
+                  aria-label={t('dictionaries.config.entries.actions.translateEntry', 'Translate "{{value}}"', {
+                    value: entry.label || entry.value,
+                  })}
+                  title={t('dictionaries.config.entries.actions.translateEntry', 'Translate "{{value}}"', {
+                    value: entry.label || entry.value,
+                  })}
                 >
                   <Languages className="h-4 w-4" />
                 </Button>
