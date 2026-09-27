@@ -670,7 +670,7 @@ const orderPaymentLedgerShape = {
   outstandingAmount: decimal().optional(),
 }
 
-export const orderTotalsSchema = z.object({
+const orderTotalsSchema = z.object({
   subtotalNetAmount: decimal({ min: 0 }).optional(),
   subtotalGrossAmount: decimal({ min: 0 }).optional(),
   discountTotalAmount: decimal({ min: 0 }).optional(),
@@ -682,6 +682,10 @@ export const orderTotalsSchema = z.object({
   grandTotalGrossAmount: decimal({ min: 0 }).optional(),
   lineItemCount: z.coerce.number().int().min(0).optional(),
 })
+
+// `lineItemCount` is core's count of the rows it persisted, not one of the amounts
+// a caller owns; asserting it could make a document disagree with its own lines.
+export const orderHeaderTotalsSchema = orderTotalsSchema.omit({ lineItemCount: true })
 
 const quoteTotalsSchema = z.object({
   subtotalNetAmount: decimal({ min: 0 }).optional(),

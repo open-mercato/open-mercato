@@ -81,7 +81,7 @@ import {
   resolveSuppliedOrderPaymentLedgerFields,
   amountsModeSchema,
   orderLineCreateSchema,
-  orderTotalsSchema,
+  orderHeaderTotalsSchema,
   orderAdjustmentCreateSchema,
   invoiceCreateSchema,
   invoiceUpdateSchema,
@@ -662,14 +662,8 @@ const documentUpdateFieldsSchema = z
     tags: z.array(z.string().uuid()).optional(),
     customFields: z.record(z.string(), z.unknown()).optional(),
     customFieldSetId: z.string().uuid().nullable().optional(),
-    // Orders only. `totalsMode` moves the document between core-derived and
-    // caller-asserted amounts; the header fields beside it are meaningful only
-    // while it is (or becomes) `external`, and stay ignored otherwise.
-    // `lineItemCount` is deliberately not accepted — it is a count of rows core
-    // persisted, derived from the calculation in both modes, and a caller that
-    // could assert it could make a document disagree with its own line rows.
     totalsMode: amountsModeSchema.optional(),
-    ...orderTotalsSchema.omit({ lineItemCount: true }).shape,
+    ...orderHeaderTotalsSchema.shape,
   });
 
 type DocumentUpdateFields = z.infer<typeof documentUpdateFieldsSchema>;
@@ -7000,14 +6994,8 @@ const convertQuoteToOrderCommand: CommandHandler<
   },
 };
 
-// A line write against an external order must restate the document header in the
-// same request: core will not rebuild it, and leaving it stale after a line moved
-// would be worse than either. Nested rather than spread flat, because the line
-// payload already carries a `totalNetAmount` that means something else, and
-// without `lineItemCount`, which is core's count of the rows it persisted rather
-// than one of the nine amounts a caller owns.
-const orderHeaderTotalsSchema = orderTotalsSchema.omit({ lineItemCount: true });
-
+// Nested rather than spread flat: a line payload already has a `totalNetAmount`
+// that means the line's, not the document's.
 const orderLineUpsertSchema = orderLineCreateSchema.extend({
   id: z.string().uuid().optional(),
   orderTotals: orderHeaderTotalsSchema.optional(),
