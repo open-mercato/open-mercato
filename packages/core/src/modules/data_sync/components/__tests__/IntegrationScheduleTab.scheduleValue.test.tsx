@@ -93,6 +93,13 @@ describe('IntegrationScheduleTab — schedule value validation', () => {
     expect(flashMock).not.toHaveBeenCalled()
   })
 
+  it('exposes accessible names for the schedule type and timezone controls', async () => {
+    await renderTab()
+
+    expect(screen.getByRole('combobox', { name: 'Schedule type' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Timezone' })).toBeInTheDocument()
+  })
+
   it('clears the inline error once the value is corrected and submits the trimmed value', async () => {
     runMutationMock.mockResolvedValue({
       ok: true,
