@@ -138,7 +138,7 @@ export function ContextSchemaEditor({ value, onChange, className }: ContextSchem
                         variant="ghost"
                         className="shrink-0"
                         onClick={() => removeField(index)}
-                        aria-label={t('workflows.contextSchema.removeField')}
+                        aria-label={`${t('workflows.contextSchema.removeField')} — ${field.name || index + 1}`}
                       >
                         <X className="w-4 h-4" />
                       </Button>
