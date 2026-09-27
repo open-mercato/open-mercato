@@ -64,6 +64,12 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
   } = props
   const t = useT()
   const [searchInput, setSearchInput] = React.useState(dropOffPointQuery)
+  const fieldIdPrefix = React.useId()
+  const senderPhoneId = `${fieldIdPrefix}-sender-phone`
+  const senderEmailId = `${fieldIdPrefix}-sender-email`
+  const receiverPhoneId = `${fieldIdPrefix}-receiver-phone`
+  const receiverEmailId = `${fieldIdPrefix}-receiver-email`
+  const sendingMethodId = `${fieldIdPrefix}-sending-method`
 
   return (
     <section className="space-y-6">
@@ -112,10 +118,11 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
           <CardContent>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">
+                <label htmlFor={senderPhoneId} className="text-xs font-medium text-muted-foreground">
                   {t('shipping_carriers.create.field.phone', 'Phone')}
                 </label>
                 <Input
+                  id={senderPhoneId}
                   type="tel"
                   size="sm"
                   value={senderContact.phone}
@@ -129,10 +136,11 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
                 ) : null}
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">
+                <label htmlFor={senderEmailId} className="text-xs font-medium text-muted-foreground">
                   {t('shipping_carriers.create.field.email', 'Email')}
                 </label>
                 <EmailInput
+                  id={senderEmailId}
                   size="sm"
                   value={senderContact.email}
                   onChange={(e) => onSenderContactChange({ ...senderContact, email: e.target.value })}
@@ -157,10 +165,11 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
           <CardContent>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">
+                <label htmlFor={receiverPhoneId} className="text-xs font-medium text-muted-foreground">
                   {t('shipping_carriers.create.field.phone', 'Phone')}
                 </label>
                 <Input
+                  id={receiverPhoneId}
                   type="tel"
                   size="sm"
                   value={receiverContact.phone}
@@ -174,10 +183,11 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
                 ) : null}
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">
+                <label htmlFor={receiverEmailId} className="text-xs font-medium text-muted-foreground">
                   {t('shipping_carriers.create.field.email', 'Email')}
                 </label>
                 <EmailInput
+                  id={receiverEmailId}
                   size="sm"
                   value={receiverContact.email}
                   onChange={(e) => onReceiverContactChange({ ...receiverContact, email: e.target.value })}
@@ -202,7 +212,7 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
         </CardHeader>
         <CardContent>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">
+            <label htmlFor={sendingMethodId} className="text-xs font-medium text-muted-foreground">
               {t('shipping_carriers.create.field.c2cSendingMethod', 'Sending method (applies to courier_c2c service only)')}
             </label>
             <Select
@@ -210,7 +220,7 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
               onValueChange={(value) => onC2cSendingMethodChange(value ?? '')}
               disabled={isFetchingRates}
             >
-              <SelectTrigger size="sm">
+              <SelectTrigger id={sendingMethodId} size="sm">
                 <SelectValue placeholder={t('shipping_carriers.create.c2cSendingMethod.default', 'Dispatch order (default)')} />
               </SelectTrigger>
               <SelectContent>
@@ -355,4 +365,3 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
     </section>
   )
 }
-
