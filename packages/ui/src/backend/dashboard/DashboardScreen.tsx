@@ -1,5 +1,4 @@
-aria-label={t('dashboard.widget.refresh')}
-  aria-label={`${t('dashboard.widget.refresh')}: ${title}`}aria-label={activeSettings ? t('dashboard.widget.closeSettings'"use client"
+"use client"
 
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -722,7 +721,7 @@ function DashboardWidgetCard({
               size="sm"
               disabled={refreshing || loading || !!loadError}
               onClick={triggerRefresh}
-              aria-label={t('dashboard.widget.refresh')}
+              aria-label={`${t('dashboard.widget.refresh')}: ${title}`}
             >
               {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             </IconButton>
@@ -733,7 +732,7 @@ function DashboardWidgetCard({
                 variant={activeSettings ? 'outline' : 'ghost'}
                 size="sm"
                 onClick={onToggleSettings}
-                aria-label={activeSettings ? t('dashboard.widget.closeSettings') : t('dashboard.widget.editSettings')}
+                aria-label={`${activeSettings ? t('dashboard.widget.closeSettings') : t('dashboard.widget.editSettings')}: ${title}`}
               >
                 {activeSettings ? <X className="h-4 w-4" /> : <Settings2 className="h-4 w-4" />}
               </IconButton>
@@ -741,7 +740,7 @@ function DashboardWidgetCard({
                 variant="ghost"
                 size="sm"
                 onClick={onRemove}
-                aria-label={t('dashboard.widget.remove')}
+                aria-label={`${t('dashboard.widget.remove')}: ${title}`}
               >
                 <Trash2 className="h-4 w-4" />
               </IconButton>
