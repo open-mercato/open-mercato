@@ -8,7 +8,8 @@ import { withFlash } from '@open-mercato/ui/backend/utils/flash'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 import type { EmployeeStatus, EmploymentType } from '../data/entities'
-import { useDepartmentOptions, type EmployeeRow } from './EmployeesTable'
+import { useDepartmentOptions } from './hrOptions'
+import type { EmployeeRow } from './EmployeesTable'
 
 // Literal on purpose: this is a client component, so importing the command module
 // (entities, ORM decorators) would drag server-only code into the browser bundle.
@@ -311,7 +312,10 @@ export function EmployeeEditForm({ id }: { id: string }) {
       isLoading={loading}
       loadingMessage={t('hr_management.employees.form.loading', 'Loading employee…')}
       onSubmit={async (values) => {
-        await updateCrud(RESOURCE, toEmployeePayload(values))
+        // `id` must be in the body: the route has no id segment and `updateEmployeeSchema` requires
+        // it, so omitting it made every save fail validation with a 400 that the form reported as
+        // "Could not save". The sibling forms already spread it in; this one did not.
+        await updateCrud(RESOURCE, { id, ...toEmployeePayload(values) })
       }}
       onDelete={async () => {
         await deleteCrud(RESOURCE, id)

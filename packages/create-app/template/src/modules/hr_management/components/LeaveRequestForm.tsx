@@ -9,7 +9,8 @@ import { withFlash } from '@open-mercato/ui/backend/utils/flash'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 import type { LeaveRequestStatus, LeaveType } from '../data/entities'
-import { useEmployeeLabels, type LeaveRequestRow } from './LeaveRequestsTable'
+import { useEmployeeLabels } from './hrOptions'
+import type { LeaveRequestRow } from './LeaveRequestsTable'
 
 const ENTITY_ID = 'hr_management:hr_leave_request'
 const LIST_HREF = '/backend/hr/leave-requests'

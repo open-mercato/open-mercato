@@ -17,6 +17,7 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 // `import type` only: a value import of the entities module would pull MikroORM
 // decorators into the browser bundle.
 import type { LeaveRequestStatus, LeaveType } from '../data/entities'
+import { useEmployeeLabels } from './hrOptions'
 
 const RESOURCE = 'hr_management/leave-requests'
 const LIST_HREF = '/backend/hr/leave-requests'
@@ -62,24 +63,7 @@ export type LeaveRequestRow = {
 
 type EmployeeOption = { id: string; first_name: string; last_name: string; employee_number?: string | null }
 
-/** Employee labels for the list, which can only project `employee_id` across modules. */
-export function useEmployeeLabels() {
-  const scopeVersion = useOrganizationScopeVersion()
-  const query = useQuery({
-    queryKey: ['hr-employee-options', scopeVersion],
-    queryFn: () => fetchCrudList<EmployeeOption>('hr_management/employees', { pageSize: 100, sortField: 'lastName', sortDir: 'asc' }),
-    staleTime: 5 * 60 * 1000,
-  })
-  const employees = query.data?.items ?? []
-  const labels = React.useMemo(() => {
-    const map = new Map<string, string>()
-    for (const employee of employees) {
-      map.set(employee.id, `${employee.first_name} ${employee.last_name}`.trim())
-    }
-    return map
-  }, [employees])
-  return { employees, labels }
-}
+export { useEmployeeLabels } from './hrOptions'
 
 export default function LeaveRequestsTable() {
   const t = useT()

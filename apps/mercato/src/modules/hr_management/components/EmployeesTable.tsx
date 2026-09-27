@@ -16,6 +16,7 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 // `import type` only: a value import of the entities module would pull MikroORM
 // decorators into the browser bundle.
 import type { EmployeeStatus, EmploymentType } from '../data/entities'
+import { useDepartmentOptions } from './hrOptions'
 
 const RESOURCE = 'hr_management/employees'
 const LIST_HREF = '/backend/hr/employees'
@@ -59,27 +60,7 @@ type DepartmentRow = {
   name: string
 }
 
-/**
- * Loads the departments once so the list can show names and offer them as a filter.
- *
- * The employee list projects `department_id` only (the query engine cannot join across
- * modules), so the label has to come from the departments endpoint.
- */
-export function useDepartmentOptions() {
-  const scopeVersion = useOrganizationScopeVersion()
-  const query = useQuery({
-    queryKey: ['hr-department-options', scopeVersion],
-    queryFn: () => fetchCrudList<DepartmentRow>('hr_management/departments', { pageSize: 100, sortField: 'name', sortDir: 'asc' }),
-    staleTime: 5 * 60 * 1000,
-  })
-  const departments = query.data?.items ?? []
-  const labels = React.useMemo(() => {
-    const map = new Map<string, string>()
-    for (const department of departments) map.set(department.id, department.name)
-    return map
-  }, [departments])
-  return { departments, labels }
-}
+export { useDepartmentOptions } from './hrOptions'
 
 export function employeeName(row: Pick<EmployeeRow, 'first_name' | 'last_name'>): string {
   return `${row.first_name} ${row.last_name}`.trim()

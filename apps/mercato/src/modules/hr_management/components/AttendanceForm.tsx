@@ -8,7 +8,7 @@ import { withFlash } from '@open-mercato/ui/backend/utils/flash'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 import type { AttendanceStatus } from '../data/entities'
-import { useEmployeeLabels } from './LeaveRequestsTable'
+import { useEmployeeLabels } from './hrOptions'
 import type { AttendanceRow } from './AttendanceTable'
 
 const ENTITY_ID = 'hr_management:hr_attendance_record'

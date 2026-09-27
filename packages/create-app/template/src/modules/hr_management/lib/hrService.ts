@@ -31,6 +31,11 @@ export type LeaveInput = {
   endDate: Date | string
 }
 
+export type DepartmentInput = {
+  id?: string
+  parentDepartmentId?: string | null
+}
+
 export type HrDashboardSummary = {
   headcount: number
   onLeave: number
@@ -62,6 +67,43 @@ export async function assertEmployeeWritable(
   const terminationDate = input.terminationDate ? new Date(input.terminationDate) : null
   if (hireDate && terminationDate && terminationDate < hireDate) {
     return raiseHrError(409, 'termination_before_hire', 'The termination date cannot be earlier than the hire date.')
+  }
+}
+
+/**
+ * Refuses a department whose parent does not exist, or whose parent would put it inside itself.
+ *
+ * `parent_department_id` is a plain FK, so the database happily stores a cycle — and a cycle makes
+ * the tree unrenderable and every ancestor walk non-terminating. The form filters the picker, but
+ * the API is reachable without the form, so the rule lives here where every writer passes.
+ */
+export async function assertDepartmentWritable(
+  em: EntityManager,
+  input: DepartmentInput,
+  scope: HrScope,
+): Promise<void> {
+  if (!input.parentDepartmentId) return
+  const scoped = scopedOf(scope)
+
+  const parent = await em.findOne(HrDepartment, { ...scoped, id: input.parentDepartmentId })
+  if (!parent) {
+    return raiseHrError(400, 'parent_department_not_found', 'The selected parent department does not exist.')
+  }
+  if (!input.id) return
+
+  // Walk up from the chosen parent. The guard is a visited set rather than a depth limit: a cycle
+  // stored before this rule existed must terminate the walk, not exhaust it.
+  const departments = await em.find(HrDepartment, scoped)
+  const parentsById = new Map(departments.map((department) => [department.id, department.parentDepartmentId ?? null]))
+  const visited = new Set<string>()
+  let cursor: string | null = input.parentDepartmentId
+  while (cursor) {
+    if (cursor === input.id) {
+      return raiseHrError(409, 'department_cycle', 'A department cannot sit under itself or under one of its own departments.')
+    }
+    if (visited.has(cursor)) break
+    visited.add(cursor)
+    cursor = parentsById.get(cursor) ?? null
   }
 }
 
@@ -135,6 +177,7 @@ export async function getHrDashboardSummary(
 }
 
 export type HrService = {
+  assertDepartmentWritable(input: DepartmentInput, scope: HrScope): Promise<void>
   assertEmployeeWritable(input: EmployeeInput, scope: HrScope): Promise<void>
   assertAttendanceRecordable(input: AttendanceInput, scope: HrScope): Promise<void>
   assertLeaveRequestBookable(input: LeaveInput, scope: HrScope): Promise<void>
@@ -143,6 +186,7 @@ export type HrService = {
 
 export function createHrService(em: EntityManager): HrService {
   return {
+    assertDepartmentWritable: (input, scope) => assertDepartmentWritable(em, input, scope),
     assertEmployeeWritable: (input, scope) => assertEmployeeWritable(em, input, scope),
     assertAttendanceRecordable: (input, scope) => assertAttendanceRecordable(em, input, scope),
     assertLeaveRequestBookable: (input, scope) => assertLeaveRequestBookable(em, input, scope),

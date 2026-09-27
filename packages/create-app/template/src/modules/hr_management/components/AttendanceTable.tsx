@@ -16,7 +16,7 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 // `import type` only: a value import of the entities module would pull MikroORM
 // decorators into the browser bundle.
 import type { AttendanceStatus } from '../data/entities'
-import { useEmployeeLabels } from './LeaveRequestsTable'
+import { useEmployeeLabels } from './hrOptions'
 
 const RESOURCE = 'hr_management/attendance'
 const LIST_HREF = '/backend/hr/attendance'

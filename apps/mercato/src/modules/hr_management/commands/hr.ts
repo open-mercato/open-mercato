@@ -38,6 +38,7 @@ import {
 import { registerCrudCommands } from './crud'
 import {
   assertAttendanceRecordable,
+  assertDepartmentWritable,
   assertEmployeeWritable,
   assertLeaveRequestBookable,
   type HrScope,
@@ -118,6 +119,19 @@ registerCrudCommands({
   toUpdateData: patched,
   events: hrDepartmentEvents,
   indexer: hrDepartmentIndexer,
+  beforeCreate: async (input, scope, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await assertDepartmentWritable(em, {
+      parentDepartmentId: typeof input.parentDepartmentId === 'string' ? input.parentDepartmentId : null,
+    }, scope)
+  },
+  beforeUpdate: async (input, current, scope, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await assertDepartmentWritable(em, {
+      id: String((current as HrDepartment).id),
+      parentDepartmentId: typeof input.parentDepartmentId === 'string' ? input.parentDepartmentId : null,
+    }, scope)
+  },
 })
 
 registerCrudCommands({
