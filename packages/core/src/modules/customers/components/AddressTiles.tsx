@@ -485,7 +485,15 @@ export function CustomerAddressTiles({
               ? t('customers.people.detail.addresses.editTitle')
               : t('customers.people.detail.addresses.addTitle')}
           </span>
-          <Button type="button" variant="ghost" size="icon" onClick={handleCancel} disabled={disableActions}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={handleCancel}
+            disabled={disableActions}
+            aria-label={t('customers.people.detail.addresses.cancel')}
+            title={t('customers.people.detail.addresses.cancel')}
+          >
             <X className="h-4 w-4" />
           </Button>
         </div>
