@@ -173,7 +173,11 @@ export function MetadataEditor({
               </div>
               <Button type="button" variant="ghost" size="icon" onClick={() => removeEntry(entry.id)}>
                 <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
-                <span className="sr-only">{t('catalog.products.edit.metadata.remove', 'Remove entry')}</span>
+                <span className="sr-only">
+                  {`${t('catalog.products.edit.metadata.remove', 'Remove entry')} — ${
+                    entry.key || t('catalog.products.edit.metadata.untitled', 'Untitled entry')
+                  }`}
+                </span>
               </Button>
             </div>
           ))}
