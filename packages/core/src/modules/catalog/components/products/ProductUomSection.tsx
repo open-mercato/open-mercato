@@ -586,6 +586,8 @@ export function ProductUomSection({
           <div className="space-y-2">
             {conversions.map((entry, index) => {
               const conversionFactor = toPositiveNumber(entry.toBaseFactor, locale);
+              const conversionLabel =
+                (findUnitLabel(entry.unitCode) ?? entry.unitCode) || String(index + 1);
               const conversionPreviewText =
                 entry.unitCode && conversionFactor !== null
                   ? t(
@@ -659,10 +661,8 @@ export function ProductUomSection({
                       className="h-9 w-9 rounded-none border-r"
                       onClick={() => moveConversion(index, "up")}
                       disabled={index === 0}
-                      aria-label={t(
-                        "catalog.products.uom.moveUp",
-                        "Move conversion up",
-                      )}
+                      aria-label={`${t("catalog.products.uom.moveUp", "Move conversion up")} — ${conversionLabel}`}
+                      title={`${t("catalog.products.uom.moveUp", "Move conversion up")} — ${conversionLabel}`}
                     >
                       <ArrowUp className="h-4 w-4" />
                     </Button>
@@ -673,10 +673,8 @@ export function ProductUomSection({
                       className="h-9 w-9 rounded-none"
                       onClick={() => moveConversion(index, "down")}
                       disabled={index === conversions.length - 1}
-                      aria-label={t(
-                        "catalog.products.uom.moveDown",
-                        "Move conversion down",
-                      )}
+                      aria-label={`${t("catalog.products.uom.moveDown", "Move conversion down")} — ${conversionLabel}`}
+                      title={`${t("catalog.products.uom.moveDown", "Move conversion down")} — ${conversionLabel}`}
                     >
                       <ArrowDown className="h-4 w-4" />
                     </Button>
@@ -703,10 +701,8 @@ export function ProductUomSection({
                     size="icon"
                     className="text-destructive"
                     onClick={() => removeConversion(index)}
-                    aria-label={t(
-                      "catalog.products.uom.removeConversion",
-                      "Remove conversion",
-                    )}
+                    aria-label={`${t("catalog.products.uom.removeConversion", "Remove conversion")} — ${conversionLabel}`}
+                    title={`${t("catalog.products.uom.removeConversion", "Remove conversion")} — ${conversionLabel}`}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
