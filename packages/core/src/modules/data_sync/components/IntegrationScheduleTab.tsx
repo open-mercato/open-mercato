@@ -559,7 +559,11 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
                         }, row.entityType)}
                         disabled={controlsDisabled}
                       >
-                        <SelectTrigger size="lg" className="min-w-32">
+                        <SelectTrigger
+                          size="lg"
+                          className="min-w-32"
+                          aria-label={t('data_sync.dashboard.schedule.type', 'Schedule type')}
+                        >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -591,6 +595,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
                         value={scheduleState.timezone}
                         onChange={(event) => updateScheduleEditor(row.key, { timezone: event.target.value }, row.entityType)}
                         disabled={controlsDisabled}
+                        aria-label={t('data_sync.dashboard.schedule.timezone', 'Timezone')}
                       />
                     </td>
                     <td className="px-3 py-3">
