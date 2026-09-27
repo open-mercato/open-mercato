@@ -388,6 +388,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
                       checked={item.isEnabled}
                       disabled={togglingIds.has(item.id)}
                       onCheckedChange={(checked) => void handleToggle(item.id, checked, item.state?.updatedAt)}
+                      aria-label={item.title}
                     />
                   </div>
                 </div>
