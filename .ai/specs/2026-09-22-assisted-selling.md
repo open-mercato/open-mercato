@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (rev 1) |
+| **Status** | Specification (rev 2) |
 | **Created** | 2026-09-22 |
 | **Suite** | [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 13, **suite** Phase 4 |
 | **Modules** | `assisted_selling` (new), `cart` (seam only — spec 5 rev 7 §7a), `ecommerce` (transport, internal Phase 5), `apps/storefront` (UI — spec 10 §5.8–§5.9) |
@@ -23,7 +23,7 @@
 **Scope:**
 - `assisted_selling`: thread, participants, messages, proposal metadata and lifecycle, per-store settings, commission attribution
 - The rep console in the backoffice, built from the existing `messages` and `detail` component families
-- The AI actor: one proposing tool, two runtimes, a budget and a rate limit
+- The AI actor: one proposing tool, one server-side runner, a per-store mutation policy, a budget and a rate limit
 - The buyer-facing thread API and its polling transport; the real-time transport in Phase 5
 - The presence disclosure obligation
 
@@ -34,7 +34,7 @@
 - Any change to how a buyer or a staff member authenticates.
 
 **Concerns:**
-- The store setting that decides whether an AI draft needs rep approval does not merely change a gate — it changes which runtime the agent executes in, because the employee approval plane is structurally unreachable without a staff session
+- The store setting that decides whether an AI draft needs rep approval is a per-call **mutation policy** on one server-side agent run, not a choice between runtimes — and the draft it produces is confirmed by a rep who was never in that agent's turn (§4.2)
 - A conversation is personal data on both sides, and it is addressable by a cart token that belongs to a guest with no account to revoke
 - Polling a buyer-facing endpoint from behind a CDN is a cost and a correctness problem before it is a latency problem
 
@@ -154,7 +154,7 @@ The closest in-repo precedent is SPEC-056's tiering — *"complex messages: AI d
 ```
   AI ──draft──► EMPLOYEE                        PROPOSAL ──published──► BUYER
   prepareMutation + AiPendingAction             preview → acceptanceToken → accept
-  POST /ai/actions/:id/confirm | /cancel        POST /carts/:t/proposals/:p/accept
+  POST /ai/actions/:id/confirm | /cancel        POST /cart/proposals/:proposalId/accept
   staff session required                       cart token; guest-reachable
   TTL 900 s                                    TTL = store proposal TTL (72 h default)
   ALREADY IMPLEMENTED — not re-specified       NEW — cart §7a
@@ -162,26 +162,47 @@ The closest in-repo precedent is SPEC-056's tiering — *"complex messages: AI d
 
 They are not merely conventionally separate. `getAuthFromRequest` returns `{ auth: null, status: 'invalid' }` for any session whose `payload.type === 'customer'` (`packages/shared/src/lib/auth/server.ts:374`), so a buyer is structurally incapable of authenticating against the employee plane. A design that tried to route buyer acceptance through `AiPendingAction` would have to weaken that check, which exists to stop a staff-audience token being replayed as a customer one and vice versa.
 
-### 4.2 `aiProposalsRequireRepApproval` selects a runtime, not just a gate
+### 4.2 `aiProposalsRequireRepApproval` is a mutation policy, not a runtime
 
-This is the least obvious consequence in the spec and the one an implementer will otherwise discover the hard way.
+Rev 1 said this flag chose between two runtimes — the rep's backoffice chat when `true`, an autonomous server-side run when `false` — on the premise that `prepareMutation` needs a staff session. That premise is wrong, and the two-runtime design built on it is replaced.
 
-`prepareMutation` requires a staff context — `tenantId`, `organizationId`, `userId`, `features` — and is invoked by the tool-call wrapper inside a chat turn (`packages/ai-assistant/src/modules/ai_assistant/lib/agent-tools.ts:218-270`). It therefore only exists where an employee is operating the agent.
+**What actually gates an `isMutation` tool is the agent's `mutationPolicy`, not who is running it.** `prepareMutation` takes `tenantId`, `organizationId`, `userId`, `features` and a container (`packages/ai-assistant/src/modules/ai_assistant/lib/agent-tools.ts:248-265`); nothing in it checks for a staff session or `User.kind`. The agent principal of §4.3 supplies all five. The per-call decision is made at `agent-tools.ts:234-241` from the **effective** policy:
 
-| Setting | Where the agent runs | Approval |
-|---|---|---|
-| `aiProposalsRequireRepApproval: true` | **Rep's copilot** — the agent runs inside the rep's backoffice chat, in the rep's staff session. The proposing tool is `isMutation: true`, so the existing wrapper produces an `AiPendingAction` and renders `mutation-preview-card`. | The rep confirms the card. **That confirm is the approval and the publication**: the tool handler does not run until confirm, so the proposal comes into existence already `published` |
-| `aiProposalsRequireRepApproval: false` *(default)* | **Autonomous** — the agent runs server-side against the thread, triggered by buyer activity. There is no staff session, so `prepareMutation` does not and cannot apply. | **The buyer is the approver.** The proposal is published directly and acceptance is the approval |
+| Effective policy | An `isMutation` tool call… |
+|---|---|
+| `confirm-required` | always becomes an `AiPendingAction` |
+| `destructive-confirm-required` | becomes an `AiPendingAction` only when the tool's `isDestructive` (a boolean or a per-call predicate) is true; otherwise it runs directly — the behaviour the comment at `agent-tools.ts:230-233` documents ("comment delete gates while comment create runs direct") |
+| `read-only`, or undeclared | never reaches the model: the tool is filtered out (`agent-policy.ts:95`, `:217-231`) |
 
-The second row is not a hole in the approval model; it is the approval model. The buyer's accept is a real, informed, reversible confirmation of a priced basket — it is a stronger gate than a colleague clicking Confirm on a card, and it is the gate the whole design is built around.
+The effective policy is the most restrictive of the code-declared one and an optional `mutationPolicyOverride` (`resolveEffectiveMutationPolicy`, `agent-policy.ts:89-107`), and `runAiAgentText` accepts that override **per call** (`agent-tools.ts:330`) as well as reading the tenant-wide override row.
 
-The tool is declared `isMutation: true` in both cases. In the autonomous runtime that declaration still does work: it makes the tool ineligible for a read-only agent and forces it onto the agent's `allowedTools` whitelist explicitly.
+**The design, therefore: one agent, one server-side runner, one tool.**
 
-**There is exactly one approval step in the copilot runtime, not two.** `prepareMutation` never invokes the tool handler — it builds a preview and returns; the handler runs later, from the confirm route. So before a rep confirms there is no `AssistedSellingProposal` row at all, only an `AiPendingAction`, and after confirm the proposal is created `published`. An intermediate `pending_rep_approval` status with a second "publish" action would be unreachable state and a second click for a decision already taken — the defect §2.3 indicts in `CartMergeLog.strategy`, reproduced. Cancelling the card leaves no proposal (§10).
+- The agent `assisted_selling.seller` declares `mutationPolicy: 'confirm-required'`, `untrustedInput: true` (§6.5) and `requiredFeatures: ['assisted_selling.proposals.author', 'cart.proposals.author']`. The tool `assisted_selling.propose_cart_lines` declares `isMutation: true` and `isDestructive: false`.
+- **Trigger.** A persistent subscriber on `assisted_selling.message.posted`, filtered to buyer-authored messages on a thread whose store's live `mode ∈ {ai, both}`, enqueues one `assisted-selling-ai-turn` job per thread (dedupe key = thread id, so a burst of buyer messages yields one turn). A queue worker runs the turn — never the HTTP request that posted the message, and never inside the buyer's rate-limited route.
+- **Principal.** The worker calls `runAiAgentText` **with a container** and an auth context built for the store's `ai_agent_user_id` (§4.3, §5.6), its features loaded through `rbacService.loadAcl` exactly as for a human. Revoking the agent's role therefore still stops it.
+- **Policy per call, from the store.** `aiProposalsRequireRepApproval: true` → no override, so the declared `confirm-required` applies and every proposal becomes an `AiPendingAction`. `false` → the worker passes `mutationPolicyOverride: 'destructive-confirm-required'`, and because the tool is non-destructive the call runs directly and publishes. The override is a downgrade in the platform's ranking (`POLICY_RESTRICTIVENESS`, `agent-policy.ts:69-73`), so the route-layer escalation guard is not involved and nothing is widened beyond what the agent declares. The tenant-wide override row is **not** used for this: it is keyed `(tenant, organization, agent)` and cannot express a per-store setting.
+- **Never without a container.** `runAiAgentText` called without one silently lets mutation tools execute unintercepted (`canInterceptMutations`, `agent-tools.ts:349-350`). The worker MUST pass one, and §10 asserts that a turn run with `aiProposalsRequireRepApproval: true` produces an `AiPendingAction` and no proposal — which fails if that path is ever taken.
+
+**How a pending draft reaches a rep who was not in the turn.** The pending action carries `conversationId = assisted_selling:thread:<threadId>`. The tool result hands the worker the pending action's id and `expiresAt` (`formatPendingActionToolResult`), and the worker writes one `AssistedSellingAiDraft` row (§5.8) joining the thread to it — the platform offers no list of pending actions by conversation and no DI-exposed repository, so this module keeps its own join rather than reaching into `ai_assistant`'s tables. The console renders the draft with the unchanged `mutation-preview-card`, reading the action through `GET /api/ai/actions/:id`.
+
+**Who may confirm another principal's pending action.** The shipped confirm route does not require the confirmer to be the creator: it loads the row by id within the caller's tenant and organization (`AiPendingActionRepository.getById`) and then re-checks `ai_assistant.view`, the agent's `requiredFeatures` and the tool's policy against the **confirmer's** ACL (`api/ai/actions/[id]/confirm/route.ts:108-195`, `lib/pending-action-recheck.ts`). So any rep in the store's organization holding `ai_assistant.view`, `assisted_selling.proposals.author` and `cart.proposals.author` can confirm — which is the intended audience, and is why the agent declares both authoring features as `requiredFeatures`. The agent principal MUST belong to the store's organization, or no rep can ever see its drafts.
+
+**Whose name goes on a confirmed proposal.** The confirm route executes the tool handler under the **confirmer's** identity (`userId: auth.sub`, `confirm/route.ts:201-208`). Taken literally, §6.3's "`authored_by_*` from `ctx.auth`" would then credit the rep with the AI's proposal, and §10's assertion that both paths produce an identical `authored_by_actor_type: 'ai_agent'` artifact would fail. The rule instead: the tool handler — reachable only through this agent — resolves the author as `ai_agent` / the store's `ai_agent_user_id` from settings on the server, and runs the §6.3 command under an auth context built for that principal (the same construction the worker uses). The confirming rep is recorded in `AssistedSellingProposal.approved_by_actor_id` (§5.4). Neither value ever comes from the tool's input schema.
+
+**There is still exactly one approval step.** `prepareMutation` never invokes the handler; the handler runs from the confirm route. Before confirm there is no `AssistedSellingProposal` row — only the `AiPendingAction` and its §5.8 join row — and after confirm the proposal is created `published`. An intermediate `pending_rep_approval` status with a second "publish" action would be unreachable state and a second click for a decision already taken — the defect §2.3 indicts in `CartMergeLog.strategy`, reproduced. Cancelling the card leaves no proposal (§10).
+
+With the flag `false`, **the buyer is the approver**: the proposal is published directly and acceptance is the approval. The buyer's accept is a real, informed, reversible confirmation of a *price*; R5 states plainly why it is not a substitute for a rep reviewing *content*.
+
+**Ask First.** `packages/ai-assistant/AGENTS.md` lists "relaxing mutation policies" under Ask First. Passing `destructive-confirm-required` per call is exactly that, so the Phase 3 implementation PR MUST carry an explicit maintainer sign-off on it, not merely this spec's approval.
+
+**A platform inconsistency this design depends on, stated so it is not discovered later.** The ranking comment at `agent-policy.ts:60-67` says `destructive-confirm-required` "forces confirmation for every write (including non-destructive ones)"; the runtime at `agent-tools.ts:236-239` gates only destructive calls under it. This spec relies on the runtime behaviour, which the adjacent comment in `agent-tools.ts` also documents. If the runtime is ever changed to match the ranking comment, the `false` setting degrades to "every AI proposal needs a rep" — the fail-safe direction — and §10's "publishes directly and no `AiPendingAction` row is created" test catches it. Reconciling the comment with the runtime is platform work outside this spec.
+
+The closest in-repo precedent for a server-side, propose-only agent run is `agent_orchestrator`'s runner (`packages/enterprise/src/modules/agent_orchestrator/lib/runtime/nativeAgentRunner.ts`). It is enterprise-only, so it is a reference for the shape, not a dependency.
 
 ### 4.3 The AI actor is a principal, not a category
 
-The autonomous agent runs as an `auth.User` row carrying `kind: 'agent'` — the platform's existing notion of a non-human principal (`packages/core/src/modules/auth/data/entities.ts`, `UserKind = 'human' | 'agent' | 'service'`). Consequences, all of them free:
+The agent runs as an `auth.User` row carrying `kind: 'agent'` — the platform's existing notion of a non-human principal (`packages/core/src/modules/auth/data/entities.ts`, `UserKind = 'human' | 'agent' | 'service'`). Consequences, all of them free:
 
 - It has an id, so `CartLine.added_by_actor_id` and `AssistedSellingAttribution.actor_id` are populated exactly as for a rep.
 - It has roles and features, so `cart.proposals.author` gates it through the same ACL as a human, and revoking it is a role change rather than a code change.
@@ -200,7 +221,7 @@ GET /api/assisted-selling/storefront/thread/events?since=<cursor>
   → 304 when the cursor is current
 ```
 
-It carries no message body, no line, no price. The client re-reads `GET /thread` and `GET /carts/:token/proposals` when `changed` is true. That is the platform's existing discipline, not a new rule: `useMessagesSse` never opens a connection and never reads a payload — it subscribes to an event id and refetches over HTTP — and both shipped SSE routes cap payloads at `MAX_PAYLOAD_BYTES = 4096`, replacing anything larger with a bare `{ truncated: true, id, entityId }`.
+It carries no message body, no line, no price. The client re-reads `GET /thread` and `GET /api/cart/proposals` when `changed` is true. That is the platform's existing discipline, not a new rule: `useMessagesSse` never opens a connection and never reads a payload — it subscribes to an event id and refetches over HTTP — and both shipped SSE routes cap payloads at `MAX_PAYLOAD_BYTES = 4096`, replacing anything larger with a bare `{ truncated: true, id, entityId }`.
 
 **Phase 5 adds a `storefrontBroadcast` flag and one endpoint**, mirroring the two bridges that exist:
 
@@ -209,11 +230,11 @@ It carries no message body, no line, no price. The client re-reads `GET /thread`
 | Flag | `clientBroadcast` | `portalBroadcast` | `storefrontBroadcast` |
 | Endpoint | `/api/events/stream` | `/api/customer_accounts/portal/events/stream` | `/api/ecommerce/storefront/events/stream` |
 | Credential | staff session | customer JWT (cookie or Bearer) | **cart token** |
-| Audience key | tenant + org + user + roles | tenant + org + `customerUserId` | tenant + store + **cart token hash** |
+| Audience key | tenant + org + user + roles | tenant + org + `customerUserId` | tenant + store + **basket cart id**, resolved from the cart token at connect |
 
 Three findings shape that row and each of them is a reason the Portal Event Bridge is not simply reused:
 
-1. **It requires an authenticated `CustomerUser`.** Assisted selling must reach a guest, who has none. Keying the audience on the cart token hash is what makes the guest case work at all, and it degrades correctly for an identified buyer because the token is still the credential their browser holds.
+1. **It requires an authenticated `CustomerUser`.** Assisted selling must reach a guest, who has none. Presenting the cart token is what makes the guest case work at all, and it degrades correctly for an identified buyer because the token is still the credential their browser holds. The token authenticates the connection; the audience is the cart id it resolves to, so a token rotation (§5.1) ends the old credential's reach at its next reconnect without any re-keying.
 2. **It lives in `customer_accounts`.** Putting a storefront transport there contradicts the roadmap's namespace ownership and couples a separate application to the portal's auth model.
 3. **`portalConnections` is a process-local `Set`.** Any endpoint of this shape needs `crossProcessBroadcast` before it is correct on more than one instance. This is stated here because the new endpoint must not inherit the limitation by copying the file.
 
@@ -235,7 +256,6 @@ Standard scoped columns throughout (`id`, `tenant_id`, `organization_id`, `creat
 |---|---|---|
 | `store_id` | uuid | `ecommerce.EcommerceStore.id` |
 | `buyer_cart_id` | uuid | The basket this conversation is about; `cart.Cart.id` |
-| `buyer_cart_token_hash` | text | `hashAuthToken(cartToken)`. The audience key for the buyer-facing routes and for the Phase 5 stream. **Never the raw token** |
 | `customer_id` | uuid, nullable | Set once the buyer is identified |
 | `customer_user_id` | uuid, nullable | `customer_accounts.CustomerUser.id`; NULL for a guest |
 | `status` | text | `open \| closed` |
@@ -245,13 +265,13 @@ Standard scoped columns throughout (`id`, `tenant_id`, `organization_id`, `creat
 | `last_activity_at` | timestamptz | Drives the console's inbox ordering and the idle sweeper |
 | `closed_at` | timestamptz, nullable | |
 
-Indexes: unique `(tenant_id, buyer_cart_id)` **where `status = 'open'`** — one *open* conversation per basket, closed ones unconstrained; `(tenant_id, buyer_cart_token_hash)`; `(tenant_id, store_id, status, last_activity_at)` and `(tenant_id, store_id, assigned_actor_id, status)` for the console inbox.
+Indexes: unique `(tenant_id, buyer_cart_id)` **where `status = 'open'`** — one *open* conversation per basket, closed ones unconstrained, and also the buyer routes' lookup; `(tenant_id, store_id, status, last_activity_at)` and `(tenant_id, store_id, assigned_actor_id, status)` for the console inbox.
 
 **The uniqueness is partial for a reason the re-point below makes unavoidable.** A guest can hold a thread on a guest basket while the account they are about to log into already holds one on its own basket. Re-pointing then collides. The policy: **the guest thread is closed**, its live proposals are marked `superseded` and their proposal carts rejected (§6.6), and a system message in both threads names the other. Nothing is deleted and nothing is silently merged — two conversations with two histories become one live conversation and one readable archive. Making the index total would have turned that case into a subscriber crash at exactly the moment R10 exists to protect.
 
-**The token hash, not the token.** The raw cart token is the only credential an anonymous cart has (`cart` §8.3, R6) and it is deliberately kept out of URLs and logs. Storing it here in clear would put it in a second table with a different access pattern and a different audience. `hashAuthToken` is the platform's existing one-way treatment for exactly this, already used by `MessageAccessToken` and by the public quote-acceptance route.
+**No token and no token hash (rev 2).** Rev 1 stored `hashAuthToken(cartToken)` on the thread as the buyer routes' lookup key. That made every token rotation a thread write, and one rotation had no event to drive it: in §7.1's "customer cart empty → adopt the guest cart" row the token rotates (`cart` §8.3) while no cart becomes `merged`, so the stored hash went stale and the buyer's next poll returned `404` — R10's failure by the one path its mitigation did not cover. Nor could a subscriber ever re-hash a rotated token: events are signals and must not carry the raw credential. So the thread stores neither. A buyer route resolves the presented token to its **basket** cart through `cart`'s DI service (`cartService.resolveBasketByToken`, `cart` §8.3 — `kind = 'basket'` only), then the thread by `buyer_cart_id`. Rotation changes nothing here; only a change of cart id (a real merge) needs the subscriber below. The raw token still never reaches this module's tables, which is what R8 required of the hash.
 
-**Cart lifecycle is not thread lifecycle.** A guest→customer merge rotates the cart token and moves the buyer to a different `Cart` row (`cart` §7, §8.3). A subscriber on `cart.cart.merged` re-points `buyer_cart_id` to `merged_into_cart_id`, re-hashes the new token and populates `customer_user_id`. Without it the conversation would be stranded on a `merged` cart at exactly the moment the buyer logged in — the moment a rep is most likely to be mid-sentence.
+**Cart lifecycle is not thread lifecycle.** A guest→customer merge moves the buyer to a different `Cart` row (`cart` §7). A subscriber on `cart.cart.merged` — **filtered to `kind = 'basket'`**, because a proposal acceptance also moves the *proposal* cart to `merged` (`cart` §7a.1) and that must not re-point anything — re-points `buyer_cart_id` from the payload's `sourceCartId` to `targetCartId` and populates `customer_id`/`customer_user_id` from it (`cart` §11 defines the payload). Adoption (`cart` §7.1, first row) keeps the cart id, so the thread needs only its identity columns: a subscriber on `cart.cart.adopted` populates them. Without these the conversation would be stranded on a `merged` cart, or keep treating an identified buyer as a guest, at exactly the moment the buyer logged in — the moment a rep is most likely to be mid-sentence.
 
 ### 5.2 `AssistedSellingParticipant` (`assisted_selling_participants`)
 
@@ -296,15 +316,16 @@ The metadata row, not a line model. Lines, quantities, prices, promotion effects
 | `proposal_cart_id` | uuid | The `Cart` with `kind: 'proposal'` |
 | `target_cart_id` | uuid | Denormalized from `Cart.proposed_to_cart_id`, so the console can list by target without reaching into `cart` |
 | `authored_by_actor_type` | text | `rep \| ai_agent` — a buyer cannot propose to themselves |
-| `authored_by_actor_id` | uuid | `auth.User.id`. Non-nullable: an unattributable proposal is the defect R6 describes |
+| `authored_by_actor_id` | uuid | `auth.User.id`. Non-nullable: an unattributable proposal is the defect R6 describes. For `ai_agent` it is the store's `ai_agent_user_id`, resolved on the server — including when a rep's confirm runs the handler (§4.2) |
+| `approved_by_actor_id` | uuid, nullable | `auth.User.id` of the rep who confirmed the AI draft (§4.2); NULL when no approval step ran. Taken from the confirm route's `ctx.auth`, never from input |
 | `status` | text | `published \| accepted \| rejected \| withdrawn \| expired \| superseded` |
 | `published_at` | timestamptz, nullable | |
 | `expires_at` | timestamptz | From the store's `proposal_ttl_seconds`; mirrors the proposal cart's own `expires_at` |
 | `resolved_at` | timestamptz, nullable | |
 | `rejection_reason` | text, nullable | Buyer-supplied, optional. **Encrypted at rest** |
-| `ai_pending_action_id` | uuid, nullable | Set only in the rep-copilot runtime (§4.2) |
+| `ai_pending_action_id` | uuid, nullable | Set only when the proposal was created by confirming an AI draft (§4.2) |
 | `superseded_by_proposal_id` | uuid, nullable | Set when re-authored (§6.4) |
-| `merge_log_id` | uuid, nullable | `cart.CartMergeLog.id`, set on acceptance — so the trail runs in both directions |
+| `merge_log_id` | uuid, nullable | `cart.CartMergeLog.id`, set on acceptance — so the trail runs in both directions. Cleared when the acceptance is undone (§6.6); the log itself stays, append-only, in `cart` |
 
 Indexes: unique `(tenant_id, proposal_cart_id)`; `(tenant_id, target_cart_id, status)`; `(tenant_id, status, expires_at)` for the sweeper.
 
@@ -314,7 +335,20 @@ Indexes: unique `(tenant_id, proposal_cart_id)`; `(tenant_id, target_cart_id, st
 
 There is deliberately **no `draft` and no `pending_rep_approval`**. Every path that creates a row creates it `published` (§6.3, §4.2): a proposal held for rep approval does not exist yet — it is an `AiPendingAction` — and a half-built proposal in the console builder is unsaved form state, not a row. Carrying either value would put a status in the model that no command can produce, which is exactly the defect §2.3 indicts one document over.
 
-**Every terminal state is written by one subscriber, not by the route that caused it** — see §6.6. `accepted`, `rejected` and `expired` are decided inside `cart`, which by §7a.6 there does not know this module exists.
+**Transitions.**
+
+| From | To | Written by |
+|---|---|---|
+| — | `published` | §6.3 command (the only creation path) |
+| `published` | `accepted` \| `rejected` \| `expired` | §6.6 subscriber, from `cart.proposal.*` |
+| `published` | `withdrawn` \| `superseded` | §6.4 command, which also rejects the proposal cart |
+| `accepted` | `published` \| `expired` | §6.6 subscriber, from `cart.proposal.acceptance_undone` — `published` when the proposal cart came back `active`, `expired` when its `expires_at` had passed by the time of the undo |
+
+No other transition exists. `rejected`, `withdrawn`, `superseded` and `expired` are final.
+
+**`live_proposal_count` has one owner: the §6.6 subscriber.** It decrements on every transition out of `published` that `cart` reports — `.accepted`, `.rejected` (whether or not the local status is overwritten), `.expired` — and increments on `.acceptance_undone` → `published`. The §6.3 command increments on creation. The §6.4 commands **never** touch the counter: a withdrawal or supersession always rejects the proposal cart, and the resulting `cart.proposal.rejected` is what decrements, exactly once. Two writers of one counter was rev 1's ambiguity (m1).
+
+**Every terminal state is written by one subscriber, not by the route that caused it** — see §6.6. `accepted`, `rejected` and `expired` are decided inside `cart`, which by §7a.6 there does not know this module exists. `withdrawn` and `superseded` are the exception by construction: they are this module's own decisions, written by the §6.4 command that makes them.
 
 ### 5.5 `AssistedSellingAttribution` (`assisted_selling_attributions`)
 
@@ -364,7 +398,22 @@ export const defaultEncryptionMaps = [
 ]
 ```
 
-All reads go through `findWithDecryption` / `findOneWithDecryption`. `buyer_cart_token_hash` is **not** in this map because it is a one-way hash, not a recoverable secret — encrypting it would make the lookup it exists for impossible.
+All reads go through `findWithDecryption` / `findOneWithDecryption`. The thread holds no cart token in any form (§5.1), so there is nothing token-shaped to map.
+
+### 5.8 `AssistedSellingAiDraft` (`assisted_selling_ai_drafts`)
+
+A join row, not a proposal state — present only while `aiProposalsRequireRepApproval` is `true` (§4.2).
+
+| Column | Type | Notes |
+|---|---|---|
+| `thread_id` | uuid | |
+| `ai_pending_action_id` | uuid | `ai_assistant.AiPendingAction.id`; FK id only |
+| `expires_at` | timestamptz | Copied from the pending action, for the console's "expired — re-propose" state (§6.4) |
+| `resolved_at` | timestamptz, nullable | Set when the console observes the action confirmed, cancelled or expired |
+
+Unique `(tenant_id, ai_pending_action_id)`; index `(tenant_id, thread_id, resolved_at)`.
+
+It exists because nothing else can answer "which AI drafts are waiting in this conversation": `AiPendingAction` has no list-by-conversation read and its repository is not exposed through DI, and giving this module a query against `ai_assistant`'s table would be the cross-module coupling root `AGENTS.md` forbids. It carries no lines and no price — the pending action holds the tool input, and the proposal does not exist until confirm — so it is not the `draft` status §5.4 refuses.
 
 ---
 
@@ -410,7 +459,7 @@ Public, **cart-token bound**, rate limited per IP and per token. No ACL feature:
 | POST | `/thread/messages` | 30/min | |
 | GET | `/thread/events?since=` | 240/min | Polling cursor. `304` when current |
 
-Proposal read, preview, accept and reject are **not here** — they are `/api/cart/carts/:token/proposals*` (`cart` §10), because they are cart operations on the buyer's own basket. Giving this module a second way to mutate a cart would defeat the seam.
+Proposal read, preview, accept and reject are **not here** — they are `GET /api/cart/proposals` and `POST /api/cart/proposals/:proposalId/{preview,accept,reject}` (`cart` §10), addressed by proposal id under the buyer's own header or cookie token, because they are cart operations on the buyer's own basket. Giving this module a second way to mutate a cart would defeat the seam.
 
 `GET /thread/events` returns a signal, never content:
 
@@ -427,24 +476,28 @@ POST /api/assisted-selling/threads/:id/proposals
 {
   lines: [{ productId, variantId?, quantity, configuration? }],   // ≤ max_proposal_lines
   note?: string,
-  assortmentScope: EffectiveAssortmentScope,                      // cart §6a.1
   idempotencyKey: string
 }
 ```
+
+There is **no `assortmentScope` in the body** (rev 2). Rev 1 carried one, which let the author — and, through the tool's input schema, the LLM — choose the buyer's assortment. That contradicted step 2's own rule that the author's context is passed nowhere, and removed the first of R2's two controls. The body is validated with `.strict()`, so a request that still sends the field is a `400`, not a silently ignored value.
 
 The command:
 
 0. **Checks the live `mode`** against the authoring actor: `rep` requires `mode ∈ {rep, both}`, `ai_agent` requires `mode ∈ {ai, both}`, and `off` refuses both with `409 assisted_selling_unavailable`. The same check gates `POST /threads` and `/threads/:id/join`. It reads the store's current setting, not `mode_snapshot` — turning the AI off must stop it proposing into conversations that are already open, which is the whole point of turning it off. Already-published proposals and already-joined participants are untouched (§8.4).
 1. Resolves the thread and its `buyer_cart_id`.
-2. Calls `cart.proposal.create` with the **target cart's token**, which is what makes the proposal price as the buyer rather than as the author (`cart` §7a.2, R1 below). The authoring principal's own context is passed nowhere.
-3. Writes an `AssistedSellingProposal` with `authored_by_actor_*` taken from `ctx.auth` — **never** from the request body (R6).
-4. Sets `status: 'published'`. There is no other value it could take: in the copilot runtime this command runs only after the rep confirmed the preview card, and in the autonomous runtime the buyer is the approver (§4.2).
-5. Posts an `AssistedSellingMessage` carrying `proposal_id`, so the proposal appears in the conversation rather than beside it.
-6. Emits `assisted_selling.proposal.published` after commit.
+2. **Resolves the target buyer's assortment scope on the server.** It reads the target basket's `store_id`, `channel`, `customer_id` and `customer_user_id` through `cart`'s DI read, and asks `ecommerce` for that buyer's `EffectiveAssortmentScope` via `storeContextService.resolveForBuyer({ storeId, customerId, customerUserId })`, resolved with `tryResolve`. That method does not exist yet — SPEC-029's `resolve(request)` resolves only from a buyer's *own* request, and an authoring call is not one — so it is recorded as an **additive obligation on SPEC-029** (§11 Hard dependency), the same way `cart` rev 7 recorded `lineMap` on spec 7. A guest target resolves to the store's anonymous scope, exactly as the buyer's own anonymous request would. **Fail closed:** if `ecommerce` is absent or the call fails for a storefront-channel target, authoring is refused with `503 assortment_scope_unavailable` rather than proceeding unchecked.
+3. Calls `cart.proposal.create` with the **target cart's id** and that scope. The id, not the raw token: this module holds no token (§5.1), and a server caller has no business handling a buyer's credential. Pricing as the buyer rather than the author is `cart`'s rule (§7a.2 there, R1 below). The authoring principal's own context is passed nowhere.
+4. Writes an `AssistedSellingProposal` with `authored_by_actor_*` taken from `ctx.auth` — **never** from the request body (R6). In the AI path `ctx.auth` is the agent principal even when a rep's confirm triggered the handler (§4.2); the rep goes in `approved_by_actor_id`.
+5. Sets `status: 'published'` and increments `live_proposal_count`. There is no other status it could take: with rep approval on, this command runs only after a rep confirmed the preview card; with it off, the buyer is the approver (§4.2).
+6. Posts an `AssistedSellingMessage` carrying `proposal_id`, so the proposal appears in the conversation rather than beside it.
+7. Emits `assisted_selling.proposal.published` after commit.
+
+The scope resolved in step 2 is the **authoring-time** control. It is not the binding one: `cart` re-checks every line against the buyer's scope at `preview` and again at the merge boundary (§6a.5 there), each time taking the scope from the buyer's own storefront request — so a scope that narrowed after authoring is still enforced, and neither check trusts a value this module supplied.
 
 ### 6.4 Ending a proposal from this side: withdraw, supersede, re-author
 
-**A status change here is never enough on its own.** `cart` decides whether a proposal can still be accepted, and it decides it from the proposal *cart*'s status (`cart` §7a.1) — it does not read this module's rows and by §7a.6 there it does not know they exist. So `POST /proposals/:id/withdraw` and any supersession MUST invoke `cart.proposal.reject` in the same command, inside the same atomic flush, before writing the local status.
+**A status change here is never enough on its own.** `cart` decides whether a proposal can still be accepted, and it decides it from the proposal *cart*'s status (`cart` §7a.1) — it does not read this module's rows and by §7a.6 there it does not know they exist. So `POST /proposals/:id/withdraw` and any supersession MUST invoke `cart.proposal.reject` in the same command, inside the same atomic flush, before writing the local status. Neither touches `live_proposal_count`; the `cart.proposal.rejected` that follows decrements it (§5.4).
 
 Without that, a rep withdrawing a mispriced suggestion changes a row nobody consults: the proposal cart stays `active`, the buyer's tray still holds a valid token, and the merge succeeds. That is the sharpest version of the failure this whole spec exists to avoid — a price the buyer accepts that the seller had already retracted.
 
@@ -462,13 +515,14 @@ defineAiTool({
   requiredFeatures: ['assisted_selling.proposals.author', 'cart.proposals.author'],
   tags: ['write', 'assisted-selling'],
   isMutation: true,
+  isDestructive: false,
   isBulk: true,
   loadBeforeRecords: async (input, ctx) => /* per-line before-state for the preview card */,
   handler: async (input, ctx) => /* delegates to the §6.3 command */,
 })
 ```
 
-`isMutation: true` in both runtimes (§4.2): in the copilot runtime it produces the `AiPendingAction`; in the autonomous runtime it keeps the tool off read-only agents and forces an explicit `allowedTools` entry.
+`isMutation: true` and `isDestructive: false` (§4.2): under the declared `confirm-required` every call becomes an `AiPendingAction`; under the per-call `destructive-confirm-required` the non-destructive call runs directly. The input schema carries lines, quantities, configuration and a note — **no** assortment scope, author, approver or target cart; the handler takes the target from the thread the run is bound to, never from the model.
 
 The agent is declared with loop controls, using the shapes that exist:
 
@@ -488,17 +542,18 @@ The agent sets `untrustedInput: true`. Buyer-authored message text reaches the m
 
 Acceptance, rejection and expiry are all decided inside `cart` — by `cart.proposal.accept`, `cart.proposal.reject` and the `expire-carts` sweeper. `cart` has no inbound dependency and never writes here. So this module learns of them the only way it can, and the only way root `AGENTS.md` permits across a module boundary: a subscriber.
 
-An `assisted_selling` subscriber on `cart.proposal.accepted | .rejected | .expired` (`cart` §11) resolves the local row by `proposal_cart_id` and writes:
+An `assisted_selling` subscriber on `cart.proposal.accepted | .rejected | .expired | .acceptance_undone` (`cart` §11) resolves the local row by `proposal_cart_id` and writes:
 
 | Event | Writes |
 |---|---|
 | `.accepted` | `status: 'accepted'`, `resolved_at`, `merge_log_id` from the event's `mergeLogId`, decrements `AssistedSellingThread.live_proposal_count` |
 | `.rejected` | `status: 'rejected'` **unless already `withdrawn` or `superseded`** — those are this module's own terminal states and the cart rejection they themselves caused must not overwrite them — plus `resolved_at` and the decrement |
 | `.expired` | `status: 'expired'`, `resolved_at`, decrement |
+| `.acceptance_undone` | Only from `accepted`: `status: 'published'` with `resolved_at` and `merge_log_id` cleared and the count **incremented** when the payload's `proposalCartStatus` is `active`; `status: 'expired'` with `resolved_at` kept when it is `expired`. Rev 1 asserted in §10 that `cart.mergeUndo` "restores the proposal to `published`" while nothing told this module an undo had happened (M3) |
 
-Then it emits `assisted_selling.proposal.accepted | .rejected | .expired` (§6.8), which is what the rep console reacts to. Three of the events §6.8 declares have no other emitter: without this subscriber the central artifact of the spec would never be marked accepted, `merge_log_id` would never be populated — despite §5.4 keeping it "so the trail runs in both directions" — and the console would never learn the buyer decided.
+Then it emits `assisted_selling.proposal.accepted | .rejected | .expired | .reopened` (§6.8), which is what the rep console reacts to. Three of the events §6.8 declares have no other emitter: without this subscriber the central artifact of the spec would never be marked accepted, `merge_log_id` would never be populated — despite §5.4 keeping it "so the trail runs in both directions" — and the console would never learn the buyer decided.
 
-It is idempotent on `proposal_cart_id` plus target status, because an event bus may redeliver and a proposal must not be resolved twice.
+It is idempotent on `proposal_cart_id` plus target status — and, for `.acceptance_undone`, on the payload's `mergeLogId` matching the row's — because an event bus may redeliver and a proposal must not be resolved, or reopened, twice.
 
 ### 6.7 Attribution at conversion
 
@@ -514,9 +569,11 @@ It depends on the payload requirement rev 7 records on that event: `salesOrderId
 'assisted_selling.thread.opened' | '.closed'
 'assisted_selling.participant.joined' | '.left'
 'assisted_selling.message.posted'
-'assisted_selling.proposal.published' | '.accepted' | '.rejected' | '.withdrawn' | '.expired'
+'assisted_selling.proposal.published' | '.accepted' | '.rejected' | '.withdrawn' | '.superseded' | '.expired' | '.reopened'
 'assisted_selling.attribution.degraded'      // operator-facing, §6.7
 ```
+
+`.superseded` is emitted by the §6.4 command (m2 — rev 1 had the status and no event, so the console never learned of a supersession); `.reopened` by the §6.6 subscriber on an undone acceptance.
 
 `clientBroadcast: true` on thread, participant, message and proposal events so the rep console updates without polling — the console is a backoffice surface and the backoffice bridge already carries it. `storefrontBroadcast: true` on the same set from Phase 5.
 
@@ -574,9 +631,17 @@ Under `packages/core/src/modules/assisted_selling/backend/assisted-selling/`, co
 
 ### 8.1 The buyer logs in mid-conversation
 
-The cart merges, the token rotates, `Cart.status` becomes `merged` and the buyer is now on a different `Cart` row. A subscriber on `cart.cart.merged` re-points the thread's `buyer_cart_id` and re-hashes the token (§5.1).
+Login reaches the thread by one of two `cart` §7.1 paths, and they need different handling.
 
-A live proposal targeting the old cart is **re-authored, not re-pointed**: the subscriber runs the §6.4 re-author path, producing a new proposal cart against the merged-into cart, freshly priced, with `superseded_by_proposal_id` set on the old row and the old proposal cart rejected. Re-pointing would mean mutating `Cart.proposed_to_cart_id` — a column `cart` §4.1 binds with a check constraint and exposes through no command; adding `cart.proposal.retarget` for one caller would widen a seam the brief deliberately keeps to three commands. Re-authoring also gets the pricing right for free, which re-pointing would not: the buyer's group has just become known, so every line may change, and a proposal carried across unrepriced would be the one basket in the session still priced as a guest.
+**Adoption** (the account had no cart): the guest cart is re-owned, re-priced and its token rotated, but it keeps its id. Nothing about the thread's key changes (§5.1); a `cart.cart.adopted` subscriber fills `customer_id`/`customer_user_id`. Live proposals keep pointing at the same basket and are **not** re-authored: `cart` §7a.2 re-derives a proposal's pricing context from its target on every re-price, and `preview` re-prices against the target's current buyer context anyway, so the buyer's newly known group reaches the proposal without this module doing anything.
+
+**Merge** (both carts non-empty, or the guest cart empty): `Cart.status` becomes `merged` and the buyer is on a different `Cart` row. The `cart.cart.merged` subscriber — `kind = 'basket'` only — re-points `buyer_cart_id` (§5.1).
+
+A live proposal targeting the merged-away cart is **re-authored, not re-pointed**: the subscriber runs the §6.4 re-author path, producing a new proposal cart against the merged-into cart, freshly priced, with `superseded_by_proposal_id` set on the old row and the old proposal cart rejected. Re-pointing would mean mutating `Cart.proposed_to_cart_id` — a column `cart` §4.1 binds with a check constraint and exposes through no command; adding `cart.proposal.retarget` for one caller would widen a seam the brief deliberately keeps to three commands. Re-authoring also gets the pricing right for free, which re-pointing would not: the buyer's group has just become known, so every line may change, and a proposal carried across unrepriced would be the one basket in the session still priced as a guest.
+
+**Which principal re-authors — an open question with a default (§11a Q1).** A subscriber has no `ctx.auth`, yet `cart.proposal.create` requires a principal holding `cart.proposals.author` (`cart` R15) and takes the actor from `ctx.auth` (`cart` R16). Rev 1 did not say who that is. The default this spec adopts: the subscriber builds an auth context for the **original author** (`authored_by_actor_id` of the superseded row), with that user's ACL freshly loaded — the same construction §4.2 uses for the agent principal, and never reachable from any HTTP input. If that principal no longer holds `cart.proposals.author` or is deactivated, nothing is re-authored: the old proposal is superseded, its cart rejected, and a system message in the thread says the suggestion needs refreshing, which the console surfaces with the same one-click re-propose as an expired AI draft (§6.4). `authored_by_*` and every line's `added_by_actor_*` therefore stay the original author's, as commission requires.
+
+The target is addressed by cart **id** throughout — this module never holds a token (§5.1, §6.3 step 3) — which is what lets a subscriber that has no buyer credential author against the merged-into cart at all.
 
 Where the target cart already holds an open thread, §5.1's collision policy applies instead: the guest thread closes, its live proposals are superseded and their carts rejected, and a system message in both names the other.
 
@@ -606,7 +671,7 @@ Both proposals are live. They are separate carts and separate rows; neither bloc
 
 ### 8.7 The AI proposes something the buyer may not see
 
-Caught twice: at authoring, because a proposal against a storefront target inherits the target's channel and `cart` §6a.1's `assortmentScope` check therefore applies; and at the merge boundary by §6a.5. The first produces a rejected line at authoring time the rep can see; the second produces a `product_unavailable` disposition in `mergeSummary`.
+Caught twice: at authoring, because a proposal against a storefront target inherits the target's channel and `cart` §6a.1's `assortmentScope` check therefore applies — against a scope this module resolves for the **target buyer** on the server, never one the author or the model supplies (§6.3 step 2); and at `preview` and the merge boundary by §6a.5, against the scope of the buyer's own request. The first produces a rejected line at authoring time the rep can see; the second produces a `product_unavailable` disposition in `mergeSummary`.
 
 ### 8.8 The AI is unavailable
 
@@ -623,16 +688,16 @@ Provider outage, budget exhausted, moderation refusal. The thread continues; the
 | # | Risk | Severity | Area | Failure scenario | Mitigation | Residual |
 |---|---|---|---|---|---|---|
 | R1 | Proposal priced as its author, not as the buyer | **High** | `assisted_selling`, `cart`, legal | A rep on a staff price kind, or an agent under a service principal, authors a proposal and `catalogPricingService` resolves against the author's context. The buyer accepts 84,00 zł; the mandatory post-merge re-price corrects it to 129,00 zł and `priceChanges` discloses an increase the buyer never agreed to. In B2B the two contexts differ by a negotiated contract, not a rounding. | §6.3 passes the **target cart's token** and never the author's context; `cart` §7a.2 makes the proposal cart copy the target's `customer_group_ids`, `price_kind_id`, `currency_code`, `tax_mode` and `buyer_digest` at creation and re-derive them on every re-price. Asserted by a test that authors as a rep on a different price kind and compares against the buyer's own resolution (`cart` R14) | Low |
-| R2 | Proposal used as an assortment bypass | **Critical** | `cart` | `cart` §6a.4 exempts channels resolving no `StoreContext`. A proposal authored in an exempt channel and merged into a storefront basket carries lines that were never visibility-checked, through `checkout` into a `SalesOrder` — `cart` R11's failure text by a second route. | Two independent controls: the proposal cart inherits the **target's** channel, so §6a.1's per-line check applies at authoring; and §6a.5's pass at the merge boundary rejects anything that slipped, reporting it in `mergeSummary` rather than admitting or deleting it. Tracked as `cart` **R13** and shipped with `cart` **Phase 3**, because the defect exists independently of this feature | Low once `cart` Phase 3 ships — until then this feature MUST NOT be enabled, stated as a hard dependency in §11 |
+| R2 | Proposal used as an assortment bypass | **Critical** | `cart` | `cart` §6a.4 exempts channels resolving no `StoreContext`. A proposal authored in an exempt channel and merged into a storefront basket carries lines that were never visibility-checked, through `checkout` into a `SalesOrder` — `cart` R11's failure text by a second route. | Two independent controls: the proposal cart inherits the **target's** channel, so §6a.1's per-line check applies at authoring, against the target buyer's scope resolved on the server (§6.3 step 2) — no request body or tool input can supply it, and authoring fails closed when it cannot be resolved; and §6a.5's pass at the merge boundary rejects anything that slipped, reporting it in `mergeSummary` rather than admitting or deleting it. Tracked as `cart` **R13** and shipped with `cart` **Phase 3**, because the defect exists independently of this feature | Low once `cart` Phase 3 ships and SPEC-029 gains `resolveForBuyer` — until then this feature MUST NOT be enabled, stated as a hard dependency in §11 |
 | R3 | Presence treated as a feature flag rather than a disclosure obligation | **High** | `assisted_selling`, legal | A store disables the "someone is viewing your basket" notice to reduce friction. A named employee then observes a buyer's basket contents and activity with no indication to the buyer. Under GDPR this is processing the data subject has not been informed of, and the merchant is the controller. | The disclosure is **not configurable**: the thread response always carries the participant list, and the storefront always renders a rep participant's presence. `AssistedSellingStoreSettings` has no column that could switch it off, which is the mitigation — a setting that does not exist cannot be set. A test asserts a rep participant always appears in the buyer's thread payload, and `storefront-app.md` §12 asserts it always renders. Retention, lawful basis and the buyer's right to end the conversation are stated in the store's privacy copy, not here | Low — residual is a storefront deployment rendering the payload it is given incorrectly, covered by that spec's test |
 | R4 | AI cost and abuse | Medium | `assisted_selling`, `ai-assistant` | A scripted client opens threads and posts messages in a loop; each turn runs a model and a pricing pass. Cost scales with an attacker's patience, and a shared provider quota degrades every tenant. | Three bounds, none sufficient alone: `loop.budget` (`maxToolCalls`, `maxWallClockMs`, `maxTokens`) bounds one turn; `ai_max_proposals_per_thread_per_hour` bounds one conversation; the §6.2 per-IP and per-token rate limits bound one client. `POST /thread` is limited to 10/min and a thread is unique per cart, so thread creation is bounded by cart creation, which `cart` already rate-limits | Medium — an authenticated B2B buyer with a legitimate high-volume pattern is indistinguishable from abuse by rate alone; per-tenant budget review is an operational control, not a code one |
 | R5 | Unreviewed AI proposal reaches the buyer | Medium | `assisted_selling` | `ai_proposals_require_rep_approval` defaults to `false`, so in `mode: 'both'` a store publishes priced AI suggestions with no human in the loop. A hallucinated bundle or an inappropriate upsell is shown under the merchant's branding. | The buyer's acceptance is a real, informed, reversible confirmation: the pre-flight preview re-prices before anything merges, `mergeSummary` and `priceChanges` disclose the result, `cart.mergeUndo` reverses it for 15 minutes, assortment is enforced twice (R2), and `untrustedInput: true` forces input moderation on the buyer-authored text that reaches the model. A store wanting a human gate sets the flag `true` and gets the shipped `AiPendingAction` plane | **Medium, accepted as a product decision, and the two gates are not equivalent.** The buyer gate confirms a price; the rep gate would catch hallucinated, off-brand or manipulated *content* before it is displayed under the merchant's branding, and by §1's own definition the buyer is the party least able to judge whether the proposed part fits. Reversibility is thinner than it reads: `mergeUndo` lasts 15 minutes and accept→checkout is routinely shorter, and after conversion there is no undo. The honest defence of the default is the trade-off, not a claim of a stronger gate — requiring approval would make `mode: 'both'` useless whenever no rep is online. A store that cannot accept this residual sets the flag |
 | R6 | Attribution forged, or lost | Medium | `assisted_selling` | `authored_by_actor_id` or `added_by_actor_id` is written from request input, letting a caller credit another rep; or a conversion path forgets to emit `lineMap` and commission under-reports with no signal. | Actor columns are set from `ctx.auth`, never from the request body, and are non-nullable for `rep`/`ai_agent`; a test asserts a body-supplied actor id is ignored (`cart` R16). The missing-`lineMap` case degrades to order-level attribution and emits `assisted_selling.attribution.degraded` rather than writing nothing; the subscriber never infers the line mapping from product identity, because two lines may share a product and differ by `configuration_hash` | Low |
 | R7 | Polling cost and thundering herd behind a CDN | Medium | `assisted_selling`, `apps/storefront` | Every storefront session polls `/thread/events`. At 5 s intervals across a busy store this is a sustained request rate against an origin the CDN cannot cache, and a deploy or an outage synchronizes every client into one burst. | The interval is adaptive — 5 s only while visible **and** a rep is present, 30 s otherwise, suspended while hidden, backing off to 120 s after a run of unchanged responses — with jitter on every schedule. `ETag`/`304` keeps an unchanged poll cheap. Polling starts only for a session that has a thread; the overwhelming majority of sessions never create one, and `GET /thread` returning `404` starts nothing | Medium until Phase 5 replaces the steady-state case with a stream; the fallback path retains this profile by design and that is the cost of the CDN requirement |
-| R8 | A leaked cart token exposes a conversation | **High** | `assisted_selling` | The cart token is the credential for the buyer's half. `cart` R6 already rates its leakage High for basket and email exposure; a thread raises the stakes, because it holds free text written by and about identifiable people on both sides. | The token is never stored in clear here — the thread is keyed on `hashAuthToken(token)` (§5.1). Message bodies, participant display names and rejection reasons are encrypted at rest (§5.7). `cart` §8.3's existing controls apply unchanged: CSPRNG entropy, header or httpOnly cookie only, never a path segment, rotated on merge, per-token rate limited. Rotation on merge re-keys the thread, so a token captured before login stops resolving it | Medium — a token leaked mid-session before any rotation still reads the conversation, which is inherent to a guest-reachable surface with no second credential to present, and is the reason a guest thread must be treated as personal data from the first message |
-| R9 | Authoring reachable without a principal | **High** | `cart`, `assisted_selling` | Every other buyer-facing route is token-bound, so authoring is written the same way by symmetry. An attacker with a leaked token then injects priced lines into the buyer's own proposal tray, rendered in the store's branding and one click from the basket. | `POST /carts/:token/proposals` and `POST /threads/:id/proposals` both require an authenticated principal holding `cart.proposals.author`; they are the only writes in this feature a cart token cannot reach. Asserted by a test presenting a valid token with no principal and expecting `401` (`cart` R15) | Low |
-| R10 | Thread stranded by a cart lifecycle transition | Medium | `assisted_selling` | The buyer logs in, the cart merges and the token rotates. A thread keyed on the old cart resolves for nobody: the buyer polls and gets `404`, the rep sees a conversation that has gone silent, mid-sentence, at the exact moment the buyer identified themselves. | A subscriber on `cart.cart.merged` re-points `buyer_cart_id`, re-hashes the token and populates `customer_user_id`; a live proposal is **re-authored** against the merged-into cart, freshly priced, rather than re-pointed (§8.1) — re-pointing would need a `cart` command that does not exist and would carry a guest-priced basket into an identified session. Where the target already holds an open thread, §5.1's collision policy closes the guest thread and supersedes its proposals rather than violating the partial unique index. Both cases covered by integration tests | Low |
-| R11 | Cross-tenant or cross-store thread access | **High** | `assisted_selling` | A thread is resolved by cart-token hash alone; a hash collision or a token replayed against another tenant's host returns another tenant's conversation. | Every query filters `tenant_id` and `organization_id` before the token hash, and the thread additionally carries `store_id` which must match the resolved `StoreContext`. Cross-tenant token resolution is already rejected by `cart` (§14 there) and the same fixture is extended to the thread routes | Low |
+| R8 | A leaked cart token exposes a conversation | **High** | `assisted_selling` | The cart token is the credential for the buyer's half. `cart` R6 already rates its leakage High for basket and email exposure; a thread raises the stakes, because it holds free text written by and about identifiable people on both sides. | The token is never stored here in any form — a buyer route resolves it to a basket cart id through `cart` and the thread is keyed on that id (§5.1). Message bodies, participant display names and rejection reasons are encrypted at rest (§5.7). `cart` §8.3's existing controls apply unchanged: CSPRNG entropy, header or httpOnly cookie only, never a path segment, rotated on merge, per-token rate limited. A token captured before login stops resolving the thread the moment `cart` rotates it, because the thread is found through the token's *current* cart and a rotated-out token resolves to none | Medium — a token leaked mid-session before any rotation still reads the conversation, which is inherent to a guest-reachable surface with no second credential to present, and is the reason a guest thread must be treated as personal data from the first message |
+| R9 | Authoring reachable without a principal | **High** | `cart`, `assisted_selling` | Every other buyer-facing route is token-bound, so authoring is written the same way by symmetry. An attacker with a leaked token then injects priced lines into the buyer's own proposal tray, rendered in the store's branding and one click from the basket. | `POST /api/cart/proposals` and `POST /threads/:id/proposals` both require an authenticated principal holding `cart.proposals.author`; they are the only writes in this feature a cart token cannot reach. Asserted by a test presenting a valid token with no principal and expecting `401` (`cart` R15) | Low |
+| R10 | Thread stranded by a cart lifecycle transition | Medium | `assisted_selling` | The buyer logs in, the cart merges and the token rotates. A thread keyed on the old cart resolves for nobody: the buyer polls and gets `404`, the rep sees a conversation that has gone silent, mid-sentence, at the exact moment the buyer identified themselves. | The thread is keyed on the basket cart id, never the token, so rotation alone — including adoption, which rotates the token and merges nothing — cannot strand it; a `kind = 'basket'` subscriber on `cart.cart.merged` re-points `buyer_cart_id` and one on `cart.cart.adopted` populates `customer_user_id`; a live proposal is **re-authored** as its original author against the merged-into cart, freshly priced, rather than re-pointed (§8.1) — re-pointing would need a `cart` command that does not exist and would carry a guest-priced basket into an identified session. Where the target already holds an open thread, §5.1's collision policy closes the guest thread and supersedes its proposals rather than violating the partial unique index. Both cases covered by integration tests | Low |
+| R11 | Cross-tenant or cross-store thread access | **High** | `assisted_selling` | A thread is resolved from a cart token alone; a token replayed against another tenant's host returns another tenant's conversation. | Token resolution is `cart`'s and is tenant-scoped there; every thread query then filters `tenant_id` and `organization_id` before `buyer_cart_id`, and the thread additionally carries `store_id` which must match the resolved `StoreContext`. Cross-tenant token resolution is already rejected by `cart` (§14 there) and the same fixture is extended to the thread routes | Low |
 
 ---
 
@@ -653,19 +718,32 @@ Shipping in the same change, per `.ai/qa/AGENTS.md`. Self-contained: fixtures cr
 - Tokens are single-use and expire after 15 minutes
 - Per-line acceptance merges exactly the selected lines; unselected lines are recorded `declined`, neither merged nor deleted; `CartMergeLog.strategy` is `manual`
 - Acceptance returns `mergeSummary` and `priceChanges` in one response
-- `cart.mergeUndo` within 15 minutes reverses it and restores the proposal to `published` when it has not expired
+- `cart.mergeUndo` within 15 minutes reverses it, emits `cart.proposal.acceptance_undone`, and the §6.6 subscriber returns the row to `published` (count re-incremented, `merge_log_id` cleared) when the proposal cart came back `active`, or to `expired` when it had lapsed; redelivery reopens nothing twice (M3)
 - Acceptance against a `locked` target returns `423` with the session id
 - Rejection leaves the target cart byte-identical and releases the proposal cart's code reservations
 
+**Addressing (M4):**
+- The proposal cart's own token is never returned by any route or event; `GET /api/cart/carts/:token`-style resolution of a proposal cart's token returns `404`, so no line route can reach a proposal
+- A line mutation (`add`, `update`, `remove`, `bulkAdd`, promotions) against a `kind = 'proposal'` cart is refused even when addressed internally by id
+- `preview`, `accept` and `reject` for a proposal whose `proposed_to_cart_id` is not the presented token's basket return `404`, identical to a nonexistent id
+
 **Assortment (R2):**
 - A restricted product is rejected at authoring against a storefront target
+- The target buyer's scope is resolved on the server: an authoring request that sends `assortmentScope` in the body is refused with `400`, and a rep whose own scope admits a product the buyer's does not still gets the line rejected (M2)
+- With `ecommerce` absent or `resolveForBuyer` failing, authoring against a storefront-channel target is refused with `503 assortment_scope_unavailable` and nothing is created
 - A line that became restricted between authoring and acceptance is rejected at the merge boundary, reported in `mergeSummary` with `disposition: 'rejected'`, and is neither merged nor deleted
 - Both paths emit `cart.line.visibility_rejected` with the correct `triggeredBy`
+
+**Sweepers (M5, `cart` §12):**
+- A live proposal cart with no activity for longer than the cart inactivity window is **not** marked `abandoned`, and no `cart.proposal.rejected` fires; it expires at its own `expires_at` through `expire-carts`
+- An `abandoned` (rejected) proposal cart is never returned to `active`
+- `purge-expired-carts` purges a proposal cart only on the retention rule `cart` §16 Q6 settles, and emits `cart.cart.purged`; the proposal row survives and renders as purged rather than failing to load
 
 **Terminal states (§6.6):**
 - `cart.proposal.accepted` sets `status: 'accepted'`, `resolved_at` and `merge_log_id`, and decrements `live_proposal_count`
 - `cart.proposal.expired` and `.rejected` set their statuses; a `.rejected` arriving for a proposal already `withdrawn` or `superseded` does **not** overwrite it
-- Redelivery of any of the three is idempotent
+- Redelivery of any of the four is idempotent
+- `live_proposal_count` is decremented exactly once for a withdrawal and for a supersession — by the subscriber, not the command (m1)
 - Each emits the matching `assisted_selling.proposal.*` event exactly once
 
 **Withdraw, supersede, re-author (§6.4):**
@@ -682,9 +760,13 @@ Shipping in the same change, per `.ai/qa/AGENTS.md`. Self-contained: fixtures cr
 - A rep opens a thread against a basket the buyer never asked about; the buyer's next read shows the thread, the participant and the opening message
 - No route creates a thread or joins one without the buyer seeing it (R3)
 
-**The two runtimes (§4.2):**
-- With `ai_proposals_require_rep_approval: true`, the tool call produces an `AiPendingAction` and **no `AssistedSellingProposal` row exists at all** until confirm; cancel leaves none; confirm creates it already `published`, with no second publish step and no route that could perform one
-- With it `false`, the same tool call publishes directly and no `AiPendingAction` row is created
+**The AI actor (§4.2):**
+- A buyer message on an `ai`/`both` thread enqueues one turn per thread; a burst of messages yields one turn; the turn runs in the worker, as the store's `ai_agent_user_id`, with a container
+- With `ai_proposals_require_rep_approval: true`, the tool call produces an `AiPendingAction` and an `AssistedSellingAiDraft` row and **no `AssistedSellingProposal` row exists at all** until confirm; cancel leaves none; confirm creates it already `published`, with no second publish step and no route that could perform one
+- A rep who was not in the turn sees the draft in the console and confirms it; the proposal records `authored_by_actor_type: 'ai_agent'` with the agent's id and `approved_by_actor_id` = that rep
+- A principal lacking `cart.proposals.author` cannot confirm the draft (`403 agent_features_denied`), and one in a different organization cannot see it (`404`)
+- With it `false`, the same tool call publishes directly and no `AiPendingAction` row is created — this also guards the platform-inconsistency note in §4.2
+- The tool's input schema has no field for scope, author, approver or target cart
 - No path produces a proposal in any status other than `published` — asserted against the status column's distinct values across the whole suite run, so a future `draft` cannot appear without failing this test
 - The artifact is **identical** in both cases once published — same proposal cart, same line prices, same `authored_by_actor_type: 'ai_agent'`
 - An expired `AiPendingAction` surfaces as re-proposable, and re-authoring produces a freshly-priced new proposal with `superseded_by_proposal_id` set on the old row
@@ -708,7 +790,10 @@ Shipping in the same change, per `.ai/qa/AGENTS.md`. Self-contained: fixtures cr
 - A body-supplied `actor_id` is ignored
 
 **Lifecycle (§8):**
-- Guest opens a thread, receives a proposal, logs in, accepts: the thread follows the merged cart, the proposal is **re-authored** against it and freshly priced, the old proposal cart is terminal, and acceptance succeeds on the new one (R10)
+- Guest opens a thread, logs into an account with **no** cart (adoption): the token rotates, no cart merges, and the buyer's next poll with the rotated token still returns the thread, now carrying `customer_user_id`; the live proposal is not re-authored and its preview prices for the buyer's group (M6)
+- The pre-login token no longer returns the thread after adoption or merge
+- Guest opens a thread, receives a proposal, logs in, accepts: the thread follows the merged cart, the proposal is **re-authored** against it as its original author and freshly priced, the old proposal cart is terminal, and acceptance succeeds on the new one (R10); with the author since stripped of `cart.proposals.author`, the old proposal is superseded, nothing is re-authored and the console offers re-propose
+- A proposal acceptance (the proposal cart becomes `merged`) re-points no thread
 - The same flow where the account cart already holds an open thread: the guest thread closes, its proposals are superseded, both threads stay readable, and the partial unique index is never violated (§5.1)
 - `mode: 'off'` refuses a new thread and leaves an open one usable
 - An expired proposal is readable, not acceptable, and not deleted
@@ -728,17 +813,17 @@ Shipping in the same change, per `.ai/qa/AGENTS.md`. Self-contained: fixtures cr
 
 > **Phase numbers in this section are internal to this spec.** The suite's Phase 4 (roadmap §7, "Experience") is where all five of them live. Where another document says "assisted selling Phase 5" it means the fifth phase below, not a sixth suite phase.
 
-**Hard dependency:** `cart` Phase 3 including §6a.5 must ship before any phase here is enabled in a live store (R2). `cart` Phase 4 (§7a) must ship before Phase 1 here.
+**Hard dependency:** `cart` Phase 3 including §6a.5 must ship before any phase here is enabled in a live store (R2). `cart` Phase 4 (§7a) must ship before Phase 1 here. SPEC-029's `storeContextService.resolveForBuyer` (§6.3 step 2) must ship before Phase 1's authoring route is enabled against a storefront store — an additive method, recorded on that spec as an obligation from this one.
 
 ### Phase 1 — Foundation and the proposal seam
 
 1. Module scaffold, entities, migrations, `encryption.ts`, `acl.ts`, `setup.ts` with the default role grants. The AI agent principal is **not** created here — it belongs to Phase 3, with the actor that needs it.
 2. `AssistedSellingStoreSettings` with its admin page and the `tryResolve` exposure of the effective mode on the store context.
 3. Thread, participant and message commands and the staff read/write routes.
-4. `POST /threads/:id/proposals` wrapping `cart.proposal.create`, with the target-context pricing rule and its test.
+4. `POST /threads/:id/proposals` wrapping `cart.proposal.create` by target cart id, with the server-resolved assortment scope (fail closed), the target-context pricing rule and their tests.
 5. Withdraw, supersede and re-author — each invoking `cart.proposal.reject` on the proposal cart, not only the local row (§6.4).
-6. **The `cart.proposal.*` subscriber that writes every terminal state** (§6.6). Without it nothing in this module ever records that a buyer accepted.
-7. The `cart.cart.merged` subscriber: re-point, re-author live proposals, apply the collision policy (§5.1, §8.1).
+6. **The `cart.proposal.*` subscriber that writes every terminal state and the undo reopening** (§6.6), and sole owner of `live_proposal_count`. Without it nothing in this module ever records that a buyer accepted.
+7. The `cart.cart.merged` (basket-only) and `cart.cart.adopted` subscribers: re-point, re-author live proposals as their original author, apply the collision policy (§5.1, §8.1).
 8. Staff thread opening and assignment; the live-`mode` check on opening, joining and authoring.
 
 **Gate:** a proposal is authored and accepted end to end through the API, and the local row reaches `accepted` with `merge_log_id` populated; its line prices are byte-identical to the buyer's own resolution when the author's context differs; a withdrawn proposal cannot be accepted.
@@ -757,11 +842,11 @@ Shipping in the same change, per `.ai/qa/AGENTS.md`. Self-contained: fixtures cr
 1. The agent principal (`auth.User`, `kind: 'agent'`), its role grants, and the settings validator requiring `ai_agent_user_id` whenever `mode ∈ {ai, both}`.
 2. `assisted_selling.propose_cart_lines` with `isMutation: true`, `loadBeforeRecords` and both feature requirements.
 3. The agent definition with `loop.budget`, `stopWhen` and `untrustedInput: true`.
-4. The copilot runtime: `AiPendingAction` path, `mutation-preview-card`; confirm runs the handler, which creates the proposal already published — one approval step, not two (§4.2).
-5. The autonomous runtime: server-side trigger on buyer activity, direct publish.
+4. The runner: the buyer-message subscriber, the `assisted-selling-ai-turn` queue worker, the agent-principal auth context, and the per-call `mutationPolicyOverride` from the store flag (§4.2). **Ask First** sign-off on the policy relaxation recorded on the PR.
+5. The rep-approval path: `AssistedSellingAiDraft`, the console's draft list over `mutation-preview-card`; confirm runs the handler as the agent principal and records the approver — one approval step, not two.
 6. Per-thread rate limit; the expired-draft re-propose affordance.
 
-**Gate:** both runtimes produce an identical published artifact; a budget breach publishes nothing; the hourly limit refuses with a distinguishable code.
+**Gate:** both settings of the approval flag produce an identical published artifact, attributed to the agent; a budget breach publishes nothing; the hourly limit refuses with a distinguishable code.
 
 ### Phase 4 — Attribution
 
@@ -774,11 +859,20 @@ Shipping in the same change, per `.ai/qa/AGENTS.md`. Self-contained: fixtures cr
 ### Phase 5 — Live transport and presence
 
 1. `storefrontBroadcast` on `EventDefinition` and its predicate, mirroring `clientBroadcast` / `portalBroadcast`.
-2. `/api/ecommerce/storefront/events/stream`, audience-keyed on the cart-token hash, with `crossProcessBroadcast` so it is correct on more than one instance.
+2. `/api/ecommerce/storefront/events/stream`, authenticated by the cart token and audience-keyed on the basket cart id it resolves to (§4.4), with `crossProcessBroadcast` so it is correct on more than one instance.
 3. The storefront client's **runtime** fallback to polling and recovery to streaming.
 4. Presence: participant state, the non-removable disclosure, and idle expiry.
 
 **Gate:** with the stream blocked in transit the client degrades to polling without losing an event and recovers afterwards; a rep's presence is visible to the buyer and no setting suppresses it.
+
+---
+
+## 11a) Open Questions (rev 2)
+
+Rev 1 closed its Open Questions at the gate. The rev 2 review (M1–M6) surfaced two that the codebase cannot settle, because each is a trust or retention decision rather than a mechanism. Both carry a default the spec is written against, so implementation is not blocked; a product owner overrides by amending this section.
+
+1. **Who re-authors a proposal when the buyer's cart merges on login (§8.1)?** *Default:* the original author, via a server-built auth context with that user's ACL freshly loaded; supersede-without-re-authoring when they no longer hold `cart.proposals.author`. *Why a question:* it is the platform acting as a named human without that human's click, which is new here — the only precedent (§4.2) acts as a non-human agent principal. *Alternative:* never auto re-author; supersede and let the console's one-click re-propose bring it back. Safer on trust, and the buyer loses the suggestion at the moment they log in until a rep acts — in `mode: 'ai'` the agent can re-propose on its next turn, in `rep` it waits for a human.
+2. **How long does a proposal cart outlive its resolution?** Owned by `cart` (§16 Q6 there), recorded here because §7a.3's "remains readable as history" depends on it. *Default:* proposal carts purge on the same 90-day rule as any cart, counted from resolution; `purge-expired-carts` emits `cart.cart.purged`, and this module keeps the metadata row and renders "details purged". The accepted lines survive regardless in `CartMergeLog.source_snapshot`, which the purge already retains.
 
 ---
 
@@ -787,11 +881,11 @@ Shipping in the same change, per `.ai/qa/AGENTS.md`. Self-contained: fixtures cr
 | Requirement | Status |
 |---|---|
 | No cross-module ORM relations | Every reference to `cart`, `sales`, `auth`, `customers`, `customer_accounts` and `ecommerce` is an FK id; services reached through DI; the optional peer is resolved with `tryResolve` |
-| Tenant/organization scoping | Every entity and every query; thread resolution filters tenant and organization **before** the token hash, and additionally matches `store_id` (R11) |
+| Tenant/organization scoping | Every entity and every query; thread resolution filters tenant and organization **before** `buyer_cart_id`, and additionally matches `store_id` (R11) |
 | Module naming | snake_case module id `assisted_selling` — a mass noun, like the existing `auth` and `cart`, rather than forced into a plural that names nothing; singular entity ids; event ids `module.entity.action` with past-tense actions |
 | Command pattern | Every mutation is a registered command with `withAtomicFlush` and post-commit side effects |
 | Optimistic locking | `updated_at` on every user-editable entity; settings and proposal edits carry the standard header; conflicts surfaced through the shared conflict bar |
-| Encryption | `AssistedSellingMessage.body`, `AssistedSellingParticipant.displayName`, `AssistedSellingProposal.rejectionReason` declared in `defaultEncryptionMaps`; reads through `findWithDecryption`. The cart token is stored as a one-way hash, never encrypted-and-recoverable |
+| Encryption | `AssistedSellingMessage.body`, `AssistedSellingParticipant.displayName`, `AssistedSellingProposal.rejectionReason` declared in `defaultEncryptionMaps`; reads through `findWithDecryption`. No cart token is stored in any form; threads are keyed on the basket cart id |
 | Zod validation | All routes; `z.infer` types; no `any` |
 | ACL | Feature-gated admin namespace; buyer surfaces deliberately ungated and cart-token bound, because a guest has no ACL identity |
 | Rate limiting | Per IP and per token on all four public routes; per thread on AI authoring; `loop.budget` on the agent turn |
@@ -806,6 +900,18 @@ Shipping in the same change, per `.ai/qa/AGENTS.md`. Self-contained: fixtures cr
 ---
 
 ## 13) Changelog
+
+### 2026-09-27 (rev 2 — review findings M1–M6)
+
+Resolves the six major findings of the 2026-09-25 specification review, each checked against `develop`. The core decision is unchanged: a proposal is a cart, acceptance is a merge.
+
+- **M1 — the approval flag is a mutation policy, not a runtime (§4.2).** Rev 1 said `prepareMutation` needs a staff session; it needs a tenant, organization, user, features and a container, and what gates a tool is the agent's `mutationPolicy`. One agent now declares `confirm-required`, runs in a queue worker as the store's agent principal with a container, and receives `mutationPolicyOverride: 'destructive-confirm-required'` per call when the store does not require rep approval. Drafts reach reps through a new `AssistedSellingAiDraft` join row (§5.8); confirm is open to any same-organization rep holding the authoring features, and the handler runs as the agent with the rep recorded in the new `approved_by_actor_id`. The Ask First rule on relaxing mutation policies and a ranking-comment/runtime inconsistency in `agent-policy.ts` are stated.
+- **M2 — the buyer's assortment scope is resolved on the server (§6.3).** Removed from the authoring body and the tool input; resolved for the target buyer through an additive `storeContextService.resolveForBuyer` recorded as an obligation on SPEC-029; authoring fails closed. `cart`'s merge-boundary pass takes the scope from the buyer's own request (`cart` §6a.5).
+- **M3 — undo reaches this module.** `cart` emits `cart.proposal.acceptance_undone`; the §6.6 subscriber reopens the proposal (or marks it expired), and §5.4 now lists every transition.
+- **M4 — proposals are addressed by id under the buyer's token.** `cart` §10 routes became `/api/cart/proposals/:proposalId/*`; a proposal cart's own token is never issued and token-bound line routes cannot reach a `kind = 'proposal'` cart.
+- **M5 — sweepers re-specified (`cart` §9, §12).** Proposal carts are exempt from inactivity abandonment, `abandoned` is final for them, and retention is an explicit open question with a default (§11a Q2).
+- **M6 — the login path.** The thread no longer stores a token hash: buyer routes resolve the token to a basket id through `cart`, so rotation — including adoption, which rotated the token with no event — cannot strand a thread. `cart.cart.merged` has a defined payload and is filtered to baskets; `cart.cart.adopted` is new; `cart.proposal.create` is keyed on the target cart id. The re-authoring principal is an open question with a default (§11a Q1).
+- **Minors fixed with them:** one owner for `live_proposal_count` (m1); `assisted_selling.proposal.superseded` and `.reopened` events (m2); the merged-cart subscriber filters `kind = 'basket'` (m4).
 
 ### 2026-09-22 (rev 1)
 
@@ -822,6 +928,6 @@ Initial specification, written against [ADR-10](./2026-08-14-ecommerce-suite-roa
 - **The `messages` module cannot host this thread as data**, though it was the obvious candidate: `Message.sender_user_id` and `MessageRecipient.recipient_user_id` are non-nullable staff `uuid`s and there is no actor-type column. The UI families are reused; the schema is not.
 - **The Portal Event Bridge cannot serve the storefront**: it requires an authenticated `CustomerUser` (excluding guests), lives in the `customer_accounts` namespace, and keeps connections in a process-local `Set` that needs `crossProcessBroadcast` before it is correct on more than one instance.
 - **`AI_PENDING_ACTION_DEFAULT_TTL_SECONDS` is 900 s**, sized for an employee watching a chat stream. Rather than raise a platform-wide env var governing every pending action in the system, §6.4 makes an expired draft one-click re-proposable — and a fresh price after fifteen minutes is what the buyer should be shown anyway.
-- **`ai_proposals_require_rep_approval` selects a runtime, not just a gate** (§4.2). `prepareMutation` needs a staff context, so the employee approval plane is structurally unreachable in the autonomous case — not by policy, but because `getAuthFromRequest` rejects customer-audience sessions outright.
+- ~~**`ai_proposals_require_rep_approval` selects a runtime, not just a gate** (§4.2).~~ *Withdrawn in rev 2:* `prepareMutation` does not need a staff session, and the flag is a per-call mutation policy on one server-side run. What remains true is that a **buyer** cannot reach the employee plane, because `getAuthFromRequest` rejects customer-audience sessions outright (§4.1).
 
-**Decisions taken at the Open Questions gate**, recorded so a later reader sees they were chosen rather than defaulted: the thread lives in a new `assisted_selling` module (not `customer_accounts`, not `cart`); v1 polls and real-time lands in Phase 5 as pure transport; acceptance is a pre-flight preview plus a re-resolving confirm, on the `resolutionToken` shape spec 9 §7.3 already fixed for shopping-list conversion; proposals expire after a configurable 72 h and remain readable as history; attribution is per line, in this module, written at conversion; AI drafts reach the buyer directly by default, with no rep suppression window, and `true` on the flag routes them through the shipped `AiPendingAction` plane; and the merge-visibility fix ships with `cart` Phase 3 rather than with this feature, because the defect it closes predates it.
+**Decisions taken at the Open Questions gate**, recorded so a later reader sees they were chosen rather than defaulted: the thread lives in a new `assisted_selling` module (not `customer_accounts`, not `cart`); v1 polls and real-time lands in Phase 5 as pure transport; acceptance is a pre-flight preview plus a re-resolving confirm, on the `resolutionToken` shape spec 9 §7.3 already fixed for shopping-list conversion; proposals expire after a configurable 72 h and remain readable as history; attribution is per line, in this module, written at conversion; AI drafts reach the buyer directly by default, with no rep suppression window, and `true` on the flag routes them through the shipped `AiPendingAction` plane (mechanism corrected in rev 2, §4.2); and the merge-visibility fix ships with `cart` Phase 3 rather than with this feature, because the defect it closes predates it.

@@ -341,9 +341,9 @@
 <!-- ============================================================ -->
 <section class="screen" id="s3">
   <div class="screen-meta">
-    <h2>3. AI draft awaiting rep approval — copilot runtime</h2>
-    <p>With <code class="t-mono">aiProposalsRequireRepApproval: true</code>, the store's agent drafted a bundle for Marta Okonkwo inside Priya's copilot chat. Nothing exists yet until Priya confirms.</p>
-    <div class="screen-refs"><span class="ref">§4.2</span><span class="ref">§6.5</span><span class="ref">§10 "The two runtimes"</span></div>
+    <h2>3. AI draft awaiting rep approval</h2>
+    <p>With <code class="t-mono">aiProposalsRequireRepApproval: true</code>, the store's agent drafted a bundle for Marta Okonkwo in its server-side turn, and the draft is waiting in this conversation for any rep who may author. Nothing exists yet until Priya confirms; the proposal is then credited to the agent, with Priya recorded as approver.</p>
+    <div class="screen-refs"><span class="ref">§4.2</span><span class="ref">§6.5</span><span class="ref">§5.8</span><span class="ref">§10 "The AI actor"</span></div>
   </div>
 
   <div class="frame">
@@ -526,7 +526,7 @@
                 </div>
                 <div class="alert alert-warning" style="margin:0">
                   <svg><use href="#ic-info"/></svg>
-                  <div><div class="t-hint">This selects a <strong>runtime</strong>, not just a gate: enabling it moves the agent into the rep's copilot chat (screen 3), because the confirmation plane needs a staff session that the autonomous runtime does not have.</div></div>
+                  <div><div class="t-hint">This sets the agent's <strong>mutation policy</strong> per call: enabled, every AI proposal becomes a draft a rep confirms (screen 3); disabled, AI proposals publish directly and the buyer's acceptance is the approval.</div></div>
                 </div>
               </div>
               <div class="form-group">
