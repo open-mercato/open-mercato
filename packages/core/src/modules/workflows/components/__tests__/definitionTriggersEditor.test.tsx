@@ -92,6 +92,22 @@ function openEditDialog() {
 }
 
 describe('DefinitionTriggersEditor typed trigger editing', () => {
+  it('names the icon-only controls that remove filter conditions and context mappings', () => {
+    renderWithProviders(
+      <DefinitionTriggersEditor value={[makeTrigger()]} onChange={jest.fn()} />,
+    )
+    openEditDialog()
+
+    expect(screen.getByRole('button', { name: 'Remove filter condition' })).toHaveAttribute(
+      'title',
+      'Remove filter condition',
+    )
+    expect(screen.getByRole('button', { name: 'Remove context mapping' })).toHaveAttribute(
+      'title',
+      'Remove context mapping',
+    )
+  })
+
   it('offers payload paths with type badges in the filter field combobox for a schema event', () => {
     renderWithProviders(
       <DefinitionTriggersEditor value={[makeTrigger()]} onChange={jest.fn()} />,
