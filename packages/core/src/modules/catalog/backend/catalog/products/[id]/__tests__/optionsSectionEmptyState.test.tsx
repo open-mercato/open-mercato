@@ -112,4 +112,25 @@ describe('ProductOptionsSection empty state (#6175)', () => {
     })
     expect(screen.queryByText('No options yet. Add your first option to generate variants.')).not.toBeInTheDocument()
   })
+
+  it('names the icon-only option removal control', async () => {
+    render(<EditCatalogProductPage params={{ id: 'prod-1' }} />)
+    await waitFor(() => expect(latestCrudFormProps).not.toBeNull())
+
+    const group = findOptionsGroup()
+    render(
+      <>
+        {group.component({
+          values: { options: [{ id: 'color', title: 'Color', values: [] }] },
+          setValue: jest.fn(),
+          errors: {},
+        })}
+      </>,
+    )
+
+    expect(screen.getByRole('button', { name: 'Remove option' })).toHaveAttribute(
+      'title',
+      'Remove option',
+    )
+  })
 })
