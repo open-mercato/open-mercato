@@ -281,7 +281,15 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot, confirm }
             <div className="flex items-start gap-2 py-1 group">
 
                 {isContainer && (
-                    <IconButton type="button" variant="ghost" size="xs" className="mt-1 text-muted-foreground hover:text-foreground" onClick={() => setCollapsed(!collapsed)}>
+                    <IconButton
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        className="mt-1 text-muted-foreground hover:text-foreground"
+                        aria-label={collapsed ? 'Expand JSON node' : 'Collapse JSON node'}
+                        aria-expanded={!collapsed}
+                        onClick={() => setCollapsed(!collapsed)}
+                    >
                         {collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                     </IconButton>
                 )}
