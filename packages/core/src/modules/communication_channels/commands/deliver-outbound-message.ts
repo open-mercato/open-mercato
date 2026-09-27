@@ -530,6 +530,14 @@ const deliverOutboundMessageCommand: CommandHandler<
           providerKey: channel.providerKey,
           channelType: channel.channelType,
           direction: 'outbound',
+          // #6095: same contract as the inbound path — the send time travels on
+          // the event so consumers (the customers timeline) date their rows
+          // from it instead of reading the ExternalMessage row across the
+          // module boundary. ISO string because this event is persistent.
+          providerTimestamp:
+            externalMessage.providerTimestamp instanceof Date
+              ? externalMessage.providerTimestamp.toISOString()
+              : null,
           tenantId: input.scope.tenantId,
           organizationId: input.scope.organizationId ?? null,
         },

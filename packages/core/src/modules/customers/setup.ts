@@ -84,6 +84,11 @@ export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
     admin: [
       'customers.*',
+      // `auth.users.list` is granted alongside `customers.*` so the owner picker resolves
+      // user names in CRM-preset apps where the optional `staff` module is absent.
+      // Without it the fallback to /api/auth/users returns 403 and owners show as "Unknown".
+      // Existing tenants pick this up via `yarn mercato auth sync-role-acls`.
+      'auth.users.list',
     ],
     employee: [
       'customers.people.view',
@@ -103,6 +108,9 @@ export const setup: ModuleSetupConfig = {
       'customers.roles.view',
       'customers.roles.manage',
       'customers.email.compose',
+      // Required so the staff-absent fallback to /api/auth/users succeeds for employees too.
+      // See `admin` entry above for full rationale.
+      'auth.users.list',
     ],
   },
 }
