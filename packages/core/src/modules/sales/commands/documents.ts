@@ -614,7 +614,7 @@ const addressSnapshotSchema = z
 // is 0 — and would turn a clear into a written zero.
 const exchangeRateSchema = z.coerce.number().min(0);
 
-export const documentUpdateSchema = z
+const documentUpdateFieldsSchema = z
   .object({
     id: z.string().uuid(),
     customerEntityId: z.string().uuid().nullable().optional(),
@@ -670,53 +670,62 @@ export const documentUpdateSchema = z
     // could assert it could make a document disagree with its own line rows.
     totalsMode: amountsModeSchema.optional(),
     ...orderTotalsSchema.omit({ lineItemCount: true }).shape,
-  })
-  .refine(
-    (input) =>
-      typeof input.currencyCode === "string" ||
-      input.placedAt !== undefined ||
-      input.expectedDeliveryAt !== undefined ||
-      input.channelId !== undefined ||
-      input.statusEntryId !== undefined ||
-      input.exchangeRate !== undefined ||
-      input.paymentStatusEntryId !== undefined ||
-      input.fulfillmentStatusEntryId !== undefined ||
-      input.shippingAddressId !== undefined ||
-      input.billingAddressId !== undefined ||
-      input.customerEntityId !== undefined ||
-      input.customerContactId !== undefined ||
-      input.customerSnapshot !== undefined ||
-      input.metadata !== undefined ||
-      input.customerReference !== undefined ||
-      input.externalReference !== undefined ||
-      input.comment !== undefined ||
-      input.comments !== undefined ||
-      input.internalNotes !== undefined ||
-      input.orderNumber !== undefined ||
-      input.quoteNumber !== undefined ||
-      input.shippingAddressSnapshot !== undefined ||
-      input.billingAddressSnapshot !== undefined ||
-      input.shippingMethodId !== undefined ||
-      input.shippingMethodCode !== undefined ||
-      input.shippingMethodSnapshot !== undefined ||
-      input.paymentMethodId !== undefined ||
-      input.paymentMethodCode !== undefined ||
-      input.paymentMethodSnapshot !== undefined ||
-      input.tags !== undefined ||
-      input.customFields !== undefined ||
-      input.customFieldSetId !== undefined ||
-      input.totalsMode !== undefined ||
-      input.subtotalNetAmount !== undefined ||
-      input.subtotalGrossAmount !== undefined ||
-      input.discountTotalAmount !== undefined ||
-      input.taxTotalAmount !== undefined ||
-      input.shippingNetAmount !== undefined ||
-      input.shippingGrossAmount !== undefined ||
-      input.surchargeTotalAmount !== undefined ||
-      input.grandTotalNetAmount !== undefined ||
-      input.grandTotalGrossAmount !== undefined,
-    { message: "update_payload_empty" },
+  });
+
+type DocumentUpdateFields = z.infer<typeof documentUpdateFieldsSchema>;
+
+function carriesDocumentEdit(input: DocumentUpdateFields): boolean {
+  return (
+    typeof input.currencyCode === "string" ||
+    input.placedAt !== undefined ||
+    input.expectedDeliveryAt !== undefined ||
+    input.channelId !== undefined ||
+    input.statusEntryId !== undefined ||
+    input.exchangeRate !== undefined ||
+    input.paymentStatusEntryId !== undefined ||
+    input.fulfillmentStatusEntryId !== undefined ||
+    input.shippingAddressId !== undefined ||
+    input.billingAddressId !== undefined ||
+    input.customerEntityId !== undefined ||
+    input.customerContactId !== undefined ||
+    input.customerSnapshot !== undefined ||
+    input.metadata !== undefined ||
+    input.customerReference !== undefined ||
+    input.externalReference !== undefined ||
+    input.comment !== undefined ||
+    input.comments !== undefined ||
+    input.internalNotes !== undefined ||
+    input.orderNumber !== undefined ||
+    input.quoteNumber !== undefined ||
+    input.shippingAddressSnapshot !== undefined ||
+    input.billingAddressSnapshot !== undefined ||
+    input.shippingMethodId !== undefined ||
+    input.shippingMethodCode !== undefined ||
+    input.shippingMethodSnapshot !== undefined ||
+    input.paymentMethodId !== undefined ||
+    input.paymentMethodCode !== undefined ||
+    input.paymentMethodSnapshot !== undefined ||
+    input.tags !== undefined ||
+    input.customFields !== undefined ||
+    input.customFieldSetId !== undefined
   );
+}
+
+// Header totals only edit an order that is, or is becoming, external. The route
+// cannot see the persisted mode, so it lets them through; each command then
+// re-applies `documentEditSchema` once it can, because an otherwise-empty update
+// that reaches a quote reverts a `sent` quote to draft and drops its token.
+export const documentUpdateSchema = documentUpdateFieldsSchema.refine(
+  (input) =>
+    carriesDocumentEdit(input) ||
+    input.totalsMode !== undefined ||
+    hasAnySuppliedHeaderTotal(input),
+  { message: "update_payload_empty" },
+);
+
+const documentEditSchema = documentUpdateFieldsSchema.refine(carriesDocumentEdit, {
+  message: "update_payload_empty",
+});
 
 export type DocumentUpdateInput = z.infer<typeof documentUpdateSchema>;
 
@@ -5345,6 +5354,7 @@ const updateQuoteCommand: CommandHandler<
   async execute(rawInput, ctx) {
     const parsed = documentUpdateSchema.parse(rawInput ?? {});
     await assertAmountsModeUnsupportedOnQuote([parsed]);
+    documentEditSchema.parse(rawInput ?? {});
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     const quote = await findOneWithDecryption(em, SalesQuote, {
       id: parsed.id,
@@ -5630,19 +5640,20 @@ const updateOrderCommand: CommandHandler<
     if (!order)
       throw notFound("Sales order not found");
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
-    await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
-    const previousStatus = normalizeStatusValue(order.status);
-    let statusChangeNote: SalesNote | null = null;
     const currentTotalsMode: SalesAmountsMode = order.totalsMode ?? "computed";
     const nextTotalsMode: SalesAmountsMode = parsed.totalsMode ?? currentTotalsMode;
     const totalsModeChanged = nextTotalsMode !== currentTotalsMode;
-    // A header total on a `computed` order stays ignored, exactly as before this
-    // mode existed; it only becomes meaningful once the order is external.
     const externalHeaderSupplied =
       isExternalMode(nextTotalsMode) && hasAnySuppliedHeaderTotal(parsed);
+    if (parsed.totalsMode === undefined && !externalHeaderSupplied) {
+      documentEditSchema.parse(rawInput ?? {});
+    }
     if (isExternalMode(nextTotalsMode) && (totalsModeChanged || externalHeaderSupplied)) {
       await requireOrderTotalsForExternalWrite(parsed);
     }
+    await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
+    const previousStatus = normalizeStatusValue(order.status);
+    let statusChangeNote: SalesNote | null = null;
     // Under `external`, a request carrying neither a mode change nor a header
     // leaves the persisted header alone rather than rebuilding it from lines.
     const suppliedTotals: Partial<SalesDocumentAmounts> | null = isExternalMode(

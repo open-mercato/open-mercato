@@ -691,6 +691,33 @@ describe('sales.orders.update — crossing between the modes', () => {
     })
   }
 
+  it('keeps a header-only update of a computed order rejected as empty', async () => {
+    const { ctx, order } = harnessWith('computed')
+    const before = order!.grandTotalGrossAmount
+
+    // Header totals do nothing on a computed order, so a payload of nothing else
+    // is empty — as it was before the mode existed — rather than a silent no-op
+    // write that still bumps the row.
+    await expect(
+      update().execute({ id: ORDER_ID, ...SUPPLIED_TOTALS } as never, ctx),
+    ).rejects.toMatchObject({
+      issues: [expect.objectContaining({ message: 'update_payload_empty' })],
+    })
+    expect(order!.grandTotalGrossAmount).toBe(before)
+  })
+
+  it('restates the header of an external order without naming the mode again', async () => {
+    const { ctx, order } = harnessWith('external')
+
+    await update().execute(
+      { id: ORDER_ID, ...SUPPLIED_TOTALS, grandTotalGrossAmount: 40, subtotalGrossAmount: 40 } as never,
+      ctx,
+    )
+
+    expect(num(order!.grandTotalGrossAmount)).toBeCloseTo(40, 4)
+    expect(order!.totalsMode).toBe('external')
+  })
+
   it('flips every line and rebuilds the header when leaving external', async () => {
     const { ctx, order, em } = harnessWith('external')
     const lines = await (em.find as (entity: unknown) => Promise<Row[]>)({ name: 'SalesOrderLine' })
@@ -787,6 +814,21 @@ describe('quotes stay computed', () => {
 
     expect(rejection.status).toBe(400)
     expect(rejection.error).toContain('computed amounts')
+  })
+
+  it('keeps a header-only quote update rejected as empty', async () => {
+    const { ctx } = buildHarness()
+
+    // Reaching execution is not harmless on a quote: an otherwise-empty update
+    // reverts a `sent` quote to draft and invalidates its acceptance token.
+    await expect(
+      commandRegistry.get('sales.quotes.update')!.execute(
+        { id: ORDER_ID, subtotalNetAmount: 5 } as never,
+        ctx,
+      ),
+    ).rejects.toMatchObject({
+      issues: [expect.objectContaining({ message: 'update_payload_empty' })],
+    })
   })
 
   it('writes no amounts_mode key onto a quote line', async () => {
