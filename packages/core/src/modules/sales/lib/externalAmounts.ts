@@ -1,34 +1,21 @@
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { SalesAmountsMode } from '../data/entities'
+import { EXTERNAL_HEADER_FIELDS } from './calculations'
 import type { SalesDocumentAmounts } from './types'
 
-/**
- * Header fields a caller MUST supply to put a document in `external` mode.
- * Shipping and surcharge are deliberately absent: a mirrored document that
- * charges neither has nothing to say about them, and they default to zero.
- */
-export const REQUIRED_EXTERNAL_HEADER_FIELDS = [
-  'subtotalNetAmount',
-  'subtotalGrossAmount',
-  'discountTotalAmount',
-  'taxTotalAmount',
-  'grandTotalNetAmount',
-  'grandTotalGrossAmount',
-] as const
+export type ExternalHeaderField = (typeof EXTERNAL_HEADER_FIELDS)[number]
 
-const OPTIONAL_EXTERNAL_HEADER_FIELDS = [
+// A mirrored document that charges no shipping or surcharge has nothing to say
+// about them, so they default to zero instead of being required.
+const OPTIONAL_EXTERNAL_HEADER_FIELDS: ReadonlySet<ExternalHeaderField> = new Set([
   'shippingNetAmount',
   'shippingGrossAmount',
   'surchargeTotalAmount',
-] as const
+])
 
-const EXTERNAL_HEADER_FIELDS = [
-  ...REQUIRED_EXTERNAL_HEADER_FIELDS,
-  ...OPTIONAL_EXTERNAL_HEADER_FIELDS,
-] as const
-
-export type ExternalHeaderField = (typeof EXTERNAL_HEADER_FIELDS)[number]
+export const REQUIRED_EXTERNAL_HEADER_FIELDS: readonly ExternalHeaderField[] =
+  EXTERNAL_HEADER_FIELDS.filter((field) => !OPTIONAL_EXTERNAL_HEADER_FIELDS.has(field))
 
 /**
  * Line fields a caller MUST supply on an external line. `unitPriceNet` is on the
@@ -45,10 +32,6 @@ export const REQUIRED_EXTERNAL_LINE_FIELDS = [
 ] as const
 
 export type ExternalLineField = (typeof REQUIRED_EXTERNAL_LINE_FIELDS)[number]
-
-export function isExternalMode(mode: SalesAmountsMode | null | undefined): boolean {
-  return mode === 'external'
-}
 
 function toFiniteNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value
@@ -94,7 +77,7 @@ function missingLineFields(line: Record<string, unknown>): ExternalLineField[] {
 export function buildExternalHeaderTotals(source: HeaderSource): Partial<SalesDocumentAmounts> {
   const supplied = collectSuppliedHeaderTotals(source)
   for (const field of OPTIONAL_EXTERNAL_HEADER_FIELDS) {
-    if (supplied[field] === undefined) supplied[field] = 0
+    supplied[field] ??= 0
   }
   return supplied
 }

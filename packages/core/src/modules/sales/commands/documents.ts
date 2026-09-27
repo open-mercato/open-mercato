@@ -147,11 +147,11 @@ import {
   assertUniformAmountsMode,
   buildExternalHeaderTotals,
   hasAnySuppliedHeaderTotal,
-  isExternalMode,
   readPersistedHeaderTotals,
   refuseOnExternalOrder,
   requireOrderTotalsForExternalWrite,
 } from "../lib/externalAmounts";
+import { isExternalAmountsMode } from "../lib/calculations";
 import { loadShippedQuantityByLine } from "../lib/shipments/snapshots";
 import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from "../lib/dictionaries";
 import type { CacheStrategy } from "@open-mercato/cache";
@@ -3196,7 +3196,7 @@ function convertLineCalculationToEntityInput(
   // which is right for a line core owns and wrong for one the caller asserted:
   // under `external` a zero net beside a positive gross is the caller's figure to
   // state, not core's to correct.
-  const persistTotals = isExternalMode(line.amountsMode)
+  const persistTotals = isExternalAmountsMode(line.amountsMode)
     ? <T,>(payload: T): T => payload
     : reconcileLinePersistedTotals;
   return persistTotals({
@@ -4658,7 +4658,7 @@ async function restoreOrderGraph(
       taxAmount: line.taxAmount,
       // An external line's net is the caller's assertion, so the gross-derived
       // repair that heals core-owned rows must not run on it.
-      totalNetAmount: isExternalMode(line.amountsMode)
+      totalNetAmount: isExternalAmountsMode(line.amountsMode)
         ? line.totalNetAmount
         : toNumericString(
             deriveLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
@@ -5638,11 +5638,11 @@ const updateOrderCommand: CommandHandler<
     const nextTotalsMode: SalesAmountsMode = parsed.totalsMode ?? currentTotalsMode;
     const totalsModeChanged = nextTotalsMode !== currentTotalsMode;
     const externalHeaderSupplied =
-      isExternalMode(nextTotalsMode) && hasAnySuppliedHeaderTotal(parsed);
+      isExternalAmountsMode(nextTotalsMode) && hasAnySuppliedHeaderTotal(parsed);
     if (parsed.totalsMode === undefined && !externalHeaderSupplied) {
       documentEditSchema.parse(rawInput ?? {});
     }
-    if (isExternalMode(nextTotalsMode) && (totalsModeChanged || externalHeaderSupplied)) {
+    if (isExternalAmountsMode(nextTotalsMode) && (totalsModeChanged || externalHeaderSupplied)) {
       await requireOrderTotalsForExternalWrite(parsed);
     }
     await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
@@ -5650,7 +5650,7 @@ const updateOrderCommand: CommandHandler<
     let statusChangeNote: SalesNote | null = null;
     // Under `external`, a request carrying neither a mode change nor a header
     // leaves the persisted header alone rather than rebuilding it from lines.
-    const suppliedTotals: Partial<SalesDocumentAmounts> | null = isExternalMode(
+    const suppliedTotals: Partial<SalesDocumentAmounts> | null = isExternalAmountsMode(
       nextTotalsMode,
     )
       ? externalHeaderSupplied
@@ -6128,14 +6128,14 @@ const createOrderCommand: CommandHandler<
       ...line,
       amountsMode: totalsMode,
     }));
-    if (isExternalMode(totalsMode)) {
+    if (isExternalAmountsMode(totalsMode)) {
       await assertExternalHeaderComplete(parsed);
       for (const [index, line] of modedLineInputs.entries()) {
         await assertExternalLineComplete(line, line.lineNumber ?? index + 1);
       }
     }
     order.totalsMode = totalsMode;
-    const suppliedTotals: Partial<SalesDocumentAmounts> | null = isExternalMode(totalsMode)
+    const suppliedTotals: Partial<SalesDocumentAmounts> | null = isExternalAmountsMode(totalsMode)
       ? buildExternalHeaderTotals(parsed)
       : null;
     const lineSnapshots: SalesLineSnapshot[] = modedLineInputs.map(
@@ -7323,10 +7323,10 @@ const orderLineUpsertCommand: CommandHandler<
       : null;
     const totalsMode: SalesAmountsMode = order.totalsMode ?? "computed";
     await assertUniformAmountsMode(totalsMode, [parsed]);
-    if (isExternalMode(totalsMode)) {
+    if (isExternalAmountsMode(totalsMode)) {
       await requireOrderTotalsForExternalWrite(parsed.orderTotals);
     }
-    const suppliedTotals: Partial<SalesDocumentAmounts> | null = isExternalMode(totalsMode)
+    const suppliedTotals: Partial<SalesDocumentAmounts> | null = isExternalAmountsMode(totalsMode)
       ? buildExternalHeaderTotals(parsed.orderTotals)
       : null;
     await assertOrderAcceptsNewLine(order, existingSnapshot);
@@ -7482,7 +7482,7 @@ const orderLineUpsertCommand: CommandHandler<
           : ((existingSnapshot as any)?.customFields ?? null),
       amountsMode: totalsMode,
     };
-    if (isExternalMode(totalsMode)) {
+    if (isExternalAmountsMode(totalsMode)) {
       await assertExternalLineComplete(
         updatedSnapshot as Record<string, unknown>,
         updatedSnapshot.lineNumber ?? 1,
@@ -7688,10 +7688,10 @@ const orderLineDeleteCommand: CommandHandler<
       });
     }
     const totalsMode: SalesAmountsMode = order.totalsMode ?? "computed";
-    if (isExternalMode(totalsMode)) {
+    if (isExternalAmountsMode(totalsMode)) {
       await requireOrderTotalsForExternalWrite(parsed.orderTotals);
     }
-    const suppliedTotals: Partial<SalesDocumentAmounts> | null = isExternalMode(totalsMode)
+    const suppliedTotals: Partial<SalesDocumentAmounts> | null = isExternalAmountsMode(totalsMode)
       ? buildExternalHeaderTotals(parsed.orderTotals)
       : null;
     const sourceInputs = filtered.map((line, index) => ({
@@ -8310,7 +8310,7 @@ const orderAdjustmentUpsertCommand: CommandHandler<
     // An adjustment exists only to change money. On a document whose money the
     // caller owns there is nothing for it to change, and generating one would put
     // a charge in the itemized breakdown that no total reflects.
-    if (isExternalMode(order.totalsMode ?? "computed")) await refuseOnExternalOrder();
+    if (isExternalAmountsMode(order.totalsMode ?? "computed")) await refuseOnExternalOrder();
     if (parsed.scope === "line") {
       throw new CrudHttpError(400, {
         error: "Line-scoped adjustments are not supported yet.",
@@ -8606,7 +8606,7 @@ const orderAdjustmentDeleteCommand: CommandHandler<
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
 
-    if (isExternalMode(order.totalsMode ?? "computed")) await refuseOnExternalOrder();
+    if (isExternalAmountsMode(order.totalsMode ?? "computed")) await refuseOnExternalOrder();
     const [existingLines, adjustments] = await Promise.all([
       em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),
       em.find(

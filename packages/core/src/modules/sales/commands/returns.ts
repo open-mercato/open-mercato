@@ -13,7 +13,8 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGenerator'
 import type { SalesCalculationService } from '../services/salesCalculationService'
 import type { SalesAdjustmentDraft, SalesLineSnapshot, SalesDocumentCalculationResult } from '../lib/types'
-import { isExternalMode, readPersistedHeaderTotals } from '../lib/externalAmounts'
+import { isExternalAmountsMode } from '../lib/calculations'
+import { readPersistedHeaderTotals } from '../lib/externalAmounts'
 import { cloneJson, deriveLineNetFromGross, ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload, toNumericString, enforceSalesDocumentOptimisticLock, SALES_RESOURCE_KIND_ORDER, SALES_RESOURCE_KIND_RETURN } from './shared'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { SalesOrder, SalesOrderAdjustment, SalesOrderLine, SalesReturn, SalesReturnLine } from '../data/entities'
@@ -147,7 +148,7 @@ function applyOrderTotalsUnlessExternal(
   order: SalesOrder,
   calculation: SalesDocumentCalculationResult,
 ): void {
-  if (isExternalMode(order.totalsMode ?? 'computed')) return
+  if (isExternalAmountsMode(order.totalsMode ?? 'computed')) return
   applyOrderTotals(order, calculation.totals, calculation.lines.length)
 }
 
@@ -155,7 +156,7 @@ function resolveOrderCalculationMode(order: SalesOrder) {
   const totalsMode = order.totalsMode ?? 'computed'
   return {
     totalsMode,
-    suppliedTotals: isExternalMode(totalsMode) ? readPersistedHeaderTotals(order) : null,
+    suppliedTotals: isExternalAmountsMode(totalsMode) ? readPersistedHeaderTotals(order) : null,
   }
 }
 

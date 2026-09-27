@@ -117,8 +117,8 @@ function resolveLineDiscountTotal(
   return line.discountAmountBasis === 'line' ? amount : amount * quantity
 }
 
-/** The nine header fields a caller owns under `external`; the rest stay core-derived. */
-const EXTERNAL_TOTAL_FIELDS = [
+/** The header fields a caller owns under `external`; the rest stay core-derived. */
+export const EXTERNAL_HEADER_FIELDS = [
   'subtotalNetAmount',
   'subtotalGrossAmount',
   'discountTotalAmount',
@@ -136,9 +136,9 @@ export function isExternalAmountsMode(mode: SalesAmountsMode | null | undefined)
 
 function resolveSuppliedTotals(
   supplied: Partial<SalesDocumentAmounts> | null | undefined
-): Pick<SalesDocumentAmounts, (typeof EXTERNAL_TOTAL_FIELDS)[number]> {
-  const resolved = {} as Record<(typeof EXTERNAL_TOTAL_FIELDS)[number], number>
-  for (const field of EXTERNAL_TOTAL_FIELDS) {
+): Pick<SalesDocumentAmounts, (typeof EXTERNAL_HEADER_FIELDS)[number]> {
+  const resolved = {} as Record<(typeof EXTERNAL_HEADER_FIELDS)[number], number>
+  for (const field of EXTERNAL_HEADER_FIELDS) {
     resolved[field] = round(toNumber(supplied?.[field], 0))
   }
   return resolved
