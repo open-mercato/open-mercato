@@ -71,4 +71,11 @@ describe('NotificationSettingsPageClient guarded mutation', () => {
       expect.objectContaining({ method: 'POST' }),
     )
   })
+
+  it('names the notification strategy switches', async () => {
+    renderWithProviders(<NotificationSettingsPageClient />)
+
+    expect(await screen.findByRole('switch', { name: 'In-app notifications' })).toBeDisabled()
+    expect(screen.getByRole('switch', { name: 'Enable email delivery' })).toBeEnabled()
+  })
 })
