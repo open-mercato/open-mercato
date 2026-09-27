@@ -332,8 +332,7 @@ export class SalesTaxRate {
 @Index({ name: 'sales_orders_payment_status_idx', properties: ['organizationId', 'tenantId', 'paymentStatus'] })
 @Unique({ name: 'sales_orders_number_unique', properties: ['organizationId', 'tenantId', 'orderNumber'] })
 export class SalesOrder {
-  // `totals_mode` is additive: existing `em.create(SalesOrder, ...)` callers,
-  // including third-party ones, must keep compiling without setting it.
+  // Optional so existing `em.create(SalesOrder, ...)` callers keep compiling.
   [OptionalProps]?: 'totalsMode'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -471,13 +470,7 @@ export class SalesOrder {
   @Property({ name: 'outstanding_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
   outstandingAmount: string = '0'
 
-  /**
-   * `external` marks the header totals above as the caller's assertion, mirrored
-   * from an external book of record. Core then stores and serves them verbatim
-   * and never rebuilds them from the lines. Payment-derived fields
-   * (`paid_total_amount`, `refunded_total_amount`, `outstanding_amount`) stay
-   * core-owned in both modes.
-   */
+  /** `external`: the header totals are the caller's and never rebuilt; payment totals stay core-owned. */
   @Property({ name: 'totals_mode', type: 'text', default: 'computed' })
   totalsMode: SalesAmountsMode = 'computed'
 
@@ -666,12 +659,7 @@ export class SalesOrderLine {
   @Property({ name: 'total_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
   totalGrossAmount: string = '0'
 
-  /**
-   * `external` marks this line's net, gross and tax as the caller's assertion.
-   * The engine returns them verbatim and derives `discount_amount` as the gap to
-   * `unit_price_net × quantity`, which is signed — a markup line stores a
-   * negative discount. Must agree with the owning order's `totals_mode`.
-   */
+  /** `external`: amounts are the caller's; `discount_amount` is then signed. Matches the order's `totals_mode`. */
   @Property({ name: 'amounts_mode', type: 'text', default: 'computed' })
   amountsMode: SalesAmountsMode = 'computed'
 

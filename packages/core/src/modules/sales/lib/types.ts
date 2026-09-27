@@ -8,14 +8,8 @@ import type {
 } from '../data/entities'
 
 /**
- * `SalesAmountsMode` answers who owns a document's or a line's monetary amounts.
- *
- * `computed` — core derives them from unit price, quantity, discount and tax,
- * which is the only behaviour the engine had before this mode existed.
- *
- * `external` — the stored amounts are the caller's assertion, mirrored from a
- * book of record that already priced, rounded and taxed the document. Core
- * stores them, serves them, and never recomputes them.
+ * `SalesAmountsMode`: `computed` means core derives the amounts; `external` means
+ * they are the caller's, mirrored from another system, and are never recomputed.
  */
 export type { SalesAdjustmentKind, SalesAmountsMode, SalesDocumentKind, SalesLineKind }
 
@@ -104,12 +98,7 @@ export type SalesLineSnapshot = {
   metadata?: Record<string, unknown> | null
   customFieldSetId?: string | null
   customFields?: Record<string, unknown> | null
-  /**
-   * Who owns this line's amounts. `external` means the supplied net, gross and
-   * tax are the caller's assertion: the engine returns them verbatim and never
-   * derives them from unit price, quantity or discount. Omitted means
-   * `computed`.
-   */
+  /** `external`: net, gross and tax are returned verbatim, never derived. Omitted means `computed`. */
   amountsMode?: SalesAmountsMode | null
 }
 
@@ -177,11 +166,7 @@ export type SalesTotalsCalculationHook = (params: {
   context: SalesCalculationContext
   current: SalesDocumentCalculationResult
   eventBus?: EventBus | null
-  /**
-   * `external` when the caller supplied the document header. A calculator may
-   * still append adjustments, but the supplied header is re-applied after the
-   * whole registry, so it cannot move a total the caller asserted.
-   */
+  /** `external`: the supplied header is re-applied after every calculator, so none can move it. */
   totalsMode?: SalesAmountsMode | null
 }) => SalesDocumentCalculationResult | Promise<SalesDocumentCalculationResult>
 

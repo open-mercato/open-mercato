@@ -144,12 +144,7 @@ function resolveSuppliedTotals(
   return resolved
 }
 
-/**
- * A line whose amounts the caller asserted. Returns net, gross and tax verbatim
- * and derives the discount as the line-level gap between the undiscounted
- * subtotal and the asserted net, so a markup (net above `unitPriceNet ×
- * quantity`) arrives as a negative discount rather than being clamped away.
- */
+// The derived discount is signed and unclamped: a markup is a negative discount.
 function buildExternalLineResult(line: SalesLineSnapshot): SalesLineCalculationResult {
   const quantity = Math.max(toNumber(line.quantity, 0), 0)
   const netAmount = round(toNumber(line.totalNetAmount, 0))
@@ -364,10 +359,6 @@ function buildBaseDocumentResult(params: {
   const refundedTotalAmount = Math.max(toNumber(params.existingTotals?.refundedTotalAmount, 0), 0)
   const outstandingAmount = Math.max(grandTotalGross - paidTotalAmount + refundedTotalAmount, 0)
 
-  // Under `external` the header is the caller's assertion, not a rollup of the
-  // lines: a source that rounds VAT per rate group has a header net that
-  // legitimately differs from the sum of its own lines. Payment-derived fields
-  // stay core-owned and are recomputed against the asserted gross.
   if (isExternalAmountsMode(params.totalsMode)) {
     const suppliedTotals = resolveSuppliedTotals(params.suppliedTotals)
     return {
@@ -463,10 +454,7 @@ class SalesCalculationRegistry {
       })
     }
 
-    // A caller-asserted amount is an authoritative input, so it is re-applied
-    // after the registry and the events — the same discipline calculateDocument
-    // already applies to paid/refunded. Hooks stay live and may still attach
-    // adjustments; they simply cannot move a figure the caller asserted.
+    // Re-applied after the registry and events, which may otherwise overwrite it.
     if (isExternalAmountsMode(line.amountsMode)) {
       const supplied = buildExternalLineResult(line)
       current = {
@@ -554,10 +542,8 @@ class SalesCalculationRegistry {
     // outstanding back to the full grand total), producing a stale paid/
     // outstanding display after a payment. Re-apply the input totals last and
     // recompute outstanding against the post-calculation grand total.
-    // A totals calculator rebuilds the header from lines+adjustments and would
-    // otherwise replace the caller's asserted header with the line rollup. Core
-    // registers one itself by module side effect (lib/providers/index.ts), so
-    // this restore is the default path, not a defence against third parties.
+    // Totals calculators rebuild the header from the lines, and core registers one
+    // itself by module side effect (lib/providers/index.ts) — so this always runs.
     if (isExternalAmountsMode(totalsMode)) {
       current.totals = { ...current.totals, ...resolveSuppliedTotals(suppliedTotals) }
     }

@@ -181,10 +181,8 @@ export function ensureProviderTotalsCalculator() {
   totalsRegistered = true
 
   registerSalesTotalsCalculator(async ({ documentKind, lines, context, current, eventBus, totalsMode }) => {
-    // On an external document the header is the caller's. Generating a provider
-    // adjustment here would put a shipping or payment charge in the itemized
-    // breakdown that is absent from a total this hook cannot move, so the hook
-    // stands down instead of producing a document that disagrees with itself.
+    // A provider charge here could not move the caller's header, so it would show
+    // in the breakdown and be absent from the total.
     if (isExternalAmountsMode(totalsMode)) return current
     const metadata = (context.metadata ?? {}) as Record<string, unknown>
     const shippingMethod = (metadata.shippingMethod ?? null) as ShippingMethodContext | null

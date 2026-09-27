@@ -137,13 +137,8 @@ function applyOrderTotals(order: SalesOrder, totals: SalesDocumentCalculationRes
   order.lineItemCount = lineCount
 }
 
-/**
- * A return against an external order records itself — the return document, the
- * line-level `return` adjustments and `returned_quantity` — and leaves the header
- * alone. The header belongs to the source system, which issues its own credit
- * document and pushes the corrected totals; silently moving a legally filed total
- * because core computed a credit would be worse than leaving it.
- */
+// Deliberate, not an omission: an external order's header belongs to the source
+// system, which issues its own credit document. The return itself is still recorded.
 function applyOrderTotalsUnlessExternal(
   order: SalesOrder,
   calculation: SalesDocumentCalculationResult,

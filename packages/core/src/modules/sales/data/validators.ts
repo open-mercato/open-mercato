@@ -350,14 +350,8 @@ const linePricingSchema = z.object({
   taxAmount: decimal({ min: 0 }).optional(),
   totalNetAmount: decimal({ min: 0 }).optional(),
   totalGrossAmount: decimal({ min: 0 }).optional(),
-  // `external` declares the supplied net, gross and tax authoritative for this
-  // line. Omitted inherits the document's mode — its `totalsMode` on a document
-  // write, its persisted `totals_mode` on a line write — so a line added to an
-  // external order cannot silently land as `computed` and make the document
-  // mixed. Supplying a mode that disagrees with the document's is rejected
-  // rather than silently resolved. Order lines only: the quote commands reject
-  // it, because a quote is core composing a proposal, not mirroring a book of
-  // record.
+  // Omitted inherits the document's mode; defaulting to `computed` would make an
+  // external order mixed. Order lines only — quote commands reject it.
   amountsMode: amountsModeSchema.optional(),
 })
 
@@ -743,11 +737,6 @@ export const orderCreateSchema = scoped.extend({
     .min(1, SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY),
   adjustments: z.array(orderAdjustmentCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true })).optional(),
   tags: z.array(uuid()).optional(),
-  // Named after the column it sets (`sales_orders.totals_mode`), and returned
-  // under the same name — a field accepted as one name and read back as another
-  // is the shape of the bug this mode exists to fix. `external` makes the header
-  // total fields below authoritative instead of derived, and cascades to every
-  // line, which is what makes the all-or-nothing invariant hold by construction.
   totalsMode: amountsModeSchema.optional(),
   ...orderTotalsSchema.shape,
   ...orderPaymentLedgerShape,

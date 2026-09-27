@@ -1483,7 +1483,6 @@ function MethodInlineEditor({
   emptyResultsLabel: string
   selectedHint: (id: string) => string
   icon: React.ReactNode
-  /** Standing caveat about what selecting a method will and will not do. */
   note?: string | null
   allowClear?: boolean
 }) {
@@ -3778,10 +3777,6 @@ export default function SalesDocumentDetailPage({
     }
   }, [fetchDocumentByKind, kind, record, runMutationWithContext, t, validForDays])
 
-  // Leaving `external` rewrites the header and every line from unit price,
-  // quantity and discount, which cannot reproduce a source that rounded VAT per
-  // rate group. It is therefore an explicit, confirmed action of its own, never a
-  // side effect of editing something else.
   const handleSwitchToComputedAmounts = React.useCallback(async () => {
     if (!record || kind !== 'order') return
     const ok = await confirm({
@@ -4305,11 +4300,8 @@ export default function SalesDocumentDetailPage({
     if (activeTab === 'items') {
       return (
         <SalesDocumentItemsSection
-          // Remounted when the mode flips, because leaving `external` rewrites
-          // every line's net, gross, tax and discount on the server. The section
-          // loads its lines once per `documentId` and that id does not change
-          // here, so without a new key the rows keep the pre-switch figures while
-          // the totals card beside them already shows the recomputed ones.
+          // Remount on a mode flip: the switch rewrites every line server-side, and the
+          // section loads its lines only once per `documentId`, which does not change.
           key={`items:${amountsAreExternal ? 'external' : 'computed'}`}
           documentId={record.id}
           kind={kind}

@@ -705,10 +705,9 @@ function carriesDocumentEdit(input: DocumentUpdateFields): boolean {
   );
 }
 
-// Header totals only edit an order that is, or is becoming, external. The route
-// cannot see the persisted mode, so it lets them through; each command then
-// re-applies `documentEditSchema` once it can, because an otherwise-empty update
-// that reaches a quote reverts a `sent` quote to draft and drops its token.
+// The route cannot see an order's persisted mode, so it lets header totals count
+// as an edit; each command re-applies `documentEditSchema` once it can. An empty
+// update must not reach a quote: execution reverts a `sent` quote to draft.
 export const documentUpdateSchema = documentUpdateFieldsSchema.refine(
   (input) =>
     carriesDocumentEdit(input) ||
@@ -2071,10 +2070,6 @@ async function loadOrderSnapshot(
         ? cloneJson(order.totalsSnapshot)
         : null,
       lineItemCount: order.lineItemCount,
-      // The mode travels with the amounts, never separately: an undo that
-      // restored the caller's figures while leaving the mode at 'computed' would
-      // leave a document whose header contradicts its own advertised ownership,
-      // and the next sibling write would recalculate it away silently.
       totalsMode: order.totalsMode ?? "computed",
     },
     lines: lines.map((line) => ({
@@ -3192,10 +3187,8 @@ function convertLineCalculationToEntityInput(
   index: number,
 ) {
   const line = lineResult.line;
-  // `reconcileLinePersistedTotals` raises a zero net to one derived from gross,
-  // which is right for a line core owns and wrong for one the caller asserted:
-  // under `external` a zero net beside a positive gross is the caller's figure to
-  // state, not core's to correct.
+  // The gross-derived net repair heals core-owned rows; on an external line a
+  // zero net is the caller's figure, not a defect to correct.
   const persistTotals = isExternalAmountsMode(line.amountsMode)
     ? <T,>(payload: T): T => payload
     : reconcileLinePersistedTotals;
@@ -3237,9 +3230,7 @@ function convertLineCalculationToEntityInput(
     taxAmount: toNumericString(lineResult.taxAmount) ?? "0",
     totalNetAmount: toNumericString(lineResult.netAmount) ?? "0",
     totalGrossAmount: toNumericString(lineResult.grossAmount) ?? "0",
-    // Order lines only. This converter is shared with `applyQuoteLineResults`,
-    // and `sales_quote_lines` has no `amounts_mode` column — a quote line's
-    // snapshot never carries the field, so the key is simply absent there.
+    // Conditional: this converter also serves quote lines, which have no column.
     ...(line.amountsMode ? { amountsMode: line.amountsMode } : {}),
     configuration: line.configuration ? cloneJson(line.configuration) : null,
     promotionCode: line.promotionCode ?? null,
@@ -3735,12 +3726,6 @@ function applyOrderTotals(
   order.lineItemCount = lineCount;
 }
 
-/**
- * Rewrite the persisted amounts of an order's lines from a fresh calculation and
- * move them to `amountsMode`. Used when a document crosses between `computed`
- * and `external`, where the line rows and the header must move together or the
- * § 1 invariant breaks.
- */
 function applyOrderLineAmountsFromCalculation(params: {
   em: EntityManager;
   lines: SalesOrderLine[];
@@ -4134,13 +4119,8 @@ function applyOrderSnapshot(
     ? cloneJson(snapshot.totalsSnapshot)
     : null;
   order.lineItemCount = snapshot.lineItemCount;
-  // Restored with the amounts above, never separately. The header the snapshot
-  // carries is only meaningful under the mode that produced it: put it back on a
-  // document that has since flipped to `computed` and the badge, the line editor
-  // and the next sibling write all disagree with the figures now stored — and
-  // that write recalculates them away. The line rows restore `amountsMode` on
-  // the same principle, so leaving this out is also what makes a mixed document,
-  // which § 1's invariant forbids.
+  // Restored with the amounts, never separately: the lines come back with their
+  // own mode, so omitting this leaves a mixed document the next write recomputes.
   order.totalsMode = snapshot.totalsMode ?? "computed";
 }
 
@@ -4656,8 +4636,7 @@ async function restoreOrderGraph(
       discountPercent: line.discountPercent,
       taxRate: line.taxRate,
       taxAmount: line.taxAmount,
-      // An external line's net is the caller's assertion, so the gross-derived
-      // repair that heals core-owned rows must not run on it.
+      // Not repaired from gross: an external line's net is the caller's figure.
       totalNetAmount: isExternalAmountsMode(line.amountsMode)
         ? line.totalNetAmount
         : toNumericString(
@@ -5648,8 +5627,6 @@ const updateOrderCommand: CommandHandler<
     await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
     const previousStatus = normalizeStatusValue(order.status);
     let statusChangeNote: SalesNote | null = null;
-    // Under `external`, a request carrying neither a mode change nor a header
-    // leaves the persisted header alone rather than rebuilding it from lines.
     const suppliedTotals: Partial<SalesDocumentAmounts> | null = isExternalAmountsMode(
       nextTotalsMode,
     )
@@ -5768,9 +5745,6 @@ const updateOrderCommand: CommandHandler<
               calculation,
               adjustmentInputs,
             );
-            // Leaving `external` is lossy and deliberate: every line is flipped
-            // together with the header (the invariant forbids a mixed document)
-            // and both are rewritten from unit price, quantity and discount.
             if (totalsModeChanged) {
               applyOrderLineAmountsFromCalculation({
                 em,
@@ -6118,10 +6092,6 @@ const createOrderCommand: CommandHandler<
         )
       : null;
 
-    // `external` is declared once on the document and inherited by every line:
-    // the invariant is that an order is external iff all of its lines are, and a
-    // document that declares one thing while a line declares another is refused
-    // rather than stored as a header nobody owns.
     const totalsMode: SalesAmountsMode = parsed.totalsMode ?? "computed";
     await assertUniformAmountsMode(totalsMode, normalizedLineInputs);
     const modedLineInputs = normalizedLineInputs.map((line) => ({
@@ -8307,9 +8277,6 @@ const orderAdjustmentUpsertCommand: CommandHandler<
       throw notFound("Sales order not found");
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
-    // An adjustment exists only to change money. On a document whose money the
-    // caller owns there is nothing for it to change, and generating one would put
-    // a charge in the itemized breakdown that no total reflects.
     if (isExternalAmountsMode(order.totalsMode ?? "computed")) await refuseOnExternalOrder();
     if (parsed.scope === "line") {
       throw new CrudHttpError(400, {

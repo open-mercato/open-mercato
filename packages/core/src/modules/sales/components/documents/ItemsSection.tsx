@@ -146,12 +146,7 @@ type SalesDocumentItemsSectionProps = {
   tenantId?: string | null;
   onActionChange?: (action: SectionAction | null) => void;
   onItemsChange?: (items: SalesLineRecord[]) => void;
-  /**
-   * The document's amounts belong to an external system, so core will reject a
-   * line write that does not restate the document header — which this section
-   * has no way to do. Editing is disabled rather than offered into a guaranteed
-   * 4xx; the amounts stay visible, they are just not the operator's to change.
-   */
+  /** Disables line writes: on an external order they would all be rejected. */
   amountsReadOnly?: boolean;
 };
 

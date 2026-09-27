@@ -28,11 +28,7 @@ interface SalesLineRouteConfig {
   parentFkColumn: string
   parentFkParam: string
   createSchema: z.ZodObject<z.ZodRawShape>
-  /**
-   * Extra fields the route's write payloads accept on top of `createSchema`.
-   * Order lines use it for the `orderTotals` group an external order requires on
-   * every line write; quote lines have none.
-   */
+  /** Extra fields accepted by the write payloads on top of `createSchema`. */
   writeExtensionShape?: z.ZodRawShape
   features: { view: string; manage: string }
   commandPrefix: string
@@ -208,7 +204,6 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
         ]
         const returnedQuantity = F['returned_quantity']
         if (typeof returnedQuantity === 'string') fields.push(returnedQuantity)
-        // Order lines only — quote lines are always computed and have no column.
         const amountsMode = F['amounts_mode']
         if (typeof amountsMode === 'string') fields.push(amountsMode)
         return fields

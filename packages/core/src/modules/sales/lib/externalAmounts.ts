@@ -18,11 +18,8 @@ export const REQUIRED_EXTERNAL_HEADER_FIELDS: readonly ExternalHeaderField[] =
   EXTERNAL_HEADER_FIELDS.filter((field) => !OPTIONAL_EXTERNAL_HEADER_FIELDS.has(field))
 
 /**
- * Line fields a caller MUST supply on an external line. `unitPriceNet` is on the
- * list because the derived `discount_amount` consumes it: an external line that
- * omitted it would derive `0 × quantity − totalNetAmount`, persisting the line's
- * whole net as a discount and rendering as one — indistinguishable from a
- * legitimate markup.
+ * `unitPriceNet` is required because the derived discount consumes it: without it
+ * the line's whole net would be stored as a discount, indistinguishable from a markup.
  */
 export const REQUIRED_EXTERNAL_LINE_FIELDS = [
   'unitPriceNet',
@@ -44,7 +41,6 @@ function toFiniteNumber(value: unknown): number | null {
 
 type HeaderSource = Record<string, unknown> | null | undefined
 
-/** Header fields present on a payload, whether or not the set is complete. */
 export function collectSuppliedHeaderTotals(source: HeaderSource): Partial<SalesDocumentAmounts> {
   const totals: Partial<SalesDocumentAmounts> = {}
   if (!source) return totals
@@ -70,10 +66,7 @@ function missingLineFields(line: Record<string, unknown>): ExternalLineField[] {
   return REQUIRED_EXTERNAL_LINE_FIELDS.filter((field) => toFiniteNumber(line[field]) === null)
 }
 
-/**
- * A supplied header the engine can honour verbatim, with the optional fields
- * defaulted. Callers pass this as `CalculateDocumentOptions.suppliedTotals`.
- */
+/** The supplied header with its optional fields defaulted to zero. */
 export function buildExternalHeaderTotals(source: HeaderSource): Partial<SalesDocumentAmounts> {
   const supplied = collectSuppliedHeaderTotals(source)
   for (const field of OPTIONAL_EXTERNAL_HEADER_FIELDS) {
@@ -111,11 +104,6 @@ export async function assertExternalLineComplete(
   })
 }
 
-/**
- * The § 1 invariant: an order is external iff every one of its lines is. A mixed
- * document has a header nobody owns, so it is refused at the command layer
- * rather than stored and reasoned about later.
- */
 export async function assertUniformAmountsMode(
   documentMode: SalesAmountsMode,
   lines: Array<{ amountsMode?: SalesAmountsMode | null }>,
@@ -158,7 +146,6 @@ export async function requireOrderTotalsForExternalWrite(source: HeaderSource): 
   await assertExternalHeaderComplete(source)
 }
 
-/** The persisted header of an order, as the engine's supplied-totals shape. */
 export function readPersistedHeaderTotals(
   order: Record<ExternalHeaderField, string | number | null | undefined>,
 ): Partial<SalesDocumentAmounts> {
@@ -169,22 +156,13 @@ export function readPersistedHeaderTotals(
   return totals
 }
 
-/**
- * Quotes are always `computed` — a quote is core composing a proposal, not
- * mirroring a book of record. The field reaches the quote schemas because the
- * line pricing shape is shared, so it is rejected rather than silently ignored:
- * silently ignoring an accepted field is the failure this whole mode exists to
- * stop repeating.
- */
 export async function assertAmountsModeUnsupportedOnQuote(
   payloads:
     | Array<{ amountsMode?: SalesAmountsMode | null; totalsMode?: SalesAmountsMode | null }>
     | null
     | undefined,
 ): Promise<void> {
-  // Both names, because both reach a quote command: `amountsMode` through the
-  // shared line pricing shape, `totalsMode` through the shared document update
-  // schema.
+  // Both reach quote commands, through schemas shared with orders.
   if (!payloads?.some((payload) => payload.amountsMode != null || payload.totalsMode != null)) return
   const { translate } = await resolveTranslations()
   throw new CrudHttpError(400, {

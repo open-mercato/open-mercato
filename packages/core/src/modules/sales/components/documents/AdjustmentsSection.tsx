@@ -41,12 +41,7 @@ type SalesDocumentAdjustmentsSectionProps = {
   tenantId?: string | null
   onActionChange?: (action: SectionAction | null) => void
   onRowsChange?: (rows: AdjustmentRow[]) => void
-  /**
-   * The document's amounts belong to an external system, so core refuses every
-   * adjustment write on it (409): an adjustment exists only to change money, and
-   * on this document the money is not core's to change. The rows stay readable;
-   * the actions that would always fail are not offered.
-   */
+  /** Withdraws adjustment writes: on an external order they would all be refused. */
   amountsReadOnly?: boolean
 }
 

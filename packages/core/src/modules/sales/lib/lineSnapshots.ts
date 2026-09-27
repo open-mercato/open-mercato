@@ -82,9 +82,8 @@ function mapPersistedLine(line: SalesOrderLine | SalesQuoteLine): SalesPersisted
 export function mapOrderLineEntityToSnapshot(line: SalesOrderLine): SalesPersistedLineSnapshot {
   return {
     ...mapPersistedLine(line),
-    // Read back so a recalculation triggered by a sibling line's write leaves an
-    // external line's amounts alone. An authority signal, not an origin flag like
-    // the two above; quote lines have no such column, hence order-only.
+    // Who owns the amounts, not where they came from — never conflate it with the
+    // origin flags above. Order-only: quote lines have no such column.
     amountsMode: line.amountsMode ?? 'computed',
   }
 }

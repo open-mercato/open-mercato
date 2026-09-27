@@ -11,9 +11,6 @@ const route = makeSalesLineRoute({
   parentFkColumn: "order_id",
   parentFkParam: "orderId",
   createSchema: orderLineCreateSchema,
-  // An external order will not have its header rebuilt from the lines, so every
-  // line write against one must restate it (`sales.orders.lines.*` rejects the
-  // request otherwise).
   writeExtensionShape: { orderTotals: orderHeaderTotalsSchema.optional() },
   features: { view: "sales.orders.view", manage: "sales.orders.manage" },
   commandPrefix: "sales.orders.lines",
