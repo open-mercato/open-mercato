@@ -718,7 +718,14 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
               </div>
 
               <div className="flex items-start gap-3 rounded-lg border border-status-warning-border bg-status-warning-bg px-3 py-3">
-                <Switch checked={reconcileMode} onCheckedChange={handleReconcileModeChange} />
+                <Switch
+                  checked={reconcileMode}
+                  onCheckedChange={handleReconcileModeChange}
+                  aria-label={t(
+                    'wms.backend.inventory.import.upload.reconcileMode',
+                    'Reconcile to exact balance',
+                  )}
+                />
                 <div className="space-y-0.5">
                   <p className="text-sm font-semibold text-status-warning-text">
                     {t('wms.backend.inventory.import.upload.reconcileMode', 'Reconcile to exact balance')}
@@ -811,7 +818,14 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
               </div>
 
               <div className="flex items-start gap-3 rounded-lg border px-3 py-3">
-                <Switch checked={skipDuplicates} onCheckedChange={setSkipDuplicates} />
+                <Switch
+                  checked={skipDuplicates}
+                  onCheckedChange={setSkipDuplicates}
+                  aria-label={t(
+                    'wms.backend.inventory.import.review.skipDuplicates',
+                    'Skip duplicates',
+                  )}
+                />
                 <div className="space-y-0.5">
                   <p className="text-sm font-semibold text-foreground">
                     {t('wms.backend.inventory.import.review.skipDuplicates', 'Skip duplicates')}
