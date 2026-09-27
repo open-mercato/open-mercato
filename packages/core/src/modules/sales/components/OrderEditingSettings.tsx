@@ -183,7 +183,12 @@ export function OrderEditingSettings() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <Switch checked={allowedAny} onCheckedChange={() => toggleAny(kind)} disabled={loading || saving} />
+              <Switch
+                checked={allowedAny}
+                onCheckedChange={() => toggleAny(kind)}
+                disabled={loading || saving}
+                aria-label={`${label}: ${translations.allowAny}`}
+              />
               <span className="text-xs text-muted-foreground">{translations.allowAny}</span>
             </div>
           </div>
