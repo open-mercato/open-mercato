@@ -137,3 +137,55 @@ describe('resolveSafeInlineUrlHref', () => {
     },
   )
 })
+
+describe('InlineTextEditor server validation errors are localized (#5925)', () => {
+  const EMAIL_INVALID_KEY = 'customers.people.form.primaryEmail.invalid'
+  const TRANSLATED = 'Wprowadź prawidłowy adres e-mail'
+
+  function renderEditorRejectingWith(err: unknown, dict: Record<string, string>) {
+    renderWithProviders(
+      <InlineTextEditor
+        label="Primary email"
+        value="ada@example.com"
+        emptyLabel="No email"
+        type="email"
+        onSave={jest.fn().mockRejectedValue(err)}
+      />,
+      { dict },
+    )
+
+    const buttons = document.querySelectorAll('[data-slot="button"]')
+    const editToggle = buttons[buttons.length - 1] as HTMLButtonElement
+    act(() => {
+      fireEvent.click(editToggle)
+    })
+  }
+
+  async function submit() {
+    const saveButton = screen.getByRole('button', { name: /Save|⌘/ })
+    await act(async () => {
+      fireEvent.click(saveButton)
+    })
+  }
+
+  it('renders the translation for a server field error carrying an i18n key', async () => {
+    const err = Object.assign(new Error('Invalid input'), {
+      details: [{ path: ['primaryEmail'], message: EMAIL_INVALID_KEY }],
+    })
+    renderEditorRejectingWith(err, { [EMAIL_INVALID_KEY]: TRANSLATED })
+    await submit()
+
+    expect(screen.getByText(TRANSLATED)).toBeInTheDocument()
+    expect(screen.queryByText(EMAIL_INVALID_KEY)).not.toBeInTheDocument()
+  })
+
+  it('leaves an already-localized server message untouched', async () => {
+    const err = Object.assign(new Error('Invalid input'), {
+      details: [{ path: ['primaryEmail'], message: 'Enter a valid email address' }],
+    })
+    renderEditorRejectingWith(err, { [EMAIL_INVALID_KEY]: TRANSLATED })
+    await submit()
+
+    expect(screen.getByText('Enter a valid email address')).toBeInTheDocument()
+  })
+})

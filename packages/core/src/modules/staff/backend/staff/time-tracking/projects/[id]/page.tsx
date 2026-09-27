@@ -1,7 +1,9 @@
 "use client"
 
 import * as React from 'react'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -329,6 +331,53 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   )
   const activeCount = employees.filter((emp) => emp.status === 'active').length
   const inactiveCount = employees.length - activeCount
+
+  const recentEntriesColumns = React.useMemo<ColumnDef<ProjectEntryRow>[]>(
+    () => [
+      {
+        accessorKey: 'date',
+        header: t('staff.timesheets.projects.detail.colDate', 'Date'),
+        cell: ({ row }) => <span className="whitespace-nowrap">{row.original.date}</span>,
+      },
+      {
+        id: 'person',
+        header: t('staff.timesheets.projects.detail.colWho', 'Person'),
+        cell: ({ row }) => (
+          <span className="whitespace-nowrap">
+            {employeeNameById.get(row.original.staffMemberId ?? '') ?? '—'}
+          </span>
+        ),
+      },
+      {
+        accessorKey: 'description',
+        header: t('staff.timesheets.projects.detail.colDescription', 'Description'),
+        cell: ({ row }) => (
+          <span className="flex items-center gap-2">
+            <span className="truncate">{row.original.description ?? '—'}</span>
+            {row.original.isBillable ? null : (
+              <Badge variant="neutral">
+                {t('staff.timesheets.projects.detail.nonBillableTag', 'non-billable')}
+              </Badge>
+            )}
+          </span>
+        ),
+      },
+      {
+        id: 'hours',
+        header: () => (
+          <span className="block text-right">
+            {t('staff.timesheets.projects.detail.colHours', 'Hours')}
+          </span>
+        ),
+        cell: ({ row }) => (
+          <span className="block whitespace-nowrap text-right font-mono tabular-nums">
+            {formatHours(row.original.durationMinutes)}
+          </span>
+        ),
+      },
+    ],
+    [employeeNameById, t],
+  )
 
   // --- Load project ---
   React.useEffect(() => {
@@ -1131,49 +1180,12 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
                   </p>
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-lg border">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b bg-muted/40 text-left">
-                        <th className="px-3 py-2 font-medium text-muted-foreground">
-                          {t('staff.timesheets.projects.detail.colDate', 'Date')}
-                        </th>
-                        <th className="px-3 py-2 font-medium text-muted-foreground">
-                          {t('staff.timesheets.projects.detail.colWho', 'Person')}
-                        </th>
-                        <th className="px-3 py-2 font-medium text-muted-foreground">
-                          {t('staff.timesheets.projects.detail.colDescription', 'Description')}
-                        </th>
-                        <th className="px-3 py-2 text-right font-medium text-muted-foreground">
-                          {t('staff.timesheets.projects.detail.colHours', 'Hours')}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {recentEntries.map((entry) => (
-                        <tr key={entry.id} className="border-b last:border-b-0">
-                          <td className="whitespace-nowrap px-3 py-2">{entry.date}</td>
-                          <td className="whitespace-nowrap px-3 py-2">
-                            {employeeNameById.get(entry.staffMemberId ?? '') ?? '—'}
-                          </td>
-                          <td className="px-3 py-2">
-                            <span className="flex items-center gap-2">
-                              <span className="truncate">{entry.description ?? '—'}</span>
-                              {entry.isBillable ? null : (
-                                <Badge variant="neutral">
-                                  {t('staff.timesheets.projects.detail.nonBillableTag', 'non-billable')}
-                                </Badge>
-                              )}
-                            </span>
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums">
-                            {formatHours(entry.durationMinutes)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable<ProjectEntryRow>
+                  extensionTableId={extensionPoints.hosts.projectDetailTimeEntriesTable.tableId}
+                  disableRowClick
+                  columns={recentEntriesColumns}
+                  data={recentEntries}
+                />
               )}
             </TabsContent>
 
