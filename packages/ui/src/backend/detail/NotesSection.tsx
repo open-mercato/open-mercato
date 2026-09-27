@@ -985,6 +985,10 @@ function NotesSectionImpl<C = unknown>({
   const saveAppearanceShortcutLabel = label('appearance.saveShortcut', 'Save appearance ⌘⏎ / Ctrl+Enter')
   const composerSubmitLabel = addNoteShortcutLabel
   const appearanceDialogPrimaryLabel = saveAppearanceShortcutLabel
+  const markdownToggleLabel = label(
+    isMarkdownActive ? 'markdownDisable' : 'markdownEnable',
+    isMarkdownActive ? 'Switch to plain text' : 'Switch to Markdown',
+  )
   const appearanceDialogSavingLabel =
     appearanceDialogState?.mode === 'edit'
       ? label('appearance.saving')
@@ -1031,9 +1035,11 @@ function NotesSectionImpl<C = unknown>({
                     size="icon"
                     onClick={handleMarkdownToggle}
                     aria-pressed={isMarkdownActive}
+                    aria-label={markdownToggleLabel}
+                    title={markdownToggleLabel}
                     disabled={isSubmitting || isLoading}
                   >
-                    <FileCode className="h-4 w-4" />
+                    <FileCode className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 ) : null}
                 <Button
@@ -1232,8 +1238,10 @@ function NotesSectionImpl<C = unknown>({
                       variant="ghost"
                       size="icon"
                       onClick={() => setContentEditor({ id: note.id, value: note.body })}
+                      aria-label={label('edit', 'Edit note')}
+                      title={label('edit', 'Edit note')}
                     >
-                      <Pencil className="h-4 w-4" />
+                      <Pencil className="h-4 w-4" aria-hidden="true" />
                     </Button>
                     {showAppearanceControls ? (
                       <Button
@@ -1251,8 +1259,10 @@ function NotesSectionImpl<C = unknown>({
                           })
                         }}
                         disabled={appearanceDialogSaving && editingAppearanceNoteId === note.id}
+                        aria-label={label('appearance.edit', 'Edit appearance')}
+                        title={label('appearance.edit', 'Edit appearance')}
                       >
-                        {isAppearanceSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Palette className="h-4 w-4" />}
+                        {isAppearanceSaving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Palette className="h-4 w-4" aria-hidden="true" />}
                       </Button>
                     ) : null}
                     <Button
@@ -1264,13 +1274,15 @@ function NotesSectionImpl<C = unknown>({
                         void handleDeleteNote(note)
                       }}
                       disabled={deletingNoteId === note.id}
+                      aria-label={label('deleteAction', 'Delete note')}
+                      title={label('deleteAction', 'Delete note')}
                     >
                       {deletingNoteId === note.id ? (
                         <span className="relative flex h-4 w-4 items-center justify-center text-destructive">
                           <span className="absolute h-4 w-4 animate-spin rounded-full border border-destructive border-t-transparent" />
                         </span>
                       ) : (
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
                       )}
                     </Button>
                   </div>
@@ -1308,10 +1320,12 @@ function NotesSectionImpl<C = unknown>({
                           size="icon"
                           onClick={handleMarkdownToggle}
                           aria-pressed={isMarkdownActive}
+                          aria-label={markdownToggleLabel}
+                          title={markdownToggleLabel}
                           className={isMarkdownActive ? 'text-primary' : undefined}
                           disabled={contentSavingId === note.id}
                         >
-                          <FileCode className="h-4 w-4" />
+                          <FileCode className="h-4 w-4" aria-hidden="true" />
                         </Button>
                       ) : null}
                       <Button
