@@ -91,4 +91,29 @@ describe('PipelineSettings', () => {
       expect.objectContaining({ method: 'POST' }),
     )
   })
+
+
+  it('identifies every stage action by the stage label', async () => {
+    readApiResultOrThrowMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/customers/pipeline-stages')) {
+        return {
+          items: [
+            { id: 'stage-1', pipelineId: 'pipeline-1', label: 'Qualified', order: 10 },
+            { id: 'stage-2', pipelineId: 'pipeline-1', label: 'Won', order: 20 },
+          ],
+        }
+      }
+      return { items: [{ id: 'pipeline-1', name: 'Sales Pipeline', isDefault: true }] }
+    })
+
+    renderWithProviders(<PipelineSettings />)
+
+    const pipelineLabel = await screen.findByText('Sales Pipeline')
+    fireEvent.click(pipelineLabel.closest('button') as HTMLButtonElement)
+
+    expect(await screen.findByRole('button', { name: 'Move up — Qualified' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Move down — Won' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Edit — Qualified' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete — Won' })).toBeInTheDocument()
+  })
 })
