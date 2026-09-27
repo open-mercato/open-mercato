@@ -1,4 +1,4 @@
-"use client" 
+"use client"
 
 import * as React from 'react'
 import { Upload, Image as ImageIcon, Trash2, Star } from 'lucide-react'
@@ -212,10 +212,18 @@ export function ProductMediaManager({
                       size="icon"
                       className={cn('h-7 w-7', isDefault ? '' : 'opacity-80')}
                       onClick={() => onDefaultChange(item.id)}
+                      aria-label={t('catalog.products.media.setDefault', 'Set default preview: {fileName}', { fileName: item.fileName })}
                     >
                       <Star className="h-3.5 w-3.5" />
                     </Button>
-                    <Button type="button" variant="secondary" size="icon" className="h-7 w-7" onClick={() => void handleRemove(item.id)}>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => void handleRemove(item.id)}
+                      aria-label={t('catalog.products.media.remove', 'Remove media: {fileName}', { fileName: item.fileName })}
+                    >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   </div>
