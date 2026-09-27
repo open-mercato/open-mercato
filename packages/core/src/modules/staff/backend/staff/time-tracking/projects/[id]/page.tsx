@@ -823,7 +823,11 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex min-w-0 items-start gap-3">
               <Button variant="ghost" size="icon" asChild>
-                <Link href={BACK_HREF}>
+                <Link
+                  href={BACK_HREF}
+                  aria-label={t('staff.timesheets.projects.actions.backToList', 'Back to projects')}
+                  title={t('staff.timesheets.projects.actions.backToList', 'Back to projects')}
+                >
                   <ArrowLeft className="h-4 w-4" aria-hidden />
                 </Link>
               </Button>
