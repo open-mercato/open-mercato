@@ -504,8 +504,9 @@ export function PriceKindSettings() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>{t('catalog.priceKinds.form.displayModeLabel', 'Display mode')}</Label>
+                <Label id="price-kind-display-mode-label">{t('catalog.priceKinds.form.displayModeLabel', 'Display mode')}</Label>
                 <RadioGroup
+                  aria-labelledby="price-kind-display-mode-label"
                   className="grid gap-2 md:grid-cols-2"
                   name="displayMode"
                   value={form.displayMode}
@@ -525,8 +526,9 @@ export function PriceKindSettings() {
                 </RadioGroup>
               </div>
               <div className="space-y-2">
-                <Label>{t('catalog.priceKinds.form.currencyLabel', 'Currency (optional)')}</Label>
+                <Label htmlFor="price-kind-currency">{t('catalog.priceKinds.form.currencyLabel', 'Currency (optional)')}</Label>
                 <DictionaryEntrySelect
+                  id="price-kind-currency"
                   value={form.currencyCode || undefined}
                   onChange={(value) => setForm((prev) => ({ ...prev, currencyCode: value ?? '' }))}
                   fetchOptions={currencyOptionsLoader}
