@@ -1,8 +1,8 @@
 # Sales `external` amounts — an opt-in mode for documents priced elsewhere
 
-Status: **implemented** in [#6092](https://github.com/open-mercato/open-mercato/pull/6092), which answers
-§ Decision Requested the way this document recommends. The answers and what each one costs if overruled
-are in § Decision Record; § Implementation Plan records what landed.
+Status: **proposed — decision requested.** [#6092](https://github.com/open-mercato/open-mercato/pull/6092)
+implements it on the answers § Decision Requested recommends; those answers become decisions only when a
+maintainer records them in § Decision Record, which stays empty until then.
 Scope: `packages/core/src/modules/sales/{lib/calculations.ts,lib/types.ts,lib/lineSnapshots.ts,commands/documents.ts,commands/returns.ts,data/entities.ts,data/validators.ts,components/documents/*}`
 Related: [#5644](https://github.com/open-mercato/open-mercato/issues/5644), [#5707](https://github.com/open-mercato/open-mercato/pull/5707),
 [#5853](https://github.com/open-mercato/open-mercato/issues/5853), [#3757](https://github.com/open-mercato/open-mercato/issues/3757),
@@ -236,6 +236,13 @@ derived `discountAmount`**, which the `numeric(18,4)` column holds without a sch
 constrains a *caller input*, and under `external` the caller does not supply `discountAmount` — it is
 derived from the net it did supply. The `min: 0` bound therefore stays exactly as it is. This is a
 deliberate improvement on the obvious fix of relaxing the bound, which would also loosen the computed path.
+
+**The header's `discountTotalAmount` stays non-negative, and that is not an inconsistency.** Under
+`external` the header is the caller's figure, not a rollup of the lines (§ 4), so it is under no obligation
+to equal the sum of the derived line discounts — any more than the header net must equal the sum of line
+nets. A signed line discount is core's *derivation* of the gap to `unitPrice × quantity`; the header
+discount is the source's *statement*. A source that adds an amount at document level states it as
+`surchargeTotalAmount`, which is what that field is for, rather than as a negative discount.
 
 **`discountAmount` stays derived** rather than becoming a fourth supplied field, so an items table that
 renders both a percent and an amount keeps agreeing with itself, and the document rollup keeps summing a
@@ -1081,66 +1088,37 @@ works for a cart, which is not yet an order and can sit un-orderable. An order t
 has no equivalent state, and a header total that is transiently absent on a legally filed document is worse
 than either alternative above. Hence reject-or-preserve, not invalidate.
 
+### What #6092 assumes, pending an answer
+
+[#6092](https://github.com/open-mercato/open-mercato/pull/6092) implements the recommended answer to each
+question so the choice can be judged in code rather than in prose. None of these is a decision: each names
+the one place it is isolated to, so a different answer is a bounded change rather than a redesign.
+
+1. **Persisted columns — yes.** Quotes stay excluded, per § 1. *Isolated to:* the two `@Property`
+   declarations in `data/entities.ts` and one migration.
+2. **Returns record without rewriting the header — yes.** The answer most likely to be overruled; § Risks
+   already rates the operator surprise **high**. *Isolated to:* `applyOrderTotalsUnlessExternal` in
+   `commands/returns.ts`, one function guarding all three call sites, plus its test. Refusing instead is a
+   change to that function and to criterion 10.
+3. **Registries keep running, amounts re-applied afterwards — yes.** *Isolated to:* the two re-application
+   blocks in `calculateLine` / `calculateDocument`. Suppressing instead means skipping the registry loops
+   for external rows and rewriting criterion 3a, which asserts the opposite property.
+
+
 ## Decision Record
 
-Answered in [#6092](https://github.com/open-mercato/open-mercato/pull/6092), each the way § Decision
-Requested recommends. Each subsection names the single place the answer is isolated to, so overruling one
-is a bounded change rather than a redesign.
-
-### 1. Persisted columns — **yes** (§ Decision Requested q1)
-
-Two defaulted `text` columns, no backfill. The alternative is § Alternatives C, a request-only flag, which
-the Odoo precedent shows does not survive a sibling write — so rejecting this is effectively rejecting the
-feature, as that table says. The migration-cost objection that sank the discount contract's variant D does
-not carry across: one default-valued column per table, no value rewritten, no backfill.
-
-**Scope sub-question:** quotes stay excluded, as § 1 proposes. Adding them later is one more column pair
-and one more schema field; the type and engine changes are already shared.
-
-**Isolated to:** the two `@Property` declarations in `data/entities.ts` and one migration.
-
-### 2. Returns record without rewriting the header — **yes** (§ Decision Requested q2)
-
-A return against an external order creates its return document, its line-level `return` adjustments and its
-`returned_quantity` update, and leaves the header alone. The alternative — refusing returns outright — is
-the cleaner rule and blocks a real workflow, and a header total refused or transiently absent on a legally
-filed document is worse than one that stays as filed while the source system issues its own credit.
-
-This is the answer most likely to be overruled, and § Risks already rates operator surprise here **high**.
-
-**Isolated to:** `applyOrderTotalsUnlessExternal` in `commands/returns.ts`, one function guarding the three
-call sites, plus its test. Reversing it to "refuse" is a change to that function and criterion 10.
-
-### 3. Both registries keep running, amounts re-applied afterwards — **yes** (§ Decision Requested q3)
-
-The extension points stay live and a hook simply cannot move a caller-asserted amount. Suppressing the
-registries outright, as commercetools does for cart discounts, reaches the same numbers more honestly but
-also stops a hook doing *non-amount* work — attaching an adjustment, writing metadata — from running at
-all, and `BACKWARD_COMPATIBILITY.md` treats these hooks as a stable extension point.
-
-The residual risk § Risks names is accepted and unchanged: a hook's work on an external row's amounts is
-silently discarded rather than silently applied. That is the safer of the two silences, not the absence of
-one.
-
-**Isolated to:** the two re-application blocks in `calculateLine` / `calculateDocument`. Switching to
-suppression means skipping the registry loops for external rows instead, and rewriting criterion 3a, which
-currently asserts the opposite property.
-
-### 4. Two questions the second review round left to the implementation
-
-Neither is in § Decision Requested; both are recorded here because the code had to answer them.
-
-- **A line that omits `amountsMode` inherits the document's mode** rather than defaulting to `computed` or
-  being rejected — see § API Contracts for the reasoning. Pinned by its own test.
-- **Criterion 1 names both fields**, since after the rename a document-level caller sends `totalsMode`.
+*Empty pending maintainer sign-off. Record decisions here in the style of
+[`2026-08-07-sales-line-discount-amount-contract.md`](2026-08-07-sales-line-discount-amount-contract.md)
+§ Decision Record: one subsection per decision, stating what was decided, what follows from it for the
+implementation, and what it leaves open.*
 
 ## Implementation Plan
 
-Landed in [#6092](https://github.com/open-mercato/open-mercato/pull/6092) as one change rather than phases:
-the mode is inert until a caller opts in, so there is no intermediate state worth shipping separately and
-no migration ordering to stage.
+[#6092](https://github.com/open-mercato/open-mercato/pull/6092) implements this as one change rather than
+phases: the mode is inert until a caller opts in, so there is no intermediate state worth shipping
+separately and no migration ordering to stage.
 
-| area | what landed |
+| area | what it contains |
 |---|---|
 | data | two defaulted `text` columns, one migration, the ORM snapshot; `[OptionalProps]` on both entities so existing `em.create(...)` callers keep compiling |
 | engine | the external branch in `buildBaseLineResult`, the supplied header in `buildBaseDocumentResult`, both re-application stages, `totalsMode` on the totals-hook params, and the provider calculator standing down |
@@ -1159,9 +1137,11 @@ positional rather than gated.
 
 ### 2026-09-14 (implementation)
 
-- **Implemented in [#6092](https://github.com/open-mercato/open-mercato/pull/6092).** Status moves from
-  *proposed* to *implemented*; § Decision Record is filled with the three answers and what each costs if
-  overruled, and § Implementation Plan replaces its "deliberately absent" note with what landed.
+- **Implementation opened as [#6092](https://github.com/open-mercato/open-mercato/pull/6092).** Status
+  stays *proposed — decision requested* and § Decision Record stays empty: an implementation PR cannot
+  ratify a maintainer decision. The answers #6092 assumes are listed under § Decision Requested, each with
+  the one place it is isolated to, and § Implementation Plan replaces its "deliberately absent" note with
+  what the PR contains.
 - **§ API Contracts now says what an omitted line `amountsMode` does** — it inherits the document's mode,
   rather than defaulting to `computed` (which would build the mixed document § 1 forbids) or being a 4xx
   (which would make every line write restate a mode the caller already declared). This was the open
