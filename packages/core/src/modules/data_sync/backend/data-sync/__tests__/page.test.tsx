@@ -109,6 +109,21 @@ describe('data sync dashboard start controls', () => {
     expect(screen.getByText(BATCH_SIZE_LABEL)).toBeInTheDocument()
   })
 
+  it('names the dashboard selectors and text inputs', async () => {
+    mockOptions({}, ['orders.feed'])
+
+    renderWithProviders(<SyncRunsDashboardPage />)
+
+    await waitForSelectedEntity('Orders.Feed')
+    expect(screen.getByRole('combobox', { name: 'Integration' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Entity type' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Direction' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Schedule type' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Batch size' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Interval' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Timezone' })).toBeInTheDocument()
+  })
+
   it('renders both controls for an entity type the adapter did not restrict', async () => {
     mockOptions({ 'orders.backfill': { fullSync: false, batchSize: true } }, ['orders.feed', 'orders.backfill'])
 
