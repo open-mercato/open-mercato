@@ -448,6 +448,7 @@ export function DictionariesManager() {
                         variant="ghost"
                         disabled={dictionary.isInherited}
                         title={dictionary.isInherited ? inheritedManageMessage : undefined}
+                        aria-label={`${t('ui.actions.edit', 'Edit')} — ${dictionary.name}`}
                         onClick={(event) => {
                           event.stopPropagation()
                           openEditDialog(dictionary)
@@ -461,6 +462,7 @@ export function DictionariesManager() {
                         variant="ghost"
                         disabled={dictionary.isInherited || deleting === dictionary.id}
                         title={dictionary.isInherited ? inheritedManageMessage : undefined}
+                        aria-label={`${t('ui.actions.delete', 'Delete')} — ${dictionary.name}`}
                         onClick={(event) => {
                           event.stopPropagation()
                           handleDelete(dictionary)
