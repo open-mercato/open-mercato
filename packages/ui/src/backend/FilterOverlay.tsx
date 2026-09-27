@@ -234,6 +234,7 @@ export function FilterOverlay({
                   {f.type === 'text' && (
                     <input
                       type="text"
+                      aria-label={f.label}
                       className="w-full h-11 rounded border px-2 text-sm"
                       placeholder={f.placeholder}
                       value={values[f.id] ?? ''}
@@ -303,7 +304,7 @@ export function FilterOverlay({
                           value={values[f.id] || undefined}
                           onValueChange={(next) => setValue(f.id, next || undefined)}
                         >
-                          <SelectTrigger size="lg">
+                          <SelectTrigger size="lg" aria-label={f.label}>
                             <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')} />
                           </SelectTrigger>
                           <SelectContent>
@@ -400,7 +401,7 @@ export function FilterOverlay({
                           else if (next === 'false') setValue(f.id, false)
                         }}
                       >
-                        <SelectTrigger size="lg">
+                        <SelectTrigger size="lg" aria-label={f.label}>
                           <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')} />
                         </SelectTrigger>
                         <SelectContent>
