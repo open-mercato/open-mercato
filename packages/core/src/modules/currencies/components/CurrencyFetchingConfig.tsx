@@ -339,6 +339,7 @@ export default function CurrencyFetchingConfig() {
               </div>
 
               <Switch
+                aria-label={getProviderName(config.provider)}
                 checked={config.isEnabled}
                 onCheckedChange={() => toggleEnabled(config.id, config.isEnabled, config.updatedAt)}
               />
