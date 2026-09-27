@@ -51,10 +51,10 @@ function typeSequentially(input: HTMLInputElement, text: string) {
   }
 }
 
-function renderSection() {
+function renderSection(overrides: Partial<typeof BASE_INITIAL_VALUES> = {}) {
   const setValue = jest.fn()
   function Harness() {
-    const [values, setValues] = React.useState(BASE_INITIAL_VALUES)
+    const [values, setValues] = React.useState({ ...BASE_INITIAL_VALUES, ...overrides })
     const handleSetValue = (id: string, next: unknown) => {
       setValue(id, next)
       setValues((current) => ({ ...current, [id]: next }))
@@ -97,5 +97,19 @@ describe('ProductUomSection locale decimal separator (issue #5828)', () => {
     expect(input.value).toBe('1')
     typeSequentially(input, '.25')
     expect(input.value).toBe('1.25')
+  })
+
+  it('identifies conversion row actions by unit code', () => {
+    renderSection({
+      unitConversions: [
+        { id: 'case', unitCode: 'case', toBaseFactor: '12', sortOrder: '10', isActive: true },
+        { id: 'box', unitCode: 'box', toBaseFactor: '6', sortOrder: '20', isActive: true },
+      ],
+    })
+
+    expect(screen.getByRole('button', { name: 'Move conversion down — case' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Move conversion up — box' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove conversion — case' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove conversion — box' })).toBeInTheDocument()
   })
 })
