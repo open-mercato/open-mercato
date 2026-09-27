@@ -126,6 +126,9 @@ describe('DictionariesManager', () => {
     await waitFor(() => expect(screen.getByTestId('entries-editor')).toHaveTextContent('dict-colors'))
     expect(listFetchCount()).toBe(1)
 
+    expect(screen.getByRole('button', { name: 'Edit — Colors' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete — Sizes' })).toBeInTheDocument()
+
     // Selecting another dictionary must update the editor without refetching the list.
     fireEvent.click(screen.getByText('Sizes'))
     await waitFor(() => expect(screen.getByTestId('entries-editor')).toHaveTextContent('dict-sizes'))
