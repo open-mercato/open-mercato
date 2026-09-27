@@ -305,6 +305,7 @@ type AttachmentFilesFieldProps = CrudCustomFieldRenderProps & {
     choose: string
     uploading: string
     empty: string
+    remove: (name: string) => string
   }
   uploading: boolean
 }
@@ -390,6 +391,8 @@ function AttachmentFilesField({
               size="icon"
               onClick={() => removeFile(candidate.name, candidate.size)}
               disabled={disabled || uploading}
+              aria-label={labels.remove(candidate.name)}
+              title={labels.remove(candidate.name)}
             >
               <Trash2 className="h-4 w-4" />
             </Button>
@@ -509,6 +512,7 @@ function AttachmentUploadForm({ partitions, availableTags, onUploaded, onCancel 
               choose: t('attachments.library.upload.choose', 'Choose files'),
               uploading: t('attachments.library.upload.submitting', 'Uploading…'),
               empty: t('attachments.library.upload.noFiles', 'No files selected yet.'),
+              remove: (name) => t('attachments.library.upload.removeFile', 'Remove {{name}}', { name }),
             }}
           />
         ),
