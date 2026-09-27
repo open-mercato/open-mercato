@@ -553,7 +553,14 @@ export function DefinitionTriggersEditor({
                         className="flex-1 min-w-0"
                       />
                     )}
-                    <Button size="icon" variant="ghost" className="shrink-0" onClick={() => removeFilterCondition(index)}>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="shrink-0"
+                      onClick={() => removeFilterCondition(index)}
+                      aria-label={t('workflows.triggers.removeCondition', 'Remove filter condition')}
+                      title={t('workflows.triggers.removeCondition', 'Remove filter condition')}
+                    >
                       <X className="w-4 h-4" />
                     </Button>
                   </div>
@@ -609,7 +616,14 @@ export function DefinitionTriggersEditor({
                     placeholder={t('workflows.triggers.placeholders.defaultValue', 'default')}
                     className="w-full sm:w-24"
                   />
-                  <Button size="icon" variant="ghost" className="shrink-0" onClick={() => removeContextMapping(index)}>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="shrink-0"
+                    onClick={() => removeContextMapping(index)}
+                    aria-label={t('workflows.triggers.removeMapping', 'Remove context mapping')}
+                    title={t('workflows.triggers.removeMapping', 'Remove context mapping')}
+                  >
                     <X className="w-4 h-4" />
                   </Button>
                 </div>
