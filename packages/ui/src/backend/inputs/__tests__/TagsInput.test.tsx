@@ -5,6 +5,12 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import { TagsInput } from '../TagsInput'
 
 describe('TagsInput', () => {
+  it('exposes the provided accessible name on its text input', () => {
+    renderWithProviders(<TagsInput value={[]} onChange={jest.fn()} inputAriaLabel="Workflow tags" />)
+
+    expect(screen.getByRole('textbox', { name: 'Workflow tags' })).toBeInTheDocument()
+  })
+
   it('does not add the typed query when selecting a suggestion', () => {
     function Harness() {
       const [value, setValue] = React.useState<string[]>([])
