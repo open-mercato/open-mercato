@@ -528,7 +528,7 @@ Full behavioural spec: [Offline Field Mode](./2026-09-22-offline-field-mode.md).
   - AC: the outbox persists across an app reload or relaunch while still offline (offline spec §10).
 
 - **US-F5** — As a buyer reconnecting, I want my queued items replayed into my real cart and to see exactly what happened to each one, so that I am never surprised by a price or availability difference between what I saw offline and what actually landed.
-  - AC: the reconciliation screen classifies every intent as accepted, quantity-adjusted, or rejected, reusing the cart's existing `priceChanges`/`warnings` surfaces and merge-summary visual pattern rather than a second screen (offline spec §2.3, §3.3, §5.8).
+  - AC: the reconciliation screen classifies every intent as accepted, quantity-adjusted, or rejected, reusing the cart's existing `priceChanges`/`warnings` surfaces and merge-summary visual pattern rather than a second screen (offline spec §2.3, §3.3; this spec's §5.8).
   - AC: a queued item whose product was already in the cart is shown as added to the existing quantity, not as a changed quantity (offline spec §9 R4).
   - AC: queued items are replayed only for the buyer who queued them; another buyer logging in on the same device sees a held queue they cannot read or replay (offline spec §3.3).
   - AC: replay re-resolves the buyer's context online before mutating the cart, so a stale or wrong-identity pack can change what the buyer previewed but never what they purchase (offline spec §9 R5).
