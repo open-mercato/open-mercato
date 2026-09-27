@@ -11,9 +11,28 @@ function toNumeric(value: unknown): number {
   return 0
 }
 
-function mapPersistedLine(line: SalesOrderLine | SalesQuoteLine): SalesLineSnapshot {
+/**
+ * A snapshot rebuilt from a persisted row, plus the columns the calculation
+ * engine never reads but the write paths must carry back to the row.
+ *
+ * The line upsert, line delete and adjustment write paths all rebuild *every*
+ * line of the document from these snapshots and then `Object.assign` the result
+ * onto the existing entities. Anything the mapper drops is therefore not merely
+ * absent from the calculation — it is written back as `null` over the stored
+ * value of lines the caller never touched (#5911).
+ */
+export type SalesPersistedLineSnapshot = SalesLineSnapshot & {
+  statusEntryId: string | null
+  catalogSnapshot: Record<string, unknown> | null
+  promotionSnapshot: Record<string, unknown> | null
+}
+
+function mapPersistedLine(line: SalesOrderLine | SalesQuoteLine): SalesPersistedLineSnapshot {
   return {
     id: line.id,
+    statusEntryId: line.statusEntryId ?? null,
+    catalogSnapshot: line.catalogSnapshot ? cloneJson(line.catalogSnapshot) : null,
+    promotionSnapshot: line.promotionSnapshot ? cloneJson(line.promotionSnapshot) : null,
     lineNumber: line.lineNumber,
     kind: line.kind,
     productId: line.productId ?? null,
@@ -60,19 +79,17 @@ function mapPersistedLine(line: SalesOrderLine | SalesQuoteLine): SalesLineSnaps
  * two files used to carry byte-identical copies, and that duplication is why
  * the return flows kept the discount defect after the order flows were fixed.
  */
-export function mapOrderLineEntityToSnapshot(line: SalesOrderLine): SalesLineSnapshot {
+export function mapOrderLineEntityToSnapshot(line: SalesOrderLine): SalesPersistedLineSnapshot {
   return {
     ...mapPersistedLine(line),
-    // `amounts_mode` is an order-line column and answers a different question
-    // from the two origin flags above: not *where* these amounts came from, but
-    // *who owns them*. Reading it back here is what makes every rehydration
-    // self-describing, so a recalculation triggered by a sibling line's write
-    // knows this line's amounts are the caller's and returns them untouched.
+    // Read back so a recalculation triggered by a sibling line's write leaves an
+    // external line's amounts alone. An authority signal, not an origin flag like
+    // the two above; quote lines have no such column, hence order-only.
     amountsMode: line.amountsMode ?? 'computed',
   }
 }
 
-export function mapQuoteLineEntityToSnapshot(line: SalesQuoteLine): SalesLineSnapshot {
+export function mapQuoteLineEntityToSnapshot(line: SalesQuoteLine): SalesPersistedLineSnapshot {
   return mapPersistedLine(line)
 }
 

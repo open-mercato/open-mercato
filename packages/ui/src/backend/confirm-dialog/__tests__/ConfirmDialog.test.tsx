@@ -75,8 +75,8 @@ describe('ConfirmDialog', () => {
     )
 
     const classNames = screen.getByRole('button', { name: 'Delete' }).className.split(/\s+/)
-    expect(classNames).toContain('bg-destructive')
-    expect(classNames).toContain('text-white')
+    expect(classNames).toContain('bg-status-error-solid')
+    expect(classNames).toContain('text-status-error-solid-foreground')
   })
 
   it('keeps the default confirmation on the primary variant', () => {
@@ -93,7 +93,7 @@ describe('ConfirmDialog', () => {
 
     const classNames = screen.getByRole('button', { name: 'Publish' }).className.split(/\s+/)
     expect(classNames).toContain('bg-primary')
-    expect(classNames).not.toContain('bg-destructive')
+    expect(classNames).not.toContain('bg-status-error-solid')
   })
 
   it('closes only the confirmation that owns an Escape event', () => {

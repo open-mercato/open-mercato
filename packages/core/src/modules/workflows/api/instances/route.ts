@@ -8,6 +8,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { raw } from '@mikro-orm/core'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -17,6 +19,7 @@ import {
   startWorkflowInputSchema,
   type StartWorkflowApiInput,
   workflowInstanceStatusSchema,
+  workflowRunOutcomeSchema,
 } from '../../data/validators'
 import {
   workflowInstanceResponseSchema,
@@ -25,6 +28,10 @@ import {
 } from '../openapi'
 import * as workflowExecutor from '../../lib/workflow-executor'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { findWorkflowDefinition } from '../../lib/find-definition'
+import { isComponentKind } from '../../lib/component-guard'
+import { buildStartedAtRange } from '../../lib/instance-date-filter'
+import { isWorkflowRunOutcome } from '../../lib/run-outcome'
 
 const logger = createLogger('workflows')
 
@@ -62,11 +69,27 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const workflowId = searchParams.get('workflowId')
     const status = searchParams.get('status')
+    const outcome = searchParams.get('outcome')
     const correlationKey = searchParams.get('correlationKey')
     const entityType = searchParams.get('entityType')
     const entityId = searchParams.get('entityId')
+    const parentInstanceId = searchParams.get('parentInstanceId')
+    const hasParent = parseBooleanToken(searchParams.get('hasParent'))
+    const attention = parseBooleanToken(searchParams.get('attention'))
+    const dryRun = parseBooleanToken(searchParams.get('dryRun'))
     const limit = parseInt(searchParams.get('limit') || '50')
     const offset = parseInt(searchParams.get('offset') || '0')
+
+    // Spec 8.3 run-list date filter. An unparseable bound is a 400, never a
+    // dropped predicate — a query built from an Invalid Date answers nothing
+    // while looking like it answered something.
+    const startedAtRange = buildStartedAtRange(
+      searchParams.get('startedFrom'),
+      searchParams.get('startedTo')
+    )
+    if (!startedAtRange.ok) {
+      return NextResponse.json({ error: startedAtRange.error }, { status: 400 })
+    }
 
     // Build where clause with tenant scoping
     const where: any = {
@@ -88,8 +111,38 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Outcome (the run's VERDICT) filters independently of `status` — the two
+    // answer different questions and a caller narrowing by one must not have
+    // the other narrowed for them. An unrecognised value is a 400 rather than a
+    // dropped predicate: a filter that silently matches everything is the exact
+    // invisible-omission failure this column exists to remove.
+    if (outcome) {
+      const requested = outcome.split(',').map((value) => value.trim()).filter(Boolean)
+      const invalid = requested.filter((value) => !isWorkflowRunOutcome(value))
+      if (invalid.length > 0) {
+        return NextResponse.json(
+          { error: `Unknown outcome: ${invalid.join(', ')}` },
+          { status: 400 }
+        )
+      }
+      if (requested.length === 1) {
+        where.outcome = requested[0]
+      } else if (requested.length > 1) {
+        where.outcome = { $in: requested }
+      }
+    }
+
     if (correlationKey) {
       where.correlationKey = correlationKey
+    }
+
+    // Simulations are excluded from the run list by DEFAULT (spec section 8.2:
+    // "excludes the instance from KPIs"). A caller that wants them asks for
+    // them with `dryRun=true`; `dryRun=false` is the same as omitting it.
+    where.isDryRun = dryRun === true
+
+    if (startedAtRange.range) {
+      where.startedAt = startedAtRange.range
     }
 
     // For JSONB metadata filtering, use $contains with explicit key-value pairs
@@ -106,6 +159,34 @@ export async function GET(request: NextRequest) {
           metadata: { $contains: { entityId: entityId } }
         })
       }
+    }
+
+    // Parent/sub-workflow filtering. The parent linkage is stored in
+    // metadata.labels.parentInstanceId (set by the SUB_WORKFLOW step handler).
+    // - parentInstanceId: return only the direct children of that parent
+    //   (JSONB containment; works for equality).
+    // - hasParent=false: return only top-level/standalone instances, and
+    //   hasParent=true only children. Absence of a key cannot be expressed via
+    //   $contains, so use a JSON-path predicate (null = IS NULL).
+    if (parentInstanceId) {
+      where.$and = where.$and || []
+      where.$and.push({
+        metadata: { $contains: { labels: { parentInstanceId } } },
+      })
+    } else if (hasParent !== null) {
+      where.$and = where.$and || []
+      // Unqualified column reference is unambiguous here — the instance list
+      // query is single-table (tenant/org scope adds predicates, not joins).
+      const parentIdPath = raw(`(metadata #>> '{labels,parentInstanceId}')`)
+      where.$and.push({ [parentIdPath]: hasParent ? { $ne: null } : null })
+    }
+
+    // Failure-queue park filter (spec 5.9): instances parked by a `failureQueue`
+    // error directive carry an engine-owned metadata.attention marker.
+    if (attention !== null) {
+      where.$and = where.$and || []
+      const attentionPath = raw(`(metadata #>> '{attention,reason}')`)
+      where.$and.push({ [attentionPath]: attention ? { $ne: null } : null })
     }
 
     const [instances, total] = await em.findAndCount(
@@ -196,10 +277,46 @@ export async function POST(request: NextRequest) {
 
     const input: StartWorkflowApiInput = validation.data
 
+    // Dry run (spec section 8.2) is the definition-author's test loop, not a
+    // way to start instances, so it carries its own grant on top of
+    // `instances.create` — the same feature the per-node Test step uses.
+    if (input.dryRun || input.stepThrough) {
+      const canTestRun = await rbacService.userHasAllFeatures(
+        auth.sub,
+        ['workflows.definitions.test_run'],
+        { tenantId, organizationId }
+      )
+      if (!canTestRun) {
+        return NextResponse.json(
+          { error: 'Insufficient permissions' },
+          { status: 403 }
+        )
+      }
+    }
+
+    // Reject standalone start of a reusable component. Components have no
+    // trigger and may only be invoked as a SUB_WORKFLOW; this guard lives on
+    // the manual-start path only, so sub-workflow invocation is unaffected.
+    const startDefinition = await findWorkflowDefinition(em, {
+      workflowId: input.workflowId,
+      version: input.version,
+      tenantId,
+      organizationId,
+    })
+    if (startDefinition && isComponentKind(startDefinition.kind)) {
+      return NextResponse.json(
+        { error: 'This workflow is a reusable component and cannot be started standalone; invoke it from a SUB_WORKFLOW step.' },
+        { status: 400 }
+      )
+    }
+
     // Server-authoritative actor; do not trust client-supplied metadata.initiatedBy.
+    // The step-through marker is engine-owned for the same reason: it is set
+    // ONLY from the feature-gated flag above, never from client metadata.
     const metadata = {
       ...input.metadata,
       initiatedBy: auth.sub,
+      ...(input.stepThrough ? { stepThrough: { enabled: true as const, releaseStepId: null } } : {}),
     }
 
     // Start workflow
@@ -209,12 +326,16 @@ export async function POST(request: NextRequest) {
       initialContext: input.initialContext || {},
       correlationKey: input.correlationKey,
       metadata,
+      isDryRun: input.dryRun === true,
       tenantId,
       organizationId,
     })
 
-    // Execute workflow in background (non-blocking for demo visibility)
-    // This allows the frontend to see step-by-step progress via polling
+    // Advance the workflow asynchronously after responding (non-blocking, so the
+    // frontend can poll step-by-step progress). This is a fire-and-forget task in
+    // this process — NOT a durable queue job — so it does not survive a process
+    // restart; the executor durably marks the instance FAILED on error, and the
+    // async-activity worker / retry endpoint resume any instance left mid-flight.
     setImmediate(async () => {
       try {
         // Create new container and EM for background execution
@@ -235,7 +356,7 @@ export async function POST(request: NextRequest) {
           execution: {
             status: instance.status,
             currentStep: instance.currentStepId,
-            message: 'Workflow execution started in background',
+            message: 'Workflow execution started',
           },
         },
         message: 'Workflow started successfully',
@@ -293,9 +414,15 @@ export const openApi = {
       query: z.object({
         workflowId: z.string().optional(),
         status: workflowInstanceStatusSchema.optional(),
+        outcome: workflowRunOutcomeSchema.optional().describe('Filter by the run VERDICT, independently of status. Comma-separated for several (e.g. partial_failure,failure). An unknown value is a 400.'),
         correlationKey: z.string().optional(),
         entityType: z.string().optional(),
         entityId: z.string().optional(),
+        parentInstanceId: z.string().optional().describe('Return only direct sub-workflow children of this parent instance.'),
+        hasParent: z.boolean().optional().describe('false = only top-level/standalone instances; true = only sub-workflow children. Ignored when parentInstanceId is set.'),
+        attention: z.boolean().optional().describe('true = only instances parked by a failure-queue error directive; false = only instances without an attention marker.'),
+        startedFrom: z.string().optional().describe('Lower bound on startedAt. A calendar day (YYYY-MM-DD) is taken from 00:00:00.000Z; a full ISO timestamp is taken verbatim.'),
+        startedTo: z.string().optional().describe('Upper bound on startedAt, inclusive. A calendar day (YYYY-MM-DD) covers the whole day up to 23:59:59.999Z.'),
         limit: z.number().int().positive().default(50).optional(),
         offset: z.number().int().min(0).default(0).optional(),
       }),
@@ -307,6 +434,11 @@ export const openApi = {
             data: z.array(workflowInstanceResponseSchema),
             pagination: paginationSchema,
           }),
+        },
+        {
+          status: 400,
+          description: 'Invalid date range or unknown outcome',
+          schema: z.object({ error: z.string() }),
         },
         {
           status: 401,

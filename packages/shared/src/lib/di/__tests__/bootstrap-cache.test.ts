@@ -210,7 +210,7 @@ describe('bootstrap once-guard cache', () => {
     expect(bootstrapMock).toHaveBeenCalledTimes(2)
   })
 
-  it('memoizes tenantEncryptionService.isEnabled() across requests', async () => {
+  it('registers the encryption subscriber per request without consulting tenantEncryptionService.isEnabled()', async () => {
     process.env.OM_BOOTSTRAP_CACHE = '1'
     let isEnabledCalls = 0
     bootstrapMock.mockImplementationOnce(async (container: any) => {
@@ -229,8 +229,64 @@ describe('bootstrap once-guard cache', () => {
     await createRequestContainer()
     await createRequestContainer()
     await createRequestContainer()
-    // Called once during the first bootstrap, then cached on globalThis.
-    expect(isEnabledCalls).toBe(1)
+    // The registration decision reads the static config toggle (memoized on
+    // globalThis), never the service's health-sensitive isEnabled() — see #5948.
+    expect(isEnabledCalls).toBe(0)
     expect(subscriberRegistered).toHaveBeenCalledTimes(3)
+  })
+
+  // Regression for issue #5948: `isEnabled()` is `config && kms.isHealthy()`, so
+  // memoizing it for the process lifetime pinned a transient Vault outage into a
+  // permanent "encryption off" verdict — the subscriber was never registered
+  // again on any later request, and every ORM write stayed plaintext until the
+  // process restarted.
+  it('keeps registering the encryption subscriber while the KMS is unhealthy', async () => {
+    process.env.OM_BOOTSTRAP_CACHE = '1'
+    bootstrapMock.mockImplementationOnce(async (container: any) => {
+      container.register({
+        cache: asValue({ __value: 'cache-value' }),
+        eventBus: asValue({ __value: 'event-bus-value' }),
+        // KMS is down for the whole run: isEnabled() never returns true.
+        tenantEncryptionService: asValue({ isEnabled: () => false }),
+      })
+    })
+    const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+    await createRequestContainer()
+    await createRequestContainer()
+
+    // Registration must not depend on live KMS health — the subscriber itself
+    // re-checks it per read/write, so it resumes encrypting on recovery.
+    expect(subscriberRegistered).toHaveBeenCalledTimes(2)
+  })
+
+  it('skips registration when the encryption service cannot report its enabled state', async () => {
+    process.env.OM_BOOTSTRAP_CACHE = '1'
+    bootstrapMock.mockImplementationOnce(async (container: any) => {
+      container.register({
+        cache: asValue({ __value: 'cache-value' }),
+        eventBus: asValue({ __value: 'event-bus-value' }),
+        // A DI override supplying a partial service: the subscriber would throw
+        // on every read/write calling isEnabled(), so it must not be registered.
+        tenantEncryptionService: asValue({ __value: 'no-isEnabled' }),
+      })
+    })
+    const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+    await createRequestContainer()
+    expect(subscriberRegistered).not.toHaveBeenCalled()
+  })
+
+  it('does not register the encryption subscriber when encryption is disabled by config', async () => {
+    process.env.OM_BOOTSTRAP_CACHE = '1'
+    const originalToggle = process.env.TENANT_DATA_ENCRYPTION
+    process.env.TENANT_DATA_ENCRYPTION = 'false'
+    try {
+      const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+      await createRequestContainer()
+      await createRequestContainer()
+      expect(subscriberRegistered).not.toHaveBeenCalled()
+    } finally {
+      if (originalToggle === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+      else process.env.TENANT_DATA_ENCRYPTION = originalToggle
+    }
   })
 })

@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/webhooks",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "license": "MIT",
   "description": "Webhooks module for Open Mercato — Standard Webhooks compliant outbound/inbound delivery",
   "type": "module",
@@ -70,6 +70,7 @@
     }
   },
   "dependencies": {
+    "@open-mercato/cache": "workspace:*",
     "@open-mercato/core": "workspace:*",
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/ui": "workspace:*",

@@ -1,10 +1,28 @@
-import { createModuleEvents } from '@open-mercato/shared/modules/events'
+import { createModuleEvents, type EventPayloadSchema } from '@open-mercato/shared/modules/events'
 
 /**
  * Customers Module Events
  *
  * Declares all events that can be emitted by the customers module.
  */
+
+/**
+ * Payload emitted by `commands/deals.ts` for deal closure lifecycle events
+ * (`customers.deal.won` / `customers.deal.lost`). Fields mirror the emit call
+ * exactly; nullable fields are marked optional.
+ */
+const dealClosurePayloadSchema: EventPayloadSchema = {
+  fields: [
+    { path: 'id', type: 'text' },
+    { path: 'tenantId', type: 'text' },
+    { path: 'organizationId', type: 'text' },
+    { path: 'ownerUserId', type: 'text', optional: true },
+    { path: 'title', type: 'text' },
+    { path: 'valueAmount', type: 'text', optional: true },
+    { path: 'valueCurrency', type: 'text', optional: true },
+  ],
+}
+
 const events = [
   // People
   { id: 'customers.person.created', label: 'Customer (Person) Created', entity: 'person', category: 'crud' },
@@ -20,8 +38,8 @@ const events = [
   { id: 'customers.deal.created', label: 'Deal Created', entity: 'deal', category: 'crud' },
   { id: 'customers.deal.updated', label: 'Deal Updated', entity: 'deal', category: 'crud' },
   { id: 'customers.deal.deleted', label: 'Deal Deleted', entity: 'deal', category: 'crud' },
-  { id: 'customers.deal.won', label: 'Deal Won', entity: 'deal', category: 'lifecycle' },
-  { id: 'customers.deal.lost', label: 'Deal Lost', entity: 'deal', category: 'lifecycle' },
+  { id: 'customers.deal.won', label: 'Deal Won', entity: 'deal', category: 'lifecycle', payloadSchema: dealClosurePayloadSchema },
+  { id: 'customers.deal.lost', label: 'Deal Lost', entity: 'deal', category: 'lifecycle', payloadSchema: dealClosurePayloadSchema },
 
   // Comments
   { id: 'customers.comment.created', label: 'Comment Created', entity: 'comment', category: 'crud' },

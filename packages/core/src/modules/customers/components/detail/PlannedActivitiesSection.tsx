@@ -7,6 +7,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import type { InteractionSummary } from './types'
+import { isSameDay } from '../../lib/localDay'
 
 const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   call: Phone,
@@ -245,7 +246,7 @@ function formatScheduledDate(isoString: string): string {
     const dateStr = date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
     const timeStr = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 
-    if (date.toDateString() === tomorrow.toDateString()) {
+    if (isSameDay(date, tomorrow)) {
       return `Tomorrow ${timeStr}`
     }
     return `${dayName}, ${dateStr} · ${timeStr}`

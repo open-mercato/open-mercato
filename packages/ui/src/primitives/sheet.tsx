@@ -19,6 +19,7 @@ const SheetOverlay = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Overlay
+    data-slot="sheet-overlay"
     className={cn(
       'fixed inset-x-0 bottom-0 top-[var(--topbar-height,0px)] z-overlay bg-black/40 backdrop-blur-sm',
       'data-[state=open]:animate-in data-[state=closed]:animate-out',
@@ -89,7 +90,12 @@ const SheetContent = React.forwardRef<
 >(({ side = 'right', className, children, hideClose = false, closeLabel = 'Close', ...props }, ref) => (
   <SheetPortal>
     <SheetOverlay />
-    <DialogPrimitive.Content ref={ref} className={cn(sheetVariants({ side }), className)} {...props}>
+    <DialogPrimitive.Content
+      ref={ref}
+      data-slot="sheet-content"
+      className={cn(sheetVariants({ side }), className)}
+      {...props}
+    >
       {children}
       {!hideClose ? (
         <DialogPrimitive.Close

@@ -12,16 +12,8 @@
     "reason": "single unpaginated fetch, client-side filter; total = rows.length"
   },
   {
-    "file": "packages/enterprise/src/modules/security/backend/security/enforcement/page.tsx",
-    "reason": "one fetch, client-side filter; total = filteredPolicies.length"
-  },
-  {
-    "file": "packages/enterprise/src/modules/security/backend/security/users/page.tsx",
-    "reason": "one fetch, client-side filter; total = filteredItems.length"
-  },
-  {
-    "file": "packages/search/src/modules/search/frontend/components/HybridSearchTable.tsx",
-    "reason": "pseudo-pagination over in-memory rows; totalPages fixed at 1"
+    "file": "packages/core/src/modules/warranty_claims/backend/warranty_claims/create/page.tsx",
+    "reason": "claim-line picker over a locally filtered array; totalPages = ceil(filteredRows.length / LINE_PAGE_SIZE), never a server total"
   },
   {
     "file": "packages/core/src/modules/wms/components/backend/WmsLocationDetailPage.tsx",
@@ -36,7 +28,19 @@
     "reason": "single pageSize=100 fetch, local slice; never reads a server total"
   },
   {
-    "file": "packages/core/src/modules/warranty_claims/backend/warranty_claims/create/page.tsx",
-    "reason": "claim-line picker over a locally filtered array; totalPages = ceil(filteredRows.length / LINE_PAGE_SIZE), never a server total"
+    "file": "packages/enterprise/src/modules/agent_orchestrator/backend/agents/page.tsx",
+    "reason": "one unpaginated fetch, client-side filter and slice; total = filteredRows.length"
+  },
+  {
+    "file": "packages/enterprise/src/modules/security/backend/security/enforcement/page.tsx",
+    "reason": "one fetch, client-side filter; total = filteredPolicies.length"
+  },
+  {
+    "file": "packages/enterprise/src/modules/security/backend/security/users/page.tsx",
+    "reason": "one fetch, client-side filter; total = filteredItems.length"
+  },
+  {
+    "file": "packages/search/src/modules/search/frontend/components/HybridSearchTable.tsx",
+    "reason": "pseudo-pagination over in-memory rows; totalPages fixed at 1"
   }
 ]

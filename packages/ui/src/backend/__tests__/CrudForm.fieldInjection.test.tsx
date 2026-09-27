@@ -20,7 +20,14 @@ jest.mock('../injection/InjectionSpot', () => ({
 }))
 jest.mock('../injection/useInjectionDataWidgets', () => ({
   __esModule: true,
-  useInjectionDataWidgets: () => ({ widgets: injectedFieldWidgets, isLoading: false, error: null }),
+  // `CrudForm` also calls this for its (unused-here) legacy-bridge spot, which
+  // resolves to the `__disabled__:fields` sentinel — keep that call empty so it
+  // does not double up on the fixture below.
+  useInjectionDataWidgets: (spotId: string) => ({
+    widgets: spotId.startsWith('__disabled__') ? [] : injectedFieldWidgets,
+    isLoading: false,
+    error: null,
+  }),
 }))
 
 import * as React from 'react'
