@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, waitFor, act } from '@testing-library/react'
+import { render, waitFor, act, screen } from '@testing-library/react'
 
 const mockApiCall = jest.fn()
 const dialogProps: Array<Record<string, unknown>> = []
@@ -159,4 +159,32 @@ describe('SalesShipmentsSection ghost popup regression (#1561)', () => {
     const lastRender = dialogProps[dialogProps.length - 1]
     expect(lastRender.open).toBe(false)
   }, 15000)
+
+  it('names the icon-only shipment actions', async () => {
+    mockApiCall.mockImplementation(async (url: string) => ({
+      ok: true,
+      result: {
+        items: url.startsWith('/api/sales/shipments?')
+          ? [{ id: 'shipment-1', shipment_number: 'SHP-001', status: 'draft', items: [] }]
+          : [],
+      },
+    }))
+
+    render(
+      <SalesShipmentsSection
+        orderId="order-1"
+        currencyCode="USD"
+        shippingAddressSnapshot={null}
+      />,
+    )
+
+    expect(await screen.findByRole('button', { name: 'Edit shipment' })).toHaveAttribute(
+      'title',
+      'Edit shipment',
+    )
+    expect(screen.getByRole('button', { name: 'Delete this shipment?' })).toHaveAttribute(
+      'title',
+      'Delete this shipment?',
+    )
+  })
 })
