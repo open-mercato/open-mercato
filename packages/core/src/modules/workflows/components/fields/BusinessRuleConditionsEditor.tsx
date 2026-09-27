@@ -260,6 +260,7 @@ export function BusinessRuleConditionsEditor({
                         size="sm"
                         disabled={disabled}
                         className="ml-2 flex-shrink-0"
+                        aria-label={t('workflows.fieldEditors.businessRuleConditions.removeCondition')}
                       >
                         <Trash2 className="size-4" />
                       </Button>
