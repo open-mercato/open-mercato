@@ -6,6 +6,7 @@ import { Command } from 'cmdk'
 import { Loader2, Send, Square } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Dialog, DialogContent, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { useCommandPaletteContext } from './CommandPaletteProvider'
@@ -41,6 +42,7 @@ function RoutingIndicator() {
 }
 
 export function CommandPalette() {
+  const t = useT()
   const {
     state,
     isThinking,
@@ -237,11 +239,13 @@ export function CommandPalette() {
                     variant={isStreaming ? 'destructive' : 'default'}
                     onClick={isStreaming ? stopExecution : undefined}
                     disabled={!isStreaming && !chatInput.trim()}
+                    aria-label={isStreaming ? t('ai_assistant.chat.cancel') : t('ai_assistant.chat.send')}
+                    title={isStreaming ? t('ai_assistant.chat.cancel') : t('ai_assistant.chat.send')}
                   >
                     {isStreaming ? (
-                      <Square className="h-4 w-4" />
+                      <Square className="h-4 w-4" aria-hidden="true" />
                     ) : (
-                      <Send className="h-4 w-4" />
+                      <Send className="h-4 w-4" aria-hidden="true" />
                     )}
                   </Button>
                 </div>
