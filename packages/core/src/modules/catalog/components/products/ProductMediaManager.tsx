@@ -1,4 +1,4 @@
-"use client"
+"use client" 
 
 import * as React from 'react'
 import { Upload, Image as ImageIcon, Trash2, Star } from 'lucide-react'
