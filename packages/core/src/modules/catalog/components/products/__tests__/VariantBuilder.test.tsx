@@ -39,11 +39,14 @@ jest.mock('@open-mercato/ui/primitives/switch', () => ({
   Switch: ({
     checked,
     onCheckedChange,
+    ...props
   }: {
     checked?: boolean
     onCheckedChange?: (next: boolean) => void
+    [key: string]: unknown
   }) => (
     <input
+      {...props}
       role="switch"
       type="checkbox"
       checked={!!checked}
@@ -131,6 +134,17 @@ function createOptionDefinitions(): OptionDefinition[] {
 }
 
 describe('VariantBasicsSection', () => {
+  it('exposes the visible basic-field and switch labels as accessible names', () => {
+    const setValue = jest.fn()
+    render(<VariantBasicsSection values={createDefaultValues()} setValue={setValue} errors={{}} />)
+
+    expect(screen.getByRole('textbox', { name: 'Name *' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'SKU' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Barcode' })).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Default variant' })).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Active' })).toBeInTheDocument()
+  })
+
   it('renders name input with placeholder', () => {
     const setValue = jest.fn()
     render(<VariantBasicsSection values={createDefaultValues()} setValue={setValue} errors={{}} />)
