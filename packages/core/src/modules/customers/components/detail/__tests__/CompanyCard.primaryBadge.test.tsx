@@ -2,12 +2,15 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
+import { screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CompanyCard, type EnrichedCompanyData } from '../CompanyCard'
 
 jest.mock('next/link', () => ({
   __esModule: true,
-  default: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
+  default: ({ children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
+    <a {...props}>{children}</a>
+  ),
 }))
 
 function makeCompanyData(overrides: Partial<EnrichedCompanyData> = {}): EnrichedCompanyData {
@@ -34,6 +37,17 @@ function makeCompanyData(overrides: Partial<EnrichedCompanyData> = {}): Enriched
 }
 
 describe('CompanyCard primary badge', () => {
+  it('renders one named link for opening the company', () => {
+    const { container } = renderWithProviders(
+      <CompanyCard data={makeCompanyData()} personName="Lena Ortiz" />,
+    )
+
+    const companyLink = screen.getByRole('link', { name: 'Open company' })
+    expect(companyLink).toHaveAttribute('href', '/backend/customers/companies-v2/company-1')
+    expect(companyLink.querySelector('button')).toBeNull()
+    expect(container.querySelector('a button')).toBeNull()
+  })
+
   it('renders the primary marker with semantic info tokens (no bg-primary class)', () => {
     const { container } = renderWithProviders(
       <CompanyCard data={makeCompanyData({ isPrimary: true })} personName="Lena Ortiz" />,
