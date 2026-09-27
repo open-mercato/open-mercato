@@ -523,6 +523,8 @@ export function SalesShipmentsSection({
                       size="icon"
                       className="h-8 w-8"
                       onClick={() => handleEdit(shipment)}
+                      aria-label={t('sales.documents.shipments.editTitle', 'Edit shipment')}
+                      title={t('sales.documents.shipments.editTitle', 'Edit shipment')}
                     >
                       <Pencil className="h-4 w-4" />
                     </Button>
@@ -531,6 +533,8 @@ export function SalesShipmentsSection({
                       size="icon"
                       className="h-8 w-8 text-destructive"
                       onClick={() => void handleDelete(shipment)}
+                      aria-label={t('sales.documents.shipments.confirmDelete', 'Delete this shipment?')}
+                      title={t('sales.documents.shipments.confirmDelete', 'Delete this shipment?')}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
