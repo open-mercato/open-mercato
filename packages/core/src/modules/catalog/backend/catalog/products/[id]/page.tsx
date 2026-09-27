@@ -2174,6 +2174,14 @@ function ProductOptionsSection({
                 size="icon"
                 type="button"
                 onClick={() => removeOption(option.id)}
+                aria-label={t(
+                  "catalog.products.create.optionsBuilder.remove",
+                  "Remove option",
+                )}
+                title={t(
+                  "catalog.products.create.optionsBuilder.remove",
+                  "Remove option",
+                )}
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
