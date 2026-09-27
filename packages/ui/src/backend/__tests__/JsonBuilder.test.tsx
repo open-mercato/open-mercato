@@ -47,6 +47,22 @@ function ControlledHarness({ initial = {} as any }: { initial?: any }) {
 }
 
 describe('JsonBuilder', () => {
+  it('names the JSON node disclosure control and exposes its state', () => {
+    renderWithProviders(<ControlledHarness initial={{ foo: 'bar' }} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Builder' }))
+
+    const collapseButton = screen.getByRole('button', { name: 'Collapse JSON node' })
+    expect(collapseButton).toHaveAttribute('aria-expanded', 'true')
+
+    fireEvent.click(collapseButton)
+
+    expect(screen.getByRole('button', { name: 'Expand JSON node' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    )
+  })
+
   it('lets the user type JSON in Raw mode without clobbering the text', () => {
     renderWithProviders(<ControlledHarness />)
 
