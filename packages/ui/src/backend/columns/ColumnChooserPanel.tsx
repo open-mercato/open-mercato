@@ -81,6 +81,7 @@ function SortableColumnItem({
       <Switch
         checked
         disabled={column.alwaysVisible}
+        aria-label={column.label}
         onCheckedChange={() => onToggle(column.key)}
         className="shrink-0 scale-90"
       />
@@ -241,6 +242,7 @@ export function ColumnChooserSection({
                         <Switch
                           checked={false}
                           disabled={col.alwaysVisible}
+                          aria-label={col.label}
                           onCheckedChange={() => onToggleColumn(col.key)}
                           onClick={(e) => e.stopPropagation()}
                           className="shrink-0 scale-90"
