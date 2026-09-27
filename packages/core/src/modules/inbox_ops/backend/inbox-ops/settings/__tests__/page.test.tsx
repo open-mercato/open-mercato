@@ -69,5 +69,6 @@ describe('InboxSettingsPage (issue #6232)', () => {
     await waitFor(() => {
       expect(screen.getByText('ops-abc@inbox.mercato.local')).toBeTruthy()
     })
+    expect(screen.getByRole('button', { name: 'Back to inbox' })).toBeTruthy()
   })
 })
