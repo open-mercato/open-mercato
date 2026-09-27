@@ -27,6 +27,9 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
   const t = useT()
   const operators = getComparisonOperators(t)
   const [useFieldComparison, setUseFieldComparison] = React.useState(!!condition.valueField)
+  const fieldId = React.useId()
+  const operatorId = React.useId()
+  const valueId = React.useId()
 
   const handleFieldChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     onChange({ ...condition, field: e.target.value })
@@ -77,10 +80,11 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
       <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2">
         {/* Field Input */}
         <div>
-          <label className="block text-xs font-medium text-foreground mb-1">
+          <label htmlFor={fieldId} className="block text-xs font-medium text-foreground mb-1">
             {t('business_rules.components.conditionRow.field')}
           </label>
           <Input
+            id={fieldId}
             type="text"
             value={condition.field || ''}
             onChange={handleFieldChange}
@@ -96,14 +100,14 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
 
         {/* Operator Select */}
         <div>
-          <label className="block text-xs font-medium text-foreground mb-1">
+          <label htmlFor={operatorId} className="block text-xs font-medium text-foreground mb-1">
             {t('business_rules.components.conditionRow.operator')}
           </label>
           <Select
             value={condition.operator || '='}
             onValueChange={(value) => handleOperatorChange({ target: { value } } as React.ChangeEvent<HTMLSelectElement>)}
           >
-            <SelectTrigger size="sm">
+            <SelectTrigger id={operatorId} size="sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -120,7 +124,7 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
         {operatorNeedsValue && (
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="block text-xs font-medium text-foreground">
+              <label htmlFor={valueId} className="block text-xs font-medium text-foreground">
                 {useFieldComparison
                   ? t('business_rules.components.conditionRow.compareToField')
                   : t('business_rules.components.conditionRow.value')
@@ -139,6 +143,7 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
               </button>
             </div>
             <Input
+              id={valueId}
               type="text"
               value={
                 useFieldComparison
