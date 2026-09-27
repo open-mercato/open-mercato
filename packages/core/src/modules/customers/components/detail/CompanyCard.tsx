@@ -274,11 +274,14 @@ export function CompanyCard({
               <Link2Off className="size-4" />
             </IconButton>
           ) : null}
-          <Link href={`/backend/customers/companies-v2/${data.companyId}`}>
-            <IconButton variant="ghost" size="sm" type="button">
+          <IconButton variant="ghost" size="sm" asChild>
+            <Link
+              href={`/backend/customers/companies-v2/${data.companyId}`}
+              aria-label={t('customers.search.link.openCompany', 'Open company')}
+            >
               <ExternalLink className="size-4" />
-            </IconButton>
-          </Link>
+            </Link>
+          </IconButton>
         </div>
       </div>
 
