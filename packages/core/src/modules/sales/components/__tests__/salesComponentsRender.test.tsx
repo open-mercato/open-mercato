@@ -473,7 +473,8 @@ describe('sales components', () => {
     })
     render(<OrderEditingSettings />)
     await waitFor(() => expect(mockApiCall).toHaveBeenCalled())
-    expect(screen.getAllByRole('switch').length).toBeGreaterThan(0)
+    expect(screen.getByRole('switch', { name: 'Edit customer allowed at: Allow at any status' })).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Edit addresses allowed at: Allow at any status' })).toBeInTheDocument()
   })
 
   it('renders sales channel offers panel', async () => {
