@@ -52,6 +52,7 @@ export function AppearanceSelector({
   className,
   previewLabel,
 }: AppearanceSelectorProps) {
+  const iconInputId = React.useId()
   const normalizedIcon = icon ?? ''
   const normalizedColor = color ?? '#000000'
   const hasAppearance = Boolean(icon) || Boolean(color)
@@ -147,10 +148,11 @@ export function AppearanceSelector({
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium">{labels.iconLabel}</label>
+        <label htmlFor={iconInputId} className="text-sm font-medium">{labels.iconLabel}</label>
         <div ref={pickerContainerRef} className="relative">
           <div className="flex gap-2">
             <Input
+              id={iconInputId}
               type="text"
               value={normalizedIcon}
               onChange={(event) => onIconChange(event.target.value)}
