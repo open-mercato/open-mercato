@@ -345,6 +345,8 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
                   variant="ghost"
                   size="icon"
                   onClick={() => openDialog(entry)}
+                  aria-label={t('dictionaries.config.entries.dialog.editTitle', 'Edit dictionary entry')}
+                  title={t('dictionaries.config.entries.dialog.editTitle', 'Edit dictionary entry')}
                 >
                   <Pencil className="h-4 w-4" />
                 </Button>
@@ -363,6 +365,8 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
                   size="icon"
                   onClick={() => handleDelete(entry)}
                   disabled={isDeleting}
+                  aria-label={t('dictionaries.config.entries.delete.confirm', 'Delete "{{value}}"?', { value: entry.label || entry.value })}
+                  title={t('dictionaries.config.entries.delete.confirm', 'Delete "{{value}}"?', { value: entry.label || entry.value })}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
