@@ -108,6 +108,21 @@ describe('AssignMembersDialog candidate loading', () => {
     })
     expect(screen.queryByText(labels.loadError)).toBeNull()
   })
+
+  it('exposes each candidate checkbox with the candidate name', async () => {
+    readApiResultOrThrowMock.mockResolvedValue({
+      items: [{ id: 'staff-1', display_name: 'Alex Chen', team: { name: 'Engineering' } }],
+    })
+    renderDialog()
+
+    await act(async () => {
+      jest.advanceTimersByTime(300)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox', { name: 'Alex Chen' })).toBeTruthy()
+    })
+  })
 })
 
 describe('AssignMembersDialog confirm button', () => {
