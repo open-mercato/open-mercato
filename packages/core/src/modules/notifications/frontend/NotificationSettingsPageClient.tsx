@@ -365,6 +365,7 @@ export function NotificationSettingsPageClient() {
             <Switch
               checked={settings.strategies.database.enabled}
               disabled
+              aria-label={t('notifications.settings.core.databaseLabel', 'In-app notifications')}
               onCheckedChange={(checked) => updateStrategy('database', { enabled: checked })}
             />
           </div>
@@ -384,6 +385,7 @@ export function NotificationSettingsPageClient() {
             </div>
             <Switch
               checked={settings.strategies.email.enabled}
+              aria-label={t('notifications.settings.email.enabledLabel', 'Enable email delivery')}
               onCheckedChange={(checked) => updateStrategy('email', { enabled: checked })}
             />
           </div>
