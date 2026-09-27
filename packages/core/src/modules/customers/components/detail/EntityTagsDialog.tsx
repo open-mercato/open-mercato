@@ -1155,8 +1155,9 @@ export function EntityTagsDialog({
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) onClose() }}>
       <DialogContent
-        className="flex max-h-[85vh] flex-col overflow-hidden border-border bg-background p-0 shadow-[0px_16px_40px_0px_rgba(0,0,0,0.14)] sm:max-w-[760px] sm:rounded-xl [&>[data-dialog-close]]:hidden"
+        className="flex max-h-[85vh] flex-col overflow-hidden border-border bg-background p-0 shadow-[0px_16px_40px_0px_rgba(0,0,0,0.14)] sm:max-w-[760px] sm:rounded-xl"
         aria-describedby={undefined}
+        dismissible={false}
       >
         <VisuallyHidden>
           <DialogTitle>{t('customers.personTags.title', 'Edit tags')}</DialogTitle>
@@ -1185,6 +1186,7 @@ export function EntityTagsDialog({
               variant="outline"
               size="xs"
               className="size-7 rounded-sm border-border bg-background"
+              aria-label={t('common.close', 'Close')}
               onClick={onClose}
             >
               <X className="size-3.5" />
