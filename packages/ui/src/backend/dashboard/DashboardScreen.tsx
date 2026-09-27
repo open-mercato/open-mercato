@@ -1,4 +1,5 @@
-"use client"
+aria-label={t('dashboard.widget.refresh')}
+  aria-label={`${t('dashboard.widget.refresh')}: ${title}`}aria-label={activeSettings ? t('dashboard.widget.closeSettings'"use client"
 
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
