@@ -89,6 +89,7 @@
   "communication_channels.profile.connect.imap": "Conectar IMAP",
   "communication_channels.profile.connect.imapTitle": "Conectar caixa de e-mail IMAP",
   "communication_channels.profile.connect.mailboxAlreadyConnected": "Esta caixa de e-mail já está conectada por outro provedor. Desconecte-a primeiro para reconectá-la com outro provedor.",
+  "communication_channels.profile.connect.menu": "Connect channel",
   "communication_channels.profile.connect.notConfigured": "Este provedor ainda não está configurado. Peça a um administrador para adicionar o ID e o segredo do cliente OAuth em Integrações antes de conectar uma caixa de e-mail.",
   "communication_channels.profile.connect.oauthFailed": "Não foi possível iniciar a conexão OAuth.",
   "communication_channels.profile.connect.save": "Conectar",

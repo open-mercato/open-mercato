@@ -77,7 +77,7 @@ describe('CrudForm injected group column placement (#4400)', () => {
 
     expect(container.querySelector('[data-crud-injection-region]')).toBeNull()
     const twoColumnGrid = Array.from(container.querySelectorAll('div')).find((node) =>
-      node.className.includes('7fr_3fr'),
+      node.className.includes('minmax(0,7fr)_minmax(0,3fr)'),
     )
     expect(twoColumnGrid).toBeUndefined()
   })

@@ -27,6 +27,7 @@
   "portal.invite.confirmPassword.placeholder": "••••••••",
   "portal.invite.description": "Crie sua conta no portal para aceitar este convite.",
   "portal.invite.displayName": "Nome de exibição",
+  "portal.invite.error.accountExists": "This email address already has a portal account. Sign in below instead of accepting the invitation.",
   "portal.invite.error.displayNameRequired": "O nome de exibição é obrigatório.",
   "portal.invite.error.generic": "Falha ao aceitar o convite. Tente novamente.",
   "portal.invite.error.invalidToken": "Convite inválido ou expirado.",
