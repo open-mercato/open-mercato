@@ -57,6 +57,10 @@ const dict = {
   'dashboard.action.customize': 'Customize',
   'dashboard.action.done': 'Done',
   'dashboard.addWidget': 'Add a widget',
+  'dashboard.widget.refresh': 'Refresh widget',
+  'dashboard.widget.editSettings': 'Edit widget settings',
+  'dashboard.widget.closeSettings': 'Close widget settings',
+  'dashboard.widget.remove': 'Remove widget',
 }
 
 const widgetResponse = {
@@ -140,6 +144,22 @@ describe('DashboardScreen', () => {
     expect(await screen.findByText('Widget Foo')).toBeInTheDocument()
     // Then wait for the widget module to load
     expect(await screen.findByText('Widget body')).toBeInTheDocument()
+  })
+
+  it('includes the widget title in widget action accessible names', async () => {
+    ;(apiCall as jest.Mock).mockResolvedValue(successfulApiCall({
+      ...widgetResponse,
+      widgets: [{ ...widgetResponse.widgets[0], supportsRefresh: true }],
+    }))
+
+    renderWithProviders(<DashboardScreen />, { dict })
+
+    expect(await screen.findByRole('button', { name: 'Refresh widget: Widget Foo' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Customize' }))
+
+    expect(screen.getByRole('button', { name: 'Edit widget settings: Widget Foo' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove widget: Widget Foo' })).toBeInTheDocument()
   })
 
   it('reloads the dashboard when the organization scope changes', async () => {
