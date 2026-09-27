@@ -9,7 +9,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { TransportService } from '../../lib/transportService'
 
 export const metadata = {
-  path: '/transport/dashboard-summary',
+  path: '/transport_operations/dashboard-summary',
   GET: { requireAuth: true, requireFeatures: ['transport.read'] },
 }
 

@@ -107,7 +107,7 @@ const orderSource = (overrides: Record<string, unknown> = {}) => ({
 })
 
 const makeRequest = (body: unknown) =>
-  new Request('http://localhost/api/saudi/zatca/invoice-preview', {
+  new Request('http://localhost/api/saudi_localization/zatca/invoice-preview', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),

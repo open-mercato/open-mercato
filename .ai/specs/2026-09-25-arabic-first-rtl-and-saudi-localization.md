@@ -297,8 +297,8 @@ persisted so there is no stale copy of hashed content.
 
 Phase 0 changes no HTTP API.
 
-Phase 3 (design intent): `POST /api/saudi/zatca/submit`,
-`GET /api/saudi/zatca/submissions`, `GET /api/saudi/vat-settings`, guarded by
+Phase 3 (design intent): `POST /api/saudi_localization/zatca/submit`,
+`GET /api/saudi_localization/zatca/submissions`, `GET /api/saudi_localization/vat-settings`, guarded by
 new ACL features (`saudi_localization.*`) and built on `makeCrudRoute`.
 
 ## Integration Coverage

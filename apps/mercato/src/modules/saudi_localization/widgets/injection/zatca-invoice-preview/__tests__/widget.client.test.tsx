@@ -76,7 +76,7 @@ describe('ZatcaInvoicePreviewWidget', () => {
     await preview()
 
     const [url, init] = apiCallMock.mock.calls[0]
-    expect(url).toBe('/api/saudi/zatca/invoice-preview')
+    expect(url).toBe('/api/saudi_localization/zatca/invoice-preview')
     expect(init.method).toBe('POST')
     expect(JSON.parse(init.body)).toEqual({ orderId: ORDER_ID })
   })

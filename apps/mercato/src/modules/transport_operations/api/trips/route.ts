@@ -21,7 +21,7 @@ const routeMetadata = {
   PUT: { requireAuth: true, requireFeatures: ['transport.write'] },
   DELETE: { requireAuth: true, requireFeatures: ['transport.write'] },
 }
-export const metadata = { path: '/transport/trips', ...routeMetadata }
+export const metadata = { path: '/transport_operations/trips', ...routeMetadata }
 
 const crud = makeCrudRoute({
   metadata: routeMetadata,

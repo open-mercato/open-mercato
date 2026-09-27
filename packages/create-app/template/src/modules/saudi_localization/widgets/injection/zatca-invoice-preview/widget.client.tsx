@@ -42,7 +42,7 @@ type PreviewState =
   | { kind: 'loaded'; result: PreviewResponse }
   | { kind: 'failed'; message: string }
 
-const ENDPOINT = '/api/saudi/zatca/invoice-preview'
+const ENDPOINT = '/api/saudi_localization/zatca/invoice-preview'
 
 function downloadXml(fileName: string, xml: string): void {
   const blob = new Blob([xml], { type: 'application/xml' })

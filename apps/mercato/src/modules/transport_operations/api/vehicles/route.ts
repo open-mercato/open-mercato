@@ -25,7 +25,7 @@ const routeMetadata = {
   DELETE: { requireAuth: true, requireFeatures: ['transport.write'] },
 }
 
-export const metadata = { path: '/transport/vehicles', ...routeMetadata }
+export const metadata = { path: '/transport_operations/vehicles', ...routeMetadata }
 
 const crud = makeCrudRoute({
   metadata: routeMetadata,

@@ -131,10 +131,10 @@ for the transitions that are not CRUD:
 
 | Route | Purpose |
 |---|---|
-| `POST /api/hr/payroll-runs/calculate` | builds payslips and lines for a run |
-| `POST /api/hr/payroll-runs/close` | consumes instalments, penalties and incentives; marks the run paid |
-| `POST /api/hr/loans/{settle,cancel}` | early settlement and cancellation under the rules above |
-| `POST /api/hr/approvals/*` | **already shipped**, reused unchanged |
+| `POST /api/hr_management/payroll-runs/calculate` | builds payslips and lines for a run |
+| `POST /api/hr_management/payroll-runs/close` | consumes instalments, penalties and incentives; marks the run paid |
+| `POST /api/hr_management/loans/{settle,cancel}` | early settlement and cancellation under the rules above |
+| `POST /api/hr_management/approvals/*` | **already shipped**, reused unchanged |
 
 Filters follow the existing convention (`employeeId`, `status`, period bounds) and every
 list projects `updated_at` as `updatedAt` so the UI can drive optimistic locking.

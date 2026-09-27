@@ -12,7 +12,7 @@ import type { FleetService } from '../../lib/fleetService'
 const logger = createLogger('fleet_management')
 
 export const metadata = {
-  path: '/fleet/dashboard-summary',
+  path: '/fleet_management/dashboard-summary',
   GET: { requireAuth: true, requireFeatures: ['fleet.read'] },
 }
 

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseScopedCommandInput, resolveCrudRecordId } from '@open-mercato/shared/lib/api/scoped'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { HrDepartment } from '../../data/entities'
@@ -28,7 +29,7 @@ const routeMetadata = {
   DELETE: { requireAuth: true, requireFeatures: ['hr.write'] },
 }
 
-export const metadata = { path: '/hr/departments', ...routeMetadata }
+export const metadata = { path: '/hr_management/departments', ...routeMetadata }
 
 const crud = makeCrudRoute({
   metadata: routeMetadata,
@@ -44,7 +45,7 @@ const crud = makeCrudRoute({
       ...(query.ids ? { id: { $in: query.ids.split(',').map((value) => value.trim()).filter(Boolean) } } : {}),
       ...(query.parentDepartmentId ? { parentDepartmentId: { $eq: query.parentDepartmentId } } : {}),
       ...(query.isActive === undefined ? {} : { isActive: { $eq: query.isActive } }),
-      ...(query.name ? { name: { $ilike: `%${query.name}%` } } : {}),
+      ...(query.name ? { name: { $ilike: `%${escapeLikePattern(query.name)}%` } } : {}),
     }),
     transformItem: (item) => ({ ...item, updatedAt: item.updated_at ?? null }),
   },

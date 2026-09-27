@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 144 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 145 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -49,6 +49,7 @@ This catalog indexes 144 focused lessons. Route the task first, then read only r
 - [Auto-discovery routing surprises only a running app catches](lessons/api-route-files-must-sit-directly-under-the-resource.md) — area:module-data,backend-ui,testing; module:documents,cli,ui; topic:auto-discovery,generated-files,error-states
 - [Local tooling gotchas: stale snapshots and ephemeral restarts](lessons/db-generate-re-emits-an-unrelated-stale-snapshot.md) — area:module-data,testing,debugging; module:cli,ai_assistant; topic:database-migrations,dev-runtime,regeneration
 - [`dbMigrate` must not write migration snapshots during initialize flows](lessons/dbmigrate-must-not-write-migration-snapshots-during.md) — area:module-data,architecture; module:cli,create_app; topic:generated-files,database-migrations,runtime-startup
+- [A route's metadata.path is the URL; the OpenAPI document is not](lessons/api-url-prefix-must-match-the-module-id.md) — area:module-data,testing,integration; module:hr_management,fleet_management,transport_operations,saudi_localization,cli,shared; topic:auto-discovery,generated-files,error-states
 - [A self-request needs data committed outside the caller's transaction](lessons/a-self-request-needs-data-committed-outside-the-callers.md) — area:module-data; module:auth,checkout,query_index; topic:data-integrity,query-index,workers
 - [Avoid identity-map stale snapshots in command logs](lessons/avoid-identity-map-stale-snapshots-in-command-logs.md) — area:module-data,debugging; module:audit_logs,cache; topic:command-pattern,data-integrity,generated-files
 - [Classify entity metadata by ORM ownership before custom declarations](lessons/classify-entity-metadata-by-orm-ownership-before-custom.md) — area:module-data; module:entities; topic:access-control,filters

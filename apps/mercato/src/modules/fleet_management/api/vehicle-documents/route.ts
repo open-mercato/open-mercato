@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseScopedCommandInput, resolveCrudRecordId } from '@open-mercato/shared/lib/api/scoped'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { FleetVehicleDocument } from '../../data/entities'
@@ -29,7 +30,7 @@ const routeMetadata = {
   DELETE: { requireAuth: true, requireFeatures: ['fleet.write'] },
 }
 
-export const metadata = { path: '/fleet/vehicle-documents', ...routeMetadata }
+export const metadata = { path: '/fleet_management/vehicle-documents', ...routeMetadata }
 
 const crud = makeCrudRoute({
   metadata: routeMetadata,
@@ -45,7 +46,7 @@ const crud = makeCrudRoute({
       ...(query.ids ? { id: { $in: query.ids.split(',').map((value) => value.trim()).filter(Boolean) } } : {}),
       ...(query.vehicleId ? { vehicleId: { $eq: query.vehicleId } } : {}),
       ...(query.documentType ? { documentType: { $eq: query.documentType } } : {}),
-      ...(query.documentNumber ? { documentNumber: { $ilike: `%${query.documentNumber}%` } } : {}),
+      ...(query.documentNumber ? { documentNumber: { $ilike: `%${escapeLikePattern(query.documentNumber)}%` } } : {}),
       ...(query.expiringBefore ? { expiryDate: { $lte: new Date(query.expiringBefore), $ne: null } } : {}),
     }),
     transformItem: (item) => ({ ...item, updatedAt: item.updated_at ?? null }),

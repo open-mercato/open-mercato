@@ -11,7 +11,7 @@ import { EXAMPLE_CUSTOMERS_SYNC_RECONCILE_QUEUE, getExampleCustomersSyncQueue } 
 import type { ExampleCustomersSyncReconcileJobPayload } from '../../../lib/sync'
 
 export const metadata = {
-  path: '/example-customers-sync/reconcile',
+  path: '/example_customers_sync/example-customers-sync/reconcile',
   requireAuth: true,
   requireFeatures: ['example_customers_sync.manage'],
 }

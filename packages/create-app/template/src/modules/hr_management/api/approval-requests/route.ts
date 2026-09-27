@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseScopedCommandInput, resolveCrudRecordId } from '@open-mercato/shared/lib/api/scoped'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { HrApprovalRequest } from '../../data/entities'
@@ -16,6 +17,8 @@ const listSchema = z.object({
   ids: z.string().optional(),
   workflowId: z.string().uuid().optional(),
   status: z.string().optional(),
+  entityType: z.string().optional(),
+  search: z.string().optional(),
   sortField: z.string().optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
 }).passthrough()
@@ -27,7 +30,7 @@ const routeMetadata = {
   DELETE: { requireAuth: true, requireFeatures: ['hr.write'] },
 }
 
-export const metadata = { path: '/hr/approval-requests', ...routeMetadata }
+export const metadata = { path: '/hr_management/approval-requests', ...routeMetadata }
 
 const crud = makeCrudRoute({
   metadata: routeMetadata,
@@ -43,6 +46,16 @@ const crud = makeCrudRoute({
       ...(query.ids ? { id: { $in: query.ids.split(',').map((value) => value.trim()).filter(Boolean) } } : {}),
       ...(query.workflowId ? { workflowId: { $eq: query.workflowId } } : {}),
       ...(query.status ? { status: { $eq: query.status } } : {}),
+      // The inbox's request-type filter is the one an operator reaches for when the queue mixes
+      // leave requests with permissions, so it has to reach the query rather than being dropped by
+      // `passthrough()` and quietly returning everything.
+      ...(query.entityType ? { entityType: { $eq: query.entityType } } : {}),
+      // The search box looks for what the operator sees: the summary they wrote or the request type.
+      // `summary` is nullable, so a null row simply never matches.
+      ...(query.search ? { $or: [
+        { summary: { $ilike: `%${escapeLikePattern(query.search)}%` } },
+        { entityType: { $ilike: `%${escapeLikePattern(query.search)}%` } },
+      ] } : {}),
     }),
     transformItem: (item) => ({ ...item, updatedAt: item.updated_at ?? null }),
   },

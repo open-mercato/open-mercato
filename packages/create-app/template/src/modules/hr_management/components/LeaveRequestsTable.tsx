@@ -18,7 +18,7 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 // decorators into the browser bundle.
 import type { LeaveRequestStatus, LeaveType } from '../data/entities'
 
-const RESOURCE = 'hr_management/leave_requests'
+const RESOURCE = 'hr_management/leave-requests'
 const LIST_HREF = '/backend/hr/leave-requests'
 const CREATE_HREF = '/backend/hr/leave-requests/create'
 const editHref = (id: string) => `/backend/hr/leave-requests/${id}/edit`

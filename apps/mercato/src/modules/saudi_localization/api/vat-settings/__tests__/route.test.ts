@@ -60,7 +60,7 @@ const validBody = {
 }
 
 const makePutRequest = (body: unknown) =>
-  new Request('http://localhost/api/saudi/vat-settings', {
+  new Request('http://localhost/api/saudi_localization/vat-settings', {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -94,13 +94,13 @@ describe('saudi VAT settings route', () => {
   it('rejects unauthenticated requests', async () => {
     authValue = null
 
-    const response = await GET(new Request('http://localhost/api/saudi/vat-settings'))
+    const response = await GET(new Request('http://localhost/api/saudi_localization/vat-settings'))
 
     expect(response.status).toBe(401)
   })
 
   it('returns the shipped defaults and marks them incomplete when nothing is stored', async () => {
-    const response = await GET(new Request('http://localhost/api/saudi/vat-settings'))
+    const response = await GET(new Request('http://localhost/api/saudi_localization/vat-settings'))
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({
@@ -122,7 +122,7 @@ describe('saudi VAT settings route', () => {
   it('returns the stored tenant values, their version and completeness', async () => {
     getRecordMock.mockResolvedValue(configRecord(validBody, STORED_UPDATED_AT))
 
-    const response = await GET(new Request('http://localhost/api/saudi/vat-settings'))
+    const response = await GET(new Request('http://localhost/api/saudi_localization/vat-settings'))
 
     await expect(response.json()).resolves.toEqual({
       ...validBody,

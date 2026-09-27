@@ -74,9 +74,9 @@ and irrelevant elsewhere, so the OSS core stays jurisdiction-neutral:
    the seller identity as tenant-scoped settings, stored in the platform's
    `module_configs` store through `ModuleConfigService` (no bespoke entity, no
    migration):
-   - `GET /api/saudi/vat-settings` returns the stored values merged with the
+   - `GET /api/saudi_localization/vat-settings` returns the stored values merged with the
      shipped defaults (`15%`, QR on), `isComplete` and the record's `updatedAt`;
-   - `PUT /api/saudi/vat-settings` replaces them, validated by zod (VAT-number
+   - `PUT /api/saudi_localization/vat-settings` replaces them, validated by zod (VAT-number
      pattern, seller name capped at the 255-byte TLV limit, rate 0–1), behind
      `saudi_localization.settings.view|manage`, through the mutation guard;
    - **optimistic locking is on**: the client sends the record's `updatedAt` in
@@ -190,7 +190,7 @@ persistence inside the invoice pipeline, and validation against the ZATCA sandbo
     organization, never optional): an invoice that mixes organizations is worse than no
     invoice. Uses `findOneWithDecryption`/`findWithDecryption`, because an order can
     carry encrypted fields and a plain read would hand the invoice a ciphertext total.
-19. **`POST /api/saudi/zatca/invoice-preview`** — the first real call site for the whole
+19. **`POST /api/saudi_localization/zatca/invoice-preview`** — the first real call site for the whole
     Phase 2 stack: it loads the order, peeks the chain (claiming nothing), builds the
     document, and returns `{ status, icv, previousInvoiceHash, invoiceHash, qrPayload,
     xml, preHashXml }` with `preview: true, chainMutated: false` as literal fields in the
@@ -255,15 +255,15 @@ Amounts and hashes are stored as text to preserve ZATCA's exact serialization.
 
 ## API Contracts
 
-`GET /api/saudi/vat-settings` → `{ sellerName, vatRegistrationNumber,
+`GET /api/saudi_localization/vat-settings` → `{ sellerName, vatRegistrationNumber,
 commercialRegistrationNumber, vatRate, invoiceQrEnabled, isComplete, updatedAt }`,
 behind `saudi_localization.settings.view`.
 
-`PUT /api/saudi/vat-settings` → the same shape, a full replacement, behind
+`PUT /api/saudi_localization/vat-settings` → the same shape, a full replacement, behind
 `saudi_localization.settings.manage`. `400` on validation failure, `409`
 `optimistic_lock_conflict` when the expected version header is stale.
 
-Planned: `POST /api/saudi/zatca/submit`, `GET /api/saudi/zatca/submissions`.
+Planned: `POST /api/saudi_localization/zatca/submit`, `GET /api/saudi_localization/zatca/submissions`.
 
 Read responses: every `GET /api/sales/orders` payload carries
 `_saudi_localization: { zatcaQrPayload, zatcaQrStatus }` for callers holding
@@ -304,6 +304,13 @@ Read responses: every `GET /api/sales/orders` payload carries
 
 ## Changelog
 
+- **2026-09-27 — the API URLs in this spec were wrong, and so was the code.** The route files
+  declared short prefixes (`/saudi/vat-settings`) while the runtime manifest matches
+  `metadata.path` verbatim, so every Saudi endpoint answered at `/api/saudi/…` and 404'd at the
+  `/api/saudi_localization/…` the pages and this spec assumed. Both sides are corrected: routes
+  declare `/<moduleId>/…`, pages call it, and `crud-resource-path.test.ts` now fails when a client
+  string or a declared prefix disagrees with the generated manifest.
+
 - **2026-09-25** — Module created with the ZATCA Phase 1 QR payload builder and
   the Saudi VAT primitives, both pure and unit-tested against hand-built vectors.
 - **2026-09-25 (settings)** — Seller VAT settings (API + screen) over
@@ -317,7 +324,7 @@ Read responses: every `GET /api/sales/orders` payload carries
   `missing_invoice_data`) instead of an absent field. 63 module tests.
   Rendering the payload as a QR image, Hijri dates and Phase 2 clearance remain.
 - **2026-09-25 (ZATCA preview endpoint)** — the Phase 2 stack got its first real call
-  site: `POST /api/saudi/zatca/invoice-preview` reads a sales order (scoped and
+  site: `POST /api/saudi_localization/zatca/invoice-preview` reads a sales order (scoped and
   decrypted), peeks the chain without claiming a counter, and returns the invoice XML,
   the hash and the QR payload — labelled `preview: true, chainMutated: false`. The tests
   caught a latent `instanceof` crash on an error class imported from the wrong module
@@ -327,7 +334,7 @@ Read responses: every `GET /api/sales/orders` payload carries
   hash, and copy or download the exact UBL XML a Saudi tax invoice would carry, which is
   the manual Fatoora-portal workflow. Nothing is issued and nothing is written. 165
   module tests.
-  site: `POST /api/saudi/zatca/invoice-preview` reads a sales order (scoped and
+  site: `POST /api/saudi_localization/zatca/invoice-preview` reads a sales order (scoped and
   decrypted), peeks the chain without claiming a counter, and returns the invoice XML,
   the hash and the QR payload — labelled `preview: true, chainMutated: false`. The tests
   caught a latent `instanceof` crash on an error class imported from the wrong module

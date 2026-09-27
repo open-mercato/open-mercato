@@ -26,7 +26,7 @@ type ActionContext = {
 }
 
 export const metadata = {
-  path: '/transport/trips/dispatch',
+  path: '/transport_operations/trips/dispatch',
   POST: { requireAuth: true, requireFeatures: ['transport.write'] },
 }
 

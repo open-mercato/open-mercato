@@ -26,7 +26,7 @@ const routeMetadata = {
   DELETE: { requireAuth: true, requireFeatures: ['hr.write'] },
 }
 
-export const metadata = { path: '/hr/driver-profiles', ...routeMetadata }
+export const metadata = { path: '/hr_management/driver-profiles', ...routeMetadata }
 
 const crud = makeCrudRoute({
   metadata: routeMetadata,

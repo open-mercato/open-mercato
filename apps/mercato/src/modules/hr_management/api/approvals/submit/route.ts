@@ -25,7 +25,7 @@ type ActionContext = {
 }
 
 export const metadata = {
-  path: '/hr/approvals/submit',
+  path: '/hr_management/approvals/submit',
   POST: { requireAuth: true, requireFeatures: ['hr.write'] },
 }
 

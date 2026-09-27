@@ -31,7 +31,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
-const SETTINGS_API = '/api/saudi/vat-settings'
+const SETTINGS_API = '/api/saudi_localization/vat-settings'
 const MUTATION_CONTEXT_ID = 'saudi-localization.vat-settings'
 const RESOURCE_KIND = 'saudi_localization.settings'
 const RESOURCE_ID = 'vat'

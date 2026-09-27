@@ -26,7 +26,7 @@ import {
 const logger = createLogger('saudi_localization')
 
 export const metadata = {
-  path: '/saudi/vat-settings',
+  path: '/saudi_localization/vat-settings',
   GET: { requireAuth: true, requireFeatures: ['saudi_localization.settings.view'] },
   PUT: { requireAuth: true, requireFeatures: ['saudi_localization.settings.manage'] },
 }

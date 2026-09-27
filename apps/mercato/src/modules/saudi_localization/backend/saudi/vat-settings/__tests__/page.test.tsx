@@ -89,7 +89,7 @@ describe('SaudiVatSettingsPage', () => {
 
     await waitFor(() =>
       expect(apiCallOrThrowMock).toHaveBeenCalledWith(
-        '/api/saudi/vat-settings',
+        '/api/saudi_localization/vat-settings',
         expect.objectContaining({
           method: 'PUT',
           body: expect.stringContaining('"vatRate":0.155'),

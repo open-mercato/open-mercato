@@ -235,6 +235,9 @@ export default function PaymentGatewayDemoPage() {
 
   useEffect(() => {
     async function checkStripe() {
+      // api-path-exempt: readiness probe for an optional payment provider that ships no HTTP route
+      // in this repository (it is configured through the integrations module); the 404 is treated
+      // as "not configured" and simply hides the Stripe panel.
       const response = await apiCall<{ hasCredentials: boolean; state?: { isEnabled?: boolean | null } | null }>(
         '/api/integrations/gateway_stripe',
         undefined,

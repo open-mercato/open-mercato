@@ -14,7 +14,7 @@ import { exampleTag } from '../../../../example/api/openapi'
 import { mappingListQuerySchema } from '../../../data/validators'
 
 export const metadata = {
-  path: '/example-customers-sync/mappings',
+  path: '/example_customers_sync/example-customers-sync/mappings',
   requireAuth: true,
   requireFeatures: ['example_customers_sync.view'],
 }

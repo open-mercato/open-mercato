@@ -13,7 +13,7 @@ import { useEmployeeLabels, type LeaveRequestRow } from './LeaveRequestsTable'
 
 const ENTITY_ID = 'hr_management:hr_leave_request'
 const LIST_HREF = '/backend/hr/leave-requests'
-const RESOURCE = 'hr_management/leave_requests'
+const RESOURCE = 'hr_management/leave-requests'
 const SUBMIT_ENDPOINT = '/api/hr_management/approvals/submit'
 
 // Mirrors the enums in data/entities.ts; the API rejects an unknown value, so a drift is
@@ -139,7 +139,7 @@ function useActiveWorkflowOptions(): Option[] {
     let cancelled = false
     async function load() {
       try {
-        const data = await fetchCrudList<WorkflowRow>('hr_management/approval_workflows', { pageSize: 50, isActive: true })
+        const data = await fetchCrudList<WorkflowRow>('hr_management/approval-workflows', { pageSize: 50, isActive: true })
         if (!cancelled) setWorkflows(data?.items ?? [])
       } catch {
         if (!cancelled) setWorkflows([])

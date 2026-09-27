@@ -26,7 +26,7 @@ const routeMetadata = {
   DELETE: { requireAuth: true, requireFeatures: ['hr.write'] },
 }
 
-export const metadata = { path: '/hr/approval-workflows', ...routeMetadata }
+export const metadata = { path: '/hr_management/approval-workflows', ...routeMetadata }
 
 const crud = makeCrudRoute({
   metadata: routeMetadata,

@@ -76,6 +76,45 @@ documents, approvals inbox. `VehicleForm.tsx` + `VehiclesTable.tsx` are the temp
 `CrudForm` derives the optimistic-lock header automatically as long as the row mapper
 threads `updatedAt`. The inbox depends on Phase 3.
 
+**Progress 2026-09-27 — the approvals inbox is done** (`/backend/hr/approvals`), the surface that
+makes the Phase 3 engine reachable at all:
+
+- `components/ApprovalsTable.tsx` — the pending queue (the status filter defaults to `pending`),
+  showing the workflow's current step, the record the request is about (deep-linked through
+  `lib/approvalInbox.ts`), the requester and how long it has waited. Approve / reject / reassign /
+  cancel all run through `useGuardedMutation` with the row's version header; rejecting or cancelling
+  requires a reason, because that comment is all the requester ever sees.
+- `components/ApprovalDecisionDialog.tsx` + `ApprovalHistoryDialog.tsx` — the decision form
+  (including the reassignment picker) and the audit trail the engine writes.
+- `api/approval-logs/route.ts` — GET-only, because the engine is the only writer: the log had been
+  written but was unreachable over HTTP.
+- `commands/approvals.ts` — the four decision commands now enforce the command-level optimistic lock
+  (`enforceCommandOptimisticLock`), closing the quorum-of-two race in which approver B's stale page
+  would record an approval at a step B never saw.
+- 20 unit tests in `lib/__tests__/approvalInbox.test.ts` pin the entity-type → screen map, the step
+  progress, `isAwaitingActor`, the reassignment marker the engine appends to a comment, and the
+  pending age. One of them caught a real bug in the fallback path (`index` was computed from the
+  unmatched step order, so a request whose stored step no longer exists would show "step 0").
+
+### The defect this phase uncovered
+
+`metadata.path` **is** the URL: the router matches it verbatim (`matchRoutePattern`), while the
+OpenAPI generator composes `/api/<moduleId>/<route directories>` and the client helpers build
+`<moduleId>/<resource>`. Those three disagreed in `fleet_management`, `hr_management`,
+`transport_operations` and `saudi_localization` — the routes declared `/hr/…`, the screens asked for
+`hr_management/…`, and several resources were spelled `leave_requests` against route directories
+named `leave-requests`. Every API call in those modules 404'd, which is why their screens could only
+ever render empty tables, and no check in the toolchain could see it.
+
+Fixed here: 62 route files now declare `/<moduleId>/…`, the client strings match them, and
+`packages/core/src/__tests__/crud-resource-path.test.ts` fails when either side drifts, verified
+against the generated route shards. Lesson: `api-url-prefix-must-match-the-module-id.md`.
+
+Still open in Phase 4: driver directory (licence + medical expiry alerts) and employee documents.
+Also worth adding: the attendance form has no workflow picker, so a lateness permission can only be
+submitted through the API even though the engine already decides it (and the inbox can now act on
+it) — the leave form is the only screen that starts an approval today.
+
 ## Phase 5 — tests
 
 One pinned unit test exists. Still required by `.ai/qa/AGENTS.md` (same-PR rule):

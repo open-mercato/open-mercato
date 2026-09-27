@@ -3,6 +3,7 @@ import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/c
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { LockMode } from '@mikro-orm/core'
@@ -240,6 +241,21 @@ async function runDecision(
     if (isDecided(request.status)) {
       return raiseHrError(409, 'approval_already_decided', 'This request has already been decided.')
     }
+
+    // Strictly additive: without an expected-version header (a plain API client) this is a no-op.
+    // The race it closes is a quorum of two: approver A moves the request to the next step, and
+    // approver B, whose page still shows the previous step, would otherwise record an approval at
+    // a step B never saw. The already-decided case is checked first on purpose — "another approver
+    // decided this" is a more useful message than a version conflict with nothing to retry.
+    // The async seam, not the sync helper: this is the entry point the optional enterprise
+    // record-lock guard plugs into, and a direct call would bypass it (the repo-wide
+    // optimistic-lock-command-coverage guard requires exactly one of the two).
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
+      resourceKind: HR_APPROVAL_REQUEST_ENTITY_ID,
+      resourceId: request.id,
+      current: request.updatedAt,
+      request: ctx.request,
+    })
 
     const steps = await loadSteps(transactionEm, scope, request.workflowId)
     const logs = await loadLogs(transactionEm, scope, request.id)

@@ -25,7 +25,7 @@ type ActionContext = {
 }
 
 export const metadata = {
-  path: '/hr/approvals/reassign',
+  path: '/hr_management/approvals/reassign',
   POST: { requireAuth: true, requireFeatures: ['approvals.action'] },
 }
 

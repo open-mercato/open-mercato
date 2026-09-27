@@ -26,7 +26,7 @@ type ActionContext = {
 }
 
 export const metadata = {
-  path: '/fleet/assignments/handover',
+  path: '/fleet_management/assignments/handover',
   POST: { requireAuth: true, requireFeatures: ['fleet.assign'] },
 }
 

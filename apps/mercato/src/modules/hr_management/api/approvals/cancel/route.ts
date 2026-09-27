@@ -25,7 +25,7 @@ type ActionContext = {
 }
 
 export const metadata = {
-  path: '/hr/approvals/cancel',
+  path: '/hr_management/approvals/cancel',
   POST: { requireAuth: true, requireFeatures: ['approvals.action'] },
 }
 

@@ -37,7 +37,7 @@ import { loadZatcaOrderSource } from '../../../lib/zatca/sales-order-source'
 const logger = createLogger('saudi_localization')
 
 export const metadata = {
-  path: '/saudi/zatca/invoice-preview',
+  path: '/saudi_localization/zatca/invoice-preview',
   POST: { requireAuth: true, requireFeatures: ['saudi_localization.settings.view'] },
 }
 

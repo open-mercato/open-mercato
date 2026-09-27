@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseScopedCommandInput, resolveCrudRecordId } from '@open-mercato/shared/lib/api/scoped'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { HrEmployee } from '../../data/entities'
@@ -29,7 +30,7 @@ const routeMetadata = {
   DELETE: { requireAuth: true, requireFeatures: ['hr.write'] },
 }
 
-export const metadata = { path: '/hr/employees', ...routeMetadata }
+export const metadata = { path: '/hr_management/employees', ...routeMetadata }
 
 const crud = makeCrudRoute({
   metadata: routeMetadata,
@@ -45,11 +46,11 @@ const crud = makeCrudRoute({
       ...(query.ids ? { id: { $in: query.ids.split(',').map((value) => value.trim()).filter(Boolean) } } : {}),
       ...(query.departmentId ? { departmentId: { $eq: query.departmentId } } : {}),
       ...(query.status ? { status: { $eq: query.status } } : {}),
-      ...(query.employeeNumber ? { employeeNumber: { $ilike: `%${query.employeeNumber}%` } } : {}),
+      ...(query.employeeNumber ? { employeeNumber: { $ilike: `%${escapeLikePattern(query.employeeNumber)}%` } } : {}),
       ...(query.search ? { $or: [
-        { firstName: { $ilike: `%${query.search}%` } },
-        { lastName: { $ilike: `%${query.search}%` } },
-        { employeeNumber: { $ilike: `%${query.search}%` } },
+        { firstName: { $ilike: `%${escapeLikePattern(query.search)}%` } },
+        { lastName: { $ilike: `%${escapeLikePattern(query.search)}%` } },
+        { employeeNumber: { $ilike: `%${escapeLikePattern(query.search)}%` } },
       ] } : {}),
     }),
     transformItem: (item) => ({ ...item, updatedAt: item.updated_at ?? null }),
