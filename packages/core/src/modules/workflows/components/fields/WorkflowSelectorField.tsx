@@ -215,8 +215,10 @@ export function WorkflowSelectorField({
                 size="sm"
                 onClick={handleClear}
                 disabled={disabled}
+                aria-label={t('workflows.common.clear')}
+                title={t('workflows.common.clear')}
               >
-                <X className="size-4" />
+                <X className="size-4" aria-hidden />
               </Button>
             </div>
           </div>
