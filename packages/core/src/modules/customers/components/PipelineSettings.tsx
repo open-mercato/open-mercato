@@ -526,7 +526,8 @@ export default function PipelineSettings(): React.ReactElement {
                               className="h-7 w-7"
                               disabled={idx === 0}
                               onClick={() => void handleMoveStage(stage, 'up')}
-                              title={t('customers.pipelines.stages.moveUp', 'Move up')}
+                              title={`${t('customers.pipelines.stages.moveUp', 'Move up')} — ${stage.label}`}
+                              aria-label={`${t('customers.pipelines.stages.moveUp', 'Move up')} — ${stage.label}`}
                             >
                               ↑
                             </Button>
@@ -536,7 +537,8 @@ export default function PipelineSettings(): React.ReactElement {
                               className="h-7 w-7"
                               disabled={idx === pipelineStages.length - 1}
                               onClick={() => void handleMoveStage(stage, 'down')}
-                              title={t('customers.pipelines.stages.moveDown', 'Move down')}
+                              title={`${t('customers.pipelines.stages.moveDown', 'Move down')} — ${stage.label}`}
+                              aria-label={`${t('customers.pipelines.stages.moveDown', 'Move down')} — ${stage.label}`}
                             >
                               ↓
                             </Button>
@@ -544,6 +546,7 @@ export default function PipelineSettings(): React.ReactElement {
                               variant="ghost"
                               size="sm"
                               onClick={() => openEditStage(stage)}
+                              aria-label={`${t('customers.pipelines.stages.edit', 'Edit')} — ${stage.label}`}
                             >
                               {t('customers.pipelines.stages.edit', 'Edit')}
                             </Button>
@@ -552,6 +555,7 @@ export default function PipelineSettings(): React.ReactElement {
                               size="sm"
                               className="text-destructive hover:text-destructive"
                               onClick={() => void handleDeleteStage(stage)}
+                              aria-label={`${t('customers.pipelines.stages.delete', 'Delete')} — ${stage.label}`}
                             >
                               {t('customers.pipelines.stages.delete', 'Delete')}
                             </Button>
