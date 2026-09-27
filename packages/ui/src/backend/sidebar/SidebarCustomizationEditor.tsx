@@ -1,4 +1,5 @@
 'use client'
+
 import * as React from 'react'
 import { ChevronUp, ChevronDown, GripVertical, RotateCcw, Trash2, Plus, Search, AlertTriangle } from 'lucide-react'
 import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
