@@ -104,8 +104,9 @@ describe('MetadataEditor', () => {
     const onChange = jest.fn()
     render(<MetadataEditor value={{ alpha: 'one', beta: 'two' }} onChange={onChange} defaultCollapsed={false} />)
     expect(screen.getByDisplayValue('alpha')).toBeInTheDocument()
-    const removeButtons = screen.getAllByText('Remove entry')
-    fireEvent.click(removeButtons[0])
+    expect(screen.getByRole('button', { name: 'Remove entry — alpha' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove entry — beta' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove entry — alpha' }))
     expect(onChange).toHaveBeenCalledWith({ beta: 'two' })
   })
 
