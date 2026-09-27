@@ -315,6 +315,7 @@ export function DefinitionMetadataDrawer({
                     value={tags}
                     onChange={setTags}
                     placeholder={t('workflows.form.placeholders.tags')}
+                    inputAriaLabel={t('workflows.form.tags')}
                   />
                 </MetadataField>
               </div>
