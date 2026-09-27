@@ -967,7 +967,7 @@ export function AttachmentLibrary() {
               <a
                 href={absolute}
                 download
-                aria-label={t('attachments.library.table.download', 'Download')}
+                aria-label={`${t('attachments.library.table.download', 'Download')} — ${row.original.fileName}`}
                 onClick={(event) => event.stopPropagation()}
               >
                 <Download className="h-4 w-4" />
