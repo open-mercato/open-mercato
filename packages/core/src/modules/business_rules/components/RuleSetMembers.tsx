@@ -43,6 +43,8 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
   const [showAddForm, setShowAddForm] = React.useState(false)
   const [selectedRuleId, setSelectedRuleId] = React.useState('')
   const [sequence, setSequence] = React.useState(0)
+  const ruleSelectId = React.useId()
+  const sequenceId = React.useId()
 
   // Fetch available rules
   const { data: availableRules } = useQuery({
@@ -148,7 +150,7 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
                 className={`px-2 py-1 rounded text-xs font-medium cursor-pointer ${
                   member.enabled
                     ? 'bg-status-success-bg text-status-success-text hover:bg-status-success-bg/80'
-                    : 'bg-muted text-muted-foreground hover:bg-muted/50'
+                    : 'bg-muted text-muted-foregroun hover:bg-muted/50'
                 }`}
                 title={t('business_rules.sets.members.actions.toggleEnabled')}
               >
@@ -173,14 +175,14 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
         <div className="p-4 bg-status-info-bg border border-status-info-border rounded space-y-3">
           <div className="flex items-end gap-3">
             <div className="flex-1">
-              <label className="block text-sm font-medium text-foreground mb-1">
+              <label htmlFor={ruleSelectId} className="block text-sm font-medium text-foreground mb-1">
                 {t('business_rules.sets.members.form.selectRule')}
               </label>
               <Select
                 value={selectedRuleId || undefined}
                 onValueChange={(value) => setSelectedRuleId(value ?? '')}
               >
-                <SelectTrigger>
+                <SelectTrigger id={ruleSelectId}>
                   <SelectValue placeholder={t('business_rules.sets.members.form.selectRulePlaceholder')} />
                 </SelectTrigger>
                 <SelectContent>
@@ -194,10 +196,11 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
             </div>
 
             <div className="w-32">
-              <label className="block text-sm font-medium text-foreground mb-1">
+              <label htmlFor={sequenceId} className="block text-sm font-medium text-foreground mb-1">
                 {t('business_rules.sets.members.form.sequence')}
               </label>
               <Input
+                id={sequenceId}
                 type="number"
                 value={sequence}
                 onChange={(e) => setSequence(parseInt(e.target.value) || 0)}
@@ -208,7 +211,7 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
 
           <div className="flex gap-2">
             <Button onClick={handleAdd} disabled={!selectedRuleId} size="sm">
-              {t('business_rules.sets.members.actions.add')}
+              {t('business_rules.sets.members.actions.add)}
             </Button>
             <Button
               onClick={() => {
@@ -233,11 +236,11 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
       {/* Help Text */}
       <div className="text-xs text-muted-foreground space-y-1">
         <p>
-          <strong>{t('business_rules.sets.members.help.ordering')}:</strong>{' '}
+          <strong>{t('business_rules.sets.members.help.ordering')}:</strong>{ ' '}
           {t('business_rules.sets.members.help.orderingDescription')}
         </p>
         <p>
-          <strong>{t('business_rules.sets.members.help.enabled')}:</strong>{' '}
+          <strong>{t('business_rules.sets.members.help.enabled')}:</strong>{ ' '}
           {t('business_rules.sets.members.help.enabledDescription')}
         </p>
       </div>
