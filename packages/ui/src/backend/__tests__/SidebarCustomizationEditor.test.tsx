@@ -88,6 +88,8 @@ const dict: Record<string, string> = {
   'appShell.sidebarCustomizationCancel': 'Cancel',
   'appShell.sidebarCustomizationReset': 'Reset',
   'appShell.sidebarCustomizationDragToReorder': 'Drag to reorder',
+  'appShell.sidebarCustomizationMoveUp': 'Move up',
+  'appShell.sidebarCustomizationMoveDown': 'Move down',
   'appShell.sidebarCustomizationVariantNew': 'Add new variant',
   'appShell.sidebarCustomizationVariantsEmpty': 'No saved variants yet',
 }
@@ -128,7 +130,7 @@ describe('SidebarCustomizationEditor', () => {
     )
 
     expect(container.querySelector('.animate-pulse')).not.toBeNull()
-    expect(screen.queryByLabelText('Drag to reorder')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/^Drag to reorder:/)).not.toBeInTheDocument()
   })
 
   it('renders draggable item handles after variants load', async () => {
@@ -143,8 +145,10 @@ describe('SidebarCustomizationEditor', () => {
       expect(screen.queryByText('Loading preferences…')).not.toBeInTheDocument()
     })
 
-    const dragHandles = await screen.findAllByLabelText('Drag to reorder')
-    expect(dragHandles.length).toBeGreaterThan(0)
+    expect(await screen.findByRole('button', { name: 'Drag to reorder: Users' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Drag to reorder: Roles' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Move down: Core' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Move up: Catalog' })).toBeInTheDocument()
 
     expect(screen.getByText('Variant name')).toBeInTheDocument()
   })
