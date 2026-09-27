@@ -109,6 +109,17 @@ describe('data sync dashboard start controls', () => {
     expect(screen.getByText(BATCH_SIZE_LABEL)).toBeInTheDocument()
   })
 
+  it('names the one-time and recurring sync switches', async () => {
+    mockOptions({}, ['orders.feed'])
+
+    renderWithProviders(<SyncRunsDashboardPage />)
+
+    await waitForSelectedEntity('Orders.Feed')
+    expect(screen.getByRole('switch', { name: 'Run as full sync' })).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Run scheduled jobs as full sync' })).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Schedule enabled' })).toBeInTheDocument()
+  })
+
   it('renders both controls for an entity type the adapter did not restrict', async () => {
     mockOptions({ 'orders.backfill': { fullSync: false, batchSize: true } }, ['orders.feed', 'orders.backfill'])
 
