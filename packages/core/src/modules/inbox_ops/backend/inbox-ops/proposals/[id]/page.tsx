@@ -455,7 +455,12 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
       <div className="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b bg-background">
         <div className="flex items-center gap-2 md:gap-3 min-w-0">
           <Link href="/backend/inbox-ops">
-            <Button type="button" variant="ghost" size="sm">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label={t('inbox_ops.proposal.backToList', 'Back to inbox')}
+            >
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
