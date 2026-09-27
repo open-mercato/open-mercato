@@ -1,5 +1,6 @@
 "use client"
 
+import { useId } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -12,6 +13,7 @@ const DEFAULT_PACKAGE: PackageDimension = { weightKg: 1, lengthCm: 20, widthCm: 
 export const PackageEditor = (props: PackageEditorProps) => {
   const { packages, onChange, disabled } = props
   const t = useT()
+  const fieldIdPrefix = useId()
 
   const fieldLabel = (field: keyof PackageDimension) => {
     const labels: Record<keyof PackageDimension, string> = {
@@ -56,21 +58,25 @@ export const PackageEditor = (props: PackageEditorProps) => {
             ) : null}
           </div>
           <div className="grid gap-3 sm:grid-cols-4">
-            {PACKAGE_FIELDS.map((field) => (
-              <div key={field}>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  {fieldLabel(field)}
-                </label>
-                <Input
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  value={pkg[field]}
-                  onChange={(event) => updatePackage(index, field, event.target.value)}
-                  disabled={disabled}
-                />
-              </div>
-            ))}
+            {PACKAGE_FIELDS.map((field) => {
+              const fieldId = `${fieldIdPrefix}-${index}-${field}`
+              return (
+                <div key={field}>
+                  <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-muted-foreground">
+                    {fieldLabel(field)}
+                  </label>
+                  <Input
+                    id={fieldId}
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={pkg[field]}
+                    onChange={(event) => updatePackage(index, field, event.target.value)}
+                    disabled={disabled}
+                  />
+                </div>
+              )
+            })}
           </div>
         </div>
       ))}
