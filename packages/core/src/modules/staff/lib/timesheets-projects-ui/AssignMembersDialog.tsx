@@ -184,6 +184,7 @@ export function AssignMembersDialog({
                   className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
                 >
                   <Checkbox
+                    aria-label={candidate.name}
                     checked={selectedIds.includes(candidate.id)}
                     onCheckedChange={(checked) => toggleCandidate(candidate.id, Boolean(checked))}
                   />
