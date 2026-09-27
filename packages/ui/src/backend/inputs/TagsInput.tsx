@@ -25,6 +25,7 @@ export type TagsInputProps = {
   allowCustomValues?: boolean
   showSuggestionsOnFocus?: boolean
   suppressInitialSuggestionsOnFocus?: boolean
+  inputAriaLabel?: string
 }
 
 function normalizeOptions(input?: Array<string | TagsInputOption>): TagsInputOption[] {
@@ -61,6 +62,7 @@ export function TagsInput({
   allowCustomValues = true,
   showSuggestionsOnFocus = true,
   suppressInitialSuggestionsOnFocus = false,
+  inputAriaLabel,
 }: TagsInputProps) {
   const t = useT()
   const [input, setInput] = React.useState('')
@@ -226,6 +228,7 @@ export function TagsInput({
           )
         })}
         <input
+          aria-label={inputAriaLabel}
           className="flex-1 min-w-[80px] sm:min-w-[120px] border-0 py-1 text-sm outline-none disabled:bg-transparent"
           value={input}
           placeholder={placeholder || t('ui.inputs.tagsInput.placeholder', 'Add tag and press Enter')}
