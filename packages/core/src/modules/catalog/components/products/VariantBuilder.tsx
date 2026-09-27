@@ -96,11 +96,12 @@ export function VariantBasicsSection({ values, setValue, errors }: VariantSectio
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <Label className="flex items-center gap-1">
+        <Label htmlFor="catalog-variant-name" className="flex items-center gap-1">
           {t('catalog.variants.form.nameLabel', 'Name')}
           <span className="text-status-error-text">*</span>
         </Label>
         <Input
+          id="catalog-variant-name"
           value={values.name}
           onChange={(event) => setValue('name', event.target.value)}
           placeholder={t('catalog.variants.form.namePlaceholder', 'e.g., Blue / Small')}
@@ -109,16 +110,18 @@ export function VariantBasicsSection({ values, setValue, errors }: VariantSectio
       </div>
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
-          <Label>{t('catalog.variants.form.skuLabel', 'SKU')}</Label>
+          <Label htmlFor="catalog-variant-sku">{t('catalog.variants.form.skuLabel', 'SKU')}</Label>
           <Input
+            id="catalog-variant-sku"
             value={values.sku}
             onChange={(event) => setValue('sku', event.target.value)}
             placeholder={t('catalog.variants.form.skuPlaceholder', 'Unique identifier')}
           />
         </div>
         <div className="space-y-2">
-          <Label>{t('catalog.variants.form.barcodeLabel', 'Barcode')}</Label>
+          <Label htmlFor="catalog-variant-barcode">{t('catalog.variants.form.barcodeLabel', 'Barcode')}</Label>
           <Input
+            id="catalog-variant-barcode"
             value={values.barcode}
             onChange={(event) => setValue('barcode', event.target.value)}
             placeholder={t('catalog.variants.form.barcodePlaceholder', 'EAN, UPC, etc.')}
@@ -173,14 +176,22 @@ export function VariantBasicsSection({ values, setValue, errors }: VariantSectio
             <p className="text-sm font-medium">{t('catalog.variants.form.isDefaultLabel', 'Default variant')}</p>
             <p className="text-xs text-muted-foreground">{t('catalog.variants.form.isDefaultHint', 'Used in storefronts')}</p>
           </div>
-          <Switch checked={values.isDefault} onCheckedChange={(next) => setValue('isDefault', next)} />
+          <Switch
+            aria-label={t('catalog.variants.form.isDefaultLabel', 'Default variant')}
+            checked={values.isDefault}
+            onCheckedChange={(next) => setValue('isDefault', next)}
+          />
         </label>
         <label className="flex items-center justify-between gap-2 rounded border px-3 py-2">
           <div>
             <p className="text-sm font-medium">{t('catalog.variants.form.isActiveLabel', 'Active')}</p>
             <p className="text-xs text-muted-foreground">{t('catalog.variants.form.isActiveHint', 'Inactive variants stay hidden')}</p>
           </div>
-          <Switch checked={values.isActive !== false} onCheckedChange={(next) => setValue('isActive', next)} />
+          <Switch
+            aria-label={t('catalog.variants.form.isActiveLabel', 'Active')}
+            checked={values.isActive !== false}
+            onCheckedChange={(next) => setValue('isActive', next)}
+          />
         </label>
       </div>
     </div>
