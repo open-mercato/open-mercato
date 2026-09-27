@@ -613,6 +613,8 @@
   "catalog.products.media.errors.imagesOnly": "Only image files are supported.",
   "catalog.products.media.errors.uploadFailed": "Upload failed.",
   "catalog.products.media.label": "Media",
+  "catalog.products.media.remove": "Remove media: {fileName}",
+  "catalog.products.media.setDefault": "Set default preview: {fileName}",
   "catalog.products.media.uploading": "Uploading…",
   "catalog.products.page.title": "Products & services",
   "catalog.products.table.actions.delete": "Delete",

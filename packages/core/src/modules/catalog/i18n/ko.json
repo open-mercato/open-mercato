@@ -613,6 +613,8 @@
   "catalog.products.media.errors.imagesOnly": "이미지 파일만 지원됩니다.",
   "catalog.products.media.errors.uploadFailed": "업로드에 실패했습니다.",
   "catalog.products.media.label": "미디어",
+  "catalog.products.media.remove": "미디어 삭제: {fileName}",
+  "catalog.products.media.setDefault": "기본 미리보기로 설정: {fileName}",
   "catalog.products.media.uploading": "업로드하는 중…",
   "catalog.products.page.title": "상품 및 서비스",
   "catalog.products.table.actions.delete": "삭제",

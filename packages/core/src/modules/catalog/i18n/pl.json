@@ -613,6 +613,8 @@
   "catalog.products.media.errors.imagesOnly": "Obsługiwane są tylko pliki graficzne.",
   "catalog.products.media.errors.uploadFailed": "Nie udało się przesłać pliku.",
   "catalog.products.media.label": "Multimedia",
+  "catalog.products.media.remove": "Usuń medium: {fileName}",
+  "catalog.products.media.setDefault": "Ustaw jako domyślny podgląd: {fileName}",
   "catalog.products.media.uploading": "Przesyłam…",
   "catalog.products.page.title": "Produkty i usługi",
   "catalog.products.table.actions.delete": "Usuń",

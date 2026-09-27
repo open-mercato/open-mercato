@@ -613,6 +613,8 @@
   "catalog.products.media.errors.imagesOnly": "Solo se admiten archivos de imagen.",
   "catalog.products.media.errors.uploadFailed": "Error al subir.",
   "catalog.products.media.label": "Medios",
+  "catalog.products.media.remove": "Eliminar medio: {fileName}",
+  "catalog.products.media.setDefault": "Establecer como vista previa predeterminada: {fileName}",
   "catalog.products.media.uploading": "Subiendo…",
   "catalog.products.page.title": "Productos y servicios",
   "catalog.products.table.actions.delete": "Eliminar",
