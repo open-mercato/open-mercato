@@ -100,7 +100,7 @@ describe('AttachmentLibrary download cell', () => {
     const tableProps = renderLibraryAndCaptureTable()
     const rowClickSpy = renderCellInsideClickableRow(tableProps, 'download')
 
-    fireEvent.click(screen.getByRole('link', { name: 'Download' }))
+    fireEvent.click(screen.getByRole('link', { name: 'Download — invoice.pdf' }))
 
     expect(rowClickSpy).not.toHaveBeenCalled()
   })
