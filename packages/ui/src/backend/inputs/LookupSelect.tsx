@@ -279,6 +279,7 @@ export function LookupSelect({
             }}
             onKeyDown={handleInputKeyDown}
             placeholder={resolvedSearchPlaceholder}
+                        aria-label={resolvedSearchPlaceholder}
             disabled={disabled}
             role="combobox"
             aria-expanded={listboxVisible}
