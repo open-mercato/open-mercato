@@ -793,7 +793,7 @@ export default function SyncRunsDashboardPage() {
                   onValueChange={(value) => setSelectedIntegrationId(value ?? '')}
                   disabled={isLoadingOptions || options.length === 0}
                 >
-                  <SelectTrigger size="lg">
+                  <SelectTrigger size="lg" aria-label={t('data_sync.dashboard.columns.integration', 'Integration')}>
                     <SelectValue
                       placeholder={
                         options.length === 0
@@ -821,7 +821,7 @@ export default function SyncRunsDashboardPage() {
                   onValueChange={(value) => setSelectedEntityType(value ?? '')}
                   disabled={entityOptions.length === 0}
                 >
-                  <SelectTrigger size="lg">
+                  <SelectTrigger size="lg" aria-label={t('data_sync.dashboard.columns.entityType', 'Entity type')}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -843,7 +843,7 @@ export default function SyncRunsDashboardPage() {
                   onValueChange={(value) => setSelectedDirection(value === 'export' ? 'export' : 'import')}
                   disabled={selectedIntegration?.direction !== 'bidirectional'}
                 >
-                  <SelectTrigger size="lg">
+                  <SelectTrigger size="lg" aria-label={t('data_sync.dashboard.columns.direction', 'Direction')}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -891,6 +891,7 @@ export default function SyncRunsDashboardPage() {
                           value={batchSize}
                           onChange={(event) => setBatchSize(event.target.value)}
                           inputMode="numeric"
+                          aria-label={t('data_sync.dashboard.start.batchSize', 'Batch size')}
                         />
                       </div>
                     ) : null}
@@ -979,7 +980,7 @@ export default function SyncRunsDashboardPage() {
                       })}
                       disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
                     >
-                      <SelectTrigger size="lg">
+                      <SelectTrigger size="lg" aria-label={t('data_sync.dashboard.schedule.type', 'Schedule type')}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1002,6 +1003,9 @@ export default function SyncRunsDashboardPage() {
                       onChange={(event) => updateScheduleEditor({ scheduleValue: event.target.value })}
                       disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
                       placeholder={scheduleEditor.scheduleType === 'cron' ? '0 * * * *' : '1h'}
+                      aria-label={scheduleEditor.scheduleType === 'cron'
+                        ? t('data_sync.dashboard.schedule.cronValue', 'Cron expression')
+                        : t('data_sync.dashboard.schedule.intervalValue', 'Interval')}
                       aria-invalid={scheduleValueError ? true : undefined}
                       aria-describedby={scheduleValueError ? SCHEDULE_VALUE_ERROR_ID : undefined}
                     />
@@ -1025,6 +1029,7 @@ export default function SyncRunsDashboardPage() {
                       value={scheduleEditor.timezone}
                       onChange={(event) => updateScheduleEditor({ timezone: event.target.value })}
                       disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                      aria-label={t('data_sync.dashboard.schedule.timezone', 'Timezone')}
                     />
                   </div>
                 </div>
