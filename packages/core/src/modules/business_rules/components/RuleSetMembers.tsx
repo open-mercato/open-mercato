@@ -150,7 +150,7 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
                 className={`px-2 py-1 rounded text-xs font-medium cursor-pointer ${
                   member.enabled
                     ? 'bg-status-success-bg text-status-success-text hover:bg-status-success-bg/80'
-                    : 'bg-muted text-muted-foregroun hover:bg-muted/50'
+                    : 'bg-muted text-muted-foreground hover:bg-muted/50'
                 }`}
                 title={t('business_rules.sets.members.actions.toggleEnabled')}
               >
@@ -211,7 +211,7 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
 
           <div className="flex gap-2">
             <Button onClick={handleAdd} disabled={!selectedRuleId} size="sm">
-              {t('business_rules.sets.members.actions.add)}
+              {t('business_rules.sets.members.actions.add')}
             </Button>
             <Button
               onClick={() => {
@@ -236,11 +236,11 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
       {/* Help Text */}
       <div className="text-xs text-muted-foreground space-y-1">
         <p>
-          <strong>{t('business_rules.sets.members.help.ordering')}:</strong>{ ' '}
+          <strong>{t('business_rules.sets.members.help.ordering')}:</strong>{' '}
           {t('business_rules.sets.members.help.orderingDescription')}
         </p>
         <p>
-          <strong>{t('business_rules.sets.members.help.enabled')}:</strong>{ ' '}
+          <strong>{t('business_rules.sets.members.help.enabled')}:</strong>{' '}
           {t('business_rules.sets.members.help.enabledDescription')}
         </p>
       </div>
