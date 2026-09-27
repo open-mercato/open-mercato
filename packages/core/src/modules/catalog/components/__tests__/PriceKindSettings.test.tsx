@@ -81,8 +81,8 @@ jest.mock('@open-mercato/ui/primitives/dialog', () => ({
 
 // Mock Radix-based Radio primitives — jsdom has gaps in pointer/focus APIs
 jest.mock('@open-mercato/ui/primitives/radio', () => ({
-  RadioGroup: ({ children, value, onValueChange, name }: any) => (
-    <div role="radiogroup" data-testid="radio-group" data-value={value} data-name={name}>
+  RadioGroup: ({ children, value, onValueChange, name, ...props }: any) => (
+    <div {...props} role="radiogroup" data-testid="radio-group" data-value={value} data-name={name}>
       {React.Children.map(children, (child: any) =>
         React.cloneElement(child, { __groupValue: value, __onChange: onValueChange })
       )}
@@ -140,8 +140,9 @@ jest.mock('@open-mercato/ui/backend/RowActions', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect', () => ({
-  DictionaryEntrySelect: ({ value, onChange }: any) => (
+  DictionaryEntrySelect: ({ id, value, onChange }: any) => (
     <select
+      id={id}
       data-testid="currency-select"
       value={value ?? ''}
       onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onChange(e.target.value || undefined)}
@@ -205,6 +206,14 @@ describe('PriceKindSettings', () => {
     jest.clearAllMocks()
     mockReadApiResultOrThrow.mockResolvedValue({ items: sampleItems })
     mockSurfaceRecordConflict.mockReturnValue(false)
+  })
+
+  it('associates the visible display mode and currency labels with their controls', async () => {
+    render(<PriceKindSettings />)
+    await openCreateDialog()
+
+    expect(screen.getByRole('radiogroup', { name: 'Display mode' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Currency (optional)' })).toBeInTheDocument()
   })
 
   it('renders the section title and description', async () => {
