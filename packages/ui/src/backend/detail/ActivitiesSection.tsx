@@ -1180,13 +1180,15 @@ function ActivitiesSectionImpl<C = unknown>({
                               openEditDialog(activity)
                             }}
                             disabled={pendingAction !== null}
+                            aria-label={t('editTitle', 'Edit activity')}
+                            title={t('editTitle', 'Edit activity')}
                           >
                             {isUpdatePending ? (
                               <span className="relative flex h-4 w-4 items-center justify-center">
                                 <span className="absolute h-4 w-4 animate-spin rounded-full border border-primary border-t-transparent" />
                               </span>
                             ) : (
-                              <Pencil className="h-4 w-4" />
+                              <Pencil className="h-4 w-4" aria-hidden="true" />
                             )}
                           </Button>
                           <Button
@@ -1198,13 +1200,15 @@ function ActivitiesSectionImpl<C = unknown>({
                               handleDelete(activity).catch(() => {})
                             }}
                             disabled={pendingAction !== null}
+                            aria-label={t('deleteAction', 'Delete activity')}
+                            title={t('deleteAction', 'Delete activity')}
                           >
                             {isDeletePending ? (
                               <span className="relative flex h-4 w-4 items-center justify-center text-destructive">
                                 <span className="absolute h-4 w-4 animate-spin rounded-full border border-destructive border-t-transparent" />
                               </span>
                             ) : (
-                              <Trash2 className="h-4 w-4" />
+                              <Trash2 className="h-4 w-4" aria-hidden="true" />
                             )}
                           </Button>
                         </div>
