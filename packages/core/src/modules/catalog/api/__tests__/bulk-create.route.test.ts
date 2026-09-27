@@ -112,6 +112,29 @@ describe('catalog bulk-create routes — organization scoping', () => {
     )
   })
 
+  it('returns the guard rejection and queues nothing when a mutation guard blocks the batch', async () => {
+    ;(resolveOrganizationScopeForRequest as jest.Mock).mockResolvedValue({
+      selectedId: 'org-b',
+      filterIds: ['org-b'],
+      allowedIds: null,
+      tenantId: 'tenant-1',
+    })
+    ;(runBulkCreateMutationGuards as jest.Mock).mockResolvedValueOnce({
+      ok: false,
+      status: 423,
+      body: { error: 'Locked' },
+    })
+
+    const response = await postCategoriesBulkCreate(
+      request('/api/catalog/categories/bulk-create', { items: [{ name: 'Widgets' }] }),
+    )
+
+    expect(response.status).toBe(423)
+    await expect(response.json()).resolves.toEqual({ error: 'Locked' })
+    expect(createJob).not.toHaveBeenCalled()
+    expect(mockQueue.enqueue).not.toHaveBeenCalled()
+  })
+
   it('falls back to the account organization when no organization is selected', async () => {
     ;(resolveOrganizationScopeForRequest as jest.Mock).mockResolvedValue({
       selectedId: null,
