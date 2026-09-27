@@ -382,3 +382,19 @@ describe('LookupSelect disabled', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 })
+
+
+describe('LookupSelect accessible name', () => {
+  it('uses the translated search prompt as the combobox accessible name', () => {
+    render(
+      <LookupSelect
+        value={null}
+        onChange={() => {}}
+        fetchItems={async () => []}
+        searchPlaceholder="Search users by name or email..."
+      />,
+    )
+
+    expect(screen.getByRole('combobox', { name: 'Search users by name or email...' })).toBeInTheDocument()
+  })
+})
