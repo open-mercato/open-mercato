@@ -758,6 +758,7 @@ export function SalesDocumentItemsSection({
                   item.uomSnapshot,
                 );
                 const discount = resolveLineDiscountDisplay(item);
+                const actionItemLabel = item.name ?? t("sales.documents.items.untitled", "Untitled");
 
                 return (
                   <tr
@@ -946,7 +947,7 @@ export function SalesDocumentItemsSection({
                           size="icon"
                           variant="ghost"
                           className="h-8 w-8"
-                          aria-label={t('ui.actions.edit', 'Edit')}
+                          aria-label={`${t('ui.actions.edit', 'Edit')} — ${actionItemLabel}`}
                           onClick={(event) => {
                             event.stopPropagation();
                             handleEdit(item);
@@ -963,7 +964,7 @@ export function SalesDocumentItemsSection({
                             size="icon"
                             variant="ghost"
                             className="h-8 w-8 text-destructive"
-                            aria-label={t('ui.actions.delete', 'Delete')}
+                            aria-label={`${t('ui.actions.delete', 'Delete')} — ${actionItemLabel}`}
                             disabled={kind === 'order' && items.length === 1}
                             onClick={(event) => {
                               event.stopPropagation();
