@@ -124,6 +124,29 @@ describe('EntityTagsDialog', () => {
     readApiResultOrThrowMock.mockResolvedValue({ items: [], assignedIds: [] })
   })
 
+  it('provides one accessible custom close button', async () => {
+    const onClose = jest.fn()
+
+    await act(async () => {
+      renderWithProviders(
+        <EntityTagsDialog
+          open
+          onClose={onClose}
+          entityId="person-1"
+          entityType="person"
+          entityOrganizationId="org-1"
+          entityData={{}}
+        />,
+      )
+    })
+
+    const closeButtons = screen.getAllByRole('button', { name: 'Close' })
+    expect(closeButtons).toHaveLength(1)
+
+    fireEvent.click(closeButtons[0])
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
   it('opens tag settings from the manage-tags modal header', async () => {
     await act(async () => {
       renderWithProviders(
