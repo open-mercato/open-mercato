@@ -1252,7 +1252,8 @@ None.
 ### 2026-09-27 — OAuth connect result travels in `?oauth=`, not `?flash=` (#6402)
 
 - The callback redirected with `?flash=<connected|error>`, but the global `<FlashMessages>` host reads `?flash=` as the message text (the `ui/backend/utils/flash.ts` convention), so users saw a green toast reading `error`/`connected`, or nothing after a cross-origin return from the provider. The outcome now travels in `?oauth=` (plus the unchanged `code` / `provider` / `channelId`), and the profile page maps it to its translated message.
-- The page's `flash()` call runs from a mount effect, before the layout's host attaches its listener, so on a full page load the event was dropped. `flash()` now keeps the latest undelivered message for up to 5 s and the hosts that start listening in the same commit show it.
+- The page's `flash()` call runs from a mount effect. On a full page load hydration is split across Suspense boundaries, so that effect could commit before any `<FlashMessages>` host attached its listener, and the event was dropped. `flash()` now keeps the latest undelivered message for up to 5 s and the hosts that start listening in the same commit show it.
+- The page strips `oauth` / `code` / `provider` / `channelId` from the URL once it has shown the toast, so a reload or Back navigation does not show it again.
 - A custom `returnUrl` page that parsed `flash=connected|error` must read `oauth` instead; no such consumer exists in the repository.
 
 ### 2026-09-17 — The per-user channel owner is the default assignee at ingest (#6106)

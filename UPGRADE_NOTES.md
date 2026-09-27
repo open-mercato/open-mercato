@@ -24,6 +24,17 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### The communication-channels OAuth callback reports its result in `?oauth=`, not `?flash=` (#6402)
+
+`GET /api/communication_channels/oauth/[provider]/callback` used to redirect back to `returnUrl`
+with `?flash=<connected|error>&code=…&provider=…&channelId=…`. `?flash=` is the global
+`<FlashMessages>` message-text param, so the raw outcome rendered as a green `error`/`connected`
+toast. The outcome now travels in `?oauth=<connected|error>`; `code`, `provider` and `channelId`
+are unchanged.
+
+**Action for module/app authors:** a custom `returnUrl` page that read `flash=connected|error`
+must read `oauth` instead. The built-in **My communication channels** page is already updated.
+
 ### `loadDictionary` now lets a host app's own locale file override a module-defined translation key (#5995)
 
 `loadDictionary` (`@open-mercato/shared/lib/i18n/server`) used to merge the host app's dictionary

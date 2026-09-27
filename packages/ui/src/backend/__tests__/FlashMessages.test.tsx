@@ -126,9 +126,9 @@ describe('FlashMessages', () => {
   })
 
   /**
-   * Regression for #6402: a page that flashes from its own mount effect runs
-   * before the layout's host attaches its listener (child effects fire first),
-   * so on a full page load the event used to be dropped and the user saw nothing.
+   * Regression for #6402: on a full page load a page's mount effect can commit
+   * before any host attaches its listener, so the event used to be dropped and
+   * the user saw nothing. Rendering the flasher first reproduces that ordering.
    */
   it('shows a flash dispatched before any host was listening once a host mounts', () => {
     function FlashesOnMount() {
@@ -140,8 +140,8 @@ describe('FlashMessages', () => {
 
     renderWithProviders(
       <>
-        <FlashMessages />
         <FlashesOnMount />
+        <FlashMessages />
       </>,
     )
 

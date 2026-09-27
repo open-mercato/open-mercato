@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/communication_channels/extension-points'
 import { getImportHistoryLimits } from '@open-mercato/core/modules/communication_channels/lib/import-history-limits'
-import { OAUTH_RESULT_QUERY_PARAM } from '@open-mercato/core/modules/communication_channels/lib/oauth-result'
+import { OAUTH_RESULT_QUERY_PARAM, stripOAuthResultParams } from '@open-mercato/core/modules/communication_channels/lib/oauth-result'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -113,8 +113,11 @@ export default function ProfileCommunicationChannelsPage() {
               : t('communication_channels.profile.flash.error', 'Failed to connect channel.'),
         'error',
       )
+    } else {
+      return
     }
-  }, [flashType, flashCode, flashProvider, t])
+    router.replace(stripOAuthResultParams(window.location.href), { scroll: false })
+  }, [flashType, flashCode, flashProvider, router, t])
 
   React.useEffect(() => {
     let cancelled = false

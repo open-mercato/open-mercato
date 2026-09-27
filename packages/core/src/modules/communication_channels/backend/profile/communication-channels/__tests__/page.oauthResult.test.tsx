@@ -15,6 +15,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 let currentSearchParams = new URLSearchParams()
+const routerMock = { push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
   const dict = require('../../../../i18n/en.json') as Record<string, string>
@@ -26,7 +27,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => {
 })
 
 jest.mock('next/navigation', () => ({
-  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }),
+  useRouter: () => routerMock,
   useSearchParams: () => currentSearchParams,
 }))
 
@@ -61,6 +62,7 @@ const flashMock = flash as jest.MockedFunction<typeof flash>
 
 async function mountPageAt(query: string) {
   currentSearchParams = new URLSearchParams(query)
+  window.history.replaceState({}, '', `/backend/profile/communication-channels?${query}`)
   apiCallMock.mockResolvedValue({ ok: true, result: { items: [] } } as never)
   await act(async () => {
     render(<ProfileCommunicationChannelsPage />)
@@ -89,9 +91,19 @@ describe('profile communication channels — OAuth connect result', () => {
     expect(flashMock).toHaveBeenCalledWith('Channel connected (gmail).', 'success')
   })
 
+  it('strips the OAuth result params once the toast is shown so a reload does not repeat it', async () => {
+    await mountPageAt('oauth=connected&provider=gmail&channelId=channel-1&tab=email')
+
+    expect(routerMock.replace).toHaveBeenCalledTimes(1)
+    expect(routerMock.replace).toHaveBeenCalledWith('/backend/profile/communication-channels?tab=email', {
+      scroll: false,
+    })
+  })
+
   it('leaves a generic ?flash= message to the global FlashMessages host', async () => {
     await mountPageAt('flash=error&code=replay')
 
     expect(flashMock).not.toHaveBeenCalled()
+    expect(routerMock.replace).not.toHaveBeenCalled()
   })
 })

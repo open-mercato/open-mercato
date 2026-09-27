@@ -36,11 +36,12 @@ function isSameOriginFlashNavigation(): boolean {
 }
 
 // A page that flashes from a mount effect (e.g. reading an OAuth callback's
-// result params) runs before the layout's `<FlashMessages />` host has attached
-// its listener — child effects fire first — so the event would be dropped on a
-// full page load. Keep the latest undelivered message briefly and let the
-// hosts that start listening in the same commit show it, so the primary-host
-// election stays in sync.
+// result params) can run before any `<FlashMessages />` host has attached its
+// listener: on a full page load hydration is split across Suspense boundaries,
+// so the page's effects may commit ahead of the hosts' and the event would be
+// dropped. Keep the latest undelivered message briefly and let the hosts that
+// start listening in the same commit show it, so the primary-host election
+// stays in sync.
 const PENDING_FLASH_MAX_AGE_MS = 5000
 let listeningFlashHostCount = 0
 let pendingFlash: { message: string; type: FlashKind; queuedAt: number } | null = null
