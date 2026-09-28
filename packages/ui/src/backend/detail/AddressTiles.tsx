@@ -445,7 +445,15 @@ export function AddressTiles<C = unknown>({
               ? label('editTitle', 'Edit address')
               : label('addTitle', 'Add address')}
           </span>
-          <Button type="button" variant="ghost" size="icon"            onClick={handleCancel}            disabled={disableActions}            aria-label={label('closeForm', 'Close address form')}            title={label('closeForm', 'Close address form')}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={handleCancel}
+            disabled={disableActions}
+            aria-label={label('closeForm', 'Close address form')}
+            title={label('closeForm', 'Close address form')}
+          >
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -546,6 +554,9 @@ export function AddressTiles<C = unknown>({
               return renderFormTile(`form-${address.id}`)
             }
             const isDeleting = deletingId === address.id
+            const addressLabel = address.name ?? label('labelFallback', 'Address')
+            const editLabel = `${label('edit', 'Edit address')} — ${addressLabel}`
+            const deleteLabel = `${label('delete', 'Delete address')} — ${addressLabel}`
             return (
               <div
                 key={address.id}
@@ -577,6 +588,8 @@ export function AddressTiles<C = unknown>({
                       size="icon"
                       onClick={() => handleEdit(address)}
                       disabled={disableActions}
+                      aria-label={editLabel}
+                      title={editLabel}
                     >
                       <Pencil className="h-4 w-4" />
                     </Button>
@@ -586,6 +599,8 @@ export function AddressTiles<C = unknown>({
                       size="icon"
                       onClick={() => handleDelete(address.id)}
                       disabled={disableActions}
+                      aria-label={deleteLabel}
+                      title={deleteLabel}
                     >
                       {isDeleting ? (
                         <span className="relative flex h-4 w-4 items-center justify-center text-destructive">
