@@ -621,4 +621,12 @@ this pass:
   moved to `official-modules#55` as its own document. That document's
   own Changelog covers its own fixes.
 
+### 2026-09-28 (cont. — citation fix)
+
+Design decisions' `registerTaxCode`/`setup.ts` claim cited
+`financial-module-knowledge-base.md` §2, which actually discusses a
+related but distinct point. Corrected to cite the real
+`ledger/setup.ts` code (`seedPolishAccountGroups(ctx.em, scope)`)
+directly. Substance unchanged; citation only.
+
 Not yet re-reviewed by a maintainer under this revision.
