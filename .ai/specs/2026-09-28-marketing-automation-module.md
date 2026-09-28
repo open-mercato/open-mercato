@@ -144,6 +144,36 @@ canvas must not show a branch that never runs. Nesting is capped at five levels,
 hand-edited or imported definition that is cyclic in spirit into a truncated campaign instead of a
 stack overflow in a worker.
 
+### Subject access and erasure
+
+Both halves live in one file because they must agree: an export that omits a table lies to the person
+asking, and an erasure that misses the same table lies to the regulator. The table list is written once and
+a test holds both functions to it.
+
+**Erasure unlinks; it does not delete.** The subject id is nulled on every row — including inside the run
+context's jsonb, because nulling the column and leaving the id one key deeper is erasure in name only — and
+the rows stay. Two reasons, the second decisive:
+
+1. Nothing else in those rows identifies anybody. This module never stored a name, an address or a phone
+   number; the run context, the send history and the event table were each designed to hold none. A row
+   with no subject id identifies nobody, which is what erasure has to achieve.
+2. Deleting them would silently rewrite history. A campaign that reported 4,000 sends last quarter would
+   start reporting 3,850, and every number an operator wrote down would quietly stop matching. Erasure is
+   a duty to one person; falsifying an audit trail is a harm to everybody else.
+
+**Consent records are kept, with the subject id.** This looks like the opposite of erasure and is the
+expected practice: forgetting that somebody unsubscribed is how they get mailed again — the exact harm they
+acted to prevent. Once the platform erases the customer row itself, that uuid points at nobody while still
+suppressing the id forever. The erasure report says how many consent records it kept, so the operator sees
+the decision rather than discovering it.
+
+**No new ACL feature.** Both actions are gated by the pair that already describes them —
+`marketing_automation.runs.view` plus `customers.people.manage`. Minting a `gdpr.*` feature would have meant
+editing the platform's own ACL translation catalogue for a permission that is exactly the intersection of two
+existing ones, and a module should not grow the platform's permission surface to describe something already
+describable. Erasure additionally requires `{"confirm":"erase"}` in the body: a destructive action reachable
+by URL alone is one somebody performs by accident.
+
 ### Consent and one-click unsubscribe
 
 The feature without which this module should not send anything in production.
@@ -715,6 +745,9 @@ eight-way concurrent worker and is now backed by a partial unique index on the a
   optimistic lock; canvas editor reusing the `business_rules` condition builder; `en`/`pl`
   locales. Verified against a running instance: palette, create, save, round-trip, 409 on a
   stale save, and five rejected invalid graphs.
+- **2026-09-28** — Backlog B-15 completed: subject access export and erasure, reachable from the customer
+  profile. Erasure unlinks rather than deletes so historical totals stay true, and deliberately keeps the
+  unsubscribe record. 512 unit tests, 76 integration tests.
 - **2026-09-28** — Phase 6.1 and X-08: marketing consent as a send gate ahead of every timing gate, an
   append-only consent trail beside the current state, and a public one-click unsubscribe whose link
   identifies nobody. Silence is permitted, stated in a named constant. 504 unit tests, 72 integration

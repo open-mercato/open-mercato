@@ -82,6 +82,9 @@ its own. Spec:
   the other order lands an "optimised" send at 3am.
 - Never learn a send hour from fewer than `MINIMUM_OPENS_FOR_PATTERN` opens, and never group open hours
   in server time — both produce a confident answer about the wrong customer.
+- Never make erasure delete rows. It nulls the subject link — including inside the run context's jsonb —
+  so the person is unidentifiable while last quarter's reported totals stay true. And never erase a consent
+  record: forgetting an unsubscribe is how somebody gets mailed again.
 - Never check consent after a timing gate. Consent is permission and the others are scheduling, so a
   refused message is DROPPED, never deferred — deferring it only sends it later.
 - Never let the unsubscribe endpoint confirm something it did not do. A person who believes they
@@ -174,6 +177,7 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | score ledger, idempotent awarding | `lib/scores.ts`, `steps/add-points.ts` |
 | tier ladder, derivation and its defaults | `lib/engine/tiers.ts`, `lib/tiers.ts` |
 | everything known about one customer | `api/customers/[id]/profile/route.ts` |
+| subject export and erasure, and what they keep | `lib/gdpr.ts` |
 | consent state, its trail, and the send gate | `lib/consent.ts`, `api/unsubscribe/` |
 | agent/MCP authoring tools and their invariants | `ai-tools/authoring-pack.ts` |
 | daily series behind the results chart | `lib/analytics/daily-series.ts` |

@@ -6,7 +6,10 @@ import { KpiCard } from '@open-mercato/ui/backend/charts'
 import { ErrorMessage, LoadingMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 
@@ -55,8 +58,61 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
   const t = useT()
   const customerId = typeof params?.id === 'string' ? params.id : ''
 
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [profile, setProfile] = React.useState<Profile | null>(null)
   const [state, setState] = React.useState<'loading' | 'ready' | 'missing' | 'error'>('loading')
+  const [busy, setBusy] = React.useState(false)
+
+  /**
+   * Hands the person their data as a file.
+   *
+   * Downloaded rather than rendered: it is a subject access response, which somebody has to be able to send
+   * on, and a screen full of JSON is not a thing you can forward to whoever asked.
+   */
+  const exportData = async () => {
+    setBusy(true)
+    try {
+      const response = await apiCallOrThrow<Record<string, unknown>>(`/api/marketing_automation/customers/${customerId}/gdpr`)
+      const blob = new Blob([JSON.stringify(response.result ?? {}, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `marketing-data-${customerId}.json`
+      anchor.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      flash(t('marketing_automation.gdpr.exportFailed', 'Could not export the data.'), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const eraseData = async () => {
+    const confirmed = await confirm({
+      text: t(
+        'marketing_automation.gdpr.confirmErase',
+        'Erase this customer marketing data? Their campaign history stays as anonymous rows so past totals remain correct, and their unsubscribe is kept so they are never mailed again.',
+      ),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    setBusy(true)
+    try {
+      await apiCallOrThrow(`/api/marketing_automation/customers/${customerId}/gdpr`, {
+        method: 'POST',
+        body: JSON.stringify({ confirm: 'erase' }),
+        headers: { 'content-type': 'application/json' },
+      })
+      flash(t('marketing_automation.gdpr.erased', 'The marketing data has been erased.'), 'success')
+      // Reloaded rather than patched: the profile is now a different thing and showing the old numbers
+      // beside a success message would suggest the erasure did not work.
+      window.location.reload()
+    } catch {
+      flash(t('marketing_automation.gdpr.eraseFailed', 'Could not erase the data.'), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   React.useEffect(() => {
     if (!customerId) return
@@ -107,11 +163,20 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
   return (
     <Page>
       <PageBody>
-        <div className="mb-4">
+        {ConfirmDialogElement}
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div className="text-h3 text-foreground">
             {profile.customer.displayName ?? t('marketing_automation.profile.unnamed', 'Unnamed customer')}
+            <div className="text-sm font-normal text-muted-foreground">{profile.customer.email ?? '—'}</div>
           </div>
-          <div className="text-sm text-muted-foreground">{profile.customer.email ?? '—'}</div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => void exportData()}>
+              {t('marketing_automation.gdpr.export', 'Export data')}
+            </Button>
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => void eraseData()}>
+              {t('marketing_automation.gdpr.erase', 'Erase data')}
+            </Button>
+          </div>
         </div>
 
         <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
