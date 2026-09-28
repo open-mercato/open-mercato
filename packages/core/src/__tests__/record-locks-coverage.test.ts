@@ -52,6 +52,9 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
   'auth:User': { status: 'enabled', resourceKind: 'auth.user', reason: 'enabled — presence + CRUD decorator (floor + record_locks); ACL routes versioned separately.' },
   'auth:Role': { status: 'enabled', resourceKind: 'auth.role', reason: 'enabled — presence + CRUD decorator (floor + record_locks); ACL routes versioned separately.' },
 
+  // --- customer_groups ---
+  'customer_groups:CustomerGroup': { status: 'enabled', resourceKind: 'customer.group', reason: 'enabled — CRUD decorator (floor + record_locks); resourceKind auto-derived from the ORM entity class (no explicit events/actions config on the route). Terms sub-resource is a hand-written route (see optimistic-lock-command-coverage); memberships are a junction table.' },
+
   // --- catalog ---
   'catalog:CatalogProduct': { status: 'enabled', resourceKind: 'catalog.product', reason: 'enabled — presence mount + CRUD decorator (floor + record_locks).' },
   'catalog:CatalogProductVariant': { status: 'enabled', resourceKind: 'catalog.variant', reason: 'enabled — presence mount + injectionSpotId + CRUD decorator.' },

@@ -1991,6 +1991,17 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     () => new Set(injectedFieldDefinitions.map((definition) => definition.id)),
     [injectedFieldDefinitions],
   )
+  // An injected field can intentionally reuse a host-declared field id to override the
+  // host's built-in input (the documented `crud-form:<entityId>:fields` collision-override
+  // pattern — e.g. `customer_groups`' `GroupPickerField` replacing catalog's plain-text
+  // `customerGroupId`). Such a field is still a real host schema field, so its value must
+  // reach `coreValues`/submission. Only an injected field with NO host-declared counterpart
+  // is a genuinely "extra" field that must be stripped before schema validation/submission.
+  const hostFieldIdSet = React.useMemo(() => new Set(fields.map((field) => field.id)), [fields])
+  const injectedOnlyFieldIdSet = React.useMemo(
+    () => new Set(Array.from(injectedFieldIdSet).filter((id) => !hostFieldIdSet.has(id))),
+    [injectedFieldIdSet, hostFieldIdSet],
+  )
 
   const injectedCrudFields = React.useMemo<CrudField[]>(() => {
     return injectedFieldDefinitions.map((definition) => {
@@ -2132,7 +2143,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         delete widgetValues[hiddenId]
       }
       const coreValues = { ...widgetValues }
-      for (const injectedId of injectedFieldIdSet) {
+      for (const injectedId of injectedOnlyFieldIdSet) {
         delete coreValues[injectedId]
       }
       const result = schema.safeParse(collapseDotPathFields(coreValues, dotPathBaseFieldIds))
@@ -2181,7 +2192,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     hiddenBaseFieldIds,
     hiddenGroupFieldIds,
     hiddenInjectedFieldIds,
-    injectedFieldIdSet,
+    injectedOnlyFieldIdSet,
     mapDefsForValidation,
     schema,
     t,
@@ -3050,7 +3061,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       delete widgetValues[hiddenId]
     }
     const coreValues = { ...widgetValues }
-    for (const injectedId of injectedFieldIdSet) {
+    for (const injectedId of injectedOnlyFieldIdSet) {
       delete coreValues[injectedId]
     }
     if (customEntity) {
@@ -3089,7 +3100,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         if (result.data) {
           submitValues = result.data as TValues
           const projectedCoreValues = { ...(result.data as Record<string, unknown>) }
-          for (const injectedId of injectedFieldIdSet) {
+          for (const injectedId of injectedOnlyFieldIdSet) {
             delete projectedCoreValues[injectedId]
           }
           if (customEntity) {
