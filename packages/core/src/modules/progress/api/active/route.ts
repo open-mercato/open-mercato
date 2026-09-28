@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { ProgressJob } from '../../data/entities'
 
 const routeMetadata = {
@@ -17,10 +18,12 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const progressService = container.resolve('progressService') as import('../../lib/progressService').ProgressService
+  const orgScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const organizationId = orgScope?.selectedId ?? auth.orgId
 
-  const ctx = { tenantId: auth.tenantId, organizationId: auth.orgId }
+  const ctx = { tenantId: auth.tenantId, organizationId }
 
-  await progressService.markStaleJobsFailed(auth.tenantId, undefined, auth.orgId)
+  await progressService.markStaleJobsFailed(auth.tenantId, undefined, organizationId)
 
   const [jobs, recentlyCompleted] = await Promise.all([
     progressService.getActiveJobs(ctx),
