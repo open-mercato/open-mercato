@@ -69,3 +69,22 @@ export function occurrenceKeyFor(
   }))
   return createHash('sha256').update(canonical).digest('hex')
 }
+
+/**
+ * A DURABLE claim, for a sweep that must act on something exactly once ever.
+ *
+ * Shares the run table's occurrence index — so the database enforces it, not a check — but carries a
+ * prefix, because the two kinds of key have opposite lifetimes. An event key is released after
+ * `OCCURRENCE_DEDUP_WINDOW_HOURS` so a repeat of the same fact can legitimately re-enter; a claim on
+ * "we asked this customer to review order X" must never be released, or the request is sent again.
+ */
+export const SWEEP_CLAIM_PREFIX = 'claim:'
+
+export function sweepClaimKey(parts: string[]): string {
+  const digest = createHash('sha256').update(parts.join('\u0000')).digest('hex')
+  return `${SWEEP_CLAIM_PREFIX}${digest}`
+}
+
+export function isSweepClaimKey(key: string | null | undefined): boolean {
+  return typeof key === 'string' && key.startsWith(SWEEP_CLAIM_PREFIX)
+}

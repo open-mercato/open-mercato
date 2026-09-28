@@ -2,7 +2,6 @@ import type { FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
-import { SalesQuote } from '@open-mercato/core/modules/sales/data/entities'
 import { findScheduledCampaigns } from '../lib/campaign-lookup.js'
 import { readDefinition, startCampaignForSubject } from '../lib/dispatcher.js'
 import type { DispatchDeps, ReentryPolicy } from '../lib/dispatcher.js'
@@ -11,7 +10,8 @@ import { describeNarrowing, planNarrowing } from '../lib/engine/narrowing.js'
 import { loadTierThresholds } from '../lib/tiers.js'
 import type { TierThreshold } from '../lib/engine/tiers.js'
 import { createSqlCandidateSource, resolveCandidates } from '../lib/audience/set-resolver.js'
-import { EXPIRING_QUOTE_TRIGGER_ID } from '../lib/trigger-catalog.js'
+import { findRowSweepSource } from '../lib/sweep-sources.js'
+import type { RowSweepSource } from '../lib/sweep-sources.js'
 import { isSweepDue } from '../lib/sweep-interval.js'
 import { MarketingCampaignTrigger as TriggerEntity } from '../data/entities.js'
 import type { MarketingCampaign, MarketingCampaignTrigger } from '../data/entities.js'
@@ -36,7 +36,6 @@ export const metadata: WorkerMeta = {
  * exactly an id-ordered keyset.
  */
 const PAGE_SIZE = 200
-const DEFAULT_EXPIRY_WINDOW_DAYS = 7
 
 function reentryPolicyFor(trigger: MarketingCampaignTrigger): ReentryPolicy {
   return trigger.reentryAfterDays == null
@@ -176,73 +175,62 @@ async function sweepCustomers(
   return started
 }
 
-async function sweepExpiringQuotes(
+/**
+ * Runs a ROW source: one candidate per row its query returned.
+ *
+ * Every row source shares this, so adding one is a query and a label — see `lib/sweep-sources.ts`.
+ * A candidate may carry a durable claim, which is what makes "ask for a review of this order exactly
+ * once, ever" enforceable by the database rather than by a marker column of its own.
+ */
+async function sweepRows(
   campaign: MarketingCampaign,
   trigger: MarketingCampaignTrigger,
+  source: RowSweepSource,
   deps: DispatchDeps,
   scope: JobScope,
   tierThresholds: TierThreshold[],
 ): Promise<number> {
-  const em = deps.em
   const policy = reentryPolicyFor(trigger)
-  const withinDays = typeof trigger.sweepParams?.withinDays === 'number'
-    ? trigger.sweepParams.withinDays
-    : DEFAULT_EXPIRY_WINDOW_DAYS
-  const horizon = new Date(deps.now.getTime() + withinDays * 86_400_000)
-
-  const quotes = await em.find(
-    SalesQuote,
-    {
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      deletedAt: null,
-      validUntil: { $gt: deps.now, $lte: horizon },
-      // An accepted or cancelled quote has nothing left to remind anybody about. Both spellings
-      // of cancelled appear in the codebase.
-      status: { $nin: ['confirmed', 'canceled', 'cancelled'] },
-    },
-    { orderBy: { validUntil: 'ASC' }, limit: PAGE_SIZE },
-  )
+  const params = (trigger.sweepParams ?? {}) as { withinDays?: number }
+  const candidates = await source.collect(deps.em, scope, params, deps.now, PAGE_SIZE)
 
   let started = 0
-  for (const quote of quotes) {
-    if (!quote.customerEntityId) continue
+  for (const candidate of candidates) {
     try {
-      const daysUntilExpiry = quote.validUntil
-        ? Math.max(0, Math.ceil((new Date(quote.validUntil).getTime() - deps.now.getTime()) / 86_400_000))
-        : null
-      const triggerContext = {
-        quoteId: quote.id,
-        quoteNumber: quote.quoteNumber,
-        quoteTotal: Number.parseFloat(String(quote.grandTotalGrossAmount ?? '0')) || 0,
-        currencyCode: quote.currencyCode,
-        validUntil: quote.validUntil ? new Date(quote.validUntil).toISOString() : null,
-        daysUntilExpiry,
-      }
-      const subject = await buildSubjectDocument(em, quote.customerEntityId, scope, triggerContext, deps.now, { tierThresholds })
+      const subject = await buildSubjectDocument(
+        deps.em,
+        candidate.subjectEntityId,
+        scope,
+        candidate.trigger,
+        deps.now,
+        { tierThresholds },
+      )
       const outcome = await startCampaignForSubject(
         campaign,
         {
           subject,
-          subjectEntityId: quote.customerEntityId,
-          triggerEventId: EXPIRING_QUOTE_TRIGGER_ID,
-          triggerContext,
+          subjectEntityId: candidate.subjectEntityId,
+          triggerEventId: source.triggerEventId,
+          triggerContext: candidate.trigger,
           dispatchDepth: 1,
           reentryPolicy: policy,
+          occurrenceKey: candidate.claimKey ?? null,
         },
         deps,
       )
       if (outcome === 'started') started += 1
     } catch (error) {
-      logger.error('[internal] marketing quote sweep candidate failed', {
+      // One bad row never aborts the sweep.
+      logger.error('[internal] marketing sweep row failed', {
         campaignId: campaign.id,
-        quoteId: quote.id,
+        source: source.id,
+        subjectEntityId: candidate.subjectEntityId,
         error: error instanceof Error ? error.message : String(error),
       })
       reportError(error, {
         module: 'marketing_automation',
         code: 'marketing_automation.sweep_candidate_failed',
-        attributes: { campaignId: campaign.id, quoteId: quote.id },
+        attributes: { campaignId: campaign.id, source: source.id },
       })
     }
   }
@@ -278,8 +266,9 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
         { lastSweptAt: deps.now },
       )
 
-      const started = trigger.sweepSource === 'expiring_quotes'
-        ? await sweepExpiringQuotes(campaign, trigger, deps, scope, tierThresholds)
+      const rowSource = findRowSweepSource(trigger.sweepSource)
+      const started = rowSource
+        ? await sweepRows(campaign, trigger, rowSource, deps, scope, tierThresholds)
         : await sweepCustomers(campaign, trigger, deps, scope, tierThresholds)
       logger.info('marketing sweep finished', {
         campaignId: campaign.id,

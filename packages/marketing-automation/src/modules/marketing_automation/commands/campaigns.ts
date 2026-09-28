@@ -53,6 +53,8 @@ export const VALIDATION_CODES = {
   noSteps: 'marketing_automation.validation.noSteps',
   noTriggers: 'marketing_automation.validation.noTriggers',
   invalidSchedule: 'marketing_automation.validation.invalidSchedule',
+  /** The payload itself did not parse — a client sending a shape this version does not accept. */
+  invalidPayload: 'marketing_automation.validation.invalidPayload',
 } as const
 
 function invalidGraph(code: string, error: string, detail?: string): CrudHttpError {
@@ -134,12 +136,14 @@ function assertGraphIsRunnable(payload: CampaignGraphSaveInput): void {
         trigger.scheduleValue,
       )
     }
-    // Two schedules with the same value collide on the canvas node id, producing duplicate React
-    // keys and a node that cannot be removed.
-    if (seenSchedules.has(trigger.scheduleValue)) {
-      throw invalidGraph(VALIDATION_CODES.duplicateTrigger, `Duplicate schedule: ${trigger.scheduleValue}`, trigger.scheduleValue)
+    // Keyed on the SOURCE as well as the interval, exactly as the canvas node id is. "Every day over
+    // all customers" and "every day over delivered orders" are two different triggers; keying on the
+    // interval alone refused a campaign the canvas had just let somebody build.
+    const scheduleKey = `${trigger.sweepSource ?? 'customers'}:${trigger.scheduleValue}`
+    if (seenSchedules.has(scheduleKey)) {
+      throw invalidGraph(VALIDATION_CODES.duplicateTrigger, `Duplicate schedule: ${scheduleKey}`, scheduleKey)
     }
-    seenSchedules.add(trigger.scheduleValue)
+    seenSchedules.add(scheduleKey)
   }
 
   // Refused, not warned: a campaign reacting to an event its own step causes drives itself, and
@@ -232,7 +236,19 @@ const saveCampaignGraphCommand: CommandHandler<
     ensureOrganizationScope(ctx, scope.organizationId)
 
     const { id, ...rest } = rawInput
-    const payload = campaignGraphSaveSchema.parse(rest)
+    // A malformed payload is the CLIENT's mistake, not the server's: parsed with `safeParse` so it
+    // answers 400 with a code the editor can localize, rather than throwing past the route and
+    // surfacing as a 500 that says nothing.
+    const parsedPayload = campaignGraphSaveSchema.safeParse(rest)
+    if (!parsedPayload.success) {
+      const issue = parsedPayload.error.issues[0]
+      throw invalidGraph(
+        VALIDATION_CODES.invalidPayload,
+        issue ? `${issue.path.join('.') || 'payload'}: ${issue.message}` : 'Invalid payload',
+        issue?.path.join('.') || undefined,
+      )
+    }
+    const payload = parsedPayload.data
     assertGraphIsRunnable(payload)
 
     const em = ctx.container.resolve<EntityManager>('em').fork()

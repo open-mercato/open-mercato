@@ -9,6 +9,7 @@ import {
   hasExhaustedAttempts,
 } from './engine/scheduling.js'
 import type { AutomationContext, StepOutcome } from './engine/types.js'
+import { SWEEP_CLAIM_PREFIX } from './occurrence.js'
 
 export type RunScope = { tenantId: string; organizationId: string }
 
@@ -59,11 +60,15 @@ export async function createRun(
 }
 
 /**
- * Releases occurrence keys older than the dedup window.
+ * Releases EVENT occurrence keys older than the dedup window.
  *
  * This is what keeps the unique index a DUPLICATE guard rather than a permanent one-run-ever rule:
  * after the window, the key is gone and an author's `unlimited` re-entry policy means what it says.
  * Driven by the periodic resume scan, which already runs on a schedule.
+ *
+ * Sweep CLAIMS are excluded by their prefix. They exist precisely to be permanent — "we already asked
+ * this customer to review order X" is not a duplicate to forget — and releasing one would send the
+ * message a second time.
  */
 export async function expireOccurrenceKeys(
   em: EntityManager,
@@ -77,7 +82,7 @@ export async function expireOccurrenceKeys(
     {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-      occurrenceKey: { $ne: null },
+      occurrenceKey: { $ne: null, $not: { $like: `${SWEEP_CLAIM_PREFIX}%` } },
       startedAt: { $lt: cutoff },
     },
     { occurrenceKey: null },

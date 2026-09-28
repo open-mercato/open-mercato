@@ -17,7 +17,7 @@ import type { GroupCondition } from '@open-mercato/core/modules/business_rules/l
 import { CampaignCanvas } from '../../../../components/CampaignCanvas'
 import { ParamFields } from '../../../../components/ParamFields'
 import type { UiFieldSpec } from '../../../../components/ParamFields'
-import { AUDIENCE_NODE_ID, definitionToGraph, autoArrange } from '../../../../lib/canvas/graph-mapping'
+import { AUDIENCE_NODE_ID, definitionToGraph, autoArrange, triggerNodeId } from '../../../../lib/canvas/graph-mapping'
 import {
   addVariant,
   appendStep,
@@ -39,6 +39,14 @@ type PaletteTrigger = {
   labelKey: string
   available: boolean
   blockedReasonKey: string | null
+}
+
+type PaletteSweepSource = {
+  id: string
+  labelKey: string
+  available: boolean
+  blockedReasonKey: string | null
+  defaultWithinDays: number | null
 }
 
 type PaletteStep = {
@@ -119,7 +127,11 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
   const [updatedAt, setUpdatedAt] = React.useState('')
   const [triggers, setTriggers] = React.useState<CampaignTriggerInput[]>([])
   const [definition, setDefinition] = React.useState<CampaignDefinition>({ version: 1, audience: null, steps: [] })
-  const [palette, setPalette] = React.useState<{ triggers: PaletteTrigger[]; steps: PaletteStep[] } | null>(null)
+  const [palette, setPalette] = React.useState<{
+    triggers: PaletteTrigger[]
+    steps: PaletteStep[]
+    sweepSources: PaletteSweepSource[]
+  } | null>(null)
   const [estimate, setEstimate] = React.useState<AudienceEstimate | null>(null)
   const [estimating, setEstimating] = React.useState(false)
   const [selectedNodeId, setSelectedNodeId] = React.useState<string | null>(null)
@@ -134,7 +146,7 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
       try {
         const [campaign, paletteResult] = await Promise.all([
           apiCall<CampaignResponse>(`/api/marketing_automation/campaigns/${campaignId}`),
-          apiCall<{ triggers: PaletteTrigger[]; steps: PaletteStep[] }>('/api/marketing_automation/palette'),
+          apiCall<{ triggers: PaletteTrigger[]; steps: PaletteStep[]; sweepSources: PaletteSweepSource[] }>('/api/marketing_automation/palette'),
         ])
         if (cancelled) return
         if (!campaign.ok || !campaign.result) {
@@ -174,8 +186,18 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
       }
     }
     if (node.type === 'trigger') {
-      const entry = palette?.triggers.find((item) => node.data.trigger.kind === 'event' && item.eventId === node.data.trigger.eventId)
-      return { id: node.id, type: 'trigger', position: node.position, data: { trigger: node.data.trigger, labelKey: entry?.labelKey } }
+      // Bound once so the narrowing survives into the closures below.
+      const nodeTrigger = node.data.trigger
+      const entry = palette?.triggers.find((item) => nodeTrigger.kind === 'event' && item.eventId === nodeTrigger.eventId)
+      const sourceEntry = nodeTrigger.kind === 'schedule'
+        ? palette?.sweepSources.find((item) => item.id === (nodeTrigger.sweepSource ?? 'customers'))
+        : undefined
+      return {
+        id: node.id,
+        type: 'trigger',
+        position: node.position,
+        data: { trigger: nodeTrigger, labelKey: entry?.labelKey, sourceLabelKey: sourceEntry?.labelKey },
+      }
     }
     const stepEntry = palette?.steps.find((item) => item.type === node.data.step.type)
     const shared = {
@@ -248,6 +270,36 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
     mutate({ triggers: [...triggers, { kind: 'event', eventId }] })
   }
 
+  /**
+   * Adds a periodic trigger.
+   *
+   * Nothing HAPPENS to make a customer dormant and nothing happens when an order is old enough to
+   * review, so those campaigns have no event to react to — only a question to ask on a schedule. This
+   * is the only way to author one, and until it existed every periodic campaign was API-only.
+   */
+  const addScheduleTrigger = (source: PaletteSweepSource) => {
+    const next: CampaignTriggerInput = {
+      kind: 'schedule',
+      scheduleValue: '1d',
+      // Once ever by default: a sweep's audience usually STAYS true ("has not ordered in 90 days"),
+      // so an unlimited default would re-enrol the same customer on every tick.
+      reentryAfterDays: null,
+      sweepSource: source.id,
+      sweepParams: source.defaultWithinDays !== null ? { withinDays: source.defaultWithinDays } : {},
+    }
+    if (triggers.some((trigger) => triggerNodeId(trigger) === triggerNodeId(next))) return
+    mutate({ triggers: [...triggers, next] })
+    setSelectedNodeId(triggerNodeId(next))
+  }
+
+  const updateScheduleTrigger = (nodeId: string, patch: Partial<Extract<CampaignTriggerInput, { kind: 'schedule' }>>) => {
+    mutate({
+      triggers: triggers.map((trigger) => (
+        triggerNodeId(trigger) === nodeId && trigger.kind === 'schedule' ? { ...trigger, ...patch } : trigger
+      )),
+    })
+  }
+
   const withSteps = (steps: CampaignStep[]) => mutate({ definition: { ...definition, steps } })
 
   const updateStep = (stepId: string, params: Record<string, unknown>) => {
@@ -262,7 +314,8 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
     if (locateStep(definition.steps, nodeId)) {
       withSteps(removeStep(definition.steps, nodeId))
     } else {
-      mutate({ triggers: triggers.filter((trigger) => (trigger.kind === 'event' ? `trigger:event:${trigger.eventId}` : `trigger:schedule:${trigger.scheduleValue}`) !== nodeId) })
+      // Uses the same id function the graph does, so a node and its trigger can never disagree.
+      mutate({ triggers: triggers.filter((trigger) => triggerNodeId(trigger) !== nodeId) })
     }
     setSelectedNodeId(null)
   }
@@ -360,6 +413,13 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
   const selectedStepMeta = selectedStep ? palette?.steps.find((item) => item.type === selectedStep.type) ?? null : null
   const selectedSplit = selectedStep && selectedStep.type === SPLIT_STEP_TYPE ? selectedStep : null
   const audienceSelected = selectedNodeId === AUDIENCE_NODE_ID
+  const selectedTrigger = selectedNodeId
+    ? triggers.find((trigger) => triggerNodeId(trigger) === selectedNodeId) ?? null
+    : null
+  const selectedScheduleTrigger = selectedTrigger?.kind === 'schedule' ? selectedTrigger : null
+  const selectedSweepSource = selectedScheduleTrigger
+    ? palette?.sweepSources.find((source) => source.id === (selectedScheduleTrigger.sweepSource ?? 'customers')) ?? null
+    : null
 
   return (
     <Page>
@@ -416,6 +476,25 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                     onClick={() => addTrigger(trigger.eventId)}
                   >
                     {t(trigger.labelKey, trigger.eventId)}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="mb-2 text-overline text-muted-foreground">
+                {t('marketing_automation.canvas.palette.schedules', 'On a schedule')}
+              </div>
+              <div className="space-y-1">
+                {(palette?.sweepSources ?? []).map((source) => (
+                  <Button
+                    key={source.id}
+                    variant="outline"
+                    className="w-full justify-start"
+                    disabled={!source.available}
+                    title={source.blockedReasonKey ? t(source.blockedReasonKey, '') : undefined}
+                    onClick={() => addScheduleTrigger(source)}
+                  >
+                    {t(source.labelKey, source.id)}
                   </Button>
                 ))}
               </div>
@@ -583,7 +662,76 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
               </div>
             ) : null}
 
-            {!audienceSelected && !selectedStep && selectedNodeId ? (
+            {selectedScheduleTrigger && selectedNodeId ? (
+              <div className="space-y-3">
+                <div className="text-overline text-muted-foreground">
+                  {t('marketing_automation.canvas.node.schedule.title', 'Schedule')}
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="schedule-interval">
+                    {t('marketing_automation.field.schedule.interval', 'Run every')}
+                  </Label>
+                  <Input
+                    id="schedule-interval"
+                    value={selectedScheduleTrigger.scheduleValue}
+                    placeholder="1d"
+                    onChange={(event) => updateScheduleTrigger(selectedNodeId, { scheduleValue: event.target.value })}
+                  />
+                  <div className="text-xs text-muted-foreground">
+                    {t('marketing_automation.field.schedule.intervalHint', 'Minutes, hours or days: 30m, 6h, 1d.')}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="schedule-reentry">
+                    {t('marketing_automation.field.schedule.reentry', 'Re-enter the same customer after (days)')}
+                  </Label>
+                  <Input
+                    id="schedule-reentry"
+                    type="number"
+                    min={1}
+                    value={selectedScheduleTrigger.reentryAfterDays ?? ''}
+                    placeholder={t('marketing_automation.field.schedule.reentryOnce', 'Once ever')}
+                    onChange={(event) => {
+                      const raw = event.target.value.trim()
+                      const parsed = Number.parseInt(raw, 10)
+                      // Empty means "once ever", which is the safe default for a sweep whose audience
+                      // stays true — not "re-enter immediately".
+                      updateScheduleTrigger(selectedNodeId, {
+                        reentryAfterDays: raw && Number.isFinite(parsed) && parsed > 0 ? parsed : null,
+                      })
+                    }}
+                  />
+                </div>
+                {selectedSweepSource?.defaultWithinDays !== null && selectedSweepSource ? (
+                  <div className="space-y-1">
+                    <Label htmlFor="schedule-within">
+                      {t('marketing_automation.field.schedule.withinDays', 'Window (days)')}
+                    </Label>
+                    <Input
+                      id="schedule-within"
+                      type="number"
+                      min={1}
+                      value={
+                        typeof selectedScheduleTrigger.sweepParams?.withinDays === 'number'
+                          ? selectedScheduleTrigger.sweepParams.withinDays
+                          : ''
+                      }
+                      onChange={(event) => {
+                        const parsed = Number.parseInt(event.target.value, 10)
+                        updateScheduleTrigger(selectedNodeId, {
+                          sweepParams: Number.isFinite(parsed) && parsed > 0 ? { withinDays: parsed } : {},
+                        })
+                      }}
+                    />
+                  </div>
+                ) : null}
+                <Button variant="outline" onClick={() => removeNode(selectedNodeId)}>
+                  {t('marketing_automation.action.removeNode', 'Remove')}
+                </Button>
+              </div>
+            ) : null}
+
+            {!audienceSelected && !selectedStep && !selectedScheduleTrigger && selectedNodeId ? (
               <Button variant="outline" onClick={() => removeNode(selectedNodeId)}>
                 {t('marketing_automation.action.removeNode', 'Remove')}
               </Button>

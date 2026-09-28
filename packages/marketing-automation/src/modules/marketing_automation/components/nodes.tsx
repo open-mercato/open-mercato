@@ -45,17 +45,19 @@ function NodeShell({
   )
 }
 
-export type TriggerNodeData = { trigger: CampaignTriggerInput; labelKey?: string }
+export type TriggerNodeData = { trigger: CampaignTriggerInput; labelKey?: string; sourceLabelKey?: string }
 
 export function TriggerNode({ data, selected }: { data: TriggerNodeData; selected?: boolean }) {
   const t = useT()
   const trigger = data.trigger
   const title = trigger.kind === 'event'
     ? t(data.labelKey ?? `marketing_automation.trigger.${trigger.eventId}.label`, trigger.eventId)
-    : t('marketing_automation.trigger.schedule.label', 'On a schedule')
+    : t(data.sourceLabelKey ?? 'marketing_automation.trigger.schedule.label', 'On a schedule')
+  // A schedule says WHAT it iterates and HOW OFTEN; either alone is ambiguous on a canvas with
+  // several scheduled triggers.
   const subtitle = trigger.kind === 'event'
     ? trigger.eventId
-    : trigger.scheduleValue
+    : t('marketing_automation.trigger.schedule.every', 'every {interval}').replace('{interval}', trigger.scheduleValue)
 
   return <NodeShell title={title} subtitle={subtitle} selected={selected} hasTarget={false} />
 }

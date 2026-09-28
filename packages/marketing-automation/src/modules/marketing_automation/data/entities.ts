@@ -112,8 +112,13 @@ export class MarketingCampaignTrigger {
    * offer-expiry walks quotes and asks "does this one lapse soon". Collapsing them into one
    * source would mean scanning every customer to find a handful of expiring quotes.
    */
+  /**
+   * Which sweep source iterates for this trigger. A registry id (`lib/sweep-sources.ts`), kept as
+   * plain text rather than a union here: sources are additive and a third-party module may contribute
+   * one, so the enum belongs in the validator that guards writes, not in the column's type.
+   */
   @Property({ name: 'sweep_source', type: 'text', nullable: true })
-  sweepSource?: 'customers' | 'expiring_quotes' | null
+  sweepSource?: string | null
 
   /** Source-specific knobs, e.g. `{ withinDays: 7 }` for expiring quotes. */
   @Property({ name: 'sweep_params', type: 'jsonb', nullable: true })

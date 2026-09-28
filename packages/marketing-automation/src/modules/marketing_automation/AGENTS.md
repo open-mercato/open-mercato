@@ -35,6 +35,12 @@ its own. Spec:
 - Edit the authored steps through `lib/canvas/step-tree.ts`, never by indexing into
   `definition.steps`. With splits a campaign is a tree, and an edit that assumes a flat array
   silently ignores everything authored inside a lane.
+- Add a periodic candidate source through `ROW_SWEEP_SOURCES` in `lib/sweep-sources.ts`. The worker,
+  the validator's accepted ids, the palette and the audience builder's offered paths all derive from
+  that registry; a source added anywhere else is invisible to at least one of them.
+- Give a row source a `claimKey` when it must act on a thing exactly once ever, and leave it off when
+  repeats are legitimate. A review request must never be sent twice; a quote-expiry reminder is
+  supposed to be repeatable, and the campaign's re-entry policy is what governs it.
 - Recurse into `readVariants(step).steps` in anything that walks a definition — save validation,
   position pruning, analytics. Forgetting to is how a lane ends up exempt from a rule the trunk
   obeys.
@@ -83,6 +89,11 @@ its own. Spec:
   an installation change cannot strand a journey; the writer rejects it, because at author time it
   is always a mistake and a campaign that looks saved and does nothing is the worst failure mode
   this module has.
+- Never key a schedule on its interval alone — in a node id, a duplicate check or anywhere else. The
+  source is part of its identity, and treating the interval as the key made the save refuse a campaign
+  the canvas had just allowed.
+- Never let a malformed payload reach the route as a throw. Parse with `safeParse` and answer 400 with
+  a `marketing_automation.validation.*` code; a 500 tells the author nothing they can act on.
 - Never draw a user-editable edge on the canvas. The only branch the engine has is a split, and
   which lane a subject takes is decided by the engine, not by an edge somebody drew — an author who
   can draw an edge has been promised a topology it cannot run. Edges are derived; order lives in the
@@ -130,6 +141,7 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | score ledger, idempotent awarding | `lib/scores.ts`, `steps/add-points.ts` |
 | tier ladder, derivation and its defaults | `lib/engine/tiers.ts`, `lib/tiers.ts` |
 | everything known about one customer | `api/customers/[id]/profile/route.ts` |
+| periodic candidate sources and their claims | `lib/sweep-sources.ts` |
 | duplicate-delivery guard and its window | `lib/occurrence.ts`, `lib/runs.ts` → `createRun` |
 | signed tracking tokens, link rewriting | `lib/tracking/` (`token.ts`, `rewrite.ts`, `urls.ts`) |
 | the only PUBLIC routes in the module | `api/track/open`, `api/track/click` |

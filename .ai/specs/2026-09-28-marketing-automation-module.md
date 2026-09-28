@@ -144,6 +144,38 @@ canvas must not show a branch that never runs. Nesting is capped at five levels,
 hand-edited or imported definition that is cyclic in spirit into a truncated campaign instead of a
 stack overflow in a worker.
 
+### Scheduled campaigns and sweep sources
+
+Some campaigns have nothing to react to. Nothing HAPPENS to make a customer dormant, and nothing
+happens when an order becomes old enough to ask about — there is only a question to ask periodically.
+Those are scheduled campaigns, and until the canvas could author one they existed in the schema and in
+the worker but not in any user interface, which made every periodic campaign API-only.
+
+Sweep sources are now a registry (`lib/sweep-sources.ts`). Two shapes exist and they are genuinely
+different: the `customers` source walks the population and is narrowed by the campaign's own audience,
+while a ROW source is driven by a query of its own and yields one candidate per row. Adding a row
+source is a query and a label — the worker, the validator's accepted ids, the palette and the audience
+builder's offered paths all derive from the registry rather than from four lists that would drift.
+
+A row source may attach a **durable claim** to a candidate. It shares the run table's occurrence index,
+so the database enforces it, but carries a `claim:` prefix because the two kinds of key have opposite
+lifetimes: an event key is released after six hours so a repeat of the same fact can legitimately
+re-enter, while "we already asked this customer to review order X" must never be released. That is what
+makes the review request exactly-once without a marker table of its own, and it is why the expiry job
+skips prefixed keys.
+
+Two lessons came out of the first integration run, both of them defects this design invited:
+
+- The save refused two schedules at the same interval over different sources as duplicates, although
+  the canvas had just let somebody build them. The interval alone is not a schedule's identity; the
+  source is part of it, in the node id and in the duplicate check alike.
+- A payload that did not parse threw past the route as a 500. It is the client's mistake and answers
+  400 with a code the editor can localize.
+
+Win-back needed no new code at all: a daily sweep over the population plus
+`orders.count >= 1 AND orders.daysSinceLast >= 90`, which the narrowing pushes to the database. The
+review request needed one row source. Both are covered end to end by `TC-MA-010`.
+
 ### Lead score, tiers and the customer profile
 
 The score is a LEDGER, not a total in a column. A total has to be incremented, and an increment is the
@@ -463,6 +495,12 @@ written down.* *Residual: blocked on `SPEC-029`.*
   optimistic lock; canvas editor reusing the `business_rules` condition builder; `en`/`pl`
   locales. Verified against a running instance: palette, create, save, round-trip, 409 on a
   stale save, and five rejected invalid graphs.
+- **2026-09-28** — Backlog B-04/B-05 and the authoring gap behind them: sweep sources became a
+  registry with durable per-row claims, the canvas can author a scheduled trigger (interval, source,
+  re-entry window), a `fulfilled_orders` source makes review requests exactly-once per order, and
+  win-back turned out to need no new code. Two defects found by the new integration tests: schedule
+  identity ignored the source, and an unparseable payload answered 500. 385 unit tests, 41 integration
+  tests.
 - **2026-09-28** — Backlog B-01/B-02/B-03: lead scoring as an idempotent ledger with an `add_points`
   step and a `score_changed` trigger carrying the previous total, tiers derived from a per-tenant
   ladder, and the customer profile screen. 367 unit tests, 36 integration tests.

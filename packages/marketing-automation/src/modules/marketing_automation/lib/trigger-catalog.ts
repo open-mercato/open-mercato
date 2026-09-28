@@ -155,6 +155,22 @@ const scoreChanged: TriggerCatalogEntry = {
 }
 
 /**
+ * A fulfilled order, synthesised by the review-request sweep.
+ *
+ * Unavailable as an EVENT trigger — there is no fulfilment event to subscribe to — but in the catalog
+ * so the audience builder offers its paths, exactly like the expiring-quote sweep.
+ */
+const fulfilledOrder: TriggerCatalogEntry = {
+  eventId: 'marketing_automation.order.fulfilled',
+  labelKey: 'marketing_automation.trigger.marketing_automation.order.fulfilled.label',
+  available: false,
+  contextKeys: ['trigger.orderId', 'trigger.orderNumber', 'trigger.orderTotal', 'trigger.daysSinceOrder'],
+  async build(payload) {
+    return { subjectEntityId: readString(payload.entityId), trigger: {} }
+  },
+}
+
+/**
  * Abandoned cart, recorded as deliberately unavailable.
  *
  * There is no cart entity in the platform — `sales_*` holds submitted documents and
@@ -179,6 +195,7 @@ export const TRIGGER_CATALOG: TriggerCatalogEntry[] = [
   orderCreated,
   scoreChanged,
   expiringQuote,
+  fulfilledOrder,
   abandonedCart,
 ]
 

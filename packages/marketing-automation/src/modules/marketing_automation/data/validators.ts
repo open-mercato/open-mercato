@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { conditionExpressionSchema } from '@open-mercato/core/modules/business_rules/data/validators'
+import { SWEEP_SOURCE_IDS } from '../lib/sweep-sources.js'
 
 /**
  * Audience expression, reusing the platform's own condition-expression schema.
@@ -64,8 +65,8 @@ export const campaignTriggerSchema = z.discriminatedUnion('kind', [
      * audience it matches ("has not ordered in 90 days") stays true. Null means enrol once ever.
      */
     reentryAfterDays: z.number().int().positive().nullable().default(null),
-    /** What the sweep iterates over; see the entity docblock for why this is explicit. */
-    sweepSource: z.enum(['customers', 'expiring_quotes']).default('customers'),
+    /** What the sweep iterates over; the ids come from the source registry, not a second list. */
+    sweepSource: z.enum(SWEEP_SOURCE_IDS).default('customers'),
     sweepParams: z.object({ withinDays: z.number().int().positive().optional() }).default({}),
   }),
 ])

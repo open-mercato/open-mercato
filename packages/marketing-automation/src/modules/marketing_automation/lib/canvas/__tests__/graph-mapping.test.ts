@@ -40,7 +40,7 @@ describe('definitionToGraph — nodes', () => {
     expect(nodes.filter((n) => n.type === 'trigger').map((n) => n.id)).toEqual([
       'trigger:event:sales.order.created',
       'trigger:event:customers.person.created',
-      'trigger:schedule:1d',
+      'trigger:schedule:customers:1d',
     ])
   })
 
@@ -123,7 +123,7 @@ describe('autoArrange', () => {
 describe('triggerNodeId', () => {
   test('is derived from the trigger content so layout survives a save', () => {
     expect(triggerNodeId(onOrder)).toBe('trigger:event:sales.order.created')
-    expect(triggerNodeId(nightly)).toBe('trigger:schedule:1d')
+    expect(triggerNodeId(nightly)).toBe('trigger:schedule:customers:1d')
     expect(triggerNodeId({ ...onOrder })).toBe(triggerNodeId(onOrder))
   })
 })
@@ -237,5 +237,25 @@ describe('definitionToGraph — more than two lanes', () => {
       expect(pairs).toContain(`sp->${laneStep}`)
       expect(pairs).toContain(`${laneStep}->after`)
     }
+  })
+})
+
+describe('triggerNodeId — schedules', () => {
+  // The source is part of a schedule's identity: "every day over all customers" and "every day over
+  // delivered orders" are two different triggers, and keying only on the interval collapsed them onto
+  // one node — which silently dropped one of them from the canvas.
+  test('two schedules at the same interval over different sources are two nodes', () => {
+    const overCustomers = { kind: 'schedule', scheduleValue: '1d', reentryAfterDays: null, sweepSource: 'customers', sweepParams: {} } as CampaignTriggerInput
+    const overOrders = { kind: 'schedule', scheduleValue: '1d', reentryAfterDays: null, sweepSource: 'fulfilled_orders', sweepParams: {} } as CampaignTriggerInput
+    expect(triggerNodeId(overCustomers)).not.toBe(triggerNodeId(overOrders))
+
+    const definition: CampaignDefinition = { version: 1, audience: null, steps: [] }
+    const { nodes } = definitionToGraph(definition, [overCustomers, overOrders])
+    expect(nodes.filter((node) => node.type === 'trigger')).toHaveLength(2)
+  })
+
+  test('a schedule with no source recorded is treated as the population source', () => {
+    const legacy = { kind: 'schedule', scheduleValue: '1d', reentryAfterDays: null, sweepParams: {} } as unknown as CampaignTriggerInput
+    expect(triggerNodeId(legacy)).toBe('trigger:schedule:customers:1d')
   })
 })

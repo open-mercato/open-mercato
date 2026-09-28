@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { listMarketingSteps } from '../../lib/engine/registry.js'
 import { TRIGGER_CATALOG } from '../../lib/trigger-catalog.js'
+import { sweepSourceCatalog } from '../../lib/sweep-sources.js'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.view'] },
@@ -20,7 +21,7 @@ export const metadata = routeMetadata
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId) {
-    return NextResponse.json({ triggers: [], steps: [] }, { status: 401 })
+    return NextResponse.json({ triggers: [], steps: [], sweepSources: [] }, { status: 401 })
   }
 
   return NextResponse.json({
@@ -31,6 +32,9 @@ export async function GET(req: Request) {
       blockedReasonKey: entry.blockedReasonKey ?? null,
       contextKeys: entry.contextKeys,
     })),
+    // What a SCHEDULED campaign can iterate over. Without this the canvas could only author event
+    // triggers, which left every periodic campaign — win-back, review requests — API-only.
+    sweepSources: sweepSourceCatalog(),
     steps: listMarketingSteps().map((step) => ({
       type: step.type,
       labelKey: step.labelKey,
@@ -44,8 +48,8 @@ export async function GET(req: Request) {
 
 export const openApi = {
   GET: {
-    summary: 'List available campaign triggers and step types',
-    description: 'Drives the canvas palette and inspector. Derived from the live registries, so third-party step types appear automatically.',
+    summary: 'List available campaign triggers, sweep sources and step types',
+    description: 'Drives the canvas palette and inspector. Derived from the live registries, so a third-party step type or sweep source appears automatically.',
     tags: ['Marketing Automation'],
     responses: { 200: { description: 'Triggers and step types with their UI metadata' } },
   },

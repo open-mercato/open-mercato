@@ -55,7 +55,9 @@ const MAX_LANE_DEPTH = 5
 export function triggerNodeId(trigger: CampaignTriggerInput): string {
   return trigger.kind === 'event'
     ? `trigger:event:${trigger.eventId}`
-    : `trigger:schedule:${trigger.scheduleValue}`
+    // The source is part of the identity: two schedules at the same interval over DIFFERENT sources
+    // are two triggers, and keying only on the interval would collapse them onto one node.
+    : `trigger:schedule:${trigger.sweepSource ?? 'customers'}:${trigger.scheduleValue}`
 }
 
 function positionFor(

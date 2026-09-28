@@ -1,6 +1,6 @@
 import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { createRun } from '../runs'
+import { createRun, expireOccurrenceKeys } from '../runs'
 import type { AutomationContext } from '../engine/types'
 
 const scope = { tenantId: 't1', organizationId: 'o1' }
@@ -108,5 +108,35 @@ describe('createRun', () => {
       occurrenceKey: 'abc123',
     })
     expect(flushes()).toBe(1)
+  })
+})
+
+describe('expireOccurrenceKeys', () => {
+  function updatingEm() {
+    const updates: Array<{ where: Record<string, unknown>; data: Record<string, unknown> }> = []
+    const em = {
+      nativeUpdate: async (_entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
+        updates.push({ where, data })
+        return 3
+      },
+    }
+    return { em: em as unknown as EntityManager, updates }
+  }
+
+  test('releases event keys older than the window', async () => {
+    const { em, updates } = updatingEm()
+    const now = new Date('2026-09-28T12:00:00.000Z')
+    expect(await expireOccurrenceKeys(em, scope, now, 6)).toBe(3)
+    expect(updates[0].data).toEqual({ occurrenceKey: null })
+    expect(updates[0].where).toMatchObject({ tenantId: 't1', organizationId: 'o1' })
+    expect((updates[0].where.startedAt as { $lt: Date }).$lt).toEqual(new Date('2026-09-28T06:00:00.000Z'))
+  })
+
+  // A sweep claim means "we already asked this customer about order X". Releasing one would send the
+  // message again, which is the opposite of what the claim is for.
+  test('never releases a sweep claim', async () => {
+    const { em, updates } = updatingEm()
+    await expireOccurrenceKeys(em, scope, new Date(), 6)
+    expect(JSON.stringify(updates[0].where)).toContain('claim:%')
   })
 })
