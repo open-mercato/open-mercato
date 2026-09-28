@@ -9,6 +9,26 @@ and [Posting Rules Engine](2026-09-06-posting-rules-engine.md) (both
 consume `LedgerAccount`/`LedgerAccountGroup` rows this document helps
 populate faster, but neither is a dependency of this document)
 
+**Merge order** (PR #6137 review, m4): every link above, plus
+`2026-09-17-deferred-revenue.md` and
+`2026-09-08-financial-module-knowledge-base.md` referenced later in
+this document, currently lives only on its own open branch/PR — none
+are on `develop` yet, so these are relative links between sibling
+documents in this spec family, not yet-resolvable links on `develop`.
+Merge order: after #5663 (General Ledger core engine — this document's
+own hard dependency), and together with or before #6439 (this
+document's own implementation, OM-16 to OM-20). The other three
+(JELD #5972, Posting Rules Engine #6015, Deferred Revenue #6193) are
+referenced for context only — this document does not depend on any of
+them landing first. "OM-16"-"OM-20" throughout this document (mostly
+in the Changelog) are this project's internal Jira issue keys, not
+paths in this repository; `financial-spec-citation-check` and
+`financial-spec-writing-process`, also referenced throughout, are this
+project's own internal spec-writing process guidelines (verify every
+accounting/data-modeling claim against a primary source before writing
+it; run every spec through the same five-step process), not files
+checked into this repository either.
+
 ## TLDR
 
 A single new command, `ledger.importDefaultChartOfAccounts`, that
@@ -135,7 +155,9 @@ validates its own hardcoded template data once (through the same
 reused ones), then inserts every row inside one `withAtomicFlush`
 transaction, and records every created id in its own `buildLog`
 payload (`{ undo: { createdAccountTypeIds, createdAccountIds } }`) so
-`undo` deletes exactly those rows in one call — content-idempotent in
+`undo` removes exactly those rows in one call, subject to the same
+posted-entries and dependent-row guards ordinary deletion already
+enforces (see Architecture > Commands, "Undo") — content-idempotent in
 the same sense JELD's own write command is (see
 `2026-09-06-journal-entry-line-dimension.md`, Design Decisions, "Undo
 contract").
@@ -234,11 +256,40 @@ document adds.
 - **Precondition check**: counts non-deleted `LedgerAccountType` rows
   and non-deleted `LedgerAccount` rows in the caller's tenant/
   organization scope. If either count is greater than zero, the command
-  fails validation without writing anything — "the chart of accounts
-  already has N account type(s)/M account(s); import refuses to run
-  against a non-empty chart of accounts" (see Design Decisions,
-  "Refuses to run against a non-empty chart of accounts"). Soft-deleted
-  rows (`deletedAt` set) don't count toward this precondition.
+  throws a 409 conflict (`ledger.errors.chartOfAccountsNotEmpty`)
+  without writing anything — "the chart of accounts already has N
+  account type(s)/M account(s); import refuses to run against a
+  non-empty chart of accounts" (see Design Decisions, "Refuses to run
+  against a non-empty chart of accounts"). Soft-deleted rows
+  (`deletedAt` set) don't count toward this precondition. (PR #6137
+  review, m2 — this bullet previously said "fails validation," which
+  doesn't match the implementation.)
+- **Missing account groups**: every `LedgerAccountType` links to an
+  existing PL `LedgerAccountGroup` row (see Architecture, "Entities").
+  If those aren't seeded for the caller's organization yet, the command
+  throws a 409 conflict (`ledger.errors.chartOfAccountsGroupsNotSeeded`)
+  without writing anything, instead of importing a type with a
+  dangling `accountGroupId`. Defensive only — `setup.ts`'s
+  `seedDefaults` always seeds zespoły 0-8 before a tenant can reach
+  this command, so this should be unreachable in practice (PR #6137
+  review, m2 — previously undocumented).
+- **Concurrent imports**: two simultaneous calls against the same
+  empty chart of accounts can both pass the precondition check above
+  before either writes. The database's own partial unique indexes
+  (`ledger_account_types_scope_slug_unique` /
+  `ledger_accounts_scope_slug_unique`, `(organization_id, tenant_id,
+  slug) where deleted_at is null`, #6340) stop the loser from writing a
+  duplicate set of rows — its `flush` fails on a slug unique violation
+  instead. The command catches that specific violation
+  (`isUniqueViolation`, matching `postJournalEntry.ts`'s own use of the
+  same helper) and re-throws a 409 conflict of its own
+  (`ledger.errors.chartOfAccountsImportConflict` — deliberately a
+  different key from the precondition check above, since that one's
+  `{{typeCount}}`/`{{accountCount}}` placeholders would read the stale
+  pre-write counts this call itself observed, which is wrong here, not
+  just imprecise), rather than letting a raw 500 reach the loser (PR
+  #6137 review, m1; see Risks & Impact Review, "Concurrent import
+  attempts").
 - **Validation**: every hardcoded template row is validated once
   through the same `data/validators.ts` schemas
   `createLedgerAccountType`/`createLedgerAccount` already use — no new
@@ -250,9 +301,23 @@ document adds.
   `accountTypeId`/`parentAccountId`), inside one `withAtomicFlush`
   transaction.
 - **Undo**: records every created id in its own `buildLog` payload
-  (`{ undo: { createdAccountTypeIds, createdAccountIds } }`), so `undo`
-  removes exactly those rows in one call — the same content-idempotent
-  undo contract JELD's own write command already established (see
+  (`{ undo: { createdAccountTypeIds, createdAccountIds } }`). Before
+  soft-deleting anything, `undo` checks the same two guards ordinary
+  deletion already enforces: `accountHasPostedEntries` against every id
+  in `createdAccountIds` (`commands/ledgerAccounts.ts` — the same check
+  `deleteLedgerAccount` uses), and, for every id in
+  `createdAccountTypeIds`, whether any `LedgerAccount` outside this
+  import's own `createdAccountIds` still references it as
+  `accountTypeId` (the same check `deleteLedgerAccountType` uses via
+  `ledger.errors.accountTypeStillInUseCannotDelete`). If either guard
+  trips for any row, `undo` refuses the whole call — 409, with the same
+  translated message the matching ordinary-delete guard already uses
+  (`ledger.errors.accountHasPostedEntriesCannotDelete` /
+  `ledger.errors.accountTypeStillInUseCannotDelete`) — and writes
+  nothing; it never partially undoes. Only when every created row
+  clears both guards does `undo` soft-delete them all in one call — the
+  same content-idempotent undo contract JELD's own write command
+  already established (see
   `2026-09-06-journal-entry-line-dimension.md`, Design Decisions, "Undo
   contract").
 - **Permission**: `ledger.accounts.manage`.
@@ -270,9 +335,12 @@ that need arises.
 
 ### Backend Pages
 
-One new button, "Zaimportuj domyślny plan kont," on the existing
-`backend/ledger/accounts/page.tsx` (alongside the existing "create
-account"/"create account type" actions), gated by
+One new button, the `ledger.accounts.list.actions.importDefault` i18n
+key (pl: "Zaimportuj domyślny plan kont"; en: "Import default chart of
+accounts" — PR #6137 review, nit: previously described as a hardcoded
+Polish string, which doesn't match what #6439 actually ships), on the
+existing `backend/ledger/accounts/page.tsx` (alongside the existing
+"create account"/"create account type" actions), gated by
 `ledger.accounts.manage` — hidden entirely for a viewer who only has
 `ledger.accounts.view`. On success, the page's existing `DataTable`
 refreshes to show every imported row. On the precondition failure, the
@@ -344,6 +412,7 @@ aktywa finansowe:**
 | `404` / Wynagrodzenia / DEBIT | `404-1` Wynagrodzenia |
 | `405` / Ubezpieczenia społeczne i inne świadczenia / DEBIT | `405-1` Ubezpieczenia społeczne |
 | `409` / Pozostałe koszty rodzajowe / DEBIT | `409-1` Pozostałe koszty rodzajowe |
+| `490` / Rozliczenie kosztów / DEBIT | `490-1` Rozliczenie kosztów międzyzespołowe (4 -> 5) |
 
 **Zespół 5 — Koszty według typów działalności i ich rozliczenie:**
 
@@ -407,7 +476,22 @@ accounting team) that Fixed Assets' own correction cites, not from
 Kieso/Hay/Fowler — none of the three covers Polish chart-of-accounts
 numbering at this level of detail (see Literature & Prior Art).
 
-Totals: 39 `LedgerAccountType` rows, 43 `LedgerAccount` rows across the
+`490` Rozliczenie kosztów (PR #6137 review, m3) closes a gap the
+cross-spec consistency pass below missed the first time: Posting Rules
+Engine (`2026-09-06-posting-rules-engine.md`, #6015) requires this
+technical clearing account to exist for its zespół 4->5 cost
+reclassification — it posts a debit to the zespół 5 account and a
+credit to `490` for every zespół 4 posting, and that spec's own account
+resolution expects `490` to resolve to `code: '4'` like any other
+zespół 4 account. The template had zespół 4 and zespół 5 both, but no
+`490` linking them, until this fix. Payroll/tax gaps the same review
+comment raised (no tax-office PIT-withholding settlement account, no
+`870` CIT expense account) are left out of Phase 1 deliberately — this
+template is representative, not exhaustive (see the opening paragraph
+of this section), and neither gap blocks any Phase 1 module the way
+`490`'s absence blocked Posting Rules Engine.
+
+Totals: 40 `LedgerAccountType` rows, 44 `LedgerAccount` rows across the
 nine zespoły — deliberately leaving numbering gaps within each zespół
 (e.g. `010`/`020`/`070`, not `010`/`011`/`012`) matching Kieso's own
 Illustration 3.9 convention of numbering with intentional gaps "to
@@ -431,6 +515,30 @@ the exact pattern `api/fiscal-periods/[id]/lock/route.ts` already
 established for this situation (see File Manifest). Gated by
 `ledger.accounts.manage`, matching the route's own
 `metadata.POST.requireFeatures`.
+
+**Request**: `POST`, no body. Organization/tenant scope comes from the
+caller's own session (`om_selected_org` cookie / JWT claims), same as
+every other route in this module.
+
+**Response — 200**:
+```json
+{ "ok": true, "createdAccountTypeCount": 40, "createdAccountCount": 44 }
+```
+
+**Errors**:
+
+| Status | Body | When |
+| --- | --- | --- |
+| 400 | `{ "error": "..." }` | No organization context resolved for the request. |
+| 401 | `{ "error": "..." }` | Not authenticated. |
+| 403 | `{ "error": "...", "requiredFeatures": ["ledger.accounts.manage"] }` | Caller lacks `ledger.accounts.manage` (framework-level `requireFeatures` rejection, before the route handler runs). |
+| 409 | `{ "error": "..." }`, translated `ledger.errors.chartOfAccountsNotEmpty` | Chart of accounts already has account types and/or accounts. |
+| 409 | `{ "error": "..." }`, translated `ledger.errors.chartOfAccountsGroupsNotSeeded` | The org's PL account groups aren't seeded yet (defensive; should be unreachable). |
+| 409 | `{ "error": "..." }`, translated `ledger.errors.chartOfAccountsImportConflict` | A concurrent import lost the unique-slug race (see Risks & Impact Review, "Concurrent import attempts"). |
+
+(PR #6137 review, m2 — this section previously named the route but
+gave no request/response contract, read directly from `route.ts`'s own
+`openApi` doc block and `metadata`.)
 
 ## Literature & Prior Art
 
@@ -556,7 +664,8 @@ after them.
    automatically once the file exists in the right location; the
    command is gated by the existing `ledger.accounts.manage` feature,
    the same as every other command in this module.
-4. Add the "Zaimportuj domyślny plan kont" button to
+4. Add the button (i18n key `ledger.accounts.list.actions.importDefault`,
+   pl "Zaimportuj domyślny plan kont") to
    `backend/ledger/accounts/page.tsx`, wired to call the new command
    and refresh the page's existing `DataTable` on success, surfacing
    the command's own refusal message on the precondition failure.
@@ -568,7 +677,7 @@ after them.
 ## File Manifest
 
 - `lib/defaultChartOfAccounts.ts` (new) — the hardcoded Phase 1
-  template data (39 `LedgerAccountType` rows, 43 `LedgerAccount` rows
+  template data (40 `LedgerAccountType` rows, 44 `LedgerAccount` rows
   across zespoły 0–8), following `lib/seeds.ts`'s existing
   `seedPolishAccountGroups` pattern.
 - `commands/importDefaultChartOfAccounts.ts` (new) — the command
@@ -605,13 +714,25 @@ after them.
   rows, call the command, assert it succeeds and imports the full
   template alongside them.
 - **Happy path creates the full template**: call the command against
-  an empty chart of accounts, assert exactly 39 `LedgerAccountType`
-  rows and 43 `LedgerAccount` rows are created, each correctly linked
+  an empty chart of accounts, assert exactly 40 `LedgerAccountType`
+  rows and 44 `LedgerAccount` rows are created, each correctly linked
   to its `accountGroupId`/`accountTypeId`/`parentAccountTypeId`/
   `parentAccountId`.
 - **Undo restores empty state**: call the command, then its `undo`,
   assert the chart of accounts returns to zero non-deleted
   `LedgerAccountType`/`LedgerAccount` rows.
+- **Undo refuses after a posting against an imported account**: call
+  the command, post a `JournalEntry` against one imported
+  `LedgerAccount`, then call `undo` and assert it responds 409 with
+  `ledger.errors.accountHasPostedEntriesCannotDelete`, writes nothing
+  (every imported row still present and non-deleted), and the posted
+  `JournalEntryLine` is untouched.
+- **Undo refuses when a manually created account still uses an
+  imported account type**: call the command, create a `LedgerAccount`
+  manually (outside the import) whose `accountTypeId` points at one of
+  the imported `LedgerAccountType` rows, then call `undo` and assert it
+  responds 409 with `ledger.errors.accountTypeStillInUseCannotDelete`,
+  and every imported row is still present and non-deleted.
 - **Imported rows are ordinary rows afterward**: after import, call
   `updateLedgerAccountType`/`updateLedgerAccount` against an imported
   row and assert it behaves identically to a manually created row (no
@@ -623,34 +744,107 @@ after them.
   doesn't affect another organization's (already-populated or empty)
   chart of accounts.
 
+### Integration Coverage
+
+Per root `AGENTS.md` ("Documentation and Specifications": integration
+coverage is mandatory for every affected API path and key UI path, and
+must ship in the same change) — added retroactively (PR #6137 review,
+M2; the original draft had none). New file:
+`packages/core/src/modules/ledger/__integration__/TC-GL-004-import-default-chart-of-accounts.spec.ts`,
+following this module's existing `TC-GL-00x` fixture/teardown
+conventions (`.ai/qa/AGENTS.md`: self-contained fixtures, cleaned up in
+`finally`, no reliance on seeded/demo data).
+
+- **API happy path**: `POST /api/ledger/accounts/import-default-chart-of-accounts`
+  against a fresh, empty organization returns 200 with
+  `{ ok: true, createdAccountTypeCount: 40, createdAccountCount: 44 }`.
+- **409 on a non-empty chart of accounts**: seed one account first,
+  call the route again, assert 409 with the translated
+  `ledger.errors.chartOfAccountsNotEmpty` refusal message in the
+  response body.
+- **403 without `ledger.accounts.manage`**: call the route as a
+  principal whose role has only `ledger.accounts.view`, assert 403.
+- **UI path**: the button is absent entirely for a view-only principal
+  (`ledger.accounts.view` only); for a principal with
+  `ledger.accounts.manage`, clicking it, confirming the dialog, and
+  succeeding refreshes the page's `DataTable` to show the imported
+  rows.
+
 ## Risks & Impact Review
 
-- **Template drift from real-world Polish practice.** The hardcoded
-  template is a Phase 1 snapshot of common practice, not a legally
-  mandated structure (Hay's own "wide latitude" point applies both to
-  the tenant and to this document) — a tenant with different needs
-  edits after import, exactly as intended. Risk is low: nothing in this
-  codebase reads these specific codes, so an imperfect template never
-  produces incorrect behavior, only a less convenient starting point.
-- **A tenant runs the import expecting it to merge into an existing,
-  customized chart of accounts.** Mitigated by the precondition
-  failure message explaining exactly why the import was refused (see
-  Backend Pages) rather than a generic error, and by this document's
-  own explicit choice not to support merging (see Alternatives
-  Considered) — a tenant who wants some of the template still has the
-  option of deleting their existing rows first, or building the
-  specific accounts they want manually.
-- **Concurrent import attempts.** Two simultaneous calls to the command
-  against the same empty chart of accounts could both pass the
-  precondition check before either writes. The single `withAtomicFlush`
-  transaction per call and the underlying database's own constraints
-  bound the damage to, at worst, a duplicate set of rows rather than
-  data corruption — acceptable for an admin-triggered, low-frequency
+### Template drift from real-world Polish practice
+
+- **Scenario:** The hardcoded template stops matching what a given
+  tenant's accountant actually wants, or Polish market practice
+  shifts.
+- **Severity:** Low.
+- **Affected area:** Newly imported charts of accounts only (existing
+  rows created by hand are entirely unaffected).
+- **Mitigation:** The template is a Phase 1 snapshot of common
+  practice, not a legally mandated structure (Hay's own "wide latitude"
+  point applies both to the tenant and to this document) — a tenant
+  with different needs edits after import, exactly as intended.
+  Nothing in this codebase reads these specific codes, so an imperfect
+  template never produces incorrect behavior, only a less convenient
+  starting point.
+- **Residual risk:** None beyond ordinary chart-of-accounts maintenance
+  a tenant would do regardless of how the rows were first created.
+
+### A tenant expects the import to merge into an existing chart of accounts
+
+- **Scenario:** A tenant with an already-customized chart of accounts
+  runs the import expecting it to add the missing template rows
+  alongside their own, rather than being refused outright.
+- **Severity:** Low.
+- **Affected area:** UX only — no data-integrity impact, since the
+  precondition check refuses to write anything in this case.
+- **Mitigation:** The precondition failure message explains exactly why
+  the import was refused (see Backend Pages) rather than a generic
+  error, and this document makes an explicit, documented choice not to
+  support merging (see Alternatives Considered) — a tenant who wants
+  some of the template still has the option of deleting their existing
+  rows first, or building the specific accounts they want manually.
+- **Residual risk:** A tenant who wants a genuine merge tool has no
+  path to one in Phase 1; tracked as future scope only if requested
+  (see Out of Scope).
+
+### Concurrent import attempts
+
+- **Scenario:** Two simultaneous calls to the command against the same
+  empty chart of accounts both pass the precondition check before
+  either writes.
+- **Severity:** Low.
+- **Affected area:** The losing request's response only — not data
+  integrity: see Mitigation.
+- **Mitigation:** The database's own partial unique indexes
+  (`ledger_account_types_scope_slug_unique` /
+  `ledger_accounts_scope_slug_unique`, #6340) prevent a duplicate set
+  of rows; the loser's `flush` fails on a slug unique violation
+  instead. The command catches that violation and re-throws its own
+  409 refusal (`ledger.errors.chartOfAccountsImportConflict` — a
+  distinct key from the precondition check's own
+  `chartOfAccountsNotEmpty`, whose `{{typeCount}}`/`{{accountCount}}`
+  placeholders would read the stale pre-write counts this call itself
+  observed, which is wrong here, not just imprecise) instead of letting
+  that violation surface as a raw 500 (PR #6137 review, m1 —
+  previously this section said the worst case was "a duplicate set of
+  rows" and didn't say what the loser actually sees; before this fix
+  the implementation did let that violation surface as a raw 500).
+- **Residual risk:** Acceptable for an admin-triggered, low-frequency
   action; not worth a dedicated locking mechanism in Phase 1.
-- **No impact on existing modules.** JELD and Posting Rules Engine
-  already consume `LedgerAccount`/`LedgerAccountGroup` rows regardless
-  of whether they were created by hand or imported — this document
-  changes nothing about how either module reads those rows.
+
+### No impact on existing modules
+
+- **Scenario:** JELD or Posting Rules Engine behave differently
+  depending on whether a `LedgerAccount`/`LedgerAccountGroup` row was
+  created by hand or by this import.
+- **Severity:** None — included for completeness, not because a real
+  risk was found.
+- **Affected area:** N/A.
+- **Mitigation:** Both modules already consume `LedgerAccount`/
+  `LedgerAccountGroup` rows regardless of origin; this document changes
+  nothing about how either module reads those rows.
+- **Residual risk:** None identified.
 
 ## Out of Scope
 
@@ -720,48 +914,137 @@ Changelog. Cross-checked against the knowledge base's §2 conventions —
 no new tagging mechanism, no new control-account pattern, no new
 event; nothing to add to §2.
 
-**Verdict:** Fully compliant. First-draft complete; ready for review.
+**Verdict:** Fully compliant. Implementation complete (#6439, OM-16 to OM-20); this document has since been updated post-implementation and through two rounds of external review (see Changelog) — no longer a first draft.
 
 ## Changelog
 
-### 2026-09-15 (initial draft)
+### 2026-09-28 (cont. — M2, m1, m2, m3, m4, and all four PR #6137 review nits resolved)
 
-- New document, `financial-spec-writing-process` applied from the
-  start (unlike every prior document in this family, which received
-  Literature & Prior Art / real-system comparison as a later
-  enrichment pass — this is the first document in this family to carry
-  both from its very first draft).
-- Step 1 (cross-spec consistency): confirmed no existing spec, branch,
-  or PR already covers this; found GL core engine's own explicit,
-  load-bearing "no default chart of accounts is seeded; tenants build
-  their own" Phase 1 decision, and SPEC-024's aspirational, since-
-  diverged-from `IChartOfAccountsTemplate` plugin contract — surfaced
-  both to the user as genuine, consequential Open Questions rather than
-  guessed: (1) scope — PL-only hardcoded template vs. a pluggable
-  multi-country framework, resolved as PL-only hardcoded; (2) seeding
-  model — resolved as Phase 1 opt-in command + button on the existing
-  backend page (no change to GL core engine's `onTenantCreated`
-  behavior), with the onboarding-wizard-integration alternative
-  explicitly tracked in Phase 2/Out of Scope rather than dropped, per
-  the user's own explicit instruction to keep it visible.
-- Step 2 (literature grounding): confirmed Kieso Illustration 3.9 (ch.
-  3, pp. 3-12–3-13, deliberate numbering gaps); confirmed Hay ch. 7,
-  p. 119 ("wide latitude" in setting up account types); confirmed
-  Fowler has zero "chart of accounts" mentions anywhere.
-- Step 3 (real-system comparison): ERPNext recorded as a genuine,
-  honestly-documented divergence (auto-seed-then-replace, the opposite
-  of this document's design); enova365 and Symfonia both confirmed as
-  close matches to this document's opt-in/template/customizable-after
-  design; Comarch recorded as inconclusive.
-- Step 4 (`om-spec-writing` structure): full document drafted following
-  the standard section order, Open Questions gate satisfied via
-  explicit user confirmation on both questions raised in Step 1.
-- Step 5: this document's own entry added to
-  `2026-09-08-financial-module-knowledge-base.md` (module map row, new
-  Tier 2/Tier 3 citation entries for Kieso Illustration 3.9 and Hay p.
-  119, new Tier 4 real-system entry, dated Changelog entry) — see that
-  document's own Changelog for the mirrored entry.
+External review (PR #6137, review by AHKSammich, 2026-09-26) raised six
+points beyond M1 (resolved above). All six resolved in this pass:
 
+- **M2** (no integration coverage): added an Integration Coverage list
+  to Testing Strategy and a new
+  `TC-GL-004-import-default-chart-of-accounts.spec.ts` integration
+  test covering the API happy path, the 409 non-empty-chart refusal,
+  the 403 missing-permission refusal, and the button's UI path (hidden
+  for view-only, table refresh on success).
+- **m1** (concurrent-import risk described incorrectly): Risks &
+  Impact Review, "Concurrent import attempts" now says what actually
+  happens — the loser's `flush` fails on a slug unique-index
+  violation, which the command now catches and maps to its own 409
+  refusal (`ledger.errors.chartOfAccountsImportConflict`; previously it
+  would have surfaced as a raw 500). Reworked
+  the whole Risks & Impact Review section into `.ai/specs/AGENTS.md`'s
+  required Scenario/Severity/Affected area/Mitigation/Residual risk
+  shape while fixing this (also closes the "no severity/residual-risk
+  fields" nit below).
+- **m2** (spec out of date with the implemented contract): Commands
+  now says the precondition throws a 409 conflict, not "fails
+  validation"; documented the previously-unmentioned
+  `ledger.errors.chartOfAccountsGroupsNotSeeded` failure path; API
+  Contracts now gives the actual request/response/status-code
+  contract, read directly from `route.ts`'s own `openApi` doc block.
+- **m4** (unmerged dependencies, private references): added a Merge
+  order note under Related stating every linked/referenced sibling
+  spec (including `2026-09-17-deferred-revenue.md` and the knowledge
+  base, both referenced later in this document but not in its Related
+  header) lives only on its own branch — none are on `develop` yet —
+  and this document's own merge order (after #5663, together with or
+  before #6439); and clarified that "OM-16"-"OM-20" are this project's
+  internal Jira keys and `financial-spec-citation-check`/
+  `financial-spec-writing-process` are this project's internal process
+  guidelines, neither in this repository.
+- **Nits**: the button label is now described as the
+  `ledger.accounts.list.actions.importDefault` i18n key (Backend
+  Pages, Implementation Plan) rather than a hardcoded Polish string,
+  matching what #6439 actually ships; Changelog entries below are now
+  in correct chronological order (newest first — this entry included);
+  Final Compliance Report verdict refreshed to reflect the
+  implementation and both review passes rather than still reading
+  "First-draft complete."
+- **m3** (template contradicted Posting Rules Engine's own requirement
+  for technical account 490, and had payroll/tax gaps): confirmed
+  against `2026-09-06-posting-rules-engine.md` directly (it requires
+  account 490, "Rozliczenie kosztów," for the zespół 4→5
+  reclassification) and against this document's own template
+  (`lib/defaultChartOfAccounts.ts`, #6439): no `490` row existed.
+  Decision (Mikołaj, 2026-09-28): add it rather than document an
+  exclusion. Added `LedgerAccountType` `490` / Rozliczenie kosztów /
+  DEBIT with one child account, `490-1`, to zespół 4 in both the spec's
+  Data Models and #6439's `lib/defaultChartOfAccounts.ts`; totals
+  updated from 39/43 to 40/44 `LedgerAccountType`/`LedgerAccount` rows
+  throughout this document, its i18n strings (`en.json`/`pl.json`
+  `confirmImportDescription`), the route's `openApi` doc text, and
+  every hardcoded count in #6439's own unit tests and the new
+  `TC-GL-004` integration test. The payroll/tax gaps (no tax-office
+  PIT-withholding settlement account, no `870` CIT expense account)
+  are left out of Phase 1 deliberately — this template is
+  representative, not exhaustive (see Data Models' opening paragraph),
+  and neither gap blocks any Phase 1 module the way `490`'s absence
+  blocked Posting Rules Engine.
+
+### 2026-09-28 — M1 resolved: undo now enforces the same posted-entries/dependent-row guards as ordinary delete
+
+External review (PR #6137, review by AHKSammich, 2026-09-26) found that
+the undo contract described in Design Decisions ("One command, one
+transaction, one undo") and implemented in #6439 soft-deletes every
+imported row unconditionally, bypassing the `accountHasPostedEntries`/
+dependent-type checks ordinary `deleteLedgerAccount`/
+`deleteLedgerAccountType` already enforce (`commands/
+ledgerAccounts.ts`) — confirmed directly against #6439's
+`commands/importDefaultChartOfAccounts.ts`, whose `undo` had no such
+check. Fixed: Architecture > Commands > Undo and the "One command, one
+transaction, one undo" Design Decision now both state that `undo`
+checks the same two guards before soft-deleting, and refuses the whole
+call (409, reusing `ledger.errors.accountHasPostedEntriesCannotDelete`
+/ `ledger.errors.accountTypeStillInUseCannotDelete`) if either trips.
+Added two new Testing Strategy cases covering both refusal paths.
+
+### 2026-09-24 (cont. — Implementation Plan / API Contracts corrected post-implementation)
+
+Two more stale-text findings, same class as the File Manifest gap
+above, caught during a full re-verification of this document's scope
+against the finished implementation and Jira (OM-16–OM-20):
+
+- **Implementation Plan, step 3** still said "Register the new command
+  in `ledger`'s module manifest" — the same auto-discovery correction
+  already made to File Manifest, just never carried back to this
+  section. Corrected.
+- **API Contracts** still said "No new HTTP routes" and that
+  `backend/ledger/accounts/page.tsx` "already has client-side access
+  to `commandBus`" — both written before implementation, both checked
+  directly against the real page code (`apiCall` to a REST route, not
+  `commandBus.execute`) and confirmed false. Corrected to describe the
+  route that was actually added, resolving the open validation point
+  this section itself raised.
+
+No scope change — both are wording corrections to match work already
+completed and already closed in Jira, not new requirements.
+
+### 2026-09-24 (cont. — File Manifest gap found and fixed during OM-18 implementation)
+
+- While implementing OM-18 (the backend-page button), resolved this
+  document's own "Open validation point for implementation" (API
+  Contracts) by adding one new thin route,
+  `api/accounts/import-default-chart-of-accounts/route.ts`, following
+  the same pattern `api/fiscal-periods/[id]/lock/route.ts` already
+  established in this codebase for a non-CRUD, button-triggered
+  command. The File Manifest never anticipated this file at all — it
+  only listed `backend/ledger/accounts/page.tsx` (modified) and
+  "Module manifest (modified)" — even though the API Contracts section
+  itself already flagged that a new route might be needed. Added the
+  route file to the File Manifest.
+- Also checked the File Manifest's "Module manifest (modified)" bullet
+  directly against the real codebase (per
+  `financial-spec-citation-check`) rather than accepting it at face
+  value: `ledger`'s commands are registered by the `module-registry.ts`
+  generator scanning each module's `commands/` directory automatically
+  (confirmed by the absence of any file that imports
+  `commands/ledgerAccountTypes` or similar commands by hand, besides
+  test/validator files) — no module manifest file exists to hand-edit
+  for this. The bullet was inaccurate from the first draft; corrected
+  to say so explicitly instead of removing it silently.
 ### 2026-09-24 (cont. — arithmetic error in the totals corrected before OM-16 implementation)
 
 - While starting implementation (OM-16, `lib/defaultChartOfAccounts.ts`),
@@ -836,47 +1119,41 @@ event; nothing to add to §2.
   compatible with — it only makes more accounts available to pick
   from). No changes needed to any of the four.
 
-### 2026-09-24 (cont. — Implementation Plan / API Contracts corrected post-implementation)
+### 2026-09-15 (initial draft)
 
-Two more stale-text findings, same class as the File Manifest gap
-above, caught during a full re-verification of this document's scope
-against the finished implementation and Jira (OM-16–OM-20):
+- New document, `financial-spec-writing-process` applied from the
+  start (unlike every prior document in this family, which received
+  Literature & Prior Art / real-system comparison as a later
+  enrichment pass — this is the first document in this family to carry
+  both from its very first draft).
+- Step 1 (cross-spec consistency): confirmed no existing spec, branch,
+  or PR already covers this; found GL core engine's own explicit,
+  load-bearing "no default chart of accounts is seeded; tenants build
+  their own" Phase 1 decision, and SPEC-024's aspirational, since-
+  diverged-from `IChartOfAccountsTemplate` plugin contract — surfaced
+  both to the user as genuine, consequential Open Questions rather than
+  guessed: (1) scope — PL-only hardcoded template vs. a pluggable
+  multi-country framework, resolved as PL-only hardcoded; (2) seeding
+  model — resolved as Phase 1 opt-in command + button on the existing
+  backend page (no change to GL core engine's `onTenantCreated`
+  behavior), with the onboarding-wizard-integration alternative
+  explicitly tracked in Phase 2/Out of Scope rather than dropped, per
+  the user's own explicit instruction to keep it visible.
+- Step 2 (literature grounding): confirmed Kieso Illustration 3.9 (ch.
+  3, pp. 3-12–3-13, deliberate numbering gaps); confirmed Hay ch. 7,
+  p. 119 ("wide latitude" in setting up account types); confirmed
+  Fowler has zero "chart of accounts" mentions anywhere.
+- Step 3 (real-system comparison): ERPNext recorded as a genuine,
+  honestly-documented divergence (auto-seed-then-replace, the opposite
+  of this document's design); enova365 and Symfonia both confirmed as
+  close matches to this document's opt-in/template/customizable-after
+  design; Comarch recorded as inconclusive.
+- Step 4 (`om-spec-writing` structure): full document drafted following
+  the standard section order, Open Questions gate satisfied via
+  explicit user confirmation on both questions raised in Step 1.
+- Step 5: this document's own entry added to
+  `2026-09-08-financial-module-knowledge-base.md` (module map row, new
+  Tier 2/Tier 3 citation entries for Kieso Illustration 3.9 and Hay p.
+  119, new Tier 4 real-system entry, dated Changelog entry) — see that
+  document's own Changelog for the mirrored entry.
 
-- **Implementation Plan, step 3** still said "Register the new command
-  in `ledger`'s module manifest" — the same auto-discovery correction
-  already made to File Manifest, just never carried back to this
-  section. Corrected.
-- **API Contracts** still said "No new HTTP routes" and that
-  `backend/ledger/accounts/page.tsx` "already has client-side access
-  to `commandBus`" — both written before implementation, both checked
-  directly against the real page code (`apiCall` to a REST route, not
-  `commandBus.execute`) and confirmed false. Corrected to describe the
-  route that was actually added, resolving the open validation point
-  this section itself raised.
-
-No scope change — both are wording corrections to match work already
-completed and already closed in Jira, not new requirements.
-
-### 2026-09-24 (cont. — File Manifest gap found and fixed during OM-18 implementation)
-
-- While implementing OM-18 (the backend-page button), resolved this
-  document's own "Open validation point for implementation" (API
-  Contracts) by adding one new thin route,
-  `api/accounts/import-default-chart-of-accounts/route.ts`, following
-  the same pattern `api/fiscal-periods/[id]/lock/route.ts` already
-  established in this codebase for a non-CRUD, button-triggered
-  command. The File Manifest never anticipated this file at all — it
-  only listed `backend/ledger/accounts/page.tsx` (modified) and
-  "Module manifest (modified)" — even though the API Contracts section
-  itself already flagged that a new route might be needed. Added the
-  route file to the File Manifest.
-- Also checked the File Manifest's "Module manifest (modified)" bullet
-  directly against the real codebase (per
-  `financial-spec-citation-check`) rather than accepting it at face
-  value: `ledger`'s commands are registered by the `module-registry.ts`
-  generator scanning each module's `commands/` directory automatically
-  (confirmed by the absence of any file that imports
-  `commands/ledgerAccountTypes` or similar commands by hand, besides
-  test/validator files) — no module manifest file exists to hand-edit
-  for this. The bullet was inaccurate from the first draft; corrected
-  to say so explicitly instead of removing it silently.
