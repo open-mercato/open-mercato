@@ -272,4 +272,60 @@ test.describe('TC-MA-002 save graph', () => {
       await deleteCampaignIfExists(request, token, campaignId)
     }
   })
+
+  // Send rules are campaign-wide and were unauthorable until the editor gained a panel for them; this
+  // asserts the whole contract round-trips, including the flag that changes WHEN a message goes out.
+  test('round-trips the send rules', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    let campaignId: string | null = null
+    try {
+      campaignId = await createCampaign(request, token, `QA send rules ${Date.now()}`)
+      const created = await getCampaign(request, token, campaignId)
+      const sendPolicy = {
+        frequencyCap: { maxMessages: 2, windowHours: 48 },
+        quietHours: { startHour: 21, endHour: 8 },
+        optimizeSendTime: true,
+      }
+
+      const response = await saveGraph(request, token, campaignId, {
+        updatedAt: created.updatedAt,
+        name: 'QA send rules',
+        triggers: [{ kind: 'event', eventId: 'sales.order.created' }],
+        definition: {
+          version: 1,
+          audience: null,
+          steps: [{ id: 's1', type: 'send_email', params: { subject: 'x', bodyHtml: '<p>x</p>' } }],
+          sendPolicy,
+        },
+      })
+      expect(response.ok(), await response.text()).toBe(true)
+
+      const saved = await getCampaign(request, token, campaignId)
+      expect((saved.definition as { sendPolicy?: unknown }).sendPolicy).toEqual(sendPolicy)
+    } finally {
+      await deleteCampaignIfExists(request, token, campaignId)
+    }
+  })
+
+  test('defaults the send rules rather than rejecting a graph without them', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    let campaignId: string | null = null
+    try {
+      campaignId = await createCampaign(request, token, `QA no rules ${Date.now()}`)
+      const created = await getCampaign(request, token, campaignId)
+      const response = await saveGraph(request, token, campaignId, {
+        updatedAt: created.updatedAt,
+        name: 'QA no rules',
+        triggers: [{ kind: 'event', eventId: 'sales.order.created' }],
+        definition: {
+          version: 1,
+          audience: null,
+          steps: [{ id: 's1', type: 'send_email', params: { subject: 'x', bodyHtml: '<p>x</p>' } }],
+        },
+      })
+      expect(response.ok(), await response.text()).toBe(true)
+    } finally {
+      await deleteCampaignIfExists(request, token, campaignId)
+    }
+  })
 })

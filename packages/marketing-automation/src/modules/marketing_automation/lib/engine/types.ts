@@ -38,6 +38,7 @@ export type CampaignDefinition = {
   sendPolicy?: {
     frequencyCap?: { maxMessages: number; windowHours: number } | null
     quietHours?: { startHour: number; endHour: number } | null
+    optimizeSendTime?: boolean
   }
 }
 

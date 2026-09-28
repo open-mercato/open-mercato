@@ -70,6 +70,10 @@ its own. Spec:
   drops a send or sends twice.
 - Never make the frequency cap per-campaign. Five campaigns each politely sending one message
   still buries the customer, which is why `marketing_message_sends` is counted across all of them.
+- Never let send-time optimisation override quiet hours. The optimisation proposes, quiet hours dispose;
+  the other order lands an "optimised" send at 3am.
+- Never learn a send hour from fewer than `MINIMUM_OPENS_FOR_PATTERN` opens, and never group open hours
+  in server time — both produce a confident answer about the wrong customer.
 - Never recompute which lane a run walked. It is recorded on the run; recomputing agrees until the
   author edits the split, and then every historical A/B result becomes fiction.
 - Never count raw opens or clicks in a comparison. Count unique runs, or the variant that reached the
@@ -145,6 +149,7 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | score ledger, idempotent awarding | `lib/scores.ts`, `steps/add-points.ts` |
 | tier ladder, derivation and its defaults | `lib/engine/tiers.ts`, `lib/tiers.ts` |
 | everything known about one customer | `api/customers/[id]/profile/route.ts` |
+| learned send hour, and its minimum evidence | `lib/analytics/send-time.ts` |
 | A/B results, winner rules | `lib/analytics/split-results.ts` |
 | linear revenue attribution | `lib/analytics/attribution.ts` |
 | periodic candidate sources and their claims | `lib/sweep-sources.ts` |

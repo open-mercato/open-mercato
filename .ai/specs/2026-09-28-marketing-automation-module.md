@@ -144,6 +144,31 @@ canvas must not show a branch that never runs. Nesting is capped at five levels,
 hand-edited or imported definition that is cyclic in spirit into a truncated campaign instead of a
 stack overflow in a worker.
 
+### Send timing, learned per customer
+
+With opens recorded, the hour a customer usually reads email is knowable, so a send can be moved to it.
+Deliberately the customer's OWN history rather than a cohort average: "9am is best" is a statement about
+a population, and the point of per-customer timing is that the night-shift worker is not the population.
+
+Below five opens there is no pattern, only noise — two opens at 3am would otherwise schedule every
+future send for 3am, which is the kind of confident optimisation that is worse than none. Ties resolve to
+the earlier hour: with equal evidence the earlier slot reaches the customer sooner, and a deterministic
+rule beats one that depends on row order. The grouping happens in SQL in the CUSTOMER's timezone; doing
+it afterwards would group by server hour and relabel, which is a different and wrong answer for anybody
+outside the server's timezone.
+
+The executor's two deferral gates are now one decision, in one order, and only one order is defensible:
+**the optimisation proposes and quiet hours dispose.** Quiet hours are a promise to the customer; the
+preferred hour is an optimisation, so reversing them could land an "optimised" send at 3am. The
+preferred hour is queried ONLY when the policy asks for it — a query per send is affordable, a query per
+send nobody wanted is not — and that is asserted, because every other executor test leaves the flag off
+and would never reach the branch.
+
+Send rules — the frequency cap, quiet hours and this flag — are campaign-wide and are edited in the
+editor's inspector when no node is selected. They were implemented, tested and **unauthorable** before
+that panel existed, which is the same defect as scheduled triggers: a guard nobody can switch on is a
+guard nobody has.
+
 ### Results: A/B outcomes and attributed revenue
 
 The lane a run walked is RECORDED on the run at enrolment, not recomputed. The choice is deterministic,
@@ -527,6 +552,9 @@ written down.* *Residual: blocked on `SPEC-029`.*
   optimistic lock; canvas editor reusing the `business_rules` condition builder; `en`/`pl`
   locales. Verified against a running instance: palette, create, save, round-trip, 409 on a
   stale save, and five rejected invalid graphs.
+- **2026-09-28** — Backlog X-11: send timing learned from each customer's own open hours, with the
+  optimisation subordinate to quiet hours, and a send-rules panel that makes the frequency cap and quiet
+  hours authorable for the first time. 426 unit tests, 50 integration tests.
 - **2026-09-28** — Backlog X-12/B-10: the lane each run walked is recorded rather than recomputed,
   per-variant A/B results with a winner that is withheld until every lane has a sample, author-initiated
   promotion of a winning lane under the optimistic lock, linear multi-touch revenue attribution, and a

@@ -40,6 +40,8 @@ export const quietHoursSchema = z.object({
 export const campaignSendPolicySchema = z.object({
   frequencyCap: frequencyCapSchema.nullable().default(null),
   quietHours: quietHoursSchema.nullable().default(null),
+  /** Defer a send to the hour this customer usually opens email. Off unless asked for. */
+  optimizeSendTime: z.boolean().default(false),
 })
 
 export const campaignDefinitionSchema = z.object({

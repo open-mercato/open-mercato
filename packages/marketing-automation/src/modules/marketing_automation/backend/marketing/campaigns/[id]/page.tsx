@@ -6,6 +6,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -72,6 +73,13 @@ type CampaignResponse = {
   definition: CampaignDefinition
   triggers: CampaignTriggerInput[]
   updatedAt: string
+}
+
+/** Hours are 0–23; anything else would make a window that never opens or never closes. */
+function clampHour(raw: string, fallback: number): number {
+  const parsed = Number.parseInt(raw, 10)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(Math.max(parsed, 0), 23)
 }
 
 function newStepId(): string {
@@ -301,6 +309,15 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
   }
 
   const withSteps = (steps: CampaignStep[]) => mutate({ definition: { ...definition, steps } })
+
+  /**
+   * Send rules apply to the whole campaign rather than to a step, so they are edited here rather than
+   * on a node. They were implemented, tested and unauthorable before this panel existed — a guard
+   * nobody can switch on is a guard nobody has.
+   */
+  const updateSendPolicy = (patch: Partial<NonNullable<CampaignDefinition['sendPolicy']>>) => {
+    mutate({ definition: { ...definition, sendPolicy: { ...(definition.sendPolicy ?? {}), ...patch } } })
+  }
 
   const updateStep = (stepId: string, params: Record<string, unknown>) => {
     withSteps(updateStepParams(definition.steps, stepId, params))
@@ -738,8 +755,122 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
             ) : null}
 
             {!selectedNodeId ? (
-              <div className="text-xs text-muted-foreground">
-                {t('marketing_automation.canvas.edge.derivedHint', 'Steps run top to bottom. Reorder with the arrows, not by dragging.')}
+              <div className="space-y-4">
+                <div className="text-xs text-muted-foreground">
+                  {t('marketing_automation.canvas.edge.derivedHint', 'Steps run top to bottom. Reorder with the arrows, not by dragging.')}
+                </div>
+
+                <div className="space-y-3">
+                  <div className="text-overline text-muted-foreground">
+                    {t('marketing_automation.sendPolicy.title', 'Send rules')}
+                  </div>
+
+                  <CheckboxField
+                    id="policy-optimize"
+                    label={t('marketing_automation.sendPolicy.optimizeSendTime', 'Send at the hour each customer usually opens email')}
+                    description={t('marketing_automation.sendPolicy.optimizeSendTimeHint', 'Needs a few opens from that customer first; until then the message goes out immediately.')}
+                    checked={definition.sendPolicy?.optimizeSendTime === true}
+                    onCheckedChange={(next) => updateSendPolicy({ optimizeSendTime: next === true })}
+                  />
+
+                  <CheckboxField
+                    id="policy-quiet"
+                    label={t('marketing_automation.sendPolicy.quietHours', 'Do not send during quiet hours')}
+                    checked={definition.sendPolicy?.quietHours != null}
+                    onCheckedChange={(next) => updateSendPolicy({
+                      // A sensible night window rather than 00:00–00:00, which means "never send".
+                      quietHours: next === true ? { startHour: 21, endHour: 8 } : null,
+                    })}
+                  />
+                  {definition.sendPolicy?.quietHours ? (
+                    <div className="flex gap-2 pl-6">
+                      <div className="w-24 space-y-1">
+                        <Label htmlFor="policy-quiet-start">
+                          {t('marketing_automation.sendPolicy.quietFrom', 'From (hour)')}
+                        </Label>
+                        <Input
+                          id="policy-quiet-start"
+                          type="number"
+                          min={0}
+                          max={23}
+                          value={definition.sendPolicy.quietHours.startHour}
+                          onChange={(event) => updateSendPolicy({
+                            quietHours: {
+                              startHour: clampHour(event.target.value, 21),
+                              endHour: definition.sendPolicy?.quietHours?.endHour ?? 8,
+                            },
+                          })}
+                        />
+                      </div>
+                      <div className="w-24 space-y-1">
+                        <Label htmlFor="policy-quiet-end">
+                          {t('marketing_automation.sendPolicy.quietTo', 'To (hour)')}
+                        </Label>
+                        <Input
+                          id="policy-quiet-end"
+                          type="number"
+                          min={0}
+                          max={23}
+                          value={definition.sendPolicy.quietHours.endHour}
+                          onChange={(event) => updateSendPolicy({
+                            quietHours: {
+                              startHour: definition.sendPolicy?.quietHours?.startHour ?? 21,
+                              endHour: clampHour(event.target.value, 8),
+                            },
+                          })}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <CheckboxField
+                    id="policy-cap"
+                    label={t('marketing_automation.sendPolicy.frequencyCap', 'Limit how many messages one customer receives')}
+                    description={t('marketing_automation.sendPolicy.frequencyCapHint', 'Counted across every campaign, not just this one.')}
+                    checked={definition.sendPolicy?.frequencyCap != null}
+                    onCheckedChange={(next) => updateSendPolicy({
+                      frequencyCap: next === true ? { maxMessages: 3, windowHours: 24 } : null,
+                    })}
+                  />
+                  {definition.sendPolicy?.frequencyCap ? (
+                    <div className="flex gap-2 pl-6">
+                      <div className="w-24 space-y-1">
+                        <Label htmlFor="policy-cap-max">
+                          {t('marketing_automation.sendPolicy.capMax', 'At most')}
+                        </Label>
+                        <Input
+                          id="policy-cap-max"
+                          type="number"
+                          min={1}
+                          value={definition.sendPolicy.frequencyCap.maxMessages}
+                          onChange={(event) => updateSendPolicy({
+                            frequencyCap: {
+                              maxMessages: Math.max(Number.parseInt(event.target.value, 10) || 1, 1),
+                              windowHours: definition.sendPolicy?.frequencyCap?.windowHours ?? 24,
+                            },
+                          })}
+                        />
+                      </div>
+                      <div className="w-24 space-y-1">
+                        <Label htmlFor="policy-cap-window">
+                          {t('marketing_automation.sendPolicy.capWindow', 'Per (hours)')}
+                        </Label>
+                        <Input
+                          id="policy-cap-window"
+                          type="number"
+                          min={1}
+                          value={definition.sendPolicy.frequencyCap.windowHours}
+                          onChange={(event) => updateSendPolicy({
+                            frequencyCap: {
+                              maxMessages: definition.sendPolicy?.frequencyCap?.maxMessages ?? 3,
+                              windowHours: Math.max(Number.parseInt(event.target.value, 10) || 1, 1),
+                            },
+                          })}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
               </div>
             ) : null}
           </aside>

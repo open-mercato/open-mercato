@@ -12,6 +12,7 @@ import type { AutomationContext, CampaignDefinition, EngineLogger, StepOutcome }
 import { buildCampaignCommandContext } from './command-context.js'
 import { findCampaignsForEvent } from './campaign-lookup.js'
 import { describeVariantChoices } from './engine/split.js'
+import { loadPreferredSendHour } from './analytics/send-time.js'
 import { occurrenceKeyFor } from './occurrence.js'
 import { loadTierThresholds } from './tiers.js'
 import { recordDeadLetter } from './dead-letter.js'
@@ -61,6 +62,7 @@ function readSendPolicy(definition: CampaignDefinition): SendPolicy {
   return {
     frequencyCap: definition.sendPolicy?.frequencyCap ?? null,
     quietHours: definition.sendPolicy?.quietHours ?? null,
+    optimizeSendTime: definition.sendPolicy?.optimizeSendTime === true,
   }
 }
 
@@ -87,6 +89,13 @@ function buildEffects(
     resolveTimeZone: (subjectEntityId) => subjectEntityId
       ? loadSubjectTimeZone(deps.em, subjectEntityId, deps.scope)
       : Promise.resolve('UTC'),
+    // Only ever called when the policy asked for it — see the executor's gate chain. One query per
+    // send is affordable; one query per send nobody wanted is not.
+    resolvePreferredSendHour: async (subjectEntityId) => {
+      if (!subjectEntityId) return null
+      const timeZone = await loadSubjectTimeZone(deps.em, subjectEntityId, deps.scope)
+      return loadPreferredSendHour(deps.em, subjectEntityId, deps.scope, timeZone)
+    },
     logger: deps.logger,
     now: deps.now,
   }

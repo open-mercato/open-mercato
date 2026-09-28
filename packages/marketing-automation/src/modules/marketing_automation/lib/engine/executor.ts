@@ -1,11 +1,19 @@
 import { planSteps } from './chain-planner.js'
 import { flattenSteps } from './split.js'
-import { isFrequencyCapped, isWithinQuietHours, nextAllowedSendTime } from './gates.js'
+import { isFrequencyCapped, isWithinQuietHours, nextAllowedSendTime, nextOccurrenceOfHour } from './gates.js'
 import type { FrequencyCap, QuietHoursWindow } from './gates.js'
 import type { StepHandler } from './registry.js'
 import type { AutomationContext, CampaignStep, EngineLogger, StepOutcome } from './types.js'
 
 export type SendPolicy = {
+  /**
+   * Defer a send to the hour this customer usually opens email.
+   *
+   * Off unless the author asked for it: moving a send is a visible behaviour change, and a campaign
+   * whose timing silently depends on per-customer history is hard to reason about when it is not
+   * requested.
+   */
+  optimizeSendTime?: boolean
   frequencyCap: FrequencyCap | null
   quietHours: QuietHoursWindow | null
 }
@@ -28,7 +36,7 @@ export type RunState = {
  */
 export type RunTransition =
   | { kind: 'completed'; stepLog: StepOutcome[]; context: AutomationContext }
-  | { kind: 'waiting'; resumeAt: Date; nextStepIndex: number; stepLog: StepOutcome[]; context: AutomationContext; reason: 'wait' | 'quiet_hours' }
+  | { kind: 'waiting'; resumeAt: Date; nextStepIndex: number; stepLog: StepOutcome[]; context: AutomationContext; reason: 'wait' | 'quiet_hours' | 'send_time' }
   /**
    * A step threw.
    *
@@ -56,6 +64,13 @@ export type ExecutorSideEffects<TDeps> = {
   }): Promise<void>
   /** The subject's own timezone; quiet hours are meaningless in server time. */
   resolveTimeZone(subjectEntityId: string | null | undefined): Promise<string>
+  /**
+   * The hour this subject usually opens email, or null when there is not enough history.
+   *
+   * Injected rather than queried here so the executor stays pure, and consulted ONLY when the policy
+   * asks for it — it is a query per send, and an unused one would be pure cost.
+   */
+  resolvePreferredSendHour(subjectEntityId: string | null | undefined): Promise<number | null>
   logger: EngineLogger
   now: Date
 }
@@ -120,12 +135,27 @@ export async function executeRun<TDeps>(
     if (handler.channel) {
       const timeZone = await effects.resolveTimeZone(run.subjectEntityId)
 
-      if (isWithinQuietHours(policy.quietHours, timeZone, now)) {
+      /**
+       * One deferral decision, in this order: move the send to the customer's usual hour if the policy
+       * asks, then push it out of quiet hours.
+       *
+       * The order matters and only one of the two orders is defensible. Quiet hours are a promise to the
+       * customer; the preferred hour is an optimisation, so the optimisation proposes and quiet hours
+       * dispose — never the reverse, which could land an "optimised" send at 3am.
+       */
+      let sendAt = now
+      if (policy.optimizeSendTime) {
+        const preferredHour = await effects.resolvePreferredSendHour(run.subjectEntityId)
+        if (preferredHour !== null) sendAt = nextOccurrenceOfHour(preferredHour, timeZone, sendAt)
+      }
+      sendAt = nextAllowedSendTime(policy.quietHours, timeZone, sendAt)
+
+      if (sendAt.getTime() > now.getTime()) {
         // Deferred, not dropped — and the run resumes at THIS step so the message still goes.
         return {
           kind: 'waiting',
-          reason: 'quiet_hours',
-          resumeAt: nextAllowedSendTime(policy.quietHours, timeZone, now),
+          reason: isWithinQuietHours(policy.quietHours, timeZone, now) ? 'quiet_hours' : 'send_time',
+          resumeAt: sendAt,
           nextStepIndex: index,
           stepLog,
           context,

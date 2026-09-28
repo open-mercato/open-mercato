@@ -4,6 +4,7 @@ import {
   isWithinQuietHours,
   localHourIn,
   nextAllowedSendTime,
+  nextOccurrenceOfHour,
 } from '../gates'
 
 describe('isFrequencyCapped', () => {
@@ -113,5 +114,41 @@ describe('nextAllowedSendTime', () => {
     const deferred = nextAllowedSendTime(overnight, 'Europe/Warsaw', at)
     expect(isWithinQuietHours(overnight, 'Europe/Warsaw', deferred)).toBe(false)
     expect(localHourIn('Europe/Warsaw', deferred)).toBe(8)
+  })
+})
+
+describe('nextOccurrenceOfHour', () => {
+  const warsaw = 'Europe/Warsaw'
+
+  test('returns the instant unchanged when it is already that hour', () => {
+    // 07:30 UTC is 09:30 in Warsaw in September.
+    const at = new Date('2026-09-28T07:30:00.000Z')
+    expect(nextOccurrenceOfHour(9, warsaw, at)).toBe(at)
+  })
+
+  test('moves forward to the next occurrence and snaps to the top of the hour', () => {
+    const at = new Date('2026-09-28T07:30:00.000Z')
+    const next = nextOccurrenceOfHour(19, warsaw, at)
+    expect(next.getTime()).toBeGreaterThan(at.getTime())
+    expect(next.getUTCMinutes()).toBe(0)
+  })
+
+  test('never returns an instant in the past', () => {
+    const at = new Date('2026-09-28T07:37:00.000Z')
+    for (const hour of [0, 6, 9, 12, 18, 23]) {
+      expect(nextOccurrenceOfHour(hour, warsaw, at).getTime()).toBeGreaterThanOrEqual(at.getTime())
+    }
+  })
+
+  test('clamps an impossible hour rather than looping for two days', () => {
+    const at = new Date('2026-09-28T07:30:00.000Z')
+    expect(nextOccurrenceOfHour(99, warsaw, at).getTime()).toBeGreaterThanOrEqual(at.getTime())
+    expect(nextOccurrenceOfHour(-5, warsaw, at).getTime()).toBeGreaterThanOrEqual(at.getTime())
+  })
+
+  // A timezone the runtime cannot resolve must not park a send forever.
+  test('an unknown timezone falls back rather than deferring indefinitely', () => {
+    const at = new Date('2026-09-28T07:30:00.000Z')
+    expect(nextOccurrenceOfHour(9, 'Not/AZone', at).getTime()).toBeGreaterThanOrEqual(at.getTime())
   })
 })

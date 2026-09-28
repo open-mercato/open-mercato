@@ -100,3 +100,30 @@ export function nextAllowedSendTime(
   // startHour === endHour as "never quiet". Returning `at` keeps the send rather than losing it.
   return at
 }
+
+/**
+ * The next instant at which the subject's local clock reads `hour`.
+ *
+ * Returns `at` unchanged when it is already that hour, so a send whose optimal moment has arrived goes
+ * out now rather than being deferred a full day by its own optimisation.
+ *
+ * Steps in whole hours and snaps to the top of the hour for the same reason `nextAllowedSendTime` does:
+ * a message deferred to "the customer's 9am" should land at 09:00, not at 09:37 because that is when the
+ * campaign happened to fire.
+ */
+export function nextOccurrenceOfHour(hour: number, timeZone: string, at: Date): Date {
+  const target = Math.min(Math.max(Math.trunc(hour), 0), 23)
+  if (localHourIn(timeZone, at) === target) return at
+
+  for (let hours = 1; hours <= 48; hours += 1) {
+    const candidate = new Date(at.getTime() + hours * 3_600_000)
+    if (localHourIn(timeZone, candidate) !== target) continue
+    const snapped = new Date(candidate)
+    snapped.setUTCMinutes(0, 0, 0)
+    // Snapping backwards must not land before the caller's instant, nor drop out of the target hour.
+    if (snapped.getTime() >= at.getTime() && localHourIn(timeZone, snapped) === target) return snapped
+    return candidate
+  }
+  // A timezone we cannot reason about should not park a send forever.
+  return at
+}

@@ -1,0 +1,78 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { SubjectScope } from '../subject-document.js'
+
+/**
+ * The hour a customer usually opens email, learned from their own opens.
+ *
+ * The data exists because Phase 3 records opens; this only reads it. Deliberately the customer's OWN
+ * history rather than a cohort average: "9am is best" is a statement about a population, and the whole
+ * point of per-customer timing is that the night-shift worker is not the population.
+ */
+
+export type HourlyOpens = { hour: number; opens: number }
+
+/**
+ * Below this many opens there is no pattern, only noise.
+ *
+ * Two opens at 3am would otherwise schedule every future send for 3am — the kind of confident
+ * optimisation that is worse than none.
+ */
+export const MINIMUM_OPENS_FOR_PATTERN = 5
+
+/**
+ * The modal hour, or null.
+ *
+ * Ties resolve to the EARLIER hour: with equal evidence the earlier slot reaches the customer sooner,
+ * and an arbitrary but deterministic rule beats one that depends on row order.
+ */
+export function pickPreferredHour(
+  rows: HourlyOpens[],
+  minimumOpens: number = MINIMUM_OPENS_FOR_PATTERN,
+): number | null {
+  const total = rows.reduce((sum, row) => sum + row.opens, 0)
+  if (total < minimumOpens) return null
+
+  let best: HourlyOpens | null = null
+  for (const row of rows) {
+    if (row.opens <= 0) continue
+    if (row.hour < 0 || row.hour > 23) continue
+    if (!best || row.opens > best.opens || (row.opens === best.opens && row.hour < best.hour)) {
+      best = row
+    }
+  }
+  return best ? best.hour : null
+}
+
+const HOURLY_OPENS_SQL = `
+  select extract(hour from (e.occurred_at at time zone ?))::int as hour,
+         count(*)::int as opens
+    from marketing_message_send_events e
+    join marketing_campaign_runs r on r.id = e.run_id
+   where e.type = 'opened'
+     and e.tenant_id = ?
+     and e.organization_id = ?
+     and r.subject_entity_id = ?
+   group by 1
+   order by 1
+`
+
+/**
+ * Reads the subject's open hours IN THEIR OWN TIMEZONE.
+ *
+ * Converting in SQL rather than in JavaScript keeps the grouping and the conversion in one place; doing
+ * it after the fact would group by server hour and then relabel, which is a different and wrong answer
+ * for anybody who is not in the server's timezone.
+ */
+export async function loadPreferredSendHour(
+  em: EntityManager,
+  subjectEntityId: string,
+  scope: SubjectScope,
+  timeZone: string,
+  minimumOpens: number = MINIMUM_OPENS_FOR_PATTERN,
+): Promise<number | null> {
+  const rows = await em.getConnection().execute<Array<{ hour: number; opens: number }>>(
+    HOURLY_OPENS_SQL,
+    [timeZone, scope.tenantId, scope.organizationId, subjectEntityId],
+  )
+  return pickPreferredHour(rows.map((row) => ({ hour: row.hour, opens: row.opens })), minimumOpens)
+}

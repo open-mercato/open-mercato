@@ -37,6 +37,7 @@ function makeEffects(handlers: StepHandler<Deps>[], over: Partial<ExecutorSideEf
     countSendsSince: jest.fn().mockResolvedValue(0),
     recordSend: jest.fn().mockResolvedValue(undefined),
     resolveTimeZone: jest.fn().mockResolvedValue('UTC'),
+    resolvePreferredSendHour: jest.fn().mockResolvedValue(null),
     logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
     now,
     ...over,
@@ -228,5 +229,122 @@ describe('executeRun — frequency cap', () => {
     const effects = makeEffects([handler])
     await executeRun(run(), [step('s1', 'send_email')], policy, deps, effects)
     expect(effects.recordSend).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Send-time optimisation, with the gate made to FIRE.
+ *
+ * `noPolicy` leaves the flag off, so every other test in this file never reaches this branch — which is
+ * exactly why it needs tests of its own rather than trusting that the chain is wired.
+ */
+describe('executeRun — send-time optimisation', () => {
+  const at = (iso: string) => new Date(iso)
+  // 08:30 UTC, with the subject in UTC so the local hour is 8.
+  const morning = at('2026-09-28T08:30:00.000Z')
+
+  test('defers the send to the hour this subject usually opens, at the same step', async () => {
+    const handler = emailHandler()
+    const effects = makeEffects([handler], {
+      now: morning,
+      resolvePreferredSendHour: jest.fn().mockResolvedValue(19),
+    })
+    const transition = await executeRun(
+      run(),
+      [step('s1', 'send_email')],
+      { frequencyCap: null, quietHours: null, optimizeSendTime: true },
+      deps,
+      effects,
+    )
+    expect(transition.kind).toBe('waiting')
+    if (transition.kind !== 'waiting') return
+    expect(transition.reason).toBe('send_time')
+    // At the same step: the message still goes, later.
+    expect(transition.nextStepIndex).toBe(0)
+    expect(transition.resumeAt.getTime()).toBeGreaterThan(morning.getTime())
+    expect(handler.execute).not.toHaveBeenCalled()
+  })
+
+  test('sends now when the preferred hour has arrived', async () => {
+    const handler = emailHandler()
+    const effects = makeEffects([handler], {
+      now: morning,
+      resolvePreferredSendHour: jest.fn().mockResolvedValue(8),
+    })
+    const transition = await executeRun(
+      run(),
+      [step('s1', 'send_email')],
+      { frequencyCap: null, quietHours: null, optimizeSendTime: true },
+      deps,
+      effects,
+    )
+    expect(transition.kind).toBe('completed')
+    expect(handler.execute).toHaveBeenCalledTimes(1)
+  })
+
+  test('sends now when there is not enough history to have a preference', async () => {
+    const handler = emailHandler()
+    const effects = makeEffects([handler], {
+      now: morning,
+      resolvePreferredSendHour: jest.fn().mockResolvedValue(null),
+    })
+    const transition = await executeRun(
+      run(),
+      [step('s1', 'send_email')],
+      { frequencyCap: null, quietHours: null, optimizeSendTime: true },
+      deps,
+      effects,
+    )
+    expect(transition.kind).toBe('completed')
+    expect(handler.execute).toHaveBeenCalledTimes(1)
+  })
+
+  // Quiet hours are a promise to the customer; the preferred hour is an optimisation. The optimisation
+  // proposes and quiet hours dispose — never the reverse, or an "optimised" send lands at 3am.
+  test('quiet hours override the preferred hour, never the other way round', async () => {
+    const handler = emailHandler()
+    const effects = makeEffects([handler], {
+      now: morning,
+      resolvePreferredSendHour: jest.fn().mockResolvedValue(3),
+    })
+    const transition = await executeRun(
+      run(),
+      [step('s1', 'send_email')],
+      { frequencyCap: null, quietHours: { startHour: 22, endHour: 8 }, optimizeSendTime: true },
+      deps,
+      effects,
+    )
+    expect(transition.kind).toBe('waiting')
+    if (transition.kind !== 'waiting') return
+    // Deferred to a moment OUTSIDE the quiet window, not to 3am.
+    const resumeHour = transition.resumeAt.getUTCHours()
+    expect(resumeHour >= 22 || resumeHour < 8).toBe(false)
+    expect(handler.execute).not.toHaveBeenCalled()
+  })
+
+  test('is not consulted at all when the policy did not ask for it', async () => {
+    const resolvePreferredSendHour = jest.fn().mockResolvedValue(19)
+    const effects = makeEffects([emailHandler()], { now: morning, resolvePreferredSendHour })
+    const transition = await executeRun(run(), [step('s1', 'send_email')], noPolicy, deps, effects)
+    expect(transition.kind).toBe('completed')
+    // A query per send that nobody wanted is pure cost.
+    expect(resolvePreferredSendHour).not.toHaveBeenCalled()
+  })
+
+  test('a step with no channel is never deferred by a send-time policy', async () => {
+    const handler = tagHandler()
+    const effects = makeEffects([handler], {
+      now: morning,
+      resolvePreferredSendHour: jest.fn().mockResolvedValue(19),
+    })
+    const transition = await executeRun(
+      run(),
+      [step('s1', 'add_tag')],
+      { frequencyCap: null, quietHours: null, optimizeSendTime: true },
+      deps,
+      effects,
+    )
+    expect(transition.kind).toBe('completed')
+    expect(handler.execute).toHaveBeenCalledTimes(1)
   })
 })
