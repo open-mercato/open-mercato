@@ -125,6 +125,8 @@ export function DictionaryEntrySelect({
   showActiveAppearance = true,
 }: DictionaryEntrySelectProps) {
   const unavailableMessageId = React.useId()
+  const valueInputId = React.useId()
+  const labelInputId = React.useId()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [options, setOptions] = React.useState<DictionaryOption[]>([])
@@ -364,8 +366,9 @@ export function DictionaryEntrySelect({
                 </DialogHeader>
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">{labels.valueLabel}</label>
+                    <label htmlFor={valueInputId} className="text-sm font-medium">{labels.valueLabel}</label>
                     <Input
+                      id={valueInputId}
                       type="text"
                       value={newValue}
                       onChange={(event) => {
@@ -379,8 +382,9 @@ export function DictionaryEntrySelect({
                   </div>
                   {showLabelInput ? (
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">{labels.labelLabel}</label>
+                      <label htmlFor={labelInputId} className="text-sm font-medium">{labels.labelLabel}</label>
                       <Input
+                        id={labelInputId}
                         type="text"
                         value={newLabel}
                         onChange={(event) => setNewLabel(event.target.value)}
