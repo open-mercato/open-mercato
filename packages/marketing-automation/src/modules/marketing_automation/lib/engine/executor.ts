@@ -1,4 +1,5 @@
 import { planSteps } from './chain-planner.js'
+import { flattenSteps } from './split.js'
 import { isFrequencyCapped, isWithinQuietHours, nextAllowedSendTime } from './gates.js'
 import type { FrequencyCap, QuietHoursWindow } from './gates.js'
 import type { StepHandler } from './registry.js'
@@ -85,7 +86,14 @@ export async function executeRun<TDeps>(
   const stepLog = [...run.stepLog]
   const context: AutomationContext = { ...run.context }
 
-  for (const planned of planSteps(steps, run.currentStepIndex)) {
+  // Splits are resolved into this subject's own lane BEFORE planning, so the executor and the
+  // planner stay index-based and `current_step_index` keeps meaning the same thing. The lane choice
+  // is derived from the step id and the subject, so the same flattening is reproduced on every
+  // resume — without that, a run pausing inside a lane could come back in the other one and the
+  // customer would receive a mixture of both variants.
+  const effectiveSteps = flattenSteps(steps, run.subjectEntityId || run.id)
+
+  for (const planned of planSteps(effectiveSteps, run.currentStepIndex)) {
     if (planned.kind === 'pause') {
       return {
         kind: 'waiting',

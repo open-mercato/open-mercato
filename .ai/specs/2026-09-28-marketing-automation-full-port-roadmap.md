@@ -48,14 +48,15 @@ mailbox. No earlier phase is gated.
 
 Everything later rests on these, and each gets more expensive the more steps exist.
 
-**2.1 Branching model — nested variants.** Phase 1's executor is linear by construction.
-Introduce `split` as a step whose params hold variant lanes, each with its own step array;
-`planSteps` descends into the selected lane. The top level stays a spine, so the canvas keeps
-its honesty (no user-drawn edges) and gains a split node with N lanes.
-*We do not inherit the original's limitation that variant steps cannot carry their own delay —
-steps live in jsonb with stable ids, so a lane can contain a wait.*
-Touches: `lib/engine/chain-planner.ts`, `executor.ts`, `lib/canvas/graph-mapping.ts`, canvas nodes.
-**Must land before more step types.**
+**2.1 Branching model — nested variants.** ✅ Implemented 2026-09-28. Landed as described, with
+the lane choice derived from `hash(step id, subject id)` rather than stored, so a resume cannot land
+a subject in the other lane. `flattenSteps` runs before `planSteps`, so the planner and the executor
+stayed index-based and no column was added. Editor-side tree edits live in `lib/canvas/step-tree.ts`.
+The top level stays a spine, so the canvas keeps its honesty (no user-drawn edges) and gains a split
+node with N lanes that fan out and rejoin.
+*We did not inherit the original's limitation that variant steps cannot carry their own delay —
+steps live in jsonb with stable ids, so a lane can contain a wait. A lane that ENDS on a wait is
+refused, for the same reason a trailing wait at the top level is: it parks its subjects forever.*
 
 **2.2 Set-level audience evaluation.** A second evaluation path that returns matching subject
 ids instead of a per-subject boolean, over `queryEngine`. This is the foundation segments need,

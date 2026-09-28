@@ -1,7 +1,8 @@
 # Marketing Automation Module — Agent Guidelines
 
 A campaign is: a **trigger** (a platform event id, or a periodic sweep) → an **audience**
-expression → an ordered list of **steps**. Spec:
+expression → an ordered list of **steps**, one of which may be an A/B **split** carrying lanes of
+its own. Spec:
 [`.ai/specs/2026-09-28-marketing-automation-module.md`](../../../../../.ai/specs/2026-09-28-marketing-automation-module.md).
 
 ## Always
@@ -26,6 +27,12 @@ expression → an ordered list of **steps**. Spec:
 - Add a new step type through `registerMarketingSteps` with `labelKey`, `paramsSchema` and
   `uiFields` populated. Those three are what make it appear in the palette with a working
   inspector form and server-side validation.
+- Edit the authored steps through `lib/canvas/step-tree.ts`, never by indexing into
+  `definition.steps`. With splits a campaign is a tree, and an edit that assumes a flat array
+  silently ignores everything authored inside a lane.
+- Recurse into `readVariants(step).steps` in anything that walks a definition — save validation,
+  position pruning, analytics. Forgetting to is how a lane ends up exempt from a rule the trunk
+  obeys.
 
 ## Ask First
 
@@ -56,9 +63,14 @@ expression → an ordered list of **steps**. Spec:
   an installation change cannot strand a journey; the writer rejects it, because at author time it
   is always a mistake and a campaign that looks saved and does nothing is the worst failure mode
   this module has.
-- Never draw a user-editable edge on the canvas. The engine has no branching, so an author who can
-  draw an edge has been promised a topology it cannot run. Edges are derived; order lives in the
-  definition array.
+- Never draw a user-editable edge on the canvas. The only branch the engine has is a split, and
+  which lane a subject takes is decided by the engine, not by an edge somebody drew — an author who
+  can draw an edge has been promised a topology it cannot run. Edges are derived; order lives in the
+  definition arrays.
+- Never store a subject's variant choice, and never derive it from anything but the step id and the
+  subject id. Stability across a resume is the whole point: a run that pauses on a wait inside a lane
+  and comes back into the other lane delivers a mixture of both variants, and the test measures
+  nothing.
 
 ## Validation Commands
 
@@ -73,6 +85,16 @@ node --require ./scripts/typescript-js-require-hook.cjs node_modules/eslint/bin/
 Integration tests need a running app plus workers:
 `yarn dev` and `yarn mercato queue worker --all --with-scheduler`.
 
+```bash
+OM_INTEGRATION_MODULES=marketing_automation yarn test:integration
+```
+
+Always with that filter. A bare `yarn test:integration` takes ~2.6 minutes for this module's 16
+specs because `--grep` and the module filter are applied AFTER Playwright has compiled all ~1270
+discovered spec files in the monorepo; narrowing `testMatch` up front runs the same specs in ~6
+seconds. Also: the dev server caches the built package, so rebuild and RESTART it before trusting a
+red integration result — a stale server is why a save-validation change appeared not to work.
+
 ## Key Reference Files — Copy From Here
 
 | Concern | File |
@@ -85,7 +107,9 @@ Integration tests need a running app plus workers:
 | trigger context hydration | `lib/trigger-catalog.ts` |
 | a step handler with a channel | `steps/send-email.ts` |
 | an idempotent step | `steps/add-tag.ts` (409 "already assigned" is success) |
-| canvas ↔ definition mapping | `lib/canvas/graph-mapping.ts` |
+| canvas ↔ definition mapping, fork and rejoin | `lib/canvas/graph-mapping.ts` |
+| structural edits over the step tree | `lib/canvas/step-tree.ts` |
+| deterministic lane assignment, flattening | `lib/engine/split.ts` |
 
 ## Gotchas Carried From Production Experience
 
@@ -107,5 +131,6 @@ Integration tests need a running app plus workers:
 
 - `storefront.cart.abandoned` — no cart entity exists in the platform. It is in the catalog as
   unavailable with a reason so the palette explains itself; blocked on `SPEC-029`.
-- Marketing consent, split testing, funnel analytics, segments, SMS/WhatsApp/push, and
-  exactly-once delivery. See the spec's phase backlog.
+- Marketing consent, funnel analytics, segments, SMS/WhatsApp/push, and exactly-once delivery.
+  See the spec's phase backlog. A/B splits exist, but picking a winner does not — that needs
+  click-through attribution first.

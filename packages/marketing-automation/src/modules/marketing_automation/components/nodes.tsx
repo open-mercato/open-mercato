@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Handle, Position } from '@xyflow/react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { SplitVariantShare } from '../lib/canvas/graph-mapping'
 import type { CampaignStep } from '../lib/engine/types'
 import type { CampaignTriggerInput } from '../data/validators'
 
@@ -96,12 +97,28 @@ export function AudienceNode({ data, selected }: { data: AudienceNodeData; selec
   )
 }
 
-export type StepNodeData = { step: CampaignStep; index: number; labelKey?: string }
+export type StepNodeData = { step: CampaignStep; index: number; labelKey?: string; laneKey?: string | null }
+
+/** A step inside a lane says which lane, because otherwise two nodes read as the same step. */
+function LaneBadge({ laneKey }: { laneKey?: string | null }) {
+  const t = useT()
+  if (!laneKey) return null
+  return (
+    <span className="ml-2 rounded-sm bg-muted px-1.5 py-0.5 text-xs font-normal text-muted-foreground">
+      {t('marketing_automation.canvas.node.split.variant', 'Variant {key}').replace('{key}', laneKey)}
+    </span>
+  )
+}
 
 export function StepNode({ data, selected }: { data: StepNodeData; selected?: boolean }) {
   const t = useT()
   const { step, index } = data
-  const title = t(data.labelKey ?? `marketing_automation.step.${step.type}.label`, step.type)
+  const title = (
+    <>
+      {t(data.labelKey ?? `marketing_automation.step.${step.type}.label`, step.type)}
+      <LaneBadge laneKey={data.laneKey} />
+    </>
+  )
   const ordinal = t('marketing_automation.canvas.node.step.ordinal', 'Step {index}').replace('{index}', String(index + 1))
 
   const detail = step.type === 'wait'
@@ -119,8 +136,50 @@ export function StepNode({ data, selected }: { data: StepNodeData; selected?: bo
   )
 }
 
+export type SplitNodeData = {
+  step: CampaignStep
+  index: number
+  labelKey?: string
+  laneKey?: string | null
+  variants: SplitVariantShare[]
+}
+
+/**
+ * The split node.
+ *
+ * It shows the share each lane will receive rather than the raw weights: `[3, 1]` and `[75, 25]`
+ * are the same campaign, and the author is deciding a split, not a ratio.
+ */
+export function SplitNode({ data, selected }: { data: SplitNodeData; selected?: boolean }) {
+  const t = useT()
+  const title = (
+    <>
+      {t(data.labelKey ?? 'marketing_automation.step.split.label', 'A/B split')}
+      <LaneBadge laneKey={data.laneKey} />
+    </>
+  )
+  const ordinal = t('marketing_automation.canvas.node.step.ordinal', 'Step {index}').replace('{index}', String(data.index + 1))
+
+  return (
+    <NodeShell title={title} subtitle={ordinal} selected={selected}>
+      {data.variants.length === 0 ? (
+        <div className="text-xs text-muted-foreground">
+          {t('marketing_automation.canvas.node.split.noVariants', 'No variants yet')}
+        </div>
+      ) : null}
+      {data.variants.map((variant) => (
+        <div key={variant.key} className="flex items-center justify-between gap-2 rounded-sm bg-muted px-2 py-1 text-xs text-muted-foreground">
+          <span className="truncate">{variant.key}</span>
+          <span className="tabular-nums">{Math.round(variant.share * 100)}%</span>
+        </div>
+      ))}
+    </NodeShell>
+  )
+}
+
 export const campaignNodeTypes = {
   trigger: TriggerNode,
   audience: AudienceNode,
   step: StepNode,
+  split: SplitNode,
 } as const

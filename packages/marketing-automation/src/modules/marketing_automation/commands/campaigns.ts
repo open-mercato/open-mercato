@@ -13,6 +13,7 @@ import {
 import type { CampaignEnabledInput, CampaignGraphSaveInput, CampaignTriggerInput } from '../data/validators.js'
 import { getMarketingStep } from '../lib/engine/registry.js'
 import { WAIT_STEP_TYPE } from '../lib/engine/chain-planner.js'
+import { SPLIT_STEP_TYPE, readVariants } from '../lib/engine/split.js'
 import { availableEventTriggers } from '../lib/trigger-catalog.js'
 import { isSweepIntervalValid } from '../lib/sweep-interval.js'
 import { emitMarketingAutomationEvent } from '../events.js'
@@ -66,9 +67,11 @@ const STEP_EMITTED_EVENTS: Record<string, string[]> = {
   add_tag: ['customers.tag.assigned'],
 }
 
-function assertGraphIsRunnable(payload: CampaignGraphSaveInput): void {
-  const steps = payload.definition.steps
-
+/** Validates a step list, descending into a split's lanes, which are step lists of their own. */
+function assertStepsAreRunnable(steps: CampaignGraphSaveInput['definition']['steps'], depth = 0): void {
+  if (depth > 5) {
+    throw invalidGraph(VALIDATION_CODES.invalidStepParams, 'Campaign steps are nested too deeply')
+  }
   for (const step of steps) {
     const handler = getMarketingStep(step.type)
     if (!handler) {
@@ -77,14 +80,37 @@ function assertGraphIsRunnable(payload: CampaignGraphSaveInput): void {
     if (!handler.paramsSchema.safeParse(step.params).success) {
       throw invalidGraph(VALIDATION_CODES.invalidStepParams, `Invalid parameters for step ${step.type}`, step.type)
     }
+    if (step.type === SPLIT_STEP_TYPE) {
+      for (const variant of readVariants(step)) {
+        assertStepsAreRunnable(variant.steps as CampaignGraphSaveInput['definition']['steps'], depth + 1)
+      }
+    }
   }
+}
 
-  // A trailing wait has nothing to wait for. Silently dropping it would lose the author's
-  // intent, and keeping it would park every customer forever at the end of the campaign.
+/** Every chain a subject could actually walk must not end on a wait. */
+function assertNoTrailingWait(steps: CampaignGraphSaveInput['definition']['steps']): void {
   const last = steps[steps.length - 1]
-  if (last && last.type === WAIT_STEP_TYPE) {
+  if (!last) return
+  if (last.type === WAIT_STEP_TYPE) {
     throw invalidGraph(VALIDATION_CODES.trailingWait, 'The last step is a wait, which has nothing to wait for')
   }
+  // When the campaign ends on a split, each lane becomes the end of the chain for the subjects it
+  // selects, so a lane ending on a wait parks them forever exactly as a top-level trailing wait would.
+  if (last.type === SPLIT_STEP_TYPE) {
+    for (const variant of readVariants(last)) {
+      assertNoTrailingWait(variant.steps as CampaignGraphSaveInput['definition']['steps'])
+    }
+  }
+}
+
+function assertGraphIsRunnable(payload: CampaignGraphSaveInput): void {
+  const steps = payload.definition.steps
+
+  assertStepsAreRunnable(steps)
+  // A trailing wait has nothing to wait for. Silently dropping it would lose the author's
+  // intent, and keeping it would park every customer forever at the end of the campaign.
+  assertNoTrailingWait(steps)
 
   const allowedEventIds = new Set(availableEventTriggers().map((entry) => entry.eventId))
   const seenEvents = new Set<string>()

@@ -127,3 +127,115 @@ describe('triggerNodeId', () => {
     expect(triggerNodeId({ ...onOrder })).toBe(triggerNodeId(onOrder))
   })
 })
+
+describe('definitionToGraph — splits', () => {
+  const splitDefinition = (): CampaignDefinition => ({
+    version: 1,
+    audience: null,
+    steps: [
+      { id: 'before', type: 'add_tag', params: {} },
+      {
+        id: 'split-1',
+        type: 'split',
+        params: {
+          variants: [
+            { key: 'a', weight: 3, steps: [{ id: 'a-1', type: 'send_email', params: {} }] },
+            { key: 'b', weight: 1, steps: [{ id: 'b-1', type: 'send_email', params: {} }] },
+          ],
+        },
+      },
+      { id: 'after', type: 'add_tag', params: {} },
+    ],
+  })
+
+  test('renders a split node carrying each lane share', () => {
+    const { nodes } = definitionToGraph(splitDefinition(), [])
+    const split = nodes.find((node) => node.id === 'split-1')
+    expect(split?.type).toBe('split')
+    expect(split?.type === 'split' ? split.data.variants : []).toEqual([
+      { key: 'a', weight: 3, share: 0.75, stepCount: 1 },
+      { key: 'b', weight: 1, share: 0.25, stepCount: 1 },
+    ])
+  })
+
+  test('renders lane steps and tells each one which lane it belongs to', () => {
+    const { nodes } = definitionToGraph(splitDefinition(), [])
+    const laneStep = nodes.find((node) => node.id === 'b-1')
+    expect(laneStep?.type === 'step' ? laneStep.data.lane : null).toEqual({ splitId: 'split-1', laneKey: 'b' })
+  })
+
+  // The picture has to say what the engine does: a split fans out and REJOINS, because
+  // `flattenSteps` puts the chosen lane in place and carries on with the rest of the chain.
+  test('lanes fan out from the split and rejoin at the next step', () => {
+    const { edges } = definitionToGraph(splitDefinition(), [])
+    const pairs = edges.map((edge) => `${edge.source}->${edge.target}`)
+    expect(pairs).toContain('before->split-1')
+    expect(pairs).toContain('split-1->a-1')
+    expect(pairs).toContain('split-1->b-1')
+    expect(pairs).toContain('a-1->after')
+    expect(pairs).toContain('b-1->after')
+    expect(pairs).not.toContain('split-1->after')
+  })
+
+  test('an empty lane passes straight through so nothing downstream is stranded', () => {
+    const definition: CampaignDefinition = {
+      version: 1,
+      audience: null,
+      steps: [
+        { id: 'split-1', type: 'split', params: { variants: [
+          { key: 'a', weight: 1, steps: [{ id: 'a-1', type: 'send_email', params: {} }] },
+          { key: 'b', weight: 1, steps: [] },
+        ] } },
+        { id: 'after', type: 'add_tag', params: {} },
+      ],
+    }
+    const pairs = definitionToGraph(definition, []).edges.map((edge) => `${edge.source}->${edge.target}`)
+    expect(pairs).toContain('a-1->after')
+    expect(pairs).toContain('split-1->after')
+  })
+
+  test('lanes are laid out on rows of their own so nodes never overlap', () => {
+    const { nodes } = definitionToGraph(splitDefinition(), [])
+    const positions = nodes.map((node) => `${node.position.x}:${node.position.y}`)
+    expect(new Set(positions).size).toBe(positions.length)
+  })
+
+  test('a saved position still wins for a lane step', () => {
+    const definition = splitDefinition()
+    definition.canvas = { nodePositions: { 'b-1': { x: 11, y: 22 } } }
+    const { nodes } = definitionToGraph(definition, [])
+    expect(nodes.find((node) => node.id === 'b-1')?.position).toEqual({ x: 11, y: 22 })
+  })
+
+  test('every edge id is unique, which React Flow requires', () => {
+    const { edges } = definitionToGraph(splitDefinition(), [
+      { kind: 'event', eventId: 'customers.person.created' },
+    ])
+    expect(new Set(edges.map((edge) => edge.id)).size).toBe(edges.length)
+  })
+})
+
+describe('definitionToGraph — more than two lanes', () => {
+  test('each lane gets a column of its own, so three or more never overlap', () => {
+    const definition: CampaignDefinition = {
+      version: 1,
+      audience: null,
+      steps: [
+        { id: 'sp', type: 'split', params: { variants: [
+          { key: 'a', weight: 1, steps: [{ id: 'a1', type: 'send_email', params: {} }] },
+          { key: 'b', weight: 1, steps: [{ id: 'b1', type: 'send_email', params: {} }] },
+          { key: 'c', weight: 1, steps: [{ id: 'c1', type: 'send_email', params: {} }] },
+        ] } },
+        { id: 'after', type: 'add_tag', params: {} },
+      ],
+    }
+    const { nodes, edges } = definitionToGraph(definition, [])
+    const laneXs = ['a1', 'b1', 'c1'].map((id) => nodes.find((node) => node.id === id)!.position.x)
+    expect(new Set(laneXs).size).toBe(3)
+    const pairs = edges.map((edge) => `${edge.source}->${edge.target}`)
+    for (const laneStep of ['a1', 'b1', 'c1']) {
+      expect(pairs).toContain(`sp->${laneStep}`)
+      expect(pairs).toContain(`${laneStep}->after`)
+    }
+  })
+})

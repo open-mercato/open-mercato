@@ -18,6 +18,19 @@ import { CampaignCanvas } from '../../../../components/CampaignCanvas'
 import { ParamFields } from '../../../../components/ParamFields'
 import type { UiFieldSpec } from '../../../../components/ParamFields'
 import { AUDIENCE_NODE_ID, definitionToGraph, autoArrange } from '../../../../lib/canvas/graph-mapping'
+import {
+  addVariant,
+  appendStep,
+  collectStepIds,
+  locateStep,
+  moveStep as moveStepInTree,
+  removeStep,
+  removeVariant,
+  updateStepParams,
+  updateVariant,
+} from '../../../../lib/canvas/step-tree'
+import type { StepLocation } from '../../../../lib/canvas/step-tree'
+import { makeSplitStep, readVariants, SPLIT_STEP_TYPE } from '../../../../lib/engine/split'
 import type { CampaignDefinition, CampaignStep } from '../../../../lib/engine/types'
 import type { CampaignTriggerInput } from '../../../../data/validators'
 
@@ -155,7 +168,16 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
       return { id: node.id, type: 'trigger', position: node.position, data: { trigger: node.data.trigger, labelKey: entry?.labelKey } }
     }
     const stepEntry = palette?.steps.find((item) => item.type === node.data.step.type)
-    return { id: node.id, type: 'step', position: node.position, data: { step: node.data.step, index: node.data.index, labelKey: stepEntry?.labelKey } }
+    const shared = {
+      step: node.data.step,
+      index: node.data.index,
+      labelKey: stepEntry?.labelKey,
+      laneKey: node.data.lane?.laneKey ?? null,
+    }
+    if (node.type === 'split') {
+      return { id: node.id, type: 'split', position: node.position, data: { ...shared, variants: node.data.variants } }
+    }
+    return { id: node.id, type: 'step', position: node.position, data: shared }
   }), [graph.nodes, definition.audience, palette])
 
   const edges = React.useMemo<Edge[]>(
@@ -169,9 +191,20 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
     setDirty(true)
   }, [])
 
+  const selectedLocation: StepLocation | null = selectedNodeId ? locateStep(definition.steps, selectedNodeId) : null
+
+  /**
+   * Where a new step goes: into the variant the selection sits in, otherwise at the end of the
+   * top-level chain. Without this the palette could only ever append to the trunk, and a variant
+   * would be limited to whatever it was created with.
+   */
+  const addTarget: StepLocation['lane'] = selectedLocation?.lane ?? null
+
   const addStep = (type: string) => {
-    const step: CampaignStep = { id: newStepId(), type, params: type === 'wait' ? { minutes: 60 } : {} }
-    mutate({ definition: { ...definition, steps: [...definition.steps, step] } })
+    const step = type === SPLIT_STEP_TYPE
+      ? makeSplitStep(newStepId())
+      : { id: newStepId(), type, params: type === 'wait' ? { minutes: 60 } : {} } satisfies CampaignStep
+    mutate({ definition: { ...definition, steps: appendStep(definition.steps, step, addTarget) } })
     setSelectedNodeId(step.id)
   }
 
@@ -180,28 +213,19 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
     mutate({ triggers: [...triggers, { kind: 'event', eventId }] })
   }
 
+  const withSteps = (steps: CampaignStep[]) => mutate({ definition: { ...definition, steps } })
+
   const updateStep = (stepId: string, params: Record<string, unknown>) => {
-    mutate({
-      definition: {
-        ...definition,
-        steps: definition.steps.map((step) => (step.id === stepId ? { ...step, params } : step)),
-      },
-    })
+    withSteps(updateStepParams(definition.steps, stepId, params))
   }
 
   const moveStep = (stepId: string, delta: -1 | 1) => {
-    const index = definition.steps.findIndex((step) => step.id === stepId)
-    const target = index + delta
-    if (index < 0 || target < 0 || target >= definition.steps.length) return
-    const steps = [...definition.steps]
-    const [moved] = steps.splice(index, 1)
-    steps.splice(target, 0, moved)
-    mutate({ definition: { ...definition, steps } })
+    withSteps(moveStepInTree(definition.steps, stepId, delta))
   }
 
   const removeNode = (nodeId: string) => {
-    if (definition.steps.some((step) => step.id === nodeId)) {
-      mutate({ definition: { ...definition, steps: definition.steps.filter((step) => step.id !== nodeId) } })
+    if (locateStep(definition.steps, nodeId)) {
+      withSteps(removeStep(definition.steps, nodeId))
     } else {
       mutate({ triggers: triggers.filter((trigger) => (trigger.kind === 'event' ? `trigger:event:${trigger.eventId}` : `trigger:schedule:${trigger.scheduleValue}`) !== nodeId) })
     }
@@ -212,7 +236,7 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
     setDefinition((current) => {
       // Only positions of nodes that still exist are kept. Writing the raw map back let a deleted
       // step's coordinates survive every subsequent save and grow the jsonb without bound.
-      const live = new Set<string>([AUDIENCE_NODE_ID, ...current.steps.map((step) => step.id)])
+      const live = new Set<string>([AUDIENCE_NODE_ID, ...collectStepIds(current.steps)])
       const pruned: Record<string, { x: number; y: number }> = {}
       for (const [nodeId, position] of Object.entries(nodePositions)) {
         if (live.has(nodeId) || nodeId.startsWith('trigger:')) pruned[nodeId] = position
@@ -297,8 +321,9 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
     return <Page><PageBody><div className="text-sm text-muted-foreground">{error}</div></PageBody></Page>
   }
 
-  const selectedStep = definition.steps.find((step) => step.id === selectedNodeId) ?? null
+  const selectedStep = selectedLocation?.step ?? null
   const selectedStepMeta = selectedStep ? palette?.steps.find((item) => item.type === selectedStep.type) ?? null : null
+  const selectedSplit = selectedStep && selectedStep.type === SPLIT_STEP_TYPE ? selectedStep : null
   const audienceSelected = selectedNodeId === AUDIENCE_NODE_ID
 
   return (
@@ -364,6 +389,11 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
               <div className="mb-2 text-overline text-muted-foreground">
                 {t('marketing_automation.canvas.palette.steps', 'Steps')}
               </div>
+              {addTarget ? (
+                <div className="mb-2 text-xs text-muted-foreground">
+                  {t('marketing_automation.canvas.palette.addsToVariant', 'Adds to variant {key}').replace('{key}', addTarget.laneKey)}
+                </div>
+              ) : null}
               <div className="space-y-1">
                 {(palette?.steps ?? []).map((step) => (
                   <Button
@@ -402,22 +432,99 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
               </div>
             ) : null}
 
-            {selectedStep ? (
+            {selectedStep && selectedLocation ? (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="text-overline text-muted-foreground">
                     {t(selectedStepMeta?.labelKey ?? `marketing_automation.step.${selectedStep.type}.label`, selectedStep.type)}
                   </div>
                   <div className="flex gap-1">
-                    <Button variant="outline" size="sm" onClick={() => moveStep(selectedStep.id, -1)}>↑</Button>
-                    <Button variant="outline" size="sm" onClick={() => moveStep(selectedStep.id, 1)}>↓</Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={selectedLocation.index === 0}
+                      aria-label={t('marketing_automation.action.moveUp', 'Move up')}
+                      onClick={() => moveStep(selectedStep.id, -1)}
+                    >
+                      ↑
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={selectedLocation.index >= selectedLocation.siblingCount - 1}
+                      aria-label={t('marketing_automation.action.moveDown', 'Move down')}
+                      onClick={() => moveStep(selectedStep.id, 1)}
+                    >
+                      ↓
+                    </Button>
                   </div>
                 </div>
-                <ParamFields
-                  fields={selectedStepMeta?.uiFields ?? []}
-                  values={selectedStep.params}
-                  onChange={(params) => updateStep(selectedStep.id, params)}
-                />
+                {selectedLocation.lane ? (
+                  <div className="text-xs text-muted-foreground">
+                    {t('marketing_automation.canvas.node.split.variant', 'Variant {key}').replace('{key}', selectedLocation.lane.laneKey)}
+                  </div>
+                ) : null}
+
+                {selectedSplit ? (
+                  <div className="space-y-2">
+                    <div className="text-xs text-muted-foreground">
+                      {t(
+                        'marketing_automation.canvas.split.hint',
+                        'Each customer is assigned one variant and stays in it. Select a step inside a variant, then pick from the palette to add another step to that variant.',
+                      )}
+                    </div>
+                    {readVariants(selectedSplit).map((variant) => (
+                      <div key={variant.key} className="space-y-2 rounded-md border border-border p-2">
+                        <div className="flex gap-2">
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <Label htmlFor={`variant-key-${variant.key}`}>
+                              {t('marketing_automation.field.variant.key', 'Variant')}
+                            </Label>
+                            <Input
+                              id={`variant-key-${variant.key}`}
+                              value={variant.key}
+                              onChange={(event) => withSteps(updateVariant(definition.steps, selectedSplit.id, variant.key, { key: event.target.value }))}
+                            />
+                          </div>
+                          <div className="w-20 space-y-1">
+                            <Label htmlFor={`variant-weight-${variant.key}`}>
+                              {t('marketing_automation.field.variant.weight', 'Weight')}
+                            </Label>
+                            <Input
+                              id={`variant-weight-${variant.key}`}
+                              type="number"
+                              min={1}
+                              value={String(variant.weight)}
+                              onChange={(event) => withSteps(updateVariant(definition.steps, selectedSplit.id, variant.key, { weight: Number(event.target.value) }))}
+                            />
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-muted-foreground">
+                            {t('marketing_automation.canvas.split.variantSteps', '{count} steps').replace('{count}', String(variant.steps.length))}
+                          </span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => withSteps(removeVariant(definition.steps, selectedSplit.id, variant.key))}
+                          >
+                            {t('marketing_automation.action.removeVariant', 'Remove variant')}
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                    <Button variant="outline" onClick={() => withSteps(addVariant(definition.steps, selectedSplit.id))}>
+                      {t('marketing_automation.action.addVariant', 'Add variant')}
+                    </Button>
+                  </div>
+                ) : (
+                  <ParamFields
+                    fields={selectedStepMeta?.uiFields ?? []}
+                    values={selectedStep.params}
+                    onChange={(params) => updateStep(selectedStep.id, params)}
+                  />
+                )}
+
                 <Button variant="outline" onClick={() => removeNode(selectedStep.id)}>
                   {t('marketing_automation.action.removeNode', 'Remove')}
                 </Button>

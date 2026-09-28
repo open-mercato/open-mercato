@@ -124,9 +124,33 @@ A depth counter carried in the dispatch context was implemented first and remove
 emitted by the modules that own them and carry no field of ours, so nothing could increment the
 depth across a hop and the guard was inert.
 
+### A/B split
+
+A `split` step carries variant lanes in its params, each lane its own step array. The engine
+resolves it before planning: `flattenSteps` replaces the split with the lane this subject belongs
+to, in place, so the chain continues afterwards and a split is a detour rather than a terminus —
+which is what lets a campaign test one message and then carry on with shared follow-up steps.
+
+The lane is chosen by hashing `(step id, subject id)`, not stored. Stability is the requirement,
+not novelty: a run that pauses on a wait inside a lane and resumes an hour later must come back to
+the same lane, or the customer receives a mixture of both variants and the test measures nothing.
+Deriving the choice makes that true by construction, with no extra column, no migration, and
+nothing that can disagree with itself after a restore. Because the executor still walks a flat list,
+`current_step_index` keeps its meaning and the schema is unchanged.
+
+Weights are cumulative ranges over that hash, so lanes need not be integers or sum to anything. A
+lane with a non-positive weight or no key is dropped rather than kept as unreachable, because the
+canvas must not show a branch that never runs. Nesting is capped at five levels, which turns a
+hand-edited or imported definition that is cyclic in spirit into a truncated campaign instead of a
+stack overflow in a worker.
+
 ### Canvas
 
-The canvas renders a spine, not a free graph, because that is what the engine executes. Edges are
+The canvas renders a spine with detours, not a free graph, because that is what the engine
+executes. Steps read top to bottom; a split forks to the right, one column per lane, and the trunk
+resumes below the deepest lane, with an edge from every lane's last step into it — the same rejoin
+`flattenSteps` performs, so the picture and the execution agree by construction. An empty lane
+exits at the split node itself so nothing downstream is stranded. Edges are
 derived on every render and never persisted; connecting is disabled. Step order lives in the
 definition array and is changed with explicit controls, never by dragging — coordinate-derived
 ordering would let a three-pixel nudge reorder a campaign. Layout travels inside the definition,
@@ -134,6 +158,13 @@ so a save round-trips positions with no separate client key.
 
 One audience node rather than a node per condition: a failed audience simply stops the run, so
 there is no "condition failed" branch for an edge to leave from.
+
+Once lanes exist a campaign is a tree, so every editor action — change params, reorder, delete,
+add — has to find the chain that owns a step instead of indexing into `definition.steps`. That is
+`lib/canvas/step-tree.ts`, pure and recursive, which keeps the page a rendering of state and the
+rules testable without React. A step never changes lane by being reordered, and a rename or weight
+that `readVariants` would drop is refused rather than applied, because applying it would delete the
+lane the author is editing together with the steps inside it.
 
 ## Data Models
 
@@ -287,3 +318,8 @@ written down.* *Residual: blocked on `SPEC-029`.*
   optimistic lock; canvas editor reusing the `business_rules` condition builder; `en`/`pl`
   locales. Verified against a running instance: palette, create, save, round-trip, 409 on a
   stale save, and five rejected invalid graphs.
+- **2026-09-28** — Phase 2.1: A/B split. `split` step type with deterministic per-subject lane
+  assignment, in-place flattening before planning, recursive save-time validation (unknown step
+  types and trailing waits inside lanes are refused as they are at the top level), canvas fork and
+  rejoin rendering with per-lane shares, a lane inspector, and `lib/canvas/step-tree.ts` for
+  structural edits. 173 unit tests.
