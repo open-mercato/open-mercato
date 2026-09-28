@@ -13,6 +13,7 @@ import { createSqlCandidateSource, resolveCandidates } from '../lib/audience/set
 import { findRowSweepSource } from '../lib/sweep-sources.js'
 import type { RowSweepSource } from '../lib/sweep-sources.js'
 import { isSweepDue } from '../lib/sweep-interval.js'
+import { pruneJobRuns, recordJobRun } from '../lib/job-runs.js'
 import { MarketingCampaignTrigger as TriggerEntity } from '../data/entities.js'
 import type { MarketingCampaign, MarketingCampaignTrigger } from '../data/entities.js'
 import type { SweepJob } from '../lib/queue.js'
@@ -267,13 +268,28 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
       )
 
       const rowSource = findRowSweepSource(trigger.sweepSource)
-      const started = rowSource
-        ? await sweepRows(campaign, trigger, rowSource, deps, scope, tierThresholds)
-        : await sweepCustomers(campaign, trigger, deps, scope, tierThresholds)
+      /**
+       * Logged as a job run, per campaign.
+       *
+       * A sweep that quietly stopped firing is indistinguishable from a sweep with nothing to do, which is
+       * the failure this module could not previously answer for. One row per campaign rather than per tick,
+       * because "did the win-back campaign run last night" is the question people actually ask.
+       */
+      const { counters } = await recordJobRun(
+        deps.em,
+        scope,
+        { kind: 'sweep', campaignId: campaign.id },
+        async () => {
+          const started = rowSource
+            ? await sweepRows(campaign, trigger, rowSource, deps, scope, tierThresholds)
+            : await sweepCustomers(campaign, trigger, deps, scope, tierThresholds)
+          return { counters: { started } }
+        },
+      )
       logger.info('marketing sweep finished', {
         campaignId: campaign.id,
         source: trigger.sweepSource ?? 'customers',
-        started,
+        started: counters?.started ?? 0,
       })
     } catch (error) {
       logger.error('[internal] marketing sweep failed', {
@@ -286,5 +302,15 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
         attributes: { campaignId: campaign.id },
       })
     }
+  }
+
+  // Pruned here rather than by a job of its own: a cleanup task nobody scheduled is a table that grows
+  // until somebody notices it.
+  try {
+    await pruneJobRuns(deps.em, scope, deps.now)
+  } catch (error) {
+    logger.warn('[internal] marketing job-run pruning failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
   }
 }

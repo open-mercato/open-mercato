@@ -6,6 +6,7 @@ import type { ResumeJob } from '../lib/queue.js'
 import { buildDispatchDeps, logger, readScope } from './shared.js'
 import type { HandlerContext } from './shared.js'
 import { reportError } from '@open-mercato/telemetry'
+import { recordJobRun } from '../lib/job-runs.js'
 
 // See the note in dispatch.ts: this string must stay a literal.
 export const metadata: WorkerMeta = {
@@ -40,31 +41,40 @@ export default async function handle(job: QueuedJob<ResumeJob>, ctx: HandlerCont
     return
   }
 
-  // Housekeeping on the periodic pass: an occurrence key is a duplicate guard for a window, not a
-  // permanent one-run-ever rule, so it has to be released or `unlimited` re-entry stops working.
-  const released = await expireOccurrenceKeys(deps.em, scope, deps.now, OCCURRENCE_DEDUP_WINDOW_HOURS)
-  if (released > 0) logger.info('marketing occurrence keys released', { released })
+  /**
+   * The periodic pass is logged as a job run, including the pass that found nothing.
+   *
+   * "Nothing was due" and "the scan has not run since Friday" look identical in a log that only records
+   * work, and they are the two answers somebody needs to tell apart when a waiting journey never resumed.
+   */
+  await recordJobRun(deps.em, scope, { kind: 'due_runs' }, async () => {
+    // Housekeeping on the periodic pass: an occurrence key is a duplicate guard for a window, not a
+    // permanent one-run-ever rule, so it has to be released or `unlimited` re-entry stops working.
+    const released = await expireOccurrenceKeys(deps.em, scope, deps.now, OCCURRENCE_DEDUP_WINDOW_HOURS)
+    if (released > 0) logger.info('marketing occurrence keys released', { released })
 
-  const dueIds = await findDueRunIds(deps.em, scope, deps.now, SCAN_BATCH)
-  if (!dueIds.length) return
+    const dueIds = await findDueRunIds(deps.em, scope, deps.now, SCAN_BATCH)
+    if (!dueIds.length) return { counters: { found: 0, resumed: 0, released } }
 
-  let resumed = 0
-  for (const id of dueIds) {
-    try {
-      const outcome = await resumeRun(id, deps)
-      if (outcome !== 'skipped') resumed += 1
-    } catch (error) {
-      // One bad run never aborts the batch; the run's own attempt counter handles its fate.
-      logger.error('[internal] marketing run resume failed during scan', {
-        runId: id,
-        error: error instanceof Error ? error.message : String(error),
-      })
-      reportError(error, {
-        module: 'marketing_automation',
-        code: 'marketing_automation.resume_failed',
-        attributes: { runId: id },
-      })
+    let resumed = 0
+    for (const id of dueIds) {
+      try {
+        const outcome = await resumeRun(id, deps)
+        if (outcome !== 'skipped') resumed += 1
+      } catch (error) {
+        // One bad run never aborts the batch; the run's own attempt counter handles its fate.
+        logger.error('[internal] marketing run resume failed during scan', {
+          runId: id,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        reportError(error, {
+          module: 'marketing_automation',
+          code: 'marketing_automation.resume_failed',
+          attributes: { runId: id },
+        })
+      }
     }
-  }
-  logger.info('marketing due-run scan finished', { found: dueIds.length, resumed })
+    logger.info('marketing due-run scan finished', { found: dueIds.length, resumed })
+    return { counters: { found: dueIds.length, resumed, released } }
+  })
 }

@@ -760,3 +760,104 @@ export class MarketingInboundHook {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 }
+
+/**
+ * What a campaign looked like after each save.
+ *
+ * Two jobs in one table, because they are the same data: the audit trail of who changed a campaign and
+ * when, and the versions an author can go back to. Storing the state AFTER each save rather than before
+ * means version 1 is the first save rather than a gap, and a restore is just another save.
+ */
+@Entity({ tableName: 'marketing_campaign_revisions' })
+@Unique({ name: 'marketing_revisions_version_uniq', properties: ['tenantId', 'organizationId', 'campaignId', 'version'] })
+@Index({ name: 'mkt_revisions_campaign_idx', properties: ['tenantId', 'organizationId', 'campaignId'] })
+export class MarketingCampaignRevision {
+  [OptionalProps]?: 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'campaign_id', type: 'uuid' })
+  campaignId!: string
+
+  /** Monotonic per campaign, so "version 4" means something to a person reading a list. */
+  @Property({ type: 'int' })
+  version!: number
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ type: 'json' })
+  definition!: Record<string, unknown>
+
+  /** Triggers live in their own table, so a restorable snapshot has to carry them too. */
+  @Property({ type: 'json' })
+  triggers!: unknown[]
+
+  /**
+   * Who saved it. Nullable because a save can come from a command with no user — a restore run by a
+   * scheduled task, or an API key — and inventing an actor would be worse than admitting none.
+   */
+  @Property({ name: 'actor_id', type: 'text', nullable: true })
+  actorId?: string | null
+
+  /** What kind of save this was: an edit, or a restore of an earlier version. */
+  @Property({ type: 'text' })
+  note!: string
+
+  @Property({ name: 'created_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
+  createdAt!: Date
+}
+
+/**
+ * One execution of a background job, with the numbers it produced.
+ *
+ * The question this answers is the morning-after one: did the sweep run at all, how many customers did it
+ * look at, and how many did it enrol. Counters are jsonb because each job counts different things and a
+ * column per counter would be a migration per job.
+ */
+@Entity({ tableName: 'marketing_job_runs' })
+@Index({ name: 'mkt_job_runs_kind_idx', properties: ['tenantId', 'organizationId', 'kind', 'startedAt'] })
+export class MarketingJobRun {
+  [OptionalProps]?: 'startedAt' | 'status'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  /** `sweep`, `due_runs`, `dispatch` — a string rather than an enum so a new job needs no migration. */
+  @Property({ type: 'text' })
+  kind!: string
+
+  /** Set when the job was about one campaign, which the sweep is and the due-run scan is not. */
+  @Property({ name: 'campaign_id', type: 'uuid', nullable: true })
+  campaignId?: string | null
+
+  @Property({ name: 'started_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
+  startedAt!: Date
+
+  @Property({ name: 'finished_at', type: Date, nullable: true })
+  finishedAt?: Date | null
+
+  /** `running` until it ends, so a job that never finished is visible as exactly that. */
+  @Property({ type: 'text', default: 'running' })
+  status!: string
+
+  @Property({ type: 'json', nullable: true })
+  counters?: Record<string, number> | null
+
+  /** Already redacted by the caller where it could name a recipient. */
+  @Property({ type: 'text', nullable: true })
+  error?: string | null
+}

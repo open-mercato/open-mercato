@@ -574,6 +574,58 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
     }
   }
 
+  /**
+   * The campaign's saved versions, loaded on demand.
+   *
+   * Not fetched with the campaign: most editing sessions never ask for history, and a list of thirty
+   * entries is not worth adding to the first paint of every campaign that is opened.
+   */
+  const [revisions, setRevisions] = React.useState<Array<{
+    version: number
+    name: string
+    note: string
+    createdAt: string
+    stepCount: number
+    triggerCount: number
+  }> | null>(null)
+  const [restoring, setRestoring] = React.useState(false)
+
+  const loadRevisions = React.useCallback(async () => {
+    try {
+      const result = await apiCall<{ items?: Array<{
+        version: number
+        name: string
+        note: string
+        createdAt: string
+        stepCount: number
+        triggerCount: number
+      }> }>(`/api/marketing_automation/campaigns/${campaignId}/revisions`)
+      setRevisions(result.ok && Array.isArray(result.result?.items) ? result.result.items : [])
+    } catch {
+      setRevisions([])
+    }
+  }, [campaignId])
+
+  const restoreRevision = async (version: number) => {
+    setRestoring(true)
+    try {
+      await apiCallOrThrow(
+        `/api/marketing_automation/campaigns/${campaignId}/revisions/${version}/restore`,
+        { method: 'POST' },
+      )
+      flash(t('marketing_automation.history.restored', 'Version restored.'), 'success')
+      // Reloaded rather than patched in: the restore went through the ordinary save, so the canvas has to
+      // come back from the server exactly as it would after somebody else's edit.
+      window.location.reload()
+    } catch (error) {
+      if (!surfaceRecordConflict(error, t)) {
+        flash(t('marketing_automation.history.restoreFailed', 'Could not restore that version.'), 'error')
+      }
+    } finally {
+      setRestoring(false)
+    }
+  }
+
   const selectedTrigger = selectedNodeId
     ? triggers.find((trigger) => triggerNodeId(trigger) === selectedNodeId) ?? null
     : null
@@ -1027,6 +1079,51 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
               <div className="space-y-4">
                 <div className="text-xs text-muted-foreground">
                   {t('marketing_automation.canvas.edge.derivedHint', 'Steps run top to bottom. Reorder with the arrows, not by dragging.')}
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-overline text-muted-foreground">
+                    {t('marketing_automation.history.title', 'History')}
+                  </div>
+                  {revisions === null ? (
+                    <Button variant="outline" onClick={() => void loadRevisions()}>
+                      {t('marketing_automation.history.load', 'Show saved versions')}
+                    </Button>
+                  ) : revisions.length === 0 ? (
+                    <div className="text-xs text-muted-foreground">
+                      {t('marketing_automation.history.empty', 'No versions recorded yet — the next save will start the history.')}
+                    </div>
+                  ) : (
+                    <ul className="space-y-1">
+                      {revisions.map((revision) => (
+                        <li key={revision.version} className="flex items-baseline justify-between gap-2 border-b border-border py-1 text-xs">
+                          <span className="text-foreground">
+                            {t('marketing_automation.history.version', 'v{version}').replace('{version}', String(revision.version))}
+                            {' · '}
+                            {formatDateTime(revision.createdAt)}
+                            {revision.note.startsWith('restored:')
+                              ? ` · ${t('marketing_automation.history.restoredFrom', 'restored v{from}').replace('{from}', revision.note.slice('restored:'.length))}`
+                              : ''}
+                          </span>
+                          <span className="flex shrink-0 items-center gap-2">
+                            <span className="text-muted-foreground">
+                              {t('marketing_automation.history.counts', '{steps} steps · {triggers} triggers')
+                                .replace('{steps}', String(revision.stepCount))
+                                .replace('{triggers}', String(revision.triggerCount))}
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={restoring}
+                              onClick={() => void restoreRevision(revision.version)}
+                            >
+                              {t('marketing_automation.history.restore', 'Restore')}
+                            </Button>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
 
                 <div className="space-y-2">

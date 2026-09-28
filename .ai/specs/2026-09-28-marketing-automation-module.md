@@ -775,6 +775,19 @@ eight-way concurrent worker and is now backed by a partial unique index on the a
 
 ## Changelog
 
+- **2026-09-29** — Backlog B-25: operational observability. `marketing_campaign_revisions` serves both the
+  audit trail and the restorable versions, because they are the same data: every save records what the
+  campaign looked like AFTER it, so version 1 is the first save rather than a gap. A restore replays the
+  ordinary save command with the campaign's current `updatedAt`, which means it is validated by the current
+  rules, collides with a concurrent edit, emits the same event, and becomes a NEW version noted as
+  `restored:N` rather than rewriting history. Thirty versions are kept per campaign, pruned on write rather
+  than by a job nobody scheduled. `marketing_job_runs` records each sweep and each due-run pass with the
+  counters it produced, written BEFORE the work starts so a job killed mid-flight is visible as `running`
+  instead of leaving no trace — and a failure is recorded and then re-thrown, because swallowing it to keep
+  the log tidy would turn a failed job into a successful one. Neither recorder can break the work it
+  describes. Two screens read them: a History panel in the campaign editor with per-version restore, and a
+  background-jobs list. 631 unit tests, 110 integration tests.
+
 - **2026-09-29** — Backlog B-24: AI copy drafting, deliberately at AUTHORING time rather than as a step.
   A Draft button in the message inspector returns a subject, HTML body and plain-text body for the author to
   edit; nothing is saved until they save the campaign. The draft is grounded in the campaign name, its

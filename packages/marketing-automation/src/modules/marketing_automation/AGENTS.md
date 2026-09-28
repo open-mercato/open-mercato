@@ -137,6 +137,13 @@ its own. Spec:
   which lane a subject takes is decided by the engine, not by an edge somebody drew — an author who
   can draw an edge has been promised a topology it cannot run. Edges are derived; order lives in the
   definition arrays.
+- Never let history bookkeeping fail a save. `recordRevision` swallows its own errors and logs them: the
+  cost of a lost revision is a gap in a list, the cost of a rolled-back save is an author's work.
+- Never restore a version by writing to the campaign directly. Replay it through
+  `marketing_automation.campaigns.save_graph` with the CURRENT `updatedAt`, so a restore is validated,
+  collides with a concurrent edit and becomes a new version instead of rewriting the old one.
+- Never write a job-log row only on success. The row is created before the work, so a job killed mid-flight
+  stays visible as `running` — the one state a success-only log can never show.
 - Never generate copy per recipient at send time. A draft is authored once, reviewed by a human and saved to
   the campaign; generating per customer would mail text nobody read, scale cost with the audience, and make a
   slow provider a delivery failure. Personalisation is interpolation's job and the recommendation block's.
@@ -221,6 +228,8 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | the only PUBLIC routes in the module | `api/track/open`, `api/track/click`, `api/unsubscribe`, `api/survey`, `api/inbound` |
 | signed inbound hook URLs and their payload split | `lib/inbound.ts`, `api/inbound-hooks/` |
 | AI copy drafting, its prompt and its sanitiser | `lib/ai-copy.ts`, `lib/engine/copy-draft.ts` |
+| campaign history, versions and restore | `lib/revisions.ts`, `api/campaigns/[id]/revisions/` |
+| background job log and its retention | `lib/job-runs.ts`, `api/jobs/` |
 | enrolment shared by events and sweeps | `lib/dispatcher.ts` → `startCampaignForSubject` |
 | trigger context hydration | `lib/trigger-catalog.ts` |
 | a step handler with a channel | `steps/send-email.ts` |

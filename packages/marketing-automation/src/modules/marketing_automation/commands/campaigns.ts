@@ -17,6 +17,10 @@ import { SPLIT_STEP_TYPE, readVariants, writeVariants } from '../lib/engine/spli
 import { availableEventTriggers } from '../lib/trigger-catalog.js'
 import { isSweepIntervalValid } from '../lib/sweep-interval.js'
 import { emitMarketingAutomationEvent } from '../events.js'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { recordRevision } from '../lib/revisions.js'
+
+const logger = createLogger('marketing_automation')
 
 type Scope = { tenantId: string; organizationId: string }
 
@@ -403,7 +407,8 @@ const applySplitWinnerCommand: CommandHandler<
 }
 
 const saveCampaignGraphCommand: CommandHandler<
-  CampaignGraphSaveInput & { id: string },
+  /** `restoredFrom` is internal: the restore endpoint sets it so the history entry can say so. */
+  CampaignGraphSaveInput & { id: string; restoredFrom?: number },
   { id: string; updatedAt: string; waitingRuns: number }
 > = {
   id: 'marketing_automation.campaigns.save_graph',
@@ -466,6 +471,31 @@ const saveCampaignGraphCommand: CommandHandler<
       managed.definition = payload.definition as unknown as Record<string, unknown>
       await replaceTriggers(tx, campaign.id, scope, payload.triggers)
     })
+
+    /**
+     * History, recorded after the commit and never able to fail the save.
+     *
+     * `restoredFrom` is threaded through the input rather than inferred, because a restore looks exactly
+     * like an edit from in here — and "version 7 is a restore of version 3" is the one thing a person
+     * reading the list actually wants to know.
+     */
+    await recordRevision(
+      em,
+      scope,
+      {
+        campaignId: campaign.id,
+        name: payload.name,
+        definition: payload.definition as unknown as Record<string, unknown>,
+        actorId: typeof ctx.auth?.sub === 'string' ? ctx.auth.sub : null,
+        note: typeof rawInput.restoredFrom === 'number' ? `restored:${rawInput.restoredFrom}` : 'saved',
+      },
+      (error) => {
+        logger.warn('[internal] marketing campaign revision not recorded', {
+          campaignId: campaign.id,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      },
+    )
 
     // Emitted only after the whole write is committed, so no subscriber can observe a campaign
     // that does not exist in the shape the event announces.

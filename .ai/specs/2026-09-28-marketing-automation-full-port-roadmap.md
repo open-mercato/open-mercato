@@ -186,7 +186,7 @@ built to be extended, so breadth is additive by construction.
 | B-22 | Ad audience sync: hashed segment members to Google Ads and Meta | Extends a segment beyond email at no extra content cost | L | new provider package | 5.1 |
 | B-23 | Product/shopping feeds: Google Merchant and Meta catalogue, cached per store | Table stakes for paid acquisition | L | new provider package | catalogue |
 | B-24 | AI content generation step: LLM writes subject and body into the run context | Removes the blank-page problem that stops campaigns being written at all — ✅ 2026-09-29, **as an authoring-time draft rather than a step**: a Draft button in the message inspector returns a subject and body for the author to edit, grounded in the campaign, its triggers, the tenant brand voice and the placeholders and blocks that actually exist. Per-recipient generation was rejected — copy nobody read would reach customers (the module's rule is AI authors, humans publish), cost would scale with the audience, and a slow model at send time would block or skip messages. Personalisation per customer is already interpolation's and the recommendation block's job | M | step registry + ai-assistant | — |
-| B-25 | Operational observability: job-run log, admin audit trail of campaign changes, email template versioning with restore | What you need the morning after a campaign went wrong | M | workers + admin screens | — |
+| B-25 | Operational observability: job-run log, admin audit trail of campaign changes, email template versioning with restore | What you need the morning after a campaign went wrong — ✅ 2026-09-29 — one revisions table serves BOTH the audit trail and the restorable versions (they are the same data); a restore replays the ordinary save command, so it is validated, version-checked and becomes a new version rather than rewriting history. The job log records the start before the work, so a job killed mid-flight is visible as `running` rather than as nothing | M | workers + admin screens | — |
 | B-26 | Lead routing: round-robin assignment to sales reps, weekly rep digest | B2B: a lead with no owner is a lead nobody calls | M | new tables + admin CRUD | B-01 |
 | B-27 | Setup wizard: guided first run | The difference between an installed module and a used one | S | onboarding module | — |
 | B-28 | Push subscription management: admin grid, register/unregister endpoints, service worker | Operability for the push channel | M | public routes + new table | 6.2 |
@@ -257,11 +257,11 @@ Value per unit of effort, given what already exists:
 4. **X-14, B-19** — journey preview and real test send. Author confidence, and the two best things to show on a demo.
 5. **B-13, X-01** — product-level and geographic targeting. The two dimensions authors reach for next.
 6. **X-04, X-05, X-06** — agent authoring, MCP tools, charts. Each one is small here and each one is impossible in the original.
-7. **B-09, B-11, B-25, B-27, X-03, X-07, X-08** — referrals, segment operability, observability,
-   setup wizard, per-channel targeting, progress/notifications, portal preference centre. All
-   unblocked, all additive.
-   (B-07 NPS, B-15 GDPR, B-17 content blocks, B-08 recommendations, B-18 inbound hooks and B-24 AI
-   copy drafting landed on 2026-09-28/29.)
+7. **B-09, B-11, B-27, X-03, X-07, X-08** — referrals, segment operability, setup wizard,
+   per-channel targeting, progress/notifications, portal preference centre. All unblocked, all
+   additive.
+   (B-07 NPS, B-15 GDPR, B-17 content blocks, B-08 recommendations, B-18 inbound hooks, B-24 AI copy
+   drafting and B-25 observability landed on 2026-09-28/29.)
 8. The blocked table above, each item the moment its dependency lands.
 
 Target for the current push: every unblocked item. The blocked ones are documented so nobody mistakes
