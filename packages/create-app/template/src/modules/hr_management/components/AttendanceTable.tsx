@@ -10,12 +10,16 @@ import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { fetchCrudList } from '@open-mercato/ui/backend/utils/crud'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT, useDirection } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useQueryClient } from '@tanstack/react-query'
 
 // `import type` only: a value import of the entities module would pull MikroORM
 // decorators into the browser bundle.
 import type { AttendanceStatus } from '../data/entities'
+import { isLatenessPermissionEligible } from '../lib/attendancePermission'
+import { LatenessPermissionDialog } from './LatenessPermissionDialog'
 import { useEmployeeLabels } from './hrOptions'
 
 const RESOURCE = 'hr_management/attendance'
@@ -72,7 +76,10 @@ export default function AttendanceTable() {
   const [values, setValues] = React.useState<FilterValues>({})
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'date', desc: true }])
   const [page, setPage] = React.useState(1)
+  // The record a permission is being requested for; `null` keeps the dialog closed.
+  const [permissionTarget, setPermissionTarget] = React.useState<{ id: string; date?: string | null; employeeLabel?: string | null } | null>(null)
   const scopeVersion = useOrganizationScopeVersion()
+  const queryClient = useQueryClient()
   const { employees, labels } = useEmployeeLabels()
 
   const statusFilter = typeof values.status === 'string' ? values.status : undefined
@@ -137,6 +144,7 @@ export default function AttendanceTable() {
   }
 
   return (
+    <>
     <DataTable
       title={t('hr_management.attendance.page.title', 'Attendance')}
       titleHeadingLevel={1}
@@ -146,9 +154,26 @@ export default function AttendanceTable() {
         </Button>
       )}
       rowActions={(row) => (
-        <Link className="text-sm font-medium underline" href={editHref(row.id)}>
-          {t('hr_management.attendance.actions.edit', 'Edit')}
-        </Link>
+        <span className="flex items-center gap-3">
+          <Link className="text-sm font-medium underline" href={editHref(row.id)}>
+            {t('hr_management.attendance.actions.edit', 'Edit')}
+          </Link>
+          {/* Offered only for a lateness: the engine's approval clears that status and nothing else,
+              so an action on any other row would produce a request that changes nothing. */}
+          {isLatenessPermissionEligible(row.status) ? (
+            <button
+              type="button"
+              className="text-sm font-medium underline"
+              onClick={() => setPermissionTarget({
+                id: row.id,
+                date: row.date,
+                employeeLabel: labels.get(row.employee_id) ?? null,
+              })}
+            >
+              {t('hr_management.attendance.actions.askPermission', 'Ask for permission')}
+            </button>
+          ) : null}
+        </span>
       )}
       columns={columns}
       data={data?.items ?? []}
@@ -201,6 +226,18 @@ export default function AttendanceTable() {
       }}
       isLoading={isLoading}
     />
+    <LatenessPermissionDialog
+      target={permissionTarget}
+      onOpenChange={(open) => {
+        if (!open) setPermissionTarget(null)
+      }}
+      onSubmitted={() => {
+        setPermissionTarget(null)
+        flash(t('hr_management.attendance.permission.success', 'Permission requested.'), 'success')
+        void queryClient.invalidateQueries({ queryKey: ['hr-attendance'] })
+      }}
+    />
+    </>
   )
 }
 

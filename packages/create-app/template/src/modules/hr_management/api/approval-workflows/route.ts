@@ -6,6 +6,7 @@ import { HrApprovalWorkflow } from '../../data/entities'
 import { createApprovalWorkflowSchema, updateApprovalWorkflowSchema } from '../../data/validators'
 import { createHrCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../openapi'
 import { HR_APPROVAL_WORKFLOW_ENTITY_ID } from '../../commands/hr'
+import { booleanQueryParam } from '../../lib/queryBoolean'
 import '../../commands/hr'
 
 const rawBodySchema = z.object({}).passthrough()
@@ -14,6 +15,11 @@ const listSchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
   id: z.string().uuid().optional(),
   ids: z.string().optional(),
+  // Both filters are what the workflow pickers ask for: an inactive definition cannot be submitted
+  // to (the engine refuses with `workflow_inactive`), and a definition declared for leave requests has
+  // no business appearing in the lateness-permission picker.
+  isActive: booleanQueryParam(),
+  entityType: z.string().min(1).optional(),
 
   sortField: z.string().optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
@@ -40,6 +46,8 @@ const crud = makeCrudRoute({
     buildFilters: (query) => ({
       ...(query.id ? { id: { $eq: query.id } } : {}),
       ...(query.ids ? { id: { $in: query.ids.split(',').map((value) => value.trim()).filter(Boolean) } } : {}),
+      ...(query.isActive === undefined ? {} : { is_active: { $eq: query.isActive } }),
+      ...(query.entityType ? { entity_type: { $eq: query.entityType } } : {}),
     }),
     transformItem: (item) => ({ ...item, updatedAt: item.updated_at ?? null }),
   },

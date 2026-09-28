@@ -7,6 +7,7 @@ import { HrDepartment } from '../../data/entities'
 import { createDepartmentSchema, updateDepartmentSchema } from '../../data/validators'
 import { createHrCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../openapi'
 import { HR_DEPARTMENT_ENTITY_ID } from '../../commands/hr'
+import { booleanQueryParam } from '../../lib/queryBoolean'
 import '../../commands/hr'
 
 const rawBodySchema = z.object({}).passthrough()
@@ -16,7 +17,7 @@ const listSchema = z.object({
   id: z.string().uuid().optional(),
   ids: z.string().optional(),
   parentDepartmentId: z.string().uuid().optional(),
-  isActive: z.coerce.boolean().optional(),
+  isActive: booleanQueryParam(),
   name: z.string().optional(),
   sortField: z.string().optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),

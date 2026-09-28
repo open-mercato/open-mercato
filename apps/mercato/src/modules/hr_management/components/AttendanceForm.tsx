@@ -4,18 +4,17 @@ import * as React from 'react'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { createCrud, deleteCrud, fetchCrudList, updateCrud } from '@open-mercato/ui/backend/utils/crud'
-import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { withFlash } from '@open-mercato/ui/backend/utils/flash'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 import type { AttendanceStatus } from '../data/entities'
+import { submitAttendanceForApproval } from '../lib/attendancePermission'
 import { useEmployeeLabels } from './hrOptions'
 import type { AttendanceRow } from './AttendanceTable'
 
 const ENTITY_ID = 'hr_management:hr_attendance_record'
 const LIST_HREF = '/backend/hr/attendance'
 const RESOURCE = 'hr_management/attendance'
-const SUBMIT_ENDPOINT = '/api/hr_management/approvals/submit'
 
 // Mirrors ATTENDANCE_STATUSES in data/entities.ts; the API rejects an unknown value.
 const STATUS_VALUES: AttendanceStatus[] = ['present', 'absent', 'late', 'on_leave', 'holiday']
@@ -235,7 +234,14 @@ function useActiveWorkflowOptions(): Option[] {
     let cancelled = false
     async function load() {
       try {
-        const data = await fetchCrudList<{ id: string; name: string }>('hr_management/approval-workflows', { pageSize: 50, isActive: true })
+        const data = await fetchCrudList<{ id: string; name: string }>('hr_management/approval-workflows', {
+          pageSize: 50,
+          isActive: true,
+          // A workflow declared for leave requests must not appear here: the engine decides what it is
+          // approving from the request's own entity type, and a mismatched pair is a configuration
+          // mistake the picker should not offer.
+          entityType: 'hr_attendance_record',
+        })
         if (!cancelled) setWorkflows(data?.items ?? [])
       } catch {
         if (!cancelled) setWorkflows([])
@@ -248,19 +254,6 @@ function useActiveWorkflowOptions(): Option[] {
     { value: '', label: t('hr_management.attendance.form.workflowNone', 'Do not ask for a permission') },
     ...workflows.map((workflow) => ({ value: workflow.id, label: workflow.name })),
   ], [t, workflows])
-}
-
-/** Starts a lateness permission for a saved attendance record. */
-async function submitAttendanceForApproval(workflowId: string, attendanceId: string): Promise<void> {
-  await apiCallOrThrow(SUBMIT_ENDPOINT, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      workflowId,
-      entityType: 'hr_attendance_record',
-      entityId: attendanceId,
-    }),
-  })
 }
 
 export function AttendanceCreateForm() {

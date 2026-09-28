@@ -140,7 +140,13 @@ function useActiveWorkflowOptions(): Option[] {
     let cancelled = false
     async function load() {
       try {
-        const data = await fetchCrudList<WorkflowRow>('hr_management/approval-workflows', { pageSize: 50, isActive: true })
+        const data = await fetchCrudList<WorkflowRow>('hr_management/approval-workflows', {
+          pageSize: 50,
+          isActive: true,
+          // Only workflows declared for leave requests: the picker should not offer a definition the
+          // engine would apply to a different entity type.
+          entityType: 'hr_leave_request',
+        })
         if (!cancelled) setWorkflows(data?.items ?? [])
       } catch {
         if (!cancelled) setWorkflows([])

@@ -34,6 +34,10 @@ import {
 } from '../openapi'
 
 // Query (list) schema
+const booleanQuery = z
+  .union([z.boolean(), z.enum(['true', 'false', '1', '0'])])
+  .transform((value) => value === true || value === 'true' || value === '1')
+
 const querySchema = z
   .object({
     id: z.string().uuid().optional(),
@@ -44,8 +48,11 @@ const querySchema = z
     sortDir: z.enum(['asc', 'desc']).optional().default('asc'),
     title: z.string().optional(),
     notes: z.string().optional(),
-    isDone: z.coerce.boolean().optional(),
-    withDeleted: z.coerce.boolean().optional().default(false),
+    // `z.coerce.boolean()` — the obvious tool — coerces with `Boolean(value)`, so the string 'false'
+    // became true and the filter meant the opposite of what it said. These are the tokens a client
+    // actually sends.
+    isDone: booleanQuery.optional(),
+    withDeleted: booleanQuery.optional().default(false),
     organizationId: z.string().uuid().optional(),
     createdFrom: z.string().optional(),
     createdTo: z.string().optional(),

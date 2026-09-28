@@ -49,10 +49,16 @@ assert the sibling fixture is absent.
 
 ## Adjacent trap, same investigation
 
-Sweeping the filters also surfaced a write-side bug: a handover command created its odometer log
-before flushing the assignment, so `assignment.id` was still unset and the log stored
-`assignment_id = NULL`. A freshly created entity has no primary key until the flush assigns one — read
-its id after `persist(...).flush()`, or load the row first as the return path did.
+Sweeping the filters also surfaced two write-side and query-side bugs:
+
+- A handover command created its odometer log before flushing the assignment, so `assignment.id` was
+  still unset and the log stored `assignment_id = NULL`. A freshly created entity has no primary key
+  until the flush assigns one — read its id after `persist(...).flush()`, or load the row first as the
+  return path did.
+- `isActive: z.coerce.boolean()` looked right and read the string `'false'` as `true`
+  (`Boolean('false')` is truthy), so `?isActive=false` returned the active rows. A boolean query
+  parameter needs the tokens spelled out (`hr_management/lib/queryBoolean.ts` accepts
+  `true`/`false`/`1`/`0` and rejects anything else) — never a coercion.
 
 ## Rules
 
