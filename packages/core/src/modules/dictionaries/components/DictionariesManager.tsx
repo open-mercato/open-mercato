@@ -60,6 +60,10 @@ type DictionaryFormState = {
 
 export function DictionariesManager() {
   const t = useT()
+  const keyInputId = React.useId()
+  const nameInputId = React.useId()
+  const descriptionInputId = React.useId()
+  const entrySortModeId = React.useId()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const searchParams = useSearchParams()
   const pathname = usePathname()
@@ -503,8 +507,9 @@ export function DictionariesManager() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">{t('dictionaries.config.dialog.keyLabel', 'Key')}</label>
+              <label htmlFor={keyInputId} className="text-sm font-medium">{t('dictionaries.config.dialog.keyLabel', 'Key')}</label>
               <input
+                id={keyInputId}
                 value={form.key}
                 onChange={(event) => {
                   const next = event.target.value
@@ -525,8 +530,9 @@ export function DictionariesManager() {
               </p>
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">{t('dictionaries.config.dialog.nameLabel', 'Name')}</label>
+              <label htmlFor={nameInputId} className="text-sm font-medium">{t('dictionaries.config.dialog.nameLabel', 'Name')}</label>
               <input
+                id={nameInputId}
                 value={form.name}
                 onChange={(event) => {
                   const next = event.target.value
@@ -542,8 +548,9 @@ export function DictionariesManager() {
               ) : null}
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">{t('dictionaries.config.dialog.descriptionLabel', 'Description')}</label>
+              <label htmlFor={descriptionInputId} className="text-sm font-medium">{t('dictionaries.config.dialog.descriptionLabel', 'Description')}</label>
               <textarea
+                id={descriptionInputId}
                 value={form.description}
                 onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
                 className="min-h-[120px] w-full rounded border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -551,7 +558,7 @@ export function DictionariesManager() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">{t('dictionaries.config.dialog.entrySortModeLabel', 'Entry sort order')}</label>
+              <label htmlFor={entrySortModeId} className="text-sm font-medium">{t('dictionaries.config.dialog.entrySortModeLabel', 'Entry sort order')}</label>
               <Select
                 value={form.entrySortMode}
                 onValueChange={(next) => setForm((prev) => ({
@@ -561,7 +568,7 @@ export function DictionariesManager() {
                     : DEFAULT_DICTIONARY_ENTRY_SORT_MODE,
                 }))}
               >
-                <SelectTrigger>
+                <SelectTrigger id={entrySortModeId}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
