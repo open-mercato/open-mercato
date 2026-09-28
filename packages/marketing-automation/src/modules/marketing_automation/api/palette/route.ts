@@ -3,6 +3,9 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { listMarketingSteps } from '../../lib/engine/registry.js'
 import { TRIGGER_CATALOG } from '../../lib/trigger-catalog.js'
 import { sweepSourceCatalog } from '../../lib/sweep-sources.js'
+import { listContentBlockKeys } from '../../lib/content-blocks.js'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.view'] },
@@ -20,9 +23,18 @@ export const metadata = routeMetadata
  */
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId) {
-    return NextResponse.json({ triggers: [], steps: [], sweepSources: [] }, { status: 401 })
+  if (!auth?.tenantId || !auth.orgId) {
+    return NextResponse.json({ triggers: [], steps: [], sweepSources: [], contentBlocks: [] }, { status: 401 })
   }
+  const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
+
+  /**
+   * The only tenant data in this response, and the reason it needs a query: an author cannot reference a
+   * content block whose key they have to remember.
+   */
+  const container = await createRequestContainer()
+  const em = container.resolve<EntityManager>('em')
+  const contentBlocks = await listContentBlockKeys(em, scope)
 
   return NextResponse.json({
     triggers: TRIGGER_CATALOG.map((entry) => ({
@@ -35,6 +47,7 @@ export async function GET(req: Request) {
     // What a SCHEDULED campaign can iterate over. Without this the canvas could only author event
     // triggers, which left every periodic campaign — win-back, review requests — API-only.
     sweepSources: sweepSourceCatalog(),
+    contentBlocks,
     steps: listMarketingSteps().map((step) => ({
       type: step.type,
       labelKey: step.labelKey,

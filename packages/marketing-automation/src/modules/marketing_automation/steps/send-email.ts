@@ -5,6 +5,7 @@ import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entiti
 import { reportError } from '@open-mercato/telemetry'
 import { interpolate } from '../lib/interpolate.js'
 import { redactEmails } from '../lib/redact.js'
+import { applyContentBlocks, loadContentBlocks, referencedBlockKeys } from '../lib/content-blocks.js'
 import { applyTracking } from '../lib/tracking/rewrite.js'
 import { resolveTrackingBaseUrl, resolveTrackingSecret } from '../lib/tracking/secret.js'
 import { clickUrl, openPixelUrl, unsubscribeUrl } from '../lib/tracking/urls.js'
@@ -140,6 +141,8 @@ async function resolveRecipient(ctx: AutomationContext, deps: StepDeps): Promise
 export function renderEmail(
   params: { subject: string; bodyHtml: string; bodyText?: string; track?: boolean },
   ctx: AutomationContext,
+  /** Resolved content blocks, keyed by their slug. Loaded by the caller, because this stays synchronous. */
+  blocks: Record<string, string> = {},
 ): { subject: string; html: string; text?: string } {
   const unsubscribe = unsubscribeLinkFor(ctx)
   // Offered as a substitution so the author can place it; appended below only if they did not.
@@ -153,8 +156,18 @@ export function renderEmail(
     // and rewriting first would sign a URL containing the placeholder instead of the value.
     // `'html'` is not optional here: the body is rendered as HTML, and substituted values can be
     // customer-controlled.
+    /**
+     * Blocks first, then interpolation, then tracking.
+     *
+     * Blocks before interpolation so a shared footer can carry its own placeholders and have them filled;
+     * interpolation before tracking so a link assembled from a substituted value is still rewritten.
+     */
     html: withUnsubscribeFooter(
-      withTracking(interpolate(params.bodyHtml, withUnsubscribeAvailable, 'html'), ctx, params.track !== false),
+      withTracking(
+        interpolate(applyContentBlocks(params.bodyHtml, blocks), withUnsubscribeAvailable, 'html'),
+        ctx,
+        params.track !== false,
+      ),
       unsubscribe,
     ),
     text: params.bodyText ? interpolate(params.bodyText, withUnsubscribeAvailable) : undefined,
@@ -175,6 +188,8 @@ export const sendEmailStep: StepHandler<StepDeps> = {
   ],
   async execute(ctx: AutomationContext, rawParams, deps: StepDeps) {
     const params = paramsSchema.parse(rawParams)
+    // Only the blocks this body actually refers to are loaded.
+    const blocks = await loadContentBlocks(deps.em, deps.scope, referencedBlockKeys(params.bodyHtml))
     const to = await resolveRecipient(ctx, deps)
     if (!to) {
       // A customer with no address is not an error: plenty of CRM records have none, and
@@ -186,7 +201,7 @@ export const sendEmailStep: StepHandler<StepDeps> = {
     try {
       await sendEmail({
         to,
-        ...renderEmail(params, ctx),
+        ...renderEmail(params, ctx, blocks),
         tenantId: deps.scope.tenantId,
         organizationId: deps.scope.organizationId,
       })

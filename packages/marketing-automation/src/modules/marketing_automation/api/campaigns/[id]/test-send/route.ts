@@ -14,6 +14,7 @@ import { renderEmail } from '../../../../steps/send-email.js'
 import { buildSubjectDocument } from '../../../../lib/subject-document.js'
 import { loadTierThresholds } from '../../../../lib/tiers.js'
 import { redactEmails } from '../../../../lib/redact.js'
+import { loadContentBlocks, referencedBlockKeys } from '../../../../lib/content-blocks.js'
 import type { AutomationContext } from '../../../../lib/engine/types.js'
 
 /**
@@ -109,10 +110,16 @@ export async function POST(req: Request) {
     trigger: {},
   }
 
+  // The same blocks the real send would resolve: a test that skipped them would show the author a different
+  // message from the one their customers receive, which is the one thing a test send must not do.
+  const stepParams = params.data as { subject: string; bodyHtml: string; bodyText?: string }
+  const blocks = await loadContentBlocks(em, scope, referencedBlockKeys(stepParams.bodyHtml))
+
   const rendered = renderEmail(
     // `track: false` regardless of the step's own setting: a test send has no run to attribute opens to.
-    { ...(params.data as { subject: string; bodyHtml: string; bodyText?: string }), track: false },
+    { ...stepParams, track: false },
     context,
+    blocks,
   )
 
   try {

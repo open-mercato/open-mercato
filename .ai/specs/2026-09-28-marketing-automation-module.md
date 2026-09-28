@@ -775,6 +775,18 @@ eight-way concurrent worker and is now backed by a partial unique index on the a
 
 ## Changelog
 
+- **2026-09-29** — Backlog B-17 (snippet part): reusable content blocks. `marketing_content_blocks`
+  with a key unique among LIVE rows only, a `{{block:key}}` reference resolved before interpolation,
+  a screen to edit them, and the keys offered by the palette so the campaign editor can name what
+  exists. Decisions: a separate syntax from `{{customer.name}}` because a block is trusted author
+  HTML inserted raw while interpolation escapes customer data; a missing block renders nothing rather
+  than its own reference; substitution is not recursive; the key is immutable after creation, since a
+  rename would silently empty the block out of every campaign referencing it; and the CRUD is
+  hand-written rather than `makeCrudRoute` because every other write in this module is an explicit
+  route with `enforceCommandOptimisticLock`, and two CRUD styles in one module read worse than either.
+  RSS, product-feed and recommendation blocks remain open and belong with B-08. 568 unit tests, 87
+  integration tests.
+
 - **2026-09-28** — Phase 1 implemented: five tables and one migration; pure engine (audience
   veto, step planner, send gates, executor) with 101 unit tests; run persistence with
   claim-and-lease, backoff and dead-lettering; three event subscribers with context hydration;

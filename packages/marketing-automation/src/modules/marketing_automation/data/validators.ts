@@ -106,3 +106,25 @@ export type CampaignTriggerInput = z.infer<typeof campaignTriggerSchema>
 export type CampaignSendPolicyInput = z.infer<typeof campaignSendPolicySchema>
 export type CampaignGraphSaveInput = z.infer<typeof campaignGraphSaveSchema>
 export type CampaignEnabledInput = z.infer<typeof campaignEnabledSchema>
+
+/**
+ * A content block.
+ *
+ * `html` is trusted author content and is inserted unescaped, which is why this shape is only ever accepted
+ * from a principal holding `campaigns.manage` — the same permission that already lets them write a campaign
+ * body. The key is slug-shaped so it cannot smuggle syntax into the `{{block:key}}` reference it appears in.
+ */
+export const contentBlockCreateSchema = z.object({
+  key: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
+  name: z.string().min(1).max(200),
+  html: z.string().max(100_000),
+})
+
+export const contentBlockUpdateSchema = z.object({
+  updatedAt: z.string().min(1),
+  name: z.string().min(1).max(200).optional(),
+  html: z.string().max(100_000).optional(),
+})
+
+export type ContentBlockCreateInput = z.infer<typeof contentBlockCreateSchema>
+export type ContentBlockUpdateInput = z.infer<typeof contentBlockUpdateSchema>

@@ -645,3 +645,59 @@ export class MarketingSurveyPrompt {
   @Property({ name: 'answered_at', type: Date, nullable: true })
   answeredAt?: Date | null
 }
+
+/**
+ * A named piece of HTML an author can reuse across messages.
+ *
+ * The point is that a footer, a logo header or a seasonal banner lives in ONE place: a shop that edits its
+ * address in fourteen campaigns will get it wrong in at least one of them.
+ *
+ * `html` is trusted author content, at exactly the same trust level as a campaign's own body — both are
+ * written by somebody holding `campaigns.manage`, and both are inserted unescaped. That is why this entity
+ * is behind that permission and why a block is never built from customer input.
+ */
+@Entity({ tableName: 'marketing_content_blocks' })
+/**
+ * Unique among LIVE blocks only.
+ *
+ * A plain unique constraint would burn a key on deletion: remove a footer by mistake and the word `footer`
+ * is unusable for that tenant forever, with a duplicate-key error as the only explanation.
+ */
+@Index({
+  name: 'marketing_content_blocks_key_uniq',
+  expression:
+    'create unique index "marketing_content_blocks_key_uniq" on "marketing_content_blocks" ("tenant_id", "organization_id", "key") where deleted_at is null',
+})
+@Index({ name: 'mkt_content_blocks_scope_idx', properties: ['tenantId', 'organizationId', 'deletedAt'] })
+export class MarketingContentBlock {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  /** What an author types in a message: `{{block:footer}}`. Slug-shaped so it is safe in that syntax. */
+  @Property({ type: 'text' })
+  key!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ type: 'text' })
+  html!: string
+
+  @Property({ name: 'created_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
+  createdAt!: Date
+
+  /** Carries the optimistic lock: two people editing the shared footer must collide, not overwrite. */
+  @Property({ name: 'updated_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt!: Date
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}

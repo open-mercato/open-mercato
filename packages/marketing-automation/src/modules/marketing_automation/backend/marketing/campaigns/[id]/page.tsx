@@ -43,6 +43,8 @@ type PaletteTrigger = {
   blockedReasonKey: string | null
 }
 
+type PaletteContentBlock = { key: string; name: string }
+
 type PaletteSweepSource = {
   id: string
   labelKey: string
@@ -152,6 +154,7 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
     triggers: PaletteTrigger[]
     steps: PaletteStep[]
     sweepSources: PaletteSweepSource[]
+    contentBlocks: PaletteContentBlock[]
   } | null>(null)
   const [estimate, setEstimate] = React.useState<AudienceEstimate | null>(null)
   const [estimating, setEstimating] = React.useState(false)
@@ -179,7 +182,7 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
       try {
         const [campaign, paletteResult] = await Promise.all([
           apiCall<CampaignResponse>(`/api/marketing_automation/campaigns/${campaignId}`),
-          apiCall<{ triggers: PaletteTrigger[]; steps: PaletteStep[]; sweepSources: PaletteSweepSource[] }>('/api/marketing_automation/palette'),
+          apiCall<{ triggers: PaletteTrigger[]; steps: PaletteStep[]; sweepSources: PaletteSweepSource[]; contentBlocks: PaletteContentBlock[] }>('/api/marketing_automation/palette'),
         ])
         if (cancelled) return
         if (!campaign.ok || !campaign.result) {
@@ -799,11 +802,28 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                     </Button>
                   </div>
                 ) : (
-                  <ParamFields
-                    fields={selectedStepMeta?.uiFields ?? []}
-                    values={selectedStep.params}
-                    onChange={(params) => updateStep(selectedStep.id, params)}
-                  />
+                  <>
+                    <ParamFields
+                      fields={selectedStepMeta?.uiFields ?? []}
+                      values={selectedStep.params}
+                      onChange={(params) => updateStep(selectedStep.id, params)}
+                    />
+                    {/* An author cannot reference a block whose key they have to remember. */}
+                    {selectedStepMeta?.channel === 'email' && (palette?.contentBlocks ?? []).length > 0 ? (
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">
+                          {t('marketing_automation.blocks.available', 'Reusable blocks you can paste into the body:')}
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {(palette?.contentBlocks ?? []).map((block) => (
+                            <span key={block.key} className="rounded-sm bg-muted px-2 py-1 font-mono text-xs text-muted-foreground">
+                              {`{{block:${block.key}}}`}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
                 )}
 
                 {selectedStepMeta?.channel === 'email' ? (

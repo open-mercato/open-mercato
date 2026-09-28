@@ -178,7 +178,7 @@ built to be extended, so breadth is additive by construction.
 | B-14 | Two-way messaging inbox: inbound replies stored and readable, STOP-keyword opt-out feeding consent | A reply nobody reads is a customer you lost; STOP handling is also a legal duty | L | webhooks module + new table | 6.x channel |
 | B-15 | GDPR export and erasure across every table, plus an append-only consent audit log | Legally required once you store engagement data, and a deal-blocker in enterprise procurement — consent model and one-click unsubscribe ✅ 2026-09-28; export and erasure ✅ 2026-09-28 — erasure unlinks rather than deletes, and keeps the unsubscribe on purpose | M | commands + admin screen | 6.1 |
 | B-16 | Per-provider outbound rate limiting (pacing, distinct from retry) | One burst can get a sending domain throttled or blocked for everyone | M | queue + new table | 6.x |
-| B-17 | Content blocks: snippet, RSS with a fetch cache, product feed, recommendations | Lets marketing change message content without touching campaigns | M | step params + new table | B-08 |
+| B-17 | Content blocks: snippet, RSS with a fetch cache, product feed, recommendations | Lets marketing change message content without touching campaigns — ✅ 2026-09-29 (snippet) — reusable HTML referenced as `{{block:key}}`, edited on its own screen and offered by the palette; RSS, product feed and recommendation blocks stay open and belong with B-08 | M | step params + new table | B-08 |
 | B-18 | Inbound webhook as a trigger, signed | Makes the module reactable-to by anything outside the platform | S | trigger catalog + webhooks module | — |
 | B-19 | Real test send per channel, and a per-node "send test" on the canvas | Authors do not trust a campaign they could not try once — ✅ 2026-09-28 — email only, and only ever to the caller own address | S | canvas + step registry | 2.4 |
 | B-20 | Anonymous visitors: visitor tags as a first-class primitive, `visitor_tag_added`, identity stitching on login | Most of a shop's traffic is not logged in; without this they are invisible to marketing | L | trigger catalog + new tables | storefront tracking |
@@ -257,10 +257,10 @@ Value per unit of effort, given what already exists:
 4. **X-14, B-19** — journey preview and real test send. Author confidence, and the two best things to show on a demo.
 5. **B-13, X-01** — product-level and geographic targeting. The two dimensions authors reach for next.
 6. **X-04, X-05, X-06** — agent authoring, MCP tools, charts. Each one is small here and each one is impossible in the original.
-7. **B-07, B-09, B-11, B-15, B-17, B-18, B-24, B-25, B-27, X-03, X-07, X-08** — NPS, referrals,
-   segment operability, GDPR export/erasure, content blocks, inbound webhook trigger, AI copy,
-   observability, setup wizard, per-channel targeting, progress/notifications, portal preference
-   centre. All unblocked, all additive.
+7. **B-09, B-11, B-18, B-24, B-25, B-27, X-03, X-07, X-08** — referrals, segment operability,
+   inbound webhook trigger, AI copy, observability, setup wizard, per-channel targeting,
+   progress/notifications, portal preference centre. All unblocked, all additive.
+   (B-07 NPS, B-15 GDPR and B-17 content blocks landed on 2026-09-28/29.)
 8. The blocked table above, each item the moment its dependency lands.
 
 Target for the current push: every unblocked item. The blocked ones are documented so nobody mistakes

@@ -137,6 +137,9 @@ its own. Spec:
   which lane a subject takes is decided by the engine, not by an edge somebody drew — an author who
   can draw an edge has been promised a topology it cannot run. Edges are derived; order lives in the
   definition arrays.
+- Never make a content block's key editable, and never render a missing block as its own reference. Messages
+  point at a block by key, so a rename empties it out of every campaign that used it, and printing
+  `{{block:footer}}` into an email is worse than printing nothing.
 - Never store a subject's variant choice, and never derive it from anything but the step id and the
   subject id. Stability across a resume is the whole point: a run that pauses on a wait inside a lane
   and comes back into the other lane delivers a mixture of both variants, and the test measures
@@ -183,6 +186,7 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | NPS asking, answering and the latest score | `lib/survey.ts`, `steps/nps-survey.ts`, `api/survey/` |
 | subject export and erasure, and what they keep | `lib/gdpr.ts` |
 | consent state, its trail, and the send gate | `lib/consent.ts`, `api/unsubscribe/` |
+| reusable HTML blocks and their substitution | `lib/content-blocks.ts`, `api/content-blocks/` |
 | agent/MCP authoring tools and their invariants | `ai-tools/authoring-pack.ts` |
 | daily series behind the results chart | `lib/analytics/daily-series.ts` |
 | journey preview, and why it reuses the engine | `lib/preview.ts` |
