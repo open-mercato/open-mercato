@@ -7,6 +7,44 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import { PlannedActivitiesSection } from '../PlannedActivitiesSection'
 
 describe('PlannedActivitiesSection', () => {
+  it('identifies each activity overflow button by title', () => {
+    const baseActivity = {
+      interactionType: 'meeting',
+      body: null,
+      status: 'planned',
+      scheduledAt: '2027-04-10T09:00:00.000Z',
+      occurredAt: null,
+      priority: null,
+      authorUserId: null,
+      ownerUserId: null,
+      appearanceIcon: null,
+      appearanceColor: null,
+      source: 'manual',
+      entityId: 'company-1',
+      dealId: null,
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      authorName: 'Ada Lovelace',
+      authorEmail: null,
+      dealTitle: null,
+      customValues: null,
+      createdAt: '2026-04-01T10:00:00.000Z',
+      updatedAt: '2026-04-01T10:00:00.000Z',
+    }
+
+    renderWithProviders(
+      <PlannedActivitiesSection
+        activities={[
+          { ...baseActivity, id: 'activity-1', title: 'Review proposal' },
+          { ...baseActivity, id: 'activity-2', title: 'Call customer' },
+        ]}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'More actions for Review proposal' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'More actions for Call customer' })).toBeInTheDocument()
+  })
+
   it('marks an overdue activity done without opening the edit flow', () => {
     const onComplete = jest.fn()
     const onEdit = jest.fn()
