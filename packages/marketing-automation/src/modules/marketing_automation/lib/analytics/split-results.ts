@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { LaneDescriptor } from '../engine/split.js'
 import type { SubjectScope } from '../subject-document.js'
 
 /**
@@ -26,77 +27,117 @@ export type SplitVariantResult = {
   openRate: number | null
 }
 
-const SPLIT_RESULTS_SQL = `
-  with lanes as (
-    select r.id as run_id, choice.key as step_id, choice.value as variant
-      from marketing_campaign_runs r
-      cross join lateral jsonb_each_text(r.variant_choices) as choice(key, value)
-     where r.campaign_id = ?
-       and r.tenant_id = ?
-       and r.organization_id = ?
-       and r.variant_choices is not null
-  ),
-  sends as (
-    select run_id, count(*)::int as sent
-      from marketing_message_sends
-     where campaign_id = ? and tenant_id = ? and organization_id = ? and status = 'sent'
-     group by run_id
-  ),
-  engagement as (
-    select run_id,
-           max(case when type = 'opened' then 1 else 0 end)::int as opened,
-           max(case when type = 'clicked' then 1 else 0 end)::int as clicked
-      from marketing_message_send_events
-     where campaign_id = ? and tenant_id = ? and organization_id = ?
-     group by run_id
-  )
-  select lanes.step_id,
-         lanes.variant,
-         count(*)::int as runs,
-         coalesce(sum(sends.sent), 0)::int as sends,
-         coalesce(sum(engagement.opened), 0)::int as opened,
-         coalesce(sum(engagement.clicked), 0)::int as clicked
-    from lanes
-    left join sends on sends.run_id = lanes.run_id
-    left join engagement on engagement.run_id = lanes.run_id
-   group by lanes.step_id, lanes.variant
-   order by lanes.step_id asc, lanes.variant asc
-`
-
-type ResultRow = {
-  step_id: string
-  variant: string
-  runs: number
-  sends: number
-  opened: number
-  clicked: number
+/**
+ * One lane's figures.
+ *
+ * Every count is restricted to the lane's OWN steps. An earlier version grouped by run alone, which
+ * also counted the campaign's shared trunk messages: two lanes then looked identical wherever the trunk
+ * dominated, and the "minimum sample per lane" gate below could be satisfied by a message neither lane
+ * had sent.
+ */
+function laneSql(stepPlaceholders: string): string {
+  return `
+    with lane_runs as (
+      select r.id
+        from marketing_campaign_runs r
+       where r.campaign_id = ?
+         and r.tenant_id = ?
+         and r.organization_id = ?
+         and r.variant_choices ->> ? = ?
+    )
+    select (select count(*) from lane_runs)::int as runs,
+           (select count(*)
+              from marketing_message_sends s
+             where s.tenant_id = ?
+               and s.organization_id = ?
+               and s.status = 'sent'
+               and s.run_id in (select id from lane_runs)
+               and s.step_id in (${stepPlaceholders}))::int as sends,
+           (select count(distinct e.run_id)
+              from marketing_message_send_events e
+             where e.tenant_id = ?
+               and e.organization_id = ?
+               and e.type = 'opened'
+               and e.run_id in (select id from lane_runs)
+               and e.step_id in (${stepPlaceholders}))::int as opened,
+           (select count(distinct e.run_id)
+              from marketing_message_send_events e
+             where e.tenant_id = ?
+               and e.organization_id = ?
+               and e.type = 'clicked'
+               and e.run_id in (select id from lane_runs)
+               and e.step_id in (${stepPlaceholders}))::int as clicked
+  `
 }
+
+type ResultRow = { runs: number; sends: number; opened: number; clicked: number }
 
 function rate(numerator: number, denominator: number): number | null {
   if (denominator <= 0) return null
   return numerator / denominator
 }
 
+/**
+ * Reads one row per lane.
+ *
+ * One query per lane rather than one for all of them: a lane is identified by a jsonb key AND by its
+ * own set of step ids, and expressing that as a single grouped statement means either a lateral join per
+ * lane anyway or string-building the step sets into the SQL. A campaign has a handful of lanes, so a
+ * handful of bounded queries is the cheaper honesty.
+ */
 export async function loadSplitResults(
   em: EntityManager,
   campaignId: string,
   scope: SubjectScope,
+  lanes: LaneDescriptor[],
 ): Promise<SplitVariantResult[]> {
-  const rows = await em.getConnection().execute<ResultRow[]>(SPLIT_RESULTS_SQL, [
-    campaignId, scope.tenantId, scope.organizationId,
-    campaignId, scope.tenantId, scope.organizationId,
-    campaignId, scope.tenantId, scope.organizationId,
-  ])
-  return rows.map((row) => ({
-    stepId: row.step_id,
-    variant: row.variant,
-    runs: row.runs,
-    sends: row.sends,
-    opened: row.opened,
-    clicked: row.clicked,
-    clickRate: rate(row.clicked, row.sends),
-    openRate: rate(row.opened, row.sends),
-  }))
+  const results: SplitVariantResult[] = []
+
+  for (const lane of lanes) {
+    // A lane with no steps of its own — a holdout — has nothing to count, and `in ()` is not valid SQL.
+    if (lane.stepIds.length === 0) {
+      const runsOnly = await em.getConnection().execute<Array<{ runs: number }>>(
+        `select count(*)::int as runs
+           from marketing_campaign_runs r
+          where r.campaign_id = ? and r.tenant_id = ? and r.organization_id = ?
+            and r.variant_choices ->> ? = ?`,
+        [campaignId, scope.tenantId, scope.organizationId, lane.splitStepId, lane.variant],
+      )
+      results.push({
+        stepId: lane.splitStepId,
+        variant: lane.variant,
+        runs: runsOnly[0]?.runs ?? 0,
+        sends: 0,
+        opened: 0,
+        clicked: 0,
+        clickRate: null,
+        openRate: null,
+      })
+      continue
+    }
+
+    // Placeholders, not values: the step ids stay bound parameters.
+    const placeholders = lane.stepIds.map(() => '?').join(', ')
+    const rows = await em.getConnection().execute<ResultRow[]>(laneSql(placeholders), [
+      campaignId, scope.tenantId, scope.organizationId, lane.splitStepId, lane.variant,
+      scope.tenantId, scope.organizationId, ...lane.stepIds,
+      scope.tenantId, scope.organizationId, ...lane.stepIds,
+      scope.tenantId, scope.organizationId, ...lane.stepIds,
+    ])
+    const row = rows[0]
+    results.push({
+      stepId: lane.splitStepId,
+      variant: lane.variant,
+      runs: row?.runs ?? 0,
+      sends: row?.sends ?? 0,
+      opened: row?.opened ?? 0,
+      clicked: row?.clicked ?? 0,
+      clickRate: rate(row?.clicked ?? 0, row?.sends ?? 0),
+      openRate: rate(row?.opened ?? 0, row?.sends ?? 0),
+    })
+  }
+
+  return results
 }
 
 export type SplitWinner = {

@@ -39,7 +39,11 @@ export async function POST(req: Request) {
     const { result } = await commandBus.execute<Record<string, unknown>, unknown>(
       'marketing_automation.campaigns.apply_split_winner',
       {
-        input: { id, updatedAt: body.updatedAt ?? '', stepId: body.stepId ?? '', variantKey: body.variantKey ?? '' },
+        // Deliberately NOT `?? ''`: an empty string is a value, and the platform guard only falls back
+        // to the extension header when the expected version is absent. Defaulting it silently turned
+        // the optimistic lock into a no-op for any client that sends the version as a header — which is
+        // what this endpoint's own description promises to honour.
+        input: { id, updatedAt: body.updatedAt, stepId: body.stepId ?? '', variantKey: body.variantKey ?? '' },
         ctx: buildRequestCommandContext(container, auth, req),
       },
     )

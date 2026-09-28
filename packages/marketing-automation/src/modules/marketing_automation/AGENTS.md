@@ -70,6 +70,13 @@ its own. Spec:
   drops a send or sends twice.
 - Never make the frequency cap per-campaign. Five campaigns each politely sending one message
   still buries the customer, which is why `marketing_message_sends` is counted across all of them.
+- Never add a validation rule that walks `definition.steps` without descending into `readVariants`. Two
+  of the three save-time assertions did; the third did not, and a campaign hid a self-driving cycle in a
+  split lane. `assertNoLoopRisk` is the shared one — call it, do not re-implement it.
+- Never default an expected-version token to `''`. The platform lock falls back to the extension header
+  only when the value is ABSENT, so a default silently switches the lock off. Pass `undefined`.
+- Never persist or return third-party error text from a step that handles an address. Redact it at the
+  step (`lib/redact.ts`), log the original, and re-throw the redacted form.
 - Never let send-time optimisation override quiet hours. The optimisation proposes, quiet hours dispose;
   the other order lands an "optimised" send at 3am.
 - Never learn a send hour from fewer than `MINIMUM_OPENS_FOR_PATTERN` opens, and never group open hours

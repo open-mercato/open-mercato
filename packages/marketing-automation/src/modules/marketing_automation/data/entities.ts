@@ -159,6 +159,23 @@ export class MarketingCampaignTrigger {
  * "no run yet" and both insert. Partial, so the sweep's key-less runs are unaffected, and erasable,
  * so a legitimate repeat after the window is still allowed.
  */
+/**
+ * One ACTIVE run per (campaign, subject), enforced by the database.
+ *
+ * `hasActiveRun` checks this before enrolling, but a check is a read: the dispatch worker runs eight
+ * jobs at a time, so two events for the same subject can both pass it and both insert — and the
+ * customer then walks the campaign twice, which is exactly what the check exists to prevent. The
+ * occurrence index does not cover it, because those two runs come from DIFFERENT events and so carry
+ * different keys.
+ *
+ * Partial on the active statuses, so a customer may legitimately enter again once the previous run has
+ * completed or died, and on a non-null subject, because a subject-less run is not about anybody.
+ */
+@Index({
+  name: 'marketing_runs_active_subject_uniq',
+  expression:
+    `create unique index "marketing_runs_active_subject_uniq" on "marketing_campaign_runs" ("tenant_id", "organization_id", "campaign_id", "subject_entity_id") where subject_entity_id is not null and status in ('running', 'waiting', 'claimed')`,
+})
 @Index({
   name: 'marketing_runs_occurrence_uniq',
   expression:

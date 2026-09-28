@@ -3,6 +3,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { MarketingCampaign, MarketingMessageSend, MarketingMessageSendEvent } from '../../../../data/entities.js'
+import { campaignDefinitionSchema } from '../../../../data/validators.js'
+import { describeLanes } from '../../../../lib/engine/split.js'
+import type { CampaignStep } from '../../../../lib/engine/types.js'
 import { loadSplitResults, pickSplitWinner } from '../../../../lib/analytics/split-results.js'
 import { loadAttribution } from '../../../../lib/analytics/attribution.js'
 
@@ -88,7 +91,11 @@ export async function GET(req: Request) {
     1,
   )
 
-  const splits = await loadSplitResults(em, campaign.id, scope)
+  // The lanes come from the definition, because a lane's results are the engagement ITS OWN steps
+  // produced — the run alone cannot say which sends belonged to the lane and which to the trunk.
+  const definition = campaignDefinitionSchema.safeParse(campaign.definition)
+  const lanes = definition.success ? describeLanes(definition.data.steps as CampaignStep[]) : []
+  const splits = await loadSplitResults(em, campaign.id, scope, lanes)
   const attribution = await loadAttribution(em, scope, {
     windowDays,
     since: new Date(Date.now() - DEFAULT_REPORT_DAYS * 86_400_000),

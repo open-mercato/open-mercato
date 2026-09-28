@@ -543,6 +543,44 @@ written down.* *Residual: blocked on `SPEC-029`.*
 | Module `AGENTS.md` | Met |
 | Integration tests ship with the change | Met — `__integration__/TC-MA-*.spec.ts` |
 
+## Review findings and what they taught
+
+A code review and a security review of the whole branch produced 15 and 1 findings respectively. Every
+one was verified in the source before being accepted, and every one is fixed. Four are worth recording
+because they are patterns rather than typos:
+
+**A guard that recurses in two places out of three.** `assertStepsAreRunnable` and `assertNoTrailingWait`
+both descend into a split's lanes; the cycle check did not. So a campaign whose `add_tag` sat inside a
+lane passed validation and then drove itself on every tag assignment, with only `MAX_RUNS_PER_SUBJECT`
+braking it. Promoting a winning lane had the same hole, because it re-ran the other two assertions and
+not this one. Both now call the same `assertNoLoopRisk`, which is exported and tested directly.
+
+**A feature reachable only through the API.** Twice: scheduled triggers, then the send rules. Both were
+implemented, tested, and impossible to author in the editor. The A/B split was a third and subtler case —
+a new split's lanes are empty, and the palette derived its target from the SELECTED STEP, so there was
+never a step inside a lane to select and the first step could not be added at all. The rule that comes
+out of it: a capability is not delivered until something in the UI can produce it, and "there is an
+endpoint" is not that.
+
+**A defaulted value that disables a guard.** `updatedAt: body.updatedAt ?? ''` made the optimistic lock a
+no-op, because the platform guard falls back to the extension header only when the expected version is
+ABSENT, and an empty string is present. This is the second time in this module that a lock was silently
+switched off by a value that looked harmless.
+
+**Third-party error text is data, not diagnostics.** A transport rejection quotes the address it
+rejected, and the executor copied it into the step log and `last_error`, which the runs API returns to a
+principal holding `runs.view` alone — the one disclosure that endpoint exists to prevent. The transport
+error is now caught at the send step, reported in full to the logger and the error reporter (a different
+trust boundary), and re-thrown redacted; `redactEmails` is applied again before anything is persisted,
+including in the dead-letter writer.
+
+Also fixed: A/B results counted the campaign's shared trunk sends as each lane's own, which let the
+"minimum sample per lane" gate be satisfied by a message neither lane sent; the customer profile reported
+all-time sends beside engagement measured over the last ten runs; the attempt counter started a new run's
+first failure at two, skipping the first backoff; a renamed variant key committed per keystroke and
+stranded the results of every intermediate spelling; `hasActiveRun` was a read-then-write behind an
+eight-way concurrent worker and is now backed by a partial unique index on the active statuses.
+
 ## Changelog
 
 - **2026-09-28** — Phase 1 implemented: five tables and one migration; pure engine (audience
@@ -552,6 +590,12 @@ written down.* *Residual: blocked on `SPEC-029`.*
   optimistic lock; canvas editor reusing the `business_rules` condition builder; `en`/`pl`
   locales. Verified against a running instance: palette, create, save, round-trip, 409 on a
   stale save, and five rejected invalid graphs.
+- **2026-09-28** — Review pass: 15 code-review findings and 1 security finding, all verified and fixed.
+  Highlights: the cycle guard now recurses into split lanes (and runs when a winner is promoted), A/B
+  lanes can be filled from the canvas at all, the winner promotion's optimistic lock no longer no-ops on
+  a header-supplied version, transport error text is redacted before it is persisted or returned, A/B
+  rates count only each lane's own sends, and one active run per (campaign, subject) is enforced by a
+  partial unique index rather than by a check. 444 unit tests, 55 integration tests.
 - **2026-09-28** — Backlog X-11: send timing learned from each customer's own open hours, with the
   optimisation subordinate to quiet hours, and a send-rules panel that makes the frequency cap and quiet
   hours authorable for the first time. 426 unit tests, 50 integration tests.

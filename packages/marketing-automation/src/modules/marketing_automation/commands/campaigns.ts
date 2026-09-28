@@ -91,6 +91,54 @@ function assertStepsAreRunnable(steps: CampaignGraphSaveInput['definition']['ste
   }
 }
 
+/**
+ * Every event any step could emit, INCLUDING steps inside a split's lanes.
+ *
+ * Exported for its own test. A trunk-only version of this shipped first and was the interesting kind
+ * of wrong: its two sibling assertions both recurse, so a campaign whose `add_tag` sat inside a lane
+ * passed the cycle check and then drove itself on every tag assignment, with only the per-subject run
+ * budget braking it.
+ */
+export function collectEmittedEvents(
+  steps: CampaignGraphSaveInput['definition']['steps'],
+  depth = 0,
+): Set<string> {
+  const emitted = new Set<string>()
+  if (depth > 5) return emitted
+  for (const step of steps) {
+    for (const eventId of STEP_EMITTED_EVENTS[step.type] ?? []) emitted.add(eventId)
+    if (step.type !== SPLIT_STEP_TYPE) continue
+    for (const variant of readVariants(step)) {
+      const nested = collectEmittedEvents(
+        variant.steps as CampaignGraphSaveInput['definition']['steps'],
+        depth + 1,
+      )
+      for (const eventId of nested) emitted.add(eventId)
+    }
+  }
+  return emitted
+}
+
+/**
+ * Refused, not warned: a campaign reacting to an event its own step causes drives itself, and the
+ * per-subject run budget would then be the only thing standing between it and a storm.
+ */
+export function assertNoLoopRisk(
+  steps: CampaignGraphSaveInput['definition']['steps'],
+  eventIds: Iterable<string>,
+): void {
+  const emitted = collectEmittedEvents(steps)
+  for (const eventId of eventIds) {
+    if (emitted.has(eventId)) {
+      throw invalidGraph(
+        VALIDATION_CODES.loopRisk,
+        `Campaign reacts to ${eventId}, which its own steps emit`,
+        eventId,
+      )
+    }
+  }
+}
+
 /** Every chain a subject could actually walk must not end on a wait. */
 function assertNoTrailingWait(steps: CampaignGraphSaveInput['definition']['steps']): void {
   const last = steps[steps.length - 1]
@@ -146,18 +194,7 @@ function assertGraphIsRunnable(payload: CampaignGraphSaveInput): void {
     seenSchedules.add(scheduleKey)
   }
 
-  // Refused, not warned: a campaign reacting to an event its own step causes drives itself, and
-  // the per-subject run budget would then be the only thing standing between it and a storm.
-  const emitted = new Set(steps.flatMap((step) => STEP_EMITTED_EVENTS[step.type] ?? []))
-  for (const eventId of seenEvents) {
-    if (emitted.has(eventId)) {
-      throw invalidGraph(
-        VALIDATION_CODES.loopRisk,
-        `Campaign reacts to ${eventId}, which its own steps emit`,
-        eventId,
-      )
-    }
-  }
+  assertNoLoopRisk(steps, seenEvents)
 }
 
 async function replaceTriggers(
@@ -284,7 +321,7 @@ function applyWinnerToSteps(
 }
 
 const applySplitWinnerCommand: CommandHandler<
-  { id: string; updatedAt: string; stepId: string; variantKey: string },
+  { id: string; updatedAt?: string; stepId: string; variantKey: string },
   { id: string; updatedAt: string; stepId: string; variantKey: string }
 > = {
   id: 'marketing_automation.campaigns.apply_split_winner',
@@ -314,6 +351,8 @@ const applySplitWinnerCommand: CommandHandler<
       resourceKind: 'marketing_automation.campaign',
       resourceId: campaign.id,
       current: campaign.updatedAt,
+      // Undefined when the client sent the version as the extension header instead of in the body;
+      // the guard reads it from the request in that case.
       expected: rawInput.updatedAt,
       request: ctx.request ?? null,
     })
@@ -331,6 +370,15 @@ const applySplitWinnerCommand: CommandHandler<
     // end of the campaign, would park every future subject forever.
     assertStepsAreRunnable(steps)
     assertNoTrailingWait(steps)
+    // And it must not become a cycle. The promoted lane's steps are the trunk now, so a lane emitting
+    // an event this campaign reacts to would start driving itself the moment the test ended.
+    const triggers = await em.find(MarketingCampaignTrigger, {
+      campaignId: campaign.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      kind: 'event',
+    })
+    assertNoLoopRisk(steps, triggers.map((trigger) => trigger.eventId).filter((eventId): eventId is string => !!eventId))
 
     await em.transactional(async (tx) => {
       const managed = await tx.findOne(MarketingCampaign, { id: campaign.id })
@@ -456,7 +504,18 @@ const setCampaignEnabledCommand: CommandHandler<
     ensureOrganizationScope(ctx, scope.organizationId)
 
     const { id, ...rest } = rawInput
-    const payload = campaignEnabledSchema.parse(rest)
+    // `safeParse`, like the graph save: a malformed body is the client's mistake and must answer 400
+    // with a code, not escape the command and surface as a 500 that says nothing.
+    const parsedEnabled = campaignEnabledSchema.safeParse(rest)
+    if (!parsedEnabled.success) {
+      const issue = parsedEnabled.error.issues[0]
+      throw invalidGraph(
+        VALIDATION_CODES.invalidPayload,
+        issue ? `${issue.path.join('.') || 'payload'}: ${issue.message}` : 'Invalid payload',
+        issue?.path.join('.') || undefined,
+      )
+    }
+    const payload = parsedEnabled.data
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const campaign = await em.findOne(MarketingCampaign, {

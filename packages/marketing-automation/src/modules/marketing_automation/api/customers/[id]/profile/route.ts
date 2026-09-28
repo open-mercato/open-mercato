@@ -8,7 +8,6 @@ import {
   MarketingCampaignRun,
   MarketingCustomerScoreEntry,
   MarketingMessageSend,
-  MarketingMessageSendEvent,
 } from '../../../../data/entities.js'
 import { loadOrderAggregates, loadTagSlugs } from '../../../../lib/subject-document.js'
 import { loadScorePoints } from '../../../../lib/scores.js'
@@ -85,16 +84,29 @@ export async function GET(req: Request) {
     em.count(MarketingMessageSend, { ...scope, subjectEntityId: customerId, status: 'suppressed' }),
   ])
 
-  // Engagement is counted through this customer's runs, because a delivery event is keyed to the
-  // send rather than to the person — deliberately, so the event table holds no identity of its own.
-  const runIds = runs.map((run) => run.id)
+  /**
+   * Engagement across EVERY run of this customer, joined through the run table because a delivery
+   * event is keyed to the send rather than to the person — deliberately, so the event table holds no
+   * identity of its own.
+   *
+   * Counted in SQL rather than over the ten runs listed below. Doing it over that page made the
+   * profile assert that a customer with forty runs had never engaged, because their opens were on the
+   * thirty runs the list did not show — while `sent` beside it was all-time. Two numbers on one line,
+   * measured over different populations, is worse than either alone.
+   */
+  const engagementRows = await em.getConnection().execute<Array<{ type: string; count: string }>>(
+    `select e.type as type, count(distinct e.run_id)::text as count
+       from marketing_message_send_events e
+       join marketing_campaign_runs r on r.id = e.run_id
+      where e.tenant_id = ? and e.organization_id = ? and r.subject_entity_id = ?
+      group by e.type`,
+    [scope.tenantId, scope.organizationId, customerId],
+  )
   const engagement = { opened: 0, clicked: 0 }
-  if (runIds.length > 0) {
-    const events = await em.find(MarketingMessageSendEvent, { ...scope, runId: { $in: runIds } })
-    for (const event of events) {
-      if (event.type === 'opened') engagement.opened += 1
-      if (event.type === 'clicked') engagement.clicked += 1
-    }
+  for (const row of engagementRows) {
+    const count = Number.parseInt(row.count ?? '0', 10) || 0
+    if (row.type === 'opened') engagement.opened = count
+    if (row.type === 'clicked') engagement.clicked = count
   }
 
   return NextResponse.json({

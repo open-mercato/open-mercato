@@ -1,5 +1,6 @@
 {
   "marketing_automation.action.addStep": "Schritt hinzufügen",
+  "marketing_automation.action.addToVariant": "Schritte hier hinzufügen",
   "marketing_automation.action.addTrigger": "Auslöser hinzufügen",
   "marketing_automation.action.addVariant": "Variante hinzufügen",
   "marketing_automation.action.autoArrange": "Automatisch anordnen",
@@ -32,7 +33,7 @@
   "marketing_automation.canvas.palette.searchPlaceholder": "Suchen",
   "marketing_automation.canvas.palette.steps": "Schritte",
   "marketing_automation.canvas.palette.triggers": "Auslöser",
-  "marketing_automation.canvas.split.hint": "Jeder Kunde wird einer Variante zugeordnet und bleibt darin. Wähle einen Schritt innerhalb einer Variante aus und füge über die Palette einen weiteren Schritt zu dieser Variante hinzu.",
+  "marketing_automation.canvas.split.hint": "Jeder Kunde wird einer Variante zugeordnet und bleibt darin. Klicke bei einer Variante auf „Schritte hier hinzufügen\" und wähle dann aus der Palette.",
   "marketing_automation.canvas.split.variantSteps": "{count} Schritte",
   "marketing_automation.canvas.unsavedChanges": "Nicht gespeicherte Änderungen",
   "marketing_automation.confirm.delete": "Diese Kampagne löschen? Kunden, die darin warten, werden gestoppt.",
@@ -40,6 +41,7 @@
   "marketing_automation.confirm.enable": "Diese Kampagne aktivieren? Sie beginnt, echte Nachrichten zu senden.",
   "marketing_automation.errors.conflict": "Jemand anderes hat diese Kampagne gespeichert, während Sie sie bearbeitet haben.",
   "marketing_automation.errors.loadFailed": "Die Kampagne konnte nicht geladen werden.",
+  "marketing_automation.errors.loadListFailed": "Kampagnen konnten nicht geladen werden.",
   "marketing_automation.errors.saveFailed": "Die Kampagne konnte nicht gespeichert werden.",
   "marketing_automation.field.schedule.interval": "Ausführen alle",
   "marketing_automation.field.schedule.intervalHint": "Minuten, Stunden oder Tage: 30m, 6h, 1d.",

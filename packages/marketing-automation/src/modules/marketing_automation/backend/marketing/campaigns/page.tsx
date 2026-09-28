@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActions'
@@ -47,9 +48,12 @@ export default function CampaignsListPage() {
 
   const [rows, setRows] = React.useState<CampaignRow[]>([])
   const [loading, setLoading] = React.useState(true)
+  const [loadFailed, setLoadFailed] = React.useState(false)
 
   const load = React.useCallback(async () => {
     setLoading(true)
+    setLoadFailed(false)
+    try {
     const result = await apiCall<CampaignsResponse>('/api/marketing_automation/campaigns?pageSize=50')
     const items = result.ok && Array.isArray(result.result?.items) ? result.result.items : []
     setRows(items.flatMap((item) => {
@@ -69,7 +73,13 @@ export default function CampaignsListPage() {
         updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : '',
       }]
     }))
-    setLoading(false)
+    } catch {
+      // `apiCall` resolves for an HTTP error but REJECTS for a transport or parse failure, and an
+      // unhandled rejection here left the list on its skeleton forever with nothing to click.
+      setLoadFailed(true)
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   React.useEffect(() => { void load() }, [load, scopeVersion])
@@ -153,6 +163,11 @@ export default function CampaignsListPage() {
             {t('marketing_automation.action.create', 'New campaign')}
           </Button>
         </div>
+        {loadFailed ? (
+          <div className="mb-3">
+            <ErrorMessage label={t('marketing_automation.errors.loadListFailed', 'Could not load the campaigns.')} />
+          </div>
+        ) : null}
         <DataTable
           columns={columns}
           data={rows}

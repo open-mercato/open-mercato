@@ -4,6 +4,7 @@ import { isFrequencyCapped, isWithinQuietHours, nextAllowedSendTime, nextOccurre
 import type { FrequencyCap, QuietHoursWindow } from './gates.js'
 import type { StepHandler } from './registry.js'
 import type { AutomationContext, CampaignStep, EngineLogger, StepOutcome } from './types.js'
+import { redactEmails } from '../redact.js'
 
 export type SendPolicy = {
   /**
@@ -185,13 +186,35 @@ export async function executeRun<TDeps>(
     try {
       result = await handler.execute({ ...context, actionId: step.id, runId: run.id }, step.params, deps)
     } catch (error) {
-      // Progress is reported rather than thrown away — see the `failed` transition.
-      stepLog.push(outcome(step, 'failed', now, error instanceof Error ? error.message : String(error)))
+      // Progress is reported rather than thrown away — see the `failed` transition. The message is
+      // redacted because it is third-party text that will be persisted to jsonb and returned by the
+      // runs API: a transport rejection quotes the address it rejected, and this module keeps
+      // addresses out of both.
+      stepLog.push(outcome(step, 'failed', now, redactEmails(error instanceof Error ? error.message : String(error))))
       return { kind: 'failed', failedIndex: index, error, stepLog, context }
     }
 
     if (handler.channel && result.status === 'done') {
-      await effects.recordSend({ channel: handler.channel, status: 'sent', stepId: step.id })
+      try {
+        await effects.recordSend({ channel: handler.channel, status: 'sent', stepId: step.id })
+      } catch (error) {
+        /**
+         * The message HAS gone out. A throw here would escape into the caller's outer catch, which
+         * parks the run at the index it started from — so the retry would send it again. Reporting it
+         * as a failure AT THIS STEP keeps the retry on the step that already sent, which the run's
+         * own `alreadySent`-shaped accounting cannot undo; so instead the bookkeeping failure is
+         * logged and the chain continues.
+         *
+         * The consequence is a send that happened and was not recorded: the frequency cap and the
+         * reports undercount it. That is strictly better than mailing the customer twice, which is
+         * what every other option here does.
+         */
+        logger.error('[internal] marketing send recorded failed after the message went out', {
+          campaignId: run.campaignId,
+          stepId: step.id,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
     }
 
     if (result.contextPatch) Object.assign(context, result.contextPatch)

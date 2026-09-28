@@ -29,7 +29,7 @@ export async function GET(req: Request) {
   }
 
   const url = new URL(req.url)
-  const pageSize = Math.min(Number.parseInt(url.searchParams.get('pageSize') ?? '25', 10) || 25, MAX_PAGE_SIZE)
+  const pageSize = Math.min(Math.max(Number.parseInt(url.searchParams.get('pageSize') ?? '25', 10) || 25, 1), MAX_PAGE_SIZE)
   const page = Math.max(Number.parseInt(url.searchParams.get('page') ?? '1', 10) || 1, 1)
 
   const container = await createRequestContainer()

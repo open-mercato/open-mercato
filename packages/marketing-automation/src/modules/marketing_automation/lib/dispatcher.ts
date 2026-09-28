@@ -308,9 +308,12 @@ export async function startCampaignForSubject(
     occurrenceKey: input.occurrenceKey ?? null,
     variantChoices: Object.keys(variantChoices).length > 0 ? variantChoices : null,
   })
-  // Null means this exact delivery already started a run for this campaign — a redelivered queue
-  // job or a repeated provider callback. Not a failure, and deliberately not counted as a guard:
-  // the two say different things when a campaign looks like it did not fire.
+  /**
+   * Null means the database refused the insert, for one of two reasons that are the same answer here:
+   * this exact delivery already started a run (a redelivered queue job, a repeated provider callback),
+   * or this subject already has an ACTIVE run in this campaign and two workers raced past the check
+   * above. Either way a second run must not start, and neither is a failure.
+   */
   if (!run) return 'duplicate'
 
   const claimToken = await claimRun(deps.em, run.id, deps.scope, deps.now)
@@ -318,7 +321,12 @@ export async function startCampaignForSubject(
 
   await persist(
     deps,
-    { id: run.id, campaignId: campaign.id, subjectEntityId: input.subjectEntityId, attempts: 1 },
+    // ZERO, because that is what `createRun` stored. `failRun` treats this as "attempts already
+    // recorded before this failure", so passing 1 here made the first failure of a brand-new run record
+    // two: it skipped the first five-minute backoff and burned one of the five attempts, dead-lettering
+    // after four. The resume path passes the stored value, so this is also the only place the two
+    // disagreed.
+    { id: run.id, campaignId: campaign.id, subjectEntityId: input.subjectEntityId, attempts: 0 },
     claimToken,
     definition.steps,
     readSendPolicy(definition),

@@ -143,6 +143,14 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
   const [estimate, setEstimate] = React.useState<AudienceEstimate | null>(null)
   const [estimating, setEstimating] = React.useState(false)
   const [selectedNodeId, setSelectedNodeId] = React.useState<string | null>(null)
+  /**
+   * The variant the palette adds to, chosen explicitly.
+   *
+   * Needed because a new split has EMPTY lanes: deriving the target from the selected step meant there
+   * had to be a step inside a lane already, which there never is, so the first step could not be added
+   * and A/B was unauthorable from the canvas at all.
+   */
+  const [laneTarget, setLaneTarget] = React.useState<StepLocation['lane']>(null)
 
   React.useEffect(() => {
     if (!campaignId) return
@@ -176,6 +184,13 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
     })()
     return () => { cancelled = true }
   }, [campaignId, t])
+
+  React.useEffect(() => {
+    // Selecting something else means the author has moved on; a stale lane target would silently send
+    // the next palette click into a variant they are no longer looking at.
+    if (!selectedNodeId || !laneTarget) return
+    if (selectedNodeId !== laneTarget.splitId) setLaneTarget(null)
+  }, [selectedNodeId, laneTarget])
 
   const graph = React.useMemo(() => definitionToGraph(definition, triggers), [definition, triggers])
 
@@ -263,7 +278,8 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
    * top-level chain. Without this the palette could only ever append to the trunk, and a variant
    * would be limited to whatever it was created with.
    */
-  const addTarget: StepLocation['lane'] = selectedLocation?.lane ?? null
+  // An explicit choice wins; otherwise a step selected inside a lane implies that lane.
+  const addTarget: StepLocation['lane'] = laneTarget ?? selectedLocation?.lane ?? null
 
   const addStep = (type: string) => {
     const step = type === SPLIT_STEP_TYPE
@@ -301,11 +317,22 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
   }
 
   const updateScheduleTrigger = (nodeId: string, patch: Partial<Extract<CampaignTriggerInput, { kind: 'schedule' }>>) => {
-    mutate({
-      triggers: triggers.map((trigger) => (
-        triggerNodeId(trigger) === nodeId && trigger.kind === 'schedule' ? { ...trigger, ...patch } : trigger
-      )),
-    })
+    const next = triggers.map((trigger) => (
+      triggerNodeId(trigger) === nodeId && trigger.kind === 'schedule' ? { ...trigger, ...patch } : trigger
+    ))
+    mutate({ triggers: next })
+
+    /**
+     * A schedule's node id is derived from its source and interval, so editing either CHANGES the id.
+     * Without following the selection, one keystroke in the interval field unmounted the panel being
+     * typed into — and left a Remove button pointing at an id that no longer existed.
+     */
+    const patched = next.find((trigger) => (
+      trigger.kind === 'schedule' && triggerNodeId(trigger) !== nodeId
+        && triggers.some((original) => triggerNodeId(original) === nodeId)
+    ))
+    const movedId = patched ? triggerNodeId(patched) : null
+    if (movedId && movedId !== nodeId) setSelectedNodeId(movedId)
   }
 
   const withSteps = (steps: CampaignStep[]) => mutate({ definition: { ...definition, steps } })
@@ -618,20 +645,36 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                     <div className="text-xs text-muted-foreground">
                       {t(
                         'marketing_automation.canvas.split.hint',
-                        'Each customer is assigned one variant and stays in it. Select a step inside a variant, then pick from the palette to add another step to that variant.',
+                        'Each customer is assigned one variant and stays in it. Press "Add steps here" on a variant, then pick from the palette.',
                       )}
                     </div>
                     {readVariants(selectedSplit).map((variant) => (
-                      <div key={variant.key} className="space-y-2 rounded-md border border-border p-2">
+                      <div
+                        key={variant.key}
+                        className={[
+                          'space-y-2 rounded-md border p-2',
+                          addTarget?.splitId === selectedSplit.id && addTarget?.laneKey === variant.key
+                            ? 'border-primary'
+                            : 'border-border',
+                        ].join(' ')}
+                      >
                         <div className="flex gap-2">
                           <div className="min-w-0 flex-1 space-y-1">
                             <Label htmlFor={`variant-key-${variant.key}`}>
                               {t('marketing_automation.field.variant.key', 'Variant')}
                             </Label>
+                            {/* Committed on BLUR, not per keystroke. The key identifies the lane, and runs
+                                already enrolled recorded the old one — so renaming `a` to `abc` used to
+                                commit `a`, `ab`, `abc` and strand the results of the first two. */}
                             <Input
                               id={`variant-key-${variant.key}`}
-                              value={variant.key}
-                              onChange={(event) => withSteps(updateVariant(definition.steps, selectedSplit.id, variant.key, { key: event.target.value }))}
+                              key={`variant-key-input-${variant.key}`}
+                              defaultValue={variant.key}
+                              onBlur={(event) => {
+                                const next = event.target.value.trim()
+                                if (!next || next === variant.key) return
+                                withSteps(updateVariant(definition.steps, selectedSplit.id, variant.key, { key: next }))
+                              }}
                             />
                           </div>
                           <div className="w-20 space-y-1">
@@ -651,13 +694,28 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                           <span className="text-xs text-muted-foreground">
                             {t('marketing_automation.canvas.split.variantSteps', '{count} steps').replace('{count}', String(variant.steps.length))}
                           </span>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => withSteps(removeVariant(definition.steps, selectedSplit.id, variant.key))}
-                          >
-                            {t('marketing_automation.action.removeVariant', 'Remove variant')}
-                          </Button>
+                          <div className="flex gap-1">
+                            {/* The only way to put the FIRST step into a lane: a new split's lanes are
+                                empty, so there is nothing inside one to select. */}
+                            <Button
+                              variant={
+                                addTarget?.splitId === selectedSplit.id && addTarget?.laneKey === variant.key
+                                  ? 'default'
+                                  : 'outline'
+                              }
+                              size="sm"
+                              onClick={() => setLaneTarget({ splitId: selectedSplit.id, laneKey: variant.key })}
+                            >
+                              {t('marketing_automation.action.addToVariant', 'Add steps here')}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => withSteps(removeVariant(definition.steps, selectedSplit.id, variant.key))}
+                            >
+                              {t('marketing_automation.action.removeVariant', 'Remove variant')}
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     ))}

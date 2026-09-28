@@ -2,7 +2,9 @@ import { z } from 'zod'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
+import { reportError } from '@open-mercato/telemetry'
 import { interpolate } from '../lib/interpolate.js'
+import { redactEmails } from '../lib/redact.js'
 import { applyTracking } from '../lib/tracking/rewrite.js'
 import { resolveTrackingBaseUrl, resolveTrackingSecret } from '../lib/tracking/secret.js'
 import { clickUrl, openPixelUrl } from '../lib/tracking/urls.js'
@@ -103,18 +105,44 @@ export const sendEmailStep: StepHandler<StepDeps> = {
       return { status: 'skipped', detail: 'no email address on the subject' }
     }
 
-    await sendEmail({
-      to,
-      subject: interpolate(params.subject, ctx),
-      // Interpolate FIRST, then rewrite: a link assembled from a substituted value has to be tracked
-      // too, and rewriting first would sign a URL containing the placeholder instead of the value.
-      // `'html'` is not optional here: the body is rendered as HTML, and substituted values can be
-      // customer-controlled.
-      html: withTracking(interpolate(params.bodyHtml, ctx, 'html'), ctx, params.track),
-      text: params.bodyText ? interpolate(params.bodyText, ctx) : undefined,
-      tenantId: deps.scope.tenantId,
-      organizationId: deps.scope.organizationId,
-    })
+    try {
+      await sendEmail({
+        to,
+        subject: interpolate(params.subject, ctx),
+        // Interpolate FIRST, then rewrite: a link assembled from a substituted value has to be tracked
+        // too, and rewriting first would sign a URL containing the placeholder instead of the value.
+        // `'html'` is not optional here: the body is rendered as HTML, and substituted values can be
+        // customer-controlled.
+        html: withTracking(interpolate(params.bodyHtml, ctx, 'html'), ctx, params.track),
+        text: params.bodyText ? interpolate(params.bodyText, ctx) : undefined,
+        tenantId: deps.scope.tenantId,
+        organizationId: deps.scope.organizationId,
+      })
+    } catch (error) {
+      /**
+       * The transport's own text never leaves this function.
+       *
+       * A rejection quotes the address it rejected — `550 5.1.1 <someone@example.com>` — and the
+       * caller writes whatever it catches into `last_error` and the step log, which the runs API
+       * returns to anybody holding `runs.view` alone. The full message goes to the structured log and
+       * the error reporter, which are a different trust boundary; what propagates is a redacted
+       * summary. `redactEmails` is applied as well as the rewrite, because a transport may quote the
+       * address in a shape the prefix below does not anticipate.
+       */
+      const original = error instanceof Error ? error.message : String(error)
+      deps.logger.error('[internal] marketing email transport rejected the send', {
+        campaignId: ctx.campaignId,
+        runId: ctx.runId,
+        stepId: ctx.actionId,
+        error: original,
+      })
+      reportError(error, {
+        module: 'marketing_automation',
+        code: 'marketing_automation.email_transport_failed',
+        attributes: { campaignId: ctx.campaignId ?? undefined, stepId: ctx.actionId ?? undefined },
+      })
+      throw new Error(`[internal] email transport rejected the send: ${redactEmails(original)}`)
+    }
 
     // The address is intentionally not returned: it must not reach the send history.
     return { status: 'done', detail: 'email sent' }

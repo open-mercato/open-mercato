@@ -1,5 +1,6 @@
 {
   "marketing_automation.action.addStep": "Add step",
+  "marketing_automation.action.addToVariant": "Add steps here",
   "marketing_automation.action.addTrigger": "Add trigger",
   "marketing_automation.action.addVariant": "Add variant",
   "marketing_automation.action.autoArrange": "Auto-arrange",
@@ -32,7 +33,7 @@
   "marketing_automation.canvas.palette.searchPlaceholder": "Search",
   "marketing_automation.canvas.palette.steps": "Steps",
   "marketing_automation.canvas.palette.triggers": "Triggers",
-  "marketing_automation.canvas.split.hint": "Each customer is assigned one variant and stays in it. Select a step inside a variant, then pick from the palette to add another step to that variant.",
+  "marketing_automation.canvas.split.hint": "Each customer is assigned one variant and stays in it. Press \"Add steps here\" on a variant, then pick from the palette.",
   "marketing_automation.canvas.split.variantSteps": "{count} steps",
   "marketing_automation.canvas.unsavedChanges": "Unsaved changes",
   "marketing_automation.confirm.delete": "Delete this campaign? Customers currently waiting in it will stop.",
@@ -40,6 +41,7 @@
   "marketing_automation.confirm.enable": "Enable this campaign? It will start sending real messages.",
   "marketing_automation.errors.conflict": "Somebody else saved this campaign while you were editing it.",
   "marketing_automation.errors.loadFailed": "Could not load the campaign.",
+  "marketing_automation.errors.loadListFailed": "Could not load the campaigns.",
   "marketing_automation.errors.saveFailed": "Could not save the campaign.",
   "marketing_automation.field.schedule.interval": "Run every",
   "marketing_automation.field.schedule.intervalHint": "Minutes, hours or days: 30m, 6h, 1d.",

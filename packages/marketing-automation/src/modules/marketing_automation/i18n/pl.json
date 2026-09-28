@@ -1,5 +1,6 @@
 {
   "marketing_automation.action.addStep": "Dodaj krok",
+  "marketing_automation.action.addToVariant": "Dodawaj kroki tutaj",
   "marketing_automation.action.addTrigger": "Dodaj wyzwalacz",
   "marketing_automation.action.addVariant": "Dodaj wariant",
   "marketing_automation.action.autoArrange": "Rozłóż automatycznie",
@@ -32,7 +33,7 @@
   "marketing_automation.canvas.palette.searchPlaceholder": "Szukaj",
   "marketing_automation.canvas.palette.steps": "Kroki",
   "marketing_automation.canvas.palette.triggers": "Wyzwalacze",
-  "marketing_automation.canvas.split.hint": "Każdy klient trafia do jednego wariantu i już w nim zostaje. Zaznacz krok w wariancie, a następnie wybierz element z palety, aby dodać do tego wariantu kolejny krok.",
+  "marketing_automation.canvas.split.hint": "Każdy klient trafia do jednego wariantu i już w nim zostaje. Naciśnij „Dodawaj kroki tutaj\" przy wariancie, a potem wybierz element z palety.",
   "marketing_automation.canvas.split.variantSteps": "kroki: {count}",
   "marketing_automation.canvas.unsavedChanges": "Niezapisane zmiany",
   "marketing_automation.confirm.delete": "Usunąć tę kampanię? Klienci, którzy w niej czekają, zostaną zatrzymani.",
@@ -40,6 +41,7 @@
   "marketing_automation.confirm.enable": "Włączyć tę kampanię? Zacznie wysyłać prawdziwe wiadomości.",
   "marketing_automation.errors.conflict": "Ktoś inny zapisał tę kampanię, gdy ją edytowałeś.",
   "marketing_automation.errors.loadFailed": "Nie udało się wczytać kampanii.",
+  "marketing_automation.errors.loadListFailed": "Nie udało się wczytać kampanii.",
   "marketing_automation.errors.saveFailed": "Nie udało się zapisać kampanii.",
   "marketing_automation.field.schedule.interval": "Uruchamiaj co",
   "marketing_automation.field.schedule.intervalHint": "Minuty, godziny lub dni: 30m, 6h, 1d.",

@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { redactEmails } from './redact.js'
 import { MarketingDispatchDeadLetter } from '../data/entities.js'
 
 /**
@@ -36,7 +37,9 @@ export async function recordDeadLetter(
       tenantId: entry.tenantId ?? null,
       organizationId: entry.organizationId ?? null,
       payload: entry.payload,
-      error: (entry.error instanceof Error ? entry.error.message : String(entry.error)).slice(0, 4000),
+      // Redacted for the same reason `last_error` is: this is third-party failure text, and a transport
+      // rejection quotes the address it rejected.
+      error: redactEmails(entry.error instanceof Error ? entry.error.message : String(entry.error)).slice(0, 4000),
   })
     em.persist(record)
     await em.flush()

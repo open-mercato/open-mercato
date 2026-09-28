@@ -10,6 +10,7 @@ import {
 } from './engine/scheduling.js'
 import type { AutomationContext, StepOutcome } from './engine/types.js'
 import { SWEEP_CLAIM_PREFIX } from './occurrence.js'
+import { redactForStorage } from './redact.js'
 
 export type RunScope = { tenantId: string; organizationId: string }
 
@@ -217,7 +218,7 @@ export async function failRun(
     { id: runId, tenantId: scope.tenantId, organizationId: scope.organizationId, claimToken },
     {
       status: dead ? 'dead' : 'waiting',
-      lastError: message.slice(0, 2000),
+      lastError: redactForStorage(message, 2000),
       attempts,
       nextRetryAt,
       resumeAt: nextRetryAt,

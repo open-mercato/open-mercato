@@ -398,6 +398,15 @@
           "columnNames": [],
           "composite": false,
           "constraint": false,
+          "keyName": "marketing_runs_active_subject_uniq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"marketing_runs_active_subject_uniq\" on \"marketing_campaign_runs\" (\"tenant_id\", \"organization_id\", \"campaign_id\", \"subject_entity_id\") where subject_entity_id is not null and status in ('running', 'waiting', 'claimed')"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
           "keyName": "marketing_runs_occurrence_uniq",
           "primary": false,
           "unique": false,

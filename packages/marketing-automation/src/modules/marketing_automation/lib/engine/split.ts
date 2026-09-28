@@ -148,3 +148,46 @@ export function writeVariants(step: CampaignStep, variants: SplitVariant[]): Cam
 export function makeSplitStep(id: string, keys: string[] = ['a', 'b']): CampaignStep {
   return { id, type: SPLIT_STEP_TYPE, params: { variants: keys.map((key) => ({ key, weight: 1, steps: [] })) } }
 }
+
+/** A lane, with every step id that belongs to it — including any nested split's steps. */
+export type LaneDescriptor = {
+  splitStepId: string
+  variant: string
+  stepIds: string[]
+}
+
+function collectStepIdsDeep(steps: CampaignStep[], depth = 0): string[] {
+  if (depth > 5) return []
+  const ids: string[] = []
+  for (const step of steps) {
+    ids.push(step.id)
+    if (step.type !== SPLIT_STEP_TYPE) continue
+    for (const variant of readVariants(step)) ids.push(...collectStepIdsDeep(variant.steps, depth + 1))
+  }
+  return ids
+}
+
+/**
+ * Every lane in a definition, with the steps that belong to it.
+ *
+ * Needed because a lane's RESULTS are the engagement its OWN steps produced. Counting every send of a
+ * run that happened to walk the lane also counts the campaign's shared trunk messages, which makes two
+ * lanes look identical where the trunk dominates — and lets a "minimum sample per lane" gate be
+ * satisfied by a message neither lane sent.
+ */
+export function describeLanes(steps: CampaignStep[], depth = 0): LaneDescriptor[] {
+  if (depth > 5) return []
+  const lanes: LaneDescriptor[] = []
+  for (const step of steps) {
+    if (step.type !== SPLIT_STEP_TYPE) continue
+    for (const variant of readVariants(step)) {
+      lanes.push({
+        splitStepId: step.id,
+        variant: variant.key,
+        stepIds: collectStepIdsDeep(variant.steps, depth + 1),
+      })
+      lanes.push(...describeLanes(variant.steps, depth + 1))
+    }
+  }
+  return lanes
+}
