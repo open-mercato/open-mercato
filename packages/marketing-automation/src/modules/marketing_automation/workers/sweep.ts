@@ -8,6 +8,8 @@ import { startCampaignForSubject } from '../lib/dispatcher.js'
 import type { DispatchDeps, ReentryPolicy } from '../lib/dispatcher.js'
 import { buildSubjectDocument } from '../lib/subject-document.js'
 import { EXPIRING_QUOTE_TRIGGER_ID } from '../lib/trigger-catalog.js'
+import { isSweepDue } from '../lib/sweep-interval.js'
+import { MarketingCampaignTrigger as TriggerEntity } from '../data/entities.js'
 import type { MarketingCampaign, MarketingCampaignTrigger } from '../data/entities.js'
 import type { SweepJob } from '../lib/queue.js'
 import { buildDispatchDeps, logger, readScope } from './shared.js'
@@ -197,6 +199,15 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
 
   for (const { campaign, trigger } of scheduled) {
     try {
+      // The tick is the clock; the campaign's own interval is the gate.
+      if (!isSweepDue(trigger.scheduleValue, trigger.lastSweptAt, deps.now)) continue
+
+      await deps.em.nativeUpdate(
+        TriggerEntity,
+        { id: trigger.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
+        { lastSweptAt: deps.now },
+      )
+
       const started = trigger.sweepSource === 'expiring_quotes'
         ? await sweepExpiringQuotes(campaign, trigger, deps, scope)
         : await sweepCustomers(campaign, trigger, deps, scope)

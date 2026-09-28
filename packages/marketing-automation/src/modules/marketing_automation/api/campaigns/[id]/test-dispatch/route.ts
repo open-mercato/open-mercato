@@ -1,0 +1,95 @@
+import { NextResponse } from 'next/server'
+import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { MarketingCampaign } from '../../../../data/entities.js'
+import { campaignDefinitionSchema } from '../../../../data/validators.js'
+import { matchesAudience } from '../../../../lib/engine/audience.js'
+import { planSteps } from '../../../../lib/engine/chain-planner.js'
+import { getMarketingStep } from '../../../../lib/engine/registry.js'
+import { buildSubjectDocument } from '../../../../lib/subject-document.js'
+
+const logger = createLogger('marketing_automation')
+
+/**
+ * Dry run: answers "would this subject enter, and what would happen to them" without sending.
+ *
+ * Gated by its own feature. It reads the same audience evaluation and the same step planner the
+ * engine uses, so what it reports is what would actually run — a re-implementation would drift and
+ * then lie, which is worse than having no preview at all.
+ */
+const routeMetadata = {
+  POST: { requireAuth: true, requireFeatures: ['marketing_automation.test_dispatch'] },
+}
+
+export const metadata = routeMetadata
+
+const bodySchema = z.object({
+  subjectEntityId: z.string().uuid(),
+  trigger: z.record(z.string(), z.unknown()).default({}),
+})
+
+function readCampaignId(req: Request): string | null {
+  const segments = new URL(req.url).pathname.split('/').filter(Boolean)
+  return segments[segments.length - 2] ?? null
+}
+
+export async function POST(req: Request) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.tenantId || !auth.orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const id = readCampaignId(req)
+  if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
+
+  const parsed = bodySchema.safeParse(await req.json().catch(() => null))
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+  }
+
+  const container = await createRequestContainer()
+  const em = container.resolve<EntityManager>('em')
+  const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
+
+  const campaign = await em.findOne(MarketingCampaign, { id, ...scope, deletedAt: null })
+  if (!campaign) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const definition = campaignDefinitionSchema.parse(campaign.definition)
+  const now = new Date()
+  const subject = await buildSubjectDocument(em, parsed.data.subjectEntityId, scope, parsed.data.trigger, now)
+  const inAudience = matchesAudience(definition.audience, subject, { now, logger, campaignId: campaign.id })
+
+  // The plan is reported even when the audience excludes the subject, because "why did this person
+  // not get it" is the question a dry run is usually asked.
+  const plan = planSteps(definition.steps).map((planned) => planned.kind === 'pause'
+    ? { kind: 'pause' as const, minutes: planned.minutes, resumesAtStep: planned.resumeIndex }
+    : {
+        kind: 'run' as const,
+        stepId: planned.step.id,
+        type: planned.step.type,
+        known: Boolean(getMarketingStep(planned.step.type)),
+        channel: getMarketingStep(planned.step.type)?.channel ?? null,
+      })
+
+  return NextResponse.json({
+    campaignId: campaign.id,
+    isEnabled: campaign.isEnabled,
+    subject: { id: parsed.data.subjectEntityId, email: subject.customer?.email ?? null, tags: subject.tags },
+    inAudience,
+    wouldRun: inAudience,
+    plan,
+    sent: false,
+  })
+}
+
+export const openApi = {
+  POST: {
+    summary: 'Dry-run a campaign against one subject',
+    description:
+      'Reports whether the subject matches the audience and what the step plan would be, sending nothing. Uses the same evaluator and planner as the engine.',
+    tags: ['Marketing Automation'],
+    responses: { 200: { description: 'The dry-run report' }, 404: { description: 'Not found' } },
+  },
+}

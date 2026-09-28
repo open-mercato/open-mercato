@@ -94,10 +94,34 @@ describe('executeRun — completion', () => {
     expect(effects.logger.warn).toHaveBeenCalledTimes(1)
   })
 
-  test('a thrown step error propagates so the caller can retry the run', async () => {
-    const handler = { ...tagHandler(), execute: jest.fn().mockRejectedValue(new Error('smtp down')) }
-    await expect(executeRun(run(), [step('s1', 'add_tag')], noPolicy, deps, makeEffects([handler])))
-      .rejects.toThrow('smtp down')
+  // The executor reports the failure instead of throwing, and says WHICH step failed. Without the
+  // index the caller parks the run where it already was, so a retry replays the steps that already
+  // succeeded — for a chain containing a send, that mails the customer again on every attempt.
+  test('a thrown step is reported as failed at its own index, with progress kept', async () => {
+    const ok = tagHandler()
+    const boom: StepHandler<Deps> = { ...tagHandler(), type: 'boom', execute: jest.fn().mockRejectedValue(new Error('smtp down')) }
+    const steps = [step('s1', 'add_tag'), step('s2', 'boom'), step('s3', 'add_tag')]
+
+    const transition = await executeRun(run(), steps, noPolicy, deps, makeEffects([ok, boom]))
+
+    expect(transition.kind).toBe('failed')
+    if (transition.kind !== 'failed') throw new Error('expected a failed transition')
+    expect(transition.failedIndex).toBe(1)
+    expect((transition.error as Error).message).toBe('smtp down')
+    // The step that succeeded before the failure stays in the log, and the one after it never ran.
+    expect(transition.stepLog.map((entry) => [entry.stepId, entry.status])).toEqual([
+      ['s1', 'done'],
+      ['s2', 'failed'],
+    ])
+    expect(ok.execute).toHaveBeenCalledTimes(1)
+  })
+
+  test('resuming at the reported index repeats only the failed step', async () => {
+    const ok = tagHandler()
+    const steps = [step('s1', 'add_tag'), step('s2', 'add_tag'), step('s3', 'add_tag')]
+    const transition = await executeRun(run({ currentStepIndex: 1 }), steps, noPolicy, deps, makeEffects([ok]))
+    expect(transition.kind).toBe('completed')
+    expect(ok.execute).toHaveBeenCalledTimes(2)
   })
 })
 

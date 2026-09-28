@@ -39,17 +39,28 @@ function Canvas({
   React.useEffect(() => { setNodes(incomingNodes) }, [incomingNodes, setNodes])
   React.useEffect(() => { setEdges(incomingEdges) }, [incomingEdges, setEdges])
 
+  // The updater passed to `setNodes` must be pure. Calling the parent's setState from inside it
+  // updated a different component while React was computing this one's state, which React warns
+  // about and StrictMode makes fire twice. A ref holds the latest nodes so the report happens
+  // outside any updater.
+  const latestNodes = React.useRef(nodes)
+  React.useEffect(() => { latestNodes.current = nodes }, [nodes])
+
   const handleNodesChange = React.useCallback((changes: NodeChange[]) => {
     onNodesChange(changes)
     // Only a finished drag is reported. Reporting every intermediate position would mark the
     // campaign dirty on a one-pixel nudge and flood the parent with renders.
     const settled = changes.some((change) => change.type === 'position' && change.dragging === false)
     if (!settled) return
-    setNodes((current) => {
-      onPositionsChange(Object.fromEntries(current.map((node) => [node.id, { x: node.position.x, y: node.position.y }])))
-      return current
-    })
-  }, [onNodesChange, onPositionsChange, setNodes])
+
+    const moved = new Map(latestNodes.current.map((node) => [node.id, node.position]))
+    for (const change of changes) {
+      if (change.type === 'position' && change.position) moved.set(change.id, change.position)
+    }
+    onPositionsChange(Object.fromEntries(
+      [...moved].map(([id, position]) => [id, { x: position.x, y: position.y }]),
+    ))
+  }, [onNodesChange, onPositionsChange])
 
   const nodesWithSelection = React.useMemo(
     () => nodes.map((node) => ({ ...node, selected: node.id === selectedNodeId })),

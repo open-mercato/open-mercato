@@ -119,6 +119,13 @@ export class MarketingCampaignTrigger {
   @Property({ name: 'sweep_params', type: 'jsonb', nullable: true })
   sweepParams?: Record<string, unknown> | null
 
+  /**
+   * When this trigger last swept. The module's tick is fixed, so this is what makes a campaign's
+   * own `scheduleValue` mean something instead of being decoration.
+   */
+  @Property({ name: 'last_swept_at', type: Date, nullable: true })
+  lastSweptAt?: Date | null
+
   @Property({ name: 'created_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
   createdAt!: Date
 

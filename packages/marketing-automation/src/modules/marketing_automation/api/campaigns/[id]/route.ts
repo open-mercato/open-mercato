@@ -71,7 +71,7 @@ export async function DELETE(req: Request) {
   const commandBus = container.resolve<CommandBus>('commandBus')
   await commandBus.execute('marketing_automation.campaigns.delete', {
     input: { id },
-    ctx: buildRequestCommandContext(container, auth),
+    ctx: buildRequestCommandContext(container, auth, req),
   })
 
   return NextResponse.json({ ok: true })

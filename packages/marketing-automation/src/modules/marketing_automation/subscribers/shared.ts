@@ -59,9 +59,6 @@ export async function forwardEventToCampaigns(
       eventId,
       scope,
       payload: payload as Record<string, unknown>,
-      // Carried forward so a campaign whose own step re-emits its trigger cannot cascade
-      // forever; the dispatcher refuses past its depth cap.
-      dispatchDepth: typeof payload._maDispatchDepth === 'number' ? payload._maDispatchDepth : 0,
     })
   } catch (error) {
     // A failure here must not fail the command that emitted the event — a campaign not firing

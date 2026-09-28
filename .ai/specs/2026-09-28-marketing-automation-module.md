@@ -110,10 +110,19 @@ Explicitly three-valued (`unlimited` / `once` / `cooldown`). A nullable number m
 check" and "only ever once" indistinguishable. A scheduled sweep without a cooldown re-enrols the
 same customer on every tick, because the audience it matches ("dormant for 90 days") stays true.
 
-### Dispatch depth
+### Cascade guard
 
-`add_tag` emits `customers.tag.assigned`, which is itself a trigger. A campaign reacting to a tag
-and adding a tag is an infinite loop, so depth is carried in the context and capped at 3.
+`add_tag` emits `customers.tag.assigned`, which is itself a trigger, so campaigns can drive each
+other in a cycle. Two defences, because the obvious one does not work:
+
+- **At save time** a campaign whose trigger is an event its own steps emit is refused.
+- **At run time** `MAX_RUNS_PER_SUBJECT` bounds runs per subject per hour across every campaign,
+  which bounds a cycle however many campaigns are in it and also absorbs an event storm from an
+  import.
+
+A depth counter carried in the dispatch context was implemented first and removed: the events are
+emitted by the modules that own them and carry no field of ours, so nothing could increment the
+depth across a hop and the guard was inert.
 
 ### Canvas
 
@@ -167,11 +176,17 @@ ordered. See Risks.
 | `/api/marketing_automation/campaigns` | GET, POST | `campaigns.view` / `campaigns.manage` |
 | `/api/marketing_automation/campaigns/[id]` | GET, DELETE | `campaigns.view` / `campaigns.manage` |
 | `/api/marketing_automation/campaigns/[id]/save-graph` | PUT | `campaigns.manage` |
+| `/api/marketing_automation/campaigns/[id]/enabled` | PUT | `campaigns.publish` |
+| `/api/marketing_automation/campaigns/[id]/test-dispatch` | POST | `test_dispatch` |
 | `/api/marketing_automation/palette` | GET | `campaigns.view` |
 
-`save-graph` replaces name, enabled flag, triggers and definition in one write behind an
-optimistic lock on `updatedAt`, answering 409 with the current value, and reports how many
-customers are waiting mid-journey.
+`save-graph` replaces name, description, triggers and definition in one transaction behind an
+optimistic lock, answering the canonical 409, and reports how many customers are waiting
+mid-journey. It deliberately does **not** carry `isEnabled`: taking a campaign live is what starts
+messaging real customers, so it is its own endpoint behind `campaigns.publish`, and the guard is a
+declarative route feature rather than a condition inside a handler. `test-dispatch` answers "would
+this subject enter, and what would happen" using the same evaluator and planner the engine uses,
+and sends nothing.
 
 **Save-time validation is deliberately stricter than the dispatcher.** At runtime an unknown step
 type is skipped so an installation change cannot strand a journey; at author time it is rejected

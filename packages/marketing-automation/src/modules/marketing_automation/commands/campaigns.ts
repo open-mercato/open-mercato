@@ -7,13 +7,14 @@ import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/opti
 import { MarketingCampaign, MarketingCampaignRun, MarketingCampaignTrigger } from '../data/entities.js'
 import {
   campaignDefinitionSchema,
+  campaignEnabledSchema,
   campaignGraphSaveSchema,
-  campaignTriggerSchema,
 } from '../data/validators.js'
-import type { CampaignGraphSaveInput, CampaignTriggerInput } from '../data/validators.js'
+import type { CampaignEnabledInput, CampaignGraphSaveInput, CampaignTriggerInput } from '../data/validators.js'
 import { getMarketingStep } from '../lib/engine/registry.js'
 import { WAIT_STEP_TYPE } from '../lib/engine/chain-planner.js'
 import { availableEventTriggers } from '../lib/trigger-catalog.js'
+import { isSweepIntervalValid } from '../lib/sweep-interval.js'
 import { emitMarketingAutomationEvent } from '../events.js'
 
 type Scope = { tenantId: string; organizationId: string }
@@ -34,17 +35,47 @@ function requireScope(ctx: { auth?: { tenantId?: string | null; orgId?: string |
  * At author time an unknown type is always a mistake, and the failure mode of accepting it is
  * the worst one a marketing tool has: a campaign that looks saved and silently does nothing.
  */
+/**
+ * Stable codes so the editor can show a localized message.
+ *
+ * The English `error` string stays for API clients and logs, but it is the `code` the UI keys off:
+ * without it the client can only say "could not save", which is useless to somebody who just
+ * mistyped a wait value. Each code has a matching `marketing_automation.validation.*` message.
+ */
+export const VALIDATION_CODES = {
+  unknownStepType: 'marketing_automation.validation.unknownStepType',
+  invalidStepParams: 'marketing_automation.validation.invalidStepParams',
+  trailingWait: 'marketing_automation.validation.trailingWait',
+  unavailableTrigger: 'marketing_automation.validation.unavailableTrigger',
+  duplicateTrigger: 'marketing_automation.validation.duplicateTrigger',
+  loopRisk: 'marketing_automation.validation.loopRisk',
+  noSteps: 'marketing_automation.validation.noSteps',
+  noTriggers: 'marketing_automation.validation.noTriggers',
+  invalidSchedule: 'marketing_automation.validation.invalidSchedule',
+} as const
+
+function invalidGraph(code: string, error: string, detail?: string): CrudHttpError {
+  return new CrudHttpError(400, { error, code, ...(detail ? { detail } : {}) })
+}
+
+/**
+ * Events a step type can cause. Used to refuse a campaign that reacts to an event its own steps
+ * emit, which would drive itself in a cycle.
+ */
+const STEP_EMITTED_EVENTS: Record<string, string[]> = {
+  add_tag: ['customers.tag.assigned'],
+}
+
 function assertGraphIsRunnable(payload: CampaignGraphSaveInput): void {
   const steps = payload.definition.steps
 
   for (const step of steps) {
-    if (!getMarketingStep(step.type)) {
-      throw new CrudHttpError(400, { error: `Unknown step type: ${step.type}` })
+    const handler = getMarketingStep(step.type)
+    if (!handler) {
+      throw invalidGraph(VALIDATION_CODES.unknownStepType, `Unknown step type: ${step.type}`, step.type)
     }
-    const handler = getMarketingStep(step.type)!
-    const parsed = handler.paramsSchema.safeParse(step.params)
-    if (!parsed.success) {
-      throw new CrudHttpError(400, { error: `Invalid parameters for step ${step.type}` })
+    if (!handler.paramsSchema.safeParse(step.params).success) {
+      throw invalidGraph(VALIDATION_CODES.invalidStepParams, `Invalid parameters for step ${step.type}`, step.type)
     }
   }
 
@@ -52,20 +83,48 @@ function assertGraphIsRunnable(payload: CampaignGraphSaveInput): void {
   // intent, and keeping it would park every customer forever at the end of the campaign.
   const last = steps[steps.length - 1]
   if (last && last.type === WAIT_STEP_TYPE) {
-    throw new CrudHttpError(400, { error: 'The last step is a wait, which has nothing to wait for' })
+    throw invalidGraph(VALIDATION_CODES.trailingWait, 'The last step is a wait, which has nothing to wait for')
   }
 
   const allowedEventIds = new Set(availableEventTriggers().map((entry) => entry.eventId))
-  const seen = new Set<string>()
+  const seenEvents = new Set<string>()
+  const seenSchedules = new Set<string>()
   for (const trigger of payload.triggers) {
     if (trigger.kind === 'event') {
       if (!allowedEventIds.has(trigger.eventId)) {
-        throw new CrudHttpError(400, { error: `Trigger is not available: ${trigger.eventId}` })
+        throw invalidGraph(VALIDATION_CODES.unavailableTrigger, `Trigger is not available: ${trigger.eventId}`, trigger.eventId)
       }
-      if (seen.has(trigger.eventId)) {
-        throw new CrudHttpError(400, { error: `Duplicate trigger: ${trigger.eventId}` })
+      if (seenEvents.has(trigger.eventId)) {
+        throw invalidGraph(VALIDATION_CODES.duplicateTrigger, `Duplicate trigger: ${trigger.eventId}`, trigger.eventId)
       }
-      seen.add(trigger.eventId)
+      seenEvents.add(trigger.eventId)
+      continue
+    }
+    if (!isSweepIntervalValid(trigger.scheduleValue)) {
+      throw invalidGraph(
+        VALIDATION_CODES.invalidSchedule,
+        `Unsupported schedule: ${trigger.scheduleValue}`,
+        trigger.scheduleValue,
+      )
+    }
+    // Two schedules with the same value collide on the canvas node id, producing duplicate React
+    // keys and a node that cannot be removed.
+    if (seenSchedules.has(trigger.scheduleValue)) {
+      throw invalidGraph(VALIDATION_CODES.duplicateTrigger, `Duplicate schedule: ${trigger.scheduleValue}`, trigger.scheduleValue)
+    }
+    seenSchedules.add(trigger.scheduleValue)
+  }
+
+  // Refused, not warned: a campaign reacting to an event its own step causes drives itself, and
+  // the per-subject run budget would then be the only thing standing between it and a storm.
+  const emitted = new Set(steps.flatMap((step) => STEP_EMITTED_EVENTS[step.type] ?? []))
+  for (const eventId of seenEvents) {
+    if (emitted.has(eventId)) {
+      throw invalidGraph(
+        VALIDATION_CODES.loopRisk,
+        `Campaign reacts to ${eventId}, which its own steps emit`,
+        eventId,
+      )
     }
   }
 }
@@ -174,28 +233,27 @@ const saveCampaignGraphCommand: CommandHandler<
       request: ctx.request ?? null,
     })
 
-    const wasEnabled = campaign.isEnabled
-    campaign.name = payload.name
-    campaign.description = payload.description ?? null
-    campaign.isEnabled = payload.isEnabled
-    campaign.definition = payload.definition as unknown as Record<string, unknown>
-    await em.flush()
+    // One transaction: without it a failure between the two writes leaves an ENABLED campaign
+    // carrying its new definition and ZERO triggers — and the unique constraint on
+    // (campaign, event) makes a concurrent double-save a plausible way to get there.
+    await em.transactional(async (tx) => {
+      const managed = await tx.findOne(MarketingCampaign, { id: campaign.id })
+      if (!managed) throw new CrudHttpError(404, { error: 'Campaign not found' })
+      managed.name = payload.name
+      // `description` is only touched when the caller sent the field. The canvas does not edit it,
+      // and treating an absent field as "clear it" silently wiped descriptions set through the API.
+      if (payload.description !== undefined) managed.description = payload.description ?? null
+      managed.definition = payload.definition as unknown as Record<string, unknown>
+      await replaceTriggers(tx, campaign.id, scope, payload.triggers)
+    })
 
-    await replaceTriggers(em, campaign.id, scope, payload.triggers)
-
+    // Emitted only after the whole write is committed, so no subscriber can observe a campaign
+    // that does not exist in the shape the event announces.
     await emitMarketingAutomationEvent('marketing_automation.campaign.saved', {
       id: campaign.id,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
     }, { persistent: true })
-
-    if (wasEnabled !== payload.isEnabled) {
-      await emitMarketingAutomationEvent(
-        payload.isEnabled ? 'marketing_automation.campaign.enabled' : 'marketing_automation.campaign.disabled',
-        { id: campaign.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
-        { persistent: true },
-      )
-    }
 
     // Reported so the UI can tell the author how many customers are mid-journey — editing a
     // campaign changes what they will receive next, and that is worth saying out loud.
@@ -206,7 +264,75 @@ const saveCampaignGraphCommand: CommandHandler<
       status: 'waiting',
     })
 
-    return { id: campaign.id, updatedAt: campaign.updatedAt.toISOString(), waitingRuns }
+    const saved = await em.findOne(MarketingCampaign, { id: campaign.id })
+    return {
+      id: campaign.id,
+      updatedAt: (saved?.updatedAt ?? campaign.updatedAt).toISOString(),
+      waitingRuns,
+    }
+  },
+}
+
+const setCampaignEnabledCommand: CommandHandler<
+  CampaignEnabledInput & { id: string },
+  { id: string; isEnabled: boolean; updatedAt: string }
+> = {
+  id: 'marketing_automation.campaigns.set_enabled',
+
+  async execute(rawInput, ctx) {
+    const scope = requireScope(ctx)
+    ensureOrganizationScope(ctx, scope.organizationId)
+
+    const { id, ...rest } = rawInput
+    const payload = campaignEnabledSchema.parse(rest)
+
+    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const campaign = await em.findOne(MarketingCampaign, {
+      id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+    })
+    if (!campaign) throw new CrudHttpError(404, { error: 'Campaign not found' })
+
+    enforceCommandOptimisticLock({
+      resourceKind: 'marketing_automation.campaign',
+      resourceId: campaign.id,
+      current: campaign.updatedAt,
+      expected: payload.updatedAt,
+      request: ctx.request ?? null,
+    })
+
+    // Enabling a campaign with nothing to run is a configuration mistake that looks like success,
+    // so it is refused here rather than discovered when nobody receives anything.
+    if (payload.isEnabled) {
+      const definition = campaignDefinitionSchema.parse(campaign.definition)
+      if (definition.steps.length === 0) {
+        throw invalidGraph(VALIDATION_CODES.noSteps, 'A campaign cannot be enabled with no steps')
+      }
+      const triggerCount = await em.count(MarketingCampaignTrigger, {
+        campaignId: campaign.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      })
+      if (triggerCount === 0) {
+        throw invalidGraph(VALIDATION_CODES.noTriggers, 'A campaign cannot be enabled with no triggers')
+      }
+    }
+
+    const changed = campaign.isEnabled !== payload.isEnabled
+    campaign.isEnabled = payload.isEnabled
+    await em.flush()
+
+    if (changed) {
+      await emitMarketingAutomationEvent(
+        payload.isEnabled ? 'marketing_automation.campaign.enabled' : 'marketing_automation.campaign.disabled',
+        { id: campaign.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
+        { persistent: true },
+      )
+    }
+
+    return { id: campaign.id, isEnabled: campaign.isEnabled, updatedAt: campaign.updatedAt.toISOString() }
   },
 }
 
@@ -253,6 +379,7 @@ const deleteCampaignCommand: CommandHandler<{ id: string }, { id: string }> = {
 
 registerCommand(createCampaignCommand)
 registerCommand(saveCampaignGraphCommand)
+registerCommand(setCampaignEnabledCommand)
 registerCommand(deleteCampaignCommand)
 
-export { createCampaignCommand, saveCampaignGraphCommand, deleteCampaignCommand }
+export { createCampaignCommand, saveCampaignGraphCommand, setCampaignEnabledCommand, deleteCampaignCommand }

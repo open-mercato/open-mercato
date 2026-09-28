@@ -93,7 +93,7 @@ export async function POST(req: Request) {
   const commandBus = container.resolve<CommandBus>('commandBus')
   const { result } = await commandBus.execute<typeof parsed.data, { id: string }>(
     'marketing_automation.campaigns.create',
-    { input: parsed.data, ctx: buildRequestCommandContext(container, auth) },
+    { input: parsed.data, ctx: buildRequestCommandContext(container, auth, req) },
   )
 
   return NextResponse.json({ id: result.id }, { status: 201 })

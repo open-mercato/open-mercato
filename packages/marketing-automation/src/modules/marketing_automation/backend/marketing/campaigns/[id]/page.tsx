@@ -69,6 +69,21 @@ function summarizeAudience(audience: CampaignDefinition['audience']): string[] {
   return lines
 }
 
+/**
+ * Maps the server's validation `code` to a localized message.
+ *
+ * The command answers with a stable code precisely so the author is told what is wrong; collapsing
+ * everything into "could not save" is what made the localized validation strings dead weight.
+ */
+function describeSaveError(error: unknown, t: (key: string, fallback?: string) => string): string {
+  const body = (error as { body?: { code?: unknown; detail?: unknown } } | null)?.body
+  const code = typeof body?.code === 'string' ? body.code : null
+  if (!code) return t('marketing_automation.errors.saveFailed', 'Could not save the campaign.')
+  const detail = typeof body?.detail === 'string' ? body.detail : ''
+  const message = t(code, code)
+  return detail ? `${message} (${detail})` : message
+}
+
 export default function CampaignEditorPage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const campaignId = typeof params?.id === 'string' ? params.id : ''
@@ -79,6 +94,7 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
   const [dirty, setDirty] = React.useState(false)
 
   const [name, setName] = React.useState('')
+  const [description, setDescription] = React.useState<string | null>(null)
   const [isEnabled, setIsEnabled] = React.useState(false)
   const [updatedAt, setUpdatedAt] = React.useState('')
   const [triggers, setTriggers] = React.useState<CampaignTriggerInput[]>([])
@@ -90,23 +106,31 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
     if (!campaignId) return
     let cancelled = false
     void (async () => {
-      const [campaign, paletteResult] = await Promise.all([
-        apiCall<CampaignResponse>(`/api/marketing_automation/campaigns/${campaignId}`),
-        apiCall<{ triggers: PaletteTrigger[]; steps: PaletteStep[] }>('/api/marketing_automation/palette'),
-      ])
-      if (cancelled) return
-      if (!campaign.ok || !campaign.result) {
-        setError(t('marketing_automation.errors.loadFailed', 'Could not load the campaign.'))
-        setLoading(false)
-        return
+      // Wrapped: `apiCall` resolves for HTTP errors but a network failure or a parse error rejects,
+      // and an unhandled rejection here left the page on a spinner forever instead of showing the
+      // error state that is right below.
+      try {
+        const [campaign, paletteResult] = await Promise.all([
+          apiCall<CampaignResponse>(`/api/marketing_automation/campaigns/${campaignId}`),
+          apiCall<{ triggers: PaletteTrigger[]; steps: PaletteStep[] }>('/api/marketing_automation/palette'),
+        ])
+        if (cancelled) return
+        if (!campaign.ok || !campaign.result) {
+          setError(t('marketing_automation.errors.loadFailed', 'Could not load the campaign.'))
+          return
+        }
+        setName(campaign.result.name)
+        setDescription(campaign.result.description ?? null)
+        setIsEnabled(campaign.result.isEnabled)
+        setUpdatedAt(campaign.result.updatedAt)
+        setTriggers(campaign.result.triggers ?? [])
+        setDefinition(campaign.result.definition)
+        if (paletteResult.ok && paletteResult.result) setPalette(paletteResult.result)
+      } catch {
+        if (!cancelled) setError(t('marketing_automation.errors.loadFailed', 'Could not load the campaign.'))
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-      setName(campaign.result.name)
-      setIsEnabled(campaign.result.isEnabled)
-      setUpdatedAt(campaign.result.updatedAt)
-      setTriggers(campaign.result.triggers ?? [])
-      setDefinition(campaign.result.definition)
-      if (paletteResult.ok && paletteResult.result) setPalette(paletteResult.result)
-      setLoading(false)
     })()
     return () => { cancelled = true }
   }, [campaignId, t])
@@ -185,9 +209,46 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
   }
 
   const onPositionsChange = React.useCallback((nodePositions: Record<string, { x: number; y: number }>) => {
-    setDefinition((current) => ({ ...current, canvas: { ...current.canvas, nodePositions } }))
+    setDefinition((current) => {
+      // Only positions of nodes that still exist are kept. Writing the raw map back let a deleted
+      // step's coordinates survive every subsequent save and grow the jsonb without bound.
+      const live = new Set<string>([AUDIENCE_NODE_ID, ...current.steps.map((step) => step.id)])
+      const pruned: Record<string, { x: number; y: number }> = {}
+      for (const [nodeId, position] of Object.entries(nodePositions)) {
+        if (live.has(nodeId) || nodeId.startsWith('trigger:')) pruned[nodeId] = position
+      }
+      return { ...current, canvas: { ...current.canvas, nodePositions: pruned } }
+    })
     setDirty(true)
   }, [])
+
+  const toggleEnabled = async () => {
+    setSaving(true)
+    try {
+      const response = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(updatedAt),
+        () => apiCallOrThrow<{ isEnabled: boolean; updatedAt: string }>(
+          `/api/marketing_automation/campaigns/${campaignId}/enabled`,
+          {
+            method: 'PUT',
+            body: JSON.stringify({ updatedAt, isEnabled: !isEnabled }),
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      )
+      const next = response.result
+      if (next) {
+        setIsEnabled(next.isEnabled)
+        setUpdatedAt(next.updatedAt)
+      }
+    } catch (toggleError) {
+      if (!surfaceRecordConflict(toggleError, t)) {
+        flash(describeSaveError(toggleError, t), 'error')
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const save = async () => {
     setSaving(true)
@@ -200,7 +261,7 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
           `/api/marketing_automation/campaigns/${campaignId}/save-graph`,
           {
             method: 'PUT',
-            body: JSON.stringify({ updatedAt, name, isEnabled, triggers, definition }),
+            body: JSON.stringify({ updatedAt, name, description, triggers, definition }),
             headers: { 'content-type': 'application/json' },
           },
         ),
@@ -222,7 +283,7 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
       // One conflict surface for the whole app: this renders the shared bar (or defers to a merge
       // dialog when one is registered) and only falls through for non-conflict failures.
       if (!surfaceRecordConflict(saveError, t)) {
-        flash(t('marketing_automation.errors.saveFailed', 'Could not save the campaign.'), 'error')
+        flash(describeSaveError(saveError, t), 'error')
       }
     } finally {
       setSaving(false)
@@ -254,7 +315,9 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
           </div>
           <Button
             variant={isEnabled ? 'default' : 'outline'}
-            onClick={() => { setIsEnabled(!isEnabled); setDirty(true) }}
+            disabled={saving || dirty}
+            title={dirty ? t('marketing_automation.canvas.unsavedChanges', 'Unsaved changes') : undefined}
+            onClick={() => void toggleEnabled()}
           >
             {isEnabled
               ? t('marketing_automation.action.disable', 'Disable')

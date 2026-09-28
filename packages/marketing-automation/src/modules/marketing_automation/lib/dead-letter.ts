@@ -12,7 +12,7 @@ import { MarketingDispatchDeadLetter } from '../data/entities.js'
  * would mask the original error that caused it.
  */
 export async function recordDeadLetter(
-  em: EntityManager,
+  source: EntityManager,
   entry: {
     source: 'dispatch' | 'resume'
     error: unknown
@@ -24,6 +24,11 @@ export async function recordDeadLetter(
   },
 ): Promise<void> {
   try {
+    // A FORKED entity manager on purpose. The caller's EM usually reached this path because its
+    // own flush failed, so its unit of work still holds the offending entity: flushing the dead
+    // letter through it would retry that same write, fail identically, and lose the evidence —
+    // and leave the dirty unit of work to poison the next campaign in the same job.
+    const em = source.fork()
     const record = em.create(MarketingDispatchDeadLetter, {
       source: entry.source,
       eventId: entry.eventId ?? null,

@@ -13,10 +13,14 @@ export function buildRequestCommandContext(
   // `AuthContext` itself includes `| null` in this codebase, so the non-null form is the
   // caller's promise that it already rejected an unauthenticated request.
   auth: NonNullable<AuthContext>,
+  // Threaded so `enforceCommandOptimisticLock` can read the expected-version header. Without it a
+  // command that relies on the header alone (delete) silently skips the check entirely.
+  request?: Request,
 ): CommandRuntimeContext {
   return {
     container,
     auth,
+    request,
     organizationScope: null,
     selectedOrganizationId: auth.orgId ?? null,
     organizationIds: auth.orgId ? [auth.orgId] : null,

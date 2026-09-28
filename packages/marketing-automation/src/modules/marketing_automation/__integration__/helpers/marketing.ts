@@ -9,7 +9,6 @@ export type CampaignGraph = {
   updatedAt: string
   name: string
   description?: string | null
-  isEnabled: boolean
   triggers: Array<Record<string, unknown>>
   definition: Record<string, unknown>
 }
@@ -75,7 +74,6 @@ export function minimalGraph(updatedAt: string, name: string): CampaignGraph {
   return {
     updatedAt,
     name,
-    isEnabled: false,
     triggers: [{ kind: 'event', eventId: 'sales.order.created' }],
     definition: {
       version: 1,
@@ -85,4 +83,24 @@ export function minimalGraph(updatedAt: string, name: string): CampaignGraph {
       ],
     },
   }
+}
+
+/** Taking a campaign live is a separate endpoint behind `campaigns.publish`. */
+export async function setEnabled(
+  request: APIRequestContext,
+  token: string,
+  id: string,
+  input: { updatedAt: string; isEnabled: boolean },
+) {
+  return apiRequest(request, 'PUT', `${CAMPAIGNS_PATH}/${id}/enabled`, { token, data: input })
+}
+
+/** Dry run — reports what would happen and sends nothing. */
+export async function testDispatch(
+  request: APIRequestContext,
+  token: string,
+  id: string,
+  input: { subjectEntityId: string; trigger?: Record<string, unknown> },
+) {
+  return apiRequest(request, 'POST', `${CAMPAIGNS_PATH}/${id}/test-dispatch`, { token, data: input })
 }

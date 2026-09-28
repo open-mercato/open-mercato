@@ -48,8 +48,12 @@ export async function createRun(
  * Nothing downstream needs a lock because nothing downstream proceeds without the token.
  *
  * The `claimed` branch is lease recovery: a worker that died mid-step left the row claimed, and
- * without this it would sit there forever. `attempts` is incremented inside the same statement
- * so two claimers cannot both read the old value.
+ * without this it would sit there forever.
+ *
+ * Deliberately does NOT touch `attempts`. That counter is the retry budget, and a legitimate wait
+ * resume is a claim too — counting claims would exhaust the budget of a five-step drip campaign
+ * purely by progressing, so the first real failure afterwards would be fatal. Only `failRun`
+ * increments it, and it is reset whenever the run makes progress.
  */
 export async function claimRun(
   em: EntityManager,
@@ -74,7 +78,6 @@ export async function claimRun(
       status: 'claimed',
       claimedAt: now,
       claimToken,
-      attempts: raw('attempts + 1'),
     },
   )
   return affected === 1 ? claimToken : null
@@ -91,7 +94,9 @@ export async function applyTransition(
   runId: string,
   scope: RunScope,
   claimToken: string,
-  transition: RunTransition,
+  // Progress transitions only. A failure goes through `failRun`, which owns the retry budget
+  // and the resume index, so accepting it here would give two code paths for one outcome.
+  transition: Exclude<RunTransition, { kind: 'failed' }>,
   now: Date,
 ): Promise<boolean> {
   const common = {
@@ -100,10 +105,15 @@ export async function applyTransition(
     lastError: null,
   }
 
+  // Progress resets the retry budget and clears any stale retry stamp: the attempts that were
+  // spent recovering from an earlier failure are spent, and reporting a `nextRetryAt` on a run
+  // that is simply waiting would be misleading.
+  const progressed = { ...common, attempts: 0, nextRetryAt: null }
+
   const data = transition.kind === 'completed'
-    ? { ...common, status: 'completed' as const, completedAt: now, resumeAt: null, claimToken: null, claimedAt: null }
+    ? { ...progressed, status: 'completed' as const, completedAt: now, resumeAt: null, claimToken: null, claimedAt: null }
     : {
-        ...common,
+        ...progressed,
         status: 'waiting' as const,
         resumeAt: transition.resumeAt,
         currentStepIndex: transition.nextStepIndex,
@@ -130,12 +140,25 @@ export async function failRun(
   runId: string,
   scope: RunScope,
   claimToken: string,
-  input: { attempts: number; error: unknown; stepLog: StepOutcome[] },
+  input: {
+    /** Attempts already recorded BEFORE this failure. */
+    attempts: number
+    error: unknown
+    stepLog: StepOutcome[]
+    /**
+     * Step to resume at. The step that failed, so the retry repeats only that step — never the
+     * ones that already succeeded, which for a chain containing a send would mean mailing the
+     * customer again.
+     */
+    resumeStepIndex: number
+    context: AutomationContext
+  },
   now: Date,
 ): Promise<'retrying' | 'dead'> {
   const message = input.error instanceof Error ? input.error.message : String(input.error)
-  const dead = hasExhaustedAttempts(input.attempts)
-  const nextRetryAt = dead ? null : computeNextRetryAt(input.attempts, now)
+  const attempts = input.attempts + 1
+  const dead = hasExhaustedAttempts(attempts)
+  const nextRetryAt = dead ? null : computeNextRetryAt(attempts, now)
 
   await em.nativeUpdate(
     MarketingCampaignRun,
@@ -143,11 +166,14 @@ export async function failRun(
     {
       status: dead ? 'dead' : 'waiting',
       lastError: message.slice(0, 2000),
+      attempts,
       nextRetryAt,
       resumeAt: nextRetryAt,
       claimToken: null,
       claimedAt: null,
+      currentStepIndex: input.resumeStepIndex,
       stepLog: input.stepLog as unknown as Record<string, unknown>[],
+      context: input.context as Record<string, unknown>,
     },
   )
   return dead ? 'dead' : 'retrying'
@@ -215,6 +241,29 @@ export async function hasActiveRun(
     status: { $in: ['running', 'waiting', 'claimed'] },
   })
   return count > 0
+}
+
+/**
+ * Runs started for this subject across ALL campaigns in a window.
+ *
+ * This is the cascade guard. A campaign whose step assigns a tag causes
+ * `customers.tag.assigned`, which is itself a trigger, so campaigns can drive each other in a
+ * cycle. An in-payload depth counter cannot see that: the events are emitted by the modules that
+ * own them and carry nothing of ours. A budget the database can answer does see it, and it bounds
+ * any cycle regardless of how many campaigns are in the loop.
+ */
+export async function countRunsStartedSince(
+  em: EntityManager,
+  subjectEntityId: string,
+  scope: RunScope,
+  since: Date,
+): Promise<number> {
+  return em.count(MarketingCampaignRun, {
+    subjectEntityId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    startedAt: { $gte: since },
+  })
 }
 
 /** Counts across ALL campaigns — a per-campaign cap would not protect anybody. */

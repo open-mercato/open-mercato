@@ -95,8 +95,11 @@ Integration tests need a running app plus workers:
   no total. Anything an audience compares must be hydrated in `lib/trigger-catalog.ts`.
 - Sales money columns are `numeric` mapped to `string`. Parse deliberately.
 - A cancelled order is `canceled` OR `cancelled`; the codebase tolerates both.
-- `add_tag` emits `customers.tag.assigned`, which is itself a trigger. `MAX_DISPATCH_DEPTH` is
-  what stops a tag-on-tag campaign looping forever.
+- `add_tag` emits `customers.tag.assigned`, which is itself a trigger. Two things stop a cycle:
+  the save refuses a campaign whose trigger is an event its own steps emit, and
+  `MAX_RUNS_PER_SUBJECT` bounds runs per subject per hour across ALL campaigns. An in-context
+  depth counter was tried first and could not work — the events are emitted by the modules that
+  own them and carry nothing of ours, so nothing could increment a depth across the hop.
 - New features reach existing tenants only after `yarn mercato auth sync-role-acls`, and the dev
   server caches the generated ACL registry — restart it or a wildcard has nothing to expand.
 

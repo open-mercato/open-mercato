@@ -13,8 +13,18 @@ export {
   MarketingCampaign,
   MarketingCampaignTrigger,
   MarketingCampaignRun,
+  MarketingMessageSend,
   MarketingDispatchDeadLetter,
 } from './modules/marketing_automation/data/entities.js'
+
+// The registry seam the docblock above advertises. Without these exported, another module could
+// not actually contribute a step type from its own `di.ts`.
+export {
+  registerMarketingSteps,
+  getMarketingStep,
+  listMarketingSteps,
+} from './modules/marketing_automation/lib/engine/registry.js'
+export type { StepHandler, StepResult, UiFieldSpec } from './modules/marketing_automation/lib/engine/registry.js'
 
 export type {
   AutomationContext,

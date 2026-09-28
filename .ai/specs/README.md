@@ -238,6 +238,7 @@ Fully implemented and deployed. Canonical files live in [`implemented/`](impleme
 | [Checkout Wireframes](implemented/2026-03-19-checkout-pay-links-wireframes.md) | 2026-03-19 | Checkout Pay Links Wireframes | Companion wireframes for the Checkout Pay Links spec |
 | [CRM Conversation Shared Visibility](2026-08-25-crm-channel-shared-visibility.md) | 2026-08-25 | CRM Conversation Shared Visibility | Owner-controlled sharing of personal-mailbox email: per-Person conversation grants and a whole-channel team-mailbox flag, both read-time derived so un-sharing is lossless |
 | [Marketing Automation Module](2026-09-28-marketing-automation-module.md) | 2026-09-28 | Marketing Automation Module | Campaigns as trigger (platform event or periodic sweep) -> audience expression -> ordered steps; reuses the business_rules condition evaluator and builder, the customers tag commands and the shared email transport; claim-and-lease durability, frequency cap and quiet hours, and a visual canvas |
+| [Marketing Automation Full Port Roadmap](2026-09-28-marketing-automation-full-port-roadmap.md) | 2026-09-28 | Marketing Automation Full Port Roadmap | Epic-level plan for parity with the ported Magento module: branching and set-level audience foundations, delivery tracking as the prerequisite for funnel / A-B winner / send-time optimization, segments, channels behind a consent model, B2B, and the items blocked on SPEC-029 |
 
 ## Specification Structure
 

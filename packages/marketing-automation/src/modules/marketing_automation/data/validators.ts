@@ -57,7 +57,7 @@ export const campaignTriggerSchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     kind: z.literal('schedule'),
-    /** Interval (`1h`, `30m`) or cron, validated against the scheduler's own parser on save. */
+    /** Interval such as `30m`, `6h`, `1d`. Validated on save; see `lib/sweep-interval.ts`. */
     scheduleValue: z.string().min(1),
     /**
      * Without a re-entry window a sweep re-enrols the same subject on every tick, because the
@@ -77,13 +77,22 @@ export const campaignTriggerSchema = z.discriminatedUnion('kind', [
  * rather than silently overwrite, and a campaign graph is exactly the kind of document two
  * people edit at once.
  */
+/**
+ * `isEnabled` is deliberately NOT here. Taking a campaign live is what starts messaging real
+ * customers, so it is its own endpoint behind `marketing_automation.campaigns.publish` rather than
+ * a field on a save that only needs `campaigns.manage`.
+ */
 export const campaignGraphSaveSchema = z.object({
   updatedAt: z.string().min(1),
   name: z.string().min(1),
   description: z.string().nullable().optional(),
-  isEnabled: z.boolean(),
   triggers: z.array(campaignTriggerSchema),
   definition: campaignDefinitionSchema,
+})
+
+export const campaignEnabledSchema = z.object({
+  updatedAt: z.string().min(1),
+  isEnabled: z.boolean(),
 })
 
 export type Audience = z.infer<typeof audienceSchema>
@@ -93,3 +102,4 @@ export type CampaignDefinitionInput = z.infer<typeof campaignDefinitionSchema>
 export type CampaignTriggerInput = z.infer<typeof campaignTriggerSchema>
 export type CampaignSendPolicyInput = z.infer<typeof campaignSendPolicySchema>
 export type CampaignGraphSaveInput = z.infer<typeof campaignGraphSaveSchema>
+export type CampaignEnabledInput = z.infer<typeof campaignEnabledSchema>

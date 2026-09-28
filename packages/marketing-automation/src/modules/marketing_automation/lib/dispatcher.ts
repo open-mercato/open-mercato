@@ -15,6 +15,7 @@ import { recordDeadLetter } from './dead-letter.js'
 import {
   applyTransition,
   claimRun,
+  countRunsStartedSince,
   countSendsSince,
   createRun,
   failRun,
@@ -28,13 +29,16 @@ import type { SubjectDocument } from './engine/types.js'
 import { reportError } from '@open-mercato/telemetry'
 
 /**
- * How many times a dispatch may cascade before it is refused.
+ * Per-subject run budget, across every campaign, inside {@link RUN_BUDGET_WINDOW_MINUTES}.
  *
- * `add_tag` emits `customers.tag.assigned`, which is itself a trigger. A campaign that reacts
- * to a tag and adds a tag is an infinite loop, and the author will not necessarily see it — so
- * the depth is carried in the context and enforced here rather than hoped about.
+ * This is the cascade guard, and it replaced an in-context depth counter that could not work: a
+ * step assigning a tag causes `customers.tag.assigned`, which is itself a trigger, but that event
+ * is emitted by the `customers` module and carries nothing of ours, so nothing could increment a
+ * depth across the hop. A budget the database can answer bounds the cycle however many campaigns
+ * are in it, and doubles as protection against an event storm from an import.
  */
-export const MAX_DISPATCH_DEPTH = 3
+export const MAX_RUNS_PER_SUBJECT = 20
+export const RUN_BUDGET_WINDOW_MINUTES = 60
 
 export type DispatchDeps = {
   em: EntityManager
@@ -74,7 +78,9 @@ function buildEffects(
       status: entry.status,
       toAddress: entry.toAddress,
       suppressionReason: entry.suppressionReason,
-      sentAt: deps.now,
+      // The moment of the send, not the worker's start instant: a long chain would otherwise
+      // backdate every send to when the job began and skew the frequency-cap window.
+      sentAt: new Date(),
     }),
     resolveTimeZone: (subjectEntityId) => subjectEntityId
       ? loadSubjectTimeZone(deps.em, subjectEntityId, deps.scope)
@@ -111,6 +117,16 @@ async function persist(
       buildStepDeps(deps),
       buildEffects(deps, run),
     )
+
+    if (transition.kind === 'failed') {
+      return recordFailure(deps, run, claimToken, {
+        error: transition.error,
+        stepLog: transition.stepLog,
+        context: transition.context,
+        resumeStepIndex: transition.failedIndex,
+      })
+    }
+
     await applyTransition(deps.em, run.id, deps.scope, claimToken, transition, deps.now)
 
     if (transition.kind === 'waiting') {
@@ -122,31 +138,56 @@ async function persist(
     }
     return 'completed'
   } catch (error) {
-    deps.logger.error('[internal] marketing run failed', {
-      runId: run.id,
-      campaignId: run.campaignId,
-      error: error instanceof Error ? error.message : String(error),
+    // Not a step failure (those come back as a `failed` transition) but a failure of the
+    // orchestration itself — a bad definition, an effects query. Resume where the run already was.
+    return recordFailure(deps, run, claimToken, {
+      error,
+      stepLog: state.stepLog,
+      context: state.context,
+      resumeStepIndex: state.currentStepIndex,
     })
-    reportError(error, {
-      module: 'marketing_automation',
-      code: 'marketing_automation.run_failed',
-      attributes: { runId: run.id, campaignId: run.campaignId },
-    })
-    const outcome = await failRun(
-      deps.em,
-      run.id,
-      deps.scope,
-      claimToken,
-      { attempts: run.attempts, error, stepLog: state.stepLog },
-      deps.now,
-    )
-    if (outcome === 'retrying') {
-      const nextRetryAt = await deps.em.findOne(MarketingCampaignRun, { id: run.id }, { fields: ['resumeAt'] })
-      const delayMs = Math.max(0, (nextRetryAt?.resumeAt?.getTime() ?? deps.now.getTime()) - deps.now.getTime())
-      await deps.enqueueResume(run.id, delayMs)
-    }
-    return outcome
   }
+}
+
+/** One place that records a failure, so the step path and the orchestration path cannot diverge. */
+async function recordFailure(
+  deps: DispatchDeps,
+  run: { id: string; campaignId: string; attempts: number },
+  claimToken: string,
+  input: { error: unknown; stepLog: StepOutcome[]; context: AutomationContext; resumeStepIndex: number },
+): Promise<'retrying' | 'dead'> {
+  deps.logger.error('[internal] marketing run failed', {
+    runId: run.id,
+    campaignId: run.campaignId,
+    stepIndex: input.resumeStepIndex,
+    error: input.error instanceof Error ? input.error.message : String(input.error),
+  })
+  reportError(input.error, {
+    module: 'marketing_automation',
+    code: 'marketing_automation.run_failed',
+    attributes: { runId: run.id, campaignId: run.campaignId },
+  })
+
+  const outcome = await failRun(
+    deps.em,
+    run.id,
+    deps.scope,
+    claimToken,
+    {
+      attempts: run.attempts,
+      error: input.error,
+      stepLog: input.stepLog,
+      resumeStepIndex: input.resumeStepIndex,
+      context: input.context,
+    },
+    deps.now,
+  )
+  if (outcome === 'retrying') {
+    const parked = await deps.em.findOne(MarketingCampaignRun, { id: run.id }, { fields: ['resumeAt'] })
+    const delayMs = Math.max(0, (parked?.resumeAt?.getTime() ?? deps.now.getTime()) - deps.now.getTime())
+    await deps.enqueueResume(run.id, delayMs)
+  }
+  return outcome
 }
 
 
@@ -191,6 +232,17 @@ export async function startCampaignForSubject(
   if (input.subjectEntityId) {
     if (await hasActiveRun(deps.em, campaign.id, input.subjectEntityId, deps.scope)) {
       // Already mid-journey here; a second concurrent entry would double every remaining step.
+      return 'guard'
+    }
+
+    const budgetSince = new Date(deps.now.getTime() - RUN_BUDGET_WINDOW_MINUTES * 60_000)
+    const recentRuns = await countRunsStartedSince(deps.em, input.subjectEntityId, deps.scope, budgetSince)
+    if (recentRuns >= MAX_RUNS_PER_SUBJECT) {
+      deps.logger.warn('[internal] marketing run budget exhausted for subject, refusing to enrol', {
+        campaignId: campaign.id,
+        subjectEntityId: input.subjectEntityId,
+        recentRuns,
+      })
       return 'guard'
     }
     if (input.reentryPolicy.kind !== 'unlimited') {
@@ -261,15 +313,6 @@ export async function dispatchEvent(
 ): Promise<DispatchResult> {
   const result: DispatchResult = { started: 0, skippedByAudience: 0, skippedByGuard: 0 }
   const dispatchDepth = input.dispatchDepth ?? 0
-
-  if (dispatchDepth >= MAX_DISPATCH_DEPTH) {
-    deps.logger.warn('[internal] marketing dispatch depth exceeded, refusing to cascade', {
-      eventId: input.eventId,
-      dispatchDepth,
-    })
-    return result
-  }
-
   const candidates = await findCampaignsForEvent(deps.em, input.eventId, deps.scope)
   if (!candidates.length) return result
 

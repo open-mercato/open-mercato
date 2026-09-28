@@ -33,7 +33,6 @@ test.describe('TC-MA-002 save graph', () => {
       const response = await saveGraph(request, token, campaignId, {
         updatedAt: created.updatedAt,
         name: 'QA graph saved',
-        isEnabled: true,
         triggers: [{ kind: 'event', eventId: 'sales.order.created' }],
         definition: {
           version: 1,
@@ -50,7 +49,8 @@ test.describe('TC-MA-002 save graph', () => {
 
       const saved = await getCampaign(request, token, campaignId)
       expect(saved.name).toBe('QA graph saved')
-      expect(saved.isEnabled).toBe(true)
+      // Saving a graph never publishes: enabling is a separate, separately-gated endpoint.
+      expect(saved.isEnabled).toBe(false)
       expect(saved.triggers).toEqual([{ kind: 'event', eventId: 'sales.order.created' }])
       expect(saved.definition.steps.map((step) => [step.id, step.type])).toEqual([
         ['s1', 'add_tag'],
@@ -105,35 +105,35 @@ test.describe('TC-MA-002 save graph', () => {
         {
           label: 'a trailing wait has nothing to wait for',
           graph: {
-            updatedAt, name: 'x', isEnabled: false, triggers: [trigger],
+            updatedAt, name: 'x', triggers: [trigger],
             definition: { version: 1, audience: null, steps: [emailStep, { id: 'w', type: 'wait', params: { minutes: 5 } }] },
           },
         },
         {
           label: 'an unknown step type',
           graph: {
-            updatedAt, name: 'x', isEnabled: false, triggers: [trigger],
+            updatedAt, name: 'x', triggers: [trigger],
             definition: { version: 1, audience: null, steps: [{ id: 's', type: 'send_pigeon', params: {} }] },
           },
         },
         {
           label: 'a duplicate trigger',
           graph: {
-            updatedAt, name: 'x', isEnabled: false, triggers: [trigger, trigger],
+            updatedAt, name: 'x', triggers: [trigger, trigger],
             definition: { version: 1, audience: null, steps: [emailStep] },
           },
         },
         {
           label: 'a trigger that is not available here',
           graph: {
-            updatedAt, name: 'x', isEnabled: false, triggers: [{ kind: 'event', eventId: 'storefront.cart.abandoned' }],
+            updatedAt, name: 'x', triggers: [{ kind: 'event', eventId: 'storefront.cart.abandoned' }],
             definition: { version: 1, audience: null, steps: [emailStep] },
           },
         },
         {
           label: 'invalid step parameters',
           graph: {
-            updatedAt, name: 'x', isEnabled: false, triggers: [trigger],
+            updatedAt, name: 'x', triggers: [trigger],
             definition: { version: 1, audience: null, steps: [{ id: 'w', type: 'wait', params: { minutes: -5 } }, emailStep] },
           },
         },
@@ -142,6 +142,9 @@ test.describe('TC-MA-002 save graph', () => {
       for (const { label, graph } of cases) {
         const response = await saveGraph(request, token, campaignId, graph)
         expect(response.status(), label).toBe(400)
+        // A stable code, not just a status: it is what the editor turns into a localized message.
+        const body = await readJsonSafe<{ code?: string }>(response)
+        expect(body?.code, `${label} carries a validation code`).toMatch(/^marketing_automation\.validation\./)
       }
 
       // Every rejection left the campaign untouched, so a bad save cannot half-apply.

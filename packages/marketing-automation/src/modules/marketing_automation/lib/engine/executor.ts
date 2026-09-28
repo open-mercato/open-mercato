@@ -28,6 +28,15 @@ export type RunState = {
 export type RunTransition =
   | { kind: 'completed'; stepLog: StepOutcome[]; context: AutomationContext }
   | { kind: 'waiting'; resumeAt: Date; nextStepIndex: number; stepLog: StepOutcome[]; context: AutomationContext; reason: 'wait' | 'quiet_hours' }
+  /**
+   * A step threw.
+   *
+   * Carries the progress made BEFORE the failure and the index of the step that failed, so the
+   * retry resumes AT that step. Without this the executor would report nothing on failure and the
+   * caller would park the run at its original index — replaying every completed step, which for a
+   * chain containing a send means mailing the customer again on every one of the five attempts.
+   */
+  | { kind: 'failed'; failedIndex: number; error: unknown; stepLog: StepOutcome[]; context: AutomationContext }
 
 export type ExecutorSideEffects<TDeps> = {
   getStep(type: string): StepHandler<TDeps> | undefined
@@ -130,7 +139,14 @@ export async function executeRun<TDeps>(
       }
     }
 
-    const result = await handler.execute({ ...context, actionId: step.id, runId: run.id }, step.params, deps)
+    let result: Awaited<ReturnType<typeof handler.execute>>
+    try {
+      result = await handler.execute({ ...context, actionId: step.id, runId: run.id }, step.params, deps)
+    } catch (error) {
+      // Progress is reported rather than thrown away — see the `failed` transition.
+      stepLog.push(outcome(step, 'failed', now, error instanceof Error ? error.message : String(error)))
+      return { kind: 'failed', failedIndex: index, error, stepLog, context }
+    }
 
     if (handler.channel && result.status === 'done') {
       await effects.recordSend({
