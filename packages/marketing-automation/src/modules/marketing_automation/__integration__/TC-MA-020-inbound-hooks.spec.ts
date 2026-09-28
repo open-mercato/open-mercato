@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import {
   CAMPAIGNS_PATH,
   createCampaign,
@@ -157,13 +158,22 @@ test.describe('TC-MA-020 inbound hooks', () => {
     test.skip(!secret, 'no signing secret configured in this environment')
     const token = await getAuthToken(request, 'admin')
 
-    const people = await readJsonSafe<{ items?: Array<{ id?: string; entityId?: string }> }>(
-      await apiRequest(request, 'GET', '/api/customers/people?pageSize=1', { token }),
-    )
-    const customerId = people?.items?.[0]?.entityId ?? people?.items?.[0]?.id
-    test.skip(!customerId, 'no customer available in this installation')
+    const stamp = Date.now()
+    /**
+     * Its OWN customer, created here and removed in the finally.
+     *
+     * The first version of this test awarded points to whichever customer the installation happened to list
+     * first, and TC-MA-009 — which asserts an untouched customer has no points — started failing. A test that
+     * mutates shared data is a test that breaks a different one.
+     */
+    const customerId = await createPersonFixture(request, token, {
+      firstName: 'Hook',
+      lastName: `Subject${stamp}`,
+      displayName: `Hook Subject ${stamp}`,
+      primaryEmail: `qa-ma-hook-${stamp}@example.com`,
+    })
 
-    const campaignId = await createCampaign(request, token, `TC-MA-020 live ${Date.now()}`)
+    const campaignId = await createCampaign(request, token, `TC-MA-020 live ${stamp}`)
     let hookId: string | null = null
 
     try {
@@ -176,7 +186,8 @@ test.describe('TC-MA-020 inbound hooks', () => {
           version: 1,
           audience: null,
           // Points rather than a send: this test is about whether the run STARTS, and a send would
-          // depend on an email channel being configured in the environment running the suite.
+          // depend on an email channel being configured in the environment running the suite. The points
+          // land on this test's own customer, which is deleted afterwards.
           steps: [{ id: 'step-points', type: 'add_points', params: { points: 1, reason: 'TC-MA-020' } }],
         },
       })
@@ -217,6 +228,7 @@ test.describe('TC-MA-020 inbound hooks', () => {
         }
       }
       await deleteCampaignIfExists(request, token, campaignId)
+      await deleteEntityIfExists(request, token, '/api/customers/people', customerId)
     }
   })
 

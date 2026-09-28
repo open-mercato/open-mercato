@@ -68,20 +68,24 @@
   "peerDependencies": {
     "@mikro-orm/core": "^7.1.14",
     "@mikro-orm/postgresql": "^7.1.14",
+    "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/core": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "@open-mercato/ui": "workspace:*",
+    "ai": "^7.0.83",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "zod": ">=3.23.0"
   },
   "devDependencies": {
+    "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/core": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "@open-mercato/ui": "workspace:*",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.4.0",
     "@types/react": "^19.2.18",
+    "ai": "^7.0.83",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
     "react": "19.2.8",
@@ -96,5 +100,13 @@
     "type": "git",
     "url": "https://github.com/open-mercato/open-mercato",
     "directory": "packages/marketing-automation"
+  },
+  "peerDependenciesMeta": {
+    "@open-mercato/ai-assistant": {
+      "optional": true
+    },
+    "ai": {
+      "optional": true
+    }
   }
 }

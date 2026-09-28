@@ -775,6 +775,24 @@ eight-way concurrent worker and is now backed by a partial unique index on the a
 
 ## Changelog
 
+- **2026-09-29** — Backlog B-24: AI copy drafting, deliberately at AUTHORING time rather than as a step.
+  A Draft button in the message inspector returns a subject, HTML body and plain-text body for the author to
+  edit; nothing is saved until they save the campaign. The draft is grounded in the campaign name, its
+  triggers, a new per-tenant brand-voice setting, and the placeholders and content blocks that actually
+  exist, so it cannot invent a placeholder that renders as literal braces in an inbox. Rejected: generating
+  per recipient at send time, which is what the source module did — copy nobody read would reach customers
+  (this module's rule is that AI may author and only a human may publish), the cost would scale with the
+  audience, and a slow or failing provider at send time would block or silently skip a message.
+  Personalisation per customer is already interpolation's and the recommendation block's job, and both are
+  deterministic and free. The model's output is treated as untrusted markup: scripts, embedded documents,
+  inline event handlers and `javascript:`/`data:` URLs are stripped by `parseDraftedCopy`, and the editor
+  shows the draft as text rather than rendering it. Tenant-supplied strings — brand voice, campaign name,
+  brief — live inside a `<briefing>` fence in the user message so an injection attempt is data. Both AI
+  packages are OPTIONAL peers loaded at call time, so an installation without them still dispatches
+  campaigns and this endpoint simply answers 503. **A leak was also fixed:** the new inbound-hook end-to-end
+  test awarded a point to whichever customer the installation listed first, which broke TC-MA-009 two
+  commits later; it now creates and deletes its own customer. 625 unit tests, 105 integration tests.
+
 - **2026-09-29** — Backlog B-18: inbound hooks. A signed, revocable URL per hook starts one campaign from
   outside the platform; the receiver emits `marketing_automation.inbound.received` and the existing
   subscriber path applies the audience, the re-entry policy, the per-subject budget and the

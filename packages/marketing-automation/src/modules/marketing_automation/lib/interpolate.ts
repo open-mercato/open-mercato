@@ -53,3 +53,21 @@ export function interpolate(
     return sink === 'html' ? escapeHtml(rendered) : rendered
   })
 }
+
+/**
+ * The paths worth offering an author, and the single source of that list.
+ *
+ * Not everything in the run context: the context also carries ids and scope, which nobody wants in a
+ * sentence. Exported so the AI draft endpoint and the editor's own hint cannot drift from each other —
+ * a placeholder that does not resolve renders as literal braces in somebody's inbox.
+ */
+export const COPY_PLACEHOLDERS = [
+  '{{customer.displayName}}',
+  '{{customer.email}}',
+  '{{score.points}}',
+  '{{score.tier}}',
+  '{{orders.count}}',
+  '{{orders.totalGross}}',
+  '{{orders.daysSinceLast}}',
+  '{{unsubscribeUrl}}',
+] as const

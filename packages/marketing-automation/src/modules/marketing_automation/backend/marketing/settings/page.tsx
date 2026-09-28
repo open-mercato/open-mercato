@@ -7,6 +7,7 @@ import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -17,6 +18,7 @@ const SETTINGS_PATH = '/api/marketing_automation/settings'
 
 type Settings = {
   productUrlTemplate: string
+  brandVoice: string
   loyaltyTiers: Array<{ key: string; minPoints: number }>
 }
 
@@ -112,6 +114,21 @@ export default function MarketingSettingsPage() {
                 'marketing_automation.settings.productUrlHint',
                 'Must contain {sku}. Recommended products link through it; without it they render as plain names.',
               )}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <SectionHeader title={t('marketing_automation.settings.voice', 'Brand voice')} />
+            <Label htmlFor="brand-voice">{t('marketing_automation.settings.voiceLabel', 'How this shop writes')}</Label>
+            <Textarea
+              id="brand-voice"
+              rows={4}
+              value={settings.brandVoice}
+              placeholder={t('marketing_automation.settings.voicePlaceholder', 'Warm and direct. Never pushy, no exclamation marks. We say “delivery”, not “shipping”.')}
+              onChange={(event) => setSettings({ ...settings, brandVoice: event.target.value })}
+            />
+            <div className="text-xs text-muted-foreground">
+              {t('marketing_automation.settings.voiceHint', 'Handed to the model whenever somebody drafts a message with AI, so every draft sounds like the same brand.')}
             </div>
           </div>
 

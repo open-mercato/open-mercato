@@ -8,6 +8,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
@@ -535,6 +536,44 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
   const selectedStepMeta = selectedStep ? palette?.steps.find((item) => item.type === selectedStep.type) ?? null : null
   const selectedSplit = selectedStep && selectedStep.type === SPLIT_STEP_TYPE ? selectedStep : null
   const audienceSelected = selectedNodeId === AUDIENCE_NODE_ID
+  /**
+   * An AI draft for the selected message.
+   *
+   * Held in state and APPLIED on request rather than written straight into the step: the draft is a
+   * suggestion, and an author who did not like it should not have to undo a save. Nothing here saves — the
+   * campaign is saved by the same button as every other edit.
+   */
+  const [draft, setDraft] = React.useState<{ subject: string; bodyHtml: string; bodyText: string } | null>(null)
+  const [drafting, setDrafting] = React.useState(false)
+  const [brief, setBrief] = React.useState('')
+
+  const requestDraft = async (stepId: string) => {
+    setDrafting(true)
+    try {
+      const response = await apiCallOrThrow<{ subject: string; bodyHtml: string; bodyText: string }>(
+        `/api/marketing_automation/campaigns/${campaignId}/draft-copy`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ brief: brief.trim() || undefined }),
+        },
+      )
+      if (response.result) setDraft(response.result)
+    } catch (error) {
+      const body = (error as { body?: { code?: unknown } } | null)?.body
+      const code = typeof body?.code === 'string' ? body.code : null
+      flash(
+        code === 'marketing_automation.errors.aiNotConfigured'
+          ? t('marketing_automation.errors.aiNotConfigured', 'No AI model is configured for this installation.')
+          : t('marketing_automation.errors.aiFailed', 'Could not draft the copy. Try again, or write it yourself.'),
+        'error',
+      )
+    } finally {
+      setDrafting(false)
+      void stepId
+    }
+  }
+
   const selectedTrigger = selectedNodeId
     ? triggers.find((trigger) => triggerNodeId(trigger) === selectedNodeId) ?? null
     : null
@@ -808,6 +847,58 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                       values={selectedStep.params}
                       onChange={(params) => updateStep(selectedStep.id, params)}
                     />
+                    {/* The blank page is what stops a campaign being written at all, so the draft lives
+                        beside the fields it fills — and it fills them only when the author says so. */}
+                    {selectedStepMeta?.channel === 'email' ? (
+                      <div className="space-y-2 rounded-sm border border-border p-2">
+                        <div className="text-overline text-muted-foreground">
+                          {t('marketing_automation.ai.title', 'Draft with AI')}
+                        </div>
+                        <Textarea
+                          rows={2}
+                          value={brief}
+                          placeholder={t('marketing_automation.ai.briefPlaceholder', 'What should this message say? e.g. remind them about the items they looked at, offer free delivery this week')}
+                          onChange={(event) => setBrief(event.target.value)}
+                        />
+                        <div className="flex flex-wrap gap-2">
+                          <Button variant="outline" disabled={drafting} onClick={() => void requestDraft(selectedStep.id)}>
+                            {drafting ? <Spinner /> : t('marketing_automation.ai.draft', 'Draft')}
+                          </Button>
+                          {draft ? (
+                            <>
+                              <Button
+                                variant="outline"
+                                onClick={() => {
+                                  updateStep(selectedStep.id, {
+                                    ...selectedStep.params,
+                                    subject: draft.subject,
+                                    bodyHtml: draft.bodyHtml,
+                                    bodyText: draft.bodyText,
+                                  })
+                                  setDraft(null)
+                                }}
+                              >
+                                {t('marketing_automation.ai.apply', 'Use this draft')}
+                              </Button>
+                              <Button variant="outline" onClick={() => setDraft(null)}>
+                                {t('marketing_automation.ai.discard', 'Discard')}
+                              </Button>
+                            </>
+                          ) : null}
+                        </div>
+                        {draft ? (
+                          <div className="space-y-1">
+                            <div className="text-xs font-medium text-foreground">{draft.subject}</div>
+                            {/* Shown as TEXT, not rendered: a draft is untrusted markup until somebody has
+                                read it, and rendering it here would execute whatever survived sanitising. */}
+                            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words text-xs text-muted-foreground">
+                              {draft.bodyHtml}
+                            </pre>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+
                     {/* An author cannot reference a block whose key they have to remember. */}
                     {selectedStepMeta?.channel === 'email' && (palette?.contentBlocks ?? []).length > 0 ? (
                       <div className="space-y-1">

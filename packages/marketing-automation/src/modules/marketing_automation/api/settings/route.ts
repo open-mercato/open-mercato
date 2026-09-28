@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { normalizeTierThresholds } from '../../lib/engine/tiers.js'
 import { TIER_CONFIG_NAME } from '../../lib/tiers.js'
 import { PRODUCT_URL_TEMPLATE_CONFIG } from '../../lib/recommendations.js'
+import { BRAND_VOICE_CONFIG } from '../../lib/ai-copy.js'
 
 /**
  * The module's per-tenant settings.
@@ -31,6 +32,13 @@ const bodySchema = z.object({
     (value) => value === '' || value.includes('{sku}'),
     { message: 'must contain {sku}' },
   ).optional(),
+  /**
+   * How this shop writes, in the operator's own words, handed to the model on every draft.
+   *
+   * A paragraph rather than a set of toggles: "warm, never pushy, we say 'delivery' not 'shipping'" is
+   * something an operator can write and a model can follow, and no enum would have held it.
+   */
+  brandVoice: z.string().trim().max(1000).optional(),
   loyaltyTiers: z.array(z.object({
     key: z.string().trim().min(1).max(50),
     minPoints: z.coerce.number().int().min(0),
@@ -69,13 +77,15 @@ export async function GET(req: Request) {
   if ('error' in resolved) return resolved.error
   const { service, scope } = resolved
 
-  const [template, tiers] = await Promise.all([
+  const [template, tiers, brandVoice] = await Promise.all([
     service.getValue<unknown>(MODULE_ID, PRODUCT_URL_TEMPLATE_CONFIG, { scope }),
     service.getValue<unknown>(MODULE_ID, TIER_CONFIG_NAME, { scope }),
+    service.getValue<unknown>(MODULE_ID, BRAND_VOICE_CONFIG, { scope }),
   ])
 
   return NextResponse.json({
     productUrlTemplate: typeof template === 'string' ? template : '',
+    brandVoice: typeof brandVoice === 'string' ? brandVoice : '',
     // Normalised on the way out as well as in, so the screen shows the ladder the engine will use
     // rather than whatever shape happens to be stored.
     loyaltyTiers: normalizeTierThresholds(tiers),
@@ -102,6 +112,9 @@ export async function PUT(req: Request) {
   if (parsed.data.productUrlTemplate !== undefined) {
     await service.setValue(MODULE_ID, PRODUCT_URL_TEMPLATE_CONFIG, parsed.data.productUrlTemplate, scope)
   }
+  if (parsed.data.brandVoice !== undefined) {
+    await service.setValue(MODULE_ID, BRAND_VOICE_CONFIG, parsed.data.brandVoice, scope)
+  }
   if (parsed.data.loyaltyTiers !== undefined) {
     // Stored normalised: the ladder is read on every profile and every tier comparison, and sorting it
     // once here is cheaper than sorting it on every read — and it makes the stored value inspectable.
@@ -115,7 +128,7 @@ export const openApi = {
   GET: {
     summary: 'Read the module settings for the current tenant',
     tags: ['Marketing Automation'],
-    responses: { 200: { description: 'Product URL template and loyalty ladder' } },
+    responses: { 200: { description: 'Product URL template, brand voice and loyalty ladder' } },
   },
   PUT: {
     summary: 'Update the module settings',

@@ -137,6 +137,15 @@ its own. Spec:
   which lane a subject takes is decided by the engine, not by an edge somebody drew — an author who
   can draw an edge has been promised a topology it cannot run. Edges are derived; order lives in the
   definition arrays.
+- Never generate copy per recipient at send time. A draft is authored once, reviewed by a human and saved to
+  the campaign; generating per customer would mail text nobody read, scale cost with the audience, and make a
+  slow provider a delivery failure. Personalisation is interpolation's job and the recommendation block's.
+- Never render a model's HTML in the admin UI, and never save it without passing it through
+  `parseDraftedCopy`. It is untrusted markup until a person has read it — the parser sanitises, the editor
+  shows it as text, and the author applies it deliberately.
+- Never put a tenant-supplied string in the system half of a prompt. Brand voice, campaign names and briefs
+  go inside the `<briefing>` fence in the user message, labelled as data, so an injection attempt is content
+  rather than instruction.
 - Never sign an inbound hook token with the tracking claim shape. A run-shaped claim set with a hook id in
   the run slot verifies perfectly and means nothing; `lib/inbound.ts` has its own key label so a click URL
   from an email cannot be replayed as a hook post, and a test asserts exactly that.
@@ -211,6 +220,7 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | signed tracking tokens, link rewriting | `lib/tracking/` (`token.ts`, `rewrite.ts`, `urls.ts`) |
 | the only PUBLIC routes in the module | `api/track/open`, `api/track/click`, `api/unsubscribe`, `api/survey`, `api/inbound` |
 | signed inbound hook URLs and their payload split | `lib/inbound.ts`, `api/inbound-hooks/` |
+| AI copy drafting, its prompt and its sanitiser | `lib/ai-copy.ts`, `lib/engine/copy-draft.ts` |
 | enrolment shared by events and sweeps | `lib/dispatcher.ts` → `startCampaignForSubject` |
 | trigger context hydration | `lib/trigger-catalog.ts` |
 | a step handler with a channel | `steps/send-email.ts` |
@@ -239,6 +249,9 @@ there, whereas a detached `yarn dev` exits instead of restarting.
   instance-wide record instead, so a tenant's configured value never applies — and nothing fails, because
   the default is a legitimate answer. Both config loaders had this bug;
   `lib/__tests__/module-config-scope.test.ts` now asserts the scope arrives.
+- An integration test that mutates a customer it did not create will break a different spec. TC-MA-020 awarded
+  a point to whichever customer the installation listed first, and TC-MA-009 — which asserts an untouched
+  customer has no points — started failing two commits later. Create the fixture, use it, delete it.
 - New features reach existing tenants only after `yarn mercato auth sync-role-acls`, and the dev
   server caches the generated ACL registry — restart it or a wildcard has nothing to expand.
 
