@@ -775,6 +775,21 @@ eight-way concurrent worker and is now backed by a partial unique index on the a
 
 ## Changelog
 
+- **2026-09-29** — Backlog B-08: product recommendations, plus the module's first settings screen.
+  `{{recommendations}}` in an email body renders products chosen by co-purchase affinity — ranked by
+  DISTINCT co-purchasing customers rather than line counts, so one enthusiast cannot outvote a pattern —
+  padded with best sellers so the block is never empty, and never offering back what the customer already
+  owns. The same list appears on the customer profile with the signal that chose it, because a
+  recommendation nobody can inspect is one nobody will trust. Links go through a per-tenant product URL
+  template, which means recommendation clicks are rewritten by the existing tracking pass and show up in
+  attribution like any other click. No prices: a catalogue snapshot records what somebody else paid.
+  **A real bug surfaced while testing it:** `moduleConfigService.getValue` takes its scope inside an
+  options object while `setValue` takes it positionally, and the tier-ladder loader passed it
+  positionally — so a tenant's configured ladder was written per tenant and read instance-wide, silently,
+  since the defaults are a legitimate answer. Fixed, with tests that assert the scope arrives, and the
+  ladder is now editable on the new settings screen alongside the URL template. 596 unit tests, 91
+  integration tests.
+
 - **2026-09-29** — Backlog B-17 (snippet part): reusable content blocks. `marketing_content_blocks`
   with a key unique among LIVE rows only, a `{{block:key}}` reference resolved before interpolation,
   a screen to edit them, and the keys offered by the palette so the campaign editor can name what

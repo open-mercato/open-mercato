@@ -31,6 +31,7 @@ type Profile = {
   consent: { email: 'subscribed' | 'unsubscribed' | null }
   nps: { score: number; band: 'detractor' | 'passive' | 'promoter'; answeredAt: string } | null
   messages: { sent: number; suppressed: number; opened: number; clicked: number }
+  recommendations: Array<{ sku: string; name: string; source: 'affinity' | 'bestSeller' }>
   recentScoreEntries: Array<{
     id: string
     points: number
@@ -248,6 +249,36 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
                 ? t('marketing_automation.profile.consent.subscribed', 'Subscribed to email')
                 : t('marketing_automation.profile.consent.unrecorded', 'No email preference recorded')}
           </StatusBadge>
+        </div>
+
+        <div className="mb-6">
+          <SectionHeader
+            title={t('marketing_automation.profile.recommendations', 'What the next message would offer')}
+            count={(profile.recommendations ?? []).length}
+          />
+          {/* The SIGNAL is shown beside each product, because "because people like you bought it" and
+              "because everybody buys it" are different promises, and only the first one is personal. */}
+          {(profile.recommendations ?? []).length === 0 ? (
+            <div className="text-sm text-muted-foreground">
+              {t('marketing_automation.profile.noRecommendations', 'Nothing to recommend yet — there are no orders to learn from.')}
+            </div>
+          ) : (
+            <ul className="space-y-1">
+              {(profile.recommendations ?? []).map((item) => (
+                <li key={item.sku} className="flex items-baseline justify-between gap-2 border-b border-border py-1 text-sm">
+                  <span className="truncate text-foreground">{item.name}</span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span className="font-mono text-xs text-muted-foreground">{item.sku}</span>
+                    <StatusBadge variant={item.source === 'affinity' ? 'info' : 'neutral'}>
+                      {item.source === 'affinity'
+                        ? t('marketing_automation.profile.recommendationSource.affinity', 'Bought together')
+                        : t('marketing_automation.profile.recommendationSource.bestSeller', 'Best seller')}
+                    </StatusBadge>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         {profile.tags.length > 0 ? (

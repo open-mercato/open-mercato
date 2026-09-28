@@ -1,0 +1,126 @@
+import { NextResponse } from 'next/server'
+import { z } from 'zod'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { normalizeTierThresholds } from '../../lib/engine/tiers.js'
+import { TIER_CONFIG_NAME } from '../../lib/tiers.js'
+import { PRODUCT_URL_TEMPLATE_CONFIG } from '../../lib/recommendations.js'
+
+/**
+ * The module's per-tenant settings.
+ *
+ * Two values that were already read by the engine and could not be written by anybody: the loyalty
+ * ladder and the product URL template. A setting the code honours but no screen can change is the same
+ * defect as a step nothing can author — it looks configurable and is not.
+ */
+const routeMetadata = {
+  GET: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.view'] },
+  PUT: { requireAuth: true, requireFeatures: ['marketing_automation.manage'] },
+}
+
+export const metadata = routeMetadata
+
+const MODULE_ID = 'marketing_automation'
+
+const bodySchema = z.object({
+  /**
+   * Where a product can be looked at. `{sku}` is required, since a template without it would produce
+   * the same link for every product — worse than no link, because it looks like it works.
+   */
+  productUrlTemplate: z.string().trim().max(500).refine(
+    (value) => value === '' || value.includes('{sku}'),
+    { message: 'must contain {sku}' },
+  ).optional(),
+  loyaltyTiers: z.array(z.object({
+    key: z.string().trim().min(1).max(50),
+    minPoints: z.coerce.number().int().min(0),
+  })).max(10).optional(),
+})
+
+type ConfigScope = { tenantId?: string | null; organizationId?: string | null }
+
+/**
+ * The service's real signature, and the asymmetry is worth naming: `getValue` takes the scope inside an
+ * OPTIONS object while `setValue` takes it positionally. Writing per tenant and reading instance-wide is
+ * the mistake it invites, and it is silent — the read just returns the default.
+ */
+type ModuleConfigLike = {
+  getValue<T = unknown>(moduleId: string, name: string, options?: { defaultValue?: T | null; scope?: ConfigScope }): Promise<T | null>
+  setValue(moduleId: string, name: string, value: unknown, scope?: ConfigScope): Promise<unknown>
+}
+
+async function resolve(req: Request) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.tenantId || !auth.orgId) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
+  const container = await createRequestContainer()
+  let service: ModuleConfigLike
+  try {
+    service = container.resolve<ModuleConfigLike>('moduleConfigService')
+  } catch {
+    // The engine treats a missing config service as "use the defaults"; a settings screen cannot, so it
+    // says so rather than silently accepting a save that goes nowhere.
+    return { error: NextResponse.json({ error: 'Configuration service unavailable', code: 'marketing_automation.errors.configUnavailable' }, { status: 503 }) }
+  }
+  return { service, scope: { tenantId: auth.tenantId, organizationId: auth.orgId } }
+}
+
+export async function GET(req: Request) {
+  const resolved = await resolve(req)
+  if ('error' in resolved) return resolved.error
+  const { service, scope } = resolved
+
+  const [template, tiers] = await Promise.all([
+    service.getValue<unknown>(MODULE_ID, PRODUCT_URL_TEMPLATE_CONFIG, { scope }),
+    service.getValue<unknown>(MODULE_ID, TIER_CONFIG_NAME, { scope }),
+  ])
+
+  return NextResponse.json({
+    productUrlTemplate: typeof template === 'string' ? template : '',
+    // Normalised on the way out as well as in, so the screen shows the ladder the engine will use
+    // rather than whatever shape happens to be stored.
+    loyaltyTiers: normalizeTierThresholds(tiers),
+  })
+}
+
+export async function PUT(req: Request) {
+  const resolved = await resolve(req)
+  if ('error' in resolved) return resolved.error
+  const { service, scope } = resolved
+
+  const parsed = bodySchema.safeParse(await req.json().catch(() => null))
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]
+    return NextResponse.json(
+      {
+        error: issue ? `${issue.path.join('.') || 'payload'}: ${issue.message}` : 'Invalid payload',
+        code: 'marketing_automation.validation.invalidPayload',
+      },
+      { status: 400 },
+    )
+  }
+
+  if (parsed.data.productUrlTemplate !== undefined) {
+    await service.setValue(MODULE_ID, PRODUCT_URL_TEMPLATE_CONFIG, parsed.data.productUrlTemplate, scope)
+  }
+  if (parsed.data.loyaltyTiers !== undefined) {
+    // Stored normalised: the ladder is read on every profile and every tier comparison, and sorting it
+    // once here is cheaper than sorting it on every read — and it makes the stored value inspectable.
+    await service.setValue(MODULE_ID, TIER_CONFIG_NAME, normalizeTierThresholds(parsed.data.loyaltyTiers), scope)
+  }
+
+  return GET(req)
+}
+
+export const openApi = {
+  GET: {
+    summary: 'Read the module settings for the current tenant',
+    tags: ['Marketing Automation'],
+    responses: { 200: { description: 'Product URL template and loyalty ladder' } },
+  },
+  PUT: {
+    summary: 'Update the module settings',
+    description: 'Both values were honoured by the engine before this endpoint existed and could not be changed from anywhere.',
+    tags: ['Marketing Automation'],
+    responses: { 200: { description: 'The stored settings' }, 400: { description: 'Invalid payload' } },
+  },
+}

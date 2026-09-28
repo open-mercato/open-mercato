@@ -137,6 +137,11 @@ its own. Spec:
   which lane a subject takes is decided by the engine, not by an edge somebody drew — an author who
   can draw an edge has been promised a topology it cannot run. Edges are derived; order lives in the
   definition arrays.
+- Never print a price from an order line's catalogue snapshot. It records what somebody else paid when they
+  paid it; offering it back is a price the shop may no longer honour.
+- Never recommend a product the customer already owns from the generic ranker. Repeat purchases are the
+  reorder engine's job, which knows a product's interval — guessing here offers a fridge to somebody who
+  just bought a fridge.
 - Never make a content block's key editable, and never render a missing block as its own reference. Messages
   point at a block by key, so a rename empties it out of every campaign that used it, and printing
   `{{block:footer}}` into an email is worse than printing nothing.
@@ -187,6 +192,8 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | subject export and erasure, and what they keep | `lib/gdpr.ts` |
 | consent state, its trail, and the send gate | `lib/consent.ts`, `api/unsubscribe/` |
 | reusable HTML blocks and their substitution | `lib/content-blocks.ts`, `api/content-blocks/` |
+| recommendation ranking and its two signals | `lib/engine/recommendations.ts`, `lib/recommendations.ts` |
+| per-tenant settings, and the only screen that writes them | `api/settings/route.ts` |
 | agent/MCP authoring tools and their invariants | `ai-tools/authoring-pack.ts` |
 | daily series behind the results chart | `lib/analytics/daily-series.ts` |
 | journey preview, and why it reuses the engine | `lib/preview.ts` |
@@ -220,6 +227,11 @@ there, whereas a detached `yarn dev` exits instead of restarting.
   `MAX_RUNS_PER_SUBJECT` bounds runs per subject per hour across ALL campaigns. An in-context
   depth counter was tried first and could not work — the events are emitted by the modules that
   own them and carry nothing of ours, so nothing could increment a depth across the hop.
+- `moduleConfigService.getValue` takes the scope inside an OPTIONS object (`{ scope }`) while `setValue`
+  takes it positionally. Passing it positionally to `getValue` compiles, drops the scope and reads the
+  instance-wide record instead, so a tenant's configured value never applies — and nothing fails, because
+  the default is a legitimate answer. Both config loaders had this bug;
+  `lib/__tests__/module-config-scope.test.ts` now asserts the scope arrives.
 - New features reach existing tenants only after `yarn mercato auth sync-role-acls`, and the dev
   server caches the generated ACL registry — restart it or a wildcard has nothing to expand.
 

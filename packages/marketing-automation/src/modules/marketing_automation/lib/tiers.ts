@@ -9,7 +9,7 @@ type ModuleConfigLike = {
   getValue<T = unknown>(
     moduleId: string,
     name: string,
-    scope?: { tenantId?: string | null; organizationId?: string | null },
+    options?: { defaultValue?: T | null; scope?: { tenantId?: string | null; organizationId?: string | null } },
   ): Promise<T | null>
 }
 
@@ -31,7 +31,14 @@ export async function loadTierThresholds(
     return normalizeTierThresholds(null)
   }
   try {
-    const value = await service.getValue<unknown>('marketing_automation', TIER_CONFIG_NAME, scope)
+    /**
+     * The scope goes inside an OPTIONS object, which is the service's actual signature.
+     *
+     * Passed positionally — as this did until it was caught by a settings round-trip test — the scope is
+     * silently dropped, the lookup falls back to the instance-wide record, and a tenant's configured
+     * ladder never applies. It fails quietly, because the defaults are a legitimate answer.
+     */
+    const value = await service.getValue<unknown>('marketing_automation', TIER_CONFIG_NAME, { scope })
     return normalizeTierThresholds(value)
   } catch {
     return normalizeTierThresholds(null)

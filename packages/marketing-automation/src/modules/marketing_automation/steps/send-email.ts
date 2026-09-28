@@ -6,9 +6,17 @@ import { reportError } from '@open-mercato/telemetry'
 import { interpolate } from '../lib/interpolate.js'
 import { redactEmails } from '../lib/redact.js'
 import { applyContentBlocks, loadContentBlocks, referencedBlockKeys } from '../lib/content-blocks.js'
+import {
+  applyRecommendations,
+  loadProductUrlTemplate,
+  recommendForSubject,
+  referencesRecommendations,
+  renderRecommendationsHtml,
+} from '../lib/recommendations.js'
 import { applyTracking } from '../lib/tracking/rewrite.js'
 import { resolveTrackingBaseUrl, resolveTrackingSecret } from '../lib/tracking/secret.js'
 import { clickUrl, openPixelUrl, unsubscribeUrl } from '../lib/tracking/urls.js'
+import { MAX_RECOMMENDATIONS } from '../lib/engine/recommendations.js'
 import type { StepHandler } from '../lib/engine/registry.js'
 import type { AutomationContext } from '../lib/engine/types.js'
 import type { StepDeps } from './deps.js'
@@ -25,7 +33,15 @@ const paramsSchema = z.object({
    * message rather than about the installation.
    */
   track: z.boolean().optional().default(true),
+  /**
+   * How many products `{{recommendations}}` renders. Ignored when the body does not use it, so the
+   * queries are never paid for by a message that would not show them.
+   */
+  recommendationCount: z.coerce.number().int().min(1).max(MAX_RECOMMENDATIONS).optional(),
 })
+
+/** What `{{recommendations}}` renders when the author did not say. Three fits a phone screen. */
+export const DEFAULT_RECOMMENDATION_COUNT = 3
 
 /**
  * Rewrites the body so opens and clicks can be attributed, when everything needed is present.
@@ -141,8 +157,12 @@ async function resolveRecipient(ctx: AutomationContext, deps: StepDeps): Promise
 export function renderEmail(
   params: { subject: string; bodyHtml: string; bodyText?: string; track?: boolean },
   ctx: AutomationContext,
-  /** Resolved content blocks, keyed by their slug. Loaded by the caller, because this stays synchronous. */
-  blocks: Record<string, string> = {},
+  /**
+   * Everything that needed a query, already resolved — content blocks by slug, and the rendered
+   * recommendation block. Loaded by the caller because this function stays synchronous, which is what
+   * lets a test render exactly what a send renders.
+   */
+  resolved: { blocks?: Record<string, string>; recommendationsHtml?: string } = {},
 ): { subject: string; html: string; text?: string } {
   const unsubscribe = unsubscribeLinkFor(ctx)
   // Offered as a substitution so the author can place it; appended below only if they did not.
@@ -157,14 +177,23 @@ export function renderEmail(
     // `'html'` is not optional here: the body is rendered as HTML, and substituted values can be
     // customer-controlled.
     /**
-     * Blocks first, then interpolation, then tracking.
+     * Blocks and recommendations first, then interpolation, then tracking.
      *
      * Blocks before interpolation so a shared footer can carry its own placeholders and have them filled;
-     * interpolation before tracking so a link assembled from a substituted value is still rewritten.
+     * recommendations in the same pass because they are generated HTML, not customer data; interpolation
+     * before tracking so every link — including the product links just inserted — is rewritten and
+     * therefore attributable.
      */
     html: withUnsubscribeFooter(
       withTracking(
-        interpolate(applyContentBlocks(params.bodyHtml, blocks), withUnsubscribeAvailable, 'html'),
+        interpolate(
+          applyRecommendations(
+            applyContentBlocks(params.bodyHtml, resolved.blocks ?? {}),
+            resolved.recommendationsHtml ?? '',
+          ),
+          withUnsubscribeAvailable,
+          'html',
+        ),
         ctx,
         params.track !== false,
       ),
@@ -185,11 +214,27 @@ export const sendEmailStep: StepHandler<StepDeps> = {
     { name: 'subject', kind: 'text', labelKey: 'marketing_automation.step.send_email.param.subject', required: true },
     { name: 'bodyHtml', kind: 'textarea', labelKey: 'marketing_automation.step.send_email.param.bodyHtml', required: true },
     { name: 'track', kind: 'boolean', labelKey: 'marketing_automation.step.send_email.param.track' },
+    { name: 'recommendationCount', kind: 'number', labelKey: 'marketing_automation.step.send_email.param.recommendationCount' },
   ],
   async execute(ctx: AutomationContext, rawParams, deps: StepDeps) {
     const params = paramsSchema.parse(rawParams)
     // Only the blocks this body actually refers to are loaded.
     const blocks = await loadContentBlocks(deps.em, deps.scope, referencedBlockKeys(params.bodyHtml))
+    // Blocks may themselves contain the placeholder, so the check runs over the body WITH them applied.
+    const bodyWithBlocks = applyContentBlocks(params.bodyHtml, blocks)
+    let recommendationsHtml = ''
+    if (referencesRecommendations(bodyWithBlocks)) {
+      const [items, urlTemplate] = await Promise.all([
+        recommendForSubject(
+          deps.em,
+          deps.scope,
+          ctx.subjectEntityId ?? null,
+          params.recommendationCount ?? DEFAULT_RECOMMENDATION_COUNT,
+        ),
+        loadProductUrlTemplate(deps.container, deps.scope),
+      ])
+      recommendationsHtml = renderRecommendationsHtml(items, { urlTemplate })
+    }
     const to = await resolveRecipient(ctx, deps)
     if (!to) {
       // A customer with no address is not an error: plenty of CRM records have none, and
@@ -201,7 +246,7 @@ export const sendEmailStep: StepHandler<StepDeps> = {
     try {
       await sendEmail({
         to,
-        ...renderEmail(params, ctx, blocks),
+        ...renderEmail(params, ctx, { blocks, recommendationsHtml }),
         tenantId: deps.scope.tenantId,
         organizationId: deps.scope.organizationId,
       })

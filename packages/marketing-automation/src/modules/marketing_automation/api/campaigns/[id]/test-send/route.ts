@@ -10,11 +10,17 @@ import { MarketingCampaign } from '../../../../data/entities.js'
 import { readDefinition } from '../../../../lib/dispatcher.js'
 import { locateStep } from '../../../../lib/canvas/step-tree.js'
 import { getMarketingStep } from '../../../../lib/engine/registry.js'
-import { renderEmail } from '../../../../steps/send-email.js'
+import { DEFAULT_RECOMMENDATION_COUNT, renderEmail } from '../../../../steps/send-email.js'
+import {
+  loadProductUrlTemplate,
+  recommendForSubject,
+  referencesRecommendations,
+  renderRecommendationsHtml,
+} from '../../../../lib/recommendations.js'
 import { buildSubjectDocument } from '../../../../lib/subject-document.js'
 import { loadTierThresholds } from '../../../../lib/tiers.js'
 import { redactEmails } from '../../../../lib/redact.js'
-import { loadContentBlocks, referencedBlockKeys } from '../../../../lib/content-blocks.js'
+import { applyContentBlocks, loadContentBlocks, referencedBlockKeys } from '../../../../lib/content-blocks.js'
 import type { AutomationContext } from '../../../../lib/engine/types.js'
 
 /**
@@ -115,11 +121,27 @@ export async function POST(req: Request) {
   const stepParams = params.data as { subject: string; bodyHtml: string; bodyText?: string }
   const blocks = await loadContentBlocks(em, scope, referencedBlockKeys(stepParams.bodyHtml))
 
+  /**
+   * The recommendations the real send would compute, for the caller as the subject.
+   *
+   * Without a subject there is nothing personal to compute from, and the block falls back to best sellers —
+   * which is exactly what a real send to a brand-new customer would show, so the test stays honest.
+   */
+  const bodyWithBlocks = applyContentBlocks(stepParams.bodyHtml, blocks)
+  let recommendationsHtml = ''
+  if (referencesRecommendations(bodyWithBlocks)) {
+    const [items, urlTemplate] = await Promise.all([
+      recommendForSubject(em, scope, context.subjectEntityId ?? null, DEFAULT_RECOMMENDATION_COUNT),
+      loadProductUrlTemplate(container, scope),
+    ])
+    recommendationsHtml = renderRecommendationsHtml(items, { urlTemplate })
+  }
+
   const rendered = renderEmail(
     // `track: false` regardless of the step's own setting: a test send has no run to attribute opens to.
     { ...stepParams, track: false },
     context,
-    blocks,
+    { blocks, recommendationsHtml },
   )
 
   try {

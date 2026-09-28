@@ -11,6 +11,7 @@ import {
 } from '../../../../data/entities.js'
 import { loadOrderAggregates, loadTagSlugs } from '../../../../lib/subject-document.js'
 import { loadScorePoints } from '../../../../lib/scores.js'
+import { recommendForSubject } from '../../../../lib/recommendations.js'
 import { loadConsentState } from '../../../../lib/consent.js'
 import { loadLatestNps, npsBand } from '../../../../lib/survey.js'
 import { resolveTier } from '../../../../lib/engine/tiers.js'
@@ -32,6 +33,9 @@ const routeMetadata = {
 }
 
 export const metadata = routeMetadata
+
+/** Enough to judge whether the recommendations are sensible, without turning the profile into a catalogue. */
+const PROFILE_RECOMMENDATION_COUNT = 5
 
 const RECENT_LIMIT = 10
 
@@ -72,6 +76,15 @@ export async function GET(req: Request) {
     loadLatestNps(em, customerId, scope),
   ])
   const tier = resolveTier(points, tierThresholds)
+
+  /**
+   * What the next message would offer them.
+   *
+   * On the profile rather than only inside a send, because a recommendation nobody can inspect is a
+   * recommendation nobody will trust: this is where somebody checks that the shop is not about to offer a
+   * customer the fridge they bought last week.
+   */
+  const recommendations = await recommendForSubject(em, scope, customerId, PROFILE_RECOMMENDATION_COUNT)
 
   const [scoreEntries, runs, sent, suppressed] = await Promise.all([
     em.find(
@@ -141,6 +154,8 @@ export async function GET(req: Request) {
     /** Null when they have never answered, which the screen states rather than showing a zero. */
     nps: nps ? { score: nps.score, band: npsBand(nps.score), answeredAt: nps.answeredAt } : null,
     messages: { sent, suppressed, opened: engagement.opened, clicked: engagement.clicked },
+    /** Each carries the signal that chose it, so the screen can say why rather than just what. */
+    recommendations: recommendations.map((item) => ({ sku: item.sku, name: item.name, source: item.source })),
     recentScoreEntries: scoreEntries.map((entry) => ({
       id: entry.id,
       points: entry.points,
@@ -164,7 +179,7 @@ export const openApi = {
   GET: {
     summary: 'Everything marketing automation knows about one customer',
     description:
-      'Score and tier, order aggregates, tags, message and engagement counts, and the most recent score entries and campaign runs. Requires both `marketing_automation.runs.view` and `customers.people.view`, because it names a person and reports their behaviour.',
+      'Score and tier, order aggregates, tags, message and engagement counts, what the next message would recommend to them, and the most recent score entries and campaign runs. Requires both `marketing_automation.runs.view` and `customers.people.view`, because it names a person and reports their behaviour.',
     tags: ['Marketing Automation'],
     responses: { 200: { description: 'The profile' }, 404: { description: 'Not found' } },
   },
