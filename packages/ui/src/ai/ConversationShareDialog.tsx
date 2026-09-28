@@ -297,3 +297,5 @@ export function ConversationShareDialog({ open, onOpenChange, conversationId }: 
 }
 
 export default ConversationShareDialog
+
+// Regression coverage is added with the implementation commit.
