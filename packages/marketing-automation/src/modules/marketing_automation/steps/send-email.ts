@@ -14,16 +14,14 @@ const paramsSchema = z.object({
 })
 
 /**
- * Resolves the recipient.
+ * Resolves the recipient at send time, by reading through the decrypting finder.
  *
- * Prefers the address captured when the run started, so a long drip campaign keeps mailing the
- * address the customer had when they entered it, and falls back to a fresh read for a run whose
- * context predates that. `primary_email` is encrypted at rest, so the read must decrypt or it
- * returns ciphertext.
+ * Deliberately NOT cached in the run context: that context is persisted to jsonb, and
+ * `primary_email` is encrypted at rest, so carrying the address there would leave an unencrypted
+ * copy of PII in the database. One scoped read per send is the price, and it has a second benefit —
+ * a customer who corrects their address mid-journey gets the remaining steps at the new one.
  */
 async function resolveRecipient(ctx: AutomationContext, deps: StepDeps): Promise<string | null> {
-  const captured = typeof ctx.subjectEmail === 'string' ? ctx.subjectEmail.trim() : ''
-  if (captured) return captured
   if (!ctx.subjectEntityId) return null
 
   const entity = await findOneWithDecryption(
@@ -65,12 +63,15 @@ export const sendEmailStep: StepHandler<StepDeps> = {
     await sendEmail({
       to,
       subject: interpolate(params.subject, ctx),
-      html: interpolate(params.bodyHtml, ctx),
+      // `'html'` is not optional here: the body is rendered as HTML, and substituted values can be
+      // customer-controlled.
+      html: interpolate(params.bodyHtml, ctx, 'html'),
       text: params.bodyText ? interpolate(params.bodyText, ctx) : undefined,
       tenantId: deps.scope.tenantId,
       organizationId: deps.scope.organizationId,
     })
 
-    return { status: 'done', detail: 'email sent', sentTo: to }
+    // The address is intentionally not returned: it must not reach the send history.
+    return { status: 'done', detail: 'email sent' }
   },
 }

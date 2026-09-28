@@ -147,7 +147,15 @@ Five tables, all `organization_id`/`tenant_id` scoped, UUID PKs.
 | `marketing_message_sends` | outbound history per subject per channel, including suppressions |
 | `marketing_dispatch_dead_letters` | append-only record of a dispatch that could not be processed |
 
-Two shape decisions worth stating:
+**No decrypted PII is persisted by this module.** The platform encrypts `primary_email` and
+`display_name` at rest, so the run context carries neither, and the send history records no
+address — `subject_entity_id` already identifies the recipient. The send step resolves the address
+through the decrypting finder at the moment it sends, which costs one scoped read and also means a
+customer who corrects their address mid-journey receives the remaining steps at the new one. A
+first pass cached the address in the run context and stored it in the send history, which created
+two unencrypted mirrors of a protected field in tables the encryption maps do not cover.
+
+Three shape decisions worth stating:
 
 - **The graph lives in jsonb, not child tables.** A save is one row update, so step ids stay
   stable and an in-flight run is never orphaned by an edit. Triggers are the exception because
@@ -186,7 +194,10 @@ mid-journey. It deliberately does **not** carry `isEnabled`: taking a campaign l
 messaging real customers, so it is its own endpoint behind `campaigns.publish`, and the guard is a
 declarative route feature rather than a condition inside a handler. `test-dispatch` answers "would
 this subject enter, and what would happen" using the same evaluator and planner the engine uses,
-and sends nothing.
+and sends nothing. It reports presence (`exists`, `hasEmail`, `tagCount`) rather than the address
+and tag list: the route is reachable with `test_dispatch`, which implies no `customers.*` grant, so
+returning the decrypted email would have made a marketing preview a way to read the CRM without the
+permission that protects it.
 
 **Save-time validation is deliberately stricter than the dispatcher.** At runtime an unknown step
 type is skipped so an installation change cannot strand a journey; at author time it is rejected
@@ -225,6 +236,14 @@ the safe direction.*
 because there is nothing to gate on. *Severity: high for a real deployment — compliance.*
 *Mitigation: documented here and in the module guide as blocking for production use; the send
 path has a single seam to add it.* *Residual: Phase 1 must not be used on live customer data.*
+
+**Customer-controlled values reach an HTML sink.** Campaign copy interpolates `{{path}}` values,
+and a display name is customer-settable in many deployments, so an unescaped substitution would let
+a customer inject markup — most usefully a link — into a message delivered from the tenant's own
+verified sending domain, inheriting its reputation. *Severity: medium — phishing with aligned SPF
+and DKIM.* *Mitigation: `interpolate` is sink-aware and escapes for `html`; subjects and plain-text
+bodies are left verbatim because they are not HTML.* *Residual: a campaign author can still write
+hostile markup directly into the body, which is inherent to letting them author HTML at all.*
 
 **At-least-once delivery.** A crash between sending and recording can resend on resume.
 *Severity: medium.* *Mitigation: `add_tag` treats "already assigned" as success, so it is

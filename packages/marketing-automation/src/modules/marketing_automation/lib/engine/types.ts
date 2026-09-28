@@ -79,6 +79,11 @@ export type SubjectDocument = {
 /**
  * Dispatch context, threaded through a run and persisted to jsonb when a wait parks it.
  * JSON-serializable throughout, so dates are ISO strings.
+ *
+ * MUST NOT carry decrypted PII. It is written to `marketing_campaign_runs.context`, which the
+ * platform's at-rest encryption does not cover, so an email or a name placed here becomes an
+ * unencrypted copy of a field the rest of the system protects. Resolve such values where they are
+ * used, through the decrypting finders.
  */
 export type AutomationContext = {
   tenantId: string

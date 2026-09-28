@@ -146,11 +146,24 @@ test.describe('TC-MA-005 publish and dry run', () => {
 
       const excluded = await testDispatch(request, token, campaignId, { subjectEntityId: personEntityId })
       expect(excluded.ok()).toBe(true)
-      const excludedBody = await readJsonSafe<{ inAudience?: boolean; sent?: boolean; plan?: unknown[] }>(excluded)
+      const excludedBody = await readJsonSafe<{
+        inAudience?: boolean
+        sent?: boolean
+        plan?: unknown[]
+        subject?: Record<string, unknown>
+      }>(excluded)
       expect(excludedBody?.inAudience).toBe(false)
       expect(excludedBody?.sent).toBe(false)
       // The plan is still reported, so the author can see what would have happened.
       expect(Array.isArray(excludedBody?.plan)).toBe(true)
+
+      // The firing assertion for the PII rule: this route is reachable with no `customers.*` grant,
+      // so it must report presence, never the decrypted address or the tag list itself.
+      const subjectKeys = Object.keys(excludedBody?.subject ?? {})
+      expect(subjectKeys).not.toContain('email')
+      expect(subjectKeys).not.toContain('tags')
+      expect(excludedBody?.subject).toMatchObject({ exists: true, hasEmail: true })
+      expect(JSON.stringify(excludedBody)).not.toContain('qa-ma-dry-')
 
       const included = await testDispatch(request, token, campaignId, {
         subjectEntityId: personEntityId,

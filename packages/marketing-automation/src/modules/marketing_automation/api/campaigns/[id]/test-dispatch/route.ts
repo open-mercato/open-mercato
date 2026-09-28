@@ -73,10 +73,20 @@ export async function POST(req: Request) {
         channel: getMarketingStep(planned.step.type)?.channel ?? null,
       })
 
+  // No PII in the response. This route is gated by `test_dispatch`, which depends on
+  // `campaigns.manage` and implies NO `customers.*` grant — returning the decrypted address and the
+  // tag list would turn a marketing preview into a way to read the CRM without the permission that
+  // protects it. What a dry run has to answer is whether the subject enters and what would run, and
+  // neither needs the address.
   return NextResponse.json({
     campaignId: campaign.id,
     isEnabled: campaign.isEnabled,
-    subject: { id: parsed.data.subjectEntityId, email: subject.customer?.email ?? null, tags: subject.tags },
+    subject: {
+      id: parsed.data.subjectEntityId,
+      exists: subject.customer !== null,
+      hasEmail: Boolean(subject.customer?.email),
+      tagCount: subject.tags.length,
+    },
     inAudience,
     wouldRun: inAudience,
     plan,

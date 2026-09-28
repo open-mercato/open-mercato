@@ -299,9 +299,6 @@ export class MarketingMessageSend {
   @Property({ type: 'text' })
   channel!: 'email' | 'sms' | 'push'
 
-  @Property({ name: 'to_address', type: 'text', nullable: true })
-  toAddress?: string | null
-
   /** `suppressed` records a send the frequency cap or quiet hours refused, with a reason. */
   @Property({ type: 'text', default: 'sent' })
   status!: 'sent' | 'suppressed' | 'failed'

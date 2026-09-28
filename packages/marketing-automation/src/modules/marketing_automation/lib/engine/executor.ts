@@ -42,11 +42,15 @@ export type ExecutorSideEffects<TDeps> = {
   getStep(type: string): StepHandler<TDeps> | undefined
   /** Messages already sent to this subject since the given instant, across ALL campaigns. */
   countSendsSince(subjectEntityId: string, since: Date): Promise<number>
+  /**
+   * Records an outbound attempt. Deliberately carries no address: the subject id identifies the
+   * recipient, and this history is append-only, so an address here would be a permanent
+   * unencrypted PII trail beside a column the platform encrypts.
+   */
   recordSend(entry: {
     channel: NonNullable<StepHandler<TDeps>['channel']>
     status: 'sent' | 'suppressed'
     stepId: string
-    toAddress?: string | null
     suppressionReason?: string | null
   }): Promise<void>
   /** The subject's own timezone; quiet hours are meaningless in server time. */
@@ -149,12 +153,7 @@ export async function executeRun<TDeps>(
     }
 
     if (handler.channel && result.status === 'done') {
-      await effects.recordSend({
-        channel: handler.channel,
-        status: 'sent',
-        stepId: step.id,
-        toAddress: result.sentTo ?? null,
-      })
+      await effects.recordSend({ channel: handler.channel, status: 'sent', stepId: step.id })
     }
 
     if (result.contextPatch) Object.assign(context, result.contextPatch)

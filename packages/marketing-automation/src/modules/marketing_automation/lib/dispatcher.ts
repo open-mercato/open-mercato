@@ -76,7 +76,6 @@ function buildEffects(
       subjectEntityId: run.subjectEntityId,
       channel: entry.channel,
       status: entry.status,
-      toAddress: entry.toAddress,
       suppressionReason: entry.suppressionReason,
       // The moment of the send, not the worker's start instant: a long chain would otherwise
       // backdate every send to when the job began and skew the frequency-cap window.
@@ -265,9 +264,13 @@ export async function startCampaignForSubject(
     occurredAt: deps.now.toISOString(),
     dispatchDepth: input.dispatchDepth,
     subjectEntityId: input.subjectEntityId,
-    subjectEmail: input.subject.customer?.email ?? null,
     campaignId: campaign.id,
-    customer: input.subject.customer,
+    // Deliberately NO email and NO customer record here. This context is persisted to
+    // `marketing_campaign_runs.context`, and `primary_email`/`display_name` are encrypted at rest
+    // by the platform — copying them into jsonb would create an unencrypted mirror of PII the rest
+    // of the system protects, readable by anyone with plain database access. `send_email` resolves
+    // the recipient through the decrypting finder at send time instead, which also means a customer
+    // who changes their address mid-journey receives the later steps at the new one.
     trigger: input.triggerContext,
   }
 

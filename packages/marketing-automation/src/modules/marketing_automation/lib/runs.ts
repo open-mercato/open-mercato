@@ -292,7 +292,6 @@ export async function recordSend(
     subjectEntityId: string | null
     channel: 'email' | 'sms' | 'push'
     status: 'sent' | 'suppressed' | 'failed'
-    toAddress?: string | null
     suppressionReason?: string | null
     sentAt: Date
   },
@@ -306,7 +305,6 @@ export async function recordSend(
     subjectEntityId: entry.subjectEntityId,
     channel: entry.channel,
     status: entry.status,
-    toAddress: entry.toAddress ?? null,
     suppressionReason: entry.suppressionReason ?? null,
     sentAt: entry.sentAt,
   })

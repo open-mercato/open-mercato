@@ -16,12 +16,6 @@ export type StepResult = {
   detail?: string
   /** Merged into the context before the next step runs. */
   contextPatch?: Record<string, unknown>
-  /**
-   * Where an outbound message actually went. Recorded in the send history by the executor
-   * rather than the step, so that a send and a suppression are written by the same code and
-   * cannot drift apart.
-   */
-  sentTo?: string
 }
 
 /**

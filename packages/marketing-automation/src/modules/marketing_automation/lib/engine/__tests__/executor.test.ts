@@ -52,7 +52,7 @@ const tagHandler = (execute = jest.fn().mockResolvedValue({ status: 'done', deta
   execute,
 })
 
-const emailHandler = (execute = jest.fn().mockResolvedValue({ status: 'done', sentTo: 'a@b.c' })): StepHandler<Deps> => ({
+const emailHandler = (execute = jest.fn().mockResolvedValue({ status: 'done' })): StepHandler<Deps> => ({
   type: 'send_email',
   labelKey: 'x',
   channel: 'email',
@@ -197,7 +197,11 @@ describe('executeRun — frequency cap', () => {
     const effects = makeEffects([handler], { countSendsSince: jest.fn().mockResolvedValue(1) })
     const transition = await executeRun(run(), [step('s1', 'send_email')], policy, deps, effects)
     expect(transition.kind).toBe('completed')
-    expect(effects.recordSend).toHaveBeenCalledWith(expect.objectContaining({ status: 'sent', toAddress: 'a@b.c' }))
+    expect(effects.recordSend).toHaveBeenCalledWith({ channel: 'email', status: 'sent', stepId: 's1' })
+    // The firing assertion for the PII rule: the recorded entry must carry no address, because the
+    // send history is append-only and is not covered by the platform's at-rest encryption.
+    const recorded = (effects.recordSend as jest.Mock).mock.calls[0][0] as Record<string, unknown>
+    expect(Object.keys(recorded)).not.toContain('toAddress')
   })
 
   // Dropped, not deferred: the point of a cap is that this message does not arrive. Deferring
