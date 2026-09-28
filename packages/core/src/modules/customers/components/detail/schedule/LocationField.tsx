@@ -1,5 +1,6 @@
 'use client'
 
+import { useId } from 'react'
 import { MapPin } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { ActivityType, ScheduleFieldId } from './fieldConfig'
@@ -19,17 +20,19 @@ export function LocationField({
   setLocation,
 }: LocationFieldProps) {
   const t = useT()
+  const inputId = useId()
 
   if (!isVisible(activityType, 'location')) return null
 
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="text-overline font-semibold text-muted-foreground tracking-wider">
+      <label htmlFor={inputId} className="text-overline font-semibold text-muted-foreground tracking-wider">
         {getFieldLabel(activityType, 'location', t, 'customers.schedule.location', 'Location')}
       </label>
       <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2.5">
         <MapPin className="size-3.5 text-muted-foreground shrink-0" />
         <input
+          id={inputId}
           type="text"
           value={location}
           onChange={(e) => setLocation(e.target.value)}
