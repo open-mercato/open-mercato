@@ -1,5 +1,6 @@
 // Unit tests for `ledger.importDefaultChartOfAccounts` (OM-19), per the
-// (corrected, 39/43) Testing Strategy in
+// (corrected, 40/44 — PR #6137 review, m3: added account 490) Testing
+// Strategy in
 // `2026-09-15-default-chart-of-accounts.md`.
 //
 // One bullet in that Testing Strategy is not testable at the command
@@ -25,6 +26,7 @@ export {}
 
 import { randomUUID } from 'crypto'
 import {
+  JournalEntryLine,
   LedgerAccount,
   LedgerAccountGroup,
   LedgerAccountType,
@@ -102,9 +104,9 @@ describe('ledger.importDefaultChartOfAccounts', () => {
     jest.resetModules()
   })
 
-  it('the template itself is 39 account types / 43 accounts (sanity check backing every count below)', () => {
-    expect(TOTAL_TEMPLATE_TYPES).toBe(39)
-    expect(TOTAL_TEMPLATE_ACCOUNTS).toBe(43)
+  it('the template itself is 40 account types / 44 accounts (sanity check backing every count below)', () => {
+    expect(TOTAL_TEMPLATE_TYPES).toBe(40)
+    expect(TOTAL_TEMPLATE_ACCOUNTS).toBe(44)
   })
 
   it('refuses to run against a non-empty chart of accounts and writes nothing', async () => {
@@ -178,7 +180,7 @@ describe('ledger.importDefaultChartOfAccounts', () => {
     expect(nonDeletedCount(em, LedgerAccount, ORG_A)).toBe(TOTAL_TEMPLATE_ACCOUNTS)
   })
 
-  it('happy path: creates exactly 39 account types and 43 accounts, correctly linked', async () => {
+  it('happy path: creates exactly 40 account types and 44 accounts, correctly linked', async () => {
     const command = loadImportCommand()
     const em = buildFakeEm()
     const groups = seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
@@ -187,14 +189,14 @@ describe('ledger.importDefaultChartOfAccounts', () => {
 
     const result = await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
 
-    expect(result.createdAccountTypeIds).toHaveLength(39)
-    expect(result.createdAccountIds).toHaveLength(43)
+    expect(result.createdAccountTypeIds).toHaveLength(40)
+    expect(result.createdAccountIds).toHaveLength(44)
 
     const typeIds = new Set(result.createdAccountTypeIds)
     const typeRows = em.tables.get('LedgerAccountType') ?? []
     const accountRows = em.tables.get('LedgerAccount') ?? []
-    expect(typeRows).toHaveLength(39)
-    expect(accountRows).toHaveLength(43)
+    expect(typeRows).toHaveLength(40)
+    expect(accountRows).toHaveLength(44)
 
     for (const type of typeRows) {
       expect(type.organizationId).toBe(ORG_A)
@@ -238,8 +240,8 @@ describe('ledger.importDefaultChartOfAccounts', () => {
     expect(nonDeletedCount(em, LedgerAccountType, ORG_A)).toBe(0)
     expect(nonDeletedCount(em, LedgerAccount, ORG_A)).toBe(0)
     // Soft-deleted, not hard-deleted — every row is still physically present.
-    expect(em.tables.get('LedgerAccountType')).toHaveLength(39)
-    expect(em.tables.get('LedgerAccount')).toHaveLength(43)
+    expect(em.tables.get('LedgerAccountType')).toHaveLength(40)
+    expect(em.tables.get('LedgerAccount')).toHaveLength(44)
   })
 
   it('imported rows are ordinary rows — no special "imported" marker field that could block future edits', async () => {
@@ -287,12 +289,137 @@ describe('ledger.importDefaultChartOfAccounts', () => {
 
     const result = await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
 
-    expect(result.createdAccountTypeIds).toHaveLength(39)
+    expect(result.createdAccountTypeIds).toHaveLength(40)
     // ORG_A's new rows never carry ORG_B's id, and ORG_B's pre-existing row
     // is untouched (still exactly one, non-deleted).
     const allTypes = em.tables.get('LedgerAccountType') ?? []
     expect(allTypes.filter((row) => row.organizationId === ORG_B)).toHaveLength(1)
     expect(nonDeletedCount(em, LedgerAccountType, ORG_B)).toBe(1)
-    expect(allTypes.filter((row) => row.organizationId === ORG_A)).toHaveLength(39)
+    expect(allTypes.filter((row) => row.organizationId === ORG_A)).toHaveLength(40)
+  })
+
+  it('maps a concurrent-import slug-unique violation to its own 409 conflict, not a raw 500 (PR #6137 review, m1)', async () => {
+    const command = loadImportCommand()
+    // Simulates the loser of a race between two concurrent imports against
+    // the same empty chart of accounts: both pass the precondition check
+    // (buildFakeEm has no unique-index enforcement of its own), so the
+    // race is reproduced by making this call's own `flush` throw the same
+    // shape of error Postgres raises for the real partial unique index
+    // (`ledger_account_types_scope_slug_unique`, #6340) — the fake doesn't
+    // model transactional rollback, so unlike the other refusal tests in
+    // this file this one only asserts the response, not "writes nothing".
+    const em = buildFakeEm({
+      throwOnNextFlush: { code: '23505', constraint: 'ledger_account_types_scope_slug_unique' },
+    })
+    seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    await expect(
+      command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx),
+    ).rejects.toMatchObject({
+      status: 409,
+      body: {
+        error: 'Another import completed for this organization at the same time; refresh and check the chart of accounts before retrying.',
+      },
+    })
+  })
+
+  it('undo refuses after a posting against an imported account, and deletes nothing (PR #6137 review, M1)', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm()
+    seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    const result = await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
+    const logMeta = await command.buildLog({
+      input: { organizationId: ORG_A, tenantId: TENANT },
+      result,
+      ctx,
+    })
+    expect(logMeta).not.toBeNull()
+
+    // Post a journal entry line against one of the accounts the import
+    // just created.
+    const postedAccountId = result.createdAccountIds[0]
+    em.seed(JournalEntryLine, {
+      id: randomUUID(),
+      organizationId: ORG_A,
+      tenantId: TENANT,
+      journalEntryId: randomUUID(),
+      accountId: postedAccountId,
+      debit: '100.0000',
+      credit: '0.0000',
+      amountCurrency: '100.0000',
+      contractorSnapshot: null,
+    })
+
+    await expect(
+      command.undo({
+        logEntry: {
+          commandPayload: logMeta!.payload,
+          organizationId: logMeta!.organizationId,
+          tenantId: logMeta!.tenantId,
+        },
+        ctx,
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      body: { error: 'This account cannot be deleted because it has posted journal entries.' },
+    })
+
+    // Never a partial undo — nothing was soft-deleted, not even the
+    // accounts/types that had no posted entries against them.
+    expect(nonDeletedCount(em, LedgerAccountType, ORG_A)).toBe(TOTAL_TEMPLATE_TYPES)
+    expect(nonDeletedCount(em, LedgerAccount, ORG_A)).toBe(TOTAL_TEMPLATE_ACCOUNTS)
+  })
+
+  it('undo refuses when a manually created account still uses an imported account type, and deletes nothing (PR #6137 review, M1)', async () => {
+    const command = loadImportCommand()
+    const em = buildFakeEm()
+    seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG_A, tenantId: TENANT })
+
+    const result = await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
+    const logMeta = await command.buildLog({
+      input: { organizationId: ORG_A, tenantId: TENANT },
+      result,
+      ctx,
+    })
+    expect(logMeta).not.toBeNull()
+
+    // A manually created account (outside the import) that references one
+    // of the imported account types.
+    const reusedTypeId = result.createdAccountTypeIds[0]
+    em.seed(LedgerAccount, {
+      id: 'manually-created-account',
+      organizationId: ORG_A,
+      tenantId: TENANT,
+      slug: 'manually-created-account',
+      accountTypeId: reusedTypeId,
+      parentAccountId: null,
+      description: null,
+      deletedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    await expect(
+      command.undo({
+        logEntry: {
+          commandPayload: logMeta!.payload,
+          organizationId: logMeta!.organizationId,
+          tenantId: logMeta!.tenantId,
+        },
+        ctx,
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      body: { error: 'This account type cannot be deleted because an account still uses it.' },
+    })
+
+    // Never a partial undo — the imported rows are untouched, and so is
+    // the manually created account that triggered the guard.
+    expect(nonDeletedCount(em, LedgerAccountType, ORG_A)).toBe(TOTAL_TEMPLATE_TYPES)
+    expect(nonDeletedCount(em, LedgerAccount, ORG_A)).toBe(TOTAL_TEMPLATE_ACCOUNTS + 1)
   })
 })

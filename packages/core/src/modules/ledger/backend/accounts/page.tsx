@@ -187,7 +187,7 @@ export default function LedgerAccountsPage() {
       title: t('ledger.accounts.list.confirmImport', 'Import the default chart of accounts?'),
       description: t(
         'ledger.accounts.list.confirmImportDescription',
-        'This creates the default Polish chart-of-accounts template (39 account types, 43 accounts). It can only run while your chart of accounts is empty.',
+        'This creates the default Polish chart-of-accounts template (40 account types, 44 accounts). It can only run while your chart of accounts is empty.',
       ),
     })
     if (!confirmed) return

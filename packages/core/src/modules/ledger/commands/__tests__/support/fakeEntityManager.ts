@@ -27,6 +27,7 @@ function matchesWhere(record: FakeRecord, where: WhereCondition): boolean {
     if (typeof condition === 'object') {
       const c = condition as Record<string, unknown>
       if ('$in' in c) return (c.$in as unknown[]).includes(value)
+      if ('$nin' in c) return !(c.$nin as unknown[]).includes(value)
       if ('$ne' in c) return value !== c.$ne
       let ok = true
       if ('$lte' in c) ok = ok && toTime(value) <= toTime(c.$lte)

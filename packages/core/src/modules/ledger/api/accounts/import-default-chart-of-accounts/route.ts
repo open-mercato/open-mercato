@@ -136,7 +136,7 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Import the default Polish chart-of-accounts template',
       description:
-        'Bulk-creates the hardcoded Phase 1 "wzorcowy plan kont" template (39 account types, 43 accounts) as ordinary, editable LedgerAccountType/LedgerAccount rows in one transaction. Refuses to run against a non-empty chart of accounts. Requires ledger.accounts.manage. See 2026-09-15-default-chart-of-accounts.md.',
+        'Bulk-creates the hardcoded Phase 1 "wzorcowy plan kont" template (40 account types, 44 accounts) as ordinary, editable LedgerAccountType/LedgerAccount rows in one transaction. Refuses to run against a non-empty chart of accounts. Requires ledger.accounts.manage. See 2026-09-15-default-chart-of-accounts.md.',
       responses: [{ status: 200, description: 'Template imported', schema: importResponseSchema }],
       errors: [
         { status: 400, description: 'Missing organization context' },
