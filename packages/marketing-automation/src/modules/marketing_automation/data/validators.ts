@@ -1,0 +1,95 @@
+import { z } from 'zod'
+import { conditionExpressionSchema } from '@open-mercato/core/modules/business_rules/data/validators'
+
+/**
+ * Audience expression, reusing the platform's own condition-expression schema.
+ *
+ * Deliberately not a second condition language: the same trees the rest of Open Mercato
+ * validates, which is what lets the existing condition builder edit them unchanged.
+ */
+export const audienceSchema = conditionExpressionSchema.nullable()
+
+const canvasPositionSchema = z.object({ x: z.number(), y: z.number() })
+
+export const campaignCanvasSchema = z.object({
+  viewport: z.object({ x: z.number(), y: z.number(), zoom: z.number() }).optional(),
+  nodePositions: z.record(z.string(), canvasPositionSchema).optional(),
+})
+
+/**
+ * One authored step. `params` stays opaque here — the step handler's own schema validates it,
+ * which is what keeps a third-party step type valid without this file knowing about it.
+ */
+export const campaignStepSchema = z.object({
+  id: z.string().min(1),
+  type: z.string().min(1),
+  params: z.record(z.string(), z.unknown()).default({}),
+})
+
+export const frequencyCapSchema = z.object({
+  maxMessages: z.number().int().positive(),
+  windowHours: z.number().int().positive(),
+})
+
+export const quietHoursSchema = z.object({
+  startHour: z.number().int().min(0).max(23),
+  endHour: z.number().int().min(0).max(23),
+})
+
+export const campaignSendPolicySchema = z.object({
+  frequencyCap: frequencyCapSchema.nullable().default(null),
+  quietHours: quietHoursSchema.nullable().default(null),
+})
+
+export const campaignDefinitionSchema = z.object({
+  version: z.literal(1),
+  audience: audienceSchema.default(null),
+  steps: z.array(campaignStepSchema).default([]),
+  canvas: campaignCanvasSchema.optional(),
+  sendPolicy: campaignSendPolicySchema.optional(),
+})
+
+/** An event trigger reacts to something; a scheduled trigger sweeps the audience periodically. */
+export const campaignTriggerSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('event'),
+    eventId: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal('schedule'),
+    /** Interval (`1h`, `30m`) or cron, validated against the scheduler's own parser on save. */
+    scheduleValue: z.string().min(1),
+    /**
+     * Without a re-entry window a sweep re-enrols the same subject on every tick, because the
+     * audience it matches ("has not ordered in 90 days") stays true. Null means enrol once ever.
+     */
+    reentryAfterDays: z.number().int().positive().nullable().default(null),
+    /** What the sweep iterates over; see the entity docblock for why this is explicit. */
+    sweepSource: z.enum(['customers', 'expiring_quotes']).default('customers'),
+    sweepParams: z.object({ withinDays: z.number().int().positive().optional() }).default({}),
+  }),
+])
+
+/**
+ * The canvas save payload.
+ *
+ * `updatedAt` carries the optimistic lock: two people editing the same campaign must collide
+ * rather than silently overwrite, and a campaign graph is exactly the kind of document two
+ * people edit at once.
+ */
+export const campaignGraphSaveSchema = z.object({
+  updatedAt: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().nullable().optional(),
+  isEnabled: z.boolean(),
+  triggers: z.array(campaignTriggerSchema),
+  definition: campaignDefinitionSchema,
+})
+
+export type Audience = z.infer<typeof audienceSchema>
+export type CampaignCanvasInput = z.infer<typeof campaignCanvasSchema>
+export type CampaignStepInput = z.infer<typeof campaignStepSchema>
+export type CampaignDefinitionInput = z.infer<typeof campaignDefinitionSchema>
+export type CampaignTriggerInput = z.infer<typeof campaignTriggerSchema>
+export type CampaignSendPolicyInput = z.infer<typeof campaignSendPolicySchema>
+export type CampaignGraphSaveInput = z.infer<typeof campaignGraphSaveSchema>

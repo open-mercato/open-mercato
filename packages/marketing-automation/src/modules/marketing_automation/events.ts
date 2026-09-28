@@ -1,0 +1,32 @@
+import { createModuleEvents } from '@open-mercato/shared/modules/events'
+
+const events = [
+  // Campaign authoring lifecycle
+  { id: 'marketing_automation.campaign.created', label: 'Campaign Created', entity: 'campaign', category: 'crud' },
+  { id: 'marketing_automation.campaign.updated', label: 'Campaign Updated', entity: 'campaign', category: 'crud' },
+  { id: 'marketing_automation.campaign.deleted', label: 'Campaign Deleted', entity: 'campaign', category: 'crud' },
+  { id: 'marketing_automation.campaign.saved', label: 'Campaign Graph Saved', entity: 'campaign', category: 'crud' },
+  { id: 'marketing_automation.campaign.enabled', label: 'Campaign Enabled', entity: 'campaign', category: 'lifecycle' },
+  { id: 'marketing_automation.campaign.disabled', label: 'Campaign Disabled', entity: 'campaign', category: 'lifecycle' },
+
+  // Dispatch lifecycle
+  { id: 'marketing_automation.dispatch.skipped', label: 'Dispatch Skipped', entity: 'campaign', category: 'lifecycle' },
+  { id: 'marketing_automation.action.executed', label: 'Campaign Action Executed', entity: 'campaign_action', category: 'lifecycle' },
+  { id: 'marketing_automation.action.failed', label: 'Campaign Action Failed', entity: 'campaign_action', category: 'lifecycle' },
+  { id: 'marketing_automation.scheduled_action.paused', label: 'Action Chain Paused', entity: 'scheduled_action', category: 'lifecycle' },
+  { id: 'marketing_automation.scheduled_action.resumed', label: 'Action Chain Resumed', entity: 'scheduled_action', category: 'lifecycle' },
+  { id: 'marketing_automation.scheduled_action.dead', label: 'Action Chain Dead-Lettered', entity: 'scheduled_action', category: 'lifecycle' },
+] as const
+
+export const eventsConfig = createModuleEvents({
+  moduleId: 'marketing_automation',
+  events,
+})
+
+/** Type-safe event emitter for the marketing_automation module */
+export const emitMarketingAutomationEvent = eventsConfig.emit
+
+/** Event IDs that can be emitted by the marketing_automation module */
+export type MarketingAutomationEventId = typeof events[number]['id']
+
+export default eventsConfig

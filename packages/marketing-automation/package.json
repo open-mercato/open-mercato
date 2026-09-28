@@ -1,0 +1,99 @@
+{
+  "name": "@open-mercato/marketing-automation",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Visual marketing automation campaigns: triggers, audience conditions and delayed action chains",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node watch.mjs",
+    "test": "jest --config jest.config.cjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./*": {
+      "types": [
+        "./src/*.ts",
+        "./src/*.tsx"
+      ],
+      "default": "./dist/*.js"
+    },
+    "./*.json": "./src/*.json",
+    "./*/*": {
+      "types": [
+        "./src/*/*.ts",
+        "./src/*/*.tsx"
+      ],
+      "default": "./dist/*/*.js"
+    },
+    "./*/*.json": "./src/*/*.json",
+    "./*/*/*": {
+      "types": [
+        "./src/*/*/*.ts",
+        "./src/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*.js"
+    },
+    "./*/*/*.json": "./src/*/*/*.json",
+    "./*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*.ts",
+        "./src/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*.js"
+    },
+    "./*/*/*/*.json": "./src/*/*/*/*.json",
+    "./*/*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*/*.ts",
+        "./src/*/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*/*.js"
+    },
+    "./*/*/*/*/*.json": "./src/*/*/*/*/*.json",
+    "./*/*/*/*/*/*.json": "./src/*/*/*/*/*/*.json"
+  },
+  "dependencies": {
+    "@dagrejs/dagre": "^3.0.0",
+    "@open-mercato/events": "workspace:*",
+    "@open-mercato/queue": "workspace:*",
+    "@xyflow/react": "^12.11.5"
+  },
+  "peerDependencies": {
+    "@mikro-orm/core": "^7.1.14",
+    "@mikro-orm/postgresql": "^7.1.14",
+    "@open-mercato/core": "workspace:*",
+    "@open-mercato/shared": "workspace:*",
+    "@open-mercato/ui": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": ">=3.23.0"
+  },
+  "devDependencies": {
+    "@open-mercato/core": "workspace:*",
+    "@open-mercato/shared": "workspace:*",
+    "@open-mercato/ui": "workspace:*",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^26.4.0",
+    "@types/react": "^19.2.18",
+    "jest": "^30.4.2",
+    "jest-environment-jsdom": "^30.4.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "ts-jest": "^29.4.12",
+    "typescript": "7.0.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/open-mercato/open-mercato",
+    "directory": "packages/marketing-automation"
+  }
+}
