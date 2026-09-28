@@ -58,11 +58,15 @@ node with N lanes that fan out and rejoin.
 steps live in jsonb with stable ids, so a lane can contain a wait. A lane that ENDS on a wait is
 refused, for the same reason a trailing wait at the top level is: it parks its subjects forever.*
 
-**2.2 Set-level audience evaluation.** A second evaluation path that returns matching subject
-ids instead of a per-subject boolean, over `queryEngine`. This is the foundation segments need,
-and it is why the original carries a combine-strategy seam that Phase 1 deliberately dropped.
-Touches: `lib/engine/audience.ts` (add a set walk), new `lib/audience/set-resolver.ts`.
-**Must land before Phase 5.**
+**2.2 Set-level audience evaluation.** ✅ Implemented 2026-09-28 as a NARROWING rather than a second
+evaluation path. A set walk that returned "the matching subjects" would need a second, independent
+definition of matching, and the two would drift — so the planner returns a superset of candidates and
+`matchesAudience` stays the only authority on membership. Aggregates go through the same shared SQL
+filter as `subject-document.ts` rather than `queryEngine`, which has no aggregate surface; tag and
+order predicates are pushed down, negations and per-event leaves are not. The sweep now enrols from
+candidates, and `POST /campaigns/:id/audience-estimate` exposes the count with an honest qualifier.
+This is the foundation segments need (Phase 5). Files: `lib/engine/narrowing.ts`,
+`lib/audience/set-resolver.ts`.
 
 **2.3 Event idempotency.** Dedupe a redelivered platform event: a deterministic queue job id
 plus a unique key per (trigger, subject, campaign) so the same occurrence cannot start two runs.

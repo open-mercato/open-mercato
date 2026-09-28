@@ -17,7 +17,19 @@ export type SubjectScope = { tenantId: string; organizationId: string }
  * (`sales/commands/documents.ts` → `isCancelledOrderStatus`), and `placed_at is not null`
  * excludes drafts, which would otherwise inflate a customer's order count with carts they
  * never submitted.
+ *
+ * The filter is exported because the set-level candidate query aggregates the SAME orders. If the
+ * two definitions of "an order that counts" ever drifted apart, the narrowing would stop being a
+ * superset of what this function computes, and customers would silently fall out of campaigns.
  */
+export const PLACED_ORDER_FILTER_SQL = `
+  tenant_id = ?
+    and organization_id = ?
+    and deleted_at is null
+    and placed_at is not null
+    and (status is null or status not in ('canceled', 'cancelled'))
+`
+
 const ORDER_AGGREGATE_SQL = `
   select
     count(*)::int as order_count,
@@ -25,11 +37,7 @@ const ORDER_AGGREGATE_SQL = `
     max(placed_at) as last_placed_at
   from sales_orders
   where customer_entity_id = ?
-    and tenant_id = ?
-    and organization_id = ?
-    and deleted_at is null
-    and placed_at is not null
-    and (status is null or status not in ('canceled', 'cancelled'))
+    and ${PLACED_ORDER_FILTER_SQL}
 `
 
 type OrderAggregateRow = {

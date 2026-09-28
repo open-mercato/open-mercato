@@ -13,6 +13,9 @@ its own. Spec:
   condition language; `matchesAudience` is the only entry point.
 - Evaluate an audience through `matchesAudience`, never `evaluateExpression` directly — the veto
   it adds is load-bearing (see Never).
+- Keep every narrowing a SUPERSET of the audience (`lib/engine/narrowing.ts`). Resolve any ambiguity
+  by widening, and push nothing down that you cannot prove. `matchesAudience` decides membership;
+  the narrowing only decides who is worth projecting.
 - Send through `sendEmail` from `@open-mercato/shared/lib/email/send`, and tag through the
   `customers.tags.assign` command. No direct provider calls, no new tag storage.
 - Scope every query by BOTH `tenantId` and `organizationId`.
@@ -51,6 +54,9 @@ its own. Spec:
   `business_rules` returns `-1` for a null left operand, so `orders.daysSinceLast <= 30` becomes
   TRUE for a customer who has never ordered and a win-back campaign mails every never-buyer.
   Omit the key instead; `matchesAudience` also vetoes magnitude comparisons on absent operands.
+- Never push an order-aggregate comparison down when a customer with no orders satisfies it
+  (`orders.count <= 5`, `= 0`, `totalGross >= 0`). The aggregate query can only return customers who
+  have orders, so pushing it would drop every never-buyer from a campaign that includes them.
 - Never conflate the two kinds of stop. A `wait` has done its job, so the run resumes AFTER it;
   quiet hours have not let the message out, so it resumes AT the same step. Swapping them either
   drops a send or sends twice.
@@ -89,11 +95,15 @@ Integration tests need a running app plus workers:
 OM_INTEGRATION_MODULES=marketing_automation yarn test:integration
 ```
 
-Always with that filter. A bare `yarn test:integration` takes ~2.6 minutes for this module's 16
-specs because `--grep` and the module filter are applied AFTER Playwright has compiled all ~1270
-discovered spec files in the monorepo; narrowing `testMatch` up front runs the same specs in ~6
-seconds. Also: the dev server caches the built package, so rebuild and RESTART it before trusting a
-red integration result — a stale server is why a save-validation change appeared not to work.
+Always with that filter. A bare `yarn test:integration` takes ~2.6 minutes for this module's specs
+because `--grep` and the module filter are applied AFTER Playwright has compiled all ~1270 discovered
+spec files in the monorepo; narrowing `testMatch` up front runs the same specs in ~6 seconds.
+
+The dev server resolves this package through `node_modules`, which Next does not watch, so a rebuilt
+`dist` does NOT reach a running server: rebuild, then restart the dev runtime, before trusting a red
+integration result. A stale server is why a save-validation change once appeared not to work. Keep
+`yarn dev` in a terminal of its own — touching `apps/mercato/.env` restarts only the app runtime
+there, whereas a detached `yarn dev` exits instead of restarting.
 
 ## Key Reference Files — Copy From Here
 
@@ -107,6 +117,8 @@ red integration result — a stale server is why a save-validation change appear
 | trigger context hydration | `lib/trigger-catalog.ts` |
 | a step handler with a channel | `steps/send-email.ts` |
 | an idempotent step | `steps/add-tag.ts` (409 "already assigned" is success) |
+| audience pushdown planner and its superset rule | `lib/engine/narrowing.ts` |
+| candidate resolution and the set algebra | `lib/audience/set-resolver.ts` |
 | canvas ↔ definition mapping, fork and rejoin | `lib/canvas/graph-mapping.ts` |
 | structural edits over the step tree | `lib/canvas/step-tree.ts` |
 | deterministic lane assignment, flattening | `lib/engine/split.ts` |

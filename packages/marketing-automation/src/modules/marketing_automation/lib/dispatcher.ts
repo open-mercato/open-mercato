@@ -50,7 +50,7 @@ export type DispatchDeps = {
   enqueueResume(runId: string, delayMs: number): Promise<void>
 }
 
-function readDefinition(campaign: MarketingCampaign): CampaignDefinition {
+export function readDefinition(campaign: MarketingCampaign): CampaignDefinition {
   return campaignDefinitionSchema.parse(campaign.definition) as CampaignDefinition
 }
 

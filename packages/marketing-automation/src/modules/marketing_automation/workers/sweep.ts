@@ -4,9 +4,11 @@ import type { QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { SalesQuote } from '@open-mercato/core/modules/sales/data/entities'
 import { findScheduledCampaigns } from '../lib/campaign-lookup.js'
-import { startCampaignForSubject } from '../lib/dispatcher.js'
+import { readDefinition, startCampaignForSubject } from '../lib/dispatcher.js'
 import type { DispatchDeps, ReentryPolicy } from '../lib/dispatcher.js'
 import { buildSubjectDocument } from '../lib/subject-document.js'
+import { describeNarrowing, planNarrowing } from '../lib/engine/narrowing.js'
+import { createSqlCandidateSource, resolveCandidates } from '../lib/audience/set-resolver.js'
 import { EXPIRING_QUOTE_TRIGGER_ID } from '../lib/trigger-catalog.js'
 import { isSweepDue } from '../lib/sweep-interval.js'
 import { MarketingCampaignTrigger as TriggerEntity } from '../data/entities.js'
@@ -40,6 +42,63 @@ function reentryPolicyFor(trigger: MarketingCampaignTrigger): ReentryPolicy {
     : { kind: 'cooldown', afterDays: trigger.reentryAfterDays }
 }
 
+/**
+ * Projects one candidate and enrols it if the audience accepts.
+ *
+ * Shared by both paths below so that narrowing can only ever change WHICH customers are considered,
+ * never what happens to one — `matchesAudience` inside `startCampaignForSubject` stays the sole
+ * authority on membership.
+ */
+async function startForCandidate(
+  campaign: MarketingCampaign,
+  subjectEntityId: string,
+  policy: ReentryPolicy,
+  deps: DispatchDeps,
+  scope: JobScope,
+): Promise<boolean> {
+  try {
+    const subject = await buildSubjectDocument(deps.em, subjectEntityId, scope, {}, deps.now)
+    const outcome = await startCampaignForSubject(
+      campaign,
+      {
+        subject,
+        subjectEntityId,
+        triggerEventId: 'marketing_automation.sweep.customers',
+        triggerContext: {},
+        dispatchDepth: 1,
+        reentryPolicy: policy,
+      },
+      deps,
+    )
+    return outcome === 'started'
+  } catch (error) {
+    // One bad candidate never aborts the sweep.
+    logger.error('[internal] marketing sweep candidate failed', {
+      campaignId: campaign.id,
+      subjectEntityId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    reportError(error, {
+      module: 'marketing_automation',
+      code: 'marketing_automation.sweep_candidate_failed',
+      attributes: { campaignId: campaign.id, subjectEntityId },
+    })
+    return false
+  }
+}
+
+const LIVE_PERSON_FIELDS = { kind: 'person', deletedAt: null } as const
+
+/**
+ * Enrols every customer in the organization whose subject document the audience accepts.
+ *
+ * The cost here is projecting, not matching: a subject document is a decrypting read plus three
+ * queries, so asking it of every person to find the few hundred who qualify is what makes a sweep
+ * stop finishing. So the audience is first pushed down as far as the database can answer it, and
+ * only the candidates it returns are projected. The pushdown is a SUPERSET by construction
+ * (`lib/engine/narrowing.ts`), which is why this cannot change who gets messaged — only how much
+ * work it took to find them.
+ */
 async function sweepCustomers(
   campaign: MarketingCampaign,
   trigger: MarketingCampaignTrigger,
@@ -48,15 +107,45 @@ async function sweepCustomers(
 ): Promise<number> {
   const em = deps.em
   const policy = reentryPolicyFor(trigger)
-  let cursor: string | null = null
+  // Parsed through the definition schema, the same way the dispatcher reads it.
+  const plan = planNarrowing(readDefinition(campaign).audience)
+  const candidates = await resolveCandidates(plan.narrowing, createSqlCandidateSource(em, scope, deps.now))
+  logger.info('marketing sweep narrowing', {
+    campaignId: campaign.id,
+    narrowing: describeNarrowing(plan),
+    candidates: candidates.ids ? candidates.ids.length : null,
+    queries: candidates.queries,
+    abandoned: candidates.abandoned,
+  })
+
   let started = 0
+
+  if (candidates.ids) {
+    for (let offset = 0; offset < candidates.ids.length; offset += PAGE_SIZE) {
+      const chunk = candidates.ids.slice(offset, offset + PAGE_SIZE)
+      // A tag assignment or an order can point at a customer who has since been deleted, or at a
+      // company rather than a person, so the candidate list is still filtered to live people —
+      // the same predicate the unnarrowed scan applies.
+      const live: { id: string }[] = await em.find(
+        CustomerEntity,
+        { id: { $in: chunk }, tenantId: scope.tenantId, organizationId: scope.organizationId, ...LIVE_PERSON_FIELDS },
+        { fields: ['id'], orderBy: { id: 'ASC' } },
+      )
+      for (const candidate of live) {
+        if (await startForCandidate(campaign, candidate.id, policy, deps, scope)) started += 1
+      }
+      em.clear()
+    }
+    return started
+  }
+
+  let cursor: string | null = null
 
   for (;;) {
     const where: FilterQuery<CustomerEntity> = {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-      kind: 'person',
-      deletedAt: null,
+      ...LIVE_PERSON_FIELDS,
       ...(cursor ? { id: { $gt: cursor } } : {}),
     }
     // Ids only: the subject document does its own decrypting read per candidate, so pulling
@@ -71,34 +160,7 @@ async function sweepCustomers(
     if (!page.length) break
 
     for (const candidate of page) {
-      try {
-        const subject = await buildSubjectDocument(em, candidate.id, scope, {}, deps.now)
-        const outcome = await startCampaignForSubject(
-          campaign,
-          {
-            subject,
-            subjectEntityId: candidate.id,
-            triggerEventId: `marketing_automation.sweep.customers`,
-            triggerContext: {},
-            dispatchDepth: 1,
-            reentryPolicy: policy,
-          },
-          deps,
-        )
-        if (outcome === 'started') started += 1
-      } catch (error) {
-        // One bad candidate never aborts the sweep.
-        logger.error('[internal] marketing sweep candidate failed', {
-          campaignId: campaign.id,
-          subjectEntityId: candidate.id,
-          error: error instanceof Error ? error.message : String(error),
-        })
-        reportError(error, {
-          module: 'marketing_automation',
-          code: 'marketing_automation.sweep_candidate_failed',
-          attributes: { campaignId: campaign.id, subjectEntityId: candidate.id },
-        })
-      }
+      if (await startForCandidate(campaign, candidate.id, policy, deps, scope)) started += 1
     }
 
     if (page.length < PAGE_SIZE) break

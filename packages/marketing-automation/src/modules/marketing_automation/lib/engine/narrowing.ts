@@ -1,0 +1,241 @@
+import type { ConditionExpression, GroupCondition, SimpleCondition } from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
+
+/**
+ * Translates an audience expression into a database-side narrowing.
+ *
+ * The sweep's cost is not the matching, it is the projecting: building a subject document costs a
+ * decrypting read plus three queries, and doing that for every person in an organization to find
+ * the few hundred who match is the difference between a sweep that finishes and one that does not.
+ * So before projecting anything, ask the database which customers could possibly match.
+ *
+ * **The one rule that makes this safe: a narrowing may only ever return a SUPERSET of the audience.**
+ * `matchesAudience` remains the sole authority on whether a subject belongs, and it runs on every
+ * candidate the narrowing hands back. A narrowing that is merely imprecise costs a few wasted
+ * projections; a narrowing that is too tight silently stops mailing customers who qualify, and
+ * nothing in the system would report it. Every decision below therefore resolves ambiguity by
+ * widening, and anything that cannot be translated with certainty is not translated at all.
+ *
+ * This is also what segments will be built on: a narrowing that covers the whole expression
+ * (`complete`) is an exact audience definition, which is what makes counting one possible.
+ */
+
+/** Aggregates over a customer's non-cancelled, placed orders. */
+export type OrderMetric = 'count' | 'totalGross' | 'daysSinceLast'
+
+export type ComparisonOp = '=' | '>' | '>=' | '<' | '<='
+
+export type NarrowingPredicate =
+  | { kind: 'hasTag'; slug: string }
+  | { kind: 'hasAnyTag' }
+  | { kind: 'orderMetric'; metric: OrderMetric; op: ComparisonOp; value: number }
+
+export type Narrowing =
+  /** Every subject is a candidate — the expression said nothing the database can answer. */
+  | { kind: 'all' }
+  /** No subject can match, so there is nothing to sweep at all. */
+  | { kind: 'none' }
+  | { kind: 'predicate'; predicate: NarrowingPredicate }
+  | { kind: 'and'; parts: Narrowing[] }
+  | { kind: 'or'; parts: Narrowing[] }
+
+export type NarrowingPlan = {
+  narrowing: Narrowing
+  /**
+   * True when the narrowing expresses the audience EXACTLY, so its size is the audience size.
+   * False whenever a leaf was ignored or a bound was widened.
+   */
+  complete: boolean
+  /** What was pushed down, for the sweep log and for explaining an estimate to an author. */
+  pushed: NarrowingPredicate[]
+}
+
+export const UNCONSTRAINED: Narrowing = { kind: 'all' }
+
+const NUMERIC_OPS = new Set<string>(['=', '==', '>', '>=', '<', '<='])
+
+function normalizeOp(operator: string): ComparisonOp | null {
+  if (operator === '==' || operator === '=') return '='
+  if (operator === '>' || operator === '>=' || operator === '<' || operator === '<=') return operator
+  return null
+}
+
+function numericValue(raw: unknown): number | null {
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null
+  if (typeof raw === 'string' && raw.trim()) {
+    // A template value such as `{{now}}` is resolved per evaluation and is not a number here.
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+function isGroup(expression: ConditionExpression): expression is GroupCondition {
+  return Array.isArray((expression as GroupCondition).rules)
+}
+
+/**
+ * Whether a comparison on an order aggregate implies the customer has ordered at all.
+ *
+ * This is the subtlest correctness point in the file. The aggregate query can only return customers
+ * who HAVE orders, so `orders.count <= 5` — which is true for somebody who never ordered — must not
+ * be pushed down: it would drop every never-buyer from a campaign that includes them.
+ */
+function impliesAtLeastOneOrder(metric: OrderMetric, op: ComparisonOp, value: number): boolean {
+  // Having a recency at all means having an order, whatever the comparison says about it.
+  if (metric === 'daysSinceLast') return true
+  if (metric === 'count') {
+    if (op === '=' || op === '>=') return value >= 1
+    if (op === '>') return value >= 0
+    return false
+  }
+  // An order can legitimately total zero, so only a strictly positive threshold excludes the
+  // never-buyers; `totalGross >= 0` would be true for them as well.
+  if (op === '=' || op === '>=') return value > 0
+  if (op === '>') return value >= 0
+  return false
+}
+
+type LeafTranslation = { predicate: NarrowingPredicate; exact: boolean } | null
+
+function translateLeaf(leaf: SimpleCondition): LeafTranslation {
+  const field = typeof leaf.field === 'string' ? leaf.field : ''
+  const operator = String(leaf.operator ?? '')
+
+  if (field === 'tags') {
+    // Only the positive forms. `NOT_CONTAINS` and `IS_EMPTY` describe an absence, which a
+    // membership query cannot produce as a superset without listing every customer first.
+    if (operator === 'CONTAINS') {
+      const slug = typeof leaf.value === 'string' ? leaf.value.trim() : ''
+      return slug ? { predicate: { kind: 'hasTag', slug }, exact: true } : null
+    }
+    if (operator === 'IS_NOT_EMPTY') return { predicate: { kind: 'hasAnyTag' }, exact: true }
+    return null
+  }
+
+  if (field === 'orders.count' || field === 'orders.totalGross' || field === 'orders.daysSinceLast') {
+    if (!NUMERIC_OPS.has(operator)) return null
+    const op = normalizeOp(operator)
+    const value = numericValue(leaf.value)
+    if (!op || value === null) return null
+    const metric: OrderMetric = field === 'orders.count'
+      ? 'count'
+      : field === 'orders.totalGross' ? 'totalGross' : 'daysSinceLast'
+    if (!impliesAtLeastOneOrder(metric, op, value)) return null
+    // A recency bound is widened by a day when it reaches SQL (see `recencyBounds`), so it is a
+    // superset rather than an exact translation.
+    return { predicate: { kind: 'orderMetric', metric, op, value }, exact: metric !== 'daysSinceLast' }
+  }
+
+  return null
+}
+
+/** AND: an untranslatable child simply contributes nothing, which keeps the result a superset. */
+function combineAnd(parts: Narrowing[]): Narrowing {
+  if (parts.some((part) => part.kind === 'none')) return { kind: 'none' }
+  const constrained = parts.filter((part) => part.kind !== 'all')
+  if (constrained.length === 0) return { kind: 'all' }
+  if (constrained.length === 1) return constrained[0]
+  return { kind: 'and', parts: constrained }
+}
+
+/**
+ * OR: one untranslatable child makes the WHOLE group untranslatable.
+ *
+ * Intersecting would be wrong and unioning the rest would be too tight: a subject matching only the
+ * branch we could not express would never be projected, and would never be mailed.
+ */
+function combineOr(parts: Narrowing[]): Narrowing {
+  if (parts.some((part) => part.kind === 'all')) return { kind: 'all' }
+  const possible = parts.filter((part) => part.kind !== 'none')
+  if (possible.length === 0) return { kind: 'none' }
+  if (possible.length === 1) return possible[0]
+  return { kind: 'or', parts: possible }
+}
+
+function collectPushed(narrowing: Narrowing, into: NarrowingPredicate[]): void {
+  if (narrowing.kind === 'predicate') into.push(narrowing.predicate)
+  if (narrowing.kind === 'and' || narrowing.kind === 'or') {
+    for (const part of narrowing.parts) collectPushed(part, into)
+  }
+}
+
+type PlanNode = { narrowing: Narrowing; complete: boolean }
+
+function planNode(expression: ConditionExpression): PlanNode {
+  if (isGroup(expression)) {
+    const rules = expression.rules ?? []
+    // An empty group excludes everybody (`EMPTY_GROUP_RESULT`), so there is nothing to sweep.
+    if (rules.length === 0) return { narrowing: { kind: 'none' }, complete: true }
+
+    // NOT is never translated. Negating a membership or an aggregate correctly means reasoning
+    // about the customers the query did NOT return, which is the whole population again.
+    if (expression.operator === 'NOT') return { narrowing: UNCONSTRAINED, complete: false }
+
+    const children = rules.map(planNode)
+    if (expression.operator === 'OR') {
+      const narrowing = combineOr(children.map((child) => child.narrowing))
+      const complete = narrowing.kind !== 'all' && children.every((child) => child.complete)
+      return { narrowing, complete }
+    }
+
+    const narrowing = combineAnd(children.map((child) => child.narrowing))
+    // An AND is exact only when every one of its parts is; a dropped child leaves a superset.
+    const complete = narrowing.kind === 'none' || children.every((child) => child.complete)
+    return { narrowing, complete: complete && narrowing.kind !== 'all' }
+  }
+
+  const translated = translateLeaf(expression)
+  if (!translated) return { narrowing: UNCONSTRAINED, complete: false }
+  return { narrowing: { kind: 'predicate', predicate: translated.predicate }, complete: translated.exact }
+}
+
+/**
+ * Plans the database-side narrowing for an audience.
+ *
+ * A campaign with no audience matches everyone the trigger produces, which is `all` — and exactly
+ * so, which is why an estimate for it can state the population size rather than a lower bound.
+ */
+export function planNarrowing(audience: ConditionExpression | null | undefined): NarrowingPlan {
+  if (!audience) return { narrowing: UNCONSTRAINED, complete: true, pushed: [] }
+  const { narrowing, complete } = planNode(audience)
+  const pushed: NarrowingPredicate[] = []
+  collectPushed(narrowing, pushed)
+  return { narrowing, complete, pushed }
+}
+
+/**
+ * The `placed_at` window a recency comparison becomes, in days before now.
+ *
+ * `daysSinceLast` is whole days floored, so an exact SQL bound would sit within a day of the
+ * boundary the evaluator uses. Each bound is therefore widened by a day: the extra candidates are
+ * rejected by `matchesAudience`, whereas a bound a day too tight would silently drop customers on
+ * the boundary from every sweep.
+ */
+export function recencyBounds(op: ComparisonOp, value: number): { minDaysAgo?: number; maxDaysAgo?: number } {
+  switch (op) {
+    case '>':
+    case '>=':
+      // At least this long ago: no upper bound on age, lower bound widened towards the present.
+      return { minDaysAgo: Math.max(0, value - 1) }
+    case '<':
+    case '<=':
+      // At most this long ago: widened away from the present.
+      return { maxDaysAgo: value + 2 }
+    case '=':
+    default:
+      return { minDaysAgo: Math.max(0, value - 1), maxDaysAgo: value + 2 }
+  }
+}
+
+/** A stable, loggable summary of what went to the database. */
+export function describeNarrowing(plan: NarrowingPlan): string {
+  if (plan.narrowing.kind === 'all') return 'all'
+  if (plan.narrowing.kind === 'none') return 'none'
+  return plan.pushed
+    .map((predicate) => {
+      if (predicate.kind === 'hasTag') return `tag:${predicate.slug}`
+      if (predicate.kind === 'hasAnyTag') return 'tag:*'
+      return `orders.${predicate.metric}${predicate.op}${predicate.value}`
+    })
+    .join(plan.narrowing.kind === 'or' ? '|' : '&')
+}

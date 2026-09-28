@@ -144,6 +144,43 @@ canvas must not show a branch that never runs. Nesting is capped at five levels,
 hand-edited or imported definition that is cyclic in spirit into a truncated campaign instead of a
 stack overflow in a worker.
 
+### Set-level audience narrowing
+
+A sweep's cost is projecting, not matching. Building a subject document is a decrypting read plus
+three queries, so asking it of every person in an organization to find the few hundred who qualify
+is the difference between a sweep that finishes and one that does not.
+
+So before projecting anything, the audience expression is pushed down as far as the database can
+answer it (`lib/engine/narrowing.ts`, pure) and only the candidates it returns are projected
+(`lib/audience/set-resolver.ts`). Tag membership becomes a lookup; `orders.count`,
+`orders.totalGross` and `orders.daysSinceLast` become one aggregate over the SAME orders
+`subject-document.ts` counts — the filter is shared between them precisely so the two definitions of
+"an order that counts" cannot drift.
+
+**The rule that makes this safe: a narrowing may only ever return a SUPERSET.** `matchesAudience`
+remains the sole authority and runs on every candidate. A narrowing that is merely imprecise wastes
+a few projections; one that is too tight silently stops mailing customers who qualify, and nothing
+in the system would report it. Every decision therefore resolves ambiguity by widening:
+
+- An AND ignores the leaves it cannot express. An OR with one inexpressible branch expresses
+  nothing at all — unioning the rest would drop the subjects that only match the branch we could
+  not translate. A NOT is never translated.
+- A comparison a never-buyer satisfies (`orders.count <= 5`, `= 0`, `totalGross >= 0`) is not
+  pushed down at all, because the aggregate query can only return customers who HAVE orders.
+- A recency bound is widened by a day, because `daysSinceLast` is whole days floored and an exact
+  SQL bound would sit within a day of the boundary the evaluator uses.
+- A candidate set above 100k ids is abandoned, which falls back to walking the population.
+
+The property is tested as a property, not on examples: 21 realistic audiences × 200 subject
+documents assert that no subject `matchesAudience` accepts is excluded by the narrowing, and that a
+plan reporting itself `complete` agrees with the evaluator exactly.
+
+`complete` is what makes an audience countable, and it is the foundation segments will be built on.
+`POST /campaigns/:id/audience-estimate` takes the audience in the BODY — so an author gets the
+number for what is on their screen, not for what they last saved — and answers `exact` only when
+the whole expression was expressible, otherwise `atMost`, because the remaining leaves are decided
+per customer at send time.
+
 ### Canvas
 
 The canvas renders a spine with detours, not a free graph, because that is what the engine
@@ -318,6 +355,10 @@ written down.* *Residual: blocked on `SPEC-029`.*
   optimistic lock; canvas editor reusing the `business_rules` condition builder; `en`/`pl`
   locales. Verified against a running instance: palette, create, save, round-trip, 409 on a
   stale save, and five rejected invalid graphs.
+- **2026-09-28** — Phase 2.2: set-level audience narrowing. Pure planner with a superset guarantee,
+  candidate resolver over tag and order-aggregate queries, sweep enrols from candidates instead of
+  scanning the organization, and an audience-estimate endpoint that is explicit about whether its
+  number is exact or an upper bound. 251 unit tests.
 - **2026-09-28** — Phase 2.1: A/B split. `split` step type with deterministic per-subject lane
   assignment, in-place flattening before planning, recursive save-time validation (unknown step
   types and trailing waits inside lanes are refused as they are at the top level), canvas fork and

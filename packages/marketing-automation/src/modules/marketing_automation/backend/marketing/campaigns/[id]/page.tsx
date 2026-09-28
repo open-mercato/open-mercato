@@ -49,6 +49,13 @@ type PaletteStep = {
   uiFields: UiFieldSpec[]
 }
 
+type AudienceEstimate = {
+  count: number
+  /** `exact` when the whole audience was answerable in the database; otherwise an upper bound. */
+  qualifier: 'exact' | 'atMost'
+  candidates: number | null
+}
+
 type CampaignResponse = {
   id: string
   name: string
@@ -113,6 +120,8 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
   const [triggers, setTriggers] = React.useState<CampaignTriggerInput[]>([])
   const [definition, setDefinition] = React.useState<CampaignDefinition>({ version: 1, audience: null, steps: [] })
   const [palette, setPalette] = React.useState<{ triggers: PaletteTrigger[]; steps: PaletteStep[] } | null>(null)
+  const [estimate, setEstimate] = React.useState<AudienceEstimate | null>(null)
+  const [estimating, setEstimating] = React.useState(false)
   const [selectedNodeId, setSelectedNodeId] = React.useState<string | null>(null)
 
   React.useEffect(() => {
@@ -160,6 +169,7 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
           isEveryone: node.data.isEveryone,
           summary: summarizeAudience(definition.audience),
           logic: (definition.audience as { operator?: 'AND' | 'OR' | 'NOT' } | null)?.operator ?? null,
+          estimate,
         },
       }
     }
@@ -178,12 +188,37 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
       return { id: node.id, type: 'split', position: node.position, data: { ...shared, variants: node.data.variants } }
     }
     return { id: node.id, type: 'step', position: node.position, data: shared }
-  }), [graph.nodes, definition.audience, palette])
+  }), [graph.nodes, definition.audience, palette, estimate])
 
   const edges = React.useMemo<Edge[]>(
     () => graph.edges.map((edge) => ({ ...edge, deletable: false, focusable: false })),
     [graph.edges],
   )
+
+  /**
+   * Asks the server how many customers the audience ON SCREEN reaches.
+   *
+   * Explicit rather than automatic: it runs aggregate queries over orders and tags, which is not
+   * something to fire on every keystroke in the condition builder.
+   */
+  const runEstimate = async () => {
+    setEstimating(true)
+    try {
+      const response = await apiCallOrThrow<AudienceEstimate>(
+        `/api/marketing_automation/campaigns/${campaignId}/audience-estimate`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ audience: definition.audience }),
+          headers: { 'content-type': 'application/json' },
+        },
+      )
+      setEstimate(response.result ?? null)
+    } catch (estimateError) {
+      flash(describeSaveError(estimateError, t), 'error')
+    } finally {
+      setEstimating(false)
+    }
+  }
 
   const mutate = React.useCallback((next: Partial<{ definition: CampaignDefinition; triggers: CampaignTriggerInput[] }>) => {
     if (next.definition) setDefinition(next.definition)
@@ -427,8 +462,25 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                     expression trees the rest of Open Mercato edits. */}
                 <ConditionBuilder
                   value={definition.audience as GroupCondition | null}
-                  onChangeAction={(value) => mutate({ definition: { ...definition, audience: value } })}
+                  onChangeAction={(value) => {
+                    // The previous number describes the previous audience, so it stops being shown
+                    // the moment the expression changes rather than lingering as a wrong answer.
+                    setEstimate(null)
+                    mutate({ definition: { ...definition, audience: value } })
+                  }}
                 />
+                <Button variant="outline" disabled={estimating} onClick={() => void runEstimate()}>
+                  {estimating ? <Spinner /> : t('marketing_automation.action.estimateAudience', 'Estimate audience')}
+                </Button>
+                {estimate ? (
+                  <div className="text-xs text-muted-foreground">
+                    {estimate.qualifier === 'exact'
+                      ? t('marketing_automation.canvas.node.audience.estimateExact', '{count} customers match')
+                          .replace('{count}', String(estimate.count))
+                      : t('marketing_automation.canvas.node.audience.estimateAtMost', 'At most {count} customers; the rest is decided per customer when the campaign runs')
+                          .replace('{count}', String(estimate.count))}
+                  </div>
+                ) : null}
               </div>
             ) : null}
 

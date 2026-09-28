@@ -64,6 +64,7 @@ export type AudienceNodeData = {
   isEveryone: boolean
   summary: string[]
   logic: 'AND' | 'OR' | 'NOT' | null
+  estimate?: { count: number; qualifier: 'exact' | 'atMost' } | null
 }
 
 export function AudienceNode({ data, selected }: { data: AudienceNodeData; selected?: boolean }) {
@@ -91,6 +92,15 @@ export function AudienceNode({ data, selected }: { data: AudienceNodeData; selec
       {hidden > 0 ? (
         <div className="text-xs text-muted-foreground">
           {t('marketing_automation.canvas.node.audience.moreConditions', '+{count} more').replace('{count}', String(hidden))}
+        </div>
+      ) : null}
+      {data.estimate ? (
+        <div className="text-xs font-medium text-foreground">
+          {data.estimate.qualifier === 'exact'
+            ? t('marketing_automation.canvas.node.audience.estimateExact', '{count} customers match')
+                .replace('{count}', String(data.estimate.count))
+            : t('marketing_automation.canvas.node.audience.estimateAtMostShort', 'up to {count} customers')
+                .replace('{count}', String(data.estimate.count))}
         </div>
       ) : null}
     </NodeShell>
