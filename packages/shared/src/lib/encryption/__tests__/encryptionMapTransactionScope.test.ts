@@ -188,14 +188,14 @@ describe('encryption map lookups inside a caller transaction (issue #6301)', () 
     expect(serviceExecute).toHaveBeenCalledTimes(1)
   })
 
-  it('throws when database connection cannot be resolved anywhere', async () => {
+  it('returns empty fields when database connection cannot be resolved anywhere', async () => {
     const brokenEm = {} as never
     const service = new TenantDataEncryptionService(brokenEm)
     jest.spyOn(service, 'isEnabled').mockReturnValue(true)
 
     await expect(
       service.getEncryptedFieldNames('scope:entity:broken', 't1', 'org1'),
-    ).rejects.toThrow('database connection could not be resolved')
+    ).resolves.toEqual([])
   })
 
   it('keeps the legacy two-argument call shape for unscoped lookups', async () => {

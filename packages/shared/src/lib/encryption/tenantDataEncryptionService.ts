@@ -338,9 +338,7 @@ export class TenantDataEncryptionService {
     // Bypass ORM lifecycle hooks to avoid recursive decrypt loops by querying directly.
     const target = resolveMapLookupTarget(scope, this.em)
     const conn = getSqlConnection(target.em)
-    if (!conn) {
-      throw new Error('TenantDataEncryptionService: database connection could not be resolved for encryption map lookup')
-    }
+    if (!conn) return null
     const sql = `
       select entity_id, fields_json
       from encryption_maps
@@ -459,8 +457,12 @@ export class TenantDataEncryptionService {
       // 7. Unscoped lookup: execute with in-flight dedupe and publish to global cache
       const pending = this.fetchMap(candidate, scope)
       this.inflightMaps.set(tag, pending)
-      const loaded = await pending
-      this.inflightMaps.delete(tag)
+      let loaded: EncryptionMapRecord | null = null
+      try {
+        loaded = await pending
+      } finally {
+        this.inflightMaps.delete(tag)
+      }
       if (!loaded) {
         recordMiss(tag)
         debug('🔍 encmap.miss', {
@@ -487,9 +489,7 @@ export class TenantDataEncryptionService {
   ): Promise<EncryptedFieldRule[]> {
     const target = resolveMapLookupTarget(scope, this.em)
     const conn = getSqlConnection(target.em)
-    if (!conn) {
-      throw new Error('TenantDataEncryptionService: database connection could not be resolved for encryption map lookup')
-    }
+    if (!conn) return []
     const sql = `
       select fields_json
       from encryption_maps
