@@ -36,6 +36,7 @@ function makeEffects(handlers: StepHandler<Deps>[], over: Partial<ExecutorSideEf
     getStep: (type) => byType.get(type),
     countSendsSince: jest.fn().mockResolvedValue(0),
     recordSend: jest.fn().mockResolvedValue(undefined),
+    isChannelSuppressed: jest.fn().mockResolvedValue(false),
     resolveTimeZone: jest.fn().mockResolvedValue('UTC'),
     resolvePreferredSendHour: jest.fn().mockResolvedValue(null),
     logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
@@ -344,6 +345,71 @@ describe('executeRun — send-time optimisation', () => {
       deps,
       effects,
     )
+    expect(transition.kind).toBe('completed')
+    expect(handler.execute).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * Consent, which is a different kind of refusal from every other gate.
+ *
+ * Quiet hours and the learned send hour say "not yet"; the frequency cap says "not this one". Consent says
+ * "not at all", so the message is dropped rather than deferred — deferring something a customer asked not
+ * to receive only sends it later.
+ */
+describe('executeRun — consent', () => {
+  test('drops the message when the channel is refused, and records why', async () => {
+    const handler = emailHandler()
+    const recordSend = jest.fn().mockResolvedValue(undefined)
+    const effects = makeEffects([handler], {
+      recordSend,
+      isChannelSuppressed: jest.fn().mockResolvedValue(true),
+    })
+    const transition = await executeRun(run(), [step('s1', 'send_email')], noPolicy, deps, effects)
+
+    expect(transition.kind).toBe('completed')
+    expect(handler.execute).not.toHaveBeenCalled()
+    expect(recordSend).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'suppressed',
+      suppressionReason: 'unsubscribed',
+    }))
+    expect(transition.stepLog[0]).toMatchObject({ status: 'skipped', detail: 'unsubscribed' })
+  })
+
+  // Permission is checked before timing, or an unsubscribed customer's message would be scheduled for
+  // 09:00 tomorrow instead of not being sent at all.
+  test('is checked BEFORE quiet hours, so a refused message is not merely deferred', async () => {
+    const handler = emailHandler()
+    const effects = makeEffects([handler], {
+      now: new Date('2026-09-28T23:30:00.000Z'),
+      isChannelSuppressed: jest.fn().mockResolvedValue(true),
+    })
+    const transition = await executeRun(
+      run(),
+      [step('s1', 'send_email')],
+      { frequencyCap: null, quietHours: { startHour: 22, endHour: 8 } },
+      deps,
+      effects,
+    )
+    // Completed, not waiting: there is nothing to come back for.
+    expect(transition.kind).toBe('completed')
+    expect(handler.execute).not.toHaveBeenCalled()
+  })
+
+  test('a step with no channel is never gated by consent', async () => {
+    const handler = tagHandler()
+    const isChannelSuppressed = jest.fn().mockResolvedValue(true)
+    const effects = makeEffects([handler], { isChannelSuppressed })
+    const transition = await executeRun(run(), [step('s1', 'add_tag')], noPolicy, deps, effects)
+    expect(transition.kind).toBe('completed')
+    expect(handler.execute).toHaveBeenCalledTimes(1)
+    expect(isChannelSuppressed).not.toHaveBeenCalled()
+  })
+
+  test('sends normally when consent is on record as subscribed or absent', async () => {
+    const handler = emailHandler()
+    const effects = makeEffects([handler], { isChannelSuppressed: jest.fn().mockResolvedValue(false) })
+    const transition = await executeRun(run(), [step('s1', 'send_email')], noPolicy, deps, effects)
     expect(transition.kind).toBe('completed')
     expect(handler.execute).toHaveBeenCalledTimes(1)
   })

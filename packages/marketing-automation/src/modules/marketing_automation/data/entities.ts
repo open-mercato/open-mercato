@@ -494,3 +494,100 @@ export class MarketingCustomerScoreEntry {
   @Property({ name: 'created_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
   createdAt!: Date
 }
+
+/**
+ * Whether a customer wants marketing on a channel.
+ *
+ * One row per (customer, channel) with the current state, plus the reason and where it came from. A
+ * LEDGER was considered and rejected here, unlike the score: what a send gate needs is the current
+ * answer, the legal requirement is to honour it immediately, and an append-only history would put the
+ * authoritative answer behind an aggregate on the hottest path in the module. The audit trail that a
+ * regulator asks for is the separate consent log below, which is append-only.
+ *
+ * Absence means "never said" — which this module treats as permitted, because the platform has no
+ * global consent model to inherit from and inventing an opt-in default here would silently disable
+ * every campaign on every existing installation. That decision is stated in the spec rather than
+ * hidden in a column default.
+ */
+@Entity({ tableName: 'marketing_consents' })
+@Unique({ name: 'marketing_consents_subject_channel_uniq', properties: ['tenantId', 'organizationId', 'subjectEntityId', 'channel'] })
+export class MarketingConsent {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'subject_entity_id', type: 'uuid' })
+  subjectEntityId!: string
+
+  @Property({ type: 'text' })
+  channel!: 'email' | 'sms' | 'push'
+
+  @Property({ type: 'text' })
+  state!: 'subscribed' | 'unsubscribed'
+
+  /** What the customer said, or what an operator recorded. Never interpreted. */
+  @Property({ type: 'text', nullable: true })
+  reason?: string | null
+
+  /** How it was decided: the customer clicked, an operator set it, or an import brought it. */
+  @Property({ type: 'text' })
+  source!: 'customer' | 'operator' | 'import'
+
+  @Property({ name: 'created_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
+  createdAt!: Date
+
+  @Property({ name: 'updated_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt!: Date
+}
+
+/**
+ * Append-only record of every consent change.
+ *
+ * Separate from the state above because the two answer different questions and have opposite access
+ * patterns: the gate needs one current row per send, a regulator needs the whole history and never in a
+ * hurry. Keeping them together would mean either an aggregate on the send path or a history that can be
+ * overwritten — and a consent audit trail that can be overwritten is not an audit trail.
+ */
+@Entity({ tableName: 'marketing_consent_events' })
+@Index({ name: 'mkt_consent_events_subject_idx', properties: ['tenantId', 'organizationId', 'subjectEntityId'] })
+export class MarketingConsentEvent {
+  [OptionalProps]?: 'occurredAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'subject_entity_id', type: 'uuid' })
+  subjectEntityId!: string
+
+  @Property({ type: 'text' })
+  channel!: 'email' | 'sms' | 'push'
+
+  @Property({ type: 'text' })
+  state!: 'subscribed' | 'unsubscribed'
+
+  @Property({ type: 'text', nullable: true })
+  reason?: string | null
+
+  @Property({ type: 'text' })
+  source!: 'customer' | 'operator' | 'import'
+
+  /** The campaign whose message prompted the change, when there was one. */
+  @Property({ name: 'campaign_id', type: 'uuid', nullable: true })
+  campaignId?: string | null
+
+  @Property({ name: 'occurred_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
+  occurredAt!: Date
+}

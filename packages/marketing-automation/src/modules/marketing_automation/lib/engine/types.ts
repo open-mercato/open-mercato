@@ -144,6 +144,14 @@ export type AutomationContext = {
    * from another's in the same journey.
    */
   actionId?: string
+  /**
+   * The one-click unsubscribe URL for the message being rendered.
+   *
+   * Present only while a message is being composed, so an author can place `{{unsubscribeUrl}}` where
+   * their design wants it. Absent everywhere else, including in a run's persisted context — it is derived
+   * from the run and does not need storing.
+   */
+  unsubscribeUrl?: string
 } & Record<string, unknown>
 
 export type EngineLogger = {

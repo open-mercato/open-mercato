@@ -25,6 +25,7 @@ type Profile = {
   score: { points: number; tier: string | null; tierRank: number; pointsToNext: number | null }
   orders: { count: number; totalGross: number; lastPlacedAt: string | null; daysSinceLast: number | null }
   tags: string[]
+  consent: { email: 'subscribed' | 'unsubscribed' | null }
   messages: { sent: number; suppressed: number; opened: number; clicked: number }
   recentScoreEntries: Array<{
     id: string
@@ -157,6 +158,19 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
               </span>
             }
           />
+        </div>
+
+        <div className="mb-6">
+          <SectionHeader title={t('marketing_automation.profile.consent', 'Marketing consent')} />
+          {/* Three states, and the third one matters: "not recorded" is not the same as "agreed", and a
+              screen that showed only a yes/no would invent a decision the customer never made. */}
+          <StatusBadge variant={profile.consent.email === 'unsubscribed' ? 'error' : profile.consent.email === 'subscribed' ? 'success' : 'neutral'}>
+            {profile.consent.email === 'unsubscribed'
+              ? t('marketing_automation.profile.consent.unsubscribed', 'Unsubscribed from email')
+              : profile.consent.email === 'subscribed'
+                ? t('marketing_automation.profile.consent.subscribed', 'Subscribed to email')
+                : t('marketing_automation.profile.consent.unrecorded', 'No email preference recorded')}
+          </StatusBadge>
         </div>
 
         {profile.tags.length > 0 ? (

@@ -13,7 +13,14 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
  * are uuids, and anyone holding the token already received the message it belongs to.
  */
 
-export type TrackingPurpose = 'open' | 'click'
+/**
+ * `unsubscribe` shares this token machinery deliberately.
+ *
+ * It needs exactly the same properties as an open or a click — signed, public, scoped, carrying no PII —
+ * and a second signing scheme would be a second thing to get wrong. The purpose is part of the signed
+ * claims, so an open token cannot be replayed as an unsubscribe.
+ */
+export type TrackingPurpose = 'open' | 'click' | 'unsubscribe'
 
 export type TrackingClaims = {
   tenantId: string
@@ -108,7 +115,7 @@ export function verifyTrackingToken(token: string, secret: string): TrackingClai
     return null
   }
   if (wire?.v !== TRACKING_TOKEN_VERSION) return null
-  if (wire.p !== 'open' && wire.p !== 'click') return null
+  if (wire.p !== 'open' && wire.p !== 'click' && wire.p !== 'unsubscribe') return null
   for (const value of [wire.t, wire.o, wire.c, wire.r, wire.s]) {
     if (typeof value !== 'string' || !value) return null
   }

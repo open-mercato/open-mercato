@@ -11,6 +11,7 @@ import {
 } from '../../../../data/entities.js'
 import { loadOrderAggregates, loadTagSlugs } from '../../../../lib/subject-document.js'
 import { loadScorePoints } from '../../../../lib/scores.js'
+import { loadConsentState } from '../../../../lib/consent.js'
 import { resolveTier } from '../../../../lib/engine/tiers.js'
 import { loadTierThresholds } from '../../../../lib/tiers.js'
 
@@ -61,11 +62,12 @@ export async function GET(req: Request) {
   )
   if (!customer) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const [tags, orders, points, tierThresholds] = await Promise.all([
+  const [tags, orders, points, tierThresholds, emailConsent] = await Promise.all([
     loadTagSlugs(em, customerId, scope),
     loadOrderAggregates(em, customerId, scope, now),
     loadScorePoints(em, customerId, scope),
     loadTierThresholds(container, scope),
+    loadConsentState(em, customerId, scope, 'email'),
   ])
   const tier = resolveTier(points, tierThresholds)
 
@@ -129,6 +131,11 @@ export async function GET(req: Request) {
       daysSinceLast: orders.daysSinceLast ?? null,
     },
     tags,
+    /**
+     * Null means nothing is on record, which this module treats as permitted — so the screen says
+     * "not recorded" rather than implying a decision the customer never made.
+     */
+    consent: { email: emailConsent },
     messages: { sent, suppressed, opened: engagement.opened, clicked: engagement.clicked },
     recentScoreEntries: scoreEntries.map((entry) => ({
       id: entry.id,

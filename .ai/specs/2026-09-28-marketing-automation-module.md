@@ -144,6 +144,45 @@ canvas must not show a branch that never runs. Nesting is capped at five levels,
 hand-edited or imported definition that is cyclic in spirit into a truncated campaign instead of a
 stack overflow in a worker.
 
+### Consent and one-click unsubscribe
+
+The feature without which this module should not send anything in production.
+
+**Two tables, deliberately.** `marketing_consents` holds one row per (customer, channel) with the current
+answer; `marketing_consent_events` is append-only. They answer different questions with opposite access
+patterns: the send gate needs one indexed row per message, a regulator needs the whole history and never in
+a hurry. Keeping them together would mean either an aggregate on the hottest path in the module or a
+history that can be overwritten — and a consent trail that can be overwritten is not a trail. A repeated
+"unsubscribe" still appends an event, because when somebody acted is a fact.
+
+**Silence means permitted**, and that is a decision rather than an oversight. The platform has no global
+consent model for this module to inherit, so treating an absent record as refusal would have disabled every
+campaign on every existing installation the moment this shipped — a behaviour change delivered as a bug
+report. An installation that needs opt-in imports its consent, which is what the `import` source is for.
+The constant is named `UNRECORDED_CONSENT_ALLOWS_SENDING` so the choice is visible where it is made.
+
+**Consent is checked before every other send gate.** Quiet hours and the learned send hour say "not yet";
+the frequency cap says "not this one"; consent says "not at all". So it DROPS the message rather than
+deferring it — deferring something a customer asked not to receive only sends it later — and records the
+suppression with reason `unsubscribed`, so the reason appears in reporting instead of the message simply
+never existing.
+
+**The unsubscribe link carries no identity.** It reuses the tracking token machinery — signed, public,
+scoped, purpose-pinned, so an open token cannot be replayed as an unsubscribe — and names the RUN. The
+endpoint resolves the customer from the run, so the URL that ends up in mail archives, forwarded messages
+and corporate scanners identifies nobody. It answers HTML, because a mail client opens it in a browser and
+somebody who has just asked to be left alone deserves a sentence rather than a JSON object; `no-store` and
+`no-referrer`, and POST behaves identically for RFC 8058 one-click clients.
+
+**It never claims success it did not achieve.** A signed link whose run no longer exists answers 404 with an
+apology and a way to reach a human, and a failed write answers 500 — because somebody who believes they
+unsubscribed and did not is the worst outcome this feature can produce, worse than an honest error.
+
+`{{unsubscribeUrl}}` is offered to the author so they can place the link where their design wants it, and a
+minimal footer is appended only when they did not. That footer is the one place this module modifies an
+author's HTML, which the link rewriter otherwise refuses to do: a marketing email with no way out is not a
+shippable default, and in much of the world it is not lawful.
+
 ### Charts, and an agent that can author
 
 **Charts.** Sends, opens and clicks per day, over the report window. Grouped in SQL over a GENERATED date
@@ -676,6 +715,10 @@ eight-way concurrent worker and is now backed by a partial unique index on the a
   optimistic lock; canvas editor reusing the `business_rules` condition builder; `en`/`pl`
   locales. Verified against a running instance: palette, create, save, round-trip, 409 on a
   stale save, and five rejected invalid graphs.
+- **2026-09-28** — Phase 6.1 and X-08: marketing consent as a send gate ahead of every timing gate, an
+  append-only consent trail beside the current state, and a public one-click unsubscribe whose link
+  identifies nobody. Silence is permitted, stated in a named constant. 504 unit tests, 72 integration
+  tests.
 - **2026-09-28** — Backlog X-06 (charts) and X-05 (MCP/agent tools): a daily series generated in SQL so
   gaps are zeroes rather than absences, and a six-tool authoring pack that can draft a campaign but can
   never publish one. 492 unit tests, 66 integration tests.

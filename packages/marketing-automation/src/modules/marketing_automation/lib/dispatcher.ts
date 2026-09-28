@@ -13,6 +13,7 @@ import { buildCampaignCommandContext } from './command-context.js'
 import { findCampaignsForEvent } from './campaign-lookup.js'
 import { describeVariantChoices } from './engine/split.js'
 import { loadPreferredSendHour } from './analytics/send-time.js'
+import { isSuppressedByConsent } from './consent.js'
 import { occurrenceKeyFor } from './occurrence.js'
 import { loadTierThresholds } from './tiers.js'
 import { recordDeadLetter } from './dead-letter.js'
@@ -97,6 +98,12 @@ export function buildEffects(
       // backdate every send to when the job began and skew the frequency-cap window.
       sentAt: new Date(),
     }),
+    isChannelSuppressed: async (subjectEntityId, channel) => {
+      if (!subjectEntityId) return false
+      // Only the channels consent is modelled for; an unknown channel is not silently refused.
+      if (channel !== 'email' && channel !== 'sms' && channel !== 'push') return false
+      return isSuppressedByConsent(deps.em, subjectEntityId, deps.scope, channel)
+    },
     resolveTimeZone: (subjectEntityId) => subjectEntityId
       ? loadSubjectTimeZone(deps.em, subjectEntityId, deps.scope)
       : Promise.resolve('UTC'),

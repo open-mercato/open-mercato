@@ -36,6 +36,7 @@ function effectsFor(handlers: Handler<Deps>[], over: Partial<ExecutorSideEffects
     getStep: (type) => byType.get(type),
     countSendsSince: jest.fn().mockResolvedValue(0),
     recordSend: jest.fn().mockResolvedValue(undefined),
+    isChannelSuppressed: jest.fn().mockResolvedValue(false),
     resolveTimeZone: jest.fn().mockResolvedValue('UTC'),
     resolvePreferredSendHour: jest.fn().mockResolvedValue(null),
     logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },

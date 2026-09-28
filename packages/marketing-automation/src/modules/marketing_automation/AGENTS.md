@@ -47,8 +47,9 @@ its own. Spec:
 
 ## Ask First
 
-- Before gating sends on marketing consent: the platform has no consent model, and inventing one
-  here would pre-empt a decision that belongs to a spec.
+- Before changing what an ABSENT consent record means. It currently permits sending
+  (`UNRECORDED_CONSENT_ALLOWS_SENDING`), because refusing would disable every campaign on every existing
+  installation the moment it shipped. Flipping it is a product decision, not a fix.
 - Before making any step type send on a new channel (SMS, WhatsApp, push) — a provider belongs in
   its own `packages/channel-*`, not here.
 - Before adding a table. The authored graph lives in `campaigns.definition` jsonb on purpose;
@@ -81,6 +82,11 @@ its own. Spec:
   the other order lands an "optimised" send at 3am.
 - Never learn a send hour from fewer than `MINIMUM_OPENS_FOR_PATTERN` opens, and never group open hours
   in server time — both produce a confident answer about the wrong customer.
+- Never check consent after a timing gate. Consent is permission and the others are scheduling, so a
+  refused message is DROPPED, never deferred — deferring it only sends it later.
+- Never let the unsubscribe endpoint confirm something it did not do. A person who believes they
+  unsubscribed and did not is worse off than one who sees an error.
+- Never put an identity in an unsubscribe link. It names the run; the endpoint resolves the customer.
 - Never give an AI tool the power to enable a campaign. Publishing starts messaging real customers and is
   gated behind a human permission; `ai-tools/__tests__` refuses any tool whose name suggests it.
 - Never push an ENCRYPTED field down to SQL. Customer addresses are encrypted at rest, so a country
@@ -168,6 +174,7 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | score ledger, idempotent awarding | `lib/scores.ts`, `steps/add-points.ts` |
 | tier ladder, derivation and its defaults | `lib/engine/tiers.ts`, `lib/tiers.ts` |
 | everything known about one customer | `api/customers/[id]/profile/route.ts` |
+| consent state, its trail, and the send gate | `lib/consent.ts`, `api/unsubscribe/` |
 | agent/MCP authoring tools and their invariants | `ai-tools/authoring-pack.ts` |
 | daily series behind the results chart | `lib/analytics/daily-series.ts` |
 | journey preview, and why it reuses the engine | `lib/preview.ts` |
@@ -208,6 +215,7 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 
 - `storefront.cart.abandoned` — no cart entity exists in the platform. It is in the catalog as
   unavailable with a reason so the palette explains itself; blocked on `SPEC-029`.
-- Marketing consent, funnel analytics, segments, and SMS/WhatsApp/push.
+- Funnel analytics, segments, and SMS/WhatsApp/push. Consent and unsubscribe now exist; GDPR export and
+  erasure do not.
   See the spec's phase backlog. A/B splits exist, but picking a winner does not — that needs
   click-through attribution first.

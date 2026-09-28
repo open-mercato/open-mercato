@@ -63,6 +63,13 @@ export type ExecutorSideEffects<TDeps> = {
     stepId: string
     suppressionReason?: string | null
   }): Promise<void>
+  /**
+   * Whether this channel is refused for this subject.
+   *
+   * Consulted BEFORE every other send gate, because the others are about timing and this one is about
+   * permission: deferring a message the customer asked not to receive would only send it later.
+   */
+  isChannelSuppressed(subjectEntityId: string | null | undefined, channel: string): Promise<boolean>
   /** The subject's own timezone; quiet hours are meaningless in server time. */
   resolveTimeZone(subjectEntityId: string | null | undefined): Promise<string>
   /**
@@ -134,6 +141,24 @@ export async function executeRun<TDeps>(
     }
 
     if (handler.channel) {
+      /**
+       * Permission first, timing second.
+       *
+       * A customer who unsubscribed is not "not yet" — they are "no", so this drops the message rather
+       * than deferring it, and records the suppression so the reason is visible in reporting instead of
+       * the message simply never appearing.
+       */
+      if (await effects.isChannelSuppressed(run.subjectEntityId, handler.channel)) {
+        await effects.recordSend({
+          channel: handler.channel,
+          status: 'suppressed',
+          stepId: step.id,
+          suppressionReason: 'unsubscribed',
+        })
+        stepLog.push(outcome(step, 'skipped', now, 'unsubscribed'))
+        continue
+      }
+
       const timeZone = await effects.resolveTimeZone(run.subjectEntityId)
 
       /**

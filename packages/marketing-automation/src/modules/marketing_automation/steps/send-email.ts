@@ -7,7 +7,7 @@ import { interpolate } from '../lib/interpolate.js'
 import { redactEmails } from '../lib/redact.js'
 import { applyTracking } from '../lib/tracking/rewrite.js'
 import { resolveTrackingBaseUrl, resolveTrackingSecret } from '../lib/tracking/secret.js'
-import { clickUrl, openPixelUrl } from '../lib/tracking/urls.js'
+import { clickUrl, openPixelUrl, unsubscribeUrl } from '../lib/tracking/urls.js'
 import type { StepHandler } from '../lib/engine/registry.js'
 import type { AutomationContext } from '../lib/engine/types.js'
 import type { StepDeps } from './deps.js'
@@ -58,6 +58,50 @@ function withTracking(
 }
 
 /**
+ * The unsubscribe link for this message, when one can be built.
+ *
+ * Null without a run, a secret or a base URL — a test send has no run, and a link that 404s is worse than
+ * no link. Exposed to the author as `{{unsubscribeUrl}}` so they can place it where their design wants it.
+ */
+function unsubscribeLinkFor(ctx: AutomationContext): string | null {
+  const secret = resolveTrackingSecret()
+  const baseUrl = resolveTrackingBaseUrl()
+  if (!secret || !baseUrl) return null
+  if (!ctx.runId || !ctx.campaignId) return null
+  return unsubscribeUrl(
+    baseUrl,
+    {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      campaignId: ctx.campaignId,
+      runId: ctx.runId,
+      stepId: ctx.actionId ?? 'unsubscribe',
+    },
+    secret,
+  )
+}
+
+/**
+ * Appends an unsubscribe footer when the author did not place the link themselves.
+ *
+ * A decision worth stating: this MODIFIES the author's HTML, which the rewriter otherwise refuses to do.
+ * It happens because a marketing email with no way out is not a shippable default — in much of the world
+ * it is not lawful — and an author who wants control has it by using `{{unsubscribeUrl}}` anywhere in the
+ * body, which suppresses the footer entirely.
+ */
+function withUnsubscribeFooter(html: string, url: string | null): string {
+  if (!url) return html
+  if (html.includes(url)) return html
+
+  const footer = `<p style="margin-top:2rem;font-size:12px;color:#666">`
+    + `<a href="${url.replace(/&/g, '&amp;')}" style="color:#666">Unsubscribe</a>`
+    + `</p>`
+  const closing = html.lastIndexOf('</body>')
+  if (closing === -1) return `${html}${footer}`
+  return `${html.slice(0, closing)}${footer}${html.slice(closing)}`
+}
+
+/**
  * Resolves the recipient at send time, by reading through the decrypting finder.
  *
  * Deliberately NOT cached in the run context: that context is persisted to jsonb, and
@@ -97,14 +141,23 @@ export function renderEmail(
   params: { subject: string; bodyHtml: string; bodyText?: string; track?: boolean },
   ctx: AutomationContext,
 ): { subject: string; html: string; text?: string } {
+  const unsubscribe = unsubscribeLinkFor(ctx)
+  // Offered as a substitution so the author can place it; appended below only if they did not.
+  const withUnsubscribeAvailable: AutomationContext = unsubscribe
+    ? { ...ctx, unsubscribeUrl: unsubscribe }
+    : ctx
+
   return {
     subject: interpolate(params.subject, ctx),
     // Interpolate FIRST, then rewrite: a link assembled from a substituted value has to be tracked too,
     // and rewriting first would sign a URL containing the placeholder instead of the value.
     // `'html'` is not optional here: the body is rendered as HTML, and substituted values can be
     // customer-controlled.
-    html: withTracking(interpolate(params.bodyHtml, ctx, 'html'), ctx, params.track !== false),
-    text: params.bodyText ? interpolate(params.bodyText, ctx) : undefined,
+    html: withUnsubscribeFooter(
+      withTracking(interpolate(params.bodyHtml, withUnsubscribeAvailable, 'html'), ctx, params.track !== false),
+      unsubscribe,
+    ),
+    text: params.bodyText ? interpolate(params.bodyText, withUnsubscribeAvailable) : undefined,
   }
 }
 

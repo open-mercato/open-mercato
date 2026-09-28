@@ -3,6 +3,7 @@ import type { TrackingClaims } from './token.js'
 
 export const TRACK_OPEN_PATH = '/api/marketing_automation/track/open'
 export const TRACK_CLICK_PATH = '/api/marketing_automation/track/click'
+export const UNSUBSCRIBE_PATH = '/api/marketing_automation/unsubscribe'
 
 /**
  * The token travels as a single query parameter on purpose.
@@ -27,4 +28,19 @@ export function clickUrl(
   target: string,
 ): string {
   return withToken(baseUrl, TRACK_CLICK_PATH, signTrackingToken({ ...claims, purpose: 'click', target }, secret))
+}
+
+/**
+ * The one-click unsubscribe URL for a message.
+ *
+ * Carries no identity: the token names the run, and the endpoint resolves the customer from it. That keeps
+ * the link free of anything that identifies the recipient, which matters more here than anywhere else —
+ * this URL ends up in mail archives, forwarded messages and corporate scanners.
+ */
+export function unsubscribeUrl(
+  baseUrl: string,
+  claims: Omit<TrackingClaims, 'purpose' | 'target'>,
+  secret: string,
+): string {
+  return withToken(baseUrl, UNSUBSCRIBE_PATH, signTrackingToken({ ...claims, purpose: 'unsubscribe' }, secret))
 }
