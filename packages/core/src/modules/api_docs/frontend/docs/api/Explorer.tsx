@@ -732,6 +732,7 @@ export default function ApiDocsExplorer(props: ApiDocsExplorerProps) {
                               </h4>
                               <pre className="overflow-auto rounded-lg bg-muted px-4 py-3 text-xs leading-relaxed">
                                 {operation.operation['x-codeSamples'][0].source}
+                                                    aria-label="Search endpoints by path or summary"
                               </pre>
                             </section>
                           ) : null}
