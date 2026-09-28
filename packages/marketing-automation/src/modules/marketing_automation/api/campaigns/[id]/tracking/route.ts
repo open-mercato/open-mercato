@@ -3,6 +3,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { MarketingCampaign, MarketingMessageSend, MarketingMessageSendEvent } from '../../../../data/entities.js'
+import { loadSplitResults, pickSplitWinner } from '../../../../lib/analytics/split-results.js'
+import { loadAttribution } from '../../../../lib/analytics/attribution.js'
 
 /**
  * What happened to this campaign's messages: how many were sent, and how many were opened, clicked,
@@ -22,6 +24,17 @@ const routeMetadata = {
 export const metadata = routeMetadata
 
 const EVENT_TYPES = ['delivered', 'opened', 'clicked', 'bounced'] as const
+
+/** How far back attribution looks, and how long after a click an order still counts. */
+const DEFAULT_ATTRIBUTION_WINDOW_DAYS = 7
+const DEFAULT_REPORT_DAYS = 90
+/**
+ * Sends per lane before a winner is offered.
+ *
+ * Not a statistical test — this is a default, and a deliberately unexciting one. What matters is that
+ * the answer is withheld until every lane has a sample, which is the mistake an eager automation makes.
+ */
+const DEFAULT_MINIMUM_SENDS = 50
 type EventType = (typeof EVENT_TYPES)[number]
 
 function readCampaignId(req: Request): string | null {
@@ -65,19 +78,46 @@ export async function GET(req: Request) {
     unique[type] = Number.parseInt(rows[0]?.count ?? '0', 10) || 0
   }
 
+  const url = new URL(req.url)
+  const windowDays = Math.min(
+    Math.max(Number.parseInt(url.searchParams.get('windowDays') ?? '', 10) || DEFAULT_ATTRIBUTION_WINDOW_DAYS, 1),
+    90,
+  )
+  const minimumSends = Math.max(
+    Number.parseInt(url.searchParams.get('minimumSends') ?? '', 10) || DEFAULT_MINIMUM_SENDS,
+    1,
+  )
+
+  const splits = await loadSplitResults(em, campaign.id, scope)
+  const attribution = await loadAttribution(em, scope, {
+    windowDays,
+    since: new Date(Date.now() - DEFAULT_REPORT_DAYS * 86_400_000),
+    campaignId: campaign.id,
+  })
+
+  // One winner per split, or none — the rules live in `pickSplitWinner`, which refuses to answer
+  // until every lane has a sample and refuses a tie.
+  const winners = [...new Set(splits.map((result) => result.stepId))]
+    .map((stepId) => pickSplitWinner(splits, stepId, minimumSends))
+    .filter((winner): winner is NonNullable<typeof winner> => winner !== null)
+
   return NextResponse.json({
     campaign: { id: campaign.id, name: campaign.name },
     sends: { sent, suppressed },
     events: counts,
     uniqueRecipients: unique,
+    splits,
+    winners,
+    attribution,
+    settings: { windowDays, minimumSends },
   })
 }
 
 export const openApi = {
   GET: {
-    summary: 'Delivery and engagement counts for a campaign',
+    summary: 'Results for a campaign: delivery, engagement, A/B and attributed revenue',
     description:
-      'Sends, suppressions, and delivery events by type, with unique-recipient counts alongside raw totals. Gated by `marketing_automation.runs.view`. Counts only — never which customer did what.',
+      'Sends and suppressions, delivery events by type with unique-recipient counts alongside raw totals, per-variant A/B results read from the lane recorded on each run, any variant that has earned the right to be called a winner, and linearly attributed revenue per currency. Gated by `marketing_automation.runs.view`. Counts only — never which customer did what.',
     tags: ['Marketing Automation'],
     responses: { 200: { description: 'The counts' }, 404: { description: 'Not found' } },
   },

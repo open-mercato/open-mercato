@@ -144,6 +144,38 @@ canvas must not show a branch that never runs. Nesting is capped at five levels,
 hand-edited or imported definition that is cyclic in spirit into a truncated campaign instead of a
 stack overflow in a worker.
 
+### Results: A/B outcomes and attributed revenue
+
+The lane a run walked is RECORDED on the run at enrolment, not recomputed. The choice is deterministic,
+so recomputing would agree — until the author edits the split, at which point every historical run would
+be re-attributed to a lane it never walked and the comparison would quietly become fiction. It is
+recorded only for runs that have a subject, because a subject-less run is flattened with the run's own
+id, which does not exist yet at enrolment.
+
+Opens and clicks are counted as UNIQUE RUNS rather than raw events: a mail client re-fetching a pixel is
+not a second person reading the message, and a winner picked on raw opens rewards whichever variant
+reached the more aggressive inbox previewers.
+
+`pickSplitWinner` refuses to answer until EVERY lane has reached the minimum sample, and refuses a tie.
+Declaring a winner before each lane has been received is the standard way to pick whichever variant went
+out first; an automation that does it confidently is worse than one that says "not yet". The refusal is
+the feature. Promotion is then a separate, author-initiated action: `apply_split_winner` splices the
+winning lane in place — exactly where `flattenSteps` would have put it, so subjects already in that lane
+keep walking the same chain — under the same optimistic lock a save uses, and refuses a result that
+would not be runnable.
+
+Attribution is linear multi-touch: the orders a customer placed after clicking, within a window, with
+each order's revenue split EQUALLY across the campaigns they clicked. Linear rather than last-touch on
+purpose — last-touch is easier and systematically flatters whichever campaign ran closest to the
+purchase, usually the one that needed the least persuasion. Equal shares claim nothing about which
+message did the work, and they sum to exactly the order total. Three rules make the number honest: a
+campaign clicked twice before one order is ONE touch, currencies are never summed together, and a
+campaign filter is applied AFTER the split rather than before it — narrowing the query first would hide
+the other touches on the same order and hand this campaign a share it did not earn.
+
+The split maths and the share maths are pure functions with their own tests, separate from the queries
+that feed them, because they are the parts with decisions in them.
+
 ### Scheduled campaigns and sweep sources
 
 Some campaigns have nothing to react to. Nothing HAPPENS to make a customer dormant, and nothing
@@ -495,6 +527,10 @@ written down.* *Residual: blocked on `SPEC-029`.*
   optimistic lock; canvas editor reusing the `business_rules` condition builder; `en`/`pl`
   locales. Verified against a running instance: palette, create, save, round-trip, 409 on a
   stale save, and five rejected invalid graphs.
+- **2026-09-28** — Backlog X-12/B-10: the lane each run walked is recorded rather than recomputed,
+  per-variant A/B results with a winner that is withheld until every lane has a sample, author-initiated
+  promotion of a winning lane under the optimistic lock, linear multi-touch revenue attribution, and a
+  campaign results screen. 407 unit tests, 48 integration tests.
 - **2026-09-28** — Backlog B-04/B-05 and the authoring gap behind them: sweep sources became a
   registry with durable per-row claims, the canvas can author a scheduled trigger (interval, source,
   re-entry window), a `fulfilled_orders` source makes review requests exactly-once per order, and

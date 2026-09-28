@@ -155,6 +155,13 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
   return (
     <Page>
       <PageBody>
+        <div className="mb-3">
+          {/* The numbers this list produces live one screen away; a run list with no way to reach
+              them leaves the author counting rows by hand. */}
+          <a className="text-sm underline" href={`/backend/marketing/campaigns/${campaignId}/results`}>
+            {t('marketing_automation.results.title', 'Results')}
+          </a>
+        </div>
         <div className="mb-3 flex flex-wrap items-center gap-2">
           {campaignName ? <div className="mr-auto text-sm font-medium text-foreground">{campaignName}</div> : null}
           <Button variant={status === null ? 'default' : 'outline'} size="sm" onClick={() => setStatus(null)}>

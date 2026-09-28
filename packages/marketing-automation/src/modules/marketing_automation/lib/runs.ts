@@ -32,6 +32,8 @@ export async function createRun(
     triggerEventId: string
     context: AutomationContext
     occurrenceKey?: string | null
+    /** Which lane each split assigned, so an A/B result survives a later edit of the split. */
+    variantChoices?: Record<string, string> | null
   },
 ): Promise<MarketingCampaignRun | null> {
   const fork = em.fork()
@@ -42,6 +44,7 @@ export async function createRun(
     subjectEntityId: input.subjectEntityId,
     triggerEventId: input.triggerEventId,
     occurrenceKey: input.occurrenceKey ?? null,
+    variantChoices: input.variantChoices ?? null,
     context: input.context as Record<string, unknown>,
     currentStepIndex: 0,
     stepLog: [],

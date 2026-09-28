@@ -11,6 +11,7 @@ import { getMarketingStep } from './engine/registry.js'
 import type { AutomationContext, CampaignDefinition, EngineLogger, StepOutcome } from './engine/types.js'
 import { buildCampaignCommandContext } from './command-context.js'
 import { findCampaignsForEvent } from './campaign-lookup.js'
+import { describeVariantChoices } from './engine/split.js'
 import { occurrenceKeyFor } from './occurrence.js'
 import { loadTierThresholds } from './tiers.js'
 import { recordDeadLetter } from './dead-letter.js'
@@ -278,6 +279,17 @@ export async function startCampaignForSubject(
     trigger: input.triggerContext,
   }
 
+  /**
+   * Recorded at enrolment from the SAME key the executor flattens with — the subject id.
+   *
+   * Only for a run that HAS a subject. A subject-less run is flattened with the run's own id, which
+   * does not exist yet at this point, so recording anything here would name a lane the run will not
+   * walk. Reporting counts the runs it can account for rather than inventing the rest.
+   */
+  const variantChoices = input.subjectEntityId
+    ? describeVariantChoices(definition.steps, input.subjectEntityId)
+    : {}
+
   const run = await createRun(deps.em, {
     campaignId: campaign.id,
     scope: deps.scope,
@@ -285,6 +297,7 @@ export async function startCampaignForSubject(
     triggerEventId: input.triggerEventId,
     context,
     occurrenceKey: input.occurrenceKey ?? null,
+    variantChoices: Object.keys(variantChoices).length > 0 ? variantChoices : null,
   })
   // Null means this exact delivery already started a run for this campaign — a redelivered queue
   // job or a repeated provider callback. Not a failure, and deliberately not counted as a guard:

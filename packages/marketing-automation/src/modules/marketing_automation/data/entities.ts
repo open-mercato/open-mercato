@@ -199,6 +199,16 @@ export class MarketingCampaignRun {
   @Property({ name: 'occurrence_key', type: 'text', nullable: true })
   occurrenceKey?: string | null
 
+  /**
+   * Which lane each split assigned this run, recorded when the run started.
+   *
+   * Stored rather than recomputed. The choice is deterministic, so recomputing it from the definition
+   * would agree — until the author edits the split, at which point every historical run would be
+   * re-attributed to a lane it never walked, and an A/B result would quietly become fiction.
+   */
+  @Property({ name: 'variant_choices', type: 'jsonb', nullable: true })
+  variantChoices?: Record<string, string> | null
+
   /** JSON-serializable dispatch context, including patches earlier steps contributed. */
   @Property({ type: 'jsonb' })
   context!: Record<string, unknown>

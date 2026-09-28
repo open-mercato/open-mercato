@@ -13,7 +13,7 @@ import {
 import type { CampaignEnabledInput, CampaignGraphSaveInput, CampaignTriggerInput } from '../data/validators.js'
 import { getMarketingStep } from '../lib/engine/registry.js'
 import { WAIT_STEP_TYPE } from '../lib/engine/chain-planner.js'
-import { SPLIT_STEP_TYPE, readVariants } from '../lib/engine/split.js'
+import { SPLIT_STEP_TYPE, readVariants, writeVariants } from '../lib/engine/split.js'
 import { availableEventTriggers } from '../lib/trigger-catalog.js'
 import { isSweepIntervalValid } from '../lib/sweep-interval.js'
 import { emitMarketingAutomationEvent } from '../events.js'
@@ -225,6 +225,135 @@ const createCampaignCommand: CommandHandler<{ name: string; description?: string
   },
 }
 
+/**
+ * Replaces a split with the steps of the lane that won.
+ *
+ * The A/B test is over at this point: every later subject walks the winner, and the split node
+ * disappears from the canvas. Recursive, because a split can sit inside another split's lane.
+ *
+ * Returns null when the step was not found or is not a split, so the caller answers 404 rather than
+ * saving a definition it did not change.
+ */
+function applyWinnerToSteps(
+  steps: CampaignGraphSaveInput['definition']['steps'],
+  splitStepId: string,
+  variantKey: string,
+  depth = 0,
+): CampaignGraphSaveInput['definition']['steps'] | null {
+  if (depth > 5) return null
+  const next: CampaignGraphSaveInput['definition']['steps'] = []
+  let replaced = false
+
+  for (const step of steps) {
+    if (step.id === splitStepId && step.type === SPLIT_STEP_TYPE) {
+      const variant = readVariants(step).find((entry) => entry.key === variantKey)
+      if (!variant) return null
+      // Spliced IN PLACE, exactly as `flattenSteps` would have done for a subject in that lane — so
+      // the campaign keeps running the chain those subjects were already walking.
+      next.push(...(variant.steps as CampaignGraphSaveInput['definition']['steps']))
+      replaced = true
+      continue
+    }
+
+    if (step.type === SPLIT_STEP_TYPE) {
+      const variants = readVariants(step)
+      let touched = false
+      const rewritten = variants.map((variant) => {
+        if (touched) return variant
+        const laneSteps = applyWinnerToSteps(
+          variant.steps as CampaignGraphSaveInput['definition']['steps'],
+          splitStepId,
+          variantKey,
+          depth + 1,
+        )
+        if (!laneSteps) return variant
+        touched = true
+        return { ...variant, steps: laneSteps }
+      })
+      if (touched) {
+        replaced = true
+        next.push(writeVariants(step, rewritten) as CampaignGraphSaveInput['definition']['steps'][number])
+        continue
+      }
+    }
+
+    next.push(step)
+  }
+
+  return replaced ? next : null
+}
+
+const applySplitWinnerCommand: CommandHandler<
+  { id: string; updatedAt: string; stepId: string; variantKey: string },
+  { id: string; updatedAt: string; stepId: string; variantKey: string }
+> = {
+  id: 'marketing_automation.campaigns.apply_split_winner',
+
+  async execute(rawInput, ctx) {
+    const scope = requireScope(ctx)
+    ensureOrganizationScope(ctx, scope.organizationId)
+
+    const stepId = typeof rawInput.stepId === 'string' ? rawInput.stepId.trim() : ''
+    const variantKey = typeof rawInput.variantKey === 'string' ? rawInput.variantKey.trim() : ''
+    if (!stepId || !variantKey) {
+      throw invalidGraph(VALIDATION_CODES.invalidPayload, 'stepId and variantKey are required')
+    }
+
+    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const campaign = await em.findOne(MarketingCampaign, {
+      id: rawInput.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+    })
+    if (!campaign) throw new CrudHttpError(404, { error: 'Campaign not found' })
+
+    // Applying a winner rewrites the campaign, so it collides with a concurrent edit exactly as a
+    // save does — the author on the other screen is mid-change to the very steps being replaced.
+    enforceCommandOptimisticLock({
+      resourceKind: 'marketing_automation.campaign',
+      resourceId: campaign.id,
+      current: campaign.updatedAt,
+      expected: rawInput.updatedAt,
+      request: ctx.request ?? null,
+    })
+
+    const definition = campaignDefinitionSchema.parse(campaign.definition)
+    const steps = applyWinnerToSteps(
+      definition.steps as CampaignGraphSaveInput['definition']['steps'],
+      stepId,
+      variantKey,
+    )
+    if (!steps) throw new CrudHttpError(404, { error: 'Split or variant not found' })
+
+    const rewritten = { ...definition, steps }
+    // The result has to be runnable on its own terms: a winning lane ending on a wait, promoted to the
+    // end of the campaign, would park every future subject forever.
+    assertStepsAreRunnable(steps)
+    assertNoTrailingWait(steps)
+
+    await em.transactional(async (tx) => {
+      const managed = await tx.findOne(MarketingCampaign, { id: campaign.id })
+      if (!managed) throw new CrudHttpError(404, { error: 'Campaign not found' })
+      managed.definition = rewritten as unknown as Record<string, unknown>
+    })
+
+    await emitMarketingAutomationEvent('marketing_automation.campaign.saved', {
+      id: campaign.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    }, { persistent: true })
+
+    const saved = await em.findOne(MarketingCampaign, { id: campaign.id })
+    return {
+      id: campaign.id,
+      updatedAt: (saved?.updatedAt ?? campaign.updatedAt).toISOString(),
+      stepId,
+      variantKey,
+    }
+  },
+}
+
 const saveCampaignGraphCommand: CommandHandler<
   CampaignGraphSaveInput & { id: string },
   { id: string; updatedAt: string; waitingRuns: number }
@@ -422,6 +551,7 @@ const deleteCampaignCommand: CommandHandler<{ id: string }, { id: string }> = {
 
 registerCommand(createCampaignCommand)
 registerCommand(saveCampaignGraphCommand)
+registerCommand(applySplitWinnerCommand)
 registerCommand(setCampaignEnabledCommand)
 registerCommand(deleteCampaignCommand)
 

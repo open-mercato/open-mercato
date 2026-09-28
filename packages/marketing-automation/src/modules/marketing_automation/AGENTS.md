@@ -70,6 +70,10 @@ its own. Spec:
   drops a send or sends twice.
 - Never make the frequency cap per-campaign. Five campaigns each politely sending one message
   still buries the customer, which is why `marketing_message_sends` is counted across all of them.
+- Never recompute which lane a run walked. It is recorded on the run; recomputing agrees until the
+  author edits the split, and then every historical A/B result becomes fiction.
+- Never count raw opens or clicks in a comparison. Count unique runs, or the variant that reached the
+  more aggressive inbox previewers wins.
 - Never cache a lead score in a column, and never make a tier a stored field. The score is
   `sum(points)` over its ledger so a redelivered step cannot double-award, and the tier is derived from
   the score so it cannot be stale between recalculations.
@@ -141,6 +145,8 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | score ledger, idempotent awarding | `lib/scores.ts`, `steps/add-points.ts` |
 | tier ladder, derivation and its defaults | `lib/engine/tiers.ts`, `lib/tiers.ts` |
 | everything known about one customer | `api/customers/[id]/profile/route.ts` |
+| A/B results, winner rules | `lib/analytics/split-results.ts` |
+| linear revenue attribution | `lib/analytics/attribution.ts` |
 | periodic candidate sources and their claims | `lib/sweep-sources.ts` |
 | duplicate-delivery guard and its window | `lib/occurrence.ts`, `lib/runs.ts` → `createRun` |
 | signed tracking tokens, link rewriting | `lib/tracking/` (`token.ts`, `rewrite.ts`, `urls.ts`) |
