@@ -2,11 +2,12 @@
 
 **Status:** Proposed  
 **Issue:** [#6684](https://github.com/open-mercato/open-mercato/issues/6684)  
-**Related:** [CRM Calendar](./2026-06-11-crm-calendar.md), [Calendar Event Type Extensions](./2026-09-28-calendar-event-type-extensions.md)
+**Depends on:** Calendar-type foundation in [Calendar Event Type Extensions](./2026-09-28-calendar-event-type-extensions.md)
+**Related:** [CRM Calendar](./2026-06-11-crm-calendar.md), [Calendar Event Type Extensions](./2026-09-28-calendar-event-type-extensions.md), [Calendar Event Type React Panels](./2026-09-28-calendar-event-type-react-panels.md)
 
 ## TLDR
 
-Let administrators configure the bounded behavior of calendar activity types in Customers → Dictionaries → Activity types. A type controls its appearance, stable base semantics, applicable core fields, custom-field fieldsets, selectability, and order. The calendar editor and interaction commands consume the same tenant/organization-scoped resolver, so the UI cannot bypass server validation. This capability works with the shipped six-type catalog even when the companion module-extension registry is absent.
+Let administrators configure the bounded behavior of calendar activity types in Customers → Dictionaries → Activity types. A type controls its appearance, stable base semantics, applicable core fields, custom-field fieldsets, selectability, and order. The calendar editor and interaction commands consume the same tenant/organization-scoped resolver, so the UI cannot bypass server validation. This capability builds on the customers calendar-type foundation from the extension spec but works when no module contributes or overrides a type.
 
 No executable UI, arbitrary field schema, or direct React is stored in tenant data. Existing `CustomerInteraction.interactionType` values remain byte-for-byte stable. Disabling or deleting a type removes it from new selection but never rewrites historical interactions.
 
@@ -14,7 +15,7 @@ No executable UI, arbitrary field schema, or direct React is stored in tenant da
 
 | # | Question | Applied default | Why | Confirm? |
 |---|---|---|---|---|
-| Q1 | Should the brief be one spec? | Split administrator configuration from module-owned extension contracts. | A fresh-context review found that each capability can ship independently; the spec-writing cohesion rule requires a split. | Reversible |
+| Q1 | Should the brief be one spec? | Split administrator configuration from module-owned extension contracts, while reusing their customers-owned foundation. | A fresh-context review found separately reviewable capabilities with one explicit shared prerequisite. | Reversible |
 | Q2 | Where is the authoritative administrator surface? | Customers → Dictionaries → Activity types; Calendar Customization links there. | One editor avoids conflicting sources of truth. | Reversible |
 | Q3 | May administrators define arbitrary fields, labels, validation, or executable UI? | No. Configuration is limited to supported core-field semantics and existing custom-field fieldsets. | This remains safe, localizable, and server-enforceable. | Reversible |
 | Q4 | What does disabling/deleting a type mean? | Hide it from new selection; preserve historical values and use a compatibility fallback. | Stored interaction types are a stable contract. | Reversible |
@@ -33,7 +34,7 @@ No executable UI, arbitrary field schema, or direct React is stored in tenant da
 - A general-purpose form builder or tenant-authored JavaScript/React.
 - Renaming or normalizing persisted `interactionType` values.
 - Replacing `CrudForm`, custom-field definitions, or dictionary inheritance.
-- Defining module-owned types or custom panels; that belongs to the companion extension spec.
+- Defining module-owned types or custom panels; those belong to the linked registry and React-panel companion specs.
 
 ## User stories and acceptance criteria
 
@@ -89,32 +90,13 @@ resolveCalendarEventTypes(scope)
   └── destructive-switch diff + undo
 ```
 
-The customers module owns the resolver and all persistence. The optional companion registry is an additive catalog input: when it is unavailable, the resolver starts from the immutable shipped six-type baseline. Dictionary overlays never import or mutate another module.
+The customers module owns the resolver and all persistence. This spec extends—not replaces—the canonical foundation resolver and read route from the extension spec. With no contributed entries, the input is its immutable shipped six-type baseline. With contributions, the input has already resolved AI-parity file → `modules.ts` → programmatic replacement/disable/extension tiers before scoped dictionary overlays run. Dictionary overlays never import or mutate another module.
 
 ### Effective behavior schema
 
-```ts
-type CalendarEventBaseKind = 'meeting' | 'call' | 'email' | 'note' | 'event' | 'task'
+Import `CalendarEventBaseKind`, `CalendarEventTypeBehavior`, `EffectiveCalendarEventType`, their zod schemas, the six definitions, fallback, and `resolveCalendarEventTypes()` from the canonical customers public path established by the extension spec. This feature MUST NOT copy or redeclare them.
 
-type CalendarEventTypeBehavior = {
-  schemaVersion: 1
-  baseKind: CalendarEventBaseKind
-  selectable: boolean
-  order: number
-  fields: {
-    endTime: boolean
-    allDay: boolean
-    recurrence: boolean
-    location: 'none' | 'location' | 'phoneLink'
-    people: 'none' | 'attendees' | 'participants' | 'recipients' | 'assignee'
-    priority: boolean
-    resources: boolean
-  }
-  customFieldsetIds: string[]
-}
-```
-
-The zod schema is shared by entity/API validation and the resolver. `customFieldsetIds` contains at most 32 unique fieldset codes, each at most 100 characters. `order` is an integer from 0 through 10,000. Unknown or deleted fieldsets are reported in settings and omitted from the effective editor layout; they are never reassigned.
+The canonical `customFieldsetIds` constraint remains at most 32 unique fieldset codes, each at most 100 characters; `order` remains an integer from 0 through 10,000. This spec's dictionary validator composes the same exported zod schema. Unknown or deleted fieldsets are reported in settings and omitted from the effective editor layout; they are never reassigned.
 
 ## Data model and migration
 
@@ -134,11 +116,11 @@ No direct ORM relationship is introduced. The implementation updates the custome
 Resolution order is deterministic:
 
 1. immutable six-type core baseline;
-2. optional effective catalog supplied by the companion registry;
+2. optional effective static catalog supplied by the companion registry after its base, full override/disable, and patch-extension composition;
 3. inherited dictionary entry;
 4. local organization dictionary entry.
 
-Arrays replace rather than concatenate. Equal `order` values preserve dictionary ordering and then key ordering. Resolver output is immutable and includes provenance, inheritance, configurability, and nullable `updatedAt` metadata.
+Dictionary arrays replace rather than concatenate. Equal `order` values preserve dictionary ordering and then key ordering. Resolver output is immutable and includes static source-tier/property provenance, inheritance, configurability, and nullable `updatedAt` metadata. Dictionary rows apply only when the static definition is `adminConfigurable !== false`; existing rows for a newly non-configurable definition remain stored but inactive and visible as a settings warning until the static restriction is removed.
 
 If registry/configuration loading fails, callers report the error and use the shipped baseline. Historical resolution is always available: an unknown or unavailable key returns raw-key display metadata plus meeting-shaped behavior, but is not selectable for new records.
 
@@ -146,10 +128,11 @@ If registry/configuration loading fails, callers report the error and use the sh
 
 ## API contracts
 
-### Resolved catalog
+### Resolved catalog overlay
 
 `GET /api/customers/activity-types[?organizationId=<uuid>]`
 
+- This is the foundation route, not a second endpoint. Replace its resolver binding with the scoped overlay resolver while keeping the route/method/base response compatible.
 - Requires authentication and `customers.interactions.view`; organization scope is validated through the existing request context.
 - Returns `{ items: EffectiveCalendarEventType[], fallbackKey: 'meeting' }`.
 - Each item includes `key`, resolved label/icon/color, behavior, `selectable`, source, `isInherited`, `isLocalOverride`, `adminConfigurable`, and nullable `updatedAt`.
@@ -225,11 +208,12 @@ Structured logs include tenant/organization IDs, type key, resolver source count
 - User-facing copy is localized; dialogs support `Cmd/Ctrl+Enter` and `Escape`; icon-only controls have accessible labels.
 - Production UI uses shared primitives and semantic design tokens; no hard-coded status colors or arbitrary values.
 
-## Migration and backward compatibility
+## Migration & Backward Compatibility
 
 - Nullable JSONB and optional API fields are additive.
 - Existing routes, methods, custom-field spots, and stored interaction type values remain unchanged.
 - The deprecated resolver bridge and `UPGRADE_NOTES.md` entry remain for at least one minor version.
+- The canonical schema, six definitions, fallback, resolver, and read route come from the prerequisite foundation; scoped dictionary overlays remain above every static file/`modules.ts`/programmatic source and cannot execute React.
 - Old application code ignores the nullable column and continues using current fallbacks.
 - Removing this feature leaves dormant configuration but requires no data conversion.
 
@@ -237,9 +221,9 @@ Structured logs include tenant/organization IDs, type key, resolver source count
 
 ### Phase A — Schema and resolver
 
-1. Add behavior zod/types, immutable core definitions, scoped resolver, and fallback/provenance unit coverage.
+1. Reuse the canonical behavior zod/types, immutable core definitions, fallback, and route; add the scoped dictionary overlay resolver and overlay/provenance unit coverage without redeclaration.
 2. Add the nullable entity field, migration, snapshot, validators, and command-backed dictionary mutations with optimistic locking and undo.
-3. Add the cached resolved-catalog API and OpenAPI contract with tenant/organization isolation and invalidation tests.
+3. Enrich the existing cached catalog route/OpenAPI response with dictionary inheritance/configuration metadata and add tenant/organization isolation plus invalidation tests.
 
 *Exit:* existing rows resolve unchanged and a scoped behavior round-trips through the API.
 
@@ -294,7 +278,7 @@ All fixtures are API-created and removed in `finally`; no test uses demo data.
 
 | Rule | Status | Notes |
 |---|---|---|
-| Scope cohesion | Pass after split | Administrator configuration works over the shipped catalog without module extensions |
+| Scope cohesion | Pass after split | Administrator configuration is one overlay capability; it requires the canonical foundation but no contributed module entry or React panel |
 | Tenant/organization isolation | Pass | Existing dictionary scope and fully scoped cache/API rules |
 | Canonical CRUD/commands/UI | Pass | Existing dictionary command, `CrudForm`, `apiCall`, conflict and confirm primitives |
 | Optimistic locking and undo | Pass | One `updatedAt`; confirmed clears snapshot core + custom values atomically |
@@ -306,7 +290,7 @@ All fixtures are API-created and removed in `finally`; no test uses demo data.
 
 ### Verdict
 
-Approved for review. The original combined brief was split per the independent scope review; no assumption requires human confirmation.
+Approved for review. The original combined brief was split by capability with the foundation dependency made explicit; no assumption requires human confirmation.
 
 ## Changelog
 
@@ -314,3 +298,9 @@ Approved for review. The original combined brief was split per the independent s
 
 - Split administrator configuration from module-owned extensions after independent scope review.
 - Defined scoped behavior storage, resolver/API enforcement, destructive-switch undo, authoritative settings UI, and integration coverage.
+
+### 2026-09-28 — Static extension precedence alignment
+
+- Clarified that the companion registry fully resolves AI-parity file, `modules.ts`, and programmatic tiers before inherited/local dictionary overlays.
+- Defined inactive-row behavior when a higher static tier makes a type non-configurable.
+- Reused the registry spec's canonical schema, six definitions, resolver, fallback, and catalog route instead of duplicating ownership.
