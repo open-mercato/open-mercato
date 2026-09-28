@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
 import { COORDINATE_RANGES } from '@open-mercato/shared/lib/location/coordinates'
 import { dictionaryEntrySortModeSchema } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
+import { calendarEventTypeBehaviorSchema } from '../calendar-event-types'
 
 const uuid = () => z.string().uuid()
 
@@ -350,13 +351,27 @@ const dictionaryColorSchema = z
   )
 const dictionaryIconSchema = z.string().trim().max(48)
 
+function validateDictionaryBehavior(
+  payload: { kind: string; behavior?: unknown },
+  ctx: z.RefinementCtx,
+): void {
+  if (payload.behavior !== undefined && payload.kind !== 'activity_type') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['behavior'],
+      message: 'Behavior is only supported for activity types',
+    })
+  }
+}
+
 export const customerDictionaryEntryCreateSchema = scopedSchema.extend({
   kind: dictionaryKindEnum,
   value: dictionaryValueSchema,
   label: dictionaryLabelSchema.optional(),
   color: dictionaryColorSchema.nullable().optional(),
   icon: dictionaryIconSchema.nullable().optional(),
-})
+  behavior: calendarEventTypeBehaviorSchema.nullable().optional(),
+}).superRefine(validateDictionaryBehavior)
 
 export type CustomerDictionaryEntryCreateInput = z.infer<typeof customerDictionaryEntryCreateSchema>
 
@@ -368,18 +383,21 @@ export const customerDictionaryEntryUpdateSchema = scopedSchema
     label: dictionaryLabelSchema.optional(),
     color: dictionaryColorSchema.nullable().optional(),
     icon: dictionaryIconSchema.nullable().optional(),
+    behavior: calendarEventTypeBehaviorSchema.nullable().optional(),
   })
   .refine(
     (payload) =>
       payload.value !== undefined ||
       payload.label !== undefined ||
       payload.color !== undefined ||
-      payload.icon !== undefined,
+      payload.icon !== undefined ||
+      payload.behavior !== undefined,
     {
       message: 'Provide at least one field to update.',
       path: ['value'],
     }
   )
+  .superRefine(validateDictionaryBehavior)
 
 export type CustomerDictionaryEntryUpdateInput = z.infer<typeof customerDictionaryEntryUpdateSchema>
 

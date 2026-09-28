@@ -1,6 +1,7 @@
 import { Collection, OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, ManyToOne, OneToMany, OneToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import type { DictionaryEntrySortMode } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
+import type { CalendarEventTypeBehavior } from '../calendar-event-types'
 
 export type CustomerEntityKind = 'person' | 'company'
 export type CustomerAddressFormat = 'line_first' | 'street_first'
@@ -952,6 +953,9 @@ export class CustomerDictionaryEntry {
 
   @Property({ type: 'text', nullable: true })
   icon?: string | null
+
+  @Property({ name: 'activity_type_behavior', type: 'jsonb', nullable: true })
+  activityTypeBehavior?: CalendarEventTypeBehavior | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

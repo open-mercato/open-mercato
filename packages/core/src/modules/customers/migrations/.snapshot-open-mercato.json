@@ -2528,6 +2528,23 @@
       "name": "customer_dictionary_entries",
       "schema": "public",
       "columns": {
+        "activity_type_behavior": {
+          "name": "activity_type_behavior",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
         "color": {
           "name": "color",
           "type": "text",

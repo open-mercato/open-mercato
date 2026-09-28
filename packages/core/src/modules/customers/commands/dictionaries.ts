@@ -26,6 +26,8 @@ import {
 } from './shared'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import type { CalendarEventTypeBehavior } from '../calendar-event-types'
 
 const logger = createLogger('customers')
 
@@ -39,6 +41,7 @@ type CustomerDictionaryEntrySnapshot = {
   label: string
   color: string | null
   icon: string | null
+  behavior: CalendarEventTypeBehavior | null
 }
 
 type CustomerDictionaryEntryUndoPayload = {
@@ -87,6 +90,7 @@ function toSnapshot(entry: CustomerDictionaryEntry): CustomerDictionaryEntrySnap
     label: entry.label,
     color: entry.color ?? null,
     icon: entry.icon ?? null,
+    behavior: entry.activityTypeBehavior ?? null,
   }
 }
 
@@ -108,6 +112,7 @@ function applySnapshot(entry: CustomerDictionaryEntry, snapshot: CustomerDiction
   entry.label = snapshot.label
   entry.color = snapshot.color
   entry.icon = snapshot.icon
+  entry.activityTypeBehavior = snapshot.behavior
 }
 
 async function invalidateCache(
@@ -150,6 +155,7 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
     const label = parsed.label?.trim() || value.value
     const color = sanitizeColor(parsed.color)
     const icon = sanitizeIcon(parsed.icon)
+    const behavior = parsed.behavior
 
     const existing = await findOneWithDecryption(
       em,
@@ -168,6 +174,12 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
     )
 
     if (existing) {
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
+        resourceKind: 'customers.dictionary_entry',
+        resourceId: existing.id,
+        current: existing.updatedAt,
+        request: ctx.request ?? null,
+      })
       const before = toSnapshot(existing)
       let changed = false
 
@@ -183,10 +195,15 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
         existing.icon = icon ?? null
         changed = true
       }
+      if (behavior !== undefined && JSON.stringify(existing.activityTypeBehavior ?? null) !== JSON.stringify(behavior)) {
+        existing.activityTypeBehavior = behavior
+        changed = true
+      }
 
       if (changed) {
         existing.updatedAt = new Date()
         await em.flush()
+        await invalidateCache(ctx, toSnapshot(existing))
         return {
           entryId: existing.id,
           tenantId: parsed.tenantId,
@@ -214,9 +231,11 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
       label,
       color: color ?? null,
       icon: icon ?? null,
+      activityTypeBehavior: behavior ?? null,
     })
     em.persist(entry)
     await em.flush()
+    await invalidateCache(ctx, toSnapshot(entry))
 
     return {
       entryId: entry.id,
@@ -257,7 +276,7 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
       const changes = buildChanges(
         before as unknown as Record<string, unknown>,
         after as unknown as Record<string, unknown>,
-        ['label', 'color', 'icon']
+        ['label', 'color', 'icon', 'behavior']
       )
       if (!changes || Object.keys(changes).length === 0) return null
       return {
@@ -333,6 +352,7 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
           label: before.label,
           color: before.color,
           icon: before.icon,
+          activityTypeBehavior: before.behavior,
         })
         em.persist(entry)
       } else {
@@ -369,6 +389,7 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
         label: after.label,
         color: after.color,
         icon: after.icon,
+        activityTypeBehavior: after.behavior,
       })
       em.persist(entry)
     } else {
@@ -427,6 +448,13 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
     if (!entry || entry.organizationId !== parsed.organizationId || entry.tenantId !== parsed.tenantId || entry.kind !== parsed.kind) {
       throw notFound('Dictionary entry not found')
     }
+
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
+      resourceKind: 'customers.dictionary_entry',
+      resourceId: entry.id,
+      current: entry.updatedAt,
+      request: ctx.request ?? null,
+    })
 
     let changed = false
 
@@ -499,9 +527,18 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
       }
     }
 
+    if (
+      parsed.behavior !== undefined &&
+      JSON.stringify(entry.activityTypeBehavior ?? null) !== JSON.stringify(parsed.behavior)
+    ) {
+      entry.activityTypeBehavior = parsed.behavior
+      changed = true
+    }
+
     if (changed) {
       entry.updatedAt = new Date()
       await em.flush()
+      await invalidateCache(ctx, toSnapshot(entry))
     }
 
     return {
@@ -525,7 +562,7 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
     const changes = buildChanges(
       before as unknown as Record<string, unknown>,
       after as unknown as Record<string, unknown>,
-      ['value', 'label', 'color', 'icon']
+      ['value', 'label', 'color', 'icon', 'behavior']
     )
     if (!changes || Object.keys(changes).length === 0) return null
     const { translate } = await resolveTranslations()
@@ -571,6 +608,7 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
         label: before.label,
         color: before.color,
         icon: before.icon,
+        activityTypeBehavior: before.behavior,
       })
       em.persist(entry)
     } else {
@@ -613,6 +651,12 @@ const deleteDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryDelete
     if (!entry || entry.organizationId !== parsed.organizationId || entry.tenantId !== parsed.tenantId || entry.kind !== parsed.kind) {
       throw notFound('Dictionary entry not found')
     }
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
+      resourceKind: 'customers.dictionary_entry',
+      resourceId: entry.id,
+      current: entry.updatedAt,
+      request: ctx.request ?? null,
+    })
     if (entry.kind === 'person_company_role') {
       const usage = await loadRoleTypeUsage(em, {
         tenantId: entry.tenantId,
@@ -629,6 +673,7 @@ const deleteDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryDelete
     }
     em.remove(entry)
     await em.flush()
+    await invalidateCache(ctx, toSnapshot(entry))
     return { entryId: entry.id }
   },
   buildLog: async ({ snapshots }) => {
@@ -675,6 +720,7 @@ const deleteDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryDelete
         label: before.label,
         color: before.color,
         icon: before.icon,
+        activityTypeBehavior: before.behavior,
       })
       em.persist(entry)
     } else {

@@ -35,7 +35,7 @@ jest.mock('../../../../commands/settings', () => ({
 }))
 
 import { GET } from '../route'
-import { resolveDictionaryRouteContext } from '../../context'
+import { mapDictionaryKind, resolveDictionaryRouteContext } from '../../context'
 import { CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE } from '../../../../lib/dictionaries'
 
 describe('customer dictionary route', () => {
@@ -130,6 +130,47 @@ describe('customer dictionary route', () => {
       expect.any(Request),
       expect.objectContaining({ selectedId: organizationId }),
     )
+  })
+
+  it('returns persisted behavior for activity types', async () => {
+    const behavior = {
+      schemaVersion: 1,
+      baseKind: 'meeting',
+      selectable: true,
+      order: 10,
+      fields: {
+        endTime: true,
+        allDay: true,
+        recurrence: false,
+        location: 'location',
+        people: 'attendees',
+        priority: false,
+        resources: false,
+      },
+      customFieldsetIds: [],
+    }
+    jest.mocked(mapDictionaryKind).mockReturnValueOnce({
+      kind: 'activity-types',
+      mappedKind: 'activity_type',
+    })
+    em.find.mockResolvedValueOnce([{
+      id: 'activity-meeting',
+      value: 'meeting',
+      normalizedValue: 'meeting',
+      label: 'Meeting',
+      organizationId,
+      activityTypeBehavior: behavior,
+    }])
+
+    const response = await GET(
+      new Request('http://localhost/api/customers/dictionaries/activity-types'),
+      { params: { kind: 'activity-types' } },
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      items: [expect.objectContaining({ value: 'meeting', behavior })],
+    })
   })
 
   it('returns a stable error code when organization context is unavailable', async () => {

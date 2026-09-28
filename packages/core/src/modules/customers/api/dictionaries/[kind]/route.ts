@@ -24,6 +24,7 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE } from '../../../lib/dictionaries'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { calendarEventTypeBehaviorSchema } from '../../../calendar-event-types'
 
 const logger = createLogger('customers')
 
@@ -35,6 +36,7 @@ const postSchema = z.object({
   label: z.string().trim().max(150).optional(),
   color: colorSchema.or(z.null()).optional(),
   icon: iconSchema.or(z.null()).optional(),
+  behavior: calendarEventTypeBehaviorSchema.nullable().optional(),
 })
 
 const querySchema = z.object({
@@ -133,6 +135,7 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
           label: entry.label,
           color: entry.color,
           icon: entry.icon,
+          ...(mappedKind === 'activity_type' ? { behavior: entry.activityTypeBehavior ?? null } : {}),
           organizationId: entry.organizationId,
           isInherited: entry.organizationId !== organizationId,
           createdAt: entry.createdAt,
@@ -213,6 +216,7 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
           label: body.label,
           color: body.color,
           icon: body.icon,
+          behavior: body.behavior,
         },
         ctx: context.ctx,
       })) as CommandExecuteResult<{ entryId: string; mode: 'created' | 'updated' | 'unchanged' }>
@@ -248,8 +252,10 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
         label: entry.label,
         color: entry.color,
         icon: entry.icon,
+        ...(mappedKind === 'activity_type' ? { behavior: entry.activityTypeBehavior ?? null } : {}),
         organizationId: entry.organizationId,
         isInherited: false,
+        updatedAt: entry.updatedAt,
       },
       { status: result.mode === 'created' ? 201 : 200 }
     )
@@ -288,6 +294,7 @@ const dictionaryEntrySchema = z.object({
   label: z.string().nullable().optional(),
   color: z.string().nullable().optional(),
   icon: z.string().nullable().optional(),
+  behavior: calendarEventTypeBehaviorSchema.nullable().optional(),
   organizationId: z.string().uuid().nullable().optional(),
   isInherited: z.boolean().optional(),
   createdAt: z.date().or(z.string()).optional(),
