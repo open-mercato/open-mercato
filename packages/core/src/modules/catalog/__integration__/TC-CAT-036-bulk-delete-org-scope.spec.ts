@@ -26,7 +26,7 @@ const PROGRESS_POLL_TIMEOUT_MS = 30_000;
  * organization SELECTED via the header/cookie override, not the caller's home
  * organization (#6523 / PR #6534).
  *
- * `POST /api/catalog/products/bulk-delete` used to scope its progress job and
+ * `POST /api/catalog/bulk-delete` used to scope its progress job and
  * queue payload with `auth.orgId` (the caller's home organization) instead of
  * `resolveOrganizationScopeForRequest(...).selectedId ?? auth.orgId`. For a
  * non-superadmin user with access to two organizations, selecting the non-home
@@ -136,7 +136,7 @@ test.describe('TC-CAT-036: catalog bulk-delete organization scope (#6523)', () =
       const bulkDeleteBResponse = await apiRequestWithSelectedOrg(
         request,
         'POST',
-        '/api/catalog/products/bulk-delete',
+        '/api/catalog/bulk-delete',
         {
           token: userToken,
           selectedOrgId: orgBId,
@@ -177,7 +177,7 @@ test.describe('TC-CAT-036: catalog bulk-delete organization scope (#6523)', () =
       const bulkDeleteAResponse = await apiRequestWithSelectedOrg(
         request,
         'POST',
-        '/api/catalog/products/bulk-delete',
+        '/api/catalog/bulk-delete',
         {
           token: userToken,
           selectedOrgId: orgBId,
