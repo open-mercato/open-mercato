@@ -142,7 +142,7 @@ export default function CreateCustomerGroupPage() {
         required: true,
         description: t(
           'customer_groups.groups.form.field.priorityHelp',
-          'Whole number, 0 or greater. Higher priority groups are preferred when resolving pricing/terms.',
+          'Whole number. Higher priority groups are preferred when resolving pricing/terms.',
         ),
       },
       {

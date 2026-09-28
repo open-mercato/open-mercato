@@ -50,3 +50,40 @@ describe('customer group update schemas', () => {
     expect(parsed.allowPurchaseOnAccount).toBe(false)
   })
 })
+
+describe('customer group column bounds', () => {
+  const INT4_MAX = 2147483647
+  const NUMERIC_16_2_MAX = 99999999999999.99
+  const groupInput = { tenantId: TENANT_ID, code: 'wholesale', name: 'Wholesale', kind: 'b2b' }
+
+  it('accepts priorities across the int4 range, including the negative placeholders adopt produces', () => {
+    expect(customerGroupCreateSchema.safeParse({ ...groupInput, priority: -2147483648 }).success).toBe(true)
+    expect(customerGroupCreateSchema.safeParse({ ...groupInput, priority: INT4_MAX }).success).toBe(true)
+    expect(customerGroupUpdateSchema.safeParse({ id: GROUP_ID, tenantId: TENANT_ID, priority: -15 }).success).toBe(true)
+  })
+
+  it('rejects priorities outside int4 instead of letting them overflow the column', () => {
+    expect(customerGroupCreateSchema.safeParse({ ...groupInput, priority: INT4_MAX + 1 }).success).toBe(false)
+    expect(customerGroupCreateSchema.safeParse({ ...groupInput, priority: -2147483649 }).success).toBe(false)
+    expect(customerGroupUpdateSchema.safeParse({ id: GROUP_ID, tenantId: TENANT_ID, priority: INT4_MAX + 1 }).success).toBe(false)
+  })
+
+  it('bounds paymentTermsDays to int4', () => {
+    expect(customerGroupTermsUpdateSchema.safeParse({ id: GROUP_ID, paymentTermsDays: INT4_MAX }).success).toBe(true)
+    expect(customerGroupTermsUpdateSchema.safeParse({ id: GROUP_ID, paymentTermsDays: INT4_MAX + 1 }).success).toBe(false)
+  })
+
+  it.each(['approvalRequiredAbove', 'minOrderValue', 'defaultCreditLimit'])(
+    'bounds %s to numeric(16,2)',
+    (field) => {
+      expect(customerGroupTermsUpdateSchema.safeParse({ id: GROUP_ID, [field]: NUMERIC_16_2_MAX }).success).toBe(true)
+      expect(customerGroupTermsUpdateSchema.safeParse({ id: GROUP_ID, [field]: '100000000000000' }).success).toBe(false)
+      expect(customerGroupTermsCreateSchema.safeParse({ tenantId: TENANT_ID, groupId: GROUP_ID, [field]: 1e15 }).success).toBe(false)
+    },
+  )
+
+  it('still rejects negative terms values', () => {
+    expect(customerGroupTermsUpdateSchema.safeParse({ id: GROUP_ID, minOrderValue: -1 }).success).toBe(false)
+    expect(customerGroupTermsUpdateSchema.safeParse({ id: GROUP_ID, paymentTermsDays: -1 }).success).toBe(false)
+  })
+})

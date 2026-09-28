@@ -8,6 +8,8 @@ import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasFeature } from '@open-mercato/shared/security/features'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { E } from '#generated/entities.ids.generated'
 import { customerGroupKindValues } from '../../../../data/validators'
 import {
@@ -22,6 +24,8 @@ import {
   CustomerGroupTermsSection,
   type CustomerGroupTermsDTO,
 } from '../../../../components/CustomerGroupTermsSection'
+
+const TERMS_MANAGE_FEATURE = 'customer_groups.terms.manage'
 
 type CustomerGroupListResponse = {
   items?: unknown[]
@@ -42,6 +46,17 @@ type CustomerGroupFormValues = {
   isDefault?: boolean
   isActive?: boolean
   updatedAt?: string | null
+}
+
+// An adopted orphan group carries a negative priority; it must round-trip unchanged,
+// so a numeric string from the list API is parsed rather than collapsed to 0.
+function readPriority(raw: unknown): number {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw
+  if (typeof raw === 'string' && raw.trim().length) {
+    const parsed = Number(raw)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return 0
 }
 
 async function submitCustomerGroupUpdate(
@@ -67,7 +82,7 @@ async function submitCustomerGroupUpdate(
   const description =
     typeof values.description === 'string' && values.description.trim().length
       ? values.description.trim()
-      : undefined
+      : null
   const priority = typeof values.priority === 'number' && Number.isFinite(values.priority) ? values.priority : 0
   const payload: Record<string, unknown> = {
     id: resolvedId,
@@ -86,6 +101,8 @@ async function submitCustomerGroupUpdate(
 export default function EditCustomerGroupPage({ params }: { params?: { id?: string } }) {
   const groupId = params?.id ?? ''
   const t = useT()
+  const { payload: backendChromePayload, isReady: backendChromeReady } = useBackendChrome()
+  const canManageTerms = backendChromeReady && hasFeature(backendChromePayload?.grantedFeatures, TERMS_MANAGE_FEATURE)
   const [initialValues, setInitialValues] = React.useState<CustomerGroupFormValues | null>(null)
   const [defaultGroups, setDefaultGroups] = React.useState<CustomerGroupSummary[]>([])
   const [loading, setLoading] = React.useState<boolean>(true)
@@ -132,7 +149,7 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
           description: typeof record.description === 'string' ? record.description : '',
           kind: typeof record.kind === 'string' ? record.kind : 'b2c',
           parentId: summary.parentId ?? '',
-          priority: typeof record.priority === 'number' ? record.priority : 0,
+          priority: readPriority(record.priority),
           isDefault: summary.isDefault,
           isActive: record.isActive === true || record.is_active === true,
           updatedAt: (record.updatedAt as string | undefined) ?? (record.updated_at as string | undefined) ?? null,
@@ -218,7 +235,7 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
         required: true,
         description: t(
           'customer_groups.groups.form.field.priorityHelp',
-          'Whole number, 0 or greater. Higher priority groups are preferred when resolving pricing/terms.',
+          'Whole number. Higher priority groups are preferred when resolving pricing/terms.',
         ),
       },
       {
@@ -352,6 +369,7 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
                 ? t('customer_groups.groups.form.terms.errors.load', 'Failed to load commercial terms.')
                 : null
             }
+            canManage={canManageTerms}
             onSaved={setTerms}
           />
         )}

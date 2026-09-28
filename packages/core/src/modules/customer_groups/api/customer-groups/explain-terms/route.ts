@@ -109,7 +109,7 @@ export async function GET(req: Request) {
     // visible ancestor path (child → parent → tenant), not a hidden tooltip"). Chains
     // come from the service's own `loadCustomerGroupAncestorChain` — the same walk
     // `resolveTerms` uses — so the path shown can never disagree with the value
-    // resolved (e.g. both stop at a soft-deleted parent).
+    // resolved (e.g. both stop at a soft-deleted or inactive parent).
     const groupCache = new Map<string, CustomerGroup | null>()
     const chains: CustomerGroup[][] = []
     for (const groupId of groupResolution.groupIds) {

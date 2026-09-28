@@ -7,6 +7,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('customer_groups').child({ component: 'OrphanBanner' })
 
@@ -41,6 +42,10 @@ export function OrphanBanner() {
       } catch (err) {
         if (!cancelled) {
           logger.error('customer_groups.orphanBanner.load failed', { err })
+          getTelemetryRuntime()?.reportError(err, {
+            module: 'customer_groups',
+            code: 'customer_groups.orphan_banner_load_failed',
+          })
           setOrphanCount(null)
         }
       } finally {

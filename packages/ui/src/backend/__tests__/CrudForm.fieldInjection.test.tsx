@@ -191,6 +191,39 @@ describe('CrudForm injected field id collisions', () => {
     )
   })
 
+  it('submits the value of an injected field that reuses a group-inline host field id', async () => {
+    injectedFieldWidgets = [
+      { fields: [{ id: 'customerGroupId', label: 'Customer group', type: 'text', group: 'scope' }] },
+    ]
+    const onSubmit = jest.fn()
+    const { container } = renderWithProviders(
+      React.createElement(CrudForm as any, {
+        title: 'Form',
+        entityId: 'catalog:catalog_product_price',
+        fields: [{ id: 'name', label: 'Name', type: 'text' }],
+        groups: [
+          {
+            id: 'scope',
+            title: 'Scope',
+            fields: ['name', { id: 'customerGroupId', label: 'Customer group id', type: 'text' }],
+          },
+        ],
+        initialValues: { name: 'Retail', customerGroupId: 'group-1' },
+        onSubmit,
+      }),
+    )
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-crud-field-id="customerGroupId"]')).toBeTruthy()
+    })
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement)
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    expect(onSubmit.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ name: 'Retail', customerGroupId: 'group-1' }),
+    )
+  })
+
   it('still strips an injected-only field from the host payload', async () => {
     injectedFieldWidgets = [
       { fields: [{ id: 'widgetOnlyNote', label: 'Widget note', type: 'text', group: 'scope' }] },

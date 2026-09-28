@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { unionScopes } from '@open-mercato/shared/lib/catalog-visibility'
 import type { AssortmentScope, EffectiveAssortmentScope } from '@open-mercato/shared/lib/catalog-visibility'
 import { CustomerGroup, CustomerGroupMembership, CustomerGroupTerms } from '../data/entities'
+import { CUSTOMER_GROUP_MAX_ANCESTOR_DEPTH } from '../data/validators'
 
 export type GroupResolution = {
   groupIds: string[]
@@ -41,12 +42,11 @@ export type ResolvedTerms = {
   sources: ResolvedTermsSources
 }
 
-// Ancestor-walk depth cap — mirrors the group hierarchy's own depth-5 cap (spec §5.1,
-// enforced at create/update time; see `customerGroupTree.ts`'s
-// `CUSTOMER_GROUP_DEPTH_WARNING_THRESHOLD`). Defensive only: normal data can never
-// produce a chain this long, but this stops a corrupt/cyclic `parentId` graph from
-// looping forever.
-const MAX_ANCESTOR_DEPTH = 5
+// Ancestor-walk depth cap — the group hierarchy's own depth cap (spec §5.1, enforced at
+// create/update time by `findParentAssignmentIssue`), shared so the two cannot drift.
+// Defensive only: normal data can never produce a chain this long, but this stops a
+// corrupt/cyclic `parentId` graph from looping forever.
+const MAX_ANCESTOR_DEPTH = CUSTOMER_GROUP_MAX_ANCESTOR_DEPTH
 
 // `customer_groups` entities are tenant-scoped only (see the "Groups are
 // tenant-scoped, not organization-scoped" note in `data/entities.ts`), and this
@@ -124,12 +124,13 @@ async function loadGroupCached(
 
 /**
  * One group's ancestor chain — self first, then parent, grandparent, ... up to
- * `MAX_ANCESTOR_DEPTH` — as loaded, non-deleted, same-tenant entities. The walk
- * stops at the first id that does not resolve (soft-deleted, other tenant, or
- * dangling `parentId`): a missing group is never part of the chain, so its terms
- * row can never be inherited. Shared by `resolveTerms` and the explain-terms route
- * so the resolved value and the explained ancestor path always come from the SAME
- * chain. `cache` lets callers reuse group rows across several chains.
+ * `MAX_ANCESTOR_DEPTH` — as loaded, non-deleted, active, same-tenant entities. The
+ * walk stops at the first id that does not resolve (soft-deleted, other tenant, or
+ * dangling `parentId`) or resolves to an inactive group (spec §5.1: inactive groups
+ * are excluded from resolution): such a group is never part of the chain, so neither
+ * its terms row nor anything above it can be inherited. Shared by `resolveTerms` and
+ * the explain-terms route so the resolved value and the explained ancestor path always
+ * come from the SAME chain. `cache` lets callers reuse group rows across several chains.
  */
 export async function loadCustomerGroupAncestorChain(
   em: EntityManager,
@@ -141,7 +142,7 @@ export async function loadCustomerGroupAncestorChain(
   let currentId: string | null = groupId
   while (currentId && chain.length < MAX_ANCESTOR_DEPTH) {
     const group = await loadGroupCached(em, currentId, tenantId, cache)
-    if (!group) break
+    if (!group || !group.isActive) break
     chain.push(group)
     currentId = group.parentId ?? null
   }
@@ -152,7 +153,10 @@ function toGroupSummary(group: CustomerGroup): GroupResolution['groups'][number]
   return { id: group.id, code: group.code, name: group.name, kind: group.kind, priority: group.priority }
 }
 
-function isMembershipValidAt(membership: CustomerGroupMembership, at: Date): boolean {
+export function isMembershipValidAt(
+  membership: Pick<CustomerGroupMembership, 'validFrom' | 'validUntil'>,
+  at: Date,
+): boolean {
   if (membership.validFrom && membership.validFrom.getTime() > at.getTime()) return false
   // Inclusive upper bound: a membership expiring exactly at `at` is still valid
   // AT that instant (spec-derived rule — see the module's di.ts contract task).

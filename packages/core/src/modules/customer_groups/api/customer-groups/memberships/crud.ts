@@ -5,8 +5,10 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError, badRequest, conflict } from '@open-mercato/shared/lib/crud/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { E } from '#generated/entities.ids.generated'
 import { CustomerGroup, CustomerGroupMembership } from '../../../data/entities'
 import { emitCustomerGroupsEvent } from '../../../events'
+import { isMembershipValidAt } from '../../../services/customerGroupsService'
 import {
   customerGroupMembershipCreateSchema,
   customerGroupMembershipUpdateSchema,
@@ -171,12 +173,15 @@ export async function assertMembershipGroupExists(
   }
 }
 
+type MembershipEventId = 'customer_groups.membership.added' | 'customer_groups.membership.removed'
+type MembershipEventTarget = Pick<CustomerGroupMembership, 'id' | 'tenantId' | 'organizationId' | 'groupId' | 'customerId'>
+
 // Spec §10: `membership.added` / `.removed` MUST fire so buyer-context and price caches
 // keyed on the customer are invalidated. The declared ids are not the factory's
 // `created`/`deleted` shape, so they are emitted from the hooks instead of `events:`.
 export async function emitMembershipEvent(
-  eventId: 'customer_groups.membership.added' | 'customer_groups.membership.removed',
-  membership: Pick<CustomerGroupMembership, 'id' | 'tenantId' | 'organizationId' | 'groupId' | 'customerId'>,
+  eventId: MembershipEventId,
+  membership: MembershipEventTarget,
 ): Promise<void> {
   const organizationId = membership.organizationId ?? null
   await emitCustomerGroupsEvent(
@@ -190,6 +195,46 @@ export async function emitMembershipEvent(
     },
     { persistent: true, tenantId: membership.tenantId, organizationId },
   )
+}
+
+type MembershipStateBeforeUpdate = { groupId: string; customerId: string; validAtUpdate: boolean }
+
+// The state an update started from, captured in `applyToEntity` (the one hook that sees
+// the loaded row before it is mutated) and read back in `afterUpdate`, which receives
+// the same entity instance once the write committed. Keyed weakly by that instance so
+// nothing outlives the request.
+const membershipStateBeforeUpdate = new WeakMap<CustomerGroupMembership, MembershipStateBeforeUpdate>()
+
+// Spec §10 caches are keyed on the customer, so an update that changes WHICH customer
+// is in WHICH group, or brings an expired / not-yet-started membership back into its
+// validity window, must fire the same events as a remove + add. Only the declared
+// `added` / `removed` ids exist (no `membership.updated`), so a move emits both and a
+// renewal emits `added`. Other edits (notes, source, a still-valid window) emit nothing.
+export function membershipUpdateEvents(
+  before: MembershipStateBeforeUpdate,
+  after: MembershipEventTarget & Pick<CustomerGroupMembership, 'validFrom' | 'validUntil'>,
+  at: Date,
+): Array<{ eventId: MembershipEventId; membership: MembershipEventTarget }> {
+  const moved = before.groupId !== after.groupId || before.customerId !== after.customerId
+  if (moved) {
+    return [
+      {
+        eventId: 'customer_groups.membership.removed',
+        membership: {
+          id: after.id,
+          tenantId: after.tenantId,
+          organizationId: after.organizationId,
+          groupId: before.groupId,
+          customerId: before.customerId,
+        },
+      },
+      { eventId: 'customer_groups.membership.added', membership: after },
+    ]
+  }
+  if (!before.validAtUpdate && isMembershipValidAt(after, at)) {
+    return [{ eventId: 'customer_groups.membership.added', membership: after }]
+  }
+  return []
 }
 
 const customerGroupMembershipListFields = [
@@ -222,12 +267,10 @@ export const customerGroupMembershipCrud = makeCrudRoute<
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
-  // No `E.customer_groups.*` entry exists yet (same as the base `CustomerGroup`
-  // route) — the string-literal fallback matches `../crud.ts`.
-  indexer: { entityType: 'customer_groups:customer_group_membership' },
+  indexer: { entityType: E.customer_groups.customer_group_membership },
   list: {
     schema: customerGroupMembershipListQuerySchema,
-    entityId: 'customer_groups:customer_group_membership',
+    entityId: E.customer_groups.customer_group_membership,
     fields: customerGroupMembershipListFields,
     sortFieldMap: {
       createdAt: 'created_at',
@@ -259,8 +302,14 @@ export const customerGroupMembershipCrud = makeCrudRoute<
     schema: rawBodySchema,
     getId: (input) => (typeof input.id === 'string' ? input.id : ''),
     applyToEntity: (entity, input, ctx) => {
+      const membership = entity as CustomerGroupMembership
+      membershipStateBeforeUpdate.set(membership, {
+        groupId: membership.groupId,
+        customerId: membership.customerId,
+        validAtUpdate: isMembershipValidAt(membership, new Date()),
+      })
       applyCustomerGroupMembershipUpdate(
-        entity as CustomerGroupMembership,
+        membership,
         parseUpdateInput(input, ctx),
         actorUserIdFromContext(ctx),
       )
@@ -301,6 +350,15 @@ export const customerGroupMembershipCrud = makeCrudRoute<
         await assertMembershipGroupExists(em, scope, parsed.groupId, translate)
       }
       await assertMembershipUnique(em, scope, nextGroupId, nextCustomerId, existing.id, translate)
+    },
+    afterUpdate: async (entity) => {
+      const membership = entity as CustomerGroupMembership
+      const before = membershipStateBeforeUpdate.get(membership)
+      if (!before) return
+      membershipStateBeforeUpdate.delete(membership)
+      for (const event of membershipUpdateEvents(before, membership, new Date())) {
+        await emitMembershipEvent(event.eventId, event.membership)
+      }
     },
     afterDelete: async (id, ctx) => {
       const scope = scopeFromContext(ctx)

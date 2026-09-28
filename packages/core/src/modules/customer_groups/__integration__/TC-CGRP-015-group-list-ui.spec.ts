@@ -5,7 +5,13 @@ import {
   createCustomerGroupFixture,
   deleteCustomerGroupIfExists,
 } from '@open-mercato/core/helpers/integration/customerGroupsFixtures';
-import { findDefaultGroupId, fixturePriority, restoreDefaultGroup, uniqueStamp } from './helpers';
+import {
+  cleanupSecondTenantActor,
+  createSecondTenantActor,
+  fixturePriority,
+  uniqueStamp,
+  type SecondTenantActor,
+} from './helpers';
 
 /**
  * TC-CGRP-015: customer-groups admin list page (`/backend/customer-groups`)
@@ -26,20 +32,26 @@ import { findDefaultGroupId, fixturePriority, restoreDefaultGroup, uniqueStamp }
  * table.
  *
  * The `isDefault: true` fixture clears the tenant's existing default
- * (clear-and-set), so the pre-existing default is snapshotted up front and
- * restored in `finally`.
+ * (clear-and-set), so the fixtures live in a freshly provisioned tenant:
+ * flipping the SHARED admin tenant's default, even with a restore in
+ * `finally`, lets a concurrently running spec observe the wrong default. The
+ * page is driven as superadmin scoped to that tenant via the
+ * `om_selected_tenant` / `om_selected_org` cookies (the TC-AUTH-041 pattern),
+ * since the shared `login` helper only signs in the seeded roles.
  */
 test.describe('TC-CGRP-015: customer groups admin list page', () => {
   test('renders fixture rows with the expected columns and links to create', async ({ page, request }) => {
-    const token = await getAuthToken(request, 'admin');
+    const superadminToken = await getAuthToken(request, 'superadmin');
     const stamp = uniqueStamp();
+    const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
 
+    let actor: SecondTenantActor | null = null;
     let defaultGroupId: string | null = null;
     let plainGroupId: string | null = null;
-    let priorDefaultGroupId: string | null = null;
 
     try {
-      priorDefaultGroupId = await findDefaultGroupId(request, token);
+      actor = await createSecondTenantActor(request, superadminToken, stamp);
+      const token = actor.token;
       defaultGroupId = await createCustomerGroupFixture(request, token, {
         code: `qa-cgrp-015-def-${stamp}`,
         name: `QA CGRP 015 Default ${stamp}`,
@@ -57,7 +69,11 @@ test.describe('TC-CGRP-015: customer groups admin list page', () => {
         isActive: false,
       });
 
-      await login(page, 'admin');
+      await login(page, 'superadmin');
+      await page.context().addCookies([
+        { name: 'om_selected_tenant', value: actor.tenantId, url: baseUrl, sameSite: 'Lax' },
+        { name: 'om_selected_org', value: actor.organizationId, url: baseUrl, sameSite: 'Lax' },
+      ]);
       await page.goto('/backend/customer-groups', { waitUntil: 'domcontentloaded' });
 
       // Locate rows by fixture code without touching the search box — the
@@ -83,9 +99,10 @@ test.describe('TC-CGRP-015: customer groups admin list page', () => {
       await page.getByRole('link', { name: 'Create group' }).click();
       await page.waitForURL(/\/backend\/customer-groups\/create$/, { timeout: 15_000 });
     } finally {
-      await deleteCustomerGroupIfExists(request, token, defaultGroupId);
-      await deleteCustomerGroupIfExists(request, token, plainGroupId);
-      await restoreDefaultGroup(request, token, priorDefaultGroupId);
+      const cleanupToken = actor?.token ?? null;
+      await deleteCustomerGroupIfExists(request, cleanupToken, defaultGroupId);
+      await deleteCustomerGroupIfExists(request, cleanupToken, plainGroupId);
+      await cleanupSecondTenantActor(request, superadminToken, actor);
     }
   });
 });

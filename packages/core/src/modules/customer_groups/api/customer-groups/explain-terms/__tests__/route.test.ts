@@ -40,6 +40,7 @@ const childGroup: Partial<CustomerGroup> = {
   code: 'retail',
   name: 'Retail',
   parentId: PARENT_GROUP_ID,
+  isActive: true,
   deletedAt: null,
 }
 
@@ -49,6 +50,7 @@ const parentGroup: Partial<CustomerGroup> = {
   code: 'wholesale',
   name: 'Wholesale',
   parentId: null,
+  isActive: true,
   deletedAt: null,
 }
 
@@ -206,6 +208,7 @@ describe('GET /api/customer-groups/explain-terms', () => {
       code: 'partner',
       name: 'Partner',
       parentId: PARENT_GROUP_ID,
+      isActive: true,
       deletedAt: null,
     }
     const findOne = jest.fn(async (_entity: unknown, where: { id: string }) => {
@@ -246,6 +249,45 @@ describe('GET /api/customer-groups/explain-terms', () => {
     // ending at CHILD, so the field falls back to the tenant default with no path.
     const findOne = jest.fn(async (entity: unknown, where: { id?: string; groupId?: string }) => {
       if (entity === CustomerGroup) return where.id === CHILD_GROUP_ID ? childGroup : null
+      if (entity === CustomerGroupTerms) {
+        return where.groupId === PARENT_GROUP_ID
+          ? { id: 'terms-parent', groupId: PARENT_GROUP_ID, tenantId: TENANT_ID, paymentTermsDays: 90, allowPurchaseOnAccount: true }
+          : null
+      }
+      return null
+    })
+    const find = jest.fn(async (entity: unknown) => {
+      if (entity === CustomerGroupMembership) {
+        return [{ id: 'm-1', groupId: CHILD_GROUP_ID, customerId: CUSTOMER_ID, validFrom: null, validUntil: null, createdAt: new Date('2026-01-01T00:00:00.000Z') }]
+      }
+      if (entity === CustomerGroup) return [{ ...childGroup, priority: 10, kind: 'b2b', isActive: true }]
+      return []
+    })
+    const em = { find, findOne }
+    const service = new DefaultCustomerGroupsService(em as never)
+    mockContainer.mockResolvedValue({
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'customerGroupsService') return service
+        throw new Error(`unexpected resolve: ${name}`)
+      },
+    } as never)
+
+    const res = await GET(request(CUSTOMER_ID))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.fields.paymentTermsDays).toEqual({ value: null, sourceGroupId: null, path: [] })
+    expect(body.fields.allowPurchaseOnAccount).toEqual({ value: false, sourceGroupId: null, path: [] })
+  })
+
+  it('stops the explained path at an inactive parent, agreeing with the real resolveTerms', async () => {
+    const inactiveParent = { ...parentGroup, isActive: false }
+    const findOne = jest.fn(async (entity: unknown, where: { id?: string; groupId?: string }) => {
+      if (entity === CustomerGroup) {
+        if (where.id === CHILD_GROUP_ID) return childGroup
+        if (where.id === PARENT_GROUP_ID) return inactiveParent
+        return null
+      }
       if (entity === CustomerGroupTerms) {
         return where.groupId === PARENT_GROUP_ID
           ? { id: 'terms-parent', groupId: PARENT_GROUP_ID, tenantId: TENANT_ID, paymentTermsDays: 90, allowPurchaseOnAccount: true }

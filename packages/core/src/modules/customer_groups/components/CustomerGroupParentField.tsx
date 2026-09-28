@@ -5,6 +5,7 @@ import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inp
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Alert } from '@open-mercato/ui/primitives/alert'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   CUSTOMER_GROUP_DEPTH_WARNING_THRESHOLD,
   mapListItemsToSummaries,
@@ -74,7 +75,11 @@ export function CustomerGroupParentField({
       .then((chain) => {
         if (!cancelled) setChainLength(chain.length)
       })
-      .catch(() => {
+      .catch((err) => {
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'customer_groups',
+          code: 'customer_groups.parent_depth_check_failed',
+        })
         if (!cancelled) setChainLength(0)
       })
     return () => {
@@ -120,6 +125,16 @@ export function CustomerGroupParentField({
           setCycleRejected(true)
           return
         }
+        setCycleRejected(false)
+        setValue(next)
+      } catch (err) {
+        // The cycle check is a UX pre-check only; the server rejects a cyclic parent
+        // (`customer_groups.errors.parentCycle`) on save, so a failed lookup keeps the
+        // selection and defers to that validation instead of leaving it unhandled.
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'customer_groups',
+          code: 'customer_groups.parent_cycle_check_failed',
+        })
         setCycleRejected(false)
         setValue(next)
       } finally {

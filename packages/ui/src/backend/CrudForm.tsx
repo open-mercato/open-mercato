@@ -1997,8 +1997,17 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   // Such a field is still a host schema field, so its value must reach `coreValues` and the
   // host `onSubmit` payload. Only an injected field with NO host-declared counterpart is an
   // "extra" field that is stripped before schema validation/submission (widgets still see
-  // it via `onBeforeSave`/`onSave`). See UPGRADE_NOTES.md (0.8.1).
-  const hostFieldIdSet = React.useMemo(() => new Set(fields.map((field) => field.id)), [fields])
+  // it via `onBeforeSave`/`onSave`). See UPGRADE_NOTES.md (0.8.1). Host fields declared
+  // inline in `groups[].fields` count as host-declared too.
+  const hostFieldIdSet = React.useMemo(() => {
+    const ids = new Set(fields.map((field) => field.id))
+    for (const group of groups ?? []) {
+      for (const entry of group.fields ?? []) {
+        if (typeof entry !== 'string') ids.add(entry.id)
+      }
+    }
+    return ids
+  }, [fields, groups])
   const injectedOnlyFieldIdSet = React.useMemo(
     () => new Set(Array.from(injectedFieldIdSet).filter((id) => !hostFieldIdSet.has(id))),
     [injectedFieldIdSet, hostFieldIdSet],

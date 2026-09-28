@@ -8,6 +8,7 @@ import { conflict, isUniqueViolation } from '@open-mercato/shared/lib/crud/error
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CustomerGroup } from '../data/entities'
 import { customerGroupReorderSchema, type CustomerGroupReorderInput } from '../data/validators'
+import { emitCustomerGroupLifecycleEvent } from '../lib/groupEvents'
 
 // Spec §14 Phase 1, R4 mitigation: "Import assigns priorities in gaps of 10 and
 // renumbers on conflict; the admin list supports drag-reorder which rewrites
@@ -33,7 +34,7 @@ const CUSTOMER_GROUP_PRIORITY_UNIQUE_CONSTRAINT = 'customer_groups_tenant_priori
 const CUSTOMER_GROUP_CACHE_RESOURCE = canonicalizeResourceTag('customer_groups.group') ?? 'customer_groups.group'
 const CUSTOMER_GROUP_CACHE_ALIASES = [canonicalizeResourceTag('CustomerGroup') ?? 'customer.group']
 
-type PriorityAssignment = { group: CustomerGroup; temporary: number; final: number }
+type PriorityAssignment = { group: CustomerGroup; original: number; temporary: number; final: number }
 
 /**
  * Computes the final priority for every listed group that resolves in the tenant.
@@ -77,6 +78,7 @@ function planPriorityAssignments(ids: string[], tenantGroups: CustomerGroup[]): 
 
   return targets.map((group, index) => ({
     group,
+    original: group.priority,
     temporary: temporaryBase - index,
     final: isFullOrdering ? ((positions.get(group.id) ?? index) + 1) * PRIORITY_STEP : ownSlots[index],
   }))
@@ -141,6 +143,17 @@ const reorderCustomerGroupsCommand: CommandHandler<CustomerGroupReorderInput, vo
         'updated',
         CUSTOMER_GROUP_CACHE_ALIASES,
       )
+    }
+
+    // The reorder bypasses the group CRUD route, so it emits that route's
+    // `customer_groups.group.updated` itself — only for rows whose priority actually
+    // changed, since a no-op position must not invalidate downstream caches.
+    for (const assignment of assignments) {
+      if (assignment.final === assignment.original) continue
+      await emitCustomerGroupLifecycleEvent('customer_groups.group.updated', {
+        id: assignment.group.id,
+        tenantId: parsed.tenantId,
+      })
     }
   },
 }

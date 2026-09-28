@@ -2,11 +2,12 @@ import { z } from 'zod'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { CrudHttpError, badRequest, conflict } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, badRequest, conflict, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CustomerGroup, CustomerGroupTerms } from '../../data/entities'
+import { E } from '#generated/entities.ids.generated'
+import { CustomerGroup, CustomerGroupMembership, CustomerGroupTerms } from '../../data/entities'
 import {
   CUSTOMER_GROUP_MAX_ANCESTOR_DEPTH,
   customerGroupCreateSchema,
@@ -14,6 +15,7 @@ import {
   type CustomerGroupCreateInput,
   type CustomerGroupUpdateInput,
 } from '../../data/validators'
+import { emitMembershipEvent } from './memberships/crud'
 
 // Shared (non-route) module: `route.ts` delegates to this single `makeCrudRoute`
 // instance (GET/POST/PUT/DELETE all from one file — no `[id]` dynamic segment, see
@@ -122,6 +124,22 @@ export async function clearOtherDefaultGroups(em: EntityManager, tenantId: strin
   await em.nativeUpdate(CustomerGroup, where, { isDefault: false, updatedAt: new Date() })
 }
 
+const CUSTOMER_GROUP_DEFAULT_UNIQUE_CONSTRAINT = 'customer_groups_tenant_default_unique'
+
+// Clear-and-set cannot stop two CONCURRENT promotions: each clears the defaults it can
+// see, then both set their own row, and the loser trips the partial unique index
+// `customer_groups_tenant_default_unique`. That is a real conflict (the other write
+// won), so it maps to a translated 409 instead of reaching the factory's generic 500.
+export function toDefaultGroupConflict(err: unknown, translate: Translate): unknown {
+  if (!isUniqueViolation(err, CUSTOMER_GROUP_DEFAULT_UNIQUE_CONSTRAINT)) return err
+  return conflict(
+    translate(
+      'customer_groups.errors.defaultConflict',
+      'Another customer group was made the default at the same time. Reload and try again.',
+    ),
+  )
+}
+
 // `makeCrudRoute`'s create transaction wraps only the insert, so a new default group is
 // inserted with `isDefault: false` and promoted here, after the insert committed, in its
 // own transaction: clear the previous default first, then set the new one, so the
@@ -134,12 +152,51 @@ export async function promoteDefaultGroup(em: EntityManager, tenantId: string, g
   })
 }
 
+// The update path's counterpart of `promoteDefaultGroup`: runs inside the factory's
+// update transaction and writes the flag with a native statement (rather than leaving
+// it to the entity flush) so a concurrent promotion's unique violation surfaces here,
+// where it can be mapped to a 409.
+export async function assignDefaultGroup(
+  em: EntityManager,
+  tenantId: string,
+  groupId: string,
+  translate: Translate,
+): Promise<void> {
+  try {
+    await clearOtherDefaultGroups(em, tenantId, groupId)
+    await em.nativeUpdate(CustomerGroup, { id: groupId, tenantId, deletedAt: null }, { isDefault: true })
+  } catch (err) {
+    throw toDefaultGroupConflict(err, translate)
+  }
+}
+
 // Terms of a deleted group must stop resolving; soft-deleting them (rather than leaving
 // them to be filtered by the group join) keeps `customer_group_terms_group_unique` free
 // for a future group and keeps every terms reader correct without a join.
 export async function softDeleteGroupTerms(em: EntityManager, tenantId: string, groupId: string): Promise<void> {
   const now = new Date()
   await em.nativeUpdate(CustomerGroupTerms, { tenantId, groupId, deletedAt: null }, { deletedAt: now, updatedAt: now })
+}
+
+// A deleted group's memberships must stop counting too: without this they stay live,
+// keep occupying `customer_group_memberships_active_unique`, and keep listing the
+// customer under a group that no longer exists. Only the rows read here are
+// soft-deleted, so the returned rows are exactly the ones a `membership.removed` event
+// is owed for.
+export async function softDeleteGroupMemberships(
+  em: EntityManager,
+  tenantId: string,
+  groupId: string,
+): Promise<CustomerGroupMembership[]> {
+  const memberships = await em.find(CustomerGroupMembership, { tenantId, groupId, deletedAt: null })
+  if (!memberships.length) return []
+  const now = new Date()
+  await em.nativeUpdate(
+    CustomerGroupMembership,
+    { tenantId, groupId, deletedAt: null, id: { $in: memberships.map((membership) => membership.id) } },
+    { deletedAt: now, updatedAt: now },
+  )
+  return memberships
 }
 
 export type CustomerGroupNode = { id: string; parentId?: string | null }
@@ -175,7 +232,11 @@ function measureSubtreeHeight(groups: CustomerGroupNode[], rootId: string): numb
 // a cycle, and the resulting hierarchy depth is capped — counting the new parent's
 // ancestor chain plus the (moved) group's own subtree, so re-parenting a group with
 // children cannot push a descendant past the cap either. `groups` is every live group
-// of the tenant; `groupId` is null on create.
+// of the tenant; `groupId` is null on create. The chain ends at the first ancestor that
+// is not in `groups` (soft-deleted or dangling), exactly where the terms walk in
+// `loadCustomerGroupAncestorChain` ends, so such an ancestor never counts toward the
+// depth. Inactive ancestors DO count: activity is toggled freely, and reactivating a
+// group must never produce an over-deep hierarchy.
 export function findParentAssignmentIssue(
   groups: CustomerGroupNode[],
   groupId: string | null,
@@ -190,9 +251,11 @@ export function findParentAssignmentIssue(
   let chainLength = 0
   while (currentId) {
     if (currentId === groupId || visited.has(currentId)) return 'cycle'
+    const ancestor = byId.get(currentId)
+    if (!ancestor) break
     visited.add(currentId)
     chainLength += 1
-    currentId = byId.get(currentId)?.parentId ?? null
+    currentId = ancestor.parentId ?? null
   }
   const subtreeHeight = groupId ? measureSubtreeHeight(groups, groupId) : 1
   return chainLength + subtreeHeight > maxDepth ? 'tooDeep' : null
@@ -286,15 +349,10 @@ export const customerGroupCrud = makeCrudRoute<RawCustomerGroupInput, RawCustome
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
-  // No `E.customer_groups.*` entry exists yet — this module has no `ce.ts` custom-entity
-  // declaration, so `yarn mercato generate entity-ids` has never emitted one. The string
-  // literal form is the established fallback for a freshly-scaffolded module (mirrors
-  // `staff/api/timesheets/time-projects/[id]/employees/route.ts`'s
-  // `'staff:staff_time_project_member'`).
-  indexer: { entityType: 'customer_groups:customer_group' },
+  indexer: { entityType: E.customer_groups.customer_group },
   list: {
     schema: customerGroupListQuerySchema,
-    entityId: 'customer_groups:customer_group',
+    entityId: E.customer_groups.customer_group,
     fields: customerGroupListFields,
     sortFieldMap: {
       priority: 'priority',
@@ -350,7 +408,7 @@ export const customerGroupCrud = makeCrudRoute<RawCustomerGroupInput, RawCustome
         },
         translate,
       )
-      if (parsed.isDefault === true) await clearOtherDefaultGroups(em, group.tenantId, group.id)
+      if (parsed.isDefault === true) await assignDefaultGroup(em, group.tenantId, group.id, translate)
       applyCustomerGroupUpdate(group, parsed)
     },
     response: () => ({ ok: true }),
@@ -379,12 +437,23 @@ export const customerGroupCrud = makeCrudRoute<RawCustomerGroupInput, RawCustome
       const group = entity as CustomerGroup
       if (parseCreateInput(ctx.input, ctx).isDefault !== true) return
       const now = new Date()
-      await promoteDefaultGroup(ctx.container.resolve('em') as EntityManager, group.tenantId, group.id, now)
+      try {
+        await promoteDefaultGroup(ctx.container.resolve('em') as EntityManager, group.tenantId, group.id, now)
+      } catch (err) {
+        const { translate } = await resolveTranslations()
+        throw toDefaultGroupConflict(err, translate)
+      }
       group.isDefault = true
       group.updatedAt = now
     },
     afterDelete: async (id, ctx) => {
-      await softDeleteGroupTerms(ctx.container.resolve('em') as EntityManager, scopeFromContext(ctx).tenantId, id)
+      const em = ctx.container.resolve('em') as EntityManager
+      const { tenantId } = scopeFromContext(ctx)
+      await softDeleteGroupTerms(em, tenantId, id)
+      const removedMemberships = await softDeleteGroupMemberships(em, tenantId, id)
+      for (const membership of removedMemberships) {
+        await emitMembershipEvent('customer_groups.membership.removed', membership)
+      }
     },
   },
 })

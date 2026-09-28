@@ -5,7 +5,13 @@ import {
   createCustomerGroupFixture,
   deleteCustomerGroupIfExists,
 } from '@open-mercato/core/helpers/integration/customerGroupsFixtures';
-import { findDefaultGroupId, fixturePriority, restoreDefaultGroup, uniqueStamp } from './helpers';
+import {
+  cleanupSecondTenantActor,
+  createSecondTenantActor,
+  fixturePriority,
+  uniqueStamp,
+  type SecondTenantActor,
+} from './helpers';
 
 /**
  * TC-CGRP-009: the default-group data the anonymous (`customerId: null`)
@@ -31,8 +37,9 @@ import { findDefaultGroupId, fixturePriority, restoreDefaultGroup, uniqueStamp }
  * level.
  *
  * Creating an `isDefault: true` group clears the tenant's existing default
- * (clear-and-set), so the pre-existing default is snapshotted up front and
- * restored in `finally`.
+ * (clear-and-set), so the spec runs inside a freshly provisioned tenant:
+ * flipping the SHARED admin tenant's default, even with a restore in
+ * `finally`, lets a concurrently running spec observe the wrong default.
  */
 const GROUPS_PATH = '/api/customer_groups/customer-groups';
 const RECONCILE_PATH = '/api/customer_groups/customer-groups/reconcile';
@@ -41,14 +48,15 @@ test.describe('TC-CGRP-009: default-group CRUD surface has no HTTP-level errors'
   test('an isDefault group round-trips through the CRUD API and the isDefault filter, and reconcile/list stay 200 while it exists', async ({
     request,
   }) => {
-    const token = await getAuthToken(request, 'admin');
+    const superadminToken = await getAuthToken(request, 'superadmin');
     const stamp = uniqueStamp();
 
+    let actor: SecondTenantActor | null = null;
     let groupId: string | null = null;
-    let priorDefaultGroupId: string | null = null;
 
     try {
-      priorDefaultGroupId = await findDefaultGroupId(request, token);
+      actor = await createSecondTenantActor(request, superadminToken, stamp);
+      const token = actor.token;
       groupId = await createCustomerGroupFixture(request, token, {
         code: `qa-cgrp-009-${stamp}`,
         name: `QA CGRP 009 Default Group ${stamp}`,
@@ -89,8 +97,8 @@ test.describe('TC-CGRP-009: default-group CRUD surface has no HTTP-level errors'
       const listResponse = await apiRequest(request, 'GET', `${GROUPS_PATH}?pageSize=100`, { token });
       expect(listResponse.status(), 'the plain groups list should not error while a default group exists').toBe(200);
     } finally {
-      await deleteCustomerGroupIfExists(request, token, groupId);
-      await restoreDefaultGroup(request, token, priorDefaultGroupId);
+      await deleteCustomerGroupIfExists(request, actor?.token ?? null, groupId);
+      await cleanupSecondTenantActor(request, superadminToken, actor);
     }
   });
 });

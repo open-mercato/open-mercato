@@ -6,10 +6,15 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
     translate: (_key: string, fallback?: string) => fallback ?? _key,
   }),
 }))
+const emitMock = jest.fn(async (..._args: unknown[]) => {})
+jest.mock('../../../events', () => ({
+  ...jest.requireActual('../../../events'),
+  emitCustomerGroupsEvent: (...args: unknown[]) => emitMock(...args),
+}))
 
 import type { CrudCtx, CrudFactoryOptions } from '@open-mercato/shared/lib/crud/factory'
 import { customerGroupCrud, findParentAssignmentIssue, type CustomerGroupNode } from '../crud'
-import { CustomerGroup, CustomerGroupTerms } from '../../../data/entities'
+import { CustomerGroup, CustomerGroupMembership, CustomerGroupTerms } from '../../../data/entities'
 import { eventsConfig } from '../../../events'
 
 type RawInput = Record<string, unknown>
@@ -25,7 +30,14 @@ const opts = (customerGroupCrud as unknown as { opts: GroupCrudOptions }).opts
 type FakeEmConfig = {
   counts?: (entity: unknown, where: Record<string, unknown>) => number
   groups?: CustomerGroupNode[]
+  memberships?: Array<Partial<CustomerGroupMembership>>
+  nativeUpdateError?: (where: Record<string, unknown>) => unknown
 }
+
+const DEFAULT_UNIQUE_VIOLATION = Object.assign(new Error('duplicate key value violates unique constraint'), {
+  code: '23505',
+  constraint: 'customer_groups_tenant_default_unique',
+})
 
 function createFakeEm(config: FakeEmConfig = {}) {
   const calls: string[] = []
@@ -34,13 +46,16 @@ function createFakeEm(config: FakeEmConfig = {}) {
       calls.push('count')
       return config.counts ? config.counts(entity, where) : 0
     }),
-    find: jest.fn(async () => {
+    find: jest.fn(async (entity: unknown) => {
       calls.push('find')
+      if (entity === CustomerGroupMembership) return config.memberships ?? []
       return config.groups ?? []
     }),
     findOne: jest.fn(async () => null),
     nativeUpdate: jest.fn(async (_entity: unknown, where: Record<string, unknown>) => {
       calls.push(`nativeUpdate:${where.id && typeof where.id === 'string' ? 'self' : 'others'}`)
+      const error = config.nativeUpdateError?.(where)
+      if (error) throw error
       return 1
     }),
     transactional: jest.fn(async (callback: (tem: unknown) => Promise<unknown>): Promise<unknown> => callback(em)),
@@ -173,6 +188,30 @@ describe('customer group CRUD route', () => {
       expect(created.isDefault).toBe(true)
     })
 
+    it('maps a concurrent default promotion (partial unique index) to a 409 instead of a raw 500', async () => {
+      const { em } = createFakeEm({
+        nativeUpdateError: (where) => (typeof where.id === 'string' ? DEFAULT_UNIQUE_VIOLATION : null),
+      })
+      const created = makeGroup()
+
+      await expect(
+        opts.hooks!.afterCreate!(created, { ...createCtx(em), input: { ...validCreateInput, isDefault: true } }),
+      ).rejects.toMatchObject({
+        status: 409,
+        body: { error: 'Another customer group was made the default at the same time. Reload and try again.' },
+      })
+      expect(created.isDefault).toBe(false)
+    })
+
+    it('rethrows an unrelated promotion failure unchanged', async () => {
+      const failure = new Error('connection lost')
+      const { em } = createFakeEm({ nativeUpdateError: () => failure })
+
+      await expect(
+        opts.hooks!.afterCreate!(makeGroup(), { ...createCtx(em), input: { ...validCreateInput, isDefault: true } }),
+      ).rejects.toBe(failure)
+    })
+
     it('does not touch defaults when the created group is not a default', async () => {
       const { em } = createFakeEm()
       await opts.hooks!.afterCreate!(makeGroup(), { ...createCtx(em), input: validCreateInput })
@@ -200,14 +239,32 @@ describe('customer group CRUD route', () => {
 
       await opts.update!.applyToEntity(group, { id: GROUP_ID, isDefault: true, code: 'retail-2' }, createCtx(em))
 
-      expect(calls).toEqual(['count', 'nativeUpdate:others'])
+      expect(calls).toEqual(['count', 'nativeUpdate:others', 'nativeUpdate:self'])
       expect(em.nativeUpdate).toHaveBeenCalledWith(
         CustomerGroup,
         { tenantId: TENANT_ID, isDefault: true, deletedAt: null, id: { $ne: GROUP_ID } },
         { isDefault: false, updatedAt: expect.any(Date) },
       )
+      expect(em.nativeUpdate).toHaveBeenCalledWith(
+        CustomerGroup,
+        { id: GROUP_ID, tenantId: TENANT_ID, deletedAt: null },
+        { isDefault: true },
+      )
       expect(group.isDefault).toBe(true)
       expect(group.code).toBe('retail-2')
+    })
+
+    it('maps a concurrent default promotion on update to a 409 and leaves the entity untouched', async () => {
+      const { em } = createFakeEm({
+        nativeUpdateError: (where) => (typeof where.id === 'string' ? DEFAULT_UNIQUE_VIOLATION : null),
+      })
+      const group = makeGroup()
+
+      await expect(
+        opts.update!.applyToEntity(group, { id: GROUP_ID, isDefault: true, name: 'Renamed' }, createCtx(em)),
+      ).rejects.toMatchObject({ status: 409 })
+      expect(group.isDefault).toBe(false)
+      expect(group.name).toBe('Retail')
     })
 
     it('does not clear the tenant default when the update is rejected', async () => {
@@ -272,6 +329,56 @@ describe('customer group CRUD route', () => {
   })
 
   describe('delete', () => {
+    beforeEach(() => {
+      emitMock.mockClear()
+    })
+
+    it('soft-deletes the live memberships of the deleted group and emits membership.removed for each', async () => {
+      const CUSTOMER_A = '55555555-5555-4555-8555-555555555555'
+      const CUSTOMER_B = '66666666-6666-4666-8666-666666666666'
+      const memberships = [
+        { id: 'm-1', tenantId: TENANT_ID, organizationId: null, groupId: GROUP_ID, customerId: CUSTOMER_A },
+        { id: 'm-2', tenantId: TENANT_ID, organizationId: null, groupId: GROUP_ID, customerId: CUSTOMER_B },
+      ]
+      const { em } = createFakeEm({ memberships })
+
+      await opts.hooks!.afterDelete!(GROUP_ID, createCtx(em))
+
+      expect(em.find).toHaveBeenCalledWith(CustomerGroupMembership, {
+        tenantId: TENANT_ID,
+        groupId: GROUP_ID,
+        deletedAt: null,
+      })
+      expect(em.nativeUpdate).toHaveBeenCalledWith(
+        CustomerGroupMembership,
+        { tenantId: TENANT_ID, groupId: GROUP_ID, deletedAt: null, id: { $in: ['m-1', 'm-2'] } },
+        { deletedAt: expect.any(Date), updatedAt: expect.any(Date) },
+      )
+      expect(emitMock).toHaveBeenCalledTimes(2)
+      for (const membership of memberships) {
+        expect(emitMock).toHaveBeenCalledWith(
+          'customer_groups.membership.removed',
+          {
+            id: membership.id,
+            tenantId: TENANT_ID,
+            organizationId: null,
+            groupId: GROUP_ID,
+            customerId: membership.customerId,
+          },
+          { persistent: true, tenantId: TENANT_ID, organizationId: null },
+        )
+      }
+    })
+
+    it('writes and emits nothing for memberships when the deleted group had none', async () => {
+      const { em } = createFakeEm({ memberships: [] })
+
+      await opts.hooks!.afterDelete!(GROUP_ID, createCtx(em))
+
+      expect(em.nativeUpdate).not.toHaveBeenCalledWith(CustomerGroupMembership, expect.anything(), expect.anything())
+      expect(emitMock).not.toHaveBeenCalled()
+    })
+
     it('soft-deletes the deleted group terms, scoped to the caller tenant', async () => {
       const { em } = createFakeEm()
 
@@ -316,6 +423,25 @@ describe('findParentAssignmentIssue', () => {
     ]
     expect(findParentAssignmentIssue(groups, 'a', 'missing')).toBe('notFound')
     expect(findParentAssignmentIssue(groups, 'a', 'a')).toBe('self')
+    expect(findParentAssignmentIssue(groups, 'a', 'b')).toBe('cycle')
+  })
+
+  it('does not count a soft-deleted ancestor toward the depth cap', () => {
+    const fourLiveLevels = (rootParentId: string | null): CustomerGroupNode[] => [
+      { id: 'g1', parentId: rootParentId },
+      { id: 'g2', parentId: 'g1' },
+      { id: 'g3', parentId: 'g2' },
+      { id: 'g4', parentId: 'g3' },
+    ]
+    expect(findParentAssignmentIssue(fourLiveLevels('deleted-root'), null, 'g4')).toBeNull()
+    expect(findParentAssignmentIssue([{ id: 'g0', parentId: null }, ...fourLiveLevels('g0')], null, 'g4')).toBe('tooDeep')
+  })
+
+  it('still detects a cycle through live groups when the chain also reaches a deleted ancestor', () => {
+    const groups: CustomerGroupNode[] = [
+      { id: 'a', parentId: 'deleted-root' },
+      { id: 'b', parentId: 'a' },
+    ]
     expect(findParentAssignmentIssue(groups, 'a', 'b')).toBe('cycle')
   })
 

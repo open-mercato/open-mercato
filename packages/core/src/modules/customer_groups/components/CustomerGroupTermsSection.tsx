@@ -58,6 +58,7 @@ export function CustomerGroupTermsSection({
   terms,
   loading,
   loadError,
+  canManage,
   onSaved,
 }: {
   groupId: string
@@ -68,6 +69,9 @@ export function CustomerGroupTermsSection({
   // Set when the terms GET failed for a reason other than "no row" — the form is
   // then withheld so a save can never overwrite terms it could not read.
   loadError?: string | null
+  // Without `customer_groups.terms.manage` the terms stay viewable but the form is
+  // read-only and the empty state offers no "set terms" action — a save would 403.
+  canManage: boolean
   onSaved: (next: CustomerGroupTermsDTO) => void
 }) {
   const t = useT()
@@ -211,11 +215,11 @@ export function CustomerGroupTermsSection({
             'customer_groups.groups.form.terms.empty.description',
             'This group currently uses commercial terms inherited from its parent group or the tenant defaults. Set explicit terms to override them for this group.',
           )}
-          actions={(
+          actions={canManage ? (
             <Button type="button" size="sm" variant="outline" onClick={() => setEditing(true)}>
               {t('customer_groups.groups.form.terms.empty.action', 'Set terms for this group')}
             </Button>
-          )}
+          ) : undefined}
           className="border border-dashed border-border"
         />
       ) : (
@@ -226,6 +230,15 @@ export function CustomerGroupTermsSection({
           fields={fields}
           initialValues={initialValues}
           optimisticLockUpdatedAt={terms?.updatedAt ?? null}
+          readOnly={!canManage}
+          readOnlyOverlay={(
+            <div className="rounded-xl border border-border/70 bg-background/95 px-4 py-3 text-sm text-muted-foreground shadow-sm">
+              {t(
+                'customer_groups.groups.form.terms.readOnly',
+                'You do not have permission to change commercial terms.',
+              )}
+            </div>
+          )}
           submitLabel={t('customer_groups.groups.form.terms.action.save', 'Save terms')}
           onSubmit={handleSubmit}
         />

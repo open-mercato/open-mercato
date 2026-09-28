@@ -121,6 +121,85 @@ describe('customer group membership CRUD route', () => {
     )
   })
 
+  describe('update events', () => {
+    const OTHER_CUSTOMER_ID = '99999999-9999-4999-8999-999999999999'
+
+    async function runUpdate(entity: CustomerGroupMembership, input: RawInput) {
+      const ctx = createCtx(createFakeEm())
+      await opts.update!.applyToEntity(entity, { id: MEMBERSHIP_ID, ...input }, ctx)
+      await opts.hooks!.afterUpdate!(entity, { ...ctx, input: { id: MEMBERSHIP_ID, ...input } })
+    }
+
+    it('emits removed for the old group and added for the new one when a membership moves group', async () => {
+      await runUpdate(makeMembership(), { groupId: OTHER_GROUP_ID })
+
+      expect(emitMock.mock.calls.map((call) => (call as unknown[])[0])).toEqual([
+        'customer_groups.membership.removed',
+        'customer_groups.membership.added',
+      ])
+      expect(emitMock).toHaveBeenNthCalledWith(
+        1,
+        'customer_groups.membership.removed',
+        { id: MEMBERSHIP_ID, tenantId: TENANT_ID, organizationId: null, groupId: GROUP_ID, customerId: CUSTOMER_ID },
+        { persistent: true, tenantId: TENANT_ID, organizationId: null },
+      )
+      expect(emitMock).toHaveBeenNthCalledWith(
+        2,
+        'customer_groups.membership.added',
+        { id: MEMBERSHIP_ID, tenantId: TENANT_ID, organizationId: null, groupId: OTHER_GROUP_ID, customerId: CUSTOMER_ID },
+        { persistent: true, tenantId: TENANT_ID, organizationId: null },
+      )
+    })
+
+    it('emits removed for the old customer and added for the new one when a membership moves customer', async () => {
+      await runUpdate(makeMembership(), { customerId: OTHER_CUSTOMER_ID })
+
+      expect(emitMock).toHaveBeenCalledTimes(2)
+      expect(emitMock).toHaveBeenCalledWith(
+        'customer_groups.membership.removed',
+        expect.objectContaining({ customerId: CUSTOMER_ID, groupId: GROUP_ID }),
+        expect.anything(),
+      )
+      expect(emitMock).toHaveBeenCalledWith(
+        'customer_groups.membership.added',
+        expect.objectContaining({ customerId: OTHER_CUSTOMER_ID, groupId: GROUP_ID }),
+        expect.anything(),
+      )
+    })
+
+    it('emits added when a renewal makes an expired membership valid again', async () => {
+      await runUpdate(makeMembership({ validUntil: new Date('2020-01-01T00:00:00.000Z') }), { validUntil: null })
+
+      expect(emitMock).toHaveBeenCalledTimes(1)
+      expect(emitMock).toHaveBeenCalledWith(
+        'customer_groups.membership.added',
+        { id: MEMBERSHIP_ID, tenantId: TENANT_ID, organizationId: null, groupId: GROUP_ID, customerId: CUSTOMER_ID },
+        { persistent: true, tenantId: TENANT_ID, organizationId: null },
+      )
+    })
+
+    it('emits added when a not-yet-started membership is moved to start now', async () => {
+      await runUpdate(makeMembership({ validFrom: new Date('2999-01-01T00:00:00.000Z') }), { validFrom: null })
+
+      expect(emitMock).toHaveBeenCalledTimes(1)
+      expect(emitMock).toHaveBeenCalledWith('customer_groups.membership.added', expect.anything(), expect.anything())
+    })
+
+    it('emits nothing when an already-valid membership only changes notes or its window', async () => {
+      await runUpdate(makeMembership(), { notes: 'VIP', validUntil: '2999-01-01T00:00:00.000Z' })
+
+      expect(emitMock).not.toHaveBeenCalled()
+    })
+
+    it('emits nothing when a renewal still leaves the membership expired', async () => {
+      await runUpdate(makeMembership({ validUntil: new Date('2020-01-01T00:00:00.000Z') }), {
+        validUntil: '2021-01-01T00:00:00.000Z',
+      })
+
+      expect(emitMock).not.toHaveBeenCalled()
+    })
+  })
+
   describe('assigned_by_user_id attribution', () => {
     const ACTOR_ID = '66666666-6666-4666-8666-666666666666'
     const SPOOFED_ID = '77777777-7777-4777-8777-777777777777'

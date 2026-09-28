@@ -1,3 +1,13 @@
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    translate: (_key: string, fallback?: string) => fallback ?? _key,
+  }),
+}))
+const emitLifecycleEventMock = jest.fn(async (..._args: unknown[]) => {})
+jest.mock('../groupEvents', () => ({
+  emitCustomerGroupLifecycleEvent: (...args: unknown[]) => emitLifecycleEventMock(...args),
+}))
+
 import { adoptOrphanedCustomerGroups, scanOrphanedCustomerGroupReferences } from '../reconcile'
 import type { CustomerGroup } from '../../data/entities'
 
@@ -25,10 +35,15 @@ function makeConnection(priceRows: AggregateRow[], taxRows: AggregateRow[]) {
   return { execute }
 }
 
+type FindWhere = { id?: { $in: string[] }; tenantId?: string; code?: { $in: string[] } }
+
 function makeEm(options: {
   priceRows?: AggregateRow[]
   taxRows?: AggregateRow[]
   findOneByTenant?: Record<string, Partial<CustomerGroup> | null>
+  existingIds?: string[]
+  existingCodes?: string[]
+  flushError?: unknown
 } = {}) {
   const connection = makeConnection(options.priceRows ?? [], options.taxRows ?? [])
   const findOneByTenant = options.findOneByTenant ?? {}
@@ -36,7 +51,13 @@ function makeEm(options: {
   const persisted: Array<Record<string, unknown>> = []
   const em = {
     getConnection: jest.fn(() => connection),
-    find: jest.fn().mockResolvedValue([]),
+    find: jest.fn(async (_entity: unknown, where: FindWhere) => {
+      if (where.id) return where.id.$in.filter((id) => (options.existingIds ?? []).includes(id)).map((id) => ({ id }))
+      if (where.code) {
+        return where.code.$in.filter((code) => (options.existingCodes ?? []).includes(code)).map((code) => ({ code }))
+      }
+      return []
+    }),
     findOne: jest.fn((_entity: unknown, where: { tenantId: string }) => {
       return Promise.resolve(findOneByTenant[where.tenantId] ?? null)
     }),
@@ -47,7 +68,9 @@ function makeEm(options: {
     persist: jest.fn((entity: Record<string, unknown>) => {
       persisted.push(entity)
     }),
-    flush: jest.fn().mockResolvedValue(undefined),
+    flush: jest.fn(async () => {
+      if (options.flushError) throw options.flushError
+    }),
   }
   return { em, connection, created, persisted }
 }
@@ -80,7 +103,9 @@ describe('scanOrphanedCustomerGroupReferences', () => {
       expect(sql).toContain('count(*)::int as ref_count')
       expect(sql).toContain('(array_agg(t.id::text order by t.id))[1:5] as sample_ids')
       expect(sql).toContain('t.customer_group_id is not null')
-      expect(sql).toContain('not exists (select 1 from customer_groups g where g.id = t.customer_group_id)')
+      expect(sql).toContain(
+        'not exists (select 1 from customer_groups g where g.id = t.customer_group_id and g.tenant_id = t.tenant_id)',
+      )
       expect(sql).not.toContain('deleted_at')
       expect(sql).not.toMatch(/select\s+id,\s*customer_group_id/)
     }
@@ -178,7 +203,119 @@ describe('scanOrphanedCustomerGroupReferences', () => {
   })
 })
 
+function orphanFor(groupId: string, tenantId: string | null = TENANT_A) {
+  return {
+    groupId,
+    tenantId,
+    catalogPriceCount: 1,
+    salesTaxRateCount: 0,
+    sampleCatalogPriceIds: [],
+    sampleSalesTaxRateIds: [],
+  }
+}
+
+const shortCodeOf = (groupId: string) => `orphan-${groupId.replace(/-/g, '').slice(0, 8)}`
+const fullCodeOf = (groupId: string) => `orphan-${groupId.replace(/-/g, '')}`
+
 describe('adoptOrphanedCustomerGroups', () => {
+  beforeEach(() => {
+    emitLifecycleEventMock.mockClear()
+  })
+
+  it('emits customer_groups.group.created for every adopted group after the flush', async () => {
+    const { em } = makeEm({ findOneByTenant: { [TENANT_A]: { priority: 10 } } })
+
+    await adoptOrphanedCustomerGroups(em as never, [orphanFor(GROUP_ORPHAN_A), orphanFor(GROUP_ORPHAN_B)])
+
+    expect(emitLifecycleEventMock).toHaveBeenCalledTimes(2)
+    for (const groupId of [GROUP_ORPHAN_A, GROUP_ORPHAN_B]) {
+      expect(emitLifecycleEventMock).toHaveBeenCalledWith('customer_groups.group.created', { id: groupId, tenantId: TENANT_A })
+    }
+    expect(em.flush.mock.invocationCallOrder[0]).toBeLessThan(emitLifecycleEventMock.mock.invocationCallOrder[0])
+  })
+
+  it('rejects with a 409, before writing, when an orphan id is already a group primary key (another tenant)', async () => {
+    const { em, created } = makeEm({ existingIds: [GROUP_ORPHAN_A] })
+
+    await expect(adoptOrphanedCustomerGroups(em as never, [orphanFor(GROUP_ORPHAN_A)])).rejects.toMatchObject({
+      status: 409,
+      body: { error: 'An orphaned group id is already used by another customer group, so it cannot be adopted.' },
+    })
+    expect(em.find).toHaveBeenCalledWith(expect.anything(), { id: { $in: [GROUP_ORPHAN_A] } }, { fields: ['id'] })
+    expect(created).toEqual([])
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(emitLifecycleEventMock).not.toHaveBeenCalled()
+  })
+
+  it('maps a primary-key violation raised by a concurrent write at flush to a 409', async () => {
+    const { em } = makeEm({
+      flushError: Object.assign(new Error('duplicate key'), { code: '23505', constraint: 'customer_groups_pkey' }),
+    })
+
+    await expect(adoptOrphanedCustomerGroups(em as never, [orphanFor(GROUP_ORPHAN_A)])).rejects.toMatchObject({
+      status: 409,
+    })
+    expect(emitLifecycleEventMock).not.toHaveBeenCalled()
+  })
+
+  it('maps any other unique violation at flush to a 409 and rethrows non-unique failures unchanged', async () => {
+    const { em } = makeEm({
+      flushError: Object.assign(new Error('duplicate key'), {
+        code: '23505',
+        constraint: 'customer_groups_tenant_priority_unique',
+      }),
+    })
+    await expect(adoptOrphanedCustomerGroups(em as never, [orphanFor(GROUP_ORPHAN_A)])).rejects.toMatchObject({
+      status: 409,
+      body: { error: 'Another change affected customer groups while adopting. Reload and try again.' },
+    })
+
+    const failure = new Error('connection lost')
+    const { em: failingEm } = makeEm({ flushError: failure })
+    await expect(adoptOrphanedCustomerGroups(failingEm as never, [orphanFor(GROUP_ORPHAN_A)])).rejects.toBe(failure)
+  })
+
+  it('pre-checks the placeholder codes among live groups of the same tenant', async () => {
+    const { em } = makeEm()
+
+    await adoptOrphanedCustomerGroups(em as never, [orphanFor(GROUP_ORPHAN_A)])
+
+    expect(em.find).toHaveBeenCalledWith(
+      expect.anything(),
+      { tenantId: TENANT_A, code: { $in: [shortCodeOf(GROUP_ORPHAN_A), fullCodeOf(GROUP_ORPHAN_A)] }, deletedAt: null },
+      { fields: ['code'] },
+    )
+  })
+
+  it('falls back to the full-id code when the short orphan code is already taken', async () => {
+    const { em, created } = makeEm({ existingCodes: [shortCodeOf(GROUP_ORPHAN_A)] })
+
+    const adopted = await adoptOrphanedCustomerGroups(em as never, [orphanFor(GROUP_ORPHAN_A)])
+
+    expect(created[0]?.code).toBe(fullCodeOf(GROUP_ORPHAN_A))
+    expect(adopted[0]?.code).toBe(fullCodeOf(GROUP_ORPHAN_A))
+  })
+
+  it('gives two orphans of one batch that share an 8-hex prefix distinct codes', async () => {
+    const sharedPrefixA = 'abcdef12-0000-4000-8000-000000000001'
+    const sharedPrefixB = 'abcdef12-0000-4000-8000-000000000002'
+    const { em, created } = makeEm()
+
+    await adoptOrphanedCustomerGroups(em as never, [orphanFor(sharedPrefixA), orphanFor(sharedPrefixB)])
+
+    expect(created.map((entry) => entry.code)).toEqual([shortCodeOf(sharedPrefixA), fullCodeOf(sharedPrefixB)])
+  })
+
+  it('rejects with a 409 when both the short and the full-id code are taken', async () => {
+    const { em, created } = makeEm({ existingCodes: [shortCodeOf(GROUP_ORPHAN_A), fullCodeOf(GROUP_ORPHAN_A)] })
+
+    await expect(adoptOrphanedCustomerGroups(em as never, [orphanFor(GROUP_ORPHAN_A)])).rejects.toMatchObject({
+      status: 409,
+    })
+    expect(created).toEqual([])
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
   it('creates a placeholder group reusing the orphan id, below the tenant current minimum priority', async () => {
     const { em, created, persisted } = makeEm({
       findOneByTenant: { [TENANT_A]: { priority: 10 } },

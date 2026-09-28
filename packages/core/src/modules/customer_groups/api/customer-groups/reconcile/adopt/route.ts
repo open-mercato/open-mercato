@@ -138,6 +138,11 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Validation failed', schema: adoptErrorSchema },
         { status: 401, description: 'Unauthorized', schema: adoptErrorSchema },
+        {
+          status: 409,
+          description: 'An orphan id is already used by another group, or no free placeholder code is left',
+          schema: adoptErrorSchema,
+        },
         { status: 500, description: 'Unexpected failure', schema: adoptErrorSchema },
       ],
     },

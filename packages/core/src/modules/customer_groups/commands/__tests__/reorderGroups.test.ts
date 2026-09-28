@@ -5,6 +5,12 @@ jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
   invalidateCrudCache: (...args: unknown[]) => invalidateCrudCacheMock(...args),
 }))
 
+const emitLifecycleEventMock = jest.fn(async (..._args: unknown[]) => {})
+
+jest.mock('../../lib/groupEvents', () => ({
+  emitCustomerGroupLifecycleEvent: (...args: unknown[]) => emitLifecycleEventMock(...args),
+}))
+
 import { reorderCustomerGroupsCommand } from '../reorderGroups'
 import type { CustomerGroup } from '../../data/entities'
 
@@ -76,6 +82,7 @@ function makeCtx(em: ReturnType<typeof makeEm>, tenantId: string) {
 describe('reorderCustomerGroupsCommand', () => {
   beforeEach(() => {
     invalidateCrudCacheMock.mockClear()
+    emitLifecycleEventMock.mockClear()
   })
 
   it('assigns priorities in gaps of 10 following the given order, inside one transaction', async () => {
@@ -203,6 +210,45 @@ describe('reorderCustomerGroupsCommand', () => {
         ['customer.group'],
       )
     }
+  })
+
+  it('emits customer_groups.group.updated for every group whose priority changed, and only those', async () => {
+    const groups = [
+      makeGroup({ id: GROUP_A, priority: 10 }),
+      makeGroup({ id: GROUP_B, priority: 20 }),
+      makeGroup({ id: GROUP_C, priority: 30 }),
+    ]
+    const em = makeEm(groups)
+    const ctx = makeCtx(em, TENANT_ID)
+
+    await reorderCustomerGroupsCommand.execute(
+      { tenantId: TENANT_ID, ids: [GROUP_B, GROUP_A, GROUP_C] },
+      ctx as never,
+    )
+
+    expect(emitLifecycleEventMock).toHaveBeenCalledTimes(2)
+    for (const groupId of [GROUP_A, GROUP_B]) {
+      expect(emitLifecycleEventMock).toHaveBeenCalledWith('customer_groups.group.updated', {
+        id: groupId,
+        tenantId: TENANT_ID,
+      })
+    }
+    expect(emitLifecycleEventMock).not.toHaveBeenCalledWith('customer_groups.group.updated', {
+      id: GROUP_C,
+      tenantId: TENANT_ID,
+    })
+  })
+
+  it('emits no event when the write fails', async () => {
+    const groups = [makeGroup({ id: GROUP_A, priority: 10 }), makeGroup({ id: GROUP_B, priority: 20 })]
+    const em = makeEm(groups)
+    em.flush.mockRejectedValueOnce(new Error('boom'))
+    const ctx = makeCtx(em, TENANT_ID)
+
+    await expect(
+      reorderCustomerGroupsCommand.execute({ tenantId: TENANT_ID, ids: [GROUP_B, GROUP_A] }, ctx as never),
+    ).rejects.toThrow('boom')
+    expect(emitLifecycleEventMock).not.toHaveBeenCalled()
   })
 
   it('does not invalidate the cache when the write fails', async () => {

@@ -320,6 +320,42 @@ describe('DefaultCustomerGroupsService.resolveTerms', () => {
     expect(em.findOne).not.toHaveBeenCalledWith(CustomerGroupTerms, expect.objectContaining({ groupId: PARENT_ID }))
   })
 
+  it('stops the ancestor walk at an inactive parent, so neither it nor its ancestors pass terms down', async () => {
+    const memberships = [makeMembership({ id: 'm-child', groupId: CHILD_ID })]
+    const groups = [
+      makeGroup({ id: CHILD_ID, code: 'child', name: 'Child', priority: 30, parentId: PARENT_ID }),
+      makeGroup({ id: PARENT_ID, code: 'parent', name: 'Parent', priority: 20, parentId: GRANDPARENT_ID, isActive: false }),
+      makeGroup({ id: GRANDPARENT_ID, code: 'grandparent', name: 'Grandparent', priority: 10, parentId: null }),
+    ]
+    const terms = [
+      makeTerms({ groupId: PARENT_ID, paymentTermsDays: 60 }),
+      makeTerms({ groupId: GRANDPARENT_ID, minOrderValue: '500.00' }),
+    ]
+    const em = createEm({ memberships, groups, terms })
+    const service = new DefaultCustomerGroupsService(em as never)
+
+    const result = await service.resolveTerms({ customerId: CUSTOMER_ID, tenantId: TENANT_ID })
+
+    expect(result.paymentTermsDays).toBeNull()
+    expect(result.sources.paymentTermsDays).toBeNull()
+    expect(result.minOrderValue).toBeNull()
+    expect(result.sources.minOrderValue).toBeNull()
+    expect(em.findOne).not.toHaveBeenCalledWith(CustomerGroupTerms, expect.objectContaining({ groupId: PARENT_ID }))
+    expect(em.findOne).not.toHaveBeenCalledWith(CustomerGroup, expect.objectContaining({ id: GRANDPARENT_ID }))
+  })
+
+  it('ignores a caller-supplied group id that is inactive', async () => {
+    const groups = [makeGroup({ id: CHILD_ID, isActive: false })]
+    const terms = [makeTerms({ groupId: CHILD_ID, paymentTermsDays: 15 })]
+    const em = createEm({ groups, terms })
+    const service = new DefaultCustomerGroupsService(em as never)
+
+    const result = await service.resolveTerms({ customerId: CUSTOMER_ID, tenantId: TENANT_ID, groupIds: [CHILD_ID] })
+
+    expect(result.paymentTermsDays).toBeNull()
+    expect(result.sources.paymentTermsDays).toBeNull()
+  })
+
   it('ignores a caller-supplied group id that no longer resolves (soft-deleted)', async () => {
     const terms = [makeTerms({ groupId: CHILD_ID, paymentTermsDays: 15 })]
     const em = createEm({ groups: [], terms })
@@ -357,6 +393,27 @@ describe('loadCustomerGroupAncestorChain', () => {
     const chain = await loadCustomerGroupAncestorChain(em as never, CHILD_ID, TENANT_ID)
 
     expect(chain.map((group) => group.id)).toEqual([CHILD_ID])
+  })
+
+  it('stops before an inactive parent instead of including it or anything above it', async () => {
+    const groups = [
+      makeGroup({ id: CHILD_ID, parentId: PARENT_ID }),
+      makeGroup({ id: PARENT_ID, parentId: GRANDPARENT_ID, isActive: false }),
+      makeGroup({ id: GRANDPARENT_ID, parentId: null }),
+    ]
+    const em = createEm({ groups })
+
+    const chain = await loadCustomerGroupAncestorChain(em as never, CHILD_ID, TENANT_ID)
+
+    expect(chain.map((group) => group.id)).toEqual([CHILD_ID])
+  })
+
+  it('returns an empty chain for an inactive starting group', async () => {
+    const em = createEm({ groups: [makeGroup({ id: CHILD_ID, isActive: false })] })
+
+    const chain = await loadCustomerGroupAncestorChain(em as never, CHILD_ID, TENANT_ID)
+
+    expect(chain).toEqual([])
   })
 
   it('caps a cyclic parent graph at the depth limit', async () => {
