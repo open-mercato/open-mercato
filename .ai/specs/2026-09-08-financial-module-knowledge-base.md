@@ -2000,3 +2000,38 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
   user's own multi-round direction-question answer already served as
   the equivalent decision point, just not through that literal
   mechanism.
+- **Retrospective critical-unknowns check, requested directly by the
+  user instead of retroactively performing the skipped gate**: checked
+  SPEC-011 against the four things that gate protects (data model
+  shape, scope, integration points, UMES extension strategy) against
+  real code, not the documents' own prose. The one genuine risk —
+  whether an `official-modules` package can actually import and query
+  a `@open-mercato/core` entity class directly across the repo
+  boundary the way `financial_pl` reading `TaxLiabilityRecord` assumes
+  — is real: confirmed via `packages/forms` (`official-modules`)
+  importing `Attachment`/`AttachmentPartition` directly from
+  `@open-mercato/core/modules/attachments/data/entities`. The
+  `commandBus.execute(commandId, options)` two-argument signature both
+  split documents rely on throughout was also independently
+  re-verified against `packages/shared/src/lib/commands/command-bus.ts`.
+  One minor citation mismatch found and fixed (not a design issue): the
+  Core document's `seedPolishAccountGroups`/`setup.ts` citation pointed
+  at this file's §2, which discusses a related but distinct point;
+  corrected to cite the real `ledger/setup.ts` code directly (commit
+  `e697b55e0`).
+- **Cross-spec consistency pass (Step 1/5), applied in reverse after
+  the split, matching the 2026-09-18 SPEC-010-move precedent**: checked
+  every sibling `docs/*` branch for stale references to
+  `2026-09-16-tax-management.md`/`#6168` now that its `financial_pl`
+  half has moved. Two branches had live, now-stale references and got
+  pointer-only, dated updates (never rewriting historical Changelog
+  entries): `annual-financial-statements` (#6188 — its own "Temporary
+  location" banner named `2026-09-16-tax-management.md` as a sibling
+  still co-locating its `financial_pl` half; updated to note that
+  sibling has since completed the move, mirroring exactly how SPEC-010's
+  own completed move was recorded there on 2026-09-18) and
+  `spec-072-general-ledger-core-engine` (#5663 — its "Country-specific
+  tax/compliance plugins" Out of scope bullet pointed at `#6168` as
+  covering both halves; updated to point at `official-modules#55` for
+  the half that actually moved). No new PR was needed for either fix —
+  both branches already had open PRs; pushed directly to each.
