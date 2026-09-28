@@ -226,6 +226,10 @@ function DefaultTimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
     <div className="flex items-center gap-3 rounded-lg border bg-card p-3 mb-4">
       <input
         type="text"
+        aria-label={t(
+          'staff.timesheets.my.timer.placeholder',
+          'What are you working on?',
+        )}
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         readOnly={isRunning}
@@ -265,6 +269,10 @@ function DefaultTimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
               <div className="absolute right-0 top-full mt-1 z-50 min-w-[200px] rounded-md border bg-popover p-1 shadow-md">
                 <input
                   type="text"
+                  aria-label={t(
+                    'staff.timesheets.my.timer.searchProject',
+                    'Search projects...',
+                  )}
                   value={projectFilter}
                   onChange={(e) => setProjectFilter(e.target.value)}
                   placeholder={t(
