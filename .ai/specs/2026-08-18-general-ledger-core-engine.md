@@ -1518,7 +1518,12 @@ deploy independently of any other module.
   `ledger.postJournalEntry` the same way AP already does) plus a
   `financial_pl` implementation for Poland's VAT/CIT/PIT, following
   the Core-framework-plus-country-plugin split
-  `SPEC-024-2026-02-11-financial-module.md` §10 already mandates. Not
+  `SPEC-024-2026-02-11-financial-module.md` §10 already mandates.
+  **Update (2026-09-28):** that document's review resolved, and its
+  `financial_pl` half has since split out to its own document,
+  `SPEC-011-2026-09-16-tax-management-financial-pl.md`
+  (`official-modules#55`) — `2026-09-16-tax-management.md` (`#6168`)
+  now covers only the Core framework this bullet points at. Not
   folded into this spec, for the same scope-cohesion reasons named for
   #6038 above. Not yet reviewed.
 - **A bulk, cross-module read/export path for `JournalEntry`/
