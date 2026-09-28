@@ -73,7 +73,7 @@ export default function ExternalIdsWidget({ data }: InjectionWidgetComponentProp
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-muted-foreground hover:text-foreground transition-colors"
-                  aria-label={t('integrations.externalIds.openExternal', 'Open in external system')}
+                  aria-label={`${t('integrations.externalIds.openExternal', 'Open in external system')} — ${getIntegrationTitle(integrationId)}`}
                 >
                   <ExternalLinkIcon />
                 </a>
@@ -86,4 +86,3 @@ export default function ExternalIdsWidget({ data }: InjectionWidgetComponentProp
     </div>
   )
 }
-
