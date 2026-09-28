@@ -148,6 +148,18 @@ describe('startDataSyncRun — adapter-described progress job', () => {
     })
   })
 
+  it('does not let adapter meta overwrite the keys that identify the run', async () => {
+    registerDataSyncAdapter(buildAdapter({
+      describeProgressJob: () => ({
+        meta: { integrationId: 'other', entityType: 'other.entity', direction: 'export', hiddenFromTopBar: true },
+      }),
+    }))
+
+    const { createJob } = await start()
+
+    expect(createdJob(createJob)).toEqual({ ...DEFAULT_JOB, meta: { ...DEFAULT_JOB.meta, hiddenFromTopBar: true } })
+  })
+
   it('falls back to the defaults and reports the error when the hook throws', async () => {
     const failure = new Error('describe exploded')
     registerDataSyncAdapter(buildAdapter({

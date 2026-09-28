@@ -246,7 +246,9 @@ Use it for an entity type whose run is long-lived — a continuously running fee
 never reaches 100%, so without it the top bar reads as running forever and
 offers a Cancel that stops the feed. `name`, `description` and `meta` merge as
 core default < adapter < the caller's own `progressJob` (meta key by key), so a
-provider route that passes `progressJob.meta` still wins. The hook is not
+provider route that passes `progressJob.meta` still wins. The run's identity
+keys in `meta` — `integrationId`, `entityType`, `direction` — are not the
+adapter's to overwrite. The hook is not
 consulted when the caller passes `createProgressJob: false`, and an answer that
 throws or has the wrong shape is ignored with a warning — an adapter cannot make
 itself unstartable over how its progress job reads.

@@ -337,7 +337,9 @@ export interface DataSyncAdapter {
    * with a Cancel button that stops the feed.
    *
    * Precedence is core default < adapter < the caller's own `progressJob`, and
-   * `meta` merges key by key in that order. An answer that throws or is not a
+   * `meta` merges key by key in that order — except `integrationId`,
+   * `entityType` and `direction`, which identify the run and which an adapter
+   * cannot overwrite. An answer that throws or is not a
    * {@link DataSyncProgressJobDescription} is ignored with a warning: an
    * adapter must not be able to make itself unstartable over how its progress
    * job reads.

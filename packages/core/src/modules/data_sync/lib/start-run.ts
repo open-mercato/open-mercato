@@ -102,10 +102,10 @@ export async function startDataSyncRun(params: {
         description: input.progressJob?.description ?? described.description ?? `${input.entityType} ${input.direction}`,
         cancellable: input.progressJob?.cancellable ?? true,
         meta: {
+          ...(described.meta ?? {}),
           integrationId: input.integrationId,
           entityType: input.entityType,
           direction: input.direction,
-          ...(described.meta ?? {}),
           ...(input.progressJob?.meta ?? {}),
         },
       },

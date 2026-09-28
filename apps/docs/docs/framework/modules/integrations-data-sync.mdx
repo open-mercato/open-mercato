@@ -271,7 +271,7 @@ const adapter: DataSyncAdapter = {
 
 The answer may set `name`, `description` and `meta`. It is consulted once per run by the helper every start path goes through — the dashboard's run route, Retry, the scheduled worker and your own provider routes — so a start path that passes no progress-job details of its own still gets it.
 
-- **Precedence** is core default < adapter < the caller's own `progressJob`; `meta` merges key by key in that order, so a provider route that passes `progressJob.meta` keeps the last word.
+- **Precedence** is core default < adapter < the caller's own `progressJob`; `meta` merges key by key in that order, so a provider route that passes `progressJob.meta` keeps the last word. The keys that identify the run — `integrationId`, `entityType`, `direction` — are the exception: an adapter's `meta` cannot overwrite them.
 - **No progress job, no call** — the hook is skipped when the caller starts the run with `createProgressJob: false`.
 - **Failure is not fatal** — an answer that throws or is not `{ name?, description?, meta? }` is ignored with a warning and the defaults apply. An adapter cannot make itself unstartable over how its progress job reads.
 
