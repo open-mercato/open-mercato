@@ -104,3 +104,13 @@ export async function testDispatch(
 ) {
   return apiRequest(request, 'POST', `${CAMPAIGNS_PATH}/${id}/test-dispatch`, { token, data: input })
 }
+
+export async function listRuns(
+  request: APIRequestContext,
+  token: string,
+  id: string,
+  status?: string,
+) {
+  const query = status ? `?status=${encodeURIComponent(status)}` : ''
+  return apiRequest(request, 'GET', `${CAMPAIGNS_PATH}/${id}/runs${query}`, { token })
+}
