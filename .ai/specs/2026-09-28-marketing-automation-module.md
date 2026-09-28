@@ -144,6 +144,43 @@ canvas must not show a branch that never runs. Nesting is capped at five levels,
 hand-edited or imported definition that is cyclic in spirit into a truncated campaign instead of a
 stack overflow in a worker.
 
+### NPS survey
+
+One question, answered in a click from the email.
+
+**The step composes its own message**, which no other sending step does. An eleven-point scale is eleven
+signed links, and asking an author to place eleven placeholders correctly — in every locale, in every
+template — would make the feature technically available and practically unused. The author writes the
+subject line and the question; the module renders the scale. It declares `channel: 'email'`, so consent,
+quiet hours and the frequency cap apply to it exactly as to a campaign message: a survey IS a message, and a
+customer who unsubscribed did not ask to be surveyed either.
+
+**The score travels inside the signature.** A different score is a different link, not a different
+parameter, so a recipient cannot change their own answer by editing the URL. The purpose is signed too, so an
+open, click or unsubscribe token cannot be replayed as an answer.
+
+**The prompt row is written before the message goes out**, and only once per (run, step). A row without a
+message is an unanswered survey, which is visible; a message without a row is an answer with nowhere to go.
+Asking twice would give one person two chances to answer one question, which quietly doubles their weight in
+the result.
+
+**A second answer overwrites the first.** Somebody who clicks 3 and then 8 has told us 8; keeping the first
+click measures reflexes rather than opinion. The thank-you page offers an optional comment, which is usually
+where the value actually is, and it posts back to the same signed URL so the token remains the only thing
+identifying the answer.
+
+The audience gains `survey.nps`, and it is pushable for EVERY operator — including the downward comparisons
+that `orders.count` refuses. The contrast is the point: a customer with no orders has a real zero, so
+`orders.count <= 5` is true for them and the aggregate cannot return them; a customer who never answered has
+null, and `matchesAudience` vetoes magnitude comparisons against null, so they can never match and restricting
+candidates to answerers stays a superset. The rule was always about semantics, not about which table a number
+came from. The set-level query reads each subject's LATEST answer, because somebody who scored 3 last year and
+9 last week is a promoter and targeting the old answer would address a feeling they no longer have.
+
+One defect the tests caught immediately: `isValidNpsScore` accepted `null`, because `Number(null)` is 0 — a
+valid NPS score, and the worst one. A missing answer would have been recorded as the strongest possible
+complaint and would have looked like data.
+
 ### Subject access and erasure
 
 Both halves live in one file because they must agree: an export that omits a table lies to the person
@@ -745,6 +782,9 @@ eight-way concurrent worker and is now backed by a partial unique index on the a
   optimistic lock; canvas editor reusing the `business_rules` condition builder; `en`/`pl`
   locales. Verified against a running instance: palette, create, save, round-trip, 409 on a
   stale save, and five rejected invalid graphs.
+- **2026-09-28** — Backlog B-07: NPS survey as a self-composing email step with a signed 0–10 scale, a public
+  answer endpoint with an optional comment, the latest score on the customer profile, and `survey.nps` as a
+  pushable audience field. 547 unit tests, 83 integration tests.
 - **2026-09-28** — Backlog B-15 completed: subject access export and erasure, reachable from the customer
   profile. Erasure unlinks rather than deletes so historical totals stay true, and deliberately keeps the
   unsubscribe record. 512 unit tests, 76 integration tests.

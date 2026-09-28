@@ -21,6 +21,8 @@ export type CandidateSource = {
   scoreMembers(op: ComparisonOp, value: number): Promise<string[]>
   /** Subject ids who have bought this product SKU. */
   purchasedSkuMembers(sku: string): Promise<string[]>
+  /** Subject ids whose latest NPS answer satisfies the comparison. */
+  npsMembers(op: ComparisonOp, value: number): Promise<string[]>
 }
 
 /**
@@ -56,7 +58,9 @@ async function resolvePredicate(
         ? await source.scoreMembers(predicate.op, predicate.value)
         : predicate.kind === 'purchasedSku'
           ? await source.purchasedSkuMembers(predicate.sku)
-          : await source.orderMetricMembers(predicate.metric, predicate.op, predicate.value)
+          : predicate.kind === 'npsScore'
+            ? await source.npsMembers(predicate.op, predicate.value)
+            : await source.orderMetricMembers(predicate.metric, predicate.op, predicate.value)
 
   if (rows.length > state.maxSet) return { ids: null, abandoned: true }
   return { ids: new Set(rows), abandoned: false }
@@ -219,6 +223,30 @@ export function createSqlCandidateSource(
         [scope.tenantId, scope.organizationId, sku],
       )
       return rows.map((row) => row.customer_entity_id).filter(Boolean)
+    },
+
+    async npsMembers(op: ComparisonOp, value: number): Promise<string[]> {
+      /**
+       * The LATEST answer per customer, not any answer.
+       *
+       * `distinct on` picks one row per subject ordered by when they answered, so a customer who scored 3
+       * last year and 9 last week is a promoter — matching `survey.nps <= 6` on the old answer would target
+       * people for a feeling they no longer have.
+       */
+      const rows = await em.getConnection().execute<{ subject_entity_id: string }[]>(
+        `select subject_entity_id
+           from (
+             select distinct on (subject_entity_id) subject_entity_id, score
+               from marketing_survey_prompts
+              where tenant_id = ? and organization_id = ?
+                and subject_entity_id is not null
+                and score is not null
+              order by subject_entity_id, answered_at desc nulls last
+           ) latest
+          where latest.score ${SQL_COMPARISON[op]} ?`,
+        [scope.tenantId, scope.organizationId, value],
+      )
+      return rows.map((row) => row.subject_entity_id).filter(Boolean)
     },
 
     async scoreMembers(op: ComparisonOp, value: number): Promise<string[]> {

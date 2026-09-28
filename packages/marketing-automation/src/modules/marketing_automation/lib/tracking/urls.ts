@@ -4,6 +4,7 @@ import type { TrackingClaims } from './token.js'
 export const TRACK_OPEN_PATH = '/api/marketing_automation/track/open'
 export const TRACK_CLICK_PATH = '/api/marketing_automation/track/click'
 export const UNSUBSCRIBE_PATH = '/api/marketing_automation/unsubscribe'
+export const SURVEY_ANSWER_PATH = '/api/marketing_automation/survey'
 
 /**
  * The token travels as a single query parameter on purpose.
@@ -43,4 +44,18 @@ export function unsubscribeUrl(
   secret: string,
 ): string {
   return withToken(baseUrl, UNSUBSCRIBE_PATH, signTrackingToken({ ...claims, purpose: 'unsubscribe' }, secret))
+}
+
+/** A one-click answer link for one score on the scale. */
+export function surveyAnswerUrl(
+  baseUrl: string,
+  claims: Omit<TrackingClaims, 'purpose' | 'target'>,
+  secret: string,
+  score: number,
+): string {
+  return withToken(
+    baseUrl,
+    SURVEY_ANSWER_PATH,
+    signTrackingToken({ ...claims, purpose: 'survey', target: String(score) }, secret),
+  )
 }

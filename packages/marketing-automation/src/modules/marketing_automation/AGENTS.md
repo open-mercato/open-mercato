@@ -82,6 +82,9 @@ its own. Spec:
   the other order lands an "optimised" send at 3am.
 - Never learn a send hour from fewer than `MINIMUM_OPENS_FOR_PATTERN` opens, and never group open hours
   in server time — both produce a confident answer about the wrong customer.
+- Never accept a survey score that came from `Number(value)` alone. `Number(null)`, `Number('')` and
+  `Number(false)` are all 0 — a valid NPS score, and the worst one, so a missing answer would be stored as
+  the strongest possible complaint.
 - Never make erasure delete rows. It nulls the subject link — including inside the run context's jsonb —
   so the person is unidentifiable while last quarter's reported totals stay true. And never erase a consent
   record: forgetting an unsubscribe is how somebody gets mailed again.
@@ -177,6 +180,7 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | score ledger, idempotent awarding | `lib/scores.ts`, `steps/add-points.ts` |
 | tier ladder, derivation and its defaults | `lib/engine/tiers.ts`, `lib/tiers.ts` |
 | everything known about one customer | `api/customers/[id]/profile/route.ts` |
+| NPS asking, answering and the latest score | `lib/survey.ts`, `steps/nps-survey.ts`, `api/survey/` |
 | subject export and erasure, and what they keep | `lib/gdpr.ts` |
 | consent state, its trail, and the send gate | `lib/consent.ts`, `api/unsubscribe/` |
 | agent/MCP authoring tools and their invariants | `ai-tools/authoring-pack.ts` |

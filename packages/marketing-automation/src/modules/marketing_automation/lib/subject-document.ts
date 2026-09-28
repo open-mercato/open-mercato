@@ -4,6 +4,7 @@ import { CustomerAddress, CustomerEntity, CustomerPersonProfile } from '@open-me
 import type { SubjectDocument } from './engine/types.js'
 import { FALLBACK_TIME_ZONE } from './engine/gates.js'
 import { loadScorePoints } from './scores.js'
+import { loadLatestNps } from './survey.js'
 import { resolveTier } from './engine/tiers.js'
 import type { TierThreshold } from './engine/tiers.js'
 
@@ -243,6 +244,7 @@ export async function buildSubjectDocument(
       orders: { count: 0, totalGross: 0, skus: [] },
       score: { points: 0, tier: unscored.key, tierRank: unscored.rank },
       address: null,
+      survey: { nps: null, answeredAt: null },
       trigger,
     }
   }
@@ -257,12 +259,13 @@ export async function buildSubjectDocument(
     scope,
   )
 
-  const [tags, orders, scorePoints, skus, address] = await Promise.all([
+  const [tags, orders, scorePoints, skus, address, nps] = await Promise.all([
     loadTagSlugs(em, subjectEntityId, scope),
     loadOrderAggregates(em, subjectEntityId, scope, now),
     loadScorePoints(em, subjectEntityId, scope),
     loadPurchasedSkus(em, subjectEntityId, scope),
     loadSubjectAddress(em, subjectEntityId, scope),
+    loadLatestNps(em, subjectEntityId, scope),
   ])
 
   const tier = resolveTier(scorePoints, options?.tierThresholds)
@@ -280,6 +283,7 @@ export async function buildSubjectDocument(
     orders: { ...orders, skus },
     score: { points: scorePoints, tier: tier.key, tierRank: tier.rank },
     address,
+    survey: { nps: nps?.score ?? null, answeredAt: nps?.answeredAt ?? null },
     trigger,
   }
 }

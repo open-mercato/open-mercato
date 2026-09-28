@@ -35,6 +35,19 @@ function satisfiesNarrowing(narrowing: Narrowing, subject: SubjectDocument): boo
       if (predicate.kind === 'hasTag') return subject.tags.includes(predicate.slug)
       if (predicate.kind === 'hasAnyTag') return subject.tags.length > 0
       if (predicate.kind === 'purchasedSku') return subject.orders.skus.includes(predicate.sku)
+      if (predicate.kind === 'npsScore') {
+        // The query returns only customers who ANSWERED; a non-answerer is excluded here too, which is why
+        // pushing this predicate stays a superset.
+        if (subject.survey.nps === null) return false
+        switch (predicate.op) {
+          case '=': return subject.survey.nps === predicate.value
+          case '>': return subject.survey.nps > predicate.value
+          case '>=': return subject.survey.nps >= predicate.value
+          case '<': return subject.survey.nps < predicate.value
+          case '<=': return subject.survey.nps <= predicate.value
+        }
+        return true
+      }
       if (predicate.kind === 'scorePoints') {
         // The ledger query can only return customers who HAVE entries, and a customer with no
         // entries has a total of zero — the same shape as the order aggregate below.
@@ -78,6 +91,7 @@ function subjectOf(input: {
   points?: number
   skus?: string[]
   country?: string | null
+  nps?: number | null
 }): SubjectDocument {
   const orders: SubjectDocument['orders'] = {
     count: input.count ?? 0,
@@ -97,6 +111,7 @@ function subjectOf(input: {
     address: input.country === undefined
       ? null
       : { country: input.country, region: null, city: null, postalCode: null },
+    survey: { nps: input.nps ?? null, answeredAt: input.nps === undefined || input.nps === null ? null : '2026-09-01T00:00:00.000Z' },
     trigger: {},
   }
 }
@@ -205,6 +220,32 @@ describe('planNarrowing — what can be pushed', () => {
   ])('never pushes %s, because addresses are encrypted at rest', (field, operator, value) => {
     expect(planNarrowing(leaf(field, operator, value)).narrowing.kind).toBe('all')
     expect(planNarrowing(leaf(field, operator, value)).complete).toBe(false)
+  })
+
+  /**
+   * The contrast that shows the rule is about semantics, not syntax.
+   *
+   * `orders.count <= 5` cannot be pushed because a customer with no orders has a REAL zero and the aggregate
+   * cannot return them. `survey.nps <= 6` CAN be pushed, because a customer who never answered has null and
+   * the audience evaluator vetoes magnitude comparisons against null — so they can never match anyway.
+   */
+  test.each([
+    ['<=', 6],
+    ['<', 7],
+    ['>=', 9],
+    ['=', 10],
+  ])('pushes survey.nps %s %s, for every operator', (operator, value) => {
+    expect(planNarrowing(leaf('survey.nps', operator, value)).narrowing).toEqual({
+      kind: 'predicate',
+      predicate: { kind: 'npsScore', op: operator, value },
+    })
+  })
+
+  // The contrast holds for the DOWNWARD comparisons, which is exactly where the semantics differ: a
+  // customer with no orders has a real zero, a customer who never answered has null.
+  test.each([['<=', 6], ['<', 7]])('pushes survey.nps %s %s but never orders.count %s %s', (operator, value) => {
+    expect(planNarrowing(leaf('survey.nps', operator, value)).narrowing.kind).toBe('predicate')
+    expect(planNarrowing(leaf('orders.count', operator, value)).narrowing.kind).toBe('all')
   })
 
   test('a field the database cannot answer is left to the per-subject check', () => {
@@ -339,6 +380,8 @@ describe('the narrowing never excludes a subject the audience accepts', () => {
       leaf('orders.skus', 'CONTAINS', 'ATLAS-RUNNER'),
       leaf('address.country', '=', 'PL'),
     ])],
+    ['detractors', leaf('survey.nps', '<=', 6)],
+    ['promoters', leaf('survey.nps', '>=', 9)],
     ['scored at all', leaf('score.points', '>=', 1)],
     ['hot lead', leaf('score.points', '>=', 100)],
     ['cold lead', leaf('score.points', '<=', 10)],
@@ -353,7 +396,9 @@ describe('the narrowing never excludes a subject the audience accepts', () => {
       for (const daysAgo of count === 0 ? [null] : [0, 1, 7, 30, 44, 45, 46, 60, 89, 90, 91, 400]) {
         for (const points of [0, 1, 10, 99, 100, 101, -5]) {
           for (const [skus, country] of [[[], null], [['ATLAS-RUNNER'], 'PL'], [['OTHER-SKU'], 'DE']] as const) {
-            subjects.push(subjectOf({ tags, count, totalGross, daysAgo, points, skus: [...skus], country }))
+            for (const nps of [null, 2, 7, 10]) {
+              subjects.push(subjectOf({ tags, count, totalGross, daysAgo, points, skus: [...skus], country, nps }))
+            }
           }
         }
       }
@@ -444,6 +489,7 @@ describe('reaching a score threshold, expressed in an audience', () => {
     orders: { count: 0, totalGross: 0, skus: [] },
     score: { points, tier: null, tierRank: -1 },
     address: null,
+    survey: { nps: null, answeredAt: null },
     trigger: { points, previousPoints, delta: points - previousPoints },
   })
 

@@ -29,6 +29,7 @@ type Profile = {
   orders: { count: number; totalGross: number; lastPlacedAt: string | null; daysSinceLast: number | null }
   tags: string[]
   consent: { email: 'subscribed' | 'unsubscribed' | null }
+  nps: { score: number; band: 'detractor' | 'passive' | 'promoter'; answeredAt: string } | null
   messages: { sent: number; suppressed: number; opened: number; clicked: number }
   recentScoreEntries: Array<{
     id: string
@@ -211,6 +212,17 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           <KpiCard
             title={t('marketing_automation.profile.kpi.spend', 'Lifetime spend')}
             value={profile.orders.totalGross}
+          />
+          <KpiCard
+            title={t('marketing_automation.profile.kpi.nps', 'Latest NPS')}
+            value={profile.nps ? profile.nps.score : null}
+            footer={
+              <span>
+                {profile.nps
+                  ? `${t(`marketing_automation.nps.band.${profile.nps.band}`, profile.nps.band)} · ${formatDateTime(profile.nps.answeredAt)}`
+                  : t('marketing_automation.profile.noNps', 'Never answered a survey')}
+              </span>
+            }
           />
           <KpiCard
             title={t('marketing_automation.profile.kpi.messages', 'Messages sent')}

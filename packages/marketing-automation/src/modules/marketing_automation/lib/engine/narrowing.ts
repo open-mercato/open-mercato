@@ -30,6 +30,7 @@ export type NarrowingPredicate =
   | { kind: 'orderMetric'; metric: OrderMetric; op: ComparisonOp; value: number }
   | { kind: 'scorePoints'; op: ComparisonOp; value: number }
   | { kind: 'purchasedSku'; sku: string }
+  | { kind: 'npsScore'; op: ComparisonOp; value: number }
 
 export type Narrowing =
   /** Every subject is a candidate — the expression said nothing the database can answer. */
@@ -112,6 +113,24 @@ function translateLeaf(leaf: SimpleCondition): LeafTranslation {
     }
     if (operator === 'IS_NOT_EMPTY') return { predicate: { kind: 'hasAnyTag' }, exact: true }
     return null
+  }
+
+  /**
+   * Every comparison on an NPS score is pushable, which is worth contrasting with the order aggregates
+   * right below.
+   *
+   * There the trap is that a customer with no orders has a REAL value of zero, so `orders.count <= 5` is
+   * true for them and the aggregate query cannot return them. Here a customer who never answered has null,
+   * and `matchesAudience` vetoes every magnitude comparison against null — so a non-answerer can never
+   * match, and restricting candidates to answerers is therefore a superset rather than a subset. The rule
+   * was always about semantics, not about which table the number came from.
+   */
+  if (field === 'survey.nps') {
+    if (!NUMERIC_OPS.has(operator)) return null
+    const op = normalizeOp(operator)
+    const value = numericValue(leaf.value)
+    if (!op || value === null) return null
+    return { predicate: { kind: 'npsScore', op, value }, exact: true }
   }
 
   if (field === 'orders.skus') {
@@ -269,6 +288,7 @@ export function describeNarrowing(plan: NarrowingPlan): string {
       if (predicate.kind === 'hasAnyTag') return 'tag:*'
       if (predicate.kind === 'scorePoints') return `score.points${predicate.op}${predicate.value}`
       if (predicate.kind === 'purchasedSku') return `sku:${predicate.sku}`
+      if (predicate.kind === 'npsScore') return `survey.nps${predicate.op}${predicate.value}`
       return `orders.${predicate.metric}${predicate.op}${predicate.value}`
     })
     .join(plan.narrowing.kind === 'or' ? '|' : '&')

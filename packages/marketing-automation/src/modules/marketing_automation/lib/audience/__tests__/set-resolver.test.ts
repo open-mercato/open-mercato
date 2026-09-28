@@ -14,6 +14,7 @@ function fakeSource(data: {
   orders?: Record<string, string[]>
   scores?: Record<string, string[]>
   skus?: Record<string, string[]>
+  nps?: Record<string, string[]>
 }): CandidateSource & { calls: string[] } {
   const calls: string[] = []
   return {
@@ -36,6 +37,11 @@ function fakeSource(data: {
     async purchasedSkuMembers(sku: string) {
       calls.push(`sku:${sku}`)
       return data.skus?.[sku] ?? []
+    },
+    async npsMembers(op: ComparisonOp, value: number) {
+      const key = `${op}${value}`
+      calls.push(`nps:${key}`)
+      return data.nps?.[key] ?? []
     },
   }
 }
@@ -222,6 +228,18 @@ describe('createSqlCandidateSource', () => {
     await createSqlCandidateSource(em, scope, now).orderMetricMembers('totalGross', '>', 99.5)
     expect(executed[0].sql).toContain('coalesce(sum(grand_total_gross_amount), 0) > ?')
     expect(executed[0].params).toEqual(['t1', 'o1', 99.5])
+  })
+
+  test('an NPS comparison reads only each subject LATEST answer', async () => {
+    const { em, executed } = fakeEm([{ subject_entity_id: 'c1' }])
+    expect(await createSqlCandidateSource(em, scope, now).npsMembers('<=', 6)).toEqual(['c1'])
+    const { sql, params } = executed[0]
+    // A customer who scored 3 last year and 9 last week is a promoter; matching the old answer would target
+    // them for a feeling they no longer have.
+    expect(sql).toContain('distinct on (subject_entity_id)')
+    expect(sql).toContain('order by subject_entity_id, answered_at desc')
+    expect(sql).toContain('score is not null')
+    expect(params).toEqual(['t1', 'o1', 6])
   })
 
   test('a purchased SKU reads the catalogue snapshot, scoped, with the sku bound', async () => {

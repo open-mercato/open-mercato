@@ -113,6 +113,14 @@ export type SubjectDocument = {
     city: string | null
     postalCode: string | null
   } | null
+  /**
+   * The customer's most recent NPS answer, or null when they have never answered one.
+   *
+   * Null rather than absent, and that is safe here: every comparison an author can write against it is a
+   * magnitude comparison, which `matchesAudience` vetoes for a null operand — so a customer who never
+   * answered can never match `survey.nps <= 6` however it is phrased.
+   */
+  survey: { nps: number | null; answeredAt: string | null }
   /** Scalars the triggering event contributed. */
   trigger: Record<string, unknown>
 }

@@ -591,3 +591,57 @@ export class MarketingConsentEvent {
   @Property({ name: 'occurred_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
   occurredAt!: Date
 }
+
+/**
+ * One NPS question put to one customer, and their answer if it came.
+ *
+ * The row is created when the question is SENT rather than when it is answered, so an unanswered survey is
+ * visible: a response rate you cannot see is a response rate you will quietly assume is fine. Keyed by the
+ * run and step that asked, which is what makes a retried step reuse the row instead of asking twice.
+ */
+@Entity({ tableName: 'marketing_survey_prompts' })
+@Unique({ name: 'marketing_survey_prompts_step_uniq', properties: ['tenantId', 'organizationId', 'runId', 'stepId'] })
+@Index({ name: 'mkt_survey_subject_idx', properties: ['tenantId', 'organizationId', 'subjectEntityId'] })
+@Index({ name: 'mkt_survey_campaign_idx', properties: ['tenantId', 'organizationId', 'campaignId'] })
+export class MarketingSurveyPrompt {
+  [OptionalProps]?: 'askedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'subject_entity_id', type: 'uuid', nullable: true })
+  subjectEntityId?: string | null
+
+  @Property({ name: 'campaign_id', type: 'uuid' })
+  campaignId!: string
+
+  @Property({ name: 'run_id', type: 'uuid' })
+  runId!: string
+
+  @Property({ name: 'step_id', type: 'text' })
+  stepId!: string
+
+  /** The question as the author wrote it, kept so a later answer can be read in context. */
+  @Property({ type: 'text' })
+  question!: string
+
+  /** 0–10, or null while unanswered. */
+  @Property({ type: 'integer', nullable: true })
+  score?: number | null
+
+  /** Whatever the customer chose to add. Never interpreted, and never required. */
+  @Property({ type: 'text', nullable: true })
+  comment?: string | null
+
+  @Property({ name: 'asked_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
+  askedAt!: Date
+
+  @Property({ name: 'answered_at', type: Date, nullable: true })
+  answeredAt?: Date | null
+}

@@ -12,6 +12,7 @@ import {
 import { loadOrderAggregates, loadTagSlugs } from '../../../../lib/subject-document.js'
 import { loadScorePoints } from '../../../../lib/scores.js'
 import { loadConsentState } from '../../../../lib/consent.js'
+import { loadLatestNps, npsBand } from '../../../../lib/survey.js'
 import { resolveTier } from '../../../../lib/engine/tiers.js'
 import { loadTierThresholds } from '../../../../lib/tiers.js'
 
@@ -62,12 +63,13 @@ export async function GET(req: Request) {
   )
   if (!customer) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const [tags, orders, points, tierThresholds, emailConsent] = await Promise.all([
+  const [tags, orders, points, tierThresholds, emailConsent, nps] = await Promise.all([
     loadTagSlugs(em, customerId, scope),
     loadOrderAggregates(em, customerId, scope, now),
     loadScorePoints(em, customerId, scope),
     loadTierThresholds(container, scope),
     loadConsentState(em, customerId, scope, 'email'),
+    loadLatestNps(em, customerId, scope),
   ])
   const tier = resolveTier(points, tierThresholds)
 
@@ -136,6 +138,8 @@ export async function GET(req: Request) {
      * "not recorded" rather than implying a decision the customer never made.
      */
     consent: { email: emailConsent },
+    /** Null when they have never answered, which the screen states rather than showing a zero. */
+    nps: nps ? { score: nps.score, band: npsBand(nps.score), answeredAt: nps.answeredAt } : null,
     messages: { sent, suppressed, opened: engagement.opened, clicked: engagement.clicked },
     recentScoreEntries: scoreEntries.map((entry) => ({
       id: entry.id,

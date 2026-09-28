@@ -20,7 +20,7 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
  * and a second signing scheme would be a second thing to get wrong. The purpose is part of the signed
  * claims, so an open token cannot be replayed as an unsubscribe.
  */
-export type TrackingPurpose = 'open' | 'click' | 'unsubscribe'
+export type TrackingPurpose = 'open' | 'click' | 'unsubscribe' | 'survey'
 
 export type TrackingClaims = {
   tenantId: string
@@ -29,7 +29,13 @@ export type TrackingClaims = {
   runId: string
   stepId: string
   purpose: TrackingPurpose
-  /** The click target. Absent for an open. */
+  /**
+   * The click target for a click, and the chosen SCORE for a survey answer.
+   *
+   * One signed slot rather than two, because a token has exactly one payload either way and a second
+   * optional field would invite the question of what it means when both are set. A survey token is
+   * therefore a link whose destination is an answer.
+   */
   target?: string
 }
 
@@ -115,7 +121,7 @@ export function verifyTrackingToken(token: string, secret: string): TrackingClai
     return null
   }
   if (wire?.v !== TRACKING_TOKEN_VERSION) return null
-  if (wire.p !== 'open' && wire.p !== 'click' && wire.p !== 'unsubscribe') return null
+  if (wire.p !== 'open' && wire.p !== 'click' && wire.p !== 'unsubscribe' && wire.p !== 'survey') return null
   for (const value of [wire.t, wire.o, wire.c, wire.r, wire.s]) {
     if (typeof value !== 'string' || !value) return null
   }
