@@ -29,6 +29,23 @@ describe('LinkedEntitiesField', () => {
     })
   })
 
+  it('gives the linked-entity search field an accessible name', async () => {
+    await act(async () => {
+      renderWithProviders(
+        <LinkedEntitiesField
+          visible={new Set(['linkedEntities'])}
+          activityType="meeting"
+          linkedEntities={[]}
+          setLinkedEntities={jest.fn()}
+        />,
+      )
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /\+\s*Add link/ }))
+
+    expect(screen.getByRole('textbox', { name: 'Search...' })).toBeInTheDocument()
+  })
+
   it('shows offer labels using quote numbers instead of raw ids', async () => {
     const setLinkedEntities = jest.fn()
 
