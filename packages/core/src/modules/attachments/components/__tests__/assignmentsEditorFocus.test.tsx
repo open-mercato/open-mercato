@@ -31,6 +31,15 @@ function EditorHarness({ initial }: { initial: AssignmentDraft[] }) {
 }
 
 describe('AttachmentAssignmentsEditor (upload dialog)', () => {
+  it('associates every visible assignment label with its input', () => {
+    render(<EditorHarness initial={[{ type: '', id: '', href: '', label: '' }]} />)
+
+    expect(screen.getByRole('textbox', { name: labels.type })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: labels.id })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: labels.href })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: labels.label })).toBeInTheDocument()
+  })
+
   it('keeps the Type input mounted and focused while typing multiple characters', () => {
     render(<EditorHarness initial={[{ type: '', id: '', href: '', label: '' }]} />)
 
