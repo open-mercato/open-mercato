@@ -121,6 +121,14 @@ export type SubjectDocument = {
    * answered can never match `survey.nps <= 6` however it is phrased.
    */
   survey: { nps: number | null; answeredAt: string | null }
+  /**
+   * Slugs of the saved segments this customer is in, so an audience can say
+   * `segments CONTAINS 'lapsed-vip'` — and `NOT CONTAINS` for the negative case.
+   *
+   * Computed from the rest of this document, which is why a segment may not be defined in terms of
+   * segments: it would evaluate against a key that is still being built.
+   */
+  segments: string[]
   /** Scalars the triggering event contributed. */
   trigger: Record<string, unknown>
 }

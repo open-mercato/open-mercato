@@ -137,6 +137,16 @@ its own. Spec:
   which lane a subject takes is decided by the engine, not by an edge somebody drew — an author who
   can draw an edge has been promised a topology it cannot run. Edges are derived; order lives in the
   definition arrays.
+- Never define a segment in terms of segments. Membership is computed FROM the subject document, so a nested
+  segment would evaluate against a key still being built; the writer refuses it and `computeSegmentSlugs`
+  empties the key before evaluating, so an older row cannot reintroduce the cycle.
+- Never resolve segment membership with a second implementation. It is `matchesAudience` over a subject
+  document — the same call the dispatcher makes — because a members screen that disagrees with what actually
+  sends is the screen people trust.
+- Never let `buildSubjectDocument` default segment definitions to none. An empty list makes every
+  `segments CONTAINS …` audience quietly false; when they are not passed, they are loaded.
+- Never rename a segment's slug. Saved audiences reference it, and a rename empties every campaign that
+  targeted the segment without reporting anything.
 - Never invent a code alphabet. `lib/engine/referral-code.ts` uses Crockford base32 with its documented fold;
   the first hand-rolled attempt folded a character onto one that was itself in the alphabet, so a legitimate
   code stopped resolving. A test asserts no valid character is ever rewritten.
@@ -243,6 +253,7 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | campaign history, versions and restore | `lib/revisions.ts`, `api/campaigns/[id]/revisions/` |
 | background job log and its retention | `lib/job-runs.ts`, `api/jobs/` |
 | referral codes, claims and the subject flip | `lib/referrals.ts`, `lib/engine/referral-code.ts` |
+| saved segments, membership and its cycle rule | `lib/segments.ts`, `lib/engine/segment-expression.ts` |
 | a step that writes into the run context | `steps/issue-referral-code.ts` |
 | enrolment shared by events and sweeps | `lib/dispatcher.ts` → `startCampaignForSubject` |
 | trigger context hydration | `lib/trigger-catalog.ts` |

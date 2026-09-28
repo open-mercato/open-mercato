@@ -775,6 +775,23 @@ eight-way concurrent worker and is now backed by a partial unique index on the a
 
 ## Changelog
 
+- **2026-09-29** — Phase 5.1 and 5.2: saved segments. A segment is a NAMED audience expression — the same
+  `business_rules` condition tree a campaign uses, so it needed no new condition language, no new evaluator
+  and no new narrowing rules. Membership is published as a `segments` array on the subject document, which
+  means `segments CONTAINS 'lapsed-vip'` (and `NOT CONTAINS`) work through the existing evaluator with no new
+  operator: 5.2 cost nothing once 5.1 existed. Decisions: the slug is derived from the name once and then
+  immutable, because saved audiences reference it and a rename would silently empty every campaign that
+  targeted the segment; a segment may not be defined in terms of segments, refused at the writer AND made
+  harmless at the reader by emptying the key before evaluating, since a cycle in per-customer evaluation is a
+  stack overflow inside a dispatch; a null expression means everybody, which is a legitimate thing to name;
+  and a deleted segment matches nobody rather than having its references rewritten out of campaigns nobody
+  asked us to edit. Definitions are loaded once per dispatch and once per sweep job, and
+  `buildSubjectDocument` loads them itself when they are not passed — defaulting to none would make every
+  segment audience quietly false. The members endpoint reuses the dispatcher's own matcher and says whether
+  its answer is exact or a sample. What reads it: a segments screen with an inline member preview, the
+  audience panel listing the references an author can target, and the customer profile showing which segments
+  a person is in. 661 unit tests, 121 integration tests.
+
 - **2026-09-29** — Backlog B-09: the referral programme. A customer's code is Crockford base32, eight
   characters, one live code per person forever — reissuing it would break every message that already printed
   it — with the standard fold so a code typed in lower case, with dashes, or with `O` for zero still resolves.

@@ -32,6 +32,7 @@ import type { RunScope } from './runs.js'
 import { buildSubjectDocument, loadSubjectTimeZone } from './subject-document.js'
 import type { SubjectDocument } from './engine/types.js'
 import { reportError } from '@open-mercato/telemetry'
+import { loadSegmentDefinitions } from './segments.js'
 
 /**
  * Per-subject run budget, across every campaign, inside {@link RUN_BUDGET_WINDOW_MINUTES}.
@@ -379,15 +380,17 @@ export async function dispatchEvent(
   const candidates = await findCampaignsForEvent(deps.em, input.eventId, deps.scope)
   if (!candidates.length) return result
 
-  // Loaded once for the whole dispatch: every campaign reacting to this event sees the same ladder.
+  // Loaded once for the whole dispatch: every campaign reacting to this event sees the same ladder and the
+  // same segment definitions.
   const tierThresholds = await loadTierThresholds(deps.container, deps.scope)
+  const segments = await loadSegmentDefinitions(deps.em, deps.scope)
   const subject = await buildSubjectDocument(
     deps.em,
     input.subjectEntityId,
     deps.scope,
     input.triggerContext,
     deps.now,
-    { tierThresholds },
+    { tierThresholds, segments },
   )
 
   for (const { campaign } of candidates) {

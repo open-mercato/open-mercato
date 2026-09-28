@@ -6,6 +6,8 @@ import { FALLBACK_TIME_ZONE } from './engine/gates.js'
 import { loadScorePoints } from './scores.js'
 import { loadLatestNps } from './survey.js'
 import { resolveTier } from './engine/tiers.js'
+import { computeSegmentSlugs, loadSegmentDefinitions } from './segments.js'
+import type { SegmentDefinition } from './segments.js'
 import type { TierThreshold } from './engine/tiers.js'
 
 export type SubjectScope = { tenantId: string; organizationId: string }
@@ -234,7 +236,15 @@ export async function buildSubjectDocument(
    * The tenant's tier ladder. Passed in rather than read here so a sweep loads it once per job
    * instead of once per candidate, and so this stays a function of its arguments.
    */
-  options?: { tierThresholds?: TierThreshold[] },
+  /**
+   * The tenant's tier ladder. Passed in rather than read here so a sweep loads it once per job
+   * instead of once per candidate, and so this stays a function of its arguments.
+   *
+   * `segments` works the same way — and when it is NOT passed, the definitions are loaded here rather than
+   * defaulting to none. An empty segment list would make every `segments CONTAINS …` audience quietly false,
+   * which is the silent-failure shape this module refuses everywhere else.
+   */
+  options?: { tierThresholds?: TierThreshold[]; segments?: SegmentDefinition[] },
 ): Promise<SubjectDocument> {
   if (!subjectEntityId) {
     const unscored = resolveTier(0, options?.tierThresholds)
@@ -245,6 +255,8 @@ export async function buildSubjectDocument(
       score: { points: 0, tier: unscored.key, tierRank: unscored.rank },
       address: null,
       survey: { nps: null, answeredAt: null },
+      // No subject, so no membership. A segment describes a customer, and there is none here.
+      segments: [],
       trigger,
     }
   }
@@ -270,7 +282,9 @@ export async function buildSubjectDocument(
 
   const tier = resolveTier(scorePoints, options?.tierThresholds)
 
-  return {
+  const segmentDefinitions = options?.segments ?? await loadSegmentDefinitions(em, scope)
+
+  const document: SubjectDocument = {
     customer: entity
       ? {
           id: entity.id,
@@ -284,6 +298,17 @@ export async function buildSubjectDocument(
     score: { points: scorePoints, tier: tier.key, tierRank: tier.rank },
     address,
     survey: { nps: nps?.score ?? null, answeredAt: nps?.answeredAt ?? null },
+    // Filled below, once the rest of the document exists: membership is computed FROM it.
+    segments: [],
     trigger,
   }
+
+  /**
+   * Membership last, because a segment is an expression over everything above.
+   *
+   * No queries: the definitions are already loaded and the document is already in memory, so this is pure
+   * evaluation per segment.
+   */
+  document.segments = computeSegmentSlugs(document, segmentDefinitions, now)
+  return document
 }

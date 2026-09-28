@@ -144,3 +144,20 @@ export const inboundHookUpdateSchema = z.object({
   /** The only state change a hook has: withdrawn, or back in service. */
   revoked: z.boolean().optional(),
 })
+
+/**
+ * A segment. The slug is derived on create and immutable afterwards, because saved audiences reference it —
+ * renaming it would silently empty every campaign that targeted the segment.
+ */
+export const segmentCreateSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(500).optional(),
+  expression: campaignDefinitionSchema.shape.audience,
+})
+
+export const segmentUpdateSchema = z.object({
+  updatedAt: z.string().min(1).optional(),
+  name: z.string().trim().min(1).max(120).optional(),
+  description: z.string().trim().max(500).nullable().optional(),
+  expression: campaignDefinitionSchema.shape.audience.optional(),
+})

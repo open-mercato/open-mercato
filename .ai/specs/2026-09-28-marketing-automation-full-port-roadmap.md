@@ -334,8 +334,13 @@ Email-only, because it is the only channel with open/click data. Needs 3.
 
 ## Phase 5 — segments and richer targeting
 
-**5.1** `Segment` entity holding a condition expression, with membership resolved through 2.2.
-**5.2** `in_segment` / `not_in_segment` audience support.
+**5.1** ✅ 2026-09-29 — `MarketingSegment` holds the same condition expression a campaign audience does;
+membership is `matchesAudience` over the subject document, narrowed through 2.2 where the expression allows.
+The slug is derived from the name once and then immutable, because saved audiences reference it.
+**5.2** ✅ 2026-09-29 — no new operator was needed: membership is published as a `segments` array on the
+subject document, so `segments CONTAINS 'slug'` and `NOT CONTAINS` come free from the existing evaluator. A
+segment may not be defined in terms of segments — nesting invites a cycle, and a cycle in per-customer
+evaluation is a stack overflow inside a dispatch.
 **5.3** RFM and CLV projections on the subject document, plus percentile comparisons.
 
 ## Phase 6 — channels

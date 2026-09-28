@@ -4,6 +4,7 @@ import { listMarketingSteps } from '../../lib/engine/registry.js'
 import { TRIGGER_CATALOG } from '../../lib/trigger-catalog.js'
 import { sweepSourceCatalog } from '../../lib/sweep-sources.js'
 import { listContentBlockKeys } from '../../lib/content-blocks.js'
+import { loadSegmentDefinitions } from '../../lib/segments.js'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
@@ -24,7 +25,7 @@ export const metadata = routeMetadata
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
-    return NextResponse.json({ triggers: [], steps: [], sweepSources: [], contentBlocks: [] }, { status: 401 })
+    return NextResponse.json({ triggers: [], steps: [], sweepSources: [], contentBlocks: [], segments: [] }, { status: 401 })
   }
   const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
 
@@ -35,6 +36,8 @@ export async function GET(req: Request) {
   const container = await createRequestContainer()
   const em = container.resolve<EntityManager>('em')
   const contentBlocks = await listContentBlockKeys(em, scope)
+  // Offered so an author can target a saved segment without remembering its reference.
+  const segments = (await loadSegmentDefinitions(em, scope)).map((segment) => ({ slug: segment.slug, name: segment.name }))
 
   return NextResponse.json({
     triggers: TRIGGER_CATALOG.map((entry) => ({
@@ -48,6 +51,7 @@ export async function GET(req: Request) {
     // triggers, which left every periodic campaign — win-back, review requests — API-only.
     sweepSources: sweepSourceCatalog(),
     contentBlocks,
+    segments,
     steps: listMarketingSteps().map((step) => ({
       type: step.type,
       labelKey: step.labelKey,

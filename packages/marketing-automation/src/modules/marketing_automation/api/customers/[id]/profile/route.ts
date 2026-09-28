@@ -13,6 +13,8 @@ import { loadOrderAggregates, loadTagSlugs } from '../../../../lib/subject-docum
 import { loadScorePoints } from '../../../../lib/scores.js'
 import { recommendForSubject } from '../../../../lib/recommendations.js'
 import { loadReferralSummary, loadReferralUrlTemplate } from '../../../../lib/referrals.js'
+import { computeSegmentSlugs, loadSegmentDefinitions, namesForSlugs } from '../../../../lib/segments.js'
+import { buildSubjectDocument } from '../../../../lib/subject-document.js'
 import { loadConsentState } from '../../../../lib/consent.js'
 import { loadLatestNps, npsBand } from '../../../../lib/survey.js'
 import { resolveTier } from '../../../../lib/engine/tiers.js'
@@ -93,6 +95,26 @@ export async function GET(req: Request) {
    * On the profile because a referral is a fact about a person, and because the operational question — "did
    * this customer actually bring anybody" — is asked while looking at that person.
    */
+  /**
+   * Which saved segments this customer is in.
+   *
+   * Computed from a full subject document rather than from the pieces above, which costs a second set of
+   * aggregate reads on this one screen. Assembling a partial document would be cheaper and would answer
+   * WRONGLY — a segment comparing `orders.daysSinceLast` against a key that was not filled in is a segment
+   * this page would silently claim the customer is not in.
+   */
+  const segmentDefinitions = await loadSegmentDefinitions(em, scope)
+  const segments = segmentDefinitions.length > 0
+    ? namesForSlugs(
+        segmentDefinitions,
+        computeSegmentSlugs(
+          await buildSubjectDocument(em, customerId, scope, {}, now, { tierThresholds, segments: [] }),
+          segmentDefinitions,
+          now,
+        ),
+      )
+    : []
+
   const referral = await loadReferralSummary(
     em,
     scope,
@@ -168,6 +190,8 @@ export async function GET(req: Request) {
     /** Null when they have never answered, which the screen states rather than showing a zero. */
     nps: nps ? { score: nps.score, band: npsBand(nps.score), answeredAt: nps.answeredAt } : null,
     messages: { sent, suppressed, opened: engagement.opened, clicked: engagement.clicked },
+    /** Segment NAMES, not slugs: the slug is a reference for audiences, the name is for people. */
+    segments,
     /** `code` is null until a campaign step has issued one, which the screen says plainly. */
     referral,
     /** Each carries the signal that chose it, so the screen can say why rather than just what. */

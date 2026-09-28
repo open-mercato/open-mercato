@@ -46,6 +46,8 @@ type PaletteTrigger = {
 
 type PaletteContentBlock = { key: string; name: string }
 
+type PaletteSegment = { slug: string; name: string }
+
 type PaletteSweepSource = {
   id: string
   labelKey: string
@@ -156,6 +158,7 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
     steps: PaletteStep[]
     sweepSources: PaletteSweepSource[]
     contentBlocks: PaletteContentBlock[]
+    segments: PaletteSegment[]
   } | null>(null)
   const [estimate, setEstimate] = React.useState<AudienceEstimate | null>(null)
   const [estimating, setEstimating] = React.useState(false)
@@ -183,7 +186,7 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
       try {
         const [campaign, paletteResult] = await Promise.all([
           apiCall<CampaignResponse>(`/api/marketing_automation/campaigns/${campaignId}`),
-          apiCall<{ triggers: PaletteTrigger[]; steps: PaletteStep[]; sweepSources: PaletteSweepSource[]; contentBlocks: PaletteContentBlock[] }>('/api/marketing_automation/palette'),
+          apiCall<{ triggers: PaletteTrigger[]; steps: PaletteStep[]; sweepSources: PaletteSweepSource[]; contentBlocks: PaletteContentBlock[]; segments: PaletteSegment[] }>('/api/marketing_automation/palette'),
         ])
         if (cancelled) return
         if (!campaign.ok || !campaign.result) {
@@ -761,6 +764,22 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                     mutate({ definition: { ...definition, audience: value } })
                   }}
                 />
+                {/* An author cannot target a segment whose reference they have to remember. */}
+                {(palette?.segments ?? []).length > 0 ? (
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">
+                      {t('marketing_automation.segments.availableHint', 'Saved segments you can target with the field "segments":')}
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {(palette?.segments ?? []).map((segment) => (
+                        <span key={segment.slug} className="rounded-sm bg-muted px-2 py-1 text-xs text-muted-foreground">
+                          <span className="font-mono">{segment.slug}</span>
+                          {` · ${segment.name}`}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 <Button variant="outline" disabled={estimating} onClick={() => void runEstimate()}>
                   {estimating ? <Spinner /> : t('marketing_automation.action.estimateAudience', 'Estimate audience')}
                 </Button>

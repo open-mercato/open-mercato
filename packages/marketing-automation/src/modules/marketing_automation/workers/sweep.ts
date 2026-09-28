@@ -8,6 +8,8 @@ import type { DispatchDeps, ReentryPolicy } from '../lib/dispatcher.js'
 import { buildSubjectDocument } from '../lib/subject-document.js'
 import { describeNarrowing, planNarrowing } from '../lib/engine/narrowing.js'
 import { loadTierThresholds } from '../lib/tiers.js'
+import { loadSegmentDefinitions } from '../lib/segments.js'
+import type { SegmentDefinition } from '../lib/segments.js'
 import type { TierThreshold } from '../lib/engine/tiers.js'
 import { createSqlCandidateSource, resolveCandidates } from '../lib/audience/set-resolver.js'
 import { findRowSweepSource } from '../lib/sweep-sources.js'
@@ -38,6 +40,9 @@ export const metadata: WorkerMeta = {
  */
 const PAGE_SIZE = 200
 
+/** What the subject projection needs that is tenant-wide rather than per-customer. */
+type ProjectionOptions = { tierThresholds: TierThreshold[]; segments: SegmentDefinition[] }
+
 function reentryPolicyFor(trigger: MarketingCampaignTrigger): ReentryPolicy {
   return trigger.reentryAfterDays == null
     ? { kind: 'once' }
@@ -57,10 +62,10 @@ async function startForCandidate(
   policy: ReentryPolicy,
   deps: DispatchDeps,
   scope: JobScope,
-  tierThresholds: TierThreshold[],
+  projection: ProjectionOptions,
 ): Promise<boolean> {
   try {
-    const subject = await buildSubjectDocument(deps.em, subjectEntityId, scope, {}, deps.now, { tierThresholds })
+    const subject = await buildSubjectDocument(deps.em, subjectEntityId, scope, {}, deps.now, projection)
     const outcome = await startCampaignForSubject(
       campaign,
       {
@@ -107,7 +112,7 @@ async function sweepCustomers(
   trigger: MarketingCampaignTrigger,
   deps: DispatchDeps,
   scope: JobScope,
-  tierThresholds: TierThreshold[],
+  projection: ProjectionOptions,
 ): Promise<number> {
   const em = deps.em
   const policy = reentryPolicyFor(trigger)
@@ -136,7 +141,7 @@ async function sweepCustomers(
         { fields: ['id'], orderBy: { id: 'ASC' } },
       )
       for (const candidate of live) {
-        if (await startForCandidate(campaign, candidate.id, policy, deps, scope, tierThresholds)) started += 1
+        if (await startForCandidate(campaign, candidate.id, policy, deps, scope, projection)) started += 1
       }
       em.clear()
     }
@@ -164,7 +169,7 @@ async function sweepCustomers(
     if (!page.length) break
 
     for (const candidate of page) {
-      if (await startForCandidate(campaign, candidate.id, policy, deps, scope, tierThresholds)) started += 1
+      if (await startForCandidate(campaign, candidate.id, policy, deps, scope, projection)) started += 1
     }
 
     if (page.length < PAGE_SIZE) break
@@ -189,7 +194,7 @@ async function sweepRows(
   source: RowSweepSource,
   deps: DispatchDeps,
   scope: JobScope,
-  tierThresholds: TierThreshold[],
+  projection: ProjectionOptions,
 ): Promise<number> {
   const policy = reentryPolicyFor(trigger)
   const params = (trigger.sweepParams ?? {}) as { withinDays?: number }
@@ -204,7 +209,7 @@ async function sweepRows(
         scope,
         candidate.trigger,
         deps.now,
-        { tierThresholds },
+        projection,
       )
       const outcome = await startCampaignForSubject(
         campaign,
@@ -254,7 +259,16 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
   if (!scheduled.length) return
 
   // Once per job rather than once per candidate: the ladder is tenant configuration, not per-subject.
-  const tierThresholds = await loadTierThresholds(deps.container, scope)
+  /**
+   * The tenant ladder and the segment definitions, loaded ONCE for the whole job.
+   *
+   * Both are tenant configuration rather than per-subject facts, and a sweep may project thousands of
+   * candidates — `buildSubjectDocument` would otherwise read the segment table once per customer.
+   */
+  const projection: ProjectionOptions = {
+    tierThresholds: await loadTierThresholds(deps.container, scope),
+    segments: await loadSegmentDefinitions(deps.em, scope),
+  }
 
   for (const { campaign, trigger } of scheduled) {
     try {
@@ -281,8 +295,8 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
         { kind: 'sweep', campaignId: campaign.id },
         async () => {
           const started = rowSource
-            ? await sweepRows(campaign, trigger, rowSource, deps, scope, tierThresholds)
-            : await sweepCustomers(campaign, trigger, deps, scope, tierThresholds)
+            ? await sweepRows(campaign, trigger, rowSource, deps, scope, projection)
+            : await sweepCustomers(campaign, trigger, deps, scope, projection)
           return { counters: { started } }
         },
       )

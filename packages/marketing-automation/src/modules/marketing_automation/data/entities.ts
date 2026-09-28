@@ -967,3 +967,53 @@ export class MarketingReferralRedemption {
   @Property({ name: 'created_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
   createdAt!: Date
 }
+
+/**
+ * A named audience expression, reusable across campaigns.
+ *
+ * The expression is the SAME `business_rules` condition tree a campaign audience uses — there is no second
+ * condition language here, and that is the whole reason a segment is cheap: membership is already computable
+ * for any subject document, and narrowing already knows how to push down the parts it can.
+ */
+@Entity({ tableName: 'marketing_segments' })
+@Index({
+  name: 'marketing_segments_slug_uniq',
+  expression:
+    'create unique index "marketing_segments_slug_uniq" on "marketing_segments" ("tenant_id", "organization_id", "slug") where deleted_at is null',
+})
+@Index({ name: 'mkt_segments_scope_idx', properties: ['tenantId', 'organizationId', 'deletedAt'] })
+export class MarketingSegment {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  /** What an audience references: `segments CONTAINS 'lapsed-vip'`. Immutable once saved. */
+  @Property({ type: 'text' })
+  slug!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  /** A `ConditionExpression`; null means "everybody", which is a legitimate if unusual segment. */
+  @Property({ type: 'json', nullable: true })
+  expression?: Record<string, unknown> | null
+
+  @Property({ name: 'created_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
+  createdAt!: Date
+
+  @Property({ name: 'updated_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt!: Date
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}

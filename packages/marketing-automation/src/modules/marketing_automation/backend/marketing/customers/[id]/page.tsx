@@ -32,6 +32,7 @@ type Profile = {
   nps: { score: number; band: 'detractor' | 'passive' | 'promoter'; answeredAt: string } | null
   messages: { sent: number; suppressed: number; opened: number; clicked: number }
   recommendations: Array<{ sku: string; name: string; source: 'affinity' | 'bestSeller' }>
+  segments?: string[]
   referral?: {
     code: string | null
     url: string | null
@@ -320,6 +321,20 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
             </ul>
           )}
         </div>
+
+        {(profile.segments ?? []).length > 0 ? (
+          <div className="mb-6">
+            <SectionHeader
+              title={t('marketing_automation.profile.segments', 'Segments')}
+              count={(profile.segments ?? []).length}
+            />
+            <div className="flex flex-wrap gap-1">
+              {(profile.segments ?? []).map((segment) => (
+                <span key={segment} className="rounded-sm bg-muted px-2 py-1 text-xs text-muted-foreground">{segment}</span>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {profile.tags.length > 0 ? (
           <div className="mb-6">
