@@ -100,6 +100,7 @@ describe('sales setup seeds', () => {
       'payment-methods',
       'channels-toggle',
     ])
+    expect(seeds.seedSalesChannelsToggle).toHaveBeenCalledWith(em)
     expect(seeds.seedSalesExamples).not.toHaveBeenCalled()
   })
 

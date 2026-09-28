@@ -640,6 +640,134 @@ export async function findMatchingTriggers(
 // Trigger Processing
 // ============================================================================
 
+// Open debounce windows for triggers configured with `debounceMs`, keyed by
+// tenant/org/trigger/entity and holding the timestamp each window closes at.
+// Parked on globalThis for the same reason as the trigger cache above: the
+// compiled module can be loaded under two import roots (a Next.js server chunk
+// vs. a worker), and a module-local Map would debounce each copy separately —
+// halving the effective window whenever both copies see the same event stream.
+// The state is still per process: a deployment running several app or worker
+// processes debounces independently in each one, so the guard bounds trigger
+// storms per process rather than cluster-wide.
+const GLOBAL_TRIGGER_DEBOUNCE_KEY = '__openMercatoWorkflowTriggerDebounce__'
+
+// Cap on tracked keys so a long-lived worker cannot grow the Map without bound;
+// mirrors the prune step in query_index's `markAutoReindexScheduled`.
+const TRIGGER_DEBOUNCE_MAX_KEYS = 5000
+
+type GlobalWithTriggerDebounce = typeof globalThis & {
+  [GLOBAL_TRIGGER_DEBOUNCE_KEY]?: Map<string, number>
+}
+
+function getTriggerDebounceState(): Map<string, number> {
+  const globalScope = globalThis as GlobalWithTriggerDebounce
+  if (!globalScope[GLOBAL_TRIGGER_DEBOUNCE_KEY]) {
+    globalScope[GLOBAL_TRIGGER_DEBOUNCE_KEY] = new Map<string, number>()
+  }
+  return globalScope[GLOBAL_TRIGGER_DEBOUNCE_KEY]
+}
+
+// Entries store their own expiry rather than their start, so pruning never has
+// to assume one shared window length: `debounceMs` is per trigger and ranges
+// from 0 to the validator's one-hour ceiling, and expiring a one-hour window
+// because a 100 ms trigger happened to run the prune would silently reopen it.
+function pruneTriggerDebounceState(state: Map<string, number>, now: number): void {
+  if (state.size < TRIGGER_DEBOUNCE_MAX_KEYS) return
+
+  for (const [key, expiresAt] of state) {
+    if (expiresAt <= now) state.delete(key)
+  }
+
+  if (state.size < TRIGGER_DEBOUNCE_MAX_KEYS) return
+
+  const oldestKey = state.keys().next().value
+  if (oldestKey !== undefined) state.delete(oldestKey)
+}
+
+/**
+ * Resolve the debounce window a trigger/event pair shares, or `null` when the
+ * trigger has no debounce configured.
+ *
+ * The key includes the event payload's `id` so the window is per trigger *and*
+ * per entity — rapid updates to two different records still start two
+ * workflows. Tenant and organization are part of the key because code-defined
+ * triggers reuse one id across every tenant.
+ */
+function resolveTriggerDebounceWindow(
+  trigger: UnifiedTrigger,
+  payload: Record<string, unknown>,
+): { key: string; debounceMs: number } | null {
+  const debounceMs = trigger.config?.debounceMs
+
+  if (!debounceMs || debounceMs <= 0) return null
+
+  // Accept numeric ids too: falling back to the shared `*` bucket would collapse
+  // every record under one key and suppress workflows for unrelated entities.
+  const rawPayloadId = payload?.id
+  const payloadId =
+    typeof rawPayloadId === 'string' ? rawPayloadId
+    : typeof rawPayloadId === 'number' ? String(rawPayloadId)
+    : null
+
+  return { key: `${trigger.tenantId}:${trigger.organizationId}:${trigger.id}:${payloadId ?? '*'}`, debounceMs }
+}
+
+/**
+ * Check whether this event falls inside the trigger's debounce window, opening
+ * a fresh window when it does not.
+ *
+ * Leading-edge semantics: the first event fires the workflow and opens the
+ * window; repeats inside it are dropped. This matches the two other
+ * `debounceMs` implementations in the codebase (`markAutoReindexScheduled` in
+ * query_index, `NotificationDispatcher.shouldDebounce` in the UI package) and
+ * needs no timer that would have to survive a process restart.
+ *
+ * The window is opened here rather than after the workflow starts so that
+ * nothing awaits between reading and writing it — two events racing through
+ * `processEventTriggers` must not both observe an empty window. An attempt that
+ * does not go on to start a workflow closes its window again via
+ * `releaseTriggerDebounceWindow`, so only a real start keeps one open.
+ */
+function shouldDebounceTrigger(trigger: UnifiedTrigger, payload: Record<string, unknown>): boolean {
+  const debounceWindow = resolveTriggerDebounceWindow(trigger, payload)
+
+  if (!debounceWindow) return false
+
+  const state = getTriggerDebounceState()
+  const now = Date.now()
+  const expiresAt = state.get(debounceWindow.key)
+
+  if (expiresAt !== undefined && now < expiresAt) return true
+
+  pruneTriggerDebounceState(state, now)
+  state.delete(debounceWindow.key)
+  state.set(debounceWindow.key, now + debounceWindow.debounceMs)
+  return false
+}
+
+/**
+ * Close a window `shouldDebounceTrigger` opened for an event that never started
+ * a workflow — the concurrency limit blocked it, or mapping/starting threw.
+ * Leaving it open would let one blocked or failed attempt suppress every later
+ * event for the same record until the window elapsed, which at the validator's
+ * one-hour ceiling means an hour of silently dropped starts.
+ */
+function releaseTriggerDebounceWindow(trigger: UnifiedTrigger, payload: Record<string, unknown>): void {
+  const debounceWindow = resolveTriggerDebounceWindow(trigger, payload)
+
+  if (!debounceWindow) return
+
+  getTriggerDebounceState().delete(debounceWindow.key)
+}
+
+/**
+ * Clear all debounce windows. Test-only seam — production code relies on the
+ * windows expiring on their own.
+ */
+export function resetTriggerDebounceState(): void {
+  getTriggerDebounceState().clear()
+}
+
 /**
  * Check if max concurrent instances limit is reached.
  */
@@ -687,11 +815,20 @@ export async function processEventTriggers(
 
   // Process each trigger (definitions already validated during loading)
   for (const trigger of triggers) {
+    let startedWorkflow = false
     try {
+      // Check debounce window before any DB work
+      if (shouldDebounceTrigger(trigger, context.payload)) {
+        logger.debug('Skipping trigger: inside debounce window', { triggerId: trigger.id, triggerName: trigger.name, debounceMs: trigger.config?.debounceMs })
+        result.skipped++
+        continue
+      }
+
       // Check concurrency limit
       const canStart = await checkConcurrencyLimit(em, trigger)
       if (!canStart) {
         logger.debug('Skipping trigger: max concurrent instances reached', { triggerId: trigger.id, triggerName: trigger.name })
+        releaseTriggerDebounceWindow(trigger, context.payload)
         result.skipped++
         continue
       }
@@ -741,6 +878,7 @@ export async function processEventTriggers(
         organizationId: context.organizationId,
       })
 
+      startedWorkflow = true
       result.triggered++
       result.instances.push({
         triggerId: trigger.id,
@@ -760,6 +898,7 @@ export async function processEventTriggers(
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
       logger.error('Error processing trigger', { triggerId: trigger.id, triggerName: trigger.name, err: error })
+      if (!startedWorkflow) releaseTriggerDebounceWindow(trigger, context.payload)
       result.errors.push({
         triggerId: trigger.id,
         error: errorMessage,

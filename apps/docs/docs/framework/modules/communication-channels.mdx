@@ -31,7 +31,7 @@ For the end-user perspective see the [Communication Channels user guide](../../u
 
 - **Hub**: `packages/core/src/modules/communication_channels/`
 - **Providers**: `packages/channel-{imap,gmail}/` (email), `packages/channel-discord/` (chat) and `packages/channel-{fcm,apns,expo}/` (push)
-- **Module entry**: enable with `{ id: 'communication_channels', from: '@open-mercato/core' }` plus one entry per provider you want active in `apps/mercato/src/modules.ts`.
+- **Module entry**: enable with `{ id: 'communication_channels', from: '@open-mercato/core' }` plus one entry per provider you want active in `apps/mercato/src/modules.ts`. The module declares `requires: ['progress']` — its import-history worker resolves `progressService` from DI — so `{ id: 'progress', from: '@open-mercato/core' }` must be enabled too, or `yarn generate` fails with "Module dependency check failed".
 - **Specs**: [`.ai/specs/implemented/SPEC-045d-communication-notification-hubs.md`](#) (hub contract) and [`.ai/specs/2026-05-21-email-integration-foundation.md`](#) (email providers + per-user surfaces).
 
 ## Architecture

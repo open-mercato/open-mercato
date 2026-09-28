@@ -530,6 +530,7 @@
   "catalog.products.edit.metadata.title": "Metadane",
   "catalog.products.edit.metadata.valuePlaceholder": "Wartość",
   "catalog.products.edit.offers.deleteError": "Nie udało się usunąć oferty kanału sprzedaży.",
+  "catalog.products.edit.optionsBuilder.emptyWithVariants": "Ten produkt ma warianty bez schematu opcji. Opcje są opcjonalne.",
   "catalog.products.edit.save": "Zapisz zmiany",
   "catalog.products.edit.schemas.apply": "Zastosuj",
   "catalog.products.edit.schemas.delete": "Usuń schemat",

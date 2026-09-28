@@ -39,6 +39,45 @@ describe('encryption/indexDoc', () => {
     expect(decryptCustomFieldValueMock).toHaveBeenCalled()
   })
 
+  test('decryptIndexDocCustomFields passes each key its resolved kind (#5968)', async () => {
+    const doc = { id: '1', 'cf:note': 'enc', 'cf:count': 'enc', cf_order_ref: 'enc' }
+    const kinds = { note: 'text', count: 'integer', 'order-ref': 'text', order_ref: 'text' }
+
+    await decryptIndexDocCustomFields(doc, { tenantId: 't1', organizationId: 'org1' }, {} as any, undefined, kinds)
+
+    expect(decryptCustomFieldValueMock).toHaveBeenCalledTimes(3)
+    const kindsPassed = decryptCustomFieldValueMock.mock.calls.map((call) => call[4]?.kind).sort()
+    expect(kindsPassed).toEqual(['integer', 'text', 'text'])
+  })
+
+  test('decryptIndexDocCustomFields passes a null kind when no map is supplied (#5968)', async () => {
+    const doc = { id: '1', 'cf:note': 'enc' }
+
+    await decryptIndexDocCustomFields(doc, { tenantId: 't1', organizationId: 'org1' }, {} as any)
+
+    expect(decryptCustomFieldValueMock).toHaveBeenCalledWith('enc', 't1', {}, undefined, { kind: null })
+  })
+
+  test('decryptIndexDocForSearch forwards the kind map to the cf decryption (#5968)', async () => {
+    const service = {
+      isEnabled: () => true,
+      decryptEntityPayload: jest.fn(async () => ({})),
+    }
+
+    await decryptIndexDocForSearch(
+      'example:todo',
+      { id: '1', 'cf:note': 'enc' },
+      { tenantId: 't1', organizationId: 'org1' },
+      service as any,
+      undefined,
+      { note: 'multiline' },
+    )
+
+    expect(decryptCustomFieldValueMock).toHaveBeenCalledWith(
+      'enc', 't1', service, undefined, { kind: 'multiline' },
+    )
+  })
+
   test('decryptIndexDocForSearch merges decrypted entity payload and decrypts cf keys', async () => {
     decryptCustomFieldValueMock.mockImplementation(async (value: unknown) => (value === 'enc' ? 'dec' : value))
 
