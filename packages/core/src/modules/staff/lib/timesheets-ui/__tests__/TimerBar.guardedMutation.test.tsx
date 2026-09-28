@@ -60,6 +60,16 @@ describe('TimerBar guarded mutations', () => {
     mockApiCallOrThrow.mockResolvedValue({ result: { id: 'entry-1' } } as any)
   })
 
+  it('provides accessible names for the timer description and project search fields', () => {
+    renderTimerBar()
+
+    expect(screen.getByRole('textbox', { name: 'What are you working on?' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Project' }))
+
+    expect(screen.getByRole('textbox', { name: 'Search projects...' })).toBeTruthy()
+  })
+
   it('routes the atomic timer start through guarded mutation context', async () => {
     renderTimerBar()
 
