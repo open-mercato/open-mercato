@@ -531,7 +531,7 @@ export function TasksSection({
                         size="sm"
                         onClick={() => openEditDialog(task)}
                         disabled={isMutating}
-                        aria-label={t('ui.actions.edit', 'Edit')}
+                        aria-label={t('customers.people.detail.tasks.editNamed', 'Edit task: {title}', { title })}
                       >
                         {isMutating && editingTask?.id === task.id && dialogMode === 'edit' ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -545,7 +545,7 @@ export function TasksSection({
                         size="sm"
                         onClick={() => handleDelete(task)}
                         disabled={isMutating}
-                        aria-label={t('ui.actions.delete', 'Delete')}
+                        aria-label={t('customers.people.detail.tasks.deleteNamed', 'Delete task: {title}', { title })}
                       >
                         {isMutating ? <Loader2 className="h-4 w-4 animate-spin text-destructive" /> : <Trash2 className="h-4 w-4" />}
                       </IconButton>
