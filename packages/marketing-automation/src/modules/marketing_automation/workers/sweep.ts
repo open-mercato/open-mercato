@@ -16,6 +16,7 @@ import { findRowSweepSource } from '../lib/sweep-sources.js'
 import type { RowSweepSource } from '../lib/sweep-sources.js'
 import { isSweepDue } from '../lib/sweep-interval.js'
 import { pruneJobRuns, recordJobRun } from '../lib/job-runs.js'
+import { pruneSegmentSnapshots, takeSegmentSnapshots } from '../lib/segment-snapshots.js'
 import { MarketingCampaignTrigger as TriggerEntity } from '../data/entities.js'
 import type { MarketingCampaign, MarketingCampaignTrigger } from '../data/entities.js'
 import type { SweepJob } from '../lib/queue.js'
@@ -256,19 +257,24 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
 
   const deps = buildDispatchDeps(ctx, scope)
   const scheduled = await findScheduledCampaigns(deps.em, scope)
-  if (!scheduled.length) return
+  // NOT an early return: the housekeeping below — segment sizes, job-log pruning — has nothing to do with
+  // whether any campaign runs on a schedule, and returning here left both undone on every installation that
+  // only uses event triggers.
 
   // Once per job rather than once per candidate: the ladder is tenant configuration, not per-subject.
   /**
-   * The tenant ladder and the segment definitions, loaded ONCE for the whole job.
+   * The tenant ladder and the segment definitions, loaded ONCE for the whole job — and only when there is a
+   * campaign to project candidates for.
    *
    * Both are tenant configuration rather than per-subject facts, and a sweep may project thousands of
-   * candidates — `buildSubjectDocument` would otherwise read the segment table once per customer.
+   * candidates, so `buildSubjectDocument` must not read them once per customer.
    */
-  const projection: ProjectionOptions = {
-    tierThresholds: await loadTierThresholds(deps.container, scope),
-    segments: await loadSegmentDefinitions(deps.em, scope),
-  }
+  const projection: ProjectionOptions | null = scheduled.length
+    ? {
+        tierThresholds: await loadTierThresholds(deps.container, scope),
+        segments: await loadSegmentDefinitions(deps.em, scope),
+      }
+    : null
 
   for (const { campaign, trigger } of scheduled) {
     try {
@@ -295,8 +301,8 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
         { kind: 'sweep', campaignId: campaign.id },
         async () => {
           const started = rowSource
-            ? await sweepRows(campaign, trigger, rowSource, deps, scope, projection)
-            : await sweepCustomers(campaign, trigger, deps, scope, projection)
+            ? await sweepRows(campaign, trigger, rowSource, deps, scope, projection as ProjectionOptions)
+            : await sweepCustomers(campaign, trigger, deps, scope, projection as ProjectionOptions)
           return { counters: { started } }
         },
       )
@@ -316,6 +322,22 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
         attributes: { campaignId: campaign.id },
       })
     }
+  }
+
+  /**
+   * Today's segment sizes, on the same pass.
+   *
+   * Idempotent through a unique index on the day, so running on every tick records one point per day without
+   * needing to remember whether it already did.
+   */
+  try {
+    const snapshots = await takeSegmentSnapshots(deps.em, deps.container, scope, deps.now)
+    if (snapshots.taken > 0) logger.info('marketing segment sizes recorded', { taken: snapshots.taken })
+    await pruneSegmentSnapshots(deps.em, scope, deps.now)
+  } catch (error) {
+    logger.warn('[internal] marketing segment snapshots failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
   }
 
   // Pruned here rather than by a job of its own: a cleanup task nobody scheduled is a table that grows

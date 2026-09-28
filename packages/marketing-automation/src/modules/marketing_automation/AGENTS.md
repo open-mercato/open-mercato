@@ -137,6 +137,16 @@ its own. Spec:
   which lane a subject takes is decided by the engine, not by an edge somebody drew — an author who
   can draw an edge has been promised a topology it cannot run. Edges are derived; order lives in the
   definition arrays.
+- Never resolve segment membership anywhere but `resolveSegmentMembers`. Five callers need that answer — the
+  members screen, overlap, size snapshots, bulk actions and the CSV export — and the moment two of them
+  compute it differently one of the screens starts disagreeing with what actually sends.
+- Never treat a narrowed candidate set as people. A tag, an order or a score entry can point at a deleted
+  customer or at a COMPANY, so candidates are filtered to live persons in BOTH paths. Skipping it made
+  comparing two segments report an empty overlap where one side plainly contained the other.
+- Never queue a bulk action with a member LIST. Carry the segment and resolve when the job runs, or the action
+  applies to who was in the segment when somebody pressed a button — including the people who have left it.
+- Never report a truncated count without saying so. Every membership answer carries a qualifier, and an
+  overlap of two samples is a sample.
 - Never define a segment in terms of segments. Membership is computed FROM the subject document, so a nested
   segment would evaluate against a key still being built; the writer refuses it and `computeSegmentSlugs`
   empties the key before evaluating, so an older row cannot reintroduce the cycle.
@@ -254,6 +264,9 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | background job log and its retention | `lib/job-runs.ts`, `api/jobs/` |
 | referral codes, claims and the subject flip | `lib/referrals.ts`, `lib/engine/referral-code.ts` |
 | saved segments, membership and its cycle rule | `lib/segments.ts`, `lib/engine/segment-expression.ts` |
+| ONE membership resolver, shared by five callers | `lib/segment-members.ts` |
+| daily segment sizes and their retention | `lib/segment-snapshots.ts` |
+| a queued bulk action with real progress | `workers/segment-action.ts`, `api/segments/[id]/actions/` |
 | a step that writes into the run context | `steps/issue-referral-code.ts` |
 | enrolment shared by events and sweeps | `lib/dispatcher.ts` → `startCampaignForSubject` |
 | trigger context hydration | `lib/trigger-catalog.ts` |

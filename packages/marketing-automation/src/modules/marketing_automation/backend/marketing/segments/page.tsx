@@ -3,6 +3,8 @@
 import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { LineChart } from '@open-mercato/ui/backend/charts'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
@@ -30,6 +32,15 @@ type SegmentRow = {
   description: string | null
   expression: GroupCondition | null
   updatedAt: string
+}
+
+type HistoryPoint = { day: string; size: number; qualifier: string }
+
+type Overlap = {
+  a?: { id: string; name: string; size: number }
+  b?: { id: string; name: string; size: number }
+  both?: number
+  qualifier?: 'exact' | 'sample'
 }
 
 type MembersAnswer = {
@@ -62,6 +73,10 @@ export default function SegmentsPage() {
   const [saving, setSaving] = React.useState(false)
   const [members, setMembers] = React.useState<MembersAnswer | null>(null)
   const [counting, setCounting] = React.useState(false)
+  const [history, setHistory] = React.useState<HistoryPoint[] | null>(null)
+  const [overlapWith, setOverlapWith] = React.useState('')
+  const [overlap, setOverlap] = React.useState<Overlap | null>(null)
+  const [acting, setActing] = React.useState(false)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -156,13 +171,63 @@ export default function SegmentsPage() {
   const showMembers = async (row: SegmentRow) => {
     setCounting(true)
     setMembers(null)
+    setHistory(null)
+    setOverlap(null)
+    setSelected(row)
+    setDraft({ name: row.name, description: row.description ?? '', expression: row.expression })
     try {
-      const result = await apiCall<MembersAnswer>(`${SEGMENTS_PATH}/${row.id}/members`)
-      setMembers(result.ok ? (result.result ?? {}) : {})
+      const [membersResult, historyResult] = await Promise.all([
+        apiCall<MembersAnswer>(`${SEGMENTS_PATH}/${row.id}/members`),
+        apiCall<{ items?: HistoryPoint[] }>(`${SEGMENTS_PATH}/${row.id}/history`),
+      ])
+      setMembers(membersResult.ok ? (membersResult.result ?? {}) : {})
+      setHistory(historyResult.ok && Array.isArray(historyResult.result?.items) ? historyResult.result.items : [])
     } catch {
       flash(t('marketing_automation.segments.membersFailed', 'Could not resolve the members.'), 'error')
     } finally {
       setCounting(false)
+    }
+  }
+
+  const compareWith = async (row: SegmentRow, otherId: string) => {
+    setOverlap(null)
+    try {
+      const result = await apiCall<Overlap>(`${SEGMENTS_PATH}/overlap?a=${row.id}&b=${otherId}`)
+      setOverlap(result.ok ? (result.result ?? {}) : {})
+    } catch {
+      flash(t('marketing_automation.segments.overlapFailed', 'Could not compare the segments.'), 'error')
+    }
+  }
+
+  /**
+   * Starts a bulk action and hands the progress job to the shared top bar.
+   *
+   * Nothing is awaited beyond the 202: the work outlives this page, which is the entire reason it is a queued
+   * job rather than a loop in the browser.
+   */
+  const runAction = async (row: SegmentRow, action: { kind: 'add_points'; points: number }) => {
+    const confirmed = await confirm({
+      text: t('marketing_automation.segments.confirmAction', 'Apply this to everybody currently in the segment?'),
+    })
+    if (!confirmed) return
+    setActing(true)
+    try {
+      await apiCallOrThrow(`${SEGMENTS_PATH}/${row.id}/actions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(action),
+      })
+      flash(t('marketing_automation.segments.actionQueued', 'Started. Watch it in the progress bar at the top.'), 'success')
+    } catch (error) {
+      const body = (error as { body?: { code?: unknown } } | null)?.body
+      flash(
+        typeof body?.code === 'string' && body.code === 'marketing_automation.errors.progressUnavailable'
+          ? t('marketing_automation.errors.progressUnavailable', 'This installation cannot track background work, so bulk actions are unavailable.')
+          : t('marketing_automation.segments.actionFailed', 'Could not start the action.'),
+        'error',
+      )
+    } finally {
+      setActing(false)
     }
   }
 
@@ -217,6 +282,71 @@ export default function SegmentsPage() {
             />
 
             {counting ? <Spinner /> : null}
+
+            {selected && history && history.length > 1 ? (
+              <div>
+                <SectionHeader title={t('marketing_automation.segments.history', 'Size over time')} />
+                {/* Drawn only with more than one point: a single dot is not a trend, and a chart of it
+                    suggests one. */}
+                <LineChart
+                  data={history as unknown as Record<string, string | number | null>[]}
+                  index="day"
+                  categories={['size']}
+                  categoryLabels={{ size: t('marketing_automation.segments.size', 'Members') }}
+                  curveType="monotone"
+                  emptyMessage={t('marketing_automation.segments.noHistory', 'No sizes recorded yet.')}
+                />
+              </div>
+            ) : selected && history ? (
+              <div className="text-xs text-muted-foreground">
+                {t('marketing_automation.segments.historyPending', 'Sizes are recorded once a day, so a trend appears from tomorrow.')}
+              </div>
+            ) : null}
+
+            {selected ? (
+              <div className="space-y-2">
+                <SectionHeader title={t('marketing_automation.segments.tools', 'Compare and act')} />
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="w-64 space-y-1">
+                    <Label htmlFor="overlap-with">{t('marketing_automation.segments.overlapWith', 'Overlap with')}</Label>
+                    <Select
+                      value={overlapWith || undefined}
+                      onValueChange={(value) => {
+                        setOverlapWith(value)
+                        void compareWith(selected, value)
+                      }}
+                    >
+                      <SelectTrigger id="overlap-with" className="w-full">
+                        <SelectValue placeholder={t('marketing_automation.segments.pickSegment', 'Pick a segment')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {rows.filter((row) => row.id !== selected.id).map((row) => (
+                          <SelectItem key={row.id} value={row.id}>{row.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button variant="outline" disabled={acting} onClick={() => void runAction(selected, { kind: 'add_points', points: 10 })}>
+                    {t('marketing_automation.segments.awardPoints', 'Award 10 points to members')}
+                  </Button>
+                  <Button variant="outline" asChild>
+                    <a href={`${SEGMENTS_PATH}/${selected.id}/export`} download>
+                      {t('marketing_automation.segments.export', 'Export CSV')}
+                    </a>
+                  </Button>
+                </div>
+                {overlap?.both !== undefined ? (
+                  <div className="text-xs text-muted-foreground">
+                    {t('marketing_automation.segments.overlapResult', '{both} of {a} are also in {b}{qualifier}')
+                      .replace('{both}', String(overlap.both))
+                      .replace('{a}', String(overlap.a?.size ?? 0))
+                      .replace('{b}', overlap.b?.name ?? '')
+                      .replace('{qualifier}', overlap.qualifier === 'exact' ? '' : ` · ${t('marketing_automation.segments.sampleNote', 'sampled')}`)}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
             {members ? (
               <div className="space-y-1">
                 <SectionHeader

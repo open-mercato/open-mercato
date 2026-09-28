@@ -1,9 +1,11 @@
 import { metadata as dispatchMeta } from '../dispatch'
 import { metadata as resumeMeta } from '../resume'
+import { metadata as segmentActionMeta } from '../segment-action'
 import { metadata as sweepMeta } from '../sweep'
 import {
   MARKETING_DISPATCH_QUEUE,
   MARKETING_RESUME_QUEUE,
+  MARKETING_SEGMENT_ACTION_QUEUE,
   MARKETING_SWEEP_QUEUE,
 } from '../../lib/queues'
 
@@ -23,6 +25,16 @@ describe('worker queue names', () => {
 
   test('sweep worker matches its constant', () => {
     expect(sweepMeta.queue).toBe(MARKETING_SWEEP_QUEUE)
+  })
+
+  test('segment action worker matches its constant', () => {
+    expect(segmentActionMeta.queue).toBe(MARKETING_SEGMENT_ACTION_QUEUE)
+  })
+
+  test('the bulk action worker is NOT scheduler-facing', () => {
+    // It is started by an operator pressing a button, never by a clock; a scheduler running it would apply an
+    // action to a segment nobody asked about.
+    expect(segmentActionMeta.schedulerSafe).toBeUndefined()
   })
 
   test('the scheduler-facing workers opt in explicitly', () => {

@@ -9,3 +9,4 @@
 export const MARKETING_DISPATCH_QUEUE = 'marketing-automation-dispatch'
 export const MARKETING_RESUME_QUEUE = 'marketing-automation-resume'
 export const MARKETING_SWEEP_QUEUE = 'marketing-automation-sweep'
+export const MARKETING_SEGMENT_ACTION_QUEUE = 'marketing-automation-segment-action'

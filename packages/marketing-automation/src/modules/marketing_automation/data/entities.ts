@@ -1017,3 +1017,48 @@ export class MarketingSegment {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 }
+
+/**
+ * How big a segment was, on a day.
+ *
+ * A segment's definition is fixed and its membership is not, so "how many people are in it" is only ever an
+ * answer about a moment. One row per segment per day is enough to see a trend — the question this answers is
+ * "is the lapsed-customer segment growing", and that is not a question with an hourly answer.
+ */
+@Entity({ tableName: 'marketing_segment_snapshots' })
+@Unique({ name: 'marketing_segment_snapshot_day_uniq', properties: ['tenantId', 'organizationId', 'segmentId', 'day'] })
+@Index({ name: 'mkt_segment_snapshots_idx', properties: ['tenantId', 'organizationId', 'segmentId', 'day'] })
+export class MarketingSegmentSnapshot {
+  [OptionalProps]?: 'takenAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'segment_id', type: 'uuid' })
+  segmentId!: string
+
+  /** The calendar day, as `YYYY-MM-DD`, which is what makes one-per-day enforceable by an index. */
+  @Property({ type: 'text' })
+  day!: string
+
+  @Property({ type: 'int' })
+  size!: number
+
+  /**
+   * Whether that number was the whole population or a bounded sample.
+   *
+   * Stored with the number, because a series that mixes exact counts and sampled ones without saying so is a
+   * chart that lies about a trend.
+   */
+  @Property({ type: 'text' })
+  qualifier!: string
+
+  @Property({ name: 'taken_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
+  takenAt!: Date
+}

@@ -2,23 +2,18 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { MarketingSegment } from '../../../../data/entities.js'
-import { buildSubjectDocument } from '../../../../lib/subject-document.js'
-import { loadTierThresholds } from '../../../../lib/tiers.js'
-import { matchesAudience } from '../../../../lib/engine/audience.js'
-import { planNarrowing, describeNarrowing } from '../../../../lib/engine/narrowing.js'
-import { createSqlCandidateSource, resolveCandidates } from '../../../../lib/audience/set-resolver.js'
-import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveSegmentMembers, SCREEN_MAX_CHECKED } from '../../../../lib/segment-members.js'
 import type { ConditionExpression } from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
 
 /**
- * Who is in a segment, and how many.
+ * Who is in a segment, and whether that answer is the whole of it.
  *
- * Resolved the same way a sweep resolves an audience: narrow in the database where the expression allows it,
- * then decide per candidate with `matchesAudience`. Reusing that path is the point — a second membership
- * implementation would eventually disagree with the one that actually sends the messages, and the screen that
- * disagrees is the one people trust.
+ * Resolved through the shared resolver, which is the same path the dispatcher, the overlap tool, the size
+ * history and the bulk actions use — one definition of membership, or the screens start disagreeing with the
+ * sender.
  *
  * Requires `customers.people.view` as well, because the answer NAMES people.
  */
@@ -31,10 +26,7 @@ const routeMetadata = {
 
 export const metadata = routeMetadata
 
-const logger = createLogger('marketing_automation')
-
-/** How many candidates are checked per request. A segment screen shows a page, not a mailing list. */
-const MAX_CHECKED = 2_000
+/** How many members come back with names attached. A page, not a mailing list. */
 const MAX_RETURNED = 50
 
 export async function GET(req: Request) {
@@ -53,47 +45,46 @@ export async function GET(req: Request) {
   const segment = await em.findOne(MarketingSegment, { id: segmentId, ...scope, deletedAt: null })
   if (!segment) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const expression = (segment.expression ?? null) as ConditionExpression | null
-  const now = new Date()
-  const plan = planNarrowing(expression)
-  const candidates = await resolveCandidates(plan.narrowing, createSqlCandidateSource(em, scope, now))
+  const resolution = await resolveSegmentMembers(
+    em,
+    container,
+    scope,
+    (segment.expression ?? null) as ConditionExpression | null,
+    { maxChecked: SCREEN_MAX_CHECKED, maxMatches: MAX_RETURNED },
+  )
 
-  const livePerson = { ...scope, kind: 'person', deletedAt: null } as const
-  const ids = candidates.ids
-    ?? (await em.find(CustomerEntity, livePerson, { fields: ['id'], limit: MAX_CHECKED })).map((row) => row.id)
+  /**
+   * Names are read through the DECRYPTING finder, in one query for the page.
+   *
+   * `display_name` and `primary_email` are encrypted at rest, so a plain find would hand this screen
+   * ciphertext — and a list of ciphertext looks like a list of customers whose names are broken.
+   */
+  const rows = resolution.ids.length > 0
+    ? (await findWithDecryption(
+        em,
+        CustomerEntity,
+        { id: { $in: resolution.ids }, ...scope, deletedAt: null },
+        undefined,
+        scope,
+      )) as Array<{ id: string; displayName?: string | null; primaryEmail?: string | null }>
+    : []
 
-  const checked = ids.slice(0, MAX_CHECKED)
-  const tierThresholds = await loadTierThresholds(container, scope)
-  // The segment being asked about is evaluated directly, so its own definition is the only thing deciding
-  // membership — not the `segments` key, which is exactly what a segment may not depend on.
-  const members: Array<{ id: string; displayName: string | null; email: string | null }> = []
-
-  for (const id of checked) {
-    if (members.length >= MAX_RETURNED) break
-    const subject = await buildSubjectDocument(em, id, scope, {}, now, { tierThresholds, segments: [] })
-    if (!subject.customer) continue
-    if (!matchesAudience(expression, subject, { now, logger })) continue
-    members.push({
-      id: subject.customer.id,
-      displayName: subject.customer.displayName,
-      email: subject.customer.email,
-    })
-  }
+  const byId = new Map(rows.map((row) => [row.id, row]))
 
   return NextResponse.json({
-    items: members,
+    items: resolution.ids.map((id) => ({
+      id,
+      displayName: byId.get(id)?.displayName ?? null,
+      email: byId.get(id)?.primaryEmail ?? null,
+    })),
     /**
-     * What the count is, stated rather than implied.
-     *
-     * `exact` only when every candidate was checked and the narrowing was complete; otherwise it is a sample
-     * of a larger set, and saying "50 members" would be a lie of the most useful-looking kind.
+     * What the answer IS, stated rather than implied: a truncated count that looks exact is worse than an
+     * honest sample.
      */
-    qualifier: candidates.ids && candidates.ids.length <= MAX_CHECKED && members.length < MAX_RETURNED
-      ? 'exact'
-      : 'sample',
-    checked: checked.length,
-    candidates: candidates.ids ? candidates.ids.length : null,
-    narrowing: describeNarrowing(plan),
+    qualifier: resolution.complete ? 'exact' : 'sample',
+    checked: resolution.checked,
+    candidates: resolution.candidates,
+    narrowing: resolution.narrowing,
   })
 }
 
@@ -101,7 +92,7 @@ export const openApi = {
   GET: {
     summary: 'List members of a segment',
     description:
-      'Narrowed in the database where the expression allows, then decided per candidate by the same matcher the dispatcher uses. Answers with a qualifier saying whether the result is exact or a sample, because a truncated count that looks exact is worse than an honest one.',
+      'Narrowed in the database where the expression allows, then decided per candidate by the same matcher the dispatcher uses. Answers with a qualifier saying whether the result is exact or a sample.',
     tags: ['Marketing Automation'],
     responses: { 200: { description: 'Members and what kind of answer this is' }, 404: { description: 'No such segment' } },
   },

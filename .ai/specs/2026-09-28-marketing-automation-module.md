@@ -775,6 +775,24 @@ eight-way concurrent worker and is now backed by a partial unique index on the a
 
 ## Changelog
 
+- **2026-09-29** — Backlog B-11: segments made operable. Membership resolution moved into ONE shared resolver
+  now used by five callers (members screen, overlap, daily sizes, bulk actions, CSV export), because the
+  moment two of them compute it differently a screen starts disagreeing with what actually sends. Overlap
+  resolves both sets at the same instant and intersects them, reports counts only — naming the overlap would
+  make it a people-listing endpoint with a different permission — and says whether the answer is exact or a
+  sample, since an overlap of two samples is a sample. Sizes are snapshotted once a day by the sweep pass,
+  made idempotent by a unique index on the calendar day rather than by a "have I done this" flag, and each
+  point records whether it was exact so a chart cannot silently mix the two. Bulk actions are real
+  `ProgressJob`s on a dedicated queue: they carry the SEGMENT rather than a member list, so they apply to who
+  is in it when the job runs, check cancellation per customer, award points through the ledger's existing
+  idempotency (progress job as the run, customer as the step) and tag through the platform command. Export is
+  CSV with an explicit completeness header; **import is deferred on purpose** — a segment whose membership is
+  an imported list is a second membership model, and recording that is better than bolting it on.
+  **A real inconsistency surfaced:** a narrowed candidate set can contain deleted customers and companies,
+  while walking the population yields people only, so comparing two segments reported an empty overlap where
+  one side plainly contained the other. Candidates are now filtered to live persons in both paths, matching
+  the sweep and the audience estimate. 666 unit tests, 128 integration tests.
+
 - **2026-09-29** — Phase 5.1 and 5.2: saved segments. A segment is a NAMED audience expression — the same
   `business_rules` condition tree a campaign uses, so it needed no new condition language, no new evaluator
   and no new narrowing rules. Membership is published as a `segments` array on the subject document, which
