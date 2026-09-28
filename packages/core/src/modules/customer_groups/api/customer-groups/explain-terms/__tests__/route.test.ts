@@ -12,6 +12,23 @@ jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
 }))
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/di/container', () => ({ createRequestContainer: jest.fn() }))
+const isCustomerInScopeMock = jest.fn(async () => true)
+const resolveOrganizationScopeMock = jest.fn(async () => ({
+  selectedId: ORG_ID,
+  filterIds: [ORG_ID],
+  allowedIds: [ORG_ID],
+  tenantId: TENANT_ID,
+}))
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: (...args: unknown[]) => resolveOrganizationScopeMock(...(args as [])),
+}))
+jest.mock('../../../../lib/customerScope', () => {
+  const actual = jest.requireActual('../../../../lib/customerScope')
+  return {
+    ...actual,
+    isCustomerInScope: (...args: unknown[]) => isCustomerInScopeMock(...(args as [])),
+  }
+})
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
     translate: (_key: string, fallback?: string) => fallback ?? _key,
@@ -124,6 +141,24 @@ describe('GET /api/customer-groups/explain-terms', () => {
 
     const res2 = await GET(request('not-a-uuid'))
     expect(res2.status).toBe(400)
+  })
+
+  it('returns 404 without resolving terms when the customer is outside the caller organization scope', async () => {
+    isCustomerInScopeMock.mockResolvedValueOnce(false)
+    const findOne = jest.fn(async () => null)
+    const resolveGroups = jest.fn()
+    const resolveTerms = jest.fn()
+    setupContainer({ findOne, resolveGroups, resolveTerms })
+
+    const res = await GET(request(CUSTOMER_ID))
+
+    expect(res.status).toBe(404)
+    expect(isCustomerInScopeMock).toHaveBeenCalledWith(expect.anything(), CUSTOMER_ID, {
+      tenantId: TENANT_ID,
+      organizationIds: [ORG_ID],
+    })
+    expect(resolveGroups).not.toHaveBeenCalled()
+    expect(resolveTerms).not.toHaveBeenCalled()
   })
 
   it('labels a field as "tenant default" (sourceGroupId null) with an empty path', async () => {

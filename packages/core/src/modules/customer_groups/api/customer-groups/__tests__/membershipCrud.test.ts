@@ -45,9 +45,19 @@ function makeMembership(overrides: Partial<CustomerGroupMembership> = {}): Custo
   } as CustomerGroupMembership
 }
 
-function createFakeEm(options: { liveGroupIds?: string[]; membership?: CustomerGroupMembership | null } = {}) {
+function createFakeEm(
+  options: {
+    liveGroupIds?: string[]
+    membership?: CustomerGroupMembership | null
+    visibleCustomerIds?: string[]
+  } = {},
+) {
   const liveGroupIds = new Set(options.liveGroupIds ?? [GROUP_ID])
+  const visibleCustomerIds = new Set(options.visibleCustomerIds ?? [CUSTOMER_ID])
+  const execute = jest.fn(async (_sql: string, params: string[]) => (visibleCustomerIds.has(params[0]) ? [{ exists: 1 }] : []))
   const em = {
+    getConnection: () => ({ execute }),
+    execute,
     count: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
       if (entity === CustomerGroup) return liveGroupIds.has(String(where.id)) ? 1 : 0
       return 0
@@ -241,6 +251,85 @@ describe('customer group membership CRUD route', () => {
 
       expect(entity.groupId).toBe(OTHER_GROUP_ID)
       expect(entity.assignedByUserId).toBe(mover)
+    })
+  })
+  describe('customer organization scope', () => {
+    const ORG_A = '99999999-9999-4999-8999-999999999999'
+
+    function scopedCtx(em: unknown, organizationIds: string[] | null): CrudCtx {
+      return { ...createCtx(em), organizationIds } as unknown as CrudCtx
+    }
+
+    it('rejects creating a membership for a customer outside the caller organizations', async () => {
+      const em = createFakeEm({ visibleCustomerIds: [] })
+
+      await expect(
+        opts.hooks!.beforeCreate!({ groupId: GROUP_ID, customerId: CUSTOMER_ID }, scopedCtx(em, [ORG_A])),
+      ).rejects.toMatchObject({ status: 400, body: { error: 'The selected customer does not exist.' } })
+      const [sql, params] = em.execute.mock.calls[0]
+      expect(sql).toContain('from customer_entities where id = ? and tenant_id = ? and deleted_at is null')
+      expect(sql).toContain('organization_id in (?)')
+      expect(params).toEqual([CUSTOMER_ID, TENANT_ID, ORG_A])
+    })
+
+    it('does not filter by organization for an unrestricted caller', async () => {
+      const em = createFakeEm()
+
+      await opts.hooks!.beforeCreate!({ groupId: GROUP_ID, customerId: CUSTOMER_ID }, scopedCtx(em, null))
+
+      const [sql, params] = em.execute.mock.calls[0]
+      expect(sql).not.toContain('organization_id')
+      expect(params).toEqual([CUSTOMER_ID, TENANT_ID])
+    })
+
+    it('treats a caller with no visible organization as seeing no customer', async () => {
+      const em = createFakeEm()
+
+      await expect(
+        opts.hooks!.beforeCreate!({ groupId: GROUP_ID, customerId: CUSTOMER_ID }, scopedCtx(em, [])),
+      ).rejects.toMatchObject({ status: 400 })
+      expect(em.execute).not.toHaveBeenCalled()
+    })
+
+    it('returns 404 when updating a membership whose customer is outside the caller organizations', async () => {
+      const em = createFakeEm({ membership: makeMembership(), visibleCustomerIds: [] })
+
+      await expect(
+        opts.hooks!.beforeUpdate!({ id: MEMBERSHIP_ID, validUntil: null }, scopedCtx(em, [ORG_A])),
+      ).rejects.toMatchObject({ status: 404 })
+    })
+
+    it('rejects moving a membership onto a customer outside the caller organizations', async () => {
+      const otherCustomer = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+      const em = createFakeEm({ membership: makeMembership(), visibleCustomerIds: [CUSTOMER_ID] })
+
+      await expect(
+        opts.hooks!.beforeUpdate!({ id: MEMBERSHIP_ID, customerId: otherCustomer }, scopedCtx(em, [ORG_A])),
+      ).rejects.toMatchObject({ status: 400 })
+    })
+
+    it('returns 404 when deleting a membership whose customer is outside the caller organizations', async () => {
+      const em = createFakeEm({ membership: makeMembership(), visibleCustomerIds: [] })
+
+      await expect(opts.hooks!.beforeDelete!(MEMBERSHIP_ID, scopedCtx(em, [ORG_A]))).rejects.toMatchObject({
+        status: 404,
+      })
+    })
+
+    it('returns 404 when listing the memberships of a customer outside the caller organizations', async () => {
+      const em = createFakeEm({ visibleCustomerIds: [] })
+
+      await expect(
+        opts.hooks!.beforeList!({ page: 1, pageSize: 50, customerId: CUSTOMER_ID }, scopedCtx(em, [ORG_A])),
+      ).rejects.toMatchObject({ status: 404 })
+    })
+
+    it('lists without a customer filter without a scope lookup', async () => {
+      const em = createFakeEm()
+
+      await opts.hooks!.beforeList!({ page: 1, pageSize: 50 }, scopedCtx(em, [ORG_A]))
+
+      expect(em.execute).not.toHaveBeenCalled()
     })
   })
 })

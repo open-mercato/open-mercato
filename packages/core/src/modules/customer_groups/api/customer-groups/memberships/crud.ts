@@ -2,12 +2,13 @@ import { z } from 'zod'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { CrudHttpError, badRequest, conflict } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, badRequest, conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
 import { CustomerGroup, CustomerGroupMembership } from '../../../data/entities'
 import { emitCustomerGroupsEvent } from '../../../events'
+import { isCustomerInScope } from '../../../lib/customerScope'
 import { isMembershipValidAt } from '../../../services/customerGroupsService'
 import {
   customerGroupMembershipCreateSchema,
@@ -176,6 +177,35 @@ export async function assertMembershipGroupExists(
 type MembershipEventId = 'customer_groups.membership.added' | 'customer_groups.membership.removed'
 type MembershipEventTarget = Pick<CustomerGroupMembership, 'id' | 'tenantId' | 'organizationId' | 'groupId' | 'customerId'>
 
+// See `lib/customerScope.ts`: the customer a membership names must be visible in the
+// caller's organization scope. A new customer reference that is out of scope reads as
+// "does not exist" (400, like an unknown group); an existing membership whose customer
+// is out of scope reads as 404, so neither reveals that the customer exists elsewhere.
+export async function assertMembershipCustomerInScope(
+  em: EntityManager,
+  ctx: CrudCtx,
+  customerId: string,
+  translate: (key: string, fallback?: string) => string,
+): Promise<void> {
+  const { tenantId } = scopeFromContext(ctx)
+  if (await isCustomerInScope(em, customerId, { tenantId, organizationIds: ctx.organizationIds })) return
+  throw badRequest(
+    translate('customer_groups.errors.membershipCustomerNotFound', 'The selected customer does not exist.'),
+  )
+}
+
+async function assertExistingMembershipInScope(
+  em: EntityManager,
+  ctx: CrudCtx,
+  membership: CustomerGroupMembership | null,
+  translate: (key: string, fallback?: string) => string,
+): Promise<void> {
+  if (!membership) return
+  const { tenantId } = scopeFromContext(ctx)
+  if (await isCustomerInScope(em, membership.customerId, { tenantId, organizationIds: ctx.organizationIds })) return
+  throw notFound(translate('customer_groups.errors.membershipNotFound', 'Customer group membership not found.'))
+}
+
 // Spec §10: `membership.added` / `.removed` MUST fire so buyer-context and price caches
 // keyed on the customer are invalidated. The declared ids are not the factory's
 // `created`/`deleted` shape, so they are emitted from the hooks instead of `events:`.
@@ -318,12 +348,21 @@ export const customerGroupMembershipCrud = makeCrudRoute<
   },
   del: { idFrom: 'query', softDelete: true, response: () => ({ ok: true }) },
   hooks: {
+    beforeList: async (query, ctx) => {
+      if (!query.customerId) return
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const { tenantId } = scopeFromContext(ctx)
+      if (await isCustomerInScope(em, query.customerId, { tenantId, organizationIds: ctx.organizationIds })) return
+      const { translate } = await resolveTranslations()
+      throw notFound(translate('customer_groups.errors.customerNotFound', 'Customer not found.'))
+    },
     beforeCreate: async (input, ctx) => {
       const scope = scopeFromContext(ctx)
       const result = customerGroupMembershipCreateSchema.safeParse({ ...input, ...scope })
       if (!result.success) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const { translate } = await resolveTranslations()
+      await assertMembershipCustomerInScope(em, ctx, result.data.customerId, translate)
       await assertMembershipGroupExists(em, scope, result.data.groupId, translate)
       await assertMembershipUnique(em, scope, result.data.groupId, result.data.customerId, null, translate)
     },
@@ -335,7 +374,6 @@ export const customerGroupMembershipCrud = makeCrudRoute<
       const result = customerGroupMembershipUpdateSchema.safeParse({ ...input, ...scope })
       if (!result.success) return
       const parsed = result.data
-      if (parsed.groupId === undefined && parsed.customerId === undefined) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const existing = await em.findOne(CustomerGroupMembership, {
         id: parsed.id,
@@ -343,9 +381,14 @@ export const customerGroupMembershipCrud = makeCrudRoute<
         deletedAt: null,
       })
       if (!existing) return
+      const { translate } = await resolveTranslations()
+      await assertExistingMembershipInScope(em, ctx, existing, translate)
+      if (parsed.groupId === undefined && parsed.customerId === undefined) return
       const nextGroupId = parsed.groupId ?? existing.groupId
       const nextCustomerId = parsed.customerId ?? existing.customerId
-      const { translate } = await resolveTranslations()
+      if (parsed.customerId !== undefined && parsed.customerId !== existing.customerId) {
+        await assertMembershipCustomerInScope(em, ctx, parsed.customerId, translate)
+      }
       if (parsed.groupId !== undefined && parsed.groupId !== existing.groupId) {
         await assertMembershipGroupExists(em, scope, parsed.groupId, translate)
       }
@@ -359,6 +402,14 @@ export const customerGroupMembershipCrud = makeCrudRoute<
       for (const event of membershipUpdateEvents(before, membership, new Date())) {
         await emitMembershipEvent(event.eventId, event.membership)
       }
+    },
+    beforeDelete: async (id, ctx) => {
+      const scope = scopeFromContext(ctx)
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const existing = await em.findOne(CustomerGroupMembership, { id, tenantId: scope.tenantId, deletedAt: null })
+      if (!existing) return
+      const { translate } = await resolveTranslations()
+      await assertExistingMembershipInScope(em, ctx, existing, translate)
     },
     afterDelete: async (id, ctx) => {
       const scope = scopeFromContext(ctx)

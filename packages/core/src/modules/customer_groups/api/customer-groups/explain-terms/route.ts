@@ -4,11 +4,13 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { CustomerGroup } from '../../../data/entities'
+import { isCustomerInScope, organizationIdsFromScope } from '../../../lib/customerScope'
 import {
   loadCustomerGroupAncestorChain,
   type CustomerGroupsService,
@@ -97,6 +99,14 @@ export async function GET(req: Request) {
     const em = container.resolve<EntityManager>('em')
     const customerGroupsService = container.resolve<CustomerGroupsService>('customerGroupsService')
 
+    // Resolved terms reveal a customer's commercial conditions, so the customer must be
+    // visible in the caller's organization scope (see `lib/customerScope.ts`).
+    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+    const organizationIds = organizationIdsFromScope(scope, scope?.selectedId ?? auth.orgId ?? null)
+    if (!(await isCustomerInScope(em, customerId, { tenantId, organizationIds }))) {
+      throw notFound(translate('customer_groups.errors.customerNotFound', 'Customer not found.'))
+    }
+
     const groupResolution = await customerGroupsService.resolveGroups({ customerId, tenantId })
     const resolvedTerms: ResolvedTerms = await customerGroupsService.resolveTerms({
       customerId,
@@ -176,6 +186,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Tenant context is required or customerId is invalid', schema: explainTermsErrorSchema },
         { status: 401, description: 'Unauthorized', schema: explainTermsErrorSchema },
+        { status: 404, description: 'Customer not found in the caller organization scope', schema: explainTermsErrorSchema },
         { status: 500, description: 'Unexpected failure', schema: explainTermsErrorSchema },
       ],
     },
