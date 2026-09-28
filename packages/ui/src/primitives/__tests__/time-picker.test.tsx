@@ -401,18 +401,37 @@ describe('TimePicker scrolls the selected slot into view', () => {
     return element.getAttribute('data-slot') === 'time-picker-slots'
   }
 
+  const ENTER_ANIMATION_SCALE = 0.95
+
+  function slotIndexIn(element: HTMLElement) {
+    const list = element.closest('[data-slot="time-picker-slots"]')
+    if (element.getAttribute('data-slot') !== 'time-picker-slot' || !list) return -1
+    return Array.from(list.querySelectorAll('[data-slot="time-picker-slot"]')).indexOf(element)
+  }
+
   beforeEach(() => {
+    const offsetTopSpy = jest
+      .spyOn(HTMLElement.prototype, 'offsetTop', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        return Math.max(0, slotIndexIn(this)) * SLOT_HEIGHT
+      })
+    const offsetHeightSpy = jest
+      .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        return slotIndexIn(this) === -1 ? 0 : SLOT_HEIGHT
+      })
     const rectSpy = jest
       .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
       .mockImplementation(function (this: HTMLElement) {
-        if (isSlotList(this)) return { top: 0, height: LIST_HEIGHT } as DOMRect
-        const list = this.closest('[data-slot="time-picker-slots"]')
-        if (this.getAttribute('data-slot') === 'time-picker-slot' && list) {
-          const index = Array.from(list.querySelectorAll('[data-slot="time-picker-slot"]')).indexOf(this)
-          const offset = index * SLOT_HEIGHT - (scrollTops.get(list) ?? 0)
-          return { top: offset, height: SLOT_HEIGHT } as DOMRect
-        }
-        return { top: 0, height: 0 } as DOMRect
+        if (isSlotList(this)) return { top: 0, height: LIST_HEIGHT * ENTER_ANIMATION_SCALE } as DOMRect
+        const index = slotIndexIn(this)
+        if (index === -1) return { top: 0, height: 0 } as DOMRect
+        const list = this.closest('[data-slot="time-picker-slots"]') as Element
+        const layoutTop = index * SLOT_HEIGHT - (scrollTops.get(list) ?? 0)
+        return {
+          top: layoutTop * ENTER_ANIMATION_SCALE,
+          height: SLOT_HEIGHT * ENTER_ANIMATION_SCALE,
+        } as DOMRect
       })
     const heightSpy = jest
       .spyOn(HTMLElement.prototype, 'clientHeight', 'get')
@@ -430,6 +449,8 @@ describe('TimePicker scrolls the selected slot into view', () => {
       },
     })
     restores.push(() => {
+      offsetTopSpy.mockRestore()
+      offsetHeightSpy.mockRestore()
       rectSpy.mockRestore()
       heightSpy.mockRestore()
       if (originalScrollTop) Object.defineProperty(Element.prototype, 'scrollTop', originalScrollTop)
@@ -463,6 +484,39 @@ describe('TimePicker scrolls the selected slot into view', () => {
     const list = slotListIn(document)
     expect(list.querySelectorAll('[data-slot="time-picker-slot"]')).toHaveLength(96)
     expect(list.scrollTop).toBe(centredScrollTop(40))
+  })
+
+  it('centres the last slot of the day while the popover enter animation scales the content', () => {
+    renderWithI18n(
+      <TimePicker
+        value="23:45"
+        onChange={() => {}}
+        startTime="00:00"
+        endTime="23:45"
+        intervalMinutes={15}
+        trigger={<button type="button">open</button>}
+        defaultOpen
+      />,
+    )
+    const list = slotListIn(document)
+    expect(list.querySelectorAll('[data-slot="time-picker-slot"]')).toHaveLength(96)
+    expect(list.scrollTop).toBe(centredScrollTop(95))
+  })
+
+  it('keeps the user scroll position when the parent re-renders with a new inline slots array', () => {
+    const renderPicker = () => (
+      <TimePicker
+        value="10:00"
+        onChange={() => {}}
+        slots={Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, '0')}:00`)}
+      />
+    )
+    const { container, rerender } = renderWithI18n(renderPicker())
+    const list = slotListIn(container)
+    expect(list.scrollTop).toBe(centredScrollTop(10))
+    list.scrollTop = 0
+    rerender(renderPicker())
+    expect(list.scrollTop).toBe(0)
   })
 
   it('keeps the list at the top when no value is set', () => {
