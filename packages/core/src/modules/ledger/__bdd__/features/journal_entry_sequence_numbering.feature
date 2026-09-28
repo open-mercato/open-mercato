@@ -15,7 +15,7 @@ Feature: Journal entry sequence numbering
     When I attempt to post an unbalanced entry for that organization, and then post a balanced one
     Then the balanced entry is recorded with sequence number 2, not 3
 
-  Scenario: Two organizations under the same tenant number their entries independently
+  Scenario: Two organizations under the same tenant each number their entries independently
     Given organization A and organization B belong to the same tenant, and neither has posted any entries yet
     When I post a balanced journal entry for organization A
     And I post a balanced journal entry for organization B

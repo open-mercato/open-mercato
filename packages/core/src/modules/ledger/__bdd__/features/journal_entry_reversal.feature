@@ -7,7 +7,7 @@ Feature: Reversing a posted journal entry
   when the original entry's own period has since been locked, without
   ever mutating or deleting the original
 
-  Scenario: Reversing an entry whose original period is now locked, into a still-open period
+  Scenario: Reversing an entry into a still-open period succeeds, even though its original period is now locked
     Given a journal entry was posted for "100.00" from "cash" to "revenue", now in a locked period
     And a fiscal period from "2026-05-01" to "2026-05-31" that is open
     When I reverse that entry with operation date "2026-05-15"
