@@ -202,6 +202,7 @@ type AssignmentsEditorProps = {
 }
 
 export function AttachmentAssignmentsEditor({ value, onChange, labels, disabled }: AssignmentsEditorProps) {
+  const fieldIdPrefix = React.useId()
   const handleChange = React.useCallback(
     (index: number, patch: Partial<AssignmentDraft>) => {
       onChange(value.map((entry, idx) => (idx === index ? { ...entry, ...patch } : entry)))
@@ -234,8 +235,9 @@ export function AttachmentAssignmentsEditor({ value, onChange, labels, disabled 
             <div key={index} className="rounded border p-3 space-y-2">
               <div className="grid gap-2 sm:grid-cols-2">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">{labels.type}</label>
+                  <label htmlFor={`${fieldIdPrefix}-${index}-type`} className="text-xs font-medium">{labels.type}</label>
                   <input
+                    id={`${fieldIdPrefix}-${index}-type`}
                     className="w-full rounded border px-2 py-1 text-sm"
                     value={entry.type}
                     disabled={disabled}
@@ -243,8 +245,9 @@ export function AttachmentAssignmentsEditor({ value, onChange, labels, disabled 
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">{labels.id}</label>
+                  <label htmlFor={`${fieldIdPrefix}-${index}-id`} className="text-xs font-medium">{labels.id}</label>
                   <input
+                    id={`${fieldIdPrefix}-${index}-id`}
                     className="w-full rounded border px-2 py-1 text-sm"
                     value={entry.id}
                     disabled={disabled}
@@ -254,8 +257,9 @@ export function AttachmentAssignmentsEditor({ value, onChange, labels, disabled 
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium">{labels.href}</label>
+                  <label htmlFor={`${fieldIdPrefix}-${index}-href`} className="text-xs font-medium">{labels.href}</label>
                   <input
+                    id={`${fieldIdPrefix}-${index}-href`}
                     className="w-full rounded border px-2 py-1 text-sm"
                     value={entry.href ?? ''}
                     disabled={disabled}
@@ -264,8 +268,9 @@ export function AttachmentAssignmentsEditor({ value, onChange, labels, disabled 
                 </div>
                 {labels.label ? (
                   <div className="space-y-1">
-                    <label className="text-xs font-medium">{labels.label}</label>
+                    <label htmlFor={`${fieldIdPrefix}-${index}-label`} className="text-xs font-medium">{labels.label}</label>
                     <input
+                      id={`${fieldIdPrefix}-${index}-label`}
                       className="w-full rounded border px-2 py-1 text-sm"
                       value={entry.label ?? ''}
                       disabled={disabled}
