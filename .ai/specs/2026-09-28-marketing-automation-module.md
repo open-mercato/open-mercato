@@ -775,6 +775,21 @@ eight-way concurrent worker and is now backed by a partial unique index on the a
 
 ## Changelog
 
+- **2026-09-29** — Backlog B-18: inbound hooks. A signed, revocable URL per hook starts one campaign from
+  outside the platform; the receiver emits `marketing_automation.inbound.received` and the existing
+  subscriber path applies the audience, the re-entry policy, the per-subject budget and the
+  payload-derived duplicate guard, so nothing about dispatch is duplicated. Decisions: its own signer
+  rather than the tracking claim shape, because a hook has no run and a hook id in the run slot would
+  verify and mean nothing; the token is derived from the row rather than stored, so the URL can always be
+  shown again while a database copy alone is useless; revocation is a column checked on receipt; and the
+  endpoint answers 202 to every caller that got past the signature, because reporting whether an address
+  matched would make a leaked URL an address-existence oracle — the outcome is recorded on the hook and
+  shown only behind a login. **Not built on the `webhooks` module:** its inbound machinery exists to verify
+  a third party's signing scheme through a provider adapter, while here we issue the URL ourselves, and
+  routing through it would have required an operator to create an endpoint there and select our adapter
+  before any campaign could fire. 609 unit tests, 100 integration tests, including one that posts to a real
+  hook and waits for the run to appear.
+
 - **2026-09-29** — Backlog B-08: product recommendations, plus the module's first settings screen.
   `{{recommendations}}` in an email body renders products chosen by co-purchase affinity — ranked by
   DISTINCT co-purchasing customers rather than line counts, so one enthusiast cannot outvote a pattern —

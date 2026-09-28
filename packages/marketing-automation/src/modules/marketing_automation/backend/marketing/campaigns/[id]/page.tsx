@@ -913,9 +913,23 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
             ) : null}
 
             {!audienceSelected && !selectedStep && !selectedScheduleTrigger && selectedNodeId ? (
-              <Button variant="outline" onClick={() => removeNode(selectedNodeId)}>
-                {t('marketing_automation.action.removeNode', 'Remove')}
-              </Button>
+              <div className="space-y-2">
+                {/* An event trigger needs no parameters — except this one, which needs a URL that lives on
+                    another screen. Saying so here is the difference between a trigger that works and one an
+                    author enables and then waits for. */}
+                {selectedTrigger?.kind === 'event' && selectedTrigger.eventId === 'marketing_automation.inbound.received' ? (
+                  <div className="text-xs text-muted-foreground">
+                    {t('marketing_automation.hooks.triggerHint', 'This campaign starts when something posts to one of its inbound hooks. Create one under Inbound hooks.')}
+                    {' '}
+                    <a className="underline" href="/backend/marketing/inbound-hooks">
+                      {t('marketing_automation.hooks.title', 'Inbound hooks')}
+                    </a>
+                  </div>
+                ) : null}
+                <Button variant="outline" onClick={() => removeNode(selectedNodeId)}>
+                  {t('marketing_automation.action.removeNode', 'Remove')}
+                </Button>
+              </div>
             ) : null}
 
             {!selectedNodeId ? (

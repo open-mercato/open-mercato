@@ -128,3 +128,19 @@ export const contentBlockUpdateSchema = z.object({
 
 export type ContentBlockCreateInput = z.infer<typeof contentBlockCreateSchema>
 export type ContentBlockUpdateInput = z.infer<typeof contentBlockUpdateSchema>
+
+/**
+ * An inbound hook. The campaign is fixed at creation: a hook that could be pointed at another campaign
+ * would silently redirect an integration somebody else built, from a screen they never see.
+ */
+export const inboundHookCreateSchema = z.object({
+  campaignId: z.string().uuid(),
+  name: z.string().trim().min(1).max(120),
+})
+
+export const inboundHookUpdateSchema = z.object({
+  updatedAt: z.string().min(1).optional(),
+  name: z.string().trim().min(1).max(120).optional(),
+  /** The only state change a hook has: withdrawn, or back in service. */
+  revoked: z.boolean().optional(),
+})

@@ -189,6 +189,33 @@ const abandonedCart: TriggerCatalogEntry = {
   },
 }
 
+/**
+ * Something outside the platform asked for this campaign.
+ *
+ * The subject is resolved by the endpoint, not here: identifying a customer from an email address needs a
+ * decrypting scan, which belongs at the edge where it can be bounded and reported, not in a trigger
+ * builder that runs inside the dispatcher.
+ *
+ * The posted fields are exposed under `trigger.*`, so an audience can compare them and copy can print
+ * them — which is the whole reason for accepting a body at all.
+ */
+const inboundReceived: TriggerCatalogEntry = {
+  eventId: 'marketing_automation.inbound.received',
+  labelKey: 'marketing_automation.trigger.marketing_automation.inbound.received.label',
+  available: true,
+  contextKeys: ['trigger.hookName'],
+  async build(payload) {
+    const data = payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)
+      ? (payload.data as Record<string, unknown>)
+      : {}
+    return {
+      subjectEntityId: readString(payload.entityId),
+      // `hookName` last so a posted field of that name cannot shadow which hook this was.
+      trigger: { ...data, hookName: readString(payload.hookName) },
+    }
+  },
+}
+
 export const TRIGGER_CATALOG: TriggerCatalogEntry[] = [
   personCreated,
   tagAssigned,
@@ -196,6 +223,7 @@ export const TRIGGER_CATALOG: TriggerCatalogEntry[] = [
   scoreChanged,
   expiringQuote,
   fulfilledOrder,
+  inboundReceived,
   abandonedCart,
 ]
 

@@ -701,3 +701,62 @@ export class MarketingContentBlock {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 }
+
+/**
+ * A signed URL that lets something outside the platform start one campaign.
+ *
+ * The TOKEN is not stored — it is an HMAC over this row's id, so the URL can always be shown again and a
+ * copy of the database yields nothing usable without the secret. Revocation is a column, checked on every
+ * receipt, which is the part a derived token cannot do on its own.
+ */
+@Entity({ tableName: 'marketing_inbound_hooks' })
+@Index({ name: 'mkt_inbound_hooks_scope_idx', properties: ['tenantId', 'organizationId', 'deletedAt'] })
+@Index({ name: 'mkt_inbound_hooks_campaign_idx', properties: ['tenantId', 'organizationId', 'campaignId'] })
+export class MarketingInboundHook {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'receivedCount'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  /** The campaign this hook enrols into. A hook without one could not do anything. */
+  @Property({ name: 'campaign_id', type: 'uuid' })
+  campaignId!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  /** Set to stop accepting posts without losing the record of what the hook did. */
+  @Property({ name: 'revoked_at', type: Date, nullable: true })
+  revokedAt?: Date | null
+
+  /** Two counters, because "it is configured" and "it is being used" are different questions. */
+  @Property({ name: 'received_count', type: 'int', default: 0 })
+  receivedCount!: number
+
+  @Property({ name: 'last_received_at', type: Date, nullable: true })
+  lastReceivedAt?: Date | null
+
+  /**
+   * Why the last post did not identify anybody, for the admin screen.
+   *
+   * The endpoint itself answers the same thing to every caller — a public URL must not become an
+   * address-existence oracle — so this column is where an integrator's debugging actually happens.
+   */
+  @Property({ name: 'last_outcome', type: 'text', nullable: true })
+  lastOutcome?: string | null
+
+  @Property({ name: 'created_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
+  createdAt!: Date
+
+  @Property({ name: 'updated_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt!: Date
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}

@@ -12,6 +12,9 @@ const events = [
   // Customer state the module itself maintains, and which a campaign may react to
   { id: 'marketing_automation.customer.score_changed', label: 'Customer Score Changed', entity: 'customer_score', category: 'lifecycle' },
 
+  // Something outside the platform asking a campaign to run
+  { id: 'marketing_automation.inbound.received', label: 'Inbound Hook Received', entity: 'inbound_hook', category: 'lifecycle' },
+
   // Dispatch lifecycle
   { id: 'marketing_automation.dispatch.skipped', label: 'Dispatch Skipped', entity: 'campaign', category: 'lifecycle' },
   { id: 'marketing_automation.action.executed', label: 'Campaign Action Executed', entity: 'campaign_action', category: 'lifecycle' },

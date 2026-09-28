@@ -1,0 +1,153 @@
+import { NextResponse } from 'next/server'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { reportError } from '@open-mercato/telemetry'
+import { findPeopleByAddresses } from '@open-mercato/core/modules/customers/lib/findPeopleByAddresses'
+import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
+import { MarketingInboundHook } from '../../data/entities.js'
+import { emitMarketingAutomationEvent } from '../../events.js'
+import { resolveTrackingSecret } from '../../lib/tracking/secret.js'
+import {
+  INBOUND_TOKEN_PARAM,
+  MAX_INBOUND_BODY_BYTES,
+  readInboundPayload,
+  verifyInboundToken,
+} from '../../lib/inbound.js'
+
+/**
+ * The inbound hook receiver.
+ *
+ * PUBLIC, authorised solely by the signed token in the query string — the caller is somebody else's
+ * system, which has no session here. The token names a hook row; the hook names the campaign.
+ *
+ * **It answers the same thing to every caller that got past the signature.** Reporting whether the posted
+ * address matched a customer would turn a leaked URL into an address-existence oracle for the shop's whole
+ * customer list. What happened is recorded on the hook instead, where the admin screen shows it to somebody
+ * who is logged in — that is where an integrator debugs.
+ */
+const routeMetadata = {
+  POST: { requireAuth: false },
+}
+
+export const metadata = routeMetadata
+
+const logger = createLogger('marketing_automation')
+
+/** One answer, whatever happened after the signature verified. */
+const ACCEPTED = { accepted: true } as const
+
+export async function POST(req: Request) {
+  const token = new URL(req.url).searchParams.get(INBOUND_TOKEN_PARAM)
+  const secret = resolveTrackingSecret()
+  if (!token || !secret) return NextResponse.json({ error: 'Invalid hook' }, { status: 400 })
+
+  const claims = verifyInboundToken(token, secret)
+  if (!claims) return NextResponse.json({ error: 'Invalid hook' }, { status: 400 })
+
+  const raw = await req.text()
+  if (Buffer.byteLength(raw, 'utf8') > MAX_INBOUND_BODY_BYTES) {
+    // Refused rather than truncated: half a payload silently becomes a campaign acting on half the facts.
+    return NextResponse.json({ error: 'Payload too large' }, { status: 413 })
+  }
+
+  let parsedBody: unknown = {}
+  if (raw.trim().length > 0) {
+    try {
+      parsedBody = JSON.parse(raw)
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+    }
+  }
+  const payload = readInboundPayload(parsedBody)
+  if (!payload) return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+
+  try {
+    const container = await createRequestContainer()
+    const em = container.resolve<EntityManager>('em')
+    const scope = { tenantId: claims.tenantId, organizationId: claims.organizationId }
+
+    const hook = await em.findOne(MarketingInboundHook, { id: claims.hookId, ...scope, deletedAt: null })
+    // A revoked hook answers exactly like an unknown one: a caller whose URL was withdrawn learns only
+    // that it no longer works, which is all they are owed.
+    if (!hook || hook.revokedAt) return NextResponse.json({ error: 'Invalid hook' }, { status: 400 })
+
+    const subjectEntityId = await resolveSubject(em, scope, payload.customerId, payload.email)
+
+    hook.receivedCount += 1
+    hook.lastReceivedAt = new Date()
+    hook.lastOutcome = subjectEntityId
+      ? 'identified'
+      : payload.customerId || payload.email
+        ? 'no matching customer'
+        : 'no customerId or email in the payload'
+    await em.flush()
+
+    if (!subjectEntityId) return NextResponse.json(ACCEPTED, { status: 202 })
+
+    /**
+     * Emitted rather than enrolled here.
+     *
+     * The subscriber path already applies the audience, the re-entry policy, the per-subject budget and
+     * the duplicate guard keyed on this payload — so a redelivery of the same body inside the occurrence
+     * window cannot start a second run, for free.
+     */
+    await emitMarketingAutomationEvent('marketing_automation.inbound.received', {
+      entityId: subjectEntityId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      hookId: hook.id,
+      hookName: hook.name,
+      campaignId: hook.campaignId,
+      data: payload.data,
+    }, { persistent: true })
+
+    return NextResponse.json(ACCEPTED, { status: 202 })
+  } catch (error) {
+    logger.error('[internal] marketing inbound hook failed', {
+      hookId: claims.hookId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    reportError(error, { module: 'marketing_automation', code: 'marketing_automation.inbound_failed' })
+    return NextResponse.json({ error: 'Could not accept the hook' }, { status: 500 })
+  }
+}
+
+/**
+ * Who the post is about.
+ *
+ * A `customerId` is checked against the tenant before it is trusted — it arrived over a public endpoint,
+ * and a uuid from one tenant must not enrol anybody in another. An address is resolved through the
+ * customers module's own helper, which handles the encrypted-column case that a `where primary_email = ?`
+ * silently fails at.
+ */
+async function resolveSubject(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+  customerId: string | undefined,
+  email: string | undefined,
+): Promise<string | null> {
+  if (customerId) {
+    const found = await em.findOne(CustomerEntity, { id: customerId, ...scope, deletedAt: null })
+    if (found) return found.id
+  }
+  if (email) {
+    const matches = await findPeopleByAddresses(em, [email], scope.tenantId, scope.organizationId)
+    if (matches.length > 0) return matches[0].id
+  }
+  return null
+}
+
+export const openApi = {
+  POST: {
+    summary: 'Start a campaign from outside the platform',
+    description:
+      'Public, authorised by the signed token in the `t` query parameter. Identify the customer with `customerId` or `email`; every other field is exposed to the campaign as `trigger.*`. Always answers 202 once the signature verifies, so the endpoint cannot be used to probe which addresses exist — what happened is shown on the hook in the admin UI.',
+    tags: ['Marketing Automation'],
+    responses: {
+      202: { description: 'Accepted' },
+      400: { description: 'Unusable token, revoked hook, or malformed body' },
+      413: { description: 'Body larger than the accepted limit' },
+    },
+  },
+}

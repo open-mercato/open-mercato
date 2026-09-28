@@ -137,6 +137,12 @@ its own. Spec:
   which lane a subject takes is decided by the engine, not by an edge somebody drew — an author who
   can draw an edge has been promised a topology it cannot run. Edges are derived; order lives in the
   definition arrays.
+- Never sign an inbound hook token with the tracking claim shape. A run-shaped claim set with a hook id in
+  the run slot verifies perfectly and means nothing; `lib/inbound.ts` has its own key label so a click URL
+  from an email cannot be replayed as a hook post, and a test asserts exactly that.
+- Never let the inbound endpoint report whether an address matched a customer. A leaked hook URL would then
+  be an address-existence oracle over the whole customer list; the outcome goes on the hook row, where the
+  admin screen shows it to somebody who is logged in.
 - Never print a price from an order line's catalogue snapshot. It records what somebody else paid when they
   paid it; offering it back is a price the shop may no longer honour.
 - Never recommend a product the customer already owns from the generic ranker. Repeat purchases are the
@@ -203,7 +209,8 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | periodic candidate sources and their claims | `lib/sweep-sources.ts` |
 | duplicate-delivery guard and its window | `lib/occurrence.ts`, `lib/runs.ts` → `createRun` |
 | signed tracking tokens, link rewriting | `lib/tracking/` (`token.ts`, `rewrite.ts`, `urls.ts`) |
-| the only PUBLIC routes in the module | `api/track/open`, `api/track/click` |
+| the only PUBLIC routes in the module | `api/track/open`, `api/track/click`, `api/unsubscribe`, `api/survey`, `api/inbound` |
+| signed inbound hook URLs and their payload split | `lib/inbound.ts`, `api/inbound-hooks/` |
 | enrolment shared by events and sweeps | `lib/dispatcher.ts` → `startCampaignForSubject` |
 | trigger context hydration | `lib/trigger-catalog.ts` |
 | a step handler with a channel | `steps/send-email.ts` |
