@@ -128,6 +128,33 @@ const expiringQuote: TriggerCatalogEntry = {
 }
 
 /**
+ * The module's own score change, which a campaign may react to.
+ *
+ * Deliberately NOT a "threshold crossed" trigger with a configured threshold. The payload carries the
+ * previous total alongside the new one, so an audience expresses the crossing itself —
+ * `trigger.previousPoints < 100 AND score.points >= 100` — which fires once, needs no configuration,
+ * and lets one installation have as many thresholds as it likes.
+ */
+export const SCORE_CHANGED_TRIGGER_ID = 'marketing_automation.customer.score_changed'
+
+const scoreChanged: TriggerCatalogEntry = {
+  eventId: SCORE_CHANGED_TRIGGER_ID,
+  labelKey: 'marketing_automation.trigger.marketing_automation.customer.score_changed.label',
+  available: true,
+  contextKeys: ['trigger.points', 'trigger.previousPoints', 'trigger.delta'],
+  async build(payload) {
+    return {
+      subjectEntityId: readString(payload.entityId),
+      trigger: {
+        points: typeof payload.points === 'number' ? payload.points : null,
+        previousPoints: typeof payload.previousPoints === 'number' ? payload.previousPoints : null,
+        delta: typeof payload.delta === 'number' ? payload.delta : null,
+      },
+    }
+  },
+}
+
+/**
  * Abandoned cart, recorded as deliberately unavailable.
  *
  * There is no cart entity in the platform — `sales_*` holds submitted documents and
@@ -150,6 +177,7 @@ export const TRIGGER_CATALOG: TriggerCatalogEntry[] = [
   personCreated,
   tagAssigned,
   orderCreated,
+  scoreChanged,
   expiringQuote,
   abandonedCart,
 ]

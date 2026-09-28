@@ -12,6 +12,7 @@ const group = (operator: 'AND' | 'OR' | 'NOT', rules: ConditionExpression[]): Co
 function fakeSource(data: {
   tags?: Record<string, string[]>
   orders?: Record<string, string[]>
+  scores?: Record<string, string[]>
 }): CandidateSource & { calls: string[] } {
   const calls: string[] = []
   return {
@@ -25,6 +26,11 @@ function fakeSource(data: {
       const key = `${metric}${op}${value}`
       calls.push(`orders:${key}`)
       return data.orders?.[key] ?? []
+    },
+    async scoreMembers(op: ComparisonOp, value: number) {
+      const key = `${op}${value}`
+      calls.push(`score:${key}`)
+      return data.scores?.[key] ?? []
     },
   }
 }
@@ -133,6 +139,22 @@ describe('resolveCandidates', () => {
     expect(result.abandoned).toBe(true)
   })
 
+  test('a score predicate resolves through the ledger', async () => {
+    const source = fakeSource({ scores: { '>=100': ['c7', 'c1'] } })
+    const plan = planNarrowing(leaf('score.points', '>=', 100))
+    expect((await resolveCandidates(plan.narrowing, source)).ids).toEqual(['c1', 'c7'])
+    expect(source.calls).toEqual(['score:>=100'])
+  })
+
+  test('a score predicate intersects with a tag one', async () => {
+    const source = fakeSource({ tags: { vip: ['c1', 'c2'] }, scores: { '>=50': ['c2', 'c3'] } })
+    const plan = planNarrowing(group('AND', [
+      leaf('tags', 'CONTAINS', 'vip'),
+      leaf('score.points', '>=', 50),
+    ]))
+    expect((await resolveCandidates(plan.narrowing, source)).ids).toEqual(['c2'])
+  })
+
   test('the default cap is high enough to be a safety net, not a policy', () => {
     expect(MAX_CANDIDATE_SET).toBeGreaterThanOrEqual(100_000)
   })
@@ -188,6 +210,16 @@ describe('createSqlCandidateSource', () => {
     await createSqlCandidateSource(em, scope, now).orderMetricMembers('totalGross', '>', 99.5)
     expect(executed[0].sql).toContain('coalesce(sum(grand_total_gross_amount), 0) > ?')
     expect(executed[0].params).toEqual(['t1', 'o1', 99.5])
+  })
+
+  test('a score comparison sums the ledger, scoped, with the operator from the fixed table', async () => {
+    const { em, executed } = fakeEm([{ subject_entity_id: 'c1' }])
+    expect(await createSqlCandidateSource(em, scope, now).scoreMembers('>=', 100)).toEqual(['c1'])
+    const { sql, params } = executed[0]
+    expect(sql).toContain('from marketing_customer_score_entries')
+    expect(sql).toContain('group by subject_entity_id')
+    expect(sql).toContain('having coalesce(sum(points), 0) >= ?')
+    expect(params).toEqual(['t1', 'o1', 100])
   })
 
   test('recency becomes a widened bound on the newest order', async () => {

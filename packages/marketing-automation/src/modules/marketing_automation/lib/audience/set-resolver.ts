@@ -17,6 +17,8 @@ export type CandidateSource = {
   /** Subject ids carrying this tag slug, or carrying any tag when `slug` is null. */
   tagMembers(slug: string | null): Promise<string[]>
   orderMetricMembers(metric: OrderMetric, op: ComparisonOp, value: number): Promise<string[]>
+  /** Subject ids whose summed lead score satisfies the comparison. */
+  scoreMembers(op: ComparisonOp, value: number): Promise<string[]>
 }
 
 /**
@@ -48,7 +50,9 @@ async function resolvePredicate(
     ? await source.tagMembers(predicate.slug)
     : predicate.kind === 'hasAnyTag'
       ? await source.tagMembers(null)
-      : await source.orderMetricMembers(predicate.metric, predicate.op, predicate.value)
+      : predicate.kind === 'scorePoints'
+        ? await source.scoreMembers(predicate.op, predicate.value)
+        : await source.orderMetricMembers(predicate.metric, predicate.op, predicate.value)
 
   if (rows.length > state.maxSet) return { ids: null, abandoned: true }
   return { ids: new Set(rows), abandoned: false }
@@ -195,6 +199,18 @@ export function createSqlCandidateSource(
         params,
       )
       return rows.map((row) => row.customer_entity_id).filter(Boolean)
+    },
+
+    async scoreMembers(op: ComparisonOp, value: number): Promise<string[]> {
+      const rows = await em.getConnection().execute<{ subject_entity_id: string }[]>(
+        `select subject_entity_id
+           from marketing_customer_score_entries
+          where tenant_id = ? and organization_id = ?
+          group by subject_entity_id
+         having coalesce(sum(points), 0) ${SQL_COMPARISON[op]} ?`,
+        [scope.tenantId, scope.organizationId, value],
+      )
+      return rows.map((row) => row.subject_entity_id).filter(Boolean)
     },
   }
 }

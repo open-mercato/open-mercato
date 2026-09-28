@@ -395,3 +395,70 @@ export class MarketingMessageSendEvent {
   @Property({ name: 'created_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
   createdAt!: Date
 }
+
+/**
+ * One award or deduction of lead-score points, as a LEDGER rather than a running total.
+ *
+ * A total in a column would have to be incremented, and an increment is the one write that cannot be
+ * made idempotent by retrying it: a step that awards 10 points and is redelivered would award 20.
+ * Entries are keyed by the run and step that produced them, so the second attempt collides instead of
+ * double-counting, and the score is `sum(points)` — the same shape as the order aggregates the
+ * subject document already computes, which means the audience narrowing can push it down for free.
+ *
+ * The ledger also answers "why does this customer have 40 points", which a total never can.
+ */
+@Entity({ tableName: 'marketing_customer_score_entries' })
+@Index({ name: 'mkt_score_subject_idx', properties: ['tenantId', 'organizationId', 'subjectEntityId'] })
+@Index({ name: 'mkt_score_campaign_idx', properties: ['tenantId', 'organizationId', 'campaignId'] })
+/**
+ * One entry per (run, step), enforced by the database.
+ *
+ * Partial, because a manual adjustment has no run and several of them are legitimate; a check in code
+ * could not hold, since two workers handed the same redelivered job would both read "not awarded yet".
+ */
+@Index({
+  name: 'marketing_score_entry_step_uniq',
+  expression:
+    'create unique index "marketing_score_entry_step_uniq" on "marketing_customer_score_entries" ("tenant_id", "organization_id", "run_id", "step_id") where run_id is not null',
+})
+export class MarketingCustomerScoreEntry {
+  [OptionalProps]?: 'occurredAt' | 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'subject_entity_id', type: 'uuid' })
+  subjectEntityId!: string
+
+  /** Signed: a campaign can deduct points as well as award them. */
+  @Property({ type: 'integer' })
+  points!: number
+
+  /** Why, in the author's words. Shown in the customer profile, never interpreted. */
+  @Property({ type: 'text', nullable: true })
+  reason?: string | null
+
+  @Property({ type: 'text' })
+  source!: 'campaign' | 'manual' | 'rule'
+
+  @Property({ name: 'campaign_id', type: 'uuid', nullable: true })
+  campaignId?: string | null
+
+  @Property({ name: 'run_id', type: 'uuid', nullable: true })
+  runId?: string | null
+
+  @Property({ name: 'step_id', type: 'text', nullable: true })
+  stepId?: string | null
+
+  @Property({ name: 'occurred_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
+  occurredAt!: Date
+
+  @Property({ name: 'created_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
+  createdAt!: Date
+}

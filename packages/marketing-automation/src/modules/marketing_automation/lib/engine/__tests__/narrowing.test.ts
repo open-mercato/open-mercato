@@ -34,6 +34,19 @@ function satisfiesNarrowing(narrowing: Narrowing, subject: SubjectDocument): boo
       const predicate = narrowing.predicate
       if (predicate.kind === 'hasTag') return subject.tags.includes(predicate.slug)
       if (predicate.kind === 'hasAnyTag') return subject.tags.length > 0
+      if (predicate.kind === 'scorePoints') {
+        // The ledger query can only return customers who HAVE entries, and a customer with no
+        // entries has a total of zero — the same shape as the order aggregate below.
+        if (subject.score.points === 0) return false
+        switch (predicate.op) {
+          case '=': return subject.score.points === predicate.value
+          case '>': return subject.score.points > predicate.value
+          case '>=': return subject.score.points >= predicate.value
+          case '<': return subject.score.points < predicate.value
+          case '<=': return subject.score.points <= predicate.value
+        }
+        return true
+      }
       if (subject.orders.count === 0) return false
       if (predicate.metric === 'daysSinceLast') {
         if (subject.orders.lastPlacedAt === undefined) return false
@@ -61,6 +74,7 @@ function subjectOf(input: {
   count?: number
   totalGross?: number
   daysAgo?: number | null
+  points?: number
 }): SubjectDocument {
   const orders: SubjectDocument['orders'] = {
     count: input.count ?? 0,
@@ -71,7 +85,13 @@ function subjectOf(input: {
     orders.lastPlacedAt = placedAt.toISOString()
     orders.daysSinceLast = Math.max(0, Math.floor((NOW.getTime() - placedAt.getTime()) / MS_PER_DAY))
   }
-  return { customer: { id: 'c1', email: null, displayName: null, createdAt: null }, tags: input.tags ?? [], orders, trigger: {} }
+  return {
+    customer: { id: 'c1', email: null, displayName: null, createdAt: null },
+    tags: input.tags ?? [],
+    orders,
+    score: { points: input.points ?? 0 },
+    trigger: {},
+  }
 }
 
 describe('planNarrowing — what can be pushed', () => {
@@ -129,6 +149,28 @@ describe('planNarrowing — what can be pushed', () => {
     ['orders.totalGross', '>=', 500],
   ])('pushes %s %s %s, which implies an order exists', (field, operator, value) => {
     expect(planNarrowing(leaf(field, operator, value)).narrowing.kind).toBe('predicate')
+  })
+
+  test.each([
+    ['score.points', '>=', 1],
+    ['score.points', '>', 0],
+    ['score.points', '=', 50],
+  ])('pushes %s %s %s', (field, operator, value) => {
+    expect(planNarrowing(leaf(field, operator, value)).narrowing).toEqual({
+      kind: 'predicate',
+      predicate: { kind: 'scorePoints', op: operator === '==' ? '=' : operator, value },
+    })
+  })
+
+  // A customer who never scored has a total of zero, and the ledger has no row for them — the same
+  // trap as the order aggregates, and the same rule.
+  test.each([
+    ['score.points', '<=', 10],
+    ['score.points', '<', 5],
+    ['score.points', '=', 0],
+    ['score.points', '>=', 0],
+  ])('does not push %s %s %s, which a never-scored customer satisfies', (field, operator, value) => {
+    expect(planNarrowing(leaf(field, operator, value)).narrowing.kind).toBe('all')
   })
 
   test('a field the database cannot answer is left to the per-subject check', () => {
@@ -256,13 +298,21 @@ describe('the narrowing never excludes a subject the audience accepts', () => {
       leaf('orders.count', '>=', 1),
       group('OR', [leaf('tags', 'CONTAINS', 'vip'), leaf('orders.daysSinceLast', '<=', 7)]),
     ])],
+    ['scored at all', leaf('score.points', '>=', 1)],
+    ['hot lead', leaf('score.points', '>=', 100)],
+    ['cold lead', leaf('score.points', '<=', 10)],
+    ['never scored', leaf('score.points', '=', 0)],
+    ['negative score', leaf('score.points', '<', 0)],
+    ['hot vip', group('AND', [leaf('score.points', '>=', 50), leaf('tags', 'CONTAINS', 'vip')])],
   ]
 
   const subjects: SubjectDocument[] = []
   for (const tags of [[], ['vip'], ['churned'], ['vip', 'churned'], ['wholesale']]) {
     for (const [count, totalGross] of [[0, 0], [1, 0], [1, 99.99], [3, 500], [12, 4200]] as const) {
       for (const daysAgo of count === 0 ? [null] : [0, 1, 7, 30, 44, 45, 46, 60, 89, 90, 91, 400]) {
-        subjects.push(subjectOf({ tags, count, totalGross, daysAgo }))
+        for (const points of [0, 1, 10, 99, 100, 101, -5]) {
+          subjects.push(subjectOf({ tags, count, totalGross, daysAgo, points }))
+        }
       }
     }
   }
@@ -328,5 +378,52 @@ describe('describeNarrowing', () => {
       leaf('tags', 'CONTAINS', 'vip'),
       leaf('orders.daysSinceLast', '>=', 90),
     ])))).toBe('tag:vip&orders.daysSinceLast>=90')
+  })
+})
+
+/**
+ * The crossing semantics the score trigger rests on.
+ *
+ * `score_changed` carries the PREVIOUS total precisely so an author can say "reached 100 points"
+ * rather than "is above 100 points". Without it a campaign would fire again on every later change
+ * while the customer stayed above the threshold, which is the difference between a milestone email
+ * and a nuisance.
+ */
+describe('reaching a score threshold, expressed in an audience', () => {
+  const reachedAHundred = group('AND', [
+    leaf('trigger.previousPoints', '<', 100),
+    leaf('score.points', '>=', 100),
+  ])
+
+  const scoredSubject = (points: number, previousPoints: number): SubjectDocument => ({
+    customer: { id: 'c1', email: null, displayName: null, createdAt: null },
+    tags: [],
+    orders: { count: 0, totalGross: 0 },
+    score: { points },
+    trigger: { points, previousPoints, delta: points - previousPoints },
+  })
+
+  test('fires on the change that crosses the threshold', () => {
+    expect(matchesAudience(reachedAHundred, scoredSubject(105, 95), { now: NOW, logger })).toBe(true)
+  })
+
+  test('does not fire again once the customer is already above it', () => {
+    expect(matchesAudience(reachedAHundred, scoredSubject(130, 105), { now: NOW, logger })).toBe(false)
+  })
+
+  test('does not fire below the threshold', () => {
+    expect(matchesAudience(reachedAHundred, scoredSubject(60, 20), { now: NOW, logger })).toBe(false)
+  })
+
+  test('fires again after a deduction dropped them below and they came back', () => {
+    expect(matchesAudience(reachedAHundred, scoredSubject(100, 80), { now: NOW, logger })).toBe(true)
+  })
+
+  // The narrowing can only push the score half; the previous-total half is per-subject by nature,
+  // so the plan must report itself as a superset rather than exact.
+  test('the narrowing pushes the score half and stays a superset', () => {
+    const plan = planNarrowing(reachedAHundred)
+    expect(plan.pushed).toEqual([{ kind: 'scorePoints', op: '>=', value: 100 }])
+    expect(plan.complete).toBe(false)
   })
 })

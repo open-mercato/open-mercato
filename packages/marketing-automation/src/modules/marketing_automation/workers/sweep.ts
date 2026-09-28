@@ -8,6 +8,8 @@ import { readDefinition, startCampaignForSubject } from '../lib/dispatcher.js'
 import type { DispatchDeps, ReentryPolicy } from '../lib/dispatcher.js'
 import { buildSubjectDocument } from '../lib/subject-document.js'
 import { describeNarrowing, planNarrowing } from '../lib/engine/narrowing.js'
+import { loadTierThresholds } from '../lib/tiers.js'
+import type { TierThreshold } from '../lib/engine/tiers.js'
 import { createSqlCandidateSource, resolveCandidates } from '../lib/audience/set-resolver.js'
 import { EXPIRING_QUOTE_TRIGGER_ID } from '../lib/trigger-catalog.js'
 import { isSweepDue } from '../lib/sweep-interval.js'
@@ -55,9 +57,10 @@ async function startForCandidate(
   policy: ReentryPolicy,
   deps: DispatchDeps,
   scope: JobScope,
+  tierThresholds: TierThreshold[],
 ): Promise<boolean> {
   try {
-    const subject = await buildSubjectDocument(deps.em, subjectEntityId, scope, {}, deps.now)
+    const subject = await buildSubjectDocument(deps.em, subjectEntityId, scope, {}, deps.now, { tierThresholds })
     const outcome = await startCampaignForSubject(
       campaign,
       {
@@ -104,6 +107,7 @@ async function sweepCustomers(
   trigger: MarketingCampaignTrigger,
   deps: DispatchDeps,
   scope: JobScope,
+  tierThresholds: TierThreshold[],
 ): Promise<number> {
   const em = deps.em
   const policy = reentryPolicyFor(trigger)
@@ -132,7 +136,7 @@ async function sweepCustomers(
         { fields: ['id'], orderBy: { id: 'ASC' } },
       )
       for (const candidate of live) {
-        if (await startForCandidate(campaign, candidate.id, policy, deps, scope)) started += 1
+        if (await startForCandidate(campaign, candidate.id, policy, deps, scope, tierThresholds)) started += 1
       }
       em.clear()
     }
@@ -160,7 +164,7 @@ async function sweepCustomers(
     if (!page.length) break
 
     for (const candidate of page) {
-      if (await startForCandidate(campaign, candidate.id, policy, deps, scope)) started += 1
+      if (await startForCandidate(campaign, candidate.id, policy, deps, scope, tierThresholds)) started += 1
     }
 
     if (page.length < PAGE_SIZE) break
@@ -177,6 +181,7 @@ async function sweepExpiringQuotes(
   trigger: MarketingCampaignTrigger,
   deps: DispatchDeps,
   scope: JobScope,
+  tierThresholds: TierThreshold[],
 ): Promise<number> {
   const em = deps.em
   const policy = reentryPolicyFor(trigger)
@@ -214,7 +219,7 @@ async function sweepExpiringQuotes(
         validUntil: quote.validUntil ? new Date(quote.validUntil).toISOString() : null,
         daysUntilExpiry,
       }
-      const subject = await buildSubjectDocument(em, quote.customerEntityId, scope, triggerContext, deps.now)
+      const subject = await buildSubjectDocument(em, quote.customerEntityId, scope, triggerContext, deps.now, { tierThresholds })
       const outcome = await startCampaignForSubject(
         campaign,
         {
@@ -259,6 +264,9 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
   const scheduled = await findScheduledCampaigns(deps.em, scope)
   if (!scheduled.length) return
 
+  // Once per job rather than once per candidate: the ladder is tenant configuration, not per-subject.
+  const tierThresholds = await loadTierThresholds(deps.container, scope)
+
   for (const { campaign, trigger } of scheduled) {
     try {
       // The tick is the clock; the campaign's own interval is the gate.
@@ -271,8 +279,8 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
       )
 
       const started = trigger.sweepSource === 'expiring_quotes'
-        ? await sweepExpiringQuotes(campaign, trigger, deps, scope)
-        : await sweepCustomers(campaign, trigger, deps, scope)
+        ? await sweepExpiringQuotes(campaign, trigger, deps, scope, tierThresholds)
+        : await sweepCustomers(campaign, trigger, deps, scope, tierThresholds)
       logger.info('marketing sweep finished', {
         campaignId: campaign.id,
         source: trigger.sweepSource ?? 'customers',

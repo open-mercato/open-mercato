@@ -28,6 +28,7 @@ export type NarrowingPredicate =
   | { kind: 'hasTag'; slug: string }
   | { kind: 'hasAnyTag' }
   | { kind: 'orderMetric'; metric: OrderMetric; op: ComparisonOp; value: number }
+  | { kind: 'scorePoints'; op: ComparisonOp; value: number }
 
 export type Narrowing =
   /** Every subject is a candidate — the expression said nothing the database can answer. */
@@ -110,6 +111,19 @@ function translateLeaf(leaf: SimpleCondition): LeafTranslation {
     }
     if (operator === 'IS_NOT_EMPTY') return { predicate: { kind: 'hasAnyTag' }, exact: true }
     return null
+  }
+
+  if (field === 'score.points') {
+    if (!NUMERIC_OPS.has(operator)) return null
+    const op = normalizeOp(operator)
+    const value = numericValue(leaf.value)
+    if (!op || value === null) return null
+    // Same trap as the order aggregates: the ledger can only return customers who HAVE entries, and a
+    // customer who never scored has a total of zero, so `score.points <= 5` is true for them and must
+    // not be pushed down.
+    const impliesAnEntry = (op === '=' || op === '>=') ? value >= 1 : op === '>' ? value >= 0 : false
+    if (!impliesAnEntry) return null
+    return { predicate: { kind: 'scorePoints', op, value }, exact: true }
   }
 
   if (field === 'orders.count' || field === 'orders.totalGross' || field === 'orders.daysSinceLast') {
@@ -235,6 +249,7 @@ export function describeNarrowing(plan: NarrowingPlan): string {
     .map((predicate) => {
       if (predicate.kind === 'hasTag') return `tag:${predicate.slug}`
       if (predicate.kind === 'hasAnyTag') return 'tag:*'
+      if (predicate.kind === 'scorePoints') return `score.points${predicate.op}${predicate.value}`
       return `orders.${predicate.metric}${predicate.op}${predicate.value}`
     })
     .join(plan.narrowing.kind === 'or' ? '|' : '&')

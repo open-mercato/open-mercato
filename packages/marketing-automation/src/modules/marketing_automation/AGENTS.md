@@ -27,6 +27,8 @@ its own. Spec:
   `workers/__tests__/queue-name-literals.test.ts` guards this.
 - Report an error you catch with `reportError` in addition to logging it — at the I/O edges
   (`lib/dispatcher.ts`, `subscribers/`, `workers/`), never inside `lib/engine/`.
+- Answer "what does this add to the customer profile?" for every new capability. A feature nothing
+  reads is write-only, and this module has already shipped that defect once.
 - Add a new step type through `registerMarketingSteps` with `labelKey`, `paramsSchema` and
   `uiFields` populated. Those three are what make it appear in the palette with a working
   inspector form and server-side validation.
@@ -62,6 +64,9 @@ its own. Spec:
   drops a send or sends twice.
 - Never make the frequency cap per-campaign. Five campaigns each politely sending one message
   still buries the customer, which is why `marketing_message_sends` is counted across all of them.
+- Never cache a lead score in a column, and never make a tier a stored field. The score is
+  `sum(points)` over its ledger so a redelivered step cannot double-award, and the tier is derived from
+  the score so it cannot be stale between recalculations.
 - Never store an IP address or a user agent on a delivery event. The question the table answers does
   not need them, and a marketing module that builds a device-and-location log of every recipient is a
   liability nobody asked for.
@@ -122,6 +127,9 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | audience evaluation and the missing-operand veto | `lib/engine/audience.ts` |
 | frequency cap, quiet hours | `lib/engine/gates.ts` |
 | claim-and-lease, backoff, dead-lettering | `lib/runs.ts`, `lib/engine/scheduling.ts` |
+| score ledger, idempotent awarding | `lib/scores.ts`, `steps/add-points.ts` |
+| tier ladder, derivation and its defaults | `lib/engine/tiers.ts`, `lib/tiers.ts` |
+| everything known about one customer | `api/customers/[id]/profile/route.ts` |
 | duplicate-delivery guard and its window | `lib/occurrence.ts`, `lib/runs.ts` → `createRun` |
 | signed tracking tokens, link rewriting | `lib/tracking/` (`token.ts`, `rewrite.ts`, `urls.ts`) |
 | the only PUBLIC routes in the module | `api/track/open`, `api/track/click` |

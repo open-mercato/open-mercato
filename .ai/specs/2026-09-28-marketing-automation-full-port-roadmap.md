@@ -162,9 +162,9 @@ built to be extended, so breadth is additive by construction.
 
 | ID | Capability | Why a merchant pays for it | Size | Extends | Depends on |
 |---|---|---|---|---|---|
-| B-01 | Lead scoring: points per customer, rules, `score_threshold_crossed` trigger, `score_at_least` predicate, `add_points` step | Turns behaviour into one number a salesperson can sort by; every "hot lead" workflow starts here | M | step registry + trigger catalog + subject document | — |
-| B-02 | Loyalty tiers derived from score thresholds, `loyalty_tier_at_least` predicate | Lets one campaign say "gold customers only" without maintaining a list | S | subject document + audience fields | B-01 |
-| B-03 | Customer 360 screen: score, tier, RFM, recency, frequency, spend, tags, segments, sends, opens, clicks | The screen that makes the module a customer profile rather than a send log; nearly free because the data already exists | M | backend page + read API | B-01, B-02, 3.1 |
+| B-01 | Lead scoring: points per customer, rules, `score_threshold_crossed` trigger, `score_at_least` predicate, `add_points` step | Turns behaviour into one number a salesperson can sort by; every "hot lead" workflow starts here — ✅ 2026-09-28 — ledger, not a total, so a redelivered step cannot double-award | M | step registry + trigger catalog + subject document | — |
+| B-02 | Loyalty tiers derived from score thresholds, `loyalty_tier_at_least` predicate | Lets one campaign say "gold customers only" without maintaining a list — ✅ 2026-09-28 — derived from the score, ladder configurable per tenant | S | subject document + audience fields | B-01 |
+| B-03 | Customer 360 screen: score, tier, RFM, recency, frequency, spend, tags, segments, sends, opens, clicks | The screen that makes the module a customer profile rather than a send log; nearly free because the data already exists — ✅ 2026-09-28 — linked from the run list; every later item adds a section | M | backend page + read API | B-01, B-02, 3.1 |
 | B-04 | Win-back lifecycle: inactivity tagging and a win-back send with a configurable day threshold | The single highest-ROI campaign in ecommerce | S | sweep source + audience narrowing | — |
 | B-05 | Review-request automation: delayed request after a completed order, claimed once per order | Review volume is a ranking and conversion input, and nobody asks manually | S | sweep source | — |
 | B-06 | Price-drop and back-in-stock alerts: watch subscriptions, two scan jobs, two triggers, guest notifier | Recovers demand that already declared itself; the highest intent signal a shop gets | M | trigger catalog + new table | catalogue price/stock reads |
@@ -236,6 +236,16 @@ split, which took one sitting end to end. The per-feature cost that is easy to u
 the logic, it is the tests, the five locales, the DS lint and the migration review that make it
 survivable in review. That is the rate limiter, and it is the reason each item is sized in this table
 rather than waved at.
+
+### The customer profile is built early and extended, not built last
+
+`B-03` ships before most of the capabilities it will eventually display, deliberately. Every later
+feature adds one card or one section to it, which costs minutes, whereas leaving the screen until the
+end means every intermediate feature is invisible while it is being built — and a feature nobody can
+see is a feature nobody notices is WRITE-ONLY. That defect already happened once in this module:
+delivery tracking recorded opens and clicks that nothing read, until a counts endpoint was added in
+the same phase. "What does this add to the customer profile?" is the question that catches it, so from
+here on every backlog item answers it.
 
 ### Suggested shipping order
 

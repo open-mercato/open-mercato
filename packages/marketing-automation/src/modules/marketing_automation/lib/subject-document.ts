@@ -3,6 +3,9 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerEntity, CustomerPersonProfile } from '@open-mercato/core/modules/customers/data/entities'
 import type { SubjectDocument } from './engine/types.js'
 import { FALLBACK_TIME_ZONE } from './engine/gates.js'
+import { loadScorePoints } from './scores.js'
+import { resolveTier } from './engine/tiers.js'
+import type { TierThreshold } from './engine/tiers.js'
 
 export type SubjectScope = { tenantId: string; organizationId: string }
 
@@ -136,9 +139,21 @@ export async function buildSubjectDocument(
   scope: SubjectScope,
   trigger: Record<string, unknown>,
   now: Date,
+  /**
+   * The tenant's tier ladder. Passed in rather than read here so a sweep loads it once per job
+   * instead of once per candidate, and so this stays a function of its arguments.
+   */
+  options?: { tierThresholds?: TierThreshold[] },
 ): Promise<SubjectDocument> {
   if (!subjectEntityId) {
-    return { customer: null, tags: [], orders: { count: 0, totalGross: 0 }, trigger }
+    const unscored = resolveTier(0, options?.tierThresholds)
+    return {
+      customer: null,
+      tags: [],
+      orders: { count: 0, totalGross: 0 },
+      score: { points: 0, tier: unscored.key, tierRank: unscored.rank },
+      trigger,
+    }
   }
 
   // display_name and primary_email are encrypted at rest; a plain `em.findOne` would hand
@@ -151,10 +166,13 @@ export async function buildSubjectDocument(
     scope,
   )
 
-  const [tags, orders] = await Promise.all([
+  const [tags, orders, scorePoints] = await Promise.all([
     loadTagSlugs(em, subjectEntityId, scope),
     loadOrderAggregates(em, subjectEntityId, scope, now),
+    loadScorePoints(em, subjectEntityId, scope),
   ])
+
+  const tier = resolveTier(scorePoints, options?.tierThresholds)
 
   return {
     customer: entity
@@ -167,6 +185,7 @@ export async function buildSubjectDocument(
       : null,
     tags,
     orders,
+    score: { points: scorePoints, tier: tier.key, tierRank: tier.rank },
     trigger,
   }
 }

@@ -65,6 +65,7 @@ function invalidGraph(code: string, error: string, detail?: string): CrudHttpErr
  */
 const STEP_EMITTED_EVENTS: Record<string, string[]> = {
   add_tag: ['customers.tag.assigned'],
+  add_points: ['marketing_automation.customer.score_changed'],
 }
 
 /** Validates a step list, descending into a split's lanes, which are step lists of their own. */

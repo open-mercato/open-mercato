@@ -72,6 +72,25 @@ export type SubjectDocument = {
     lastPlacedAt?: string
     daysSinceLast?: number
   }
+  /**
+   * Lead score, summed from the score ledger.
+   *
+   * Zero for a customer who has never scored, and zero is MEANINGFUL here — unlike
+   * `orders.daysSinceLast`, which is absent rather than null precisely because "no data" and "zero"
+   * are different facts for a date and the same fact for a points total.
+   */
+  score: {
+    points: number
+    /**
+     * The tier key, or null below every configured bound. Compared with `=` or `IN`.
+     */
+    tier: string | null
+    /**
+     * Position in the ladder, so "at least silver" is `score.tierRank >= 1`. -1 below every bound,
+     * which keeps every `>=` comparison false rather than accidentally true for the unranked.
+     */
+    tierRank: number
+  }
   /** Scalars the triggering event contributed. */
   trigger: Record<string, unknown>
 }

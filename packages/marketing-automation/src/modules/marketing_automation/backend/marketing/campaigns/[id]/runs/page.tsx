@@ -95,8 +95,18 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
     {
       accessorKey: 'subjectEntityId',
       header: t('marketing_automation.runs.columns.subject', 'Customer'),
+      // Links to the profile: the run list is where somebody asks "who is this and why are we
+      // messaging them", and the answer is one screen away rather than a uuid to copy.
       cell: ({ row }) => row.original.subjectEntityId
-        ? <span className="font-mono text-xs">{row.original.subjectEntityId.slice(0, 8)}</span>
+        ? (
+          <a
+            className="font-mono text-xs underline"
+            href={`/backend/marketing/customers/${row.original.subjectEntityId}`}
+            title={t('marketing_automation.runs.openProfile', 'Open the customer profile')}
+          >
+            {row.original.subjectEntityId.slice(0, 8)}
+          </a>
+        )
         : '—',
     },
     {

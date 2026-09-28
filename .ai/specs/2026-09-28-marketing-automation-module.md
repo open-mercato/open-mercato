@@ -144,6 +144,43 @@ canvas must not show a branch that never runs. Nesting is capped at five levels,
 hand-edited or imported definition that is cyclic in spirit into a truncated campaign instead of a
 stack overflow in a worker.
 
+### Lead score, tiers and the customer profile
+
+The score is a LEDGER, not a total in a column. A total has to be incremented, and an increment is the
+one write a retry cannot repeat safely: a step awarding 10 points, redelivered, would award 20. Entries
+are keyed by the run and step that produced them, so a redelivery collides instead of double-counting,
+and the score is `sum(points)` — the same shape as the order aggregates, which means the audience
+narrowing pushes `score.points >= 100` down for free. The ledger also answers "why does this customer
+have 40 points", which a total never can.
+
+The narrowing repeats the order-aggregate rule exactly, because the trap is the same: the ledger can
+only return customers who HAVE entries, and a customer who never scored totals zero, so
+`score.points <= 10` is true for them and must not be pushed down.
+
+Tiers are derived from the score, never stored: the score changes continuously, so a tier column would
+need a job to keep it true and would be wrong in between. The ladder is per-tenant configuration
+(`moduleConfigService`, key `loyaltyTiers`) with a default of bronze/silver/gold at 0/100/500, because
+a tier system that requires setup before it does anything is one nobody sees. `score.tier` compares with
+`=` or `IN`; `score.tierRank` exists so "at least silver" is expressible as `>= 1`, and is -1 below
+every bound so those comparisons stay false for the unranked. Tier predicates are deliberately NOT
+pushed to the database — the tier is derived, and pushing it would duplicate the threshold logic in SQL
+where it could drift.
+
+The score change is emitted as `marketing_automation.customer.score_changed` and is itself a trigger,
+carrying the PREVIOUS total as well as the new one. That is what lets an audience say "reached 100
+points" — `trigger.previousPoints < 100 AND score.points >= 100` — rather than "is above 100 points",
+which would fire again on every later change while the customer stayed above the line. No threshold
+configuration exists because none is needed, and one installation can have as many thresholds as it
+likes. The existing cascade guard covers the new loop: a campaign triggered by `score_changed` whose
+steps include `add_points` is refused at save time.
+
+The customer profile assembles all of it on one screen — score, tier, distance to the next tier, order
+aggregates, tags, sends, opens, clicks, recent score entries and recent runs — because the module
+already computes every one of those and computing them again per screen is how numbers start
+disagreeing. It requires BOTH `marketing_automation.runs.view` and `customers.people.view`: it names an
+identifiable person and reports their behaviour, which is the union of two disclosures. It is linked
+from the run list, so it is reachable from the place where somebody asks who a run is about.
+
 ### Delivery tracking
 
 Opens and clicks, because "did this campaign work" is the question the module exists to answer and
@@ -426,6 +463,9 @@ written down.* *Residual: blocked on `SPEC-029`.*
   optimistic lock; canvas editor reusing the `business_rules` condition builder; `en`/`pl`
   locales. Verified against a running instance: palette, create, save, round-trip, 409 on a
   stale save, and five rejected invalid graphs.
+- **2026-09-28** — Backlog B-01/B-02/B-03: lead scoring as an idempotent ledger with an `add_points`
+  step and a `score_changed` trigger carrying the previous total, tiers derived from a per-tenant
+  ladder, and the customer profile screen. 367 unit tests, 36 integration tests.
 - **2026-09-28** — Phase 3: delivery tracking. `marketing_message_send_events`, two signed public
   endpoints (open pixel, click redirect), link rewriting and pixel embedding in `send_email` with a
   per-step opt-out, and a counts endpoint with unique-recipient figures. 322 unit tests, 28

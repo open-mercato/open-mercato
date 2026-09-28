@@ -9,6 +9,7 @@ import { campaignDefinitionSchema } from '../../../../data/validators.js'
 import { matchesAudience } from '../../../../lib/engine/audience.js'
 import { planSteps } from '../../../../lib/engine/chain-planner.js'
 import { getMarketingStep } from '../../../../lib/engine/registry.js'
+import { loadTierThresholds } from '../../../../lib/tiers.js'
 import { buildSubjectDocument } from '../../../../lib/subject-document.js'
 
 const logger = createLogger('marketing_automation')
@@ -58,7 +59,8 @@ export async function POST(req: Request) {
 
   const definition = campaignDefinitionSchema.parse(campaign.definition)
   const now = new Date()
-  const subject = await buildSubjectDocument(em, parsed.data.subjectEntityId, scope, parsed.data.trigger, now)
+  const tierThresholds = await loadTierThresholds(container, scope)
+  const subject = await buildSubjectDocument(em, parsed.data.subjectEntityId, scope, parsed.data.trigger, now, { tierThresholds })
   const inAudience = matchesAudience(definition.audience, subject, { now, logger, campaignId: campaign.id })
 
   // The plan is reported even when the audience excludes the subject, because "why did this person

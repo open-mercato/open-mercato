@@ -12,6 +12,7 @@ import type { AutomationContext, CampaignDefinition, EngineLogger, StepOutcome }
 import { buildCampaignCommandContext } from './command-context.js'
 import { findCampaignsForEvent } from './campaign-lookup.js'
 import { occurrenceKeyFor } from './occurrence.js'
+import { loadTierThresholds } from './tiers.js'
 import { recordDeadLetter } from './dead-letter.js'
 import {
   applyTransition,
@@ -330,12 +331,15 @@ export async function dispatchEvent(
   const candidates = await findCampaignsForEvent(deps.em, input.eventId, deps.scope)
   if (!candidates.length) return result
 
+  // Loaded once for the whole dispatch: every campaign reacting to this event sees the same ladder.
+  const tierThresholds = await loadTierThresholds(deps.container, deps.scope)
   const subject = await buildSubjectDocument(
     deps.em,
     input.subjectEntityId,
     deps.scope,
     input.triggerContext,
     deps.now,
+    { tierThresholds },
   )
 
   for (const { campaign } of candidates) {
