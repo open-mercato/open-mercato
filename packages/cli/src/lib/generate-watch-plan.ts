@@ -2,7 +2,7 @@ export type GenerateWatchCategory =
   | 'api-route' | 'frontend-page' | 'backend-page' | 'commands' | 'di' | 'entities'
   | 'search' | 'events' | 'subscribers' | 'workers' | 'dashboard-widgets'
   | 'injection-widgets' | 'cli' | 'i18n' | 'registry-convention' | 'extension'
-  | 'generator-plugin' | 'configuration' | 'unknown'
+  | 'openapi' | 'web-research-adapters' | 'generator-plugin' | 'configuration' | 'unknown'
 
 export type GenerateWatchRecord = {
   key: string
@@ -77,11 +77,16 @@ export function planGenerateWatchChanges(
   }
 
   for (const change of orderedChanges) {
-    if (change.key.startsWith('additional-input:')) groups.add('openapi')
     switch (change.category) {
       case 'api-route':
         registry('main', 'runtime', 'api-routes')
         groups.add('openapi')
+        break
+      case 'openapi':
+        groups.add('openapi')
+        break
+      case 'web-research-adapters':
+        groups.add('web-research-adapters')
         break
       case 'frontend-page':
         registry('main', 'runtime', 'app', 'frontend-routes')

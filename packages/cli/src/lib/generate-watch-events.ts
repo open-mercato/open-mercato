@@ -7,6 +7,8 @@ export type GenerateWatchTarget = {
   directory: string
   recursive: boolean
   fileName?: string
+  /** Generator-owned directories whose attributed events must not trigger this recursive watch. */
+  excludedDirectories?: readonly string[]
 }
 
 type WatchHandle = {
@@ -34,6 +36,85 @@ export type GenerateWatchModuleTarget = {
   additionalModuleBases?: readonly string[]
 }
 
+function comparePaths(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
+function isWithinDirectory(candidate: string, directory: string): boolean {
+  const relative = path.relative(directory, candidate)
+  return relative === '' || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`))
+}
+
+function normalizeExcludedDirectories(
+  target: Pick<GenerateWatchTarget, 'directory' | 'recursive' | 'excludedDirectories'>,
+): string[] {
+  if (!target.recursive) return []
+  return [...new Set(
+    (target.excludedDirectories ?? [])
+      .map((directory) => path.resolve(directory))
+      .filter((directory) => isWithinDirectory(directory, target.directory)),
+  )].sort(comparePaths)
+}
+
+function normalizeGenerateWatchTargets(targets: readonly GenerateWatchTarget[]): GenerateWatchTarget[] {
+  const unique = new Map<string, GenerateWatchTarget>()
+  for (const target of targets) {
+    const directory = path.resolve(target.directory)
+    const excludedDirectories = normalizeExcludedDirectories({ ...target, directory })
+    const normalized: GenerateWatchTarget = {
+      directory,
+      recursive: target.recursive,
+      ...(target.fileName === undefined ? {} : { fileName: target.fileName }),
+      ...(excludedDirectories.length > 0 ? { excludedDirectories } : {}),
+    }
+    unique.set(targetKey(normalized), normalized)
+  }
+
+  const recursiveDirectories = new Set(
+    [...unique.values()].filter((target) => target.recursive).map((target) => target.directory),
+  )
+  const allExcludedDirectories = [...new Set(
+    [...unique.values()].flatMap((target) => target.excludedDirectories ?? []),
+  )].sort(comparePaths)
+  const recursiveRoots = [...recursiveDirectories]
+    .filter((directory) => {
+      let ancestor = path.dirname(directory)
+      while (ancestor !== directory) {
+        if (recursiveDirectories.has(ancestor)) return false
+        const parent = path.dirname(ancestor)
+        if (parent === ancestor) break
+        ancestor = parent
+      }
+      return true
+    })
+    .sort(comparePaths)
+    .map((directory): GenerateWatchTarget => {
+      const excludedDirectories = allExcludedDirectories.filter((excluded) => (
+        isWithinDirectory(excluded, directory)
+      ))
+      return {
+        directory,
+        recursive: true,
+        ...(excludedDirectories.length > 0 ? { excludedDirectories } : {}),
+      }
+    })
+  const collapsed = [...recursiveRoots]
+  for (const target of unique.values()) {
+    if (target.recursive) continue
+    if (!target.fileName && recursiveRoots.some((root) => isWithinDirectory(target.directory, root.directory))) continue
+    collapsed.push(target)
+  }
+  return collapsed.sort((left, right) => (
+    comparePaths(left.directory, right.directory)
+    || Number(left.recursive) - Number(right.recursive)
+    || comparePaths(left.fileName ?? '', right.fileName ?? '')
+    || comparePaths(
+      JSON.stringify(left.excludedDirectories ?? []),
+      JSON.stringify(right.excludedDirectories ?? []),
+    )
+  ))
+}
+
 export function resolveGenerateWatchTargets(options: {
   modulesFile: string
   moduleRoots: GenerateWatchModuleTarget[]
@@ -42,6 +123,7 @@ export function resolveGenerateWatchTargets(options: {
   additionalDirectories?: readonly string[]
   appSourceDir?: string
   outputDir?: string
+  outputDirectories?: readonly string[]
   snapshot?: GenerateWatchSnapshot
 }): GenerateWatchTarget[] {
   const targets: GenerateWatchTarget[] = [options.modulesFile, ...(options.additionalInputs ?? [])].map((filePath) => ({
@@ -51,7 +133,7 @@ export function resolveGenerateWatchTargets(options: {
   }))
   if (options.appSourceDir) targets.push({ directory: options.appSourceDir, recursive: true })
   for (const directory of options.additionalDirectories ?? []) {
-    targets.push({ directory, recursive: false })
+    targets.push({ directory, recursive: true })
   }
 
   for (const roots of options.moduleRoots) {
@@ -71,24 +153,37 @@ export function resolveGenerateWatchTargets(options: {
     }
   }
 
-  // Snapshot dependencies can live outside module roots. Subscribe to only the
-  // discovered paths; never recursively watch an entire package to cover them.
-  const recursiveRoots = targets.filter((target) => target.recursive).map((target) => path.resolve(target.directory))
-  const outputRoot = options.outputDir ? path.resolve(options.outputDir) : undefined
-  const seenInputs = new Set<string>()
-  for (const record of options.snapshot?.records.values() ?? []) {
-    const input = path.resolve(record.path)
-    if (seenInputs.has(input)) continue
-    seenInputs.add(input)
-    if (outputRoot && (input === outputRoot || input.startsWith(`${outputRoot}${path.sep}`))) continue
-    if (recursiveRoots.some((root) => input === root || input.startsWith(`${root}${path.sep}`))) continue
-    let stat: fs.Stats | undefined
-    try { stat = fs.statSync(input) } catch {}
-    if (stat?.isDirectory()) {
-      targets.push({ directory: input, recursive: true })
-      recursiveRoots.push(input)
-      continue
+  const outputRoots = [...new Set(
+    [options.outputDir, ...(options.outputDirectories ?? [])]
+      .filter((directory): directory is string => Boolean(directory))
+      .map((directory) => path.resolve(directory)),
+  )].sort(comparePaths)
+  const baseRecursiveRoots = normalizeGenerateWatchTargets(targets)
+    .filter((target) => target.recursive)
+    .map((target) => target.directory)
+  const snapshotInputs = [...new Set(
+    [...(options.snapshot?.records.values() ?? [])].map((record) => path.resolve(record.path)),
+  )]
+    .filter((input) => !outputRoots.some((outputRoot) => isWithinDirectory(input, outputRoot)))
+    .filter((input) => !baseRecursiveRoots.some((root) => isWithinDirectory(input, root)))
+    .sort(comparePaths)
+  const snapshotStats = snapshotInputs.map((input) => {
+    try {
+      return { input, stat: fs.statSync(input) }
+    } catch {
+      return { input, stat: undefined }
     }
+  })
+
+  for (const { input, stat } of snapshotStats) {
+    if (stat?.isDirectory()) targets.push({ directory: input, recursive: true })
+  }
+  const recursiveRoots = normalizeGenerateWatchTargets(targets)
+    .filter((target) => target.recursive)
+    .map((target) => target.directory)
+
+  for (const { input, stat } of snapshotStats) {
+    if (stat?.isDirectory() || recursiveRoots.some((root) => isWithinDirectory(input, root))) continue
     const parent = path.dirname(input)
     targets.push({
       directory: parent,
@@ -103,7 +198,13 @@ export function resolveGenerateWatchTargets(options: {
     }
   }
 
-  return targets
+  return normalizeGenerateWatchTargets(targets.map((target) => {
+    if (!target.recursive) return target
+    const excludedDirectories = outputRoots.filter((outputRoot) => (
+      isWithinDirectory(outputRoot, path.resolve(target.directory))
+    ))
+    return excludedDirectories.length > 0 ? { ...target, excludedDirectories } : target
+  }))
 }
 
 function targetKey(target: GenerateWatchTarget): string {
@@ -111,6 +212,7 @@ function targetKey(target: GenerateWatchTarget): string {
     path.resolve(target.directory),
     target.recursive,
     target.fileName ?? '',
+    target.excludedDirectories ?? [],
   ])
 }
 
@@ -176,19 +278,15 @@ export function createGenerateWatchChangeSignal(
 
       const normalizedTargets = new Map<string, GenerateWatchTarget>()
       const nextSkippedDirectories = new Set<string>()
-      for (const target of targets) {
-        const normalized: GenerateWatchTarget = {
-          ...target,
-          directory: path.resolve(target.directory),
-        }
-        if (!directoryExists(normalized.directory)) {
-          nextSkippedDirectories.add(normalized.directory)
-          if (!skippedDirectories.has(normalized.directory)) {
-            try { options.onSkippedDirectory?.(normalized.directory) } catch {}
+      for (const target of normalizeGenerateWatchTargets(targets)) {
+        if (!directoryExists(target.directory)) {
+          nextSkippedDirectories.add(target.directory)
+          if (!skippedDirectories.has(target.directory)) {
+            try { options.onSkippedDirectory?.(target.directory) } catch {}
           }
           continue
         }
-        normalizedTargets.set(targetKey(normalized), normalized)
+        normalizedTargets.set(targetKey(target), target)
       }
       skippedDirectories = nextSkippedDirectories
 
@@ -206,6 +304,12 @@ export function createGenerateWatchChangeSignal(
             target,
             (fileName) => {
               if (closed || pollingFallback) return
+              if (fileName && target.recursive && target.excludedDirectories?.length) {
+                const changedPath = path.resolve(target.directory, fileName)
+                if (target.excludedDirectories.some((directory) => (
+                  isWithinDirectory(changedPath, directory)
+                ))) return
+              }
               version += 1
               if (!fileName) lastUnknownVersion = version
             },

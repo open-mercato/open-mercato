@@ -22,7 +22,38 @@ type WatchRoots = ModuleRoots & { moduleId?: string; from?: string }
 export type GenerateWatchStructureOptions = {
   modulesFile: string
   moduleRoots: WatchRoots[]
+  /** Dependency/configuration inputs whose changes require a conservative full generation. */
   additionalInputs?: string[]
+  /** Inputs consumed specifically by OpenAPI generation. */
+  openapiInputs?: string[]
+  /** Candidate package manifests consumed specifically by web-research adapter discovery. */
+  webResearchAdapterInputs?: string[]
+  /** Adapter discovery failures that make this capture non-authoritative. */
+  webResearchAdapterFullReasons?: readonly string[]
+}
+
+type CachedStructureFile = {
+  identity: string
+  source: string
+  fingerprint: string
+  parsed?: ts.SourceFile
+}
+
+type GenerateWatchStructureCacheState = {
+  files: Map<string, CachedStructureFile>
+}
+
+declare const generateWatchStructureCacheBrand: unique symbol
+export type GenerateWatchStructureCache = {
+  readonly [generateWatchStructureCacheBrand]: true
+}
+
+const cacheStates = new WeakMap<GenerateWatchStructureCache, GenerateWatchStructureCacheState>()
+
+export function createGenerateWatchStructureCache(): GenerateWatchStructureCache {
+  const cache = {} as GenerateWatchStructureCache
+  cacheStates.set(cache, { files: new Map() })
+  return cache
 }
 
 const REGISTRY_CONVENTIONS = [
@@ -132,45 +163,80 @@ function pluginConventions(file: ts.SourceFile): string[] | null {
 class SnapshotCollector {
   readonly records = new Map<string, GenerateWatchRecord>()
   readonly fullReasons = new Set<string>()
-  private readonly contents = new Map<string, string | null>()
   private readonly stats = new Map<string, fs.Stats | null>()
-  private readonly parsedFiles = new Map<string, ts.SourceFile>()
+  private readonly identities = new Map<string, string | null>()
   readonly uncertainDependencies = new Set<string>()
   readonly uncertainPluginDescriptors = new Set<string>()
-  private readonly dependencySeeds = new Set<string>()
+  private readonly dependencySeeds = new Map<string, Map<string, InputKind>>()
+  readonly inspectedCachePaths = new Set<string>()
+
+  constructor(private readonly cache: GenerateWatchStructureCacheState) {}
+
+  private identity(file: string): string | null {
+    if (!this.identities.has(file)) this.stat(file)
+    return this.identities.get(file) ?? null
+  }
+
+  private seedDependency(file: string, kind: InputKind): void {
+    const identity = `${kind.category}:${kind.extensionId ?? ''}`
+    const kinds = this.dependencySeeds.get(file) ?? new Map<string, InputKind>()
+    kinds.set(identity, kind)
+    this.dependencySeeds.set(file, kinds)
+  }
 
   stat(file: string): fs.Stats | null {
     if (this.stats.has(file)) return this.stats.get(file) ?? null
     try {
       const stat = fs.statSync(file)
+      const identity = [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(':')
       this.stats.set(file, stat)
+      this.identities.set(file, identity)
       return stat
     } catch (error) {
       if (!isMissing(error)) this.fullReasons.add(`Cannot inspect generator input: ${file}`)
       this.stats.set(file, null)
+      this.identities.set(file, null)
       return null
     }
   }
 
   read(file: string): string | null {
-    if (this.contents.has(file)) return this.contents.get(file) ?? null
-    let source: string | null = null
+    const stat = this.stat(file)
+    const identity = this.identity(file)
+    if (!stat?.isFile() || !identity) {
+      this.fullReasons.add(`Cannot read generator input: ${file}`)
+      return null
+    }
+    this.inspectedCachePaths.add(file)
+    const cached = this.cache.files.get(file)
+    if (cached?.identity === identity) return cached.source
     try {
-      source = fs.readFileSync(file, 'utf8')
+      const source = fs.readFileSync(file, 'utf8')
+      this.cache.files.set(file, { identity, source, fingerprint: checksum(source) })
+      return source
     } catch {
       this.fullReasons.add(`Cannot read generator input: ${file}`)
+      return null
     }
-    this.contents.set(file, source)
-    return source
   }
 
-  parse(file: string, source: string): ts.SourceFile {
-    const cached = this.parsedFiles.get(file)
-    if (cached) return cached
-    const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true)
+  parse(file: string, source: string): ts.SourceFile | null {
+    const identity = this.identity(file)
+    const cached = this.cache.files.get(file)
+    if (identity && cached?.identity === identity && cached.source === source && cached.parsed) return cached.parsed
+    let parsed: ts.SourceFile
+    try {
+      parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true)
+    } catch {
+      this.fullReasons.add(`Cannot parse generator input: ${file}`)
+      return null
+    }
     const diagnostics = (parsed as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics
-    if (diagnostics?.length) this.fullReasons.add(`Cannot parse generator input: ${file}`)
-    this.parsedFiles.set(file, parsed)
+    if (diagnostics?.length) {
+      this.fullReasons.add(`Cannot parse generator input: ${file}`)
+      return null
+    }
+    if (identity && cached?.identity === identity && cached.source === source) cached.parsed = parsed
     return parsed
   }
 
@@ -178,10 +244,14 @@ class SnapshotCollector {
     this.records.set(key, { key, path: file, ...kind, fingerprint })
   }
 
-  file(key: string, file: string, kind: InputKind, mode: 'content' | 'page' | 'membership' = 'content'): void {
+  file(key: string, file: string, kind: InputKind, mode: 'content' | 'page' | 'membership' | 'stat' = 'content'): void {
     if (!this.stat(file)?.isFile()) return
     if (mode === 'membership') {
       this.record(key, file, kind, 'present')
+      return
+    }
+    if (mode === 'stat') {
+      this.record(key, file, kind, this.identity(file) ?? 'present')
       return
     }
     const source = this.read(file)
@@ -191,6 +261,10 @@ class SnapshotCollector {
     }
     if (mode === 'page') {
       const parsed = this.parse(file, source)
+      if (!parsed) {
+        this.record(key, file, kind, 'unparseable')
+        return
+      }
       const metadata = parsed.statements.some((statement) => {
         if (ts.isExportDeclaration(statement)) {
           return !statement.exportClause || (ts.isNamedExports(statement.exportClause)
@@ -214,10 +288,8 @@ class SnapshotCollector {
         return
       }
     }
-    this.record(key, file, kind, checksum(source))
-    if (/\.[cm]?[jt]sx?$/.test(file)) {
-      this.dependencySeeds.add(file)
-    }
+    this.record(key, file, kind, this.cache.files.get(file)?.fingerprint ?? checksum(source))
+    if (/\.[cm]?[jt]sx?$/.test(file)) this.seedDependency(file, kind)
   }
 
   codeFile(base: string, relativePath: string): string | null {
@@ -289,6 +361,7 @@ class SnapshotCollector {
         const source = this.read(file)
         if (!source?.includes('@open-mercato/shared/modules/overrides')) continue
         const parsed = this.parse(file, source)
+        if (!parsed) continue
         const direct = new Set<string>()
         const namespaces = new Set<string>()
         for (const statement of parsed.statements) {
@@ -324,13 +397,17 @@ class SnapshotCollector {
   dependencies(appSource: string): void {
     const visited = new Set<string>()
     const pending = [...this.dependencySeeds]
+      .flatMap(([file, kinds]) => [...kinds.entries()].map(([identity, kind]) => ({ file, identity, kind })))
+      .sort((left, right) => right.file.localeCompare(left.file) || right.identity.localeCompare(left.identity))
     while (pending.length > 0) {
-      const file = pending.pop()!
-      if (visited.has(file)) continue
-      visited.add(file)
+      const { file, identity, kind } = pending.pop()!
+      const visitKey = `${identity}:${file}`
+      if (visited.has(visitKey)) continue
+      visited.add(visitKey)
       const source = this.read(file)
       if (source === null) continue
       const parsed = this.parse(file, source)
+      if (!parsed) continue
       const imports: string[] = []
       const visit = (node: ts.Node): void => {
         // Handler/component bodies are not evaluated to discover registrations.
@@ -361,17 +438,20 @@ class SnapshotCollector {
           ? path.join(appSource, specifier.slice(2)) : path.resolve(path.dirname(file), specifier)
         const resolved = this.codeFile(path.dirname(target), path.basename(target))
           ?? this.codeFile(target, 'index')
-        const dependencyKey = `dependency:${file}:${target}`
+        const dependencyKey = `dependency:${identity}:${file}:${target}`
         if (!resolved) {
           // Keep an absence record so a newly supplied helper invalidates the plan.
-          this.record(dependencyKey, target, { category: 'unknown' }, 'missing')
+          this.record(dependencyKey, target, kind, 'missing')
           continue
         }
         // A generator's own outputs must not feed back into its watcher baseline.
         if (resolved.includes(`${path.sep}.mercato${path.sep}`) || resolved.includes(`${path.sep}generated${path.sep}`)) continue
         const text = this.read(resolved)
-        this.record(dependencyKey, resolved, { category: 'unknown' }, `${resolved}:${text === null ? 'unreadable' : checksum(text)}`)
-        if (/\.[cm]?[jt]sx?$/.test(resolved)) pending.push(resolved)
+        const fingerprint = text === null
+          ? 'unreadable'
+          : this.cache.files.get(resolved)?.fingerprint ?? checksum(text)
+        this.record(dependencyKey, resolved, kind, `${resolved}:${fingerprint}`)
+        if (/\.[cm]?[jt]sx?$/.test(resolved)) pending.push({ file: resolved, identity, kind })
       }
     }
   }
@@ -400,7 +480,8 @@ function addModule(collector: SnapshotCollector, roots: WatchRoots, index: numbe
   convention('widgets/injection-table', { category: 'injection-widgets' })
   for (const descriptor of convention('generators', { category: 'generator-plugin' })) {
     const source = collector.read(descriptor)
-    const discovered = source === null ? null : pluginConventions(collector.parse(descriptor, source))
+    const parsed = source === null ? null : collector.parse(descriptor, source)
+    const discovered = parsed ? pluginConventions(parsed) : null
     if (discovered === null) collector.uncertainPluginDescriptors.add(descriptor)
     else for (const file of discovered) plugins.add(file)
   }
@@ -474,8 +555,14 @@ function addModule(collector: SnapshotCollector, roots: WatchRoots, index: numbe
   }
 }
 
-export function collectGenerateWatchStructureSnapshot(options: GenerateWatchStructureOptions): GenerateWatchSnapshot {
-  const collector = new SnapshotCollector()
+export function collectGenerateWatchStructureSnapshot(
+  options: GenerateWatchStructureOptions,
+  cache?: GenerateWatchStructureCache,
+): GenerateWatchSnapshot {
+  const cacheState = cache ? cacheStates.get(cache) : { files: new Map<string, CachedStructureFile>() }
+  if (!cacheState) throw new TypeError('Invalid generate watch structure cache')
+  const collector = new SnapshotCollector(cacheState)
+  for (const reason of options.webResearchAdapterFullReasons ?? []) collector.fullReasons.add(reason)
   collector.file(`configuration:${options.modulesFile}`, options.modulesFile, { category: 'configuration' })
   const plugins = new Set<string>()
   options.moduleRoots.forEach((roots, index) => addModule(collector, roots, index, plugins))
@@ -487,18 +574,33 @@ export function collectGenerateWatchStructureSnapshot(options: GenerateWatchStru
   for (const record of collector.records.values()) {
     if (record.category !== 'configuration') knownInputs.set(record.path, record)
   }
-  for (const input of [...new Set(options.additionalInputs ?? [])].sort((left, right) => left < right ? -1 : left > right ? 1 : 0)) {
-    const known = knownInputs.get(input)
-    if (known) {
-      if (known.category !== 'api-route') {
-        collector.file(`additional-input:${input}`, input, { category: known.category, extensionId: known.extensionId })
-      }
-      continue
-    }
+  const ordered = (inputs: readonly string[] | undefined) =>
+    [...new Set(inputs ?? [])].sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
+  for (const input of ordered(options.additionalInputs)) {
+    if (knownInputs.has(input)) continue
     const stat = collector.stat(input)
     if (stat?.isFile()) collector.file(`configuration:${input}`, input, { category: 'configuration' })
     else collector.record(`configuration:${input}`, input, { category: 'configuration' }, stat?.isDirectory() ? 'directory' : 'missing')
   }
+  const addSpecializedInputs = (
+    inputs: readonly string[] | undefined,
+    kind: InputKind,
+    keyPrefix: string,
+    mode: 'content' | 'stat' = 'content',
+  ) => {
+    for (const input of ordered(inputs)) {
+      const stat = collector.stat(input)
+      if (stat?.isFile()) collector.file(`${keyPrefix}:${input}`, input, kind, mode)
+      else collector.record(`${keyPrefix}:${input}`, input, kind, stat?.isDirectory() ? 'directory' : 'missing')
+    }
+  }
+  addSpecializedInputs(options.openapiInputs, { category: 'openapi' }, 'openapi-input')
+  addSpecializedInputs(
+    options.webResearchAdapterInputs,
+    { category: 'web-research-adapters' },
+    'web-research-adapter-input',
+    'stat',
+  )
   collector.supervisor(path.dirname(options.modulesFile))
   collector.dependencies(path.dirname(options.modulesFile))
   // A dynamic descriptor is valid source, not a transient failed capture. Until
@@ -520,6 +622,11 @@ export function collectGenerateWatchStructureSnapshot(options: GenerateWatchStru
   }
   const records = new Map([...collector.records].sort(([left], [right]) => left.localeCompare(right)))
   const fullReasons = [...collector.fullReasons].sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
+  if (fullReasons.length === 0) {
+    for (const cachedPath of cacheState.files.keys()) {
+      if (!collector.inspectedCachePaths.has(cachedPath)) cacheState.files.delete(cachedPath)
+    }
+  }
   return {
     checksum: checksum(JSON.stringify([[...records.values()], fullReasons])),
     records,

@@ -4,6 +4,7 @@ import path from 'node:path'
 import {
   calculateGenerateWatchStructureChecksum,
   collectGenerateWatchStructureSnapshot,
+  createGenerateWatchStructureCache,
   diffGenerateWatchStructureSnapshots,
   type GenerateWatchStructureOptions,
 } from '../generate-watch-structure'
@@ -152,6 +153,74 @@ describe('structured generator inputs', () => {
     const next = capture()
     return { next, changes: diffGenerateWatchStructureSnapshots(previous, next) }
   }
+
+  it('reuses cached content until stat identity changes or the file is deleted', () => {
+    const route = path.join(pkg, 'api/items/route.ts')
+    const helper = path.join(pkg, 'api/items/helper.ts')
+    write(route, 'import { value } from "./helper"; export const GET = () => value')
+    write(helper, 'export const value = 1')
+    const cache = createGenerateWatchStructureCache()
+    const readSpy = jest.spyOn(fs, 'readFileSync')
+
+    collectGenerateWatchStructureSnapshot(options, cache)
+    const readsAfterFirstCapture = readSpy.mock.calls.length
+    collectGenerateWatchStructureSnapshot(options, cache)
+    expect(readSpy).toHaveBeenCalledTimes(readsAfterFirstCapture)
+
+    write(helper, 'export const value = 200')
+    collectGenerateWatchStructureSnapshot(options, cache)
+    expect(readSpy.mock.calls.length).toBeGreaterThan(readsAfterFirstCapture)
+    const readsAfterChange = readSpy.mock.calls.length
+
+    fs.rmSync(helper)
+    collectGenerateWatchStructureSnapshot(options, cache)
+    write(helper, 'export const value = 300')
+    collectGenerateWatchStructureSnapshot(options, cache)
+    expect(readSpy.mock.calls.length).toBeGreaterThan(readsAfterChange)
+  })
+
+  it('preserves unreachable cache entries only for uncertain captures and prunes them after authoritative removal', () => {
+    const route = path.join(pkg, 'api/items/route.ts')
+    const helper = path.join(pkg, 'api/items/helper.ts')
+    write(route, 'import { value } from "./helper"; export const GET = () => value')
+    write(helper, 'export const value = 1')
+    const cache = createGenerateWatchStructureCache()
+    const readSpy = jest.spyOn(fs, 'readFileSync')
+    const moduleRoots = options.moduleRoots
+
+    collectGenerateWatchStructureSnapshot(options, cache)
+    expect(readSpy.mock.calls.filter(([file]) => file === helper)).toHaveLength(1)
+
+    options.moduleRoots = []
+    options.webResearchAdapterFullReasons = ['Cannot scan adapter packages']
+    collectGenerateWatchStructureSnapshot(options, cache)
+    options.moduleRoots = moduleRoots
+    delete options.webResearchAdapterFullReasons
+    collectGenerateWatchStructureSnapshot(options, cache)
+    expect(readSpy.mock.calls.filter(([file]) => file === helper)).toHaveLength(1)
+
+    options.moduleRoots = []
+    collectGenerateWatchStructureSnapshot(options, cache)
+    options.moduleRoots = moduleRoots
+    collectGenerateWatchStructureSnapshot(options, cache)
+    expect(readSpy.mock.calls.filter(([file]) => file === helper)).toHaveLength(2)
+  })
+
+  it('includes deterministic adapter scan uncertainty in snapshot full fallback reasons', () => {
+    options.webResearchAdapterFullReasons = [
+      'Cannot scan web-research adapter packages: /z',
+      'Cannot scan web-research adapter packages: /a',
+      'Cannot scan web-research adapter packages: /z',
+    ]
+
+    const snapshot = capture()
+
+    expect(snapshot.fullReasons).toEqual([
+      'Cannot scan web-research adapter packages: /a',
+      'Cannot scan web-research adapter packages: /z',
+    ])
+    expect(planGenerateWatchChanges([], snapshot.fullReasons).mode).toBe('full')
+  })
 
   it('preserves module identity when an identical route moves between existing roots', () => {
     const second = path.join(root, 'packages/core/src/modules/sales')
@@ -315,18 +384,21 @@ describe('structured generator inputs', () => {
     expect(plan.reasons).toContain(`Generator plugin dependency changed: ${contribution}`)
   })
 
-  it('tracks imported metadata helpers transitively but ignores unrelated components', () => {
+  it('inherits backend-page planning through transitive metadata helpers', () => {
     write(path.join(pkg, 'backend/page.tsx'), 'export default function Page() { return null }')
-    write(path.join(pkg, 'backend/page.meta.ts'), 'import { label } from \"../lib/label\"; export const metadata = { label }')
-    write(path.join(pkg, 'lib/label.ts'), 'export { label } from \"./nested\"')
-    write(path.join(pkg, 'lib/nested.ts'), 'export const label = \"First\"')
+    write(path.join(pkg, 'backend/page.meta.ts'), 'import { label } from "../lib/label"; export const metadata = { label }')
+    write(path.join(pkg, 'lib/label.ts'), 'export { label } from "./nested"')
+    write(path.join(pkg, 'lib/nested.ts'), 'export const label = "First"')
     const before = capture()
     write(path.join(pkg, 'components/Unrelated.tsx'), 'export default () => null')
     expect(capture().checksum).toBe(before.checksum)
-    write(path.join(pkg, 'lib/nested.ts'), 'export const label = \"Second\"')
+    const nested = path.join(pkg, 'lib/nested.ts')
+    write(nested, 'export const label = "Second"')
     const { changes } = changesSince(before)
-    expect(changes).toContainEqual(expect.objectContaining({ category: 'unknown', path: path.join(pkg, 'lib/nested.ts') }))
-    expect(planGenerateWatchChanges(changes).mode).toBe('full')
+    expect(changes).toContainEqual(expect.objectContaining({ category: 'backend-page', path: nested }))
+    const plan = planGenerateWatchChanges(changes)
+    expect(plan.mode).toBe('incremental')
+    expect(plan.registryOutputs).toEqual(['main', 'runtime', 'app', 'backend-routes'])
   })
 
   it('tracks page default-export shape without treating ordinary page rendering edits as structural', () => {
@@ -373,22 +445,57 @@ describe('structured generator inputs', () => {
   it('does not broaden API plans when OpenAPI also reports the same route input', () => {
     const route = path.join(pkg, 'api/items/route.ts')
     write(route, 'export const GET = () => null')
-    options.additionalInputs = [route]
+    options.openapiInputs = [route]
     const before = capture()
     write(route, 'export const POST = () => null')
     expect(planGenerateWatchChanges(changesSince(before).changes).groups).toEqual(['registry', 'openapi'])
   })
 
-  it('keeps an OpenAPI dependency on a known non-route convention', () => {
+  it('unions inherited categories and extension identity when seeds share a helper', () => {
     const search = path.join(pkg, 'search.ts')
-    write(search, 'export const searchConfig = {}')
-    options.additionalInputs = [search]
+    const notifications = path.join(pkg, 'notifications.ts')
+    const helper = path.join(pkg, 'lib/search-options.ts')
+    write(search, 'import { enabled } from "./lib/search-options"; export const searchConfig = { enabled }')
+    write(notifications, 'import { enabled } from "./lib/search-options"; export const handlers = enabled ? [] : []')
+    write(helper, 'export const enabled = false')
+    options.openapiInputs = [search]
     const before = capture()
-    write(search, 'export const searchConfig = { enabled: true }')
-    const plan = planGenerateWatchChanges(changesSince(before).changes)
+    write(helper, 'export const enabled = true')
+    const changes = changesSince(before).changes
+    expect(changes.filter((change) => change.path === helper).map((change) => change.category).sort())
+      .toEqual(['extension', 'openapi', 'search'])
+    expect(changes).toContainEqual(expect.objectContaining({
+      category: 'extension', extensionId: 'registry.notifications', path: helper,
+    }))
+    const plan = planGenerateWatchChanges(changes)
     expect(plan.mode).toBe('incremental')
     expect(plan.groups).toEqual(['registry', 'openapi'])
-    expect(plan.registryOutputs).toEqual(['registry.search'])
+    expect(plan.registryOutputs).toEqual(['registry.search', 'registry.notifications'])
+  })
+
+  it('plans OpenAPI helpers and adapter manifests without a full fallback', () => {
+    const openapiInput = path.join(root, 'app/src/openapi.ts')
+    const openapiHelper = path.join(root, 'app/src/openapi-helper.ts')
+    const adapterManifest = path.join(root, 'packages/adapter/package.json')
+    write(openapiInput, 'export { schema } from "./openapi-helper"')
+    write(openapiHelper, 'export const schema = { version: 1 }')
+    write(adapterManifest, '{"name":"adapter","openMercato":{"webResearchAdapter":{"id":"first"}}}')
+    options.openapiInputs = [openapiInput]
+    options.webResearchAdapterInputs = [adapterManifest]
+    const manifestReadSpy = jest.spyOn(fs, 'readFileSync')
+    const before = capture()
+    expect(manifestReadSpy.mock.calls.some(([file]) => file === adapterManifest)).toBe(false)
+    manifestReadSpy.mockRestore()
+    write(openapiHelper, 'export const schema = { version: 2 }')
+    write(adapterManifest, '{"name":"adapter","openMercato":{"webResearchAdapter":{"id":"second"}}}')
+    const changes = changesSince(before).changes
+    expect(changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ category: 'openapi', path: openapiHelper }),
+      expect.objectContaining({ category: 'web-research-adapters', path: adapterManifest }),
+    ]))
+    const plan = planGenerateWatchChanges(changes)
+    expect(plan.mode).toBe('incremental')
+    expect(plan.groups).toEqual(['web-research-adapters', 'openapi'])
   })
 
   it('detects supervisor override calls outside module conventions without tracking unrelated component edits', () => {

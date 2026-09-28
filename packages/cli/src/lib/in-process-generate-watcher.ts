@@ -2,9 +2,10 @@
  * In-process generate watcher.
  *
  * Coalesces filesystem events before comparing the current module structure
- * with the last successfully generated snapshot. A failed generation retries
- * the full suite without waiting for another event. Capturing before generation
- * leaves edits made during a run dirty for the next serial poll.
+ * with the last successfully generated snapshot. Failed or uncertain
+ * candidates remain unacknowledged, but are retried only after a new input
+ * event (or a newly observed polling-fallback snapshot). Capturing before
+ * generation leaves edits made during a run dirty for the next serial poll.
  *
  * Contract preserved from the prior standalone watcher:
  *   - Default debounce/fallback poll interval 1000 ms (minimum 250 ms).
@@ -48,9 +49,11 @@ export type GenerateWatcherOptions = {
   }
   /**
    * Function that performs the actual regeneration work. Called once on
-   * startup (unless `skipInitial`) and again whenever the checksum changes.
-   * The `reason` argument is suitable for logging (`'initial'`,
-   * `'structure change'`, `'retry after failed generation'`).
+   * startup (unless `skipInitial`) and again whenever the input changes.
+   * After a failed or uncertain candidate, the next changed input is repaired
+   * with a full generation. The `reason` argument is suitable for logging
+   * (`'initial'`, `'structure change'`, `'retry after failed generation'`,
+   * or `'retry after uncertain structure snapshot'`).
    */
   runGenerators: (reason: string, plan?: GenerateWatchPlan) => Promise<void>
   /** Poll interval in milliseconds. Defaults to 1000. Clamped to >= 250. */
@@ -96,6 +99,10 @@ export function startInProcessGenerateWatcher(
   let previousChecksum: string | undefined
   let previousSnapshot: GenerateWatchSnapshot | undefined
   let observedChangeVersion = -1
+  let attemptedChangeVersion = -1
+  let attemptedChecksum: string | undefined
+  let attemptedUncertaintyKey: string | undefined
+  let hasAttemptedCapture = false
   let retryReason: string | undefined
   let doneResolve: () => void = () => {}
   const done = new Promise<void>((resolve) => { doneResolve = resolve })
@@ -103,17 +110,45 @@ export function startInProcessGenerateWatcher(
   async function captureAndGenerate(initial: boolean, refreshSubscriptions = true): Promise<void> {
     // This version belongs to the candidate, not to the state after generation.
     const changeVersion = changeSignal?.currentVersion() ?? 0
-    const candidate = incremental ? await incremental.capture() : undefined
-    const checksum = candidate?.checksum ?? await computeStructureChecksum()
+    const hadPriorAttempt = hasAttemptedCapture
+    const priorAttemptVersion = attemptedChangeVersion
+    const priorAttemptChecksum = attemptedChecksum
+    const priorAttemptUncertaintyKey = attemptedUncertaintyKey
+    hasAttemptedCapture = true
+    attemptedChangeVersion = changeVersion
+
+    let candidate: GenerateWatchSnapshot | undefined
+    let checksum: string
+    try {
+      candidate = incremental ? await incremental.capture() : undefined
+      checksum = candidate?.checksum ?? await computeStructureChecksum()
+    } catch (error) {
+      // A later authoritative capture must be treated as a new candidate even
+      // when it has the same checksum as the snapshot preceding this failure.
+      attemptedChecksum = undefined
+      attemptedUncertaintyKey = 'capture failed'
+      retryReason = 'retry after uncertain structure snapshot'
+      throw error
+    }
     if (stopping) return
     if (refreshSubscriptions) await changeSignal?.refresh()
     if (stopping) return
+
+    const uncertaintyKey = candidate?.fullReasons.join('\u0000')
+    const inputChangedSinceAttempt = !hadPriorAttempt
+      || changeVersion !== priorAttemptVersion
+      || checksum !== priorAttemptChecksum
+      || uncertaintyKey !== priorAttemptUncertaintyKey
+    attemptedChecksum = checksum
+    attemptedUncertaintyKey = uncertaintyKey
 
     const skipInitial = initial && options.skipInitial === true
     const changed = checksum !== previousChecksum
     const uncertain = Boolean(candidate?.fullReasons.length)
     const eventReason = changeSignal?.fullGenerationReasonSince?.(observedChangeVersion)
-    const shouldGenerate = !skipInitial && (initial || retryReason || changed || uncertain || eventReason)
+    const shouldGenerate = !skipInitial && (retryReason
+      ? inputChangedSinceAttempt
+      : initial || changed || uncertain || Boolean(eventReason))
     if (shouldGenerate) {
       let plan: GenerateWatchPlan | undefined
       if (incremental && candidate) {
@@ -152,6 +187,9 @@ export function startInProcessGenerateWatcher(
         if (incremental && !stopping) await changeSignal?.refresh()
         if (!quiet) logger.log('[generate:watch] Generators completed.')
       }
+    } else if (retryReason) {
+      // Keep the failed/uncertain candidate unacknowledged without retrying it.
+      return
     }
     // Only successful generation (or a verified no-op) acknowledges this input.
     if (uncertain) {
@@ -167,18 +205,20 @@ export function startInProcessGenerateWatcher(
   async function poll(): Promise<void> {
     try {
       if (stopping) return
-      const eventGatedIdle = !retryReason
-        && previousChecksum !== undefined
+      const eventGatedIdle = hasAttemptedCapture
         && changeSignal
         && !changeSignal.usesPollingFallback()
-        && changeSignal.currentVersion() === observedChangeVersion
+        && changeSignal.currentVersion() === attemptedChangeVersion
       if (eventGatedIdle) {
         if (!changeSignal.hasSkippedTargets?.()) return
         await changeSignal.refresh()
         if (stopping) return
-        // New roots may appear while other optional roots remain absent.
-        if (changeSignal.currentVersion() === observedChangeVersion
-          && changeSignal.hasSkippedTargets?.()) return
+        const stillAtAttemptedVersion = changeSignal.currentVersion() === attemptedChangeVersion
+        // A pending repair is strictly event-gated. Normal idle polling may
+        // still discover a formerly missing root even if the signal provider
+        // cannot attribute that discovery to a filesystem event.
+        if (stillAtAttemptedVersion
+          && (retryReason || changeSignal.hasSkippedTargets?.())) return
       }
       await captureAndGenerate(false, !eventGatedIdle)
     } catch (error) {

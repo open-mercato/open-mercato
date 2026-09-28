@@ -249,7 +249,7 @@ describe('startInProcessGenerateWatcher', () => {
     await handle.close()
   })
 
-  it('retries a dirty checksum after a transient checksum failure', async () => {
+  it('waits for another event before recapturing after a transient checksum failure', async () => {
     const runGenerators = jest.fn(async () => undefined)
     const computeStructureChecksum = jest.fn()
       .mockResolvedValueOnce('before')
@@ -270,12 +270,22 @@ describe('startInProcessGenerateWatcher', () => {
     markChanged()
     jest.advanceTimersByTime(1000)
     await flushAsync(8)
+    expect(computeStructureChecksum).toHaveBeenCalledTimes(2)
     expect(runGenerators).not.toHaveBeenCalled()
 
+    for (let poll = 0; poll < 3; poll += 1) {
+      jest.advanceTimersByTime(1000)
+      await flushAsync(8)
+    }
+    expect(computeStructureChecksum).toHaveBeenCalledTimes(2)
+    expect(runGenerators).not.toHaveBeenCalled()
+
+    markChanged()
     jest.advanceTimersByTime(1000)
     await flushAsync(12)
     expect(computeStructureChecksum).toHaveBeenCalledTimes(3)
     expect(runGenerators).toHaveBeenCalledTimes(1)
+    expect(runGenerators).toHaveBeenCalledWith('retry after uncertain structure snapshot')
     await handle.close()
   })
 
@@ -486,10 +496,11 @@ describe('incremental generate watcher lifecycle', () => {
       capture,
       plan,
       update: (next: GenerateWatchSnapshot) => { current = next; signalHarness.markChanged() },
+      setSnapshot: (next: GenerateWatchSnapshot) => { current = next },
     }
   }
 
-  it('retries a failed partial suite as full without another event, even if input reverts', async () => {
+  it('event-gates a failed partial suite and repairs fully after the next event', async () => {
     const h = harness()
     h.runGenerators.mockRejectedValueOnce(new Error('partial write'))
     const handle = startInProcessGenerateWatcher(h.options)
@@ -501,6 +512,14 @@ describe('incremental generate watcher lifecycle', () => {
     // The candidate must not be acknowledged. A reverted tree can still have
     // partially updated outputs and therefore needs a full repair.
     h.capture.mockResolvedValue(snapshot([['api/item.ts', 'api-route', 'before']]))
+    for (let poll = 0; poll < 3; poll += 1) {
+      jest.advanceTimersByTime(250)
+      await flushAsync(12)
+    }
+    expect(h.capture).toHaveBeenCalledTimes(2)
+    expect(h.runGenerators).toHaveBeenCalledTimes(1)
+
+    h.markChanged()
     jest.advanceTimersByTime(250)
     await flushAsync(16)
     expect(h.runGenerators).toHaveBeenCalledTimes(2)
@@ -514,14 +533,22 @@ describe('incremental generate watcher lifecycle', () => {
     await handle.close()
   })
 
-  it('does not treat failed initial generation as a successful baseline', async () => {
+  it('waits for an event before repairing a failed initial generation', async () => {
     const h = harness(false)
     h.runGenerators.mockRejectedValueOnce(new Error('initial failed'))
     const handle = startInProcessGenerateWatcher(h.options)
     await flushAsync(16)
+    for (let poll = 0; poll < 3; poll += 1) {
+      jest.advanceTimersByTime(250)
+      await flushAsync(12)
+    }
+    expect(h.runGenerators.mock.calls.map(([, plan]) => plan?.mode)).toEqual(['full'])
+
+    h.markChanged()
     jest.advanceTimersByTime(250)
     await flushAsync(16)
     expect(h.runGenerators.mock.calls.map(([, plan]) => plan?.mode)).toEqual(['full', 'full'])
+    expect(h.runGenerators.mock.calls[1][1]?.reasons).toContain('retry after failed generation')
     await handle.close()
   })
 
@@ -620,6 +647,35 @@ describe('incremental generate watcher lifecycle', () => {
     await handle.close()
   })
 
+  it('does not rerun a failed polling candidate until the snapshot changes', async () => {
+    const h = harness()
+    h.usePollingFallback()
+    h.runGenerators.mockRejectedValueOnce(new Error('failed polling suite'))
+    const handle = startInProcessGenerateWatcher(h.options)
+    await flushAsync(12)
+
+    h.setSnapshot(snapshot([['api/item.ts', 'api-route', 'after']]))
+    jest.advanceTimersByTime(250)
+    await flushAsync(16)
+    expect(h.runGenerators).toHaveBeenCalledTimes(1)
+
+    for (let poll = 0; poll < 3; poll += 1) {
+      jest.advanceTimersByTime(250)
+      await flushAsync(12)
+    }
+    expect(h.runGenerators).toHaveBeenCalledTimes(1)
+
+    h.setSnapshot(snapshot([['api/item.ts', 'api-route', 'later']]))
+    jest.advanceTimersByTime(250)
+    await flushAsync(16)
+    expect(h.runGenerators).toHaveBeenCalledTimes(2)
+    expect(h.runGenerators.mock.calls[1][1]).toMatchObject({
+      mode: 'full',
+      reasons: expect.arrayContaining(['retry after failed generation']),
+    })
+    await handle.close()
+  })
+
   it('runs one full suite for an unattributed event even when the tracked checksum is unchanged', async () => {
     const h = harness()
     let unknownVersion = -1
@@ -689,11 +745,11 @@ describe('incremental generate watcher lifecycle', () => {
     expect(h.runGenerators).toHaveBeenCalledTimes(1)
   })
 
-  it('retries checksum-only callbacks without changing their one-argument contract', async () => {
+  it('event-gates checksum-only retries without changing callback arity', async () => {
     const runGenerators = jest.fn<Promise<void>, [string]>()
       .mockRejectedValueOnce(new Error('failed full suite'))
       .mockResolvedValue(undefined)
-    const { signal } = createFakeChangeSignal()
+    const { signal, markChanged } = createFakeChangeSignal()
     const handle = startInProcessGenerateWatcher({
       pollMs: 250,
       logger: silentLogger,
@@ -703,6 +759,15 @@ describe('incremental generate watcher lifecycle', () => {
       runGenerators,
     })
     await flushAsync(16)
+    for (let poll = 0; poll < 3; poll += 1) {
+      jest.advanceTimersByTime(250)
+      await flushAsync(12)
+    }
+    expect(runGenerators.mock.calls).toEqual([
+      ['initial'],
+    ])
+
+    markChanged()
     jest.advanceTimersByTime(250)
     await flushAsync(16)
     expect(runGenerators.mock.calls).toEqual([
@@ -712,22 +777,43 @@ describe('incremental generate watcher lifecycle', () => {
     await handle.close()
   })
 
-  it('keeps an uncertain snapshot dirty until it becomes authoritative', async () => {
+  it('event-gates uncertain snapshots and fully repairs each new version', async () => {
     const h = harness(false)
     const uncertain = { ...snapshot([]), fullReasons: ['unreadable source'] }
     h.capture.mockResolvedValue(uncertain)
     const handle = startInProcessGenerateWatcher(h.options)
     await flushAsync(16)
+    expect(h.runGenerators).toHaveBeenCalledTimes(1)
+
+    for (let poll = 0; poll < 3; poll += 1) {
+      jest.advanceTimersByTime(250)
+      await flushAsync(12)
+    }
+    expect(h.capture).toHaveBeenCalledTimes(1)
+    expect(h.runGenerators).toHaveBeenCalledTimes(1)
+
+    h.markChanged()
     jest.advanceTimersByTime(250)
     await flushAsync(16)
     expect(h.runGenerators).toHaveBeenCalledTimes(2)
-    expect(h.runGenerators.mock.calls[1][1]?.reasons).toContain('unreadable source')
+    expect(h.runGenerators.mock.calls[1][1]).toMatchObject({
+      mode: 'full',
+      reasons: expect.arrayContaining([
+        'retry after uncertain structure snapshot',
+        'unreadable source',
+      ]),
+    })
+    jest.advanceTimersByTime(250)
+    await flushAsync(12)
+    expect(h.runGenerators).toHaveBeenCalledTimes(2)
+
     h.capture.mockResolvedValue(snapshot([]))
+    h.markChanged()
     jest.advanceTimersByTime(250)
     await flushAsync(16)
     expect(h.runGenerators).toHaveBeenCalledTimes(3)
     jest.advanceTimersByTime(250)
-    await flushAsync(16)
+    await flushAsync(12)
     expect(h.runGenerators).toHaveBeenCalledTimes(3)
     await handle.close()
   })

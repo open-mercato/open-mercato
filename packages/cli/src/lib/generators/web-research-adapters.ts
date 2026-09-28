@@ -22,16 +22,28 @@ type DiscoveredAdapter = {
   sourceRoot: string
 }
 
-function readJson(file: string): unknown {
+function isMissing(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error
+    && (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+}
+
+function readJson(file: string, fullReasons: Set<string>): unknown {
+  let source: string
   try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'))
+    source = fs.readFileSync(file, 'utf8')
+  } catch (error) {
+    if (!isMissing(error)) fullReasons.add(`Cannot read web-research adapter manifest: ${file}`)
+    return null
+  }
+  try {
+    return JSON.parse(source)
   } catch {
     return null
   }
 }
 
-function readManifest(packageJsonPath: string): DiscoveredAdapter | null {
-  const parsed = readJson(packageJsonPath)
+function readManifest(packageJsonPath: string, fullReasons: Set<string>): DiscoveredAdapter | null {
+  const parsed = readJson(packageJsonPath, fullReasons)
   if (typeof parsed !== 'object' || parsed === null) return null
   const pkg = parsed as Record<string, unknown>
   const namespace = pkg[MANIFEST_NAMESPACE]
@@ -45,22 +57,21 @@ function readManifest(packageJsonPath: string): DiscoveredAdapter | null {
   return { packageName, adapterId, sourceRoot: path.dirname(packageJsonPath) }
 }
 
-function scanDirectory(root: string, manifestPaths: string[], directoryPaths: string[]): void {
-  directoryPaths.push(root)
-  if (!fs.existsSync(root)) return
+function scanDirectory(root: string, manifestPaths: string[], fullReasons: Set<string>): void {
   let entries: fs.Dirent[]
   try {
     entries = fs.readdirSync(root, { withFileTypes: true })
-  } catch {
+  } catch (error) {
+    if (!isMissing(error)) fullReasons.add(`Cannot scan web-research adapter packages: ${root}`)
     return
   }
-  for (const entry of entries) {
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
     if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
     if (entry.name === '.bin' || entry.name === '.cache') continue
     const child = path.join(root, entry.name)
     // Scoped packages nest one level deeper (`@scope/name`).
     if (entry.name.startsWith('@')) {
-      scanDirectory(child, manifestPaths, directoryPaths)
+      scanDirectory(child, manifestPaths, fullReasons)
       continue
     }
     manifestPaths.push(path.join(child, 'package.json'))
@@ -68,24 +79,34 @@ function scanDirectory(root: string, manifestPaths: string[], directoryPaths: st
 }
 
 /**
- * Shares candidate discovery with generation. Directory paths must be watched
- * nonrecursively; package implementations are not registry inputs. Missing
+ * Shares candidate discovery with generation. Directory paths are coarse roots
+ * watched recursively; package implementations are not registry inputs. Missing
  * manifests are retained so declaring an adapter in an existing package is seen.
  */
+export type WebResearchAdapterWatchInputs = {
+  manifestPaths: string[]
+  directoryPaths: string[]
+  fullReasons: string[]
+}
+
 export function getWebResearchAdapterWatchInputs(
   resolver: PackageResolver,
-): { manifestPaths: string[]; directoryPaths: string[] } {
+): WebResearchAdapterWatchInputs {
+  const rootDir = resolver.getRootDir()
   const appDir = resolver.getAppDir()
-  const repoRoot = path.resolve(appDir, '..', '..')
   const manifestPaths: string[] = []
-  const directoryPaths: string[] = []
-  const scanRoots = [
-    path.join(repoRoot, 'packages'),
-    path.join(repoRoot, 'node_modules'),
+  const fullReasons = new Set<string>()
+  const directoryPaths = [...new Set([
+    path.join(rootDir, 'packages'),
+    path.join(rootDir, 'node_modules'),
     path.join(appDir, 'node_modules'),
-  ]
-  for (const root of scanRoots) scanDirectory(root, manifestPaths, directoryPaths)
-  return { manifestPaths, directoryPaths }
+  ].map((directory) => path.resolve(directory)))]
+  for (const root of directoryPaths) scanDirectory(root, manifestPaths, fullReasons)
+  return {
+    manifestPaths: [...new Set(manifestPaths)],
+    directoryPaths,
+    fullReasons: [...fullReasons].sort((left, right) => left.localeCompare(right)),
+  }
 }
 
 function identifierFor(index: number): string {
@@ -106,11 +127,15 @@ export async function generateWebResearchAdapters(
   const outFile = path.join(outputDir, 'web-research-adapters.generated.ts')
   const checksumFile = path.join(outputDir, 'web-research-adapters.checksum')
 
-  const { manifestPaths } = getWebResearchAdapterWatchInputs(resolver)
+  const { manifestPaths, fullReasons: scanFullReasons } = getWebResearchAdapterWatchInputs(resolver)
+  const fullReasons = new Set(scanFullReasons)
   const discovered = new Map<string, DiscoveredAdapter>()
   for (const manifestPath of manifestPaths) {
-    const adapter = readManifest(manifestPath)
+    const adapter = readManifest(manifestPath, fullReasons)
     if (adapter && !discovered.has(adapter.packageName)) discovered.set(adapter.packageName, adapter)
+  }
+  if (fullReasons.size > 0) {
+    throw new Error([...fullReasons].sort((left, right) => left.localeCompare(right)).join('\n'))
   }
 
   const adapters = [...discovered.values()].sort((left, right) =>

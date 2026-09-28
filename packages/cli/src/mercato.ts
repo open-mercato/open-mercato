@@ -800,7 +800,11 @@ async function createGenerateWatchRuntime(quiet = false) {
   // Compiler-backed discovery is only needed by the generation watcher.
   const [
     { createResolver },
-    { calculateGenerateWatchStructureChecksum, collectGenerateWatchStructureSnapshot, diffGenerateWatchStructureSnapshots },
+    {
+      collectGenerateWatchStructureSnapshot,
+      createGenerateWatchStructureCache,
+      diffGenerateWatchStructureSnapshots,
+    },
     { planGenerateWatchChanges },
     { createGenerateWatchChangeSignal, resolveGenerateWatchTargets },
     { resolveStandaloneSourceMirrorBase },
@@ -817,21 +821,25 @@ async function createGenerateWatchRuntime(quiet = false) {
   ])
 
   let latestSnapshot: GenerateWatchSnapshot | undefined
+  const structureCache = createGenerateWatchStructureCache()
 
   const collectWatchState = () => {
     const resolver = createResolver()
     const moduleRoots: Array<GenerateWatchModuleTarget & { moduleId: string; from?: string }> = []
     const additionalInputs = new Set<string>()
+    const outputDirectories = new Set<string>([resolver.getOutputDir()])
     for (const directory of [resolver.getRootDir(), resolver.getAppDir()]) {
       for (const fileName of ['package.json', 'tsconfig.json', 'tsconfig.base.json', 'yarn.lock', 'package-lock.json', 'pnpm-lock.yaml']) {
         additionalInputs.add(path.join(directory, fileName))
       }
     }
     const adapterInputs = getWebResearchAdapterWatchInputs(resolver)
-    for (const manifestPath of adapterInputs.manifestPaths) additionalInputs.add(manifestPath)
-    for (const inputPath of getOpenApiWatchInputs(resolver)) additionalInputs.add(inputPath)
+    const openapiInputs = getOpenApiWatchInputs(resolver)
     const watchAppPackageFallbacks = resolver.isMonorepo()
     for (const entry of resolver.loadEnabledModules()) {
+      if (watchAppPackageFallbacks) {
+        outputDirectories.add(resolver.getPackageOutputDir(entry.from ?? '@open-mercato/core'))
+      }
       const roots = resolver.getModulePaths(entry)
       const watchPackageBase = entry.from !== '@app' || watchAppPackageFallbacks
       const additionalModuleBases = watchPackageBase
@@ -849,17 +857,22 @@ async function createGenerateWatchRuntime(quiet = false) {
       modulesFile: resolver.getModulesConfigPath(),
       moduleRoots,
       additionalInputs: [...additionalInputs],
+      openapiInputs,
+      webResearchAdapterInputs: adapterInputs.manifestPaths,
+      webResearchAdapterFullReasons: adapterInputs.fullReasons,
       additionalDirectories: adapterInputs.directoryPaths,
       appSourceDir: path.join(resolver.getAppDir(), 'src'),
       outputDir: resolver.getOutputDir(),
+      outputDirectories: [...outputDirectories].sort((left, right) => left.localeCompare(right)),
     }
   }
 
   return {
-    computeStructureChecksum: () => calculateGenerateWatchStructureChecksum(collectWatchState()),
+    computeStructureChecksum: () =>
+      collectGenerateWatchStructureSnapshot(collectWatchState(), structureCache).checksum,
     incremental: {
       capture: () => {
-        latestSnapshot = collectGenerateWatchStructureSnapshot(collectWatchState())
+        latestSnapshot = collectGenerateWatchStructureSnapshot(collectWatchState(), structureCache)
         return latestSnapshot
       },
       plan: (previous: GenerateWatchSnapshot, next: GenerateWatchSnapshot) =>

@@ -66,6 +66,17 @@ describe('planGenerateWatchChanges', () => {
     expect(planGenerateWatchChanges([change('cli', '/scheduler/cli.ts')]).registryOutputs).toEqual(['main', 'cli', 'supervisor'])
   })
 
+  it('maps OpenAPI and web-research inputs directly to their narrow generator groups', () => {
+    const plan = planGenerateWatchChanges([
+      change('openapi', '/app/src/openapi.ts'),
+      change('web-research-adapters', '/packages/adapter/package.json'),
+    ])
+    expect(plan.mode).toBe('incremental')
+    expect(plan.groups).toEqual(['web-research-adapters', 'openapi'])
+    expect(plan.registryOutputs).toEqual([])
+    expect(plan.reasons).toEqual([])
+  })
+
   it.each(['configuration', 'generator-plugin', 'unknown'] as const)('lets %s fallback dominate narrow work and reports why', (category) => {
     const path = '/customers/dependency.ts'
     const plan = planGenerateWatchChanges([change('api-route', '/customers/api/route.ts'), change(category, path)])

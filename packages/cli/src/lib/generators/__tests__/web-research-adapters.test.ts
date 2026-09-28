@@ -1,11 +1,11 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { PackageResolver } from '../../resolver'
+import { createResolver, type PackageResolver } from '../../resolver'
 import { readChecksumRecord } from '../../utils'
 import { generateWebResearchAdapters, getWebResearchAdapterWatchInputs } from '../web-research-adapters'
 
-function createResolver(root: string): PackageResolver {
+function createTestResolver(root: string): PackageResolver {
   const appDir = path.join(root, 'apps', 'mercato')
   const outputDir = path.join(appDir, '.mercato', 'generated')
   fs.mkdirSync(outputDir, { recursive: true })
@@ -46,16 +46,17 @@ describe('generateWebResearchAdapters', () => {
 
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'web-research-adapters-test-'))
-    resolver = createResolver(root)
+    resolver = createTestResolver(root)
     outFile = path.join(resolver.getOutputDir(), 'web-research-adapters.generated.ts')
     checksumFile = path.join(resolver.getOutputDir(), 'web-research-adapters.checksum')
   })
 
   afterEach(() => {
+    jest.restoreAllMocks()
     fs.rmSync(root, { recursive: true, force: true })
   })
 
-  it('shares all candidate manifests and shallow discovery roots with the watcher', async () => {
+  it('shares candidate manifests and coarse recursive discovery roots with the watcher', async () => {
     const workspaceRoot = path.join(root, 'packages')
     const installedRoot = path.join(root, 'node_modules')
     const appInstalledRoot = path.join(resolver.getAppDir(), 'node_modules')
@@ -75,9 +76,10 @@ describe('generateWebResearchAdapters', () => {
       path.join(scopedAdapter, 'package.json'),
       path.join(missingManifestPackage, 'package.json'),
     ].sort())
-    expect(inputs.directoryPaths.slice().sort()).toEqual([
-      workspaceRoot, installedRoot, path.join(installedRoot, '@third-party'), appInstalledRoot,
-    ].sort())
+    expect(inputs.directoryPaths).toEqual([
+      workspaceRoot, installedRoot, appInstalledRoot,
+    ])
+    expect(inputs.fullReasons).toEqual([])
     await generateWebResearchAdapters({ resolver, quiet: true })
     const initialOutput = fs.readFileSync(outFile, 'utf8')
     expect(initialOutput).toContain("from '@third-party/adapter'")
@@ -90,9 +92,81 @@ describe('generateWebResearchAdapters', () => {
     writeManifest(appAdapter, '@another-vendor/adapter', 'app')
     const nextInputs = getWebResearchAdapterWatchInputs(resolver)
     expect(nextInputs.manifestPaths).toContain(path.join(appAdapter, 'package.json'))
-    expect(nextInputs.directoryPaths).toContain(path.join(appInstalledRoot, '@another-vendor'))
+    expect(nextInputs.directoryPaths).toEqual([workspaceRoot, installedRoot, appInstalledRoot])
+    expect(nextInputs.fullReasons).toEqual([])
     await generateWebResearchAdapters({ resolver, quiet: true })
     expect(fs.readFileSync(outFile, 'utf8')).toContain("from '@another-vendor/adapter'")
+  })
+
+  it('keeps standalone discovery roots inside the standalone project', () => {
+    const project = path.join(root, 'standalone')
+    const installedAdapter = path.join(project, 'node_modules', '@example', 'adapter')
+    writeManifest(installedAdapter, '@example/adapter', 'adapter')
+    const standaloneResolver = createResolver(project)
+
+    const inputs = getWebResearchAdapterWatchInputs(standaloneResolver)
+
+    expect(inputs.directoryPaths).toEqual([
+      path.join(project, 'packages'),
+      path.join(project, 'node_modules'),
+    ])
+    expect(inputs.manifestPaths).toEqual([path.join(installedAdapter, 'package.json')])
+    expect(inputs.fullReasons).toEqual([])
+    expect(inputs.directoryPaths.every((directory) => {
+      const relative = path.relative(project, directory)
+      return relative === '' || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`))
+    })).toBe(true)
+  })
+
+  it('reports scan failures deterministically and generation writes nothing', async () => {
+    const scanSpy = jest.spyOn(fs, 'readdirSync').mockImplementation(() => {
+      throw Object.assign(new Error('denied'), { code: 'EACCES' })
+    })
+
+    const inputs = getWebResearchAdapterWatchInputs(resolver)
+    const expectedReasons = [
+      path.join(root, 'node_modules'),
+      path.join(root, 'packages'),
+      path.join(resolver.getAppDir(), 'node_modules'),
+    ]
+      .map((directory) => `Cannot scan web-research adapter packages: ${directory}`)
+      .sort((left, right) => left.localeCompare(right))
+    expect(inputs.fullReasons).toEqual(expectedReasons)
+    await expect(generateWebResearchAdapters({ resolver, quiet: true }))
+      .rejects.toThrow(expectedReasons.join('\n'))
+    scanSpy.mockRestore()
+    expect(fs.existsSync(outFile)).toBe(false)
+    expect(fs.existsSync(checksumFile)).toBe(false)
+  })
+
+  it('treats non-missing manifest read failures as uncertain and writes nothing', async () => {
+    writeManifest(path.join(root, 'packages', 'adapter'), '@example/adapter', 'adapter')
+    const readSpy = jest.spyOn(fs, 'readFileSync').mockImplementation(() => {
+      throw Object.assign(new Error('denied'), { code: 'EACCES' })
+    })
+
+    await expect(generateWebResearchAdapters({ resolver, quiet: true }))
+      .rejects.toThrow(`Cannot read web-research adapter manifest: ${path.join(root, 'packages', 'adapter', 'package.json')}`)
+    readSpy.mockRestore()
+    expect(fs.existsSync(outFile)).toBe(false)
+    expect(fs.existsSync(checksumFile)).toBe(false)
+  })
+
+  it('skips invalid JSON deterministically without treating it as I/O uncertainty', async () => {
+    const invalidManifest = path.join(root, 'packages', 'invalid', 'package.json')
+    fs.mkdirSync(path.dirname(invalidManifest), { recursive: true })
+    fs.writeFileSync(invalidManifest, '{"name":"invalid",')
+
+    expect(getWebResearchAdapterWatchInputs(resolver).fullReasons).toEqual([])
+    const first = await generateWebResearchAdapters({ resolver, quiet: true })
+    const content = fs.readFileSync(outFile, 'utf8')
+    const second = await generateWebResearchAdapters({ resolver, quiet: true })
+
+    expect(first.filesWritten).toEqual([outFile])
+    expect(content).not.toContain("from 'invalid'")
+    expect(second.filesWritten).toEqual([])
+    expect(second.filesUnchanged).toEqual([outFile])
+    expect(fs.readFileSync(outFile, 'utf8')).toBe(content)
   })
 
   it('preserves output and checksum bytes and mtimes after unrelated implementation changes', async () => {
