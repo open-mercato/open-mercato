@@ -144,6 +144,30 @@ canvas must not show a branch that never runs. Nesting is capped at five levels,
 hand-edited or imported definition that is cyclic in spirit into a truncated campaign instead of a
 stack overflow in a worker.
 
+### Journey preview
+
+What a named customer would receive, and when. The most useful screen in the module for an author, and
+the one with the strongest temptation to build wrongly.
+
+It drives the REAL executor rather than describing what the executor would do. An explainer that
+reimplements the sequencing is a second engine, and the moment it drifts it is worse than nothing —
+an author trusts a preview exactly where they cannot check it themselves. So the engine runs with side
+effects that record instead of act: every step handler is replaced by one that reports "would run" while
+KEEPING its channel, because the send gates key off the channel and a preview whose steps had none would
+show messages escaping quiet hours and the frequency cap.
+
+The clock is then advanced to each resume point and the engine re-entered, so the timeline follows waits
+instead of stopping at the first one — an author sees the date of the last message without doing the
+arithmetic. Pauses are reported as entries of their own, each carrying the engine's own reason, because
+"waits a day because you asked" and "held until 09:00 by quiet hours" are different answers to the
+same-looking gap. Bounded at 60 steps and a year ahead: a journey longer than that is a loop somebody
+should look at, not a preview worth rendering.
+
+Nothing is written and nothing is sent. `recordSend` is a no-op, so the preview cannot count against the
+very frequency cap it is explaining, and it never appears in the campaign's reports as traffic — both
+asserted, along with the absence of a run, because "a preview that enrols somebody" is the failure this
+design exists to avoid.
+
 ### Send timing, learned per customer
 
 With opens recorded, the hour a customer usually reads email is knowable, so a send can be moved to it.
@@ -590,6 +614,9 @@ eight-way concurrent worker and is now backed by a partial unique index on the a
   optimistic lock; canvas editor reusing the `business_rules` condition builder; `en`/`pl`
   locales. Verified against a running instance: palette, create, save, round-trip, 409 on a
   stale save, and five rejected invalid graphs.
+- **2026-09-28** — Backlog X-14: journey preview for one named customer, driven by the real engine with
+  recording effects so every gate applies and the timeline cannot drift from what the campaign will
+  actually do. Pauses carry the engine's own reason. 463 unit tests, 60 integration tests.
 - **2026-09-28** — Review pass: 15 code-review findings and 1 security finding, all verified and fixed.
   Highlights: the cycle guard now recurses into split lanes (and runs when a winner is promoted), A/B
   lanes can be filled from the canvas at all, the winner promotion's optimistic lock no longer no-ops on

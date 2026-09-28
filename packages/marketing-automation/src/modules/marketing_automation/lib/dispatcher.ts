@@ -54,6 +54,10 @@ export type DispatchDeps = {
   enqueueResume(runId: string, delayMs: number): Promise<void>
 }
 
+export function readSendPolicyOf(definition: CampaignDefinition): SendPolicy {
+  return readSendPolicy(definition)
+}
+
 export function readDefinition(campaign: MarketingCampaign): CampaignDefinition {
   return campaignDefinitionSchema.parse(campaign.definition) as CampaignDefinition
 }
@@ -66,7 +70,14 @@ function readSendPolicy(definition: CampaignDefinition): SendPolicy {
   }
 }
 
-function buildEffects(
+/**
+ * The executor's side effects for a real run.
+ *
+ * Exported so the journey preview can drive the SAME engine with the same reads — timezone, send
+ * history, learned hour — while replacing only the writes. A preview built on a second set of effects
+ * would answer a slightly different question than the one the campaign will actually ask.
+ */
+export function buildEffects(
   deps: DispatchDeps,
   run: { id: string; campaignId: string; subjectEntityId: string | null },
 ): ExecutorSideEffects<StepDeps> {

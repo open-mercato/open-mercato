@@ -212,7 +212,7 @@ new home.
 | X-11 | Optimal send-time per recipient learned from their own open history | The original has a send-time gate but no learning; tracking data now makes it possible — ✅ 2026-09-28 — per-customer, minimum five opens, always subordinate to quiet hours | M | 3.1 tracking events |
 | X-12 | A/B winner auto-selection on click-through once a minimum sample is reached | Completes the split feature already shipped — ✅ 2026-09-28 — as a SUGGESTION plus an author action, not an automatic rewrite; auto-apply on a schedule is a follow-up | S | 2.1 split + 3.1 tracking |
 | X-13 | Deliverability guardrails: bounce-rate and complaint-rate circuit breaker that pauses a campaign | Protects the sending domain, which no amount of content quality can undo | M | 3.1 events + campaign state |
-| X-14 | Dry-run preview of a whole journey for one named customer: every step, every gate, every timestamp | The fastest way for an author to trust a campaign, and a superb demo | M | executor + audience narrowing |
+| X-14 | Dry-run preview of a whole journey for one named customer: every step, every gate, every timestamp | The fastest way for an author to trust a campaign, and a superb demo — ✅ 2026-09-28 — drives the real executor with recording effects, so it cannot drift from the engine | M | executor + audience narrowing |
 
 ### What is actually blocked, and what is only work
 

@@ -13,6 +13,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
 import type { GroupCondition } from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
 import { CampaignCanvas } from '../../../../components/CampaignCanvas'
@@ -56,6 +57,18 @@ type PaletteStep = {
   descriptionKey: string | null
   channel: string | null
   uiFields: UiFieldSpec[]
+}
+
+type PreviewEntry =
+  | { kind: 'step'; at: string; stepId: string; type: string; status: string; detail: string | null; channel: string | null }
+  | { kind: 'pause'; at: string; until: string; reason: 'wait' | 'quiet_hours' | 'send_time' }
+
+type JourneyPreview = {
+  entered: boolean
+  entries: PreviewEntry[]
+  stoppedBecause: 'completed' | 'stepLimit' | 'horizon' | 'failed'
+  variantChoices: Record<string, string>
+  endsAt: string | null
 }
 
 type AudienceEstimate = {
@@ -142,6 +155,9 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
   } | null>(null)
   const [estimate, setEstimate] = React.useState<AudienceEstimate | null>(null)
   const [estimating, setEstimating] = React.useState(false)
+  const [previewSubject, setPreviewSubject] = React.useState('')
+  const [preview, setPreview] = React.useState<JourneyPreview | null>(null)
+  const [previewing, setPreviewing] = React.useState(false)
   const [selectedNodeId, setSelectedNodeId] = React.useState<string | null>(null)
   /**
    * The variant the palette adds to, chosen explicitly.
@@ -262,6 +278,35 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
       flash(describeSaveError(estimateError, t), 'error')
     } finally {
       setEstimating(false)
+    }
+  }
+
+  /**
+   * Asks the server what one named customer would receive, and when.
+   *
+   * The server drives the real engine for this, so the answer includes every gate — a message the
+   * frequency cap would drop shows as skipped, and quiet hours move the timestamp. That is the only
+   * version of this feature worth having: a hand-written explanation would drift from the engine, and an
+   * author trusts a preview exactly where they cannot check it themselves.
+   */
+  const runPreview = async () => {
+    const subjectEntityId = previewSubject.trim()
+    if (!subjectEntityId) return
+    setPreviewing(true)
+    try {
+      const response = await apiCallOrThrow<JourneyPreview>(
+        `/api/marketing_automation/campaigns/${campaignId}/preview`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ subjectEntityId }),
+          headers: { 'content-type': 'application/json' },
+        },
+      )
+      setPreview(response.result ?? null)
+    } catch (previewError) {
+      flash(describeSaveError(previewError, t), 'error')
+    } finally {
+      setPreviewing(false)
     }
   }
 
@@ -816,6 +861,82 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
               <div className="space-y-4">
                 <div className="text-xs text-muted-foreground">
                   {t('marketing_automation.canvas.edge.derivedHint', 'Steps run top to bottom. Reorder with the arrows, not by dragging.')}
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-overline text-muted-foreground">
+                    {t('marketing_automation.preview.title', 'Preview for a customer')}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {t('marketing_automation.preview.hint', 'Shows every step and when it would happen, with the send rules applied. Sends nothing.')}
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="preview-subject">
+                      {t('marketing_automation.preview.subject', 'Customer id')}
+                    </Label>
+                    <Input
+                      id="preview-subject"
+                      value={previewSubject}
+                      placeholder="00000000-0000-0000-0000-000000000000"
+                      onChange={(event) => { setPreviewSubject(event.target.value); setPreview(null) }}
+                    />
+                  </div>
+                  <Button
+                    variant="outline"
+                    disabled={previewing || !previewSubject.trim() || dirty}
+                    title={dirty ? t('marketing_automation.canvas.unsavedChanges', 'Unsaved changes') : undefined}
+                    onClick={() => void runPreview()}
+                  >
+                    {previewing ? <Spinner /> : t('marketing_automation.preview.run', 'Preview')}
+                  </Button>
+                  {preview ? (
+                    <div className="space-y-1">
+                      {!preview.entered ? (
+                        <div className="text-xs text-muted-foreground">
+                          {t('marketing_automation.preview.notEntered', 'The audience would not admit this customer.')}
+                        </div>
+                      ) : null}
+                      {Object.entries(preview.variantChoices).map(([splitId, variant]) => (
+                        <div key={splitId} className="text-xs text-muted-foreground">
+                          {t('marketing_automation.preview.variant', '{split}: variant {key}')
+                            .replace('{split}', splitId)
+                            .replace('{key}', variant)}
+                        </div>
+                      ))}
+                      {preview.entries.map((entry, index) => (
+                        <div key={`${index}`} className="flex items-baseline justify-between gap-2 border-b border-border py-1 text-xs">
+                          {entry.kind === 'pause' ? (
+                            <>
+                              <span className="truncate text-muted-foreground">
+                                {t(`marketing_automation.preview.pause.${entry.reason}`, entry.reason)}
+                              </span>
+                              <span className="shrink-0 text-muted-foreground">{formatDateTime(entry.until)}</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="truncate text-foreground">
+                                {t(`marketing_automation.step.${entry.type}.label`, entry.type)}
+                                {entry.status === 'skipped' ? (
+                                  <span className="text-muted-foreground"> · {entry.detail ?? t('marketing_automation.preview.skipped', 'skipped')}</span>
+                                ) : null}
+                              </span>
+                              <span className="shrink-0 text-muted-foreground">{formatDateTime(entry.at)}</span>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                      {preview.entered && preview.entries.length === 0 ? (
+                        <div className="text-xs text-muted-foreground">
+                          {t('marketing_automation.preview.noSteps', 'This campaign has no steps to run.')}
+                        </div>
+                      ) : null}
+                      {preview.stoppedBecause !== 'completed' ? (
+                        <div className="text-xs text-muted-foreground">
+                          {t(`marketing_automation.preview.stopped.${preview.stoppedBecause}`, preview.stoppedBecause)}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="space-y-3">

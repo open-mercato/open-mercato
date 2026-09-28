@@ -81,6 +81,9 @@ its own. Spec:
   the other order lands an "optimised" send at 3am.
 - Never learn a send hour from fewer than `MINIMUM_OPENS_FOR_PATTERN` opens, and never group open hours
   in server time — both produce a confident answer about the wrong customer.
+- Never explain the engine with a second implementation. The journey preview drives `executeRun` itself
+  with recording effects (`lib/preview.ts`); anything that re-derives the sequencing will drift from it,
+  and a preview is trusted precisely where nobody can check it.
 - Never recompute which lane a run walked. It is recorded on the run; recomputing agrees until the
   author edits the split, and then every historical A/B result becomes fiction.
 - Never count raw opens or clicks in a comparison. Count unique runs, or the variant that reached the
@@ -156,6 +159,7 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | score ledger, idempotent awarding | `lib/scores.ts`, `steps/add-points.ts` |
 | tier ladder, derivation and its defaults | `lib/engine/tiers.ts`, `lib/tiers.ts` |
 | everything known about one customer | `api/customers/[id]/profile/route.ts` |
+| journey preview, and why it reuses the engine | `lib/preview.ts` |
 | learned send hour, and its minimum evidence | `lib/analytics/send-time.ts` |
 | A/B results, winner rules | `lib/analytics/split-results.ts` |
 | linear revenue attribution | `lib/analytics/attribution.ts` |
