@@ -529,3 +529,5 @@ export function AddressEditor<C = unknown>({
 }
 
 export default AddressEditor
+
+// Accessibility regression coverage is added with the implementation commit.
