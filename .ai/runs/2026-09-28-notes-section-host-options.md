@@ -38,9 +38,9 @@ Let hosts outside the customers module reuse `NotesSection` with author-only or 
 
 ### Phase 1: Component options
 
-- [ ] 1.1 Add per-note edit/delete permission callbacks and read-only mode
-- [ ] 1.2 Add generic per-note context label/link
+- [x] 1.1 Add per-note edit/delete permission callbacks and read-only mode — 72a9a5a11
+- [x] 1.2 Add generic per-note context label/link — 72a9a5a11
 
 ### Phase 2: Tests
 
-- [ ] 2.1 Add jsdom tests for each option and default behaviour
+- [x] 2.1 Add jsdom tests for each option and default behaviour — 88ecaeb80
