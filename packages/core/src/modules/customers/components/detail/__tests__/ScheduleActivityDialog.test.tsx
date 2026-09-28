@@ -188,6 +188,19 @@ describe('ScheduleActivityDialog', () => {
     jest.restoreAllMocks()
   })
 
+  it('associates the visible title label with its input', () => {
+    renderWithProviders(
+      <ScheduleActivityDialog
+        open
+        onClose={() => undefined}
+        entityId="person-1"
+        entityType="person"
+      />,
+    )
+
+    expect(screen.getByRole('textbox', { name: 'Title' })).toBeInTheDocument()
+  })
+
   it('passes excludeId when checking conflicts for an edited activity', async () => {
     renderWithProviders(
       <ScheduleActivityDialog
