@@ -205,7 +205,7 @@ export async function adoptOrphanedCustomerGroups(
   // there is no scalar-mutation-then-query interleaving on this `EntityManager`
   // for `withAtomicFlush` (packages/core/AGENTS.md § Entity Update Safety) to
   // guard against.
-  for (const [tenantId, tenantOrphans] of orphansByTenant) {
+  for (const [tenantId, scannedOrphans] of orphansByTenant) {
     const lowestPriorityGroup = await em.findOne(
       CustomerGroup,
       { tenantId },
@@ -213,9 +213,15 @@ export async function adoptOrphanedCustomerGroups(
     )
     // The id is the primary key, which is global, so this probe is deliberately not
     // tenant-filtered; it only answers "is this id free" and returns nothing further.
-    const orphanIds = tenantOrphans.map((orphan) => orphan.groupId)
+    // An id already held by a group is a reference to ANOTHER tenant's group (a
+    // same-tenant one would not be an orphan). It cannot be adopted here without
+    // colliding on the primary key, so it is skipped — the rest of the tenant's orphans
+    // are still adopted — and only a batch where every id is taken is a conflict.
+    const orphanIds = scannedOrphans.map((orphan) => orphan.groupId)
     const groupsHoldingOrphanIds = await em.find(CustomerGroup, { id: { $in: orphanIds } }, { fields: ['id'] })
-    if (groupsHoldingOrphanIds.length) throw await adoptConflict(ORPHAN_ID_TAKEN.key, ORPHAN_ID_TAKEN.fallback)
+    const takenOrphanIds = new Set(groupsHoldingOrphanIds.map((group) => group.id))
+    const tenantOrphans = scannedOrphans.filter((orphan) => !takenOrphanIds.has(orphan.groupId))
+    if (!tenantOrphans.length) throw await adoptConflict(ORPHAN_ID_TAKEN.key, ORPHAN_ID_TAKEN.fallback)
     const candidateCodes = tenantOrphans.flatMap((orphan) => [
       `orphan-${shortUuid(orphan.groupId)}`,
       `orphan-${hexUuid(orphan.groupId)}`,
@@ -234,8 +240,8 @@ export async function adoptOrphanedCustomerGroups(
     // cleanly. These rows are always `isActive: false` — resolveGroups() never
     // returns inactive groups, and the admin list treats priority as purely
     // informational/sortable — so a negative value here is harmless, and the
-    // create/update zod validators accept the whole `int4` range so the edit form
-    // can still save an adopted group. Each tenant's minimum is re-queried fresh on
+    // create/update zod validators accept negative priorities down to their floor so
+    // the edit form can still save an adopted group. Each tenant's minimum is re-queried fresh on
     // every adopt() call, so later invocations continue below whatever the previous
     // batch landed on — self-healing across runs, never just across one batch.
     let nextPriority = (lowestPriorityGroup?.priority ?? 10) - 10

@@ -234,7 +234,16 @@ describe('adoptOrphanedCustomerGroups', () => {
     expect(em.flush.mock.invocationCallOrder[0]).toBeLessThan(emitLifecycleEventMock.mock.invocationCallOrder[0])
   })
 
-  it('rejects with a 409, before writing, when an orphan id is already a group primary key (another tenant)', async () => {
+  it('skips an orphan id already held by another tenant group and still adopts the rest', async () => {
+    const { em, created } = makeEm({ existingIds: [GROUP_ORPHAN_A], findOneByTenant: { [TENANT_A]: { priority: 10 } } })
+
+    const adopted = await adoptOrphanedCustomerGroups(em as never, [orphanFor(GROUP_ORPHAN_A), orphanFor(GROUP_ORPHAN_B)])
+
+    expect(adopted.map((entry) => entry.groupId)).toEqual([GROUP_ORPHAN_B])
+    expect(created.map((row) => (row as { id: string }).id)).toEqual([GROUP_ORPHAN_B])
+  })
+
+  it('rejects with a 409, before writing, when every orphan id is already a group primary key (another tenant)', async () => {
     const { em, created } = makeEm({ existingIds: [GROUP_ORPHAN_A] })
 
     await expect(adoptOrphanedCustomerGroups(em as never, [orphanFor(GROUP_ORPHAN_A)])).rejects.toMatchObject({

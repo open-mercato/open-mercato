@@ -101,7 +101,8 @@ export async function GET(req: Request) {
 
     // Resolved terms reveal a customer's commercial conditions, so the customer must be
     // visible in the caller's organization scope (see `lib/customerScope.ts`).
-    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+    // Same fallback as `makeCrudRoute`: an unresolvable scope narrows to the account org.
+    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req }).catch(() => null)
     const organizationIds = organizationIdsFromScope(scope, scope?.selectedId ?? auth.orgId ?? null)
     if (!(await isCustomerInScope(em, customerId, { tenantId, organizationIds }))) {
       throw notFound(translate('customer_groups.errors.customerNotFound', 'Customer not found.'))
