@@ -372,8 +372,18 @@ function ExpandedDay({
       ) : (
         <table className="w-full text-sm">
           <tbody>
-            {day.entries.map((entry) => (
-              <tr key={entry.id} className="border-b last:border-0">
+            {day.entries.map((entry) => {
+              const entryName =
+                entry.taskTitle ??
+                entry.description ??
+                t('staff.time_tracking.timesheet.list.noTask', 'No task')
+              const entryTime =
+                entry.startText && entry.endText
+                  ? `${entry.startText} – ${entry.endText}`
+                  : formatDuration(entry.durationMinutes, 'clock')
+
+              return (
+                <tr key={entry.id} className="border-b last:border-0">
                 <td className="w-28 py-2 align-top text-xs text-muted-foreground">
                   {entry.startText && entry.endText ? `${entry.startText} – ${entry.endText}` : '—'}
                 </td>
@@ -424,7 +434,11 @@ function ExpandedDay({
                         type="button"
                         variant="ghost"
                         size="2xs"
-                        aria-label={t('staff.time_tracking.timesheet.list.duplicate', 'Duplicate')}
+                        aria-label={t(
+                          'staff.time_tracking.timesheet.list.duplicateNamed',
+                          'Duplicate {entry}, {time}',
+                          { entry: entryName, time: entryTime },
+                        )}
                         onClick={() => onDuplicateEntry(entry)}
                         disabled={entry.isLocked}
                       >
@@ -434,7 +448,11 @@ function ExpandedDay({
                         type="button"
                         variant="ghost"
                         size="2xs"
-                        aria-label={t('staff.time_tracking.timesheet.list.edit', 'Edit')}
+                        aria-label={t(
+                          'staff.time_tracking.timesheet.list.editNamed',
+                          'Edit {entry}, {time}',
+                          { entry: entryName, time: entryTime },
+                        )}
                         onClick={() => onEditEntry(entry)}
                         disabled={entry.isLocked}
                       >
@@ -443,8 +461,9 @@ function ExpandedDay({
                     </span>
                   ) : null}
                 </td>
-              </tr>
-            ))}
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       )}
