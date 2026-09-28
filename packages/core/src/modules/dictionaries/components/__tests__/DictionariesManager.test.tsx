@@ -65,7 +65,9 @@ jest.mock('@open-mercato/ui/primitives/select', () => ({
   Select: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   SelectContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   SelectItem: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  SelectTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  SelectTrigger: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+    <button type="button" {...props}>{children}</button>
+  ),
   SelectValue: () => null,
 }))
 
@@ -130,5 +132,17 @@ describe('DictionariesManager', () => {
     fireEvent.click(screen.getByText('Sizes'))
     await waitFor(() => expect(screen.getByTestId('entries-editor')).toHaveTextContent('dict-sizes'))
     expect(listFetchCount()).toBe(1)
+  })
+
+  it('associates the visible create-dialog labels with their controls', async () => {
+    render(<DictionariesManager />)
+
+    await waitFor(() => expect(screen.getByText('Colors')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'New dictionary' }))
+
+    expect(screen.getByRole('textbox', { name: 'Key' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Name' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Description' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Entry sort order' })).toBeInTheDocument()
   })
 })
