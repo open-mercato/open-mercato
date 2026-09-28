@@ -80,9 +80,12 @@ test.describe('TC-MA-002 save graph', () => {
       // Same payload again — its `updatedAt` is now one version behind.
       const stale = await saveGraph(request, token, campaignId, graph)
       expect(stale.status()).toBe(409)
-      const body = await readJsonSafe<{ updatedAt?: string }>(stale)
-      expect(body?.updatedAt, 'the conflict carries the current version so the UI can recover').toBeTruthy()
-      expect(body?.updatedAt).not.toBe(graph.updatedAt)
+      // The canonical platform conflict body, so the shared conflict bar renders it.
+      const body = await readJsonSafe<{ code?: string; currentUpdatedAt?: string; expectedUpdatedAt?: string }>(stale)
+      expect(body?.code).toBe('optimistic_lock_conflict')
+      expect(body?.currentUpdatedAt, 'the conflict carries the current version so the UI can recover').toBeTruthy()
+      expect(body?.currentUpdatedAt).not.toBe(graph.updatedAt)
+      expect(body?.expectedUpdatedAt).toBe(graph.updatedAt)
     } finally {
       await deleteCampaignIfExists(request, token, campaignId)
     }

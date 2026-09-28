@@ -228,11 +228,11 @@ written down.* *Residual: blocked on `SPEC-029`.*
 
 | Rule | Status |
 |---|---|
-| No changes to `packages/core` | Met — one new package plus three registration lines |
+| Changes outside the new package kept minimal | One new package, three registration lines, and five `auth.acl.features.marketing_automation.*` titles in `packages/core/src/modules/auth/i18n/*` — required by `acl-feature-catalog.i18n.test.ts`, which holds every module's ACL declarations to a translated title |
 | No direct cross-module ORM relationships | Met — cross-module reads are scoped `findOne`/`find` by FK id |
 | Tenant/organization scoping on every query | Met |
 | Mutations through commands | Met — create, save_graph, delete; `add_tag` calls the customers command |
-| Optimistic locking on a user-editable entity | Met — `updatedAt` returned everywhere and enforced on save |
+| Optimistic locking on a user-editable entity | Met — `updatedAt` in every response; the canvas and the list send it through `withScopedApiRequestHeaders(buildOptimisticLockHeader(…))` and the commands enforce it with `enforceCommandOptimisticLock`, so conflicts surface through the shared bar on both save and delete |
 | zod validators with `z.infer` | Met — `data/validators.ts` |
 | No `any` | Met |
 | No raw `fetch` in UI | Met — `apiCall`/`apiCallOrThrow` |

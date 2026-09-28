@@ -1,14 +1,15 @@
 "use client"
 
 import * as React from 'react'
-import { useParams, useRouter } from 'next/navigation'
 import type { Edge, Node } from '@xyflow/react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
@@ -68,10 +69,8 @@ function summarizeAudience(audience: CampaignDefinition['audience']): string[] {
   return lines
 }
 
-export default function CampaignEditorPage() {
+export default function CampaignEditorPage({ params }: { params?: { id?: string } }) {
   const t = useT()
-  const router = useRouter()
-  const params = useParams<{ id: string }>()
   const campaignId = typeof params?.id === 'string' ? params.id : ''
 
   const [loading, setLoading] = React.useState(true)
@@ -193,13 +192,18 @@ export default function CampaignEditorPage() {
   const save = async () => {
     setSaving(true)
     try {
-      const response = await apiCallOrThrow<{ updatedAt: string; waitingRuns: number }>(
-        `/api/marketing_automation/campaigns/${campaignId}/save-graph`,
-        {
-          method: 'PUT',
-          body: JSON.stringify({ updatedAt, name, isEnabled, triggers, definition }),
-          headers: { 'content-type': 'application/json' },
-        },
+      // The expected version travels as the platform's extension header, which is what the
+      // command guard reads and what makes a conflict surface through the shared conflict bar.
+      const response = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(updatedAt),
+        () => apiCallOrThrow<{ updatedAt: string; waitingRuns: number }>(
+          `/api/marketing_automation/campaigns/${campaignId}/save-graph`,
+          {
+            method: 'PUT',
+            body: JSON.stringify({ updatedAt, name, isEnabled, triggers, definition }),
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
       )
       const saved = response.result
       setUpdatedAt(saved?.updatedAt ?? updatedAt)
@@ -215,13 +219,11 @@ export default function CampaignEditorPage() {
         )
       }
     } catch (saveError) {
-      const message = saveError instanceof Error ? saveError.message : String(saveError)
-      flash(
-        message.includes('409')
-          ? t('marketing_automation.errors.conflict', 'Somebody else saved this campaign while you were editing it.')
-          : t('marketing_automation.errors.saveFailed', 'Could not save the campaign.'),
-        'error',
-      )
+      // One conflict surface for the whole app: this renders the shared bar (or defers to a merge
+      // dialog when one is registered) and only falls through for non-conflict failures.
+      if (!surfaceRecordConflict(saveError, t)) {
+        flash(t('marketing_automation.errors.saveFailed', 'Could not save the campaign.'), 'error')
+      }
     } finally {
       setSaving(false)
     }

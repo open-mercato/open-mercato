@@ -3,6 +3,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { MarketingCampaign, MarketingCampaignRun, MarketingCampaignTrigger } from '../data/entities.js'
 import {
   campaignDefinitionSchema,
@@ -159,13 +160,19 @@ const saveCampaignGraphCommand: CommandHandler<
 
     // A campaign graph is exactly the kind of document two people edit at once, so a stale save
     // must collide rather than quietly overwrite the other person's work.
-    const currentVersion = campaign.updatedAt.toISOString()
-    if (payload.updatedAt !== currentVersion) {
-      throw new CrudHttpError(409, {
-        error: 'Campaign was modified by somebody else',
-        updatedAt: currentVersion,
-      })
-    }
+    //
+    // Delegated to the platform guard rather than compared by hand: it produces the canonical
+    // 409 body (`optimistic_lock_conflict` with `currentUpdatedAt`) that `surfaceRecordConflict`
+    // and the shared conflict bar already know how to render. The payload's `updatedAt` is passed
+    // explicitly AND the request is threaded, so the canvas can send the version as the extension
+    // header while an API client may keep sending it in the body.
+    enforceCommandOptimisticLock({
+      resourceKind: 'marketing_automation.campaign',
+      resourceId: campaign.id,
+      current: campaign.updatedAt,
+      expected: payload.updatedAt,
+      request: ctx.request ?? null,
+    })
 
     const wasEnabled = campaign.isEnabled
     campaign.name = payload.name
@@ -218,6 +225,15 @@ const deleteCampaignCommand: CommandHandler<{ id: string }, { id: string }> = {
       deletedAt: null,
     })
     if (!campaign) throw new CrudHttpError(404, { error: 'Campaign not found' })
+
+    // Deleting is a mutation of a user-editable record, so it carries the same version check as a
+    // save — the platform's locking covers update AND delete.
+    enforceCommandOptimisticLock({
+      resourceKind: 'marketing_automation.campaign',
+      resourceId: campaign.id,
+      current: campaign.updatedAt,
+      request: ctx.request ?? null,
+    })
 
     // Soft delete, and the resume path already refuses a removed campaign, so customers parked
     // inside it stop rather than continuing to receive messages from a deleted campaign.

@@ -9,7 +9,9 @@ import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -93,10 +95,17 @@ export default function CampaignsListPage() {
     })
     if (!confirmed) return
     try {
-      await apiCallOrThrow(`/api/marketing_automation/campaigns/${row.id}`, { method: 'DELETE' })
+      // Delete carries the row's version too: the platform's locking covers delete, so removing a
+      // campaign somebody else just changed collides instead of winning silently.
+      await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(row.updatedAt),
+        () => apiCallOrThrow(`/api/marketing_automation/campaigns/${row.id}`, { method: 'DELETE' }),
+      )
       await load()
-    } catch {
-      flash(t('marketing_automation.errors.saveFailed', 'Could not save the campaign.'), 'error')
+    } catch (deleteError) {
+      if (!surfaceRecordConflict(deleteError, t)) {
+        flash(t('marketing_automation.errors.saveFailed', 'Could not save the campaign.'), 'error')
+      }
     }
   }
 
