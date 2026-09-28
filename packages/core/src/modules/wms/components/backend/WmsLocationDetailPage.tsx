@@ -793,14 +793,16 @@ export default function WmsLocationDetailPage({ locationId }: WmsLocationDetailP
         id: 'select',
         header: () => (
           <Checkbox
-            aria-label={t('wms.backend.location.items.columns.select', 'Select')}
+            aria-label={t('wms.backend.location.items.columns.selectAll', 'Select all items')}
             checked={pageSelectionState.indeterminate ? 'indeterminate' : pageSelectionState.checked}
             onCheckedChange={(checked) => togglePageSelection(checked === true)}
           />
         ),
         cell: ({ row }) => (
           <Checkbox
-            aria-label={t('wms.backend.location.items.columns.select', 'Select')}
+            aria-label={t('wms.backend.location.items.columns.selectNamed', 'Select {item}', {
+              item: formatSkuLabel(row.original),
+            })}
             checked={selectedBalanceIds.has(row.original.id)}
             onCheckedChange={(checked) => toggleBalanceSelection(row.original.id, checked === true)}
           />
