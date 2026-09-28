@@ -217,8 +217,8 @@ export type DataSyncStartControl = 'fullSync' | 'batchSize'
 
 /**
  * How the progress job a run creates should read, as declared by
- * {@link DataSyncAdapter.describeProgressJob}. Every field is optional; one the
- * adapter leaves out keeps the core default.
+ * {@link DataSyncAdapter.describeProgressJob}. Every field is optional; a field
+ * that the adapter leaves out keeps the core default.
  */
 export type DataSyncProgressJobDescription = {
   name?: string

@@ -167,6 +167,23 @@ describe('startDataSyncRun — adapter-described progress job', () => {
     }))
   })
 
+  it('still starts the run when reporting the hook failure to telemetry throws too', async () => {
+    mockReportError.mockImplementationOnce(() => {
+      throw new Error('telemetry sink down')
+    })
+    registerDataSyncAdapter(buildAdapter({
+      describeProgressJob: () => {
+        throw new Error('describe exploded')
+      },
+    }))
+
+    const { createJob, createRun } = await start()
+
+    expect(createdJob(createJob)).toEqual(DEFAULT_JOB)
+    expect(createRun).toHaveBeenCalledTimes(1)
+    expect(mockEnqueue).toHaveBeenCalledTimes(1)
+  })
+
   it.each([
     ['a non-object answer', 'hidden'],
     ['an array', [{ meta: { hiddenFromTopBar: true } }]],

@@ -230,10 +230,11 @@ and both belong to the adapter to state.
 
 ### Progress job description
 
-Every run started through `startDataSyncRun` (`lib/start-run.ts`) — the run
-route, Retry, the scheduled worker and provider-owned routes — creates a
-`ProgressJob` that `ProgressTopBar` shows to every user with `progress.view`,
-with Cancel for anyone holding `progress.cancel`. An adapter may describe that
+Unless the caller passes `createProgressJob: false`, every run started through
+`startDataSyncRun` (`lib/start-run.ts`) — the run route, Retry, the scheduled
+worker and provider-owned routes — creates a `ProgressJob` that `ProgressTopBar`
+shows to every user with `progress.view`, with Cancel for anyone holding
+`progress.cancel`. An adapter may describe that
 job per entity type:
 
 ```typescript

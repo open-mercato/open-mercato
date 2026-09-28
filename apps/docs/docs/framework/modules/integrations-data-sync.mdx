@@ -254,7 +254,7 @@ Do not infer the answer from `persistsSharedCursor`. Where a cursor is stored an
 
 ## Describing the progress job a run creates
 
-Every run creates a progress job, and the top bar shows every active one to every user with `progress.view` — with a Cancel button for anyone holding `progress.cancel`. That is right for a run that finishes, and wrong for one that is meant to keep going: a continuously running feed never reaches 100%, so the bar reads *"1 operations running (0%)"* forever and its Cancel stops the feed.
+By default, every run creates a progress job (a caller can opt out with `createProgressJob: false`), and the top bar shows every active one to every user with `progress.view` — with a Cancel button for anyone holding `progress.cancel`. That is right for a run that finishes, and wrong for one that is meant to keep going: a continuously running feed never reaches 100%, so the bar reads *"1 operations running (0%)"* forever and its Cancel stops the feed.
 
 Declare how the job should read, per entity type:
 

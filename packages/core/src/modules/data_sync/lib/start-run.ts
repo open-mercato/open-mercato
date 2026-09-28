@@ -58,11 +58,18 @@ function resolveAdapterProgressJobDescription(input: StartDataSyncRunInput): Dat
     declared = adapter.describeProgressJob({ entityType: input.entityType, direction: input.direction })
   } catch (error) {
     logger.warn('Data sync adapter failed to describe its progress job; using the defaults', { ...attributes, err: error })
-    getTelemetryRuntime()?.reportError(error, {
-      module: 'data_sync',
-      code: 'data_sync.progress_job_description_failed',
-      attributes,
-    })
+    try {
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'data_sync',
+        code: 'data_sync.progress_job_description_failed',
+        attributes,
+      })
+    } catch (telemetryError) {
+      logger.warn('Failed to report a data sync error to telemetry', {
+        code: 'data_sync.progress_job_description_failed',
+        err: telemetryError as Error,
+      })
+    }
     return {}
   }
   if (declared === undefined) return {}
