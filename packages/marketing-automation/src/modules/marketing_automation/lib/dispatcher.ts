@@ -25,6 +25,7 @@ import {
 import type { RunScope } from './runs.js'
 import { buildSubjectDocument, loadSubjectTimeZone } from './subject-document.js'
 import type { SubjectDocument } from './engine/types.js'
+import { reportError } from '@open-mercato/telemetry'
 
 /**
  * How many times a dispatch may cascade before it is refused.
@@ -125,6 +126,11 @@ async function persist(
       runId: run.id,
       campaignId: run.campaignId,
       error: error instanceof Error ? error.message : String(error),
+    })
+    reportError(error, {
+      module: 'marketing_automation',
+      code: 'marketing_automation.run_failed',
+      attributes: { runId: run.id, campaignId: run.campaignId },
     })
     const outcome = await failRun(
       deps.em,
@@ -297,6 +303,11 @@ export async function dispatchEvent(
         campaignId: campaign.id,
         eventId: input.eventId,
         error: error instanceof Error ? error.message : String(error),
+      })
+      reportError(error, {
+        module: 'marketing_automation',
+        code: 'marketing_automation.dispatch_failed',
+        attributes: { campaignId: campaign.id, eventId: input.eventId },
       })
       await recordDeadLetter(deps.em, {
         source: 'dispatch',

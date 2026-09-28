@@ -12,6 +12,7 @@ import type { MarketingCampaign, MarketingCampaignTrigger } from '../data/entiti
 import type { SweepJob } from '../lib/queue.js'
 import { buildDispatchDeps, logger, readScope } from './shared.js'
 import type { HandlerContext, JobScope } from './shared.js'
+import { reportError } from '@open-mercato/telemetry'
 
 // See the note in dispatch.ts: this string must stay a literal.
 export const metadata: WorkerMeta = {
@@ -90,6 +91,11 @@ async function sweepCustomers(
           subjectEntityId: candidate.id,
           error: error instanceof Error ? error.message : String(error),
         })
+        reportError(error, {
+          module: 'marketing_automation',
+          code: 'marketing_automation.sweep_candidate_failed',
+          attributes: { campaignId: campaign.id, subjectEntityId: candidate.id },
+        })
       }
     }
 
@@ -164,6 +170,11 @@ async function sweepExpiringQuotes(
         quoteId: quote.id,
         error: error instanceof Error ? error.message : String(error),
       })
+      reportError(error, {
+        module: 'marketing_automation',
+        code: 'marketing_automation.sweep_candidate_failed',
+        attributes: { campaignId: campaign.id, quoteId: quote.id },
+      })
     }
   }
   return started
@@ -198,6 +209,11 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
       logger.error('[internal] marketing sweep failed', {
         campaignId: campaign.id,
         error: error instanceof Error ? error.message : String(error),
+      })
+      reportError(error, {
+        module: 'marketing_automation',
+        code: 'marketing_automation.sweep_failed',
+        attributes: { campaignId: campaign.id },
       })
     }
   }

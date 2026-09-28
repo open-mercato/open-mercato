@@ -4,6 +4,7 @@ import { findDueRunIds } from '../lib/runs.js'
 import type { ResumeJob } from '../lib/queue.js'
 import { buildDispatchDeps, logger, readScope } from './shared.js'
 import type { HandlerContext } from './shared.js'
+import { reportError } from '@open-mercato/telemetry'
 
 // See the note in dispatch.ts: this string must stay a literal.
 export const metadata: WorkerMeta = {
@@ -51,6 +52,11 @@ export default async function handle(job: QueuedJob<ResumeJob>, ctx: HandlerCont
       logger.error('[internal] marketing run resume failed during scan', {
         runId: id,
         error: error instanceof Error ? error.message : String(error),
+      })
+      reportError(error, {
+        module: 'marketing_automation',
+        code: 'marketing_automation.resume_failed',
+        attributes: { runId: id },
       })
     }
   }

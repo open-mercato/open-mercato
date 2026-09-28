@@ -9258,6 +9258,7 @@ __metadata:
     "@open-mercato/events": "workspace:*"
     "@open-mercato/queue": "workspace:*"
     "@open-mercato/shared": "workspace:*"
+    "@open-mercato/telemetry": "workspace:*"
     "@open-mercato/ui": "workspace:*"
     "@types/jest": "npm:^30.0.0"
     "@types/node": "npm:^26.4.0"

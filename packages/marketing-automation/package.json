@@ -62,6 +62,7 @@
     "@dagrejs/dagre": "^3.0.0",
     "@open-mercato/events": "workspace:*",
     "@open-mercato/queue": "workspace:*",
+    "@open-mercato/telemetry": "workspace:*",
     "@xyflow/react": "^12.11.5"
   },
   "peerDependencies": {

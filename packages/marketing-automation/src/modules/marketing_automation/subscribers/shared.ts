@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { MarketingCampaignTrigger } from '../data/entities.js'
 import { enqueueDispatch } from '../lib/queue.js'
+import { reportError } from '@open-mercato/telemetry'
 
 export const logger = createLogger('marketing_automation')
 
@@ -68,6 +69,11 @@ export async function forwardEventToCampaigns(
     logger.error('[internal] failed to forward event to marketing campaigns', {
       eventId,
       error: error instanceof Error ? error.message : String(error),
+    })
+    reportError(error, {
+      module: 'marketing_automation',
+      code: 'marketing_automation.forward_failed',
+      attributes: { eventId },
     })
   }
 }
