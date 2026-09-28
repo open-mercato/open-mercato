@@ -164,7 +164,7 @@ export function RoleAssignmentRow({
             size="sm"
             onClick={handleRemove}
             disabled={removing}
-            aria-label={t('customers.roles.remove', 'Remove role')}
+            aria-label={t('customers.roles.removeNamed', 'Remove {role} role from {user}', { role: roleTypeLabel, user: displayName })}
           >
             <X className="size-4" />
           </IconButton>
@@ -188,7 +188,7 @@ export function RoleAssignmentRow({
         <div className="mt-4 flex flex-wrap items-center gap-2">
           {role.userEmail ? (
             <IconButton asChild variant="outline" size="sm" className="shrink-0">
-              <a href={`mailto:${role.userEmail}`} aria-label={t('customers.roles.email', 'Send email')}>
+              <a href={`mailto:${role.userEmail}`} aria-label={t('customers.roles.emailNamed', 'Email {user}', { user: displayName })}>
                 <Mail className="size-4" />
               </a>
             </IconButton>
@@ -199,14 +199,14 @@ export function RoleAssignmentRow({
               size="sm"
               className="shrink-0"
               disabled
-              aria-label={t('customers.roles.emailUnavailable', 'Email unavailable')}
+              aria-label={t('customers.roles.emailUnavailableNamed', 'Email unavailable for {user}', { user: displayName })}
             >
               <Mail className="size-4" />
             </IconButton>
           )}
           {role.userPhone ? (
             <IconButton asChild variant="outline" size="sm" className="shrink-0">
-              <a href={`tel:${role.userPhone}`} aria-label={t('customers.roles.call', 'Call')}>
+              <a href={`tel:${role.userPhone}`} aria-label={t('customers.roles.callNamed', 'Call {user}', { user: displayName })}>
                 <Phone className="size-4" />
               </a>
             </IconButton>
@@ -217,7 +217,7 @@ export function RoleAssignmentRow({
               size="sm"
               className="shrink-0"
               disabled
-              aria-label={t('customers.roles.phoneUnavailable', 'Phone unavailable')}
+              aria-label={t('customers.roles.phoneUnavailableNamed', 'Phone unavailable for {user}', { user: displayName })}
             >
               <Phone className="size-4" />
             </IconButton>
@@ -228,6 +228,7 @@ export function RoleAssignmentRow({
             size="sm"
             className="h-auto w-full justify-start px-2 py-1 text-xs sm:ml-auto sm:w-auto"
             onClick={() => setChangingUser((current) => !current)}
+            aria-label={t('customers.roles.changeUserNamed', 'Change user for {role}', { role: roleTypeLabel })}
           >
             {t('customers.roles.changeUser', 'Change user')}
           </Button>
