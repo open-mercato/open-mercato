@@ -117,7 +117,7 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
               )}
               <Popover>
                 <PopoverTrigger asChild>
-                  <IconButton type="button" variant="ghost" size="xs" aria-label={t('customers.timeline.more', 'More')} onClick={(e) => e.stopPropagation()}>
+                  <IconButton type="button" variant="ghost" size="xs" aria-label={t('customers.timeline.moreFor', 'More actions for {title}', { title: activity.title ?? activity.body ?? activity.interactionType })} onClick={(e) => e.stopPropagation()}>
                     <MoreHorizontal className="size-3.5" />
                   </IconButton>
                 </PopoverTrigger>
@@ -182,7 +182,7 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
               </div>
               <Popover>
                 <PopoverTrigger asChild>
-                  <IconButton type="button" variant="ghost" size="xs" aria-label={t('customers.timeline.more', 'More')} onClick={(e) => e.stopPropagation()}>
+                  <IconButton type="button" variant="ghost" size="xs" aria-label={t('customers.timeline.moreFor', 'More actions for {title}', { title: activity.title ?? activity.body ?? activity.interactionType })} onClick={(e) => e.stopPropagation()}>
                     <MoreHorizontal className="size-3.5" />
                   </IconButton>
                 </PopoverTrigger>
