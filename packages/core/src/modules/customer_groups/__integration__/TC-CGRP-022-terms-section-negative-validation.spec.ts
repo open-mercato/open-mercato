@@ -45,19 +45,25 @@ test.describe('TC-CGRP-022: Commercial terms section — negative-input client-s
       await expect(paymentInput).toBeVisible({ timeout: 10_000 });
       await fillControlledInput(paymentInput, '-5');
 
+      // Any PUT to this group's terms endpoint is recorded and aborted, so even a
+      // late accidental submit can never reach the server; GETs pass through.
+      const termsPath = `/api/customer_groups/customer-groups/${groupId}/terms`;
       const termsPutUrls: string[] = [];
-      page.on('request', (request) => {
-        if (request.method() === 'PUT' && request.url().includes(`/api/customer_groups/customer-groups/${groupId}/terms`)) {
-          termsPutUrls.push(request.url());
-        }
-      });
+      await page.route(
+        (url) => url.pathname === termsPath,
+        async (route) => {
+          if (route.request().method() === 'PUT') {
+            termsPutUrls.push(route.request().url());
+            await route.abort();
+            return;
+          }
+          await route.continue();
+        },
+      );
 
       await page.getByRole('button', { name: 'Save terms' }).click();
 
       await expect(page.getByText('Must be zero or greater.')).toBeVisible({ timeout: 10_000 });
-
-      // Give any accidental async submit a moment to have fired before asserting absence.
-      await page.waitForTimeout(500);
       expect(termsPutUrls, 'client-side validation must block the PUT from ever being sent').toHaveLength(0);
     } finally {
       await deleteCustomerGroupIfExists(page.request, token, groupId);

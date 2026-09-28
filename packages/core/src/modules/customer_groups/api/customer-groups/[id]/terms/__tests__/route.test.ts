@@ -6,6 +6,11 @@ const TERMS_ID = '55555555-5555-4555-8555-555555555555'
 
 const runRouteMutationGuardsMock = jest.fn()
 
+const reportErrorMock = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => reportErrorMock(...args) }),
+}))
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/di/container', () => ({ createRequestContainer: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -268,5 +273,63 @@ describe('PUT /api/customer-groups/[id]/terms', () => {
 
     const res = await PUT(jsonRequest({ paymentTermsDays: 5 }), routeCtx())
     expect(res).toBe(blockedResponse)
+  })
+  it('maps a unique violation from a concurrent first save to a 409 conflict, not a 400/500', async () => {
+    const em = createFakeEm({ group: existingGroup, terms: null })
+    em.flush.mockRejectedValueOnce(
+      Object.assign(new Error('duplicate key value violates unique constraint'), {
+        code: '23505',
+        constraint: 'customer_group_terms_group_unique',
+      }),
+    )
+    setupContainer(em)
+
+    const res = await PUT(jsonRequest({ paymentTermsDays: 5 }), routeCtx())
+
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(typeof body.error).toBe('string')
+    expect(reportErrorMock).not.toHaveBeenCalled()
+  })
+
+  it('returns 500 and reports an unexpected write failure', async () => {
+    const em = createFakeEm({ group: existingGroup, terms: null })
+    const failure = new Error('connection reset')
+    em.flush.mockRejectedValueOnce(failure)
+    setupContainer(em)
+
+    const res = await PUT(jsonRequest({ paymentTermsDays: 5 }), routeCtx())
+
+    expect(res.status).toBe(500)
+    expect(reportErrorMock).toHaveBeenCalledWith(
+      failure,
+      expect.objectContaining({ module: 'customer_groups', code: 'customer_groups.terms_put_failed' }),
+    )
+  })
+
+  it('still answers 400 for invalid input without reporting it', async () => {
+    setupContainer(createFakeEm({ group: existingGroup, terms: null }))
+
+    const res = await PUT(jsonRequest({ paymentTermsDays: -5 }), routeCtx())
+
+    expect(res.status).toBe(400)
+    expect(reportErrorMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('GET /api/customer-groups/[id]/terms error reporting', () => {
+  it('returns 500 and reports an unexpected read failure', async () => {
+    const em = createFakeEm({ group: existingGroup, terms: null })
+    const failure = new Error('connection reset')
+    em.findOne.mockRejectedValueOnce(failure)
+    setupContainer(em)
+
+    const res = await GET(new Request('http://localhost/api/customer-groups/x/terms'), routeCtx())
+
+    expect(res.status).toBe(500)
+    expect(reportErrorMock).toHaveBeenCalledWith(
+      failure,
+      expect.objectContaining({ module: 'customer_groups', code: 'customer_groups.terms_get_failed' }),
+    )
   })
 })

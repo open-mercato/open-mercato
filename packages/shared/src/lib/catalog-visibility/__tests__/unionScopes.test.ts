@@ -52,4 +52,11 @@ describe('unionScopes — null propagation (§11 item 3)', () => {
     const result = unionScopes([{ categoryIds: ['A'] }, { categoryIds: ['B'] }])
     expect(result).toEqual([{ categoryIds: ['A'] }, { categoryIds: ['B'] }])
   })
+
+  it("returns a fresh array, never the caller's own list", () => {
+    const input = [{ categoryIds: ['A'] }, { tagIds: ['B'] }]
+    const result = unionScopes(input)
+    expect(result).not.toBe(input)
+    expect(result).toEqual(input)
+  })
 })

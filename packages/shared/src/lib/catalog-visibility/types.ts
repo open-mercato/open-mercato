@@ -1,10 +1,22 @@
-/** One source's own grant — a group's, or a channel's. Never combines more than one source. */
+/**
+ * One AND-scope. A single source's own grant (a group's, or a channel's) never carries
+ * `allOf`; `intersectScopes` adds it when a branch must AND two sources' conditions that
+ * cannot be merged into one flat scope without changing which products match.
+ */
 export type AssortmentScope = {
   categoryIds?: string[]
   tagIds?: string[]
   excludeProductIds?: string[]
   excludeCategoryIds?: string[]
   excludeTagIds?: string[]
+  /**
+   * Conjunction: a product matches this scope only if it also matches EVERY listed scope
+   * (each evaluated with `matchesOne`, so nesting is allowed). Absent or empty = no extra
+   * condition. Because every entry is itself a set of inclusion/exclusion id lists, a branch
+   * carrying `allOf` is still expressible on the SQL side as an AND of `scopeKeys`
+   * array-overlap tests (spec §3.3 / §3.5).
+   */
+  allOf?: AssortmentScope[]
 }
 
 /**

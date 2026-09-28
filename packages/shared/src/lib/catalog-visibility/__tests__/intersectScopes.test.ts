@@ -3,7 +3,12 @@ import { unionScopes } from '../unionScopes'
 import { matchesOne } from '../matchesOne'
 import { matchesScope } from '../matchesScope'
 import type { AssortmentScope, EffectiveAssortmentScope, ScopedProduct } from '../types'
-import { hasIncomparableDimensionConflict, mulberry32, randomAssortmentScope, randomProduct, randomSource } from './testFixtures'
+import { mulberry32, randomAssortmentScope, randomProduct, randomSource } from './testFixtures'
+
+function expectedMatch(product: ScopedProduct, channel: AssortmentScope | null, group: EffectiveAssortmentScope): boolean {
+  const channelMatches = channel === null ? true : matchesOne(product, channel)
+  return channelMatches && matchesScope(product, group)
+}
 
 describe('intersectScopes — null handling (§11 item 4)', () => {
   it('intersectScopes(A, null) is equivalent to [A]: matches iff matchesOne(product, A)', () => {
@@ -30,11 +35,11 @@ describe('intersectScopes — null handling (§11 item 4)', () => {
 })
 
 describe('intersectScopes — distributive law (§11 item 2, property-based)', () => {
-  const CASE_COUNT = 3000
+  const CASE_COUNT = 5000
 
-  it('is always sound: whenever intersectScopes says match, the true AND also matches (zero tolerance)', () => {
-    const rng = mulberry32(101)
-    let checked = 0
+  it('holds exactly for every generated fixture: matchesScope(p, channel ∩ group) === matchesOne(p, channel) && matchesScope(p, group)', () => {
+    const rng = mulberry32(202)
+    let matchedCases = 0
     for (let i = 0; i < CASE_COUNT; i += 1) {
       const channel = rng() < 0.15 ? null : randomAssortmentScope(rng)
       const sourceCount = Math.floor(rng() * 3)
@@ -42,96 +47,99 @@ describe('intersectScopes — distributive law (§11 item 2, property-based)', (
       const group = unionScopes(sources)
       const product = randomProduct(rng, i)
 
-      const actual = matchesScope(product, intersectScopes(channel, group))
-      const channelMatches = channel === null ? true : matchesOne(product, channel)
-      const expected = channelMatches && matchesScope(product, group)
-
-      if (actual) expect(expected).toBe(true)
-      checked += 1
+      const expected = expectedMatch(product, channel, group)
+      expect(matchesScope(product, intersectScopes(channel, group))).toBe(expected)
+      if (expected) matchedCases += 1
     }
-    expect(checked).toBe(CASE_COUNT)
+    expect(matchedCases).toBeGreaterThan(CASE_COUNT / 20)
+    expect(matchedCases).toBeLessThan(CASE_COUNT)
   })
 
-  it('holds exactly (full equality) whenever no dimension has an incomparable channel/group conflict', () => {
-    const rng = mulberry32(202)
-    let exactCasesChecked = 0
+  it('stays exact when composed repeatedly (branches that already carry allOf)', () => {
+    const rng = mulberry32(303)
     for (let i = 0; i < CASE_COUNT; i += 1) {
-      const channel = rng() < 0.15 ? null : randomAssortmentScope(rng)
+      const outer = rng() < 0.15 ? null : randomAssortmentScope(rng)
+      const inner = rng() < 0.15 ? null : randomAssortmentScope(rng)
       const sourceCount = Math.floor(rng() * 3)
-      const sources = Array.from({ length: sourceCount }, () => randomSource(rng))
-      const group = unionScopes(sources)
+      const group = unionScopes(Array.from({ length: sourceCount }, () => randomSource(rng)))
       const product = randomProduct(rng, i)
 
-      const groupBranches = group ?? []
-      if (hasIncomparableDimensionConflict(channel, groupBranches)) continue
-
-      const actual = matchesScope(product, intersectScopes(channel, group))
-      const channelMatches = channel === null ? true : matchesOne(product, channel)
-      const expected = channelMatches && matchesScope(product, group)
-
-      expect(actual).toBe(expected)
-      exactCasesChecked += 1
+      const composed = intersectScopes(outer, intersectScopes(inner, group))
+      const expected = expectedMatch(product, outer, group) && (inner === null || matchesOne(product, inner))
+      expect(matchesScope(product, composed)).toBe(expected)
     }
-    // Sanity: the "no conflict" branch must not be vacuous, or this test would pass by doing nothing.
-    expect(exactCasesChecked).toBeGreaterThan(CASE_COUNT / 4)
   })
 
-  it('the incomparable-dimension case is reachable by the generator (sanity check for the test above)', () => {
-    const rng = mulberry32(202)
-    let conflictCasesSeen = 0
+  it('never drops a branch: the result is [] only when the group itself is []', () => {
+    const rng = mulberry32(404)
     for (let i = 0; i < CASE_COUNT; i += 1) {
-      const channel = rng() < 0.15 ? null : randomAssortmentScope(rng)
+      const channel = randomAssortmentScope(rng)
       const sourceCount = Math.floor(rng() * 3)
-      const sources = Array.from({ length: sourceCount }, () => randomSource(rng))
-      const group = unionScopes(sources)
-      randomProduct(rng, i)
-      if (hasIncomparableDimensionConflict(channel, group ?? [])) conflictCasesSeen += 1
+      const group = unionScopes(Array.from({ length: sourceCount }, () => randomSource(rng)))
+      const result = intersectScopes(channel, group)
+      if (group === null) {
+        expect(result).toEqual([channel])
+      } else {
+        expect(result).toHaveLength(group.length)
+      }
     }
-    expect(conflictCasesSeen).toBeGreaterThan(0)
+    expect(intersectScopes({ categoryIds: ['cat-a'] }, [])).toEqual([])
   })
 })
 
-describe('intersectScopes — documented approximation boundary', () => {
-  // AssortmentScope.categoryIds/tagIds only express an existential ("has ANY of these ids").
-  // There is no way to encode "must independently satisfy channel's existential AND this
-  // group branch's existential" as a single existential set when a product satisfies each
-  // via a *different*, non-shared id — see intersectScopes.ts's own doc comment. This is a
-  // structural limitation of the DNF-of-existentials type, not a bug: the implementation is
-  // sound (never over-grants) and only under-grants inside this narrow, documented boundary.
-  it('a product satisfying channel and group via two different, non-overlapping ids is denied (safe direction)', () => {
+describe('intersectScopes — incomparable category/tag sets are ANDed exactly via allOf', () => {
+  it('regression: channel [Electronics] ∩ group [Clearance] grants a product in both categories', () => {
+    const channel: AssortmentScope = { categoryIds: ['electronics'] }
+    const group = unionScopes([{ categoryIds: ['clearance'] }])
+    const result = intersectScopes(channel, group)
+
+    expect(result).toEqual([{ categoryIds: ['electronics'], allOf: [{ categoryIds: ['clearance'] }] }])
+
+    const inBoth: ScopedProduct = { id: 'tv', categoryIds: ['electronics', 'clearance'], tagIds: [] }
+    const electronicsOnly: ScopedProduct = { id: 'phone', categoryIds: ['electronics'], tagIds: [] }
+    const clearanceOnly: ScopedProduct = { id: 'sofa', categoryIds: ['clearance'], tagIds: [] }
+    expect(matchesScope(inBoth, result)).toBe(true)
+    expect(matchesScope(electronicsOnly, result)).toBe(false)
+    expect(matchesScope(clearanceOnly, result)).toBe(false)
+  })
+
+  it('a product satisfying channel and group via two different, non-overlapping tag ids is granted', () => {
     const channel: AssortmentScope = { tagIds: ['channel-only'] }
     const group = unionScopes([{ tagIds: ['group-only'] }])
     const product: ScopedProduct = { id: 'p', categoryIds: [], tagIds: ['channel-only', 'group-only'] }
-
-    // The mathematically pure target is TRUE: the product overlaps the channel's tag set via
-    // "channel-only" AND overlaps the group's tag set via "group-only".
-    expect(matchesOne(product, channel) && matchesScope(product, group)).toBe(true)
-
-    // intersectScopes cannot represent this exactly and conservatively denies it instead of
-    // risking an over-grant.
-    expect(matchesScope(product, intersectScopes(channel, group))).toBe(false)
+    expect(matchesScope(product, intersectScopes(channel, group))).toBe(true)
   })
 
-  it('a product satisfying only one side is correctly denied either way', () => {
+  it('a product satisfying only one side is denied', () => {
     const channel: AssortmentScope = { tagIds: ['channel-only'] }
     const group = unionScopes([{ tagIds: ['group-only'] }])
     const productChannelOnly: ScopedProduct = { id: 'p', categoryIds: [], tagIds: ['channel-only'] }
     expect(matchesScope(productChannelOnly, intersectScopes(channel, group))).toBe(false)
   })
 
-  it('overlapping (but not subset) sets still fall inside the documented boundary', () => {
+  it('overlapping but non-subset sets match through different ids on each side', () => {
     const channel: AssortmentScope = { tagIds: ['t2', 't4', 't5'] }
     const group = unionScopes([{ tagIds: ['t2', 't3'] }])
     const product: ScopedProduct = { id: 'p2', categoryIds: [], tagIds: ['t3', 't4'] }
+    expect(matchesScope(product, intersectScopes(channel, group))).toBe(true)
+  })
 
-    // True target: matches channel via t4, matches group via t3 — different ids again, even
-    // though the two tag sets themselves share t2.
-    expect(matchesOne(product, channel) && matchesScope(product, group)).toBe(true)
-    expect(matchesScope(product, intersectScopes(channel, group))).toBe(false)
+  it('keeps the other dimension and excludes merged flat alongside the allOf residual', () => {
+    const channel: AssortmentScope = { categoryIds: ['cat-a'], tagIds: ['tag-a'], excludeProductIds: ['p-x'] }
+    const group = unionScopes([{ categoryIds: ['cat-b'], excludeTagIds: ['tag-z'] }])
+    expect(intersectScopes(channel, group)).toEqual([
+      {
+        categoryIds: ['cat-a'],
+        tagIds: ['tag-a'],
+        excludeProductIds: ['p-x'],
+        excludeTagIds: ['tag-z'],
+        allOf: [{ categoryIds: ['cat-b'] }],
+      },
+    ])
   })
 })
 
-describe('intersectScopes — exact cases outside the documented boundary', () => {
+describe('intersectScopes — exact flat merges', () => {
   it('one side unrestricted on a dimension: the other side wins unmodified', () => {
     const channel: AssortmentScope = { categoryIds: ['cat-a'] }
     const group = unionScopes([{ tagIds: ['tag-a'] }])
@@ -151,7 +159,7 @@ describe('intersectScopes — exact cases outside the documented boundary', () =
     expect(matchesScope(productWithOnlyCatB, result)).toBe(false)
   })
 
-  it('excludes always union exactly, regardless of the category/tag boundary', () => {
+  it('excludes always union exactly', () => {
     const channel: AssortmentScope = { excludeCategoryIds: ['cat-x'] }
     const group = unionScopes([{ excludeTagIds: ['tag-y'] }])
     const result = intersectScopes(channel, group)

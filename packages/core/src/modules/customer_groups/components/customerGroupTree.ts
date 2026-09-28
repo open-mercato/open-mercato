@@ -1,8 +1,7 @@
-// Pure helpers shared by the create/edit `CustomerGroup` admin pages: parent-picker
-// cycle prevention (self + descendant exclusion), the depth-warning heuristic (spec
-// §5.1 caps nesting at depth 5), and the "another group is already default" lookup
-// used by the isDefault conflict notice. No React here so both pages (and any future
-// consumer, e.g. the list page's orphan banner) can reuse it without a component import.
+// Pure helpers shared by the create/edit `CustomerGroup` admin pages and widgets: list
+// item → summary mapping, the depth-warning threshold (spec §5.1 caps nesting at depth
+// 5), and the "another group is already default" lookup used by the isDefault conflict
+// notice. No React here so any consumer can reuse it without a component import.
 
 export type CustomerGroupSummary = {
   id: string
@@ -55,55 +54,10 @@ export function mapListItemsToSummaries(items: unknown): CustomerGroupSummary[] 
   }, [])
 }
 
-// BFS over `parentId` edges — used to exclude a group's own descendants from its
-// parent picker so an edit can never introduce a cycle in the hierarchy.
-export function collectDescendantIds(rootId: string, groups: CustomerGroupSummary[]): Set<string> {
-  const childrenByParent = new Map<string, string[]>()
-  for (const group of groups) {
-    if (!group.parentId) continue
-    const list = childrenByParent.get(group.parentId) ?? []
-    list.push(group.id)
-    childrenByParent.set(group.parentId, list)
-  }
-  const result = new Set<string>()
-  const queue: string[] = [rootId]
-  while (queue.length) {
-    const current = queue.shift() as string
-    const children = childrenByParent.get(current) ?? []
-    for (const childId of children) {
-      if (result.has(childId)) continue
-      result.add(childId)
-      queue.push(childId)
-    }
-  }
-  return result
-}
-
-// Length of the candidate parent's own ancestor chain (parent + its ancestors, up to
-// root). A `visited` guard keeps this safe even against already-corrupt cyclical data.
-export function ancestorChainLength(parentId: string | null, groups: CustomerGroupSummary[]): number {
-  if (!parentId) return 0
-  const byId = new Map(groups.map((group) => [group.id, group]))
-  const visited = new Set<string>()
-  let current: string | null = parentId
-  let length = 0
-  while (current && !visited.has(current)) {
-    visited.add(current)
-    length += 1
-    const group = byId.get(current)
-    current = group?.parentId ?? null
-  }
-  return length
-}
-
 // Spec §5.1: hierarchy depth is capped at 5. A candidate parent whose own ancestor
 // chain is already 4+ levels deep would put the group being created/edited at depth 5
 // or deeper — surfaced as a non-blocking warning (the spec says "warns", not "prevents").
 export const CUSTOMER_GROUP_DEPTH_WARNING_THRESHOLD = 4
-
-export function wouldExceedRecommendedDepth(parentId: string | null, groups: CustomerGroupSummary[]): boolean {
-  return ancestorChainLength(parentId, groups) >= CUSTOMER_GROUP_DEPTH_WARNING_THRESHOLD
-}
 
 // The tenant's current default group, if any, excluding the group being edited.
 export function findDefaultConflict(

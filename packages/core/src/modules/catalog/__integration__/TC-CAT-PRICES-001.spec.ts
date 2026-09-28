@@ -18,6 +18,7 @@ import {
 import {
   createCustomerGroupFixture,
   deleteCustomerGroupIfExists,
+  uniqueCustomerGroupPriority,
 } from '@open-mercato/core/helpers/integration/customerGroupsFixtures';
 import { selectBestPrice, type PriceRow, type PricingContext } from '@open-mercato/core/modules/catalog/lib/pricing';
 
@@ -159,6 +160,7 @@ test.describe('TC-CAT-PRICES-001: customer-group + quantity-tier price via the a
       customerGroupId = await createCustomerGroupFixture(request, token, {
         code: `qa_pr_grp_${stamp}`,
         name: customerGroupName,
+        priority: uniqueCustomerGroupPriority(),
       });
 
       // Baseline: a plain price for the same product/currency/price-kind, no

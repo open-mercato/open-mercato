@@ -6,7 +6,7 @@ import { FileText } from 'lucide-react'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -57,6 +57,7 @@ export function CustomerGroupTermsSection({
   groupId,
   terms,
   loading,
+  loadError,
   onSaved,
 }: {
   groupId: string
@@ -64,6 +65,9 @@ export function CustomerGroupTermsSection({
   // (spec: "No terms set — inheriting from parent / tenant defaults"), object = loaded row.
   terms: CustomerGroupTermsDTO | null | undefined
   loading: boolean
+  // Set when the terms GET failed for a reason other than "no row" — the form is
+  // then withheld so a save can never overwrite terms it could not read.
+  loadError?: string | null
   onSaved: (next: CustomerGroupTermsDTO) => void
 }) {
   const t = useT()
@@ -192,6 +196,8 @@ export function CustomerGroupTermsSection({
       <SectionHeader title={t('customer_groups.groups.form.terms.title', 'Commercial terms')} />
       {loading ? (
         <LoadingMessage label={t('customer_groups.groups.form.terms.loading', 'Loading commercial terms…')} />
+      ) : loadError ? (
+        <ErrorMessage label={loadError} />
       ) : !showForm ? (
         <EmptyState
           size="sm"

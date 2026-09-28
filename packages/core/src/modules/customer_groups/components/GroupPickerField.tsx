@@ -5,7 +5,7 @@ import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inp
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { CustomFieldProps } from '@open-mercato/shared/modules/widgets/injection'
 
@@ -29,7 +29,7 @@ function pickNumber(item: RemoteGroup, ...keys: string[]): number | null {
   return null
 }
 
-function mapGroup(item: RemoteGroup): ComboboxOption | null {
+function mapGroup(item: RemoteGroup, t: TranslateFn): ComboboxOption | null {
   const id = pickString(item, 'id')
   if (!id) return null
   const code = pickString(item, 'code')
@@ -38,11 +38,13 @@ function mapGroup(item: RemoteGroup): ComboboxOption | null {
   return {
     value: id,
     label: code ? `${name} (${code})` : name,
-    description: priority !== null ? `Priority ${priority}` : null,
+    description: priority !== null
+      ? t('customer_groups.widgets.groupPicker.priority', 'Priority {priority}', { priority })
+      : null,
   }
 }
 
-async function loadGroups(query: string | undefined, pageSize: string): Promise<ComboboxOption[]> {
+async function loadGroups(query: string | undefined, pageSize: string, t: TranslateFn): Promise<ComboboxOption[]> {
   try {
     const params = new URLSearchParams({ pageSize, sortField: 'priority', sortDir: 'asc' })
     const trimmed = (query ?? '').trim()
@@ -53,7 +55,9 @@ async function loadGroups(query: string | undefined, pageSize: string): Promise<
       { fallback: { items: [] } },
     )
     const items = Array.isArray(payload.items) ? payload.items : []
-    return items.map(mapGroup).filter((option): option is ComboboxOption => option !== null)
+    return items
+      .map((item) => mapGroup(item, t))
+      .filter((option): option is ComboboxOption => option !== null)
   } catch (err) {
     logger.error('customer_groups.groupPicker.load failed', { err })
     return []
@@ -77,9 +81,8 @@ async function lookupGroup(id: string): Promise<RemoteGroup | null> {
 
 /**
  * Injected `crud-form:<entityId>:fields` custom field — replaces the free-text
- * `customerGroupId` UUID input on the catalog price editor and (once that host
- * form is updated to expose the field — see Step 1.11 gap note) the sales
- * tax-rate form with a searchable picker sourced from `/api/customer_groups/customer-groups`.
+ * `customerGroupId` UUID input on the catalog price editor with a searchable
+ * picker sourced from `/api/customer_groups/customer-groups`.
  *
  * A stored value that does not resolve to any group is never silently hidden —
  * it renders an explicit "Unknown group (<uuid>)" chip alongside the picker so
@@ -87,6 +90,7 @@ async function lookupGroup(id: string): Promise<RemoteGroup | null> {
  */
 export function GroupPickerField({ value, onChange, disabled }: CustomFieldProps) {
   const t = useT()
+  const labelId = React.useId()
   const currentId = typeof value === 'string' ? value.trim() : ''
   const [unknownId, setUnknownId] = React.useState<string | null>(null)
   const [isLoading, setIsLoading] = React.useState(false)
@@ -110,8 +114,8 @@ export function GroupPickerField({ value, onChange, disabled }: CustomFieldProps
   }, [currentId])
 
   return (
-    <div className="space-y-2" data-crud-field-id="customerGroupId">
-      <Label htmlFor="customerGroupId">
+    <div className="space-y-2" data-crud-field-id="customerGroupId" role="group" aria-labelledby={labelId}>
+      <Label id={labelId}>
         {t('customer_groups.widgets.groupPicker.label', 'Customer group')}
       </Label>
       <ComboboxInput
@@ -121,10 +125,10 @@ export function GroupPickerField({ value, onChange, disabled }: CustomFieldProps
         allowCustomValues={false}
         clearable
         placeholder={t('customer_groups.widgets.groupPicker.placeholder', 'Search customer groups…')}
-        loadSuggestions={(query) => loadGroups(query, '20')}
+        loadSuggestions={(query) => loadGroups(query, '20', t)}
         resolveLabel={async (id) => {
           const group = await lookupGroup(id)
-          return group ? mapGroup(group)?.label ?? id : id
+          return group ? mapGroup(group, t)?.label ?? id : id
         }}
       />
       {unknownId ? (

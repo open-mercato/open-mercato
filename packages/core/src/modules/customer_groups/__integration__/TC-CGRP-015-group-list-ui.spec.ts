@@ -5,7 +5,7 @@ import {
   createCustomerGroupFixture,
   deleteCustomerGroupIfExists,
 } from '@open-mercato/core/helpers/integration/customerGroupsFixtures';
-import { fixturePriority, uniqueStamp } from './helpers';
+import { findDefaultGroupId, fixturePriority, restoreDefaultGroup, uniqueStamp } from './helpers';
 
 /**
  * TC-CGRP-015: customer-groups admin list page (`/backend/customer-groups`)
@@ -24,6 +24,10 @@ import { fixturePriority, uniqueStamp } from './helpers';
  * the shared dev/QA tenant may already have unrelated ones, so this locates
  * rows by their own unique fixture data rather than asserting on the whole
  * table.
+ *
+ * The `isDefault: true` fixture clears the tenant's existing default
+ * (clear-and-set), so the pre-existing default is snapshotted up front and
+ * restored in `finally`.
  */
 test.describe('TC-CGRP-015: customer groups admin list page', () => {
   test('renders fixture rows with the expected columns and links to create', async ({ page, request }) => {
@@ -32,8 +36,10 @@ test.describe('TC-CGRP-015: customer groups admin list page', () => {
 
     let defaultGroupId: string | null = null;
     let plainGroupId: string | null = null;
+    let priorDefaultGroupId: string | null = null;
 
     try {
+      priorDefaultGroupId = await findDefaultGroupId(request, token);
       defaultGroupId = await createCustomerGroupFixture(request, token, {
         code: `qa-cgrp-015-def-${stamp}`,
         name: `QA CGRP 015 Default ${stamp}`,
@@ -79,6 +85,7 @@ test.describe('TC-CGRP-015: customer groups admin list page', () => {
     } finally {
       await deleteCustomerGroupIfExists(request, token, defaultGroupId);
       await deleteCustomerGroupIfExists(request, token, plainGroupId);
+      await restoreDefaultGroup(request, token, priorDefaultGroupId);
     }
   });
 });

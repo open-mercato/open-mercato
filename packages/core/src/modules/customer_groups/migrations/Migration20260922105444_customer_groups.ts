@@ -10,4 +10,8 @@ export class Migration20260922105444_customer_groups extends Migration {
     this.addSql(`create index "customer_group_terms_tenant_idx" on "customer_group_terms" ("tenant_id");`);
   }
 
+  override down(): void | Promise<void> {
+    this.addSql(`drop table if exists "customer_group_terms" cascade;`);
+  }
+
 }

@@ -5,8 +5,11 @@ import { Plus, Trash2, Users } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
-import { createCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import {
+  buildOptimisticLockHeader,
+  extractOptimisticLockConflict,
+} from '@open-mercato/ui/backend/utils/optimisticLock'
+import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -28,11 +31,16 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { CrudForm, type CrudField, type CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { mapListItemsToSummaries, type CustomerGroupSummary } from '../../components/customerGroupTree'
 import { PersonGroupsExplainTerms } from './person-groups-explain-terms'
 
 const PERSON_GROUPS_RESOURCE_KINDS = new Set(['customers.person', 'customers.company'])
+const MEMBERSHIPS_MANAGE_FEATURE = 'customer_groups.memberships.manage'
 
 type PersonGroupsTabContext = {
   resourceKind: string
@@ -169,7 +177,7 @@ function MembershipRowItem({
   row: MembershipRow
   status: MembershipStatus
   groupLabel: string
-  onRemove: (row: MembershipRow, groupLabel: string) => void
+  onRemove?: (row: MembershipRow, groupLabel: string) => void
 }) {
   const t = useT()
   const statusLabel = t(`customer_groups.groups.personTab.status.${status}`, status)
@@ -194,7 +202,7 @@ function MembershipRowItem({
           </div>
           <div className="text-xs text-muted-foreground">{rangeLabel}</div>
         </div>
-        {status !== 'expired' ? (
+        {onRemove ? (
           <IconButton
             type="button"
             variant="ghost"
@@ -215,6 +223,20 @@ export function PersonGroupsTabWidget({
 }: InjectionWidgetComponentProps<unknown, unknown>) {
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const { payload: backendChromePayload, isReady: backendChromeReady } = useBackendChrome()
+  const canManage = backendChromeReady && hasFeature(backendChromePayload?.grantedFeatures, MEMBERSHIPS_MANAGE_FEATURE)
+  const mutationContextId = 'customer-groups-person-tab:mutation'
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const assignDialogContentRef = React.useRef<HTMLDivElement | null>(null)
+  const [membershipsVersion, setMembershipsVersion] = React.useState(0)
   const [groups, setGroups] = React.useState<CustomerGroupSummary[]>([])
   const [memberships, setMemberships] = React.useState<MembershipRow[]>([])
   const [loading, setLoading] = React.useState(false)
@@ -277,7 +299,6 @@ export function PersonGroupsTabWidget({
   }, [assignDialogOpen])
 
   const groupsById = React.useMemo(() => new Map(groups.map((group) => [group.id, group])), [groups])
-  const memberGroupIds = React.useMemo(() => new Set(memberships.map((row) => row.groupId)), [memberships])
 
   const rows = React.useMemo(() => {
     const now = new Date()
@@ -285,6 +306,24 @@ export function PersonGroupsTabWidget({
       .map((row) => ({ row, status: computeMembershipStatus(row, now) }))
       .sort((a, b) => MEMBERSHIP_STATUS_RANK[a.status] - MEMBERSHIP_STATUS_RANK[b.status])
   }, [memberships])
+
+  // An expired membership still occupies the (tenant, group, customer) unique slot
+  // (the index only skips soft-deleted rows), so it must not block re-assigning:
+  // assigning that group again renews the expired row in place instead of
+  // creating a second one the server would reject.
+  const activeMemberGroupIds = React.useMemo(
+    () => new Set(rows.filter(({ status }) => status !== 'expired').map(({ row }) => row.groupId)),
+    [rows],
+  )
+  const expiredMembershipByGroupId = React.useMemo(
+    () => new Map(rows.filter(({ status }) => status === 'expired').map(({ row }) => [row.groupId, row])),
+    [rows],
+  )
+
+  const reloadMemberships = React.useCallback(async () => {
+    await load()
+    setMembershipsVersion((current) => current + 1)
+  }, [load])
 
   const groupLabelFor = React.useCallback(
     (groupId: string) => {
@@ -341,26 +380,37 @@ export function PersonGroupsTabWidget({
         const message = t('customer_groups.groups.personTab.errors.groupRequired', 'Select a group.')
         throw createCrudFormError(message, { groupId: message })
       }
-      if (memberGroupIds.has(groupId)) {
+      if (activeMemberGroupIds.has(groupId)) {
         const message = t(
           'customer_groups.groups.personTab.errors.duplicateMembership',
           'This customer is already a member of this group.',
         )
         throw createCrudFormError(message, { groupId: message })
       }
-      const payload: Record<string, unknown> = {
-        groupId,
-        customerId,
-        validFrom: values.validFrom && values.validFrom.trim().length ? values.validFrom : undefined,
-        validUntil: values.validUntil && values.validUntil.trim().length ? values.validUntil : undefined,
-      }
+      const validFrom = values.validFrom && values.validFrom.trim().length ? values.validFrom : null
+      const validUntil = values.validUntil && values.validUntil.trim().length ? values.validUntil : null
+      const expiredMembership = expiredMembershipByGroupId.get(groupId) ?? null
+      const errorMessage = t('customer_groups.groups.personTab.errors.assignFailed', 'Failed to assign group.')
       try {
-        await createCrud('customer_groups/customer-groups/memberships', payload, {
-          errorMessage: t('customer_groups.groups.personTab.errors.assignFailed', 'Failed to assign group.'),
-        })
+        if (expiredMembership) {
+          await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(expiredMembership.updatedAt),
+            () => updateCrud(
+              'customer_groups/customer-groups/memberships',
+              { id: expiredMembership.id, validFrom, validUntil },
+              { errorMessage },
+            ),
+          )
+        } else {
+          await createCrud(
+            'customer_groups/customer-groups/memberships',
+            { groupId, customerId, validFrom: validFrom ?? undefined, validUntil: validUntil ?? undefined },
+            { errorMessage },
+          )
+        }
       } catch (err) {
         const status = err && typeof err === 'object' ? (err as { status?: unknown }).status : undefined
-        if (status === 409) {
+        if (status === 409 && !extractOptimisticLockConflict(err)) {
           const message = t(
             'customer_groups.groups.personTab.errors.duplicateMembership',
             'This customer is already a member of this group.',
@@ -371,9 +421,9 @@ export function PersonGroupsTabWidget({
       }
       setAssignDialogOpen(false)
       flash(t('customer_groups.groups.personTab.assignSuccess', 'Group assigned.'), 'success')
-      await load()
+      await reloadMemberships()
     },
-    [customerId, load, memberGroupIds, t],
+    [activeMemberGroupIds, customerId, expiredMembershipByGroupId, reloadMemberships, t],
   )
 
   const handleRemove = React.useCallback(
@@ -391,10 +441,19 @@ export function PersonGroupsTabWidget({
       })
       if (!approved) return
       try {
-        await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(row.updatedAt),
-          () => deleteCrud('customer_groups/customer-groups/memberships', row.id),
-        )
+        await runMutation({
+          operation: () => withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(row.updatedAt),
+            () => deleteCrud('customer_groups/customer-groups/memberships', row.id),
+          ),
+          context: {
+            formId: mutationContextId,
+            resourceKind: 'customer_groups.membership',
+            resourceId: row.id,
+            retryLastMutation,
+          },
+          mutationPayload: { id: row.id },
+        })
       } catch (err) {
         if (!surfaceRecordConflict(err, t)) {
           flash(
@@ -407,10 +466,20 @@ export function PersonGroupsTabWidget({
         return
       }
       flash(t('customer_groups.groups.personTab.removeSuccess', 'Group membership removed.'), 'success')
-      await load()
+      await reloadMemberships()
     },
-    [confirm, load, t],
+    [confirm, mutationContextId, reloadMemberships, retryLastMutation, runMutation, t],
   )
+
+  const closeAssignDialog = React.useCallback(() => setAssignDialogOpen(false), [])
+  const submitAssignForm = React.useCallback(
+    () => assignDialogContentRef.current?.querySelector('form')?.requestSubmit(),
+    [],
+  )
+  const handleAssignDialogKeyDown = useDialogKeyHandler({
+    onConfirm: submitAssignForm,
+    onCancel: closeAssignDialog,
+  })
 
   if (!customerId) return null
 
@@ -426,10 +495,12 @@ export function PersonGroupsTabWidget({
             {countLabel}
           </Badge>
         </div>
-        <Button type="button" size="sm" onClick={() => setAssignDialogOpen(true)}>
-          <Plus className="h-4 w-4" aria-hidden />
-          {t('customer_groups.groups.personTab.assign', 'Assign to group')}
-        </Button>
+        {canManage ? (
+          <Button type="button" size="sm" onClick={() => setAssignDialogOpen(true)}>
+            <Plus className="h-4 w-4" aria-hidden />
+            {t('customer_groups.groups.personTab.assign', 'Assign to group')}
+          </Button>
+        ) : null}
       </div>
 
       {loading ? (
@@ -446,12 +517,12 @@ export function PersonGroupsTabWidget({
             'customer_groups.groups.personTab.empty.description',
             'Assign this customer to a group to apply group-based pricing and terms.',
           )}
-          actions={(
+          actions={canManage ? (
             <Button type="button" size="sm" variant="outline" onClick={() => setAssignDialogOpen(true)}>
               <Plus className="h-4 w-4" aria-hidden />
               {t('customer_groups.groups.personTab.assign', 'Assign to group')}
             </Button>
-          )}
+          ) : undefined}
           className="border border-dashed border-border"
         />
       ) : (
@@ -465,13 +536,13 @@ export function PersonGroupsTabWidget({
               row={row}
               status={status}
               groupLabel={groupLabelFor(row.groupId)}
-              onRemove={handleRemove}
+              onRemove={canManage ? handleRemove : undefined}
             />
           ))}
         </ul>
       )}
 
-      <PersonGroupsExplainTerms customerId={customerId} />
+      <PersonGroupsExplainTerms customerId={customerId} refreshKey={membershipsVersion} />
 
       <Dialog
         open={assignDialogOpen}
@@ -479,7 +550,7 @@ export function PersonGroupsTabWidget({
           if (!next) setAssignDialogOpen(false)
         }}
       >
-        <DialogContent>
+        <DialogContent ref={assignDialogContentRef} onKeyDown={handleAssignDialogKeyDown}>
           <DialogHeader>
             <DialogTitle>{t('customer_groups.groups.personTab.assignDialog.title', 'Assign to group')}</DialogTitle>
           </DialogHeader>

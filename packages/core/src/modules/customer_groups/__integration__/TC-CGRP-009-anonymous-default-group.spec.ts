@@ -5,11 +5,12 @@ import {
   createCustomerGroupFixture,
   deleteCustomerGroupIfExists,
 } from '@open-mercato/core/helpers/integration/customerGroupsFixtures';
-import { fixturePriority, uniqueStamp } from './helpers';
+import { findDefaultGroupId, fixturePriority, restoreDefaultGroup, uniqueStamp } from './helpers';
 
 /**
- * TC-CGRP-009: Anonymous (`customerId: null`) resolves to the default group
- * without error.
+ * TC-CGRP-009: the default-group data the anonymous (`customerId: null`)
+ * resolution path depends on round-trips through the CRUD API, and no Phase 1
+ * endpoint errors while a tenant default exists.
  * Source: .ai/specs/2026-08-14-customer-groups-and-b2b-terms.md §13, §6.2.
  *
  * `resolveGroups()`'s anonymous branch
@@ -28,20 +29,26 @@ import { fixturePriority, uniqueStamp } from './helpers';
  * i.e. the data and surface `resolveGroups()`'s anonymous path relies on are
  * sound end-to-end, even though the branch itself is exercised at the unit
  * level.
+ *
+ * Creating an `isDefault: true` group clears the tenant's existing default
+ * (clear-and-set), so the pre-existing default is snapshotted up front and
+ * restored in `finally`.
  */
 const GROUPS_PATH = '/api/customer_groups/customer-groups';
 const RECONCILE_PATH = '/api/customer_groups/customer-groups/reconcile';
 
-test.describe('TC-CGRP-009: anonymous/default-group surface has no HTTP-level errors', () => {
-  test('a default group round-trips through the CRUD API and no Phase 1 endpoint errors while it exists', async ({
+test.describe('TC-CGRP-009: default-group CRUD surface has no HTTP-level errors', () => {
+  test('an isDefault group round-trips through the CRUD API and the isDefault filter, and reconcile/list stay 200 while it exists', async ({
     request,
   }) => {
     const token = await getAuthToken(request, 'admin');
     const stamp = uniqueStamp();
 
     let groupId: string | null = null;
+    let priorDefaultGroupId: string | null = null;
 
     try {
+      priorDefaultGroupId = await findDefaultGroupId(request, token);
       groupId = await createCustomerGroupFixture(request, token, {
         code: `qa-cgrp-009-${stamp}`,
         name: `QA CGRP 009 Default Group ${stamp}`,
@@ -83,6 +90,7 @@ test.describe('TC-CGRP-009: anonymous/default-group surface has no HTTP-level er
       expect(listResponse.status(), 'the plain groups list should not error while a default group exists').toBe(200);
     } finally {
       await deleteCustomerGroupIfExists(request, token, groupId);
+      await restoreDefaultGroup(request, token, priorDefaultGroupId);
     }
   });
 });

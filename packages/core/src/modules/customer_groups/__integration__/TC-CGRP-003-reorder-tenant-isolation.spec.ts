@@ -40,7 +40,9 @@ import {
  * two Playwright workers calling this route concurrently in that shared
  * tenant would race on the `(tenant_id, priority)` unique index and could
  * legitimately 409 one another (a real product behavior, not a bug), making a
- * fixed-value success assertion here flaky by construction.
+ * fixed-value success assertion here flaky by construction. The HTTP-level
+ * success path (including a same-groups swap) runs in an isolated second
+ * tenant in TC-CGRP-017 instead.
  */
 const GROUPS_PATH = '/api/customer_groups/customer-groups';
 const REORDER_PATH = '/api/customer_groups/customer-groups/reorder';

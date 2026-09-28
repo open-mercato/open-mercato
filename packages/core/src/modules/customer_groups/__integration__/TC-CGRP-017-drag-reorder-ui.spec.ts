@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type APIRequestContext } from '@playwright/test';
 import { login } from '@open-mercato/core/helpers/integration/auth';
 import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api';
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
@@ -6,7 +6,13 @@ import {
   createCustomerGroupFixture,
   deleteCustomerGroupIfExists,
 } from '@open-mercato/core/helpers/integration/customerGroupsFixtures';
-import { fixturePriority, uniqueStamp } from './helpers';
+import {
+  cleanupSecondTenantActor,
+  createSecondTenantActor,
+  fixturePriority,
+  uniqueStamp,
+  type SecondTenantActor,
+} from './helpers';
 
 /**
  * TC-CGRP-017: drag-reorder wiring on the customer-groups admin list.
@@ -26,8 +32,8 @@ import { fixturePriority, uniqueStamp } from './helpers';
  * session to iterate on pointer-event timing against the real Sortable
  * collision detector, a hand-rolled simulation would be pure guesswork and a
  * likely flake source. This test instead takes the fallback explicitly
- * sanctioned by the Step: (1) prove the REST reorder contract works funcion-
- * ally for the admin's own tenant (tenant *isolation* for the same route is
+ * sanctioned by the Step: (1) prove the REST reorder contract works function-
+ * ally for a caller's own tenant (tenant *isolation* for the same route is
  * already covered by TC-CGRP-003), and (2) prove the UI wiring itself —
  * `dragReorderEnabled` in `page.tsx` — by asserting the drag-handle
  * (`aria-label="Reorder"`, rendered via `useSortable`'s `attributes` which
@@ -40,9 +46,36 @@ import { fixturePriority, uniqueStamp } from './helpers';
  * `FilterBar` select-filter's open/select/apply sequence blind (no live env
  * to verify its exact selectors) was the higher flake risk of the two
  * equally-valid branches of that same condition.
+ *
+ * The REST reorder half runs inside a freshly provisioned second tenant:
+ * reorder rewrites priorities (10, 20, ... on a full ordering), which would
+ * collide with — or silently renumber — unrelated live groups in the shared
+ * admin tenant. The second test also reorders the SAME groups twice (a swap),
+ * the regression case for the reorder command's collision-safe two-phase write:
+ * writing final priorities straight over the current ones hit the
+ * `(tenant_id, priority)` unique index row by row and failed the swap.
  */
+const GROUPS_PATH = '/api/customer_groups/customer-groups';
+const REORDER_PATH = '/api/customer_groups/customer-groups/reorder';
+
+async function readOrderedIds(
+  request: APIRequestContext,
+  token: string,
+  stamp: string,
+): Promise<unknown[]> {
+  const response = await apiRequest(
+    request,
+    'GET',
+    `${GROUPS_PATH}?search=${encodeURIComponent(stamp)}&sortField=priority&sortDir=asc&pageSize=10`,
+    { token },
+  );
+  expect(response.status(), 'listing the reordered groups should be 200').toBe(200);
+  const body = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(response);
+  return (body?.items ?? []).map((item) => item.id);
+}
+
 test.describe('TC-CGRP-017: customer groups list drag-reorder wiring', () => {
-  test('drag handles render unfiltered and disappear once the list is narrowed; reorder persists via the API', async ({
+  test('drag handles render unfiltered and disappear once the list is narrowed', async ({
     page,
     request,
   }) => {
@@ -86,31 +119,61 @@ test.describe('TC-CGRP-017: customer groups list drag-reorder wiring', () => {
       // accessible "Reorder" button — the component falls back to a
       // decorative, `aria-hidden` grip icon per `dragReorderEnabled` gating.
       await expect(firstRowFiltered.getByRole('button', { name: 'Reorder' })).toHaveCount(0);
-
-      // Functional proof of the underlying REST contract (own-tenant path;
-      // cross-tenant isolation for this same route is TC-CGRP-003).
-      const reorderResponse = await apiRequest(request, 'POST', '/api/customer_groups/customer-groups/reorder', {
-        token,
-        data: { ids: [secondGroupId, firstGroupId] },
-      });
-      expect(reorderResponse.status(), 'reorder should return 200').toBe(200);
-
-      const afterReorder = await apiRequest(
-        request,
-        'GET',
-        `/api/customer_groups/customer-groups?search=${encodeURIComponent(stamp)}&sortField=priority&sortDir=asc&pageSize=10`,
-        { token },
-      );
-      const afterBody = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(afterReorder);
-      const ids = (afterBody?.items ?? []).map((item) => item.id);
-      const secondIndex = ids.indexOf(secondGroupId);
-      const firstIndex = ids.indexOf(firstGroupId);
-      expect(secondIndex, 'reordered group B should appear in the re-fetched list').toBeGreaterThanOrEqual(0);
-      expect(firstIndex, 'reordered group A should appear in the re-fetched list').toBeGreaterThanOrEqual(0);
-      expect(secondIndex, 'group B should now sort before group A after reorder').toBeLessThan(firstIndex);
     } finally {
       await deleteCustomerGroupIfExists(request, token, firstGroupId);
       await deleteCustomerGroupIfExists(request, token, secondGroupId);
+    }
+  });
+
+  test('reorder persists via the API and reordering the same groups again (swap) also succeeds', async ({ request }) => {
+    const superadminToken = await getAuthToken(request, 'superadmin');
+    const stamp = uniqueStamp();
+
+    let actor: SecondTenantActor | null = null;
+    let firstGroupId: string | null = null;
+    let secondGroupId: string | null = null;
+
+    try {
+      actor = await createSecondTenantActor(request, superadminToken, stamp);
+      const token = actor.token;
+
+      firstGroupId = await createCustomerGroupFixture(request, token, {
+        code: `qa-cgrp-017-rest-a-${stamp}`,
+        name: `QA CGRP 017 REST A ${stamp}`,
+        priority: fixturePriority(stamp, 0),
+      });
+      secondGroupId = await createCustomerGroupFixture(request, token, {
+        code: `qa-cgrp-017-rest-b-${stamp}`,
+        name: `QA CGRP 017 REST B ${stamp}`,
+        priority: fixturePriority(stamp, 1),
+      });
+
+      const firstReorder = await apiRequest(request, 'POST', REORDER_PATH, {
+        token,
+        data: { ids: [secondGroupId, firstGroupId] },
+      });
+      expect(firstReorder.status(), 'first reorder should return 200').toBe(200);
+      expect(await readOrderedIds(request, token, stamp), 'group B should sort before group A after the first reorder').toEqual([
+        secondGroupId,
+        firstGroupId,
+      ]);
+
+      const swapReorder = await apiRequest(request, 'POST', REORDER_PATH, {
+        token,
+        data: { ids: [firstGroupId, secondGroupId] },
+      });
+      expect(swapReorder.status(), 'reordering the same groups again (swap) should return 200, not a priority conflict').toBe(
+        200,
+      );
+      expect(await readOrderedIds(request, token, stamp), 'group A should sort before group B after the swap').toEqual([
+        firstGroupId,
+        secondGroupId,
+      ]);
+    } finally {
+      const cleanupToken = actor?.token ?? null;
+      await deleteCustomerGroupIfExists(request, cleanupToken, firstGroupId);
+      await deleteCustomerGroupIfExists(request, cleanupToken, secondGroupId);
+      await cleanupSecondTenantActor(request, superadminToken, actor);
     }
   });
 });

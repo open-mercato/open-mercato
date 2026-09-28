@@ -1,5 +1,5 @@
 import { OptionalProps } from '@mikro-orm/core'
-import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
 
 export type CustomerGroupKind = 'b2c' | 'b2b' | 'internal' | 'partner'
 export type CustomerGroupMembershipSource = 'manual' | 'import' | 'rule' | 'onboarding'
@@ -13,7 +13,13 @@ export type CustomerGroupMembershipSource = 'manual' | 'import' | 'rule' | 'onbo
 @Entity({ tableName: 'customer_groups' })
 @Index({ name: 'customer_groups_tenant_idx', properties: ['tenantId'] })
 @Index({ name: 'customer_groups_parent_idx', properties: ['parentId'] })
-@Unique({ name: 'customer_groups_tenant_code_unique', properties: ['tenantId', 'code'] })
+@Index({
+  // Partial for the same reason as the priority index below: a soft-deleted group must
+  // not keep its code reserved, otherwise recreating it hits a raw unique violation.
+  name: 'customer_groups_tenant_code_unique',
+  expression:
+    'create unique index "customer_groups_tenant_code_unique" on "customer_groups" ("tenant_id", "code") where "deleted_at" is null',
+})
 @Index({
   // Partial (not @Unique) so a soft-deleted group's old priority value doesn't stay
   // permanently reserved — found during Step 1.6/1.7: the admin list's drag-reorder

@@ -5,6 +5,11 @@ const CUSTOMER_ID = '44444444-4444-4444-8444-444444444444'
 const CHILD_GROUP_ID = '55555555-5555-4555-8555-555555555555'
 const PARENT_GROUP_ID = '66666666-6666-4666-8666-666666666666'
 
+const reportErrorMock = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => reportErrorMock(...args) }),
+}))
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/di/container', () => ({ createRequestContainer: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -16,7 +21,8 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 import { GET } from '../route'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import type { CustomerGroup } from '../../../../data/entities'
+import { CustomerGroup, CustomerGroupMembership, CustomerGroupTerms } from '../../../../data/entities'
+import { DefaultCustomerGroupsService } from '../../../../services/customerGroupsService'
 
 const mockAuth = getAuthFromRequest as jest.MockedFunction<typeof getAuthFromRequest>
 const mockContainer = createRequestContainer as jest.MockedFunction<typeof createRequestContainer>
@@ -233,5 +239,60 @@ describe('GET /api/customer-groups/explain-terms', () => {
       { id: CHILD_GROUP_ID, code: 'retail', name: 'Retail' },
       { id: PARENT_GROUP_ID, code: 'wholesale', name: 'Wholesale' },
     ])
+  })
+  it('stops the explained path at a soft-deleted parent, agreeing with the real resolveTerms', async () => {
+    // PARENT_GROUP_ID is soft-deleted (a `deletedAt: null` lookup misses it) while its
+    // terms row survives. The route and the real service must both treat the chain as
+    // ending at CHILD, so the field falls back to the tenant default with no path.
+    const findOne = jest.fn(async (entity: unknown, where: { id?: string; groupId?: string }) => {
+      if (entity === CustomerGroup) return where.id === CHILD_GROUP_ID ? childGroup : null
+      if (entity === CustomerGroupTerms) {
+        return where.groupId === PARENT_GROUP_ID
+          ? { id: 'terms-parent', groupId: PARENT_GROUP_ID, tenantId: TENANT_ID, paymentTermsDays: 90, allowPurchaseOnAccount: true }
+          : null
+      }
+      return null
+    })
+    const find = jest.fn(async (entity: unknown) => {
+      if (entity === CustomerGroupMembership) {
+        return [{ id: 'm-1', groupId: CHILD_GROUP_ID, customerId: CUSTOMER_ID, validFrom: null, validUntil: null, createdAt: new Date('2026-01-01T00:00:00.000Z') }]
+      }
+      if (entity === CustomerGroup) return [{ ...childGroup, priority: 10, kind: 'b2b', isActive: true }]
+      return []
+    })
+    const em = { find, findOne }
+    const service = new DefaultCustomerGroupsService(em as never)
+    mockContainer.mockResolvedValue({
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'customerGroupsService') return service
+        throw new Error(`unexpected resolve: ${name}`)
+      },
+    } as never)
+
+    const res = await GET(request(CUSTOMER_ID))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.fields.paymentTermsDays).toEqual({ value: null, sourceGroupId: null, path: [] })
+    expect(body.fields.allowPurchaseOnAccount).toEqual({ value: false, sourceGroupId: null, path: [] })
+  })
+
+  it('returns 500 and reports the error when resolution fails unexpectedly', async () => {
+    {
+      const failure = new Error('db down')
+      setupContainer({
+        findOne: jest.fn(),
+        resolveGroups: jest.fn().mockRejectedValue(failure),
+        resolveTerms: jest.fn(),
+      })
+
+      const res = await GET(request(CUSTOMER_ID))
+
+      expect(res.status).toBe(500)
+      expect(reportErrorMock).toHaveBeenCalledWith(
+        failure,
+        expect.objectContaining({ module: 'customer_groups', code: 'customer_groups.terms_explain_failed' }),
+      )
+    }
   })
 })

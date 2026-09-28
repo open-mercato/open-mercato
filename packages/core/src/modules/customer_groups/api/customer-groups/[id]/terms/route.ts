@@ -5,11 +5,12 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
-import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, conflict, isCrudHttpError, isUniqueViolation, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CustomerGroup, CustomerGroupTerms } from '../../../../data/entities'
 import {
   customerGroupTermsCreateSchema,
@@ -135,6 +136,7 @@ export async function GET(req: Request, context: RouteContext) {
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     logger.error('customer_groups.terms.get failed', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'customer_groups', code: 'customer_groups.terms_get_failed' })
     return NextResponse.json(
       { error: translate('customer_groups.errors.load_failed', 'Failed to load commercial terms') },
       { status: 500 },
@@ -267,10 +269,23 @@ export async function PUT(req: Request, context: RouteContext) {
         { status: 400 },
       )
     }
+    // `customer_group_terms_group_unique` (one live terms row per group): two
+    // concurrent first saves for the same group both see "no row yet" and both insert.
+    // The loser gets a clean 409 so the client reloads and retries as an update.
+    if (isUniqueViolation(err)) {
+      const conflictError = conflict(
+        translate(
+          'customer_groups.errors.terms_conflict',
+          'These commercial terms were changed at the same time by someone else. Reload and try again.',
+        ),
+      )
+      return NextResponse.json(conflictError.body, { status: conflictError.status })
+    }
     logger.error('customer_groups.terms.put failed', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'customer_groups', code: 'customer_groups.terms_put_failed' })
     return NextResponse.json(
       { error: translate('customer_groups.errors.save_failed', 'Failed to save commercial terms') },
-      { status: 400 },
+      { status: 500 },
     )
   }
 }
@@ -308,6 +323,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Tenant context is required', schema: termsErrorSchema },
         { status: 401, description: 'Unauthorized', schema: termsErrorSchema },
         { status: 404, description: 'Customer group not found', schema: termsErrorSchema },
+        { status: 500, description: 'Unexpected failure', schema: termsErrorSchema },
       ],
     },
     PUT: {
@@ -319,7 +335,8 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Validation failed', schema: termsErrorSchema },
         { status: 401, description: 'Unauthorized', schema: termsErrorSchema },
         { status: 404, description: 'Customer group not found', schema: termsErrorSchema },
-        { status: 409, description: 'Optimistic lock conflict', schema: termsErrorSchema },
+        { status: 409, description: 'Optimistic lock or concurrent-create conflict', schema: termsErrorSchema },
+        { status: 500, description: 'Unexpected failure', schema: termsErrorSchema },
       ],
     },
   },

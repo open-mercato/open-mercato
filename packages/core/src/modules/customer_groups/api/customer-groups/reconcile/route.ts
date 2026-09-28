@@ -7,6 +7,7 @@ import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/er
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { scanOrphanedCustomerGroupReferences } from '../../../lib/reconcile'
 
 const logger = createLogger('customer_groups')
@@ -19,9 +20,9 @@ export const metadata = {
 }
 
 export async function GET(req: Request) {
+  const { translate } = await resolveTranslations()
   try {
     const auth = await getAuthFromRequest(req)
-    const { translate } = await resolveTranslations()
     if (!auth) {
       throw new CrudHttpError(401, { error: translate('customer_groups.errors.unauthorized', 'Unauthorized') })
     }
@@ -46,7 +47,16 @@ export async function GET(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     logger.error('customer_groups.groups.reconcile failed', { err })
-    return NextResponse.json({ error: 'Failed to scan for orphaned customer group references' }, { status: 400 })
+    getTelemetryRuntime()?.reportError(err, { module: 'customer_groups', code: 'customer_groups.reconcile_scan_failed' })
+    return NextResponse.json(
+      {
+        error: translate(
+          'customer_groups.errors.reconcile_scan_failed',
+          'Failed to scan for orphaned customer group references',
+        ),
+      },
+      { status: 500 },
+    )
   }
 }
 
@@ -73,6 +83,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Tenant context missing', schema: reconcileErrorSchema },
         { status: 401, description: 'Unauthorized', schema: reconcileErrorSchema },
+        { status: 500, description: 'Unexpected failure', schema: reconcileErrorSchema },
       ],
     },
   },

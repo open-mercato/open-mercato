@@ -3,7 +3,13 @@ import { expect, test } from '@playwright/test';
 import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api';
 import { deleteGeneralEntityIfExists, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 import { deleteCustomerGroupIfExists } from '@open-mercato/core/helpers/integration/customerGroupsFixtures';
-import { uniqueStamp } from './helpers';
+import {
+  CUSTOMER_GROUPS_FEATURES,
+  cleanupSecondTenantActor,
+  createSecondTenantActor,
+  uniqueStamp,
+  type SecondTenantActor,
+} from './helpers';
 
 /**
  * TC-CGRP-008: Reconciliation lists orphans and `--adopt` creates inactive
@@ -17,11 +23,18 @@ import { uniqueStamp } from './helpers';
  * behavior too. Uses a `sales_tax_rates` row as the orphan fixture (see
  * TC-CGRP-004's doc comment for why it's the lightest fixture that reaches
  * the scan).
+ *
+ * The adopt endpoint is tenant-wide (it takes no ids and adopts EVERY orphan
+ * the scan finds), so the whole orphan → adopt → cleanup cycle runs inside a
+ * freshly provisioned second tenant. Running it in the shared admin tenant
+ * would permanently convert any other spec's in-flight or leftover orphan
+ * into a placeholder group this spec never cleans up.
  */
 const RECONCILE_PATH = '/api/customer_groups/customer-groups/reconcile';
 const RECONCILE_ADOPT_PATH = '/api/customer_groups/customer-groups/reconcile/adopt';
 const GROUPS_PATH = '/api/customer_groups/customer-groups';
 const TAX_RATES_PATH = '/api/sales/tax-rates';
+const ACTOR_FEATURES = [...CUSTOMER_GROUPS_FEATURES, 'sales.settings.manage'];
 
 type OrphanRow = { groupId: string; salesTaxRateCount: number };
 type AdoptedRow = { groupId: string; code: string };
@@ -30,14 +43,19 @@ test.describe('TC-CGRP-008: reconciliation lists orphans and adopt creates inact
   test('adopt creates an inactive CustomerGroup reusing the orphaned id, then the orphan disappears on re-scan', async ({
     request,
   }) => {
-    const token = await getAuthToken(request, 'admin');
+    const superadminToken = await getAuthToken(request, 'superadmin');
     const stamp = uniqueStamp();
     const orphanGroupId = randomUUID();
 
+    let actor: SecondTenantActor | null = null;
+    let token: string | null = null;
     let taxRateId: string | null = null;
-    let adoptedGroupId: string | null = null;
+    let adoptedGroupIds: string[] = [];
 
     try {
+      actor = await createSecondTenantActor(request, superadminToken, stamp, ACTOR_FEATURES);
+      token = actor.token;
+
       const taxRateResponse = await apiRequest(request, 'POST', TAX_RATES_PATH, {
         token,
         data: { name: `QA CGRP 008 Tax ${stamp}`, code: `qa-cgrp-008-${stamp}`, rate: 5, customerGroupId: orphanGroupId },
@@ -61,9 +79,9 @@ test.describe('TC-CGRP-008: reconciliation lists orphans and adopt creates inact
       expect(adoptResponse.status(), 'reconcile adopt should be 200').toBe(200);
       const adoptBody = await readJsonSafe<{ ok?: boolean; adopted?: AdoptedRow[] }>(adoptResponse);
       expect(adoptBody?.ok, 'adopt should report ok').toBe(true);
+      adoptedGroupIds = (adoptBody?.adopted ?? []).map((row) => row.groupId);
       const adoptedEntry = (adoptBody?.adopted ?? []).find((row) => row.groupId === orphanGroupId);
       expect(adoptedEntry, 'adopt response should include the orphaned group id').toBeTruthy();
-      adoptedGroupId = adoptedEntry?.groupId ?? null;
 
       const adoptedGroupResponse = await apiRequest(
         request,
@@ -88,7 +106,10 @@ test.describe('TC-CGRP-008: reconciliation lists orphans and adopt creates inact
       ).toBe(false);
     } finally {
       await deleteGeneralEntityIfExists(request, token, TAX_RATES_PATH, taxRateId);
-      await deleteCustomerGroupIfExists(request, token, adoptedGroupId ?? orphanGroupId);
+      for (const groupId of new Set([...adoptedGroupIds, orphanGroupId])) {
+        await deleteCustomerGroupIfExists(request, token, groupId);
+      }
+      await cleanupSecondTenantActor(request, superadminToken, actor);
     }
   });
 });

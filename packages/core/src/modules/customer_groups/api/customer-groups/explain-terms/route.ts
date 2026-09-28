@@ -7,11 +7,13 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { CustomerGroup } from '../../../data/entities'
-import type {
-  CustomerGroupsService,
-  ResolvedTerms,
-  ResolvedTermsSources,
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import type { CustomerGroup } from '../../../data/entities'
+import {
+  loadCustomerGroupAncestorChain,
+  type CustomerGroupsService,
+  type ResolvedTerms,
+  type ResolvedTermsSources,
 } from '../../../services/customerGroupsService'
 
 const logger = createLogger('customer_groups')
@@ -20,14 +22,6 @@ const logger = createLogger('customer_groups')
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customer_groups.terms.view'] },
 }
-
-// Mirrors `MAX_ANCESTOR_DEPTH` in `services/customerGroupsService.ts` (not exported).
-// This route re-walks `CustomerGroup.parentId` independently of `resolveTerms`
-// because, unlike the service, it needs the FULL `{id,code,name}` ancestor path per
-// field (not just the winning `sourceGroupId`) to render the "explain terms" panel's
-// visible ancestor breadcrumb (spec: "a visible ancestor path (child → parent →
-// tenant), not a hidden tooltip").
-const MAX_ANCESTOR_DEPTH = 5
 
 // Local duplicate of the service's own (unexported) `TERMS_FIELD_NAMES` — `satisfies`
 // pins it to `ResolvedTermsSources`'s keys so a future terms field addition fails this
@@ -59,40 +53,6 @@ type ExplainTermsResponse = {
 
 function toGroupSummary(group: CustomerGroup): GroupSummary {
   return { id: group.id, code: group.code, name: group.name }
-}
-
-async function loadGroup(
-  em: EntityManager,
-  groupId: string,
-  tenantId: string,
-  cache: Map<string, CustomerGroup | null>,
-): Promise<CustomerGroup | null> {
-  if (cache.has(groupId)) return cache.get(groupId) ?? null
-  const group = await em.findOne(CustomerGroup, { id: groupId, tenantId, deletedAt: null })
-  cache.set(groupId, group)
-  return group
-}
-
-// One chain per directly-matching group, self first then parent/grandparent/... up to
-// the depth cap — same shape and order as the service's own `loadAncestorChain`, but
-// returning full entities (for `code`/`name`) instead of bare ids.
-async function loadAncestorChain(
-  em: EntityManager,
-  groupId: string,
-  tenantId: string,
-  cache: Map<string, CustomerGroup | null>,
-): Promise<CustomerGroup[]> {
-  const chain: CustomerGroup[] = []
-  let currentId: string | null = groupId
-  let depth = 0
-  while (currentId && depth < MAX_ANCESTOR_DEPTH) {
-    const group = await loadGroup(em, currentId, tenantId, cache)
-    if (!group) break
-    chain.push(group)
-    currentId = group.parentId ?? null
-    depth += 1
-  }
-  return chain
 }
 
 // Reconstructs the visible ancestor path for one resolved field: `resolveTerms`
@@ -144,10 +104,16 @@ export async function GET(req: Request) {
       groupIds: groupResolution.groupIds,
     })
 
+    // The FULL `{id,code,name}` ancestor path per field (not just the winning
+    // `sourceGroupId`) renders the panel's visible ancestor breadcrumb (spec: "a
+    // visible ancestor path (child → parent → tenant), not a hidden tooltip"). Chains
+    // come from the service's own `loadCustomerGroupAncestorChain` — the same walk
+    // `resolveTerms` uses — so the path shown can never disagree with the value
+    // resolved (e.g. both stop at a soft-deleted parent).
     const groupCache = new Map<string, CustomerGroup | null>()
     const chains: CustomerGroup[][] = []
     for (const groupId of groupResolution.groupIds) {
-      chains.push(await loadAncestorChain(em, groupId, tenantId, groupCache))
+      chains.push(await loadCustomerGroupAncestorChain(em, groupId, tenantId, groupCache))
     }
 
     const fields = TERMS_FIELDS.reduce<Record<TermsField, ExplainTermsField>>((acc, field) => {
@@ -169,6 +135,7 @@ export async function GET(req: Request) {
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     logger.error('customer_groups.terms.explain failed', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'customer_groups', code: 'customer_groups.terms_explain_failed' })
     return NextResponse.json(
       { error: translate('customer_groups.errors.load_failed', 'Failed to load commercial terms') },
       { status: 500 },
@@ -209,6 +176,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Tenant context is required or customerId is invalid', schema: explainTermsErrorSchema },
         { status: 401, description: 'Unauthorized', schema: explainTermsErrorSchema },
+        { status: 500, description: 'Unexpected failure', schema: explainTermsErrorSchema },
       ],
     },
   },

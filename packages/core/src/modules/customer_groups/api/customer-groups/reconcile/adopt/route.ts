@@ -11,6 +11,8 @@ import {
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { canonicalizeResourceTag, invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { adoptOrphanedCustomerGroups, scanOrphanedCustomerGroupReferences } from '../../../../lib/reconcile'
 
 const logger = createLogger('customer_groups')
@@ -22,15 +24,21 @@ const logger = createLogger('customer_groups')
 // "what would be adopted" and "what gets adopted" can never drift apart.
 const CUSTOMER_GROUP_RESOURCE_KIND = 'customer_groups.group'
 
+// The group list route's CRUD cache resource kind (events-derived) plus the
+// entity-name-derived fallback `makeCrudRoute` uses without an `events` config —
+// both flushed so the admin list shows adopted placeholder groups immediately.
+const CUSTOMER_GROUP_CACHE_RESOURCE = canonicalizeResourceTag('customer_groups.group') ?? 'customer_groups.group'
+const CUSTOMER_GROUP_CACHE_ALIASES = [canonicalizeResourceTag('CustomerGroup') ?? 'customer.group']
+
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['customer_groups.groups.manage'] },
 }
 
 export async function POST(req: Request) {
+  const { translate } = await resolveTranslations()
   try {
     const container = await createRequestContainer()
     const auth = await getAuthFromRequest(req)
-    const { translate } = await resolveTranslations()
     if (!auth) {
       throw new CrudHttpError(401, { error: translate('customer_groups.errors.unauthorized', 'Unauthorized') })
     }
@@ -62,6 +70,17 @@ export async function POST(req: Request) {
     const orphans = await scanOrphanedCustomerGroupReferences(em, { tenantId })
     const adopted = await adoptOrphanedCustomerGroups(em, orphans)
 
+    for (const group of adopted) {
+      await invalidateCrudCache(
+        container,
+        CUSTOMER_GROUP_CACHE_RESOURCE,
+        { id: group.groupId, tenantId: group.tenantId, organizationId: null },
+        tenantId,
+        'created',
+        CUSTOMER_GROUP_CACHE_ALIASES,
+      )
+    }
+
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(container, {
         tenantId,
@@ -82,7 +101,16 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     logger.error('customer_groups.groups.reconcile.adopt failed', { err })
-    return NextResponse.json({ error: 'Failed to adopt orphaned customer group references' }, { status: 400 })
+    getTelemetryRuntime()?.reportError(err, { module: 'customer_groups', code: 'customer_groups.reconcile_adopt_failed' })
+    return NextResponse.json(
+      {
+        error: translate(
+          'customer_groups.errors.reconcile_adopt_failed',
+          'Failed to adopt orphaned customer group references',
+        ),
+      },
+      { status: 500 },
+    )
   }
 }
 
@@ -110,6 +138,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Validation failed', schema: adoptErrorSchema },
         { status: 401, description: 'Unauthorized', schema: adoptErrorSchema },
+        { status: 500, description: 'Unexpected failure', schema: adoptErrorSchema },
       ],
     },
   },

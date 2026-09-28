@@ -857,15 +857,13 @@
           "unique": true
         },
         {
-          "columnNames": [
-            "tenant_id",
-            "code"
-          ],
-          "composite": true,
-          "constraint": true,
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
           "keyName": "customer_groups_tenant_code_unique",
           "primary": false,
-          "unique": true
+          "unique": false,
+          "expression": "create unique index \"customer_groups_tenant_code_unique\" on \"customer_groups\" (\"tenant_id\", \"code\") where \"deleted_at\" is null"
         },
         {
           "columnNames": [],

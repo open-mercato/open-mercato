@@ -38,13 +38,22 @@ const codeSchema = z
 
 const nameSchema = z.string().trim().min(1).max(200)
 
+// Spec §5.1: a group's ancestor chain (the group itself plus every parent up to the
+// root) is capped at 5 levels. Also the walk limit of `customerGroupsService`'s
+// ancestor resolution — anything deeper would silently lose inherited terms.
+export const CUSTOMER_GROUP_MAX_ANCESTOR_DEPTH = 5
+
 export const customerGroupKindValues = ['b2c', 'b2b', 'internal', 'partner'] as const
 export const customerGroupKindSchema = z.enum(customerGroupKindValues)
 
 export const customerGroupMembershipSourceValues = ['manual', 'import', 'rule', 'onboarding'] as const
 export const customerGroupMembershipSourceSchema = z.enum(customerGroupMembershipSourceValues)
 
-export const customerGroupCreateSchema = z.object({
+// Default-free field set shared by the create and update schemas. Zod v4's `.partial()`
+// keeps an inner `.default()`, so deriving the update schema from the create schema
+// injected `isDefault: false` / `isActive: true` into every partial update and silently
+// overwrote stored values. Defaults live on the create schema only.
+const customerGroupBaseShape = {
   organizationId: uuid().nullable().optional(),
   tenantId: uuid(),
   code: codeSchema,
@@ -53,9 +62,15 @@ export const customerGroupCreateSchema = z.object({
   kind: customerGroupKindSchema,
   parentId: clearableUuidSchema,
   priority: z.number().int().min(0),
+  isDefault: z.boolean(),
+  isActive: z.boolean(),
+  metadata: clearableMetadataSchema,
+}
+
+export const customerGroupCreateSchema = z.object({
+  ...customerGroupBaseShape,
   isDefault: z.boolean().optional().default(false),
   isActive: z.boolean().optional().default(true),
-  metadata: clearableMetadataSchema,
 })
 
 export type CustomerGroupCreateInput = z.infer<typeof customerGroupCreateSchema>
@@ -64,7 +79,7 @@ export const customerGroupUpdateSchema = z
   .object({
     id: uuid(),
   })
-  .merge(customerGroupCreateSchema.partial())
+  .merge(z.object(customerGroupBaseShape).partial())
 
 export type CustomerGroupUpdateInput = z.infer<typeof customerGroupUpdateSchema>
 
@@ -133,8 +148,8 @@ export const customerGroupMembershipDeleteSchema = z.object({
 export type CustomerGroupMembershipDeleteInput = z.infer<typeof customerGroupMembershipDeleteSchema>
 
 // Drag-reorder payload for the admin group list (Step 1.7): an ordered array of
-// `CustomerGroup` ids. The reorder command rewrites `priority` in gaps of 10
-// following this order — see spec R4 mitigation note.
+// `CustomerGroup` ids. A full ordering renumbers `priority` in gaps of 10; a partial
+// one permutes the listed groups' existing priorities — see commands/reorderGroups.ts.
 export const customerGroupReorderSchema = z.object({
   tenantId: uuid(),
   ids: z.array(uuid()).min(1),
@@ -159,18 +174,24 @@ const clearableNonNegativeNumberSchema = z.preprocess(
 
 const currencyCodeSchema = clearableStringSchema(4)
 
-export const customerGroupTermsCreateSchema = z.object({
+// Default-free, for the same reason as `customerGroupBaseShape` above.
+const customerGroupTermsBaseShape = {
   organizationId: uuid().nullable().optional(),
   tenantId: uuid(),
   groupId: uuid(),
   priceKindId: clearableUuidSchema,
   paymentTermsDays: clearableNonNegativeIntSchema,
-  allowPurchaseOnAccount: z.boolean().optional().default(false),
+  allowPurchaseOnAccount: z.boolean(),
   defaultCreditLimit: clearableNonNegativeNumberSchema,
   creditCurrencyCode: currencyCodeSchema,
   approvalRequiredAbove: clearableNonNegativeNumberSchema,
   minOrderValue: clearableNonNegativeNumberSchema,
   metadata: clearableMetadataSchema,
+}
+
+export const customerGroupTermsCreateSchema = z.object({
+  ...customerGroupTermsBaseShape,
+  allowPurchaseOnAccount: z.boolean().optional().default(false),
 })
 
 export type CustomerGroupTermsCreateInput = z.infer<typeof customerGroupTermsCreateSchema>
@@ -179,7 +200,7 @@ export const customerGroupTermsUpdateSchema = z
   .object({
     id: uuid(),
   })
-  .merge(customerGroupTermsCreateSchema.partial())
+  .merge(z.object(customerGroupTermsBaseShape).partial())
 
 export type CustomerGroupTermsUpdateInput = z.infer<typeof customerGroupTermsUpdateSchema>
 
