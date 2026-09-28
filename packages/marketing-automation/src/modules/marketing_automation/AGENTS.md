@@ -81,6 +81,13 @@ its own. Spec:
   the other order lands an "optimised" send at 3am.
 - Never learn a send hour from fewer than `MINIMUM_OPENS_FOR_PATTERN` opens, and never group open hours
   in server time — both produce a confident answer about the wrong customer.
+- Never push an ENCRYPTED field down to SQL. Customer addresses are encrypted at rest, so a country
+  comparison in SQL matches nothing and says nothing — `narrowing.ts` refuses `address.*` on purpose and
+  a test asserts each field.
+- Never read a purchased product from the catalogue. Use the order line's `catalog_snapshot`: a renamed,
+  re-skued or deleted product must still target the customers who bought it.
+- Never let a test send take its recipient from the request. It comes from the session, or the endpoint
+  is a spam relay with a campaign editor attached.
 - Never explain the engine with a second implementation. The journey preview drives `executeRun` itself
   with recording effects (`lib/preview.ts`); anything that re-derives the sequencing will drift from it,
   and a preview is trusted precisely where nobody can check it.

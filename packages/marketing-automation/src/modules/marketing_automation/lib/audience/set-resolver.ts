@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { recencyBounds } from '../engine/narrowing.js'
 import type { ComparisonOp, Narrowing, NarrowingPredicate, OrderMetric } from '../engine/narrowing.js'
-import { PLACED_ORDER_FILTER_SQL } from '../subject-document.js'
+import { PLACED_ORDER_FILTER_SQL, PLACED_ORDER_FILTER_SQL_ALIASED } from '../subject-document.js'
 import type { SubjectScope } from '../subject-document.js'
 
 /**
@@ -19,6 +19,8 @@ export type CandidateSource = {
   orderMetricMembers(metric: OrderMetric, op: ComparisonOp, value: number): Promise<string[]>
   /** Subject ids whose summed lead score satisfies the comparison. */
   scoreMembers(op: ComparisonOp, value: number): Promise<string[]>
+  /** Subject ids who have bought this product SKU. */
+  purchasedSkuMembers(sku: string): Promise<string[]>
 }
 
 /**
@@ -52,7 +54,9 @@ async function resolvePredicate(
       ? await source.tagMembers(null)
       : predicate.kind === 'scorePoints'
         ? await source.scoreMembers(predicate.op, predicate.value)
-        : await source.orderMetricMembers(predicate.metric, predicate.op, predicate.value)
+        : predicate.kind === 'purchasedSku'
+          ? await source.purchasedSkuMembers(predicate.sku)
+          : await source.orderMetricMembers(predicate.metric, predicate.op, predicate.value)
 
   if (rows.length > state.maxSet) return { ids: null, abandoned: true }
   return { ids: new Set(rows), abandoned: false }
@@ -197,6 +201,22 @@ export function createSqlCandidateSource(
           group by customer_entity_id
          having ${having}`,
         params,
+      )
+      return rows.map((row) => row.customer_entity_id).filter(Boolean)
+    },
+
+    async purchasedSkuMembers(sku: string): Promise<string[]> {
+      const rows = await em.getConnection().execute<{ customer_entity_id: string }[]>(
+        `select distinct o.customer_entity_id
+           from sales_order_lines l
+           join sales_orders o on o.id = l.order_id
+          where ${PLACED_ORDER_FILTER_SQL_ALIASED}
+            and o.customer_entity_id is not null
+            and coalesce(
+                  l.catalog_snapshot -> 'product' ->> 'sku',
+                  l.catalog_snapshot -> 'variant' ->> 'sku'
+                ) = ?`,
+        [scope.tenantId, scope.organizationId, sku],
       )
       return rows.map((row) => row.customer_entity_id).filter(Boolean)
     },

@@ -72,6 +72,14 @@ export type SubjectDocument = {
      */
     lastPlacedAt?: string
     daysSinceLast?: number
+    /**
+     * Distinct product SKUs this customer has bought, newest first and capped.
+     *
+     * Read from each order line's catalogue snapshot rather than from the catalogue, so a product that
+     * was renamed — or deleted — still targets correctly: what matters is what the customer bought, and
+     * the snapshot is the only record of that.
+     */
+    skus: string[]
   }
   /**
    * Lead score, summed from the score ledger.
@@ -92,6 +100,19 @@ export type SubjectDocument = {
      */
     tierRank: number
   }
+  /**
+   * Where the customer is, from their address.
+   *
+   * Null when they have none. Every field here is ENCRYPTED at rest, which has one consequence worth
+   * stating: a geographic audience cannot be narrowed in the database, so a campaign targeting a country
+   * is evaluated per customer. Correct, and more expensive than the other predicates.
+   */
+  address: {
+    country: string | null
+    region: string | null
+    city: string | null
+    postalCode: string | null
+  } | null
   /** Scalars the triggering event contributed. */
   trigger: Record<string, unknown>
 }

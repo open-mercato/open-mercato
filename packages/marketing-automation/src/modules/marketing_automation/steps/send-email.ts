@@ -83,6 +83,31 @@ async function resolveRecipient(ctx: AutomationContext, deps: StepDeps): Promise
   return entity?.primaryEmail?.trim() || null
 }
 
+/**
+ * Renders the message, once.
+ *
+ * Exported so a test send renders through the SAME path as a real send. A second renderer would drift,
+ * and the whole value of a test send is that what the author sees is what the customer will get.
+ *
+ * Tracking is applied only when the context carries a run and a step, which a test send does not have —
+ * so a test message is deliberately untracked rather than polluting the campaign's engagement figures
+ * with the author's own opens.
+ */
+export function renderEmail(
+  params: { subject: string; bodyHtml: string; bodyText?: string; track?: boolean },
+  ctx: AutomationContext,
+): { subject: string; html: string; text?: string } {
+  return {
+    subject: interpolate(params.subject, ctx),
+    // Interpolate FIRST, then rewrite: a link assembled from a substituted value has to be tracked too,
+    // and rewriting first would sign a URL containing the placeholder instead of the value.
+    // `'html'` is not optional here: the body is rendered as HTML, and substituted values can be
+    // customer-controlled.
+    html: withTracking(interpolate(params.bodyHtml, ctx, 'html'), ctx, params.track !== false),
+    text: params.bodyText ? interpolate(params.bodyText, ctx) : undefined,
+  }
+}
+
 export const sendEmailStep: StepHandler<StepDeps> = {
   type: 'send_email',
   labelKey: 'marketing_automation.step.send_email.label',
@@ -108,13 +133,7 @@ export const sendEmailStep: StepHandler<StepDeps> = {
     try {
       await sendEmail({
         to,
-        subject: interpolate(params.subject, ctx),
-        // Interpolate FIRST, then rewrite: a link assembled from a substituted value has to be tracked
-        // too, and rewriting first would sign a URL containing the placeholder instead of the value.
-        // `'html'` is not optional here: the body is rendered as HTML, and substituted values can be
-        // customer-controlled.
-        html: withTracking(interpolate(params.bodyHtml, ctx, 'html'), ctx, params.track),
-        text: params.bodyText ? interpolate(params.bodyText, ctx) : undefined,
+        ...renderEmail(params, ctx),
         tenantId: deps.scope.tenantId,
         organizationId: deps.scope.organizationId,
       })

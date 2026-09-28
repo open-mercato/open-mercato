@@ -158,6 +158,7 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
   const [previewSubject, setPreviewSubject] = React.useState('')
   const [preview, setPreview] = React.useState<JourneyPreview | null>(null)
   const [previewing, setPreviewing] = React.useState(false)
+  const [testSending, setTestSending] = React.useState(false)
   const [selectedNodeId, setSelectedNodeId] = React.useState<string | null>(null)
   /**
    * The variant the palette adds to, chosen explicitly.
@@ -307,6 +308,35 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
       flash(describeSaveError(previewError, t), 'error')
     } finally {
       setPreviewing(false)
+    }
+  }
+
+  /**
+   * Sends one real message for this step, to the author's own address.
+   *
+   * The endpoint takes the recipient from the session and refuses to accept one from the request, so
+   * there is nothing to pass here — which is the point: an editor that can send to an arbitrary address
+   * is a spam relay.
+   */
+  const sendTest = async (stepId: string) => {
+    setTestSending(true)
+    try {
+      const response = await apiCallOrThrow<{ to?: string }>(
+        `/api/marketing_automation/campaigns/${campaignId}/test-send`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ stepId }),
+          headers: { 'content-type': 'application/json' },
+        },
+      )
+      flash(
+        t('marketing_automation.testSend.sent', 'Sent to {address}.').replace('{address}', response.result?.to ?? ''),
+        'success',
+      )
+    } catch (sendError) {
+      flash(describeSaveError(sendError, t), 'error')
+    } finally {
+      setTestSending(false)
     }
   }
 
@@ -775,6 +805,17 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                     onChange={(params) => updateStep(selectedStep.id, params)}
                   />
                 )}
+
+                {selectedStepMeta?.channel === 'email' ? (
+                  <Button
+                    variant="outline"
+                    disabled={testSending || dirty}
+                    title={dirty ? t('marketing_automation.canvas.unsavedChanges', 'Unsaved changes') : undefined}
+                    onClick={() => void sendTest(selectedStep.id)}
+                  >
+                    {testSending ? <Spinner /> : t('marketing_automation.testSend.run', 'Send a test to me')}
+                  </Button>
+                ) : null}
 
                 <Button variant="outline" onClick={() => removeNode(selectedStep.id)}>
                   {t('marketing_automation.action.removeNode', 'Remove')}

@@ -144,6 +144,38 @@ canvas must not show a branch that never runs. Nesting is capped at five levels,
 hand-edited or imported definition that is cyclic in spirit into a truncated campaign instead of a
 stack overflow in a worker.
 
+### Product and geographic targeting
+
+Two new audience dimensions, and they sit on opposite sides of the pushdown line — which is the whole
+lesson of this pair.
+
+**Product** (`orders.skus CONTAINS 'ATLAS-RUNNER'`) is read from each order line's CATALOGUE SNAPSHOT
+rather than from the catalogue. A product that was renamed, re-skued or deleted must still target the
+customers who bought it, and the snapshot is the only record of what they actually bought. The variant
+sku is the fallback, because a shop that skus only variants would otherwise return nothing. It is a plain
+jsonb extraction on a joined table, so it pushes down and an estimate over it is exact.
+
+**Place** (`address.country`, `address.city`, `address.region`, `address.postalCode`) cannot push down at
+all: every column of a customer address is encrypted at rest, so a SQL comparison would run against
+ciphertext and match NOTHING — silently, which is the worst possible failure for an audience. So the
+planner refuses those fields explicitly, with a test for each, and a geographic campaign is evaluated per
+customer: correct, and more expensive than every other predicate. The address itself is read through the
+decrypting finder, preferring a shipping address over a billing one over anything else — deterministic
+beats theoretically-best, because an audience that depends on row order is worse than one that is merely
+approximate.
+
+### Real test send
+
+One real message, rendered through the SAME function a real send uses, delivered to the CALLER's own
+address — taken from the session, with no way for the request to name a recipient. That restriction is
+the feature: a "send a test to this address" endpoint is a spam relay with a campaign editor attached,
+whoever holds the permission.
+
+Untracked and unrecorded: a test has no run, and counting the author's own opens as engagement would
+corrupt the campaign's figures. A missing email channel answers 400 with its own code rather than 502,
+because "nothing is configured to send with" and "the transport refused your message" have completely
+different remedies — and the first is the state every fresh installation is in.
+
 ### Journey preview
 
 What a named customer would receive, and when. The most useful screen in the module for an author, and
@@ -614,6 +646,10 @@ eight-way concurrent worker and is now backed by a partial unique index on the a
   optimistic lock; canvas editor reusing the `business_rules` condition builder; `en`/`pl`
   locales. Verified against a running instance: palette, create, save, round-trip, 409 on a
   stale save, and five rejected invalid graphs.
+- **2026-09-28** — Backlog B-13 (product) and X-01 (geography), plus B-19 (real test send). The two
+  targeting dimensions land on opposite sides of the pushdown line: a purchased SKU is exact in the
+  database, an address can never be because it is encrypted — asserted per field so nobody optimises it
+  later. Test sends can only reach the caller's own address. 475 unit tests, 66 integration tests.
 - **2026-09-28** — Backlog X-14: journey preview for one named customer, driven by the real engine with
   recording effects so every gate applies and the timeline cannot drift from what the campaign will
   actually do. Pauses carry the engine's own reason. 463 unit tests, 60 integration tests.

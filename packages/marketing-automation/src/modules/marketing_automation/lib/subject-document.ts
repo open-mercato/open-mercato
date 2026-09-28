@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { CustomerEntity, CustomerPersonProfile } from '@open-mercato/core/modules/customers/data/entities'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { CustomerAddress, CustomerEntity, CustomerPersonProfile } from '@open-mercato/core/modules/customers/data/entities'
 import type { SubjectDocument } from './engine/types.js'
 import { FALLBACK_TIME_ZONE } from './engine/gates.js'
 import { loadScorePoints } from './scores.js'
@@ -72,6 +72,8 @@ export async function loadOrderAggregates(
   const totalGross = Number.parseFloat(row?.total_gross ?? '0')
 
   const aggregates: SubjectDocument['orders'] = {
+    // The SKUs are loaded separately and merged by the caller; this function answers about amounts.
+    skus: [],
     count,
     totalGross: Number.isFinite(totalGross) ? totalGross : 0,
   }
@@ -85,6 +87,54 @@ export async function loadOrderAggregates(
   }
 
   return aggregates
+}
+
+/** How many distinct SKUs a subject document carries. Beyond this the list stops being a filter. */
+const MAX_SUBJECT_SKUS = 200
+
+/**
+ * The same "order that counts" rule as `PLACED_ORDER_FILTER_SQL`, written for a joined query.
+ *
+ * Spelled out with the alias rather than derived from the other constant by string surgery: two
+ * readable clauses that must be kept in step are safer than one clause mangled at runtime, and the
+ * unit test asserts they stay equivalent.
+ */
+export const PLACED_ORDER_FILTER_SQL_ALIASED = `
+  o.tenant_id = ?
+    and o.organization_id = ?
+    and o.deleted_at is null
+    and o.placed_at is not null
+    and (o.status is null or o.status not in ('canceled', 'cancelled'))
+`
+
+/**
+ * Distinct product SKUs this customer has bought.
+ *
+ * Read from the order line's CATALOGUE SNAPSHOT, not from the catalogue: a product that was renamed,
+ * re-skued or deleted must still target the customers who bought it, and the snapshot is the only record
+ * of what they actually bought. The variant sku is the fallback, because a shop that skus only variants
+ * would otherwise return nothing.
+ */
+export async function loadPurchasedSkus(
+  em: EntityManager,
+  subjectEntityId: string,
+  scope: SubjectScope,
+): Promise<string[]> {
+  const rows = await em.getConnection().execute<{ sku: string | null }[]>(
+    `select distinct coalesce(
+              l.catalog_snapshot -> 'product' ->> 'sku',
+              l.catalog_snapshot -> 'variant' ->> 'sku'
+            ) as sku
+       from sales_order_lines l
+       join sales_orders o on o.id = l.order_id
+      where o.customer_entity_id = ?
+        and ${PLACED_ORDER_FILTER_SQL_ALIASED}
+      limit ?`,
+    [subjectEntityId, scope.tenantId, scope.organizationId, MAX_SUBJECT_SKUS],
+  )
+  return rows
+    .map((row) => row.sku)
+    .filter((sku): sku is string => typeof sku === 'string' && sku.length > 0)
 }
 
 /** Tag slugs, so an audience can ask `tags CONTAINS 'vip'` rather than carry uuids. */
@@ -102,6 +152,46 @@ export async function loadTagSlugs(
     [subjectEntityId, scope.tenantId, scope.organizationId],
   )
   return rows.map((row) => row.slug)
+}
+
+/**
+ * Where the customer is.
+ *
+ * Read through the decrypting finder: every field of an address is encrypted at rest, so a plain
+ * `em.find` would hand back ciphertext and a country comparison would silently never match.
+ *
+ * A customer may have several addresses. Shipping wins over billing and billing over anything else,
+ * because a geographic audience is almost always about where the goods go — and picking one
+ * deterministically matters more than picking the theoretically best one, since an audience that
+ * depends on row order is worse than one that is merely approximate.
+ */
+export async function loadSubjectAddress(
+  em: EntityManager,
+  subjectEntityId: string,
+  scope: SubjectScope,
+): Promise<SubjectDocument['address']> {
+  const addresses = await findWithDecryption(
+    em,
+    CustomerAddress,
+    { entity: subjectEntityId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    undefined,
+    scope,
+  )
+  if (!addresses.length) return null
+
+  const preference = ['shipping', 'billing']
+  const chosen = [...addresses].sort((left, right) => {
+    const leftRank = preference.indexOf((left.purpose ?? '').toLowerCase())
+    const rightRank = preference.indexOf((right.purpose ?? '').toLowerCase())
+    return (leftRank === -1 ? preference.length : leftRank) - (rightRank === -1 ? preference.length : rightRank)
+  })[0]
+
+  return {
+    country: chosen.country?.trim() || null,
+    region: chosen.region?.trim() || null,
+    city: chosen.city?.trim() || null,
+    postalCode: chosen.postalCode?.trim() || null,
+  }
 }
 
 /**
@@ -150,8 +240,9 @@ export async function buildSubjectDocument(
     return {
       customer: null,
       tags: [],
-      orders: { count: 0, totalGross: 0 },
+      orders: { count: 0, totalGross: 0, skus: [] },
       score: { points: 0, tier: unscored.key, tierRank: unscored.rank },
+      address: null,
       trigger,
     }
   }
@@ -166,10 +257,12 @@ export async function buildSubjectDocument(
     scope,
   )
 
-  const [tags, orders, scorePoints] = await Promise.all([
+  const [tags, orders, scorePoints, skus, address] = await Promise.all([
     loadTagSlugs(em, subjectEntityId, scope),
     loadOrderAggregates(em, subjectEntityId, scope, now),
     loadScorePoints(em, subjectEntityId, scope),
+    loadPurchasedSkus(em, subjectEntityId, scope),
+    loadSubjectAddress(em, subjectEntityId, scope),
   ])
 
   const tier = resolveTier(scorePoints, options?.tierThresholds)
@@ -184,8 +277,9 @@ export async function buildSubjectDocument(
         }
       : null,
     tags,
-    orders,
+    orders: { ...orders, skus },
     score: { points: scorePoints, tier: tier.key, tierRank: tier.rank },
+    address,
     trigger,
   }
 }

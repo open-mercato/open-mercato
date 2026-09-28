@@ -13,6 +13,7 @@ function fakeSource(data: {
   tags?: Record<string, string[]>
   orders?: Record<string, string[]>
   scores?: Record<string, string[]>
+  skus?: Record<string, string[]>
 }): CandidateSource & { calls: string[] } {
   const calls: string[] = []
   return {
@@ -31,6 +32,10 @@ function fakeSource(data: {
       const key = `${op}${value}`
       calls.push(`score:${key}`)
       return data.scores?.[key] ?? []
+    },
+    async purchasedSkuMembers(sku: string) {
+      calls.push(`sku:${sku}`)
+      return data.skus?.[sku] ?? []
     },
   }
 }
@@ -155,6 +160,13 @@ describe('resolveCandidates', () => {
     expect((await resolveCandidates(plan.narrowing, source)).ids).toEqual(['c2'])
   })
 
+  test('a purchased-SKU predicate resolves through the order lines', async () => {
+    const source = fakeSource({ skus: { 'ATLAS-RUNNER': ['c2', 'c1'] } })
+    const plan = planNarrowing(leaf('orders.skus', 'CONTAINS', 'ATLAS-RUNNER'))
+    expect((await resolveCandidates(plan.narrowing, source)).ids).toEqual(['c1', 'c2'])
+    expect(source.calls).toEqual(['sku:ATLAS-RUNNER'])
+  })
+
   test('the default cap is high enough to be a safety net, not a policy', () => {
     expect(MAX_CANDIDATE_SET).toBeGreaterThanOrEqual(100_000)
   })
@@ -210,6 +222,17 @@ describe('createSqlCandidateSource', () => {
     await createSqlCandidateSource(em, scope, now).orderMetricMembers('totalGross', '>', 99.5)
     expect(executed[0].sql).toContain('coalesce(sum(grand_total_gross_amount), 0) > ?')
     expect(executed[0].params).toEqual(['t1', 'o1', 99.5])
+  })
+
+  test('a purchased SKU reads the catalogue snapshot, scoped, with the sku bound', async () => {
+    const { em, executed } = fakeEm([{ customer_entity_id: 'c1' }])
+    expect(await createSqlCandidateSource(em, scope, now).purchasedSkuMembers('ATLAS-RUNNER')).toEqual(['c1'])
+    const { sql, params } = executed[0]
+    // The snapshot, not the catalogue: a renamed or deleted product must still target its buyers.
+    expect(sql).toContain("catalog_snapshot -> 'product' ->> 'sku'")
+    expect(sql).toContain("catalog_snapshot -> 'variant' ->> 'sku'")
+    expect(sql).toContain("o.status not in ('canceled', 'cancelled')")
+    expect(params).toEqual(['t1', 'o1', 'ATLAS-RUNNER'])
   })
 
   test('a score comparison sums the ledger, scoped, with the operator from the fixed table', async () => {

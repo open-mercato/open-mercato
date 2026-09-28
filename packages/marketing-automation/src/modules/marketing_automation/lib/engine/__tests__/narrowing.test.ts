@@ -34,6 +34,7 @@ function satisfiesNarrowing(narrowing: Narrowing, subject: SubjectDocument): boo
       const predicate = narrowing.predicate
       if (predicate.kind === 'hasTag') return subject.tags.includes(predicate.slug)
       if (predicate.kind === 'hasAnyTag') return subject.tags.length > 0
+      if (predicate.kind === 'purchasedSku') return subject.orders.skus.includes(predicate.sku)
       if (predicate.kind === 'scorePoints') {
         // The ledger query can only return customers who HAVE entries, and a customer with no
         // entries has a total of zero — the same shape as the order aggregate below.
@@ -75,10 +76,13 @@ function subjectOf(input: {
   totalGross?: number
   daysAgo?: number | null
   points?: number
+  skus?: string[]
+  country?: string | null
 }): SubjectDocument {
   const orders: SubjectDocument['orders'] = {
     count: input.count ?? 0,
     totalGross: input.totalGross ?? 0,
+    skus: input.skus ?? [],
   }
   if (input.daysAgo !== undefined && input.daysAgo !== null) {
     const placedAt = new Date(NOW.getTime() - input.daysAgo * MS_PER_DAY)
@@ -89,7 +93,10 @@ function subjectOf(input: {
     customer: { id: 'c1', email: null, displayName: null, createdAt: null },
     tags: input.tags ?? [],
     orders,
-    score: { points: input.points ?? 0 },
+    score: { points: input.points ?? 0, tier: null, tierRank: -1 },
+    address: input.country === undefined
+      ? null
+      : { country: input.country, region: null, city: null, postalCode: null },
     trigger: {},
   }
 }
@@ -171,6 +178,33 @@ describe('planNarrowing — what can be pushed', () => {
     ['score.points', '>=', 0],
   ])('does not push %s %s %s, which a never-scored customer satisfies', (field, operator, value) => {
     expect(planNarrowing(leaf(field, operator, value)).narrowing.kind).toBe('all')
+  })
+
+  test('a purchased SKU becomes a membership lookup over order lines', () => {
+    const plan = planNarrowing(leaf('orders.skus', 'CONTAINS', 'ATLAS-RUNNER'))
+    expect(plan.narrowing).toEqual({ kind: 'predicate', predicate: { kind: 'purchasedSku', sku: 'ATLAS-RUNNER' } })
+    expect(plan.complete).toBe(true)
+  })
+
+  test('"has not bought" is not pushed, because absence cannot be produced as a superset', () => {
+    expect(planNarrowing(leaf('orders.skus', 'NOT_CONTAINS', 'ATLAS-RUNNER')).narrowing.kind).toBe('all')
+  })
+
+  /**
+   * The most important non-pushdown in the file.
+   *
+   * Every column of a customer address is encrypted at rest, so a SQL comparison would run against
+   * ciphertext and match NOTHING — silently. A geographic audience must therefore be evaluated per
+   * customer, and this asserts that nobody optimises it later without noticing.
+   */
+  test.each([
+    ['address.country', '=', 'PL'],
+    ['address.city', '=', 'Warszawa'],
+    ['address.postalCode', '=', '00-001'],
+    ['address.region', 'CONTAINS', 'Mazo'],
+  ])('never pushes %s, because addresses are encrypted at rest', (field, operator, value) => {
+    expect(planNarrowing(leaf(field, operator, value)).narrowing.kind).toBe('all')
+    expect(planNarrowing(leaf(field, operator, value)).complete).toBe(false)
   })
 
   test('a field the database cannot answer is left to the per-subject check', () => {
@@ -298,6 +332,13 @@ describe('the narrowing never excludes a subject the audience accepts', () => {
       leaf('orders.count', '>=', 1),
       group('OR', [leaf('tags', 'CONTAINS', 'vip'), leaf('orders.daysSinceLast', '<=', 7)]),
     ])],
+    ['bought a product', leaf('orders.skus', 'CONTAINS', 'ATLAS-RUNNER')],
+    ['did not buy a product', leaf('orders.skus', 'NOT_CONTAINS', 'ATLAS-RUNNER')],
+    ['in Poland', leaf('address.country', '=', 'PL')],
+    ['bought it and is in Poland', group('AND', [
+      leaf('orders.skus', 'CONTAINS', 'ATLAS-RUNNER'),
+      leaf('address.country', '=', 'PL'),
+    ])],
     ['scored at all', leaf('score.points', '>=', 1)],
     ['hot lead', leaf('score.points', '>=', 100)],
     ['cold lead', leaf('score.points', '<=', 10)],
@@ -311,7 +352,9 @@ describe('the narrowing never excludes a subject the audience accepts', () => {
     for (const [count, totalGross] of [[0, 0], [1, 0], [1, 99.99], [3, 500], [12, 4200]] as const) {
       for (const daysAgo of count === 0 ? [null] : [0, 1, 7, 30, 44, 45, 46, 60, 89, 90, 91, 400]) {
         for (const points of [0, 1, 10, 99, 100, 101, -5]) {
-          subjects.push(subjectOf({ tags, count, totalGross, daysAgo, points }))
+          for (const [skus, country] of [[[], null], [['ATLAS-RUNNER'], 'PL'], [['OTHER-SKU'], 'DE']] as const) {
+            subjects.push(subjectOf({ tags, count, totalGross, daysAgo, points, skus: [...skus], country }))
+          }
         }
       }
     }
@@ -398,8 +441,9 @@ describe('reaching a score threshold, expressed in an audience', () => {
   const scoredSubject = (points: number, previousPoints: number): SubjectDocument => ({
     customer: { id: 'c1', email: null, displayName: null, createdAt: null },
     tags: [],
-    orders: { count: 0, totalGross: 0 },
-    score: { points },
+    orders: { count: 0, totalGross: 0, skus: [] },
+    score: { points, tier: null, tierRank: -1 },
+    address: null,
     trigger: { points, previousPoints, delta: points - previousPoints },
   })
 

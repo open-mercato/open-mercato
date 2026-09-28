@@ -29,6 +29,7 @@ export type NarrowingPredicate =
   | { kind: 'hasAnyTag' }
   | { kind: 'orderMetric'; metric: OrderMetric; op: ComparisonOp; value: number }
   | { kind: 'scorePoints'; op: ComparisonOp; value: number }
+  | { kind: 'purchasedSku'; sku: string }
 
 export type Narrowing =
   /** Every subject is a candidate — the expression said nothing the database can answer. */
@@ -112,6 +113,23 @@ function translateLeaf(leaf: SimpleCondition): LeafTranslation {
     if (operator === 'IS_NOT_EMPTY') return { predicate: { kind: 'hasAnyTag' }, exact: true }
     return null
   }
+
+  if (field === 'orders.skus') {
+    // Only membership. "Has not bought X" describes an absence, which a join cannot produce as a
+    // superset without listing every customer first.
+    if (operator !== 'CONTAINS') return null
+    const sku = typeof leaf.value === 'string' ? leaf.value.trim() : ''
+    return sku ? { predicate: { kind: 'purchasedSku', sku }, exact: true } : null
+  }
+
+  /**
+   * Address fields are deliberately NOT translatable.
+   *
+   * Every column of a customer address is encrypted at rest, so a SQL comparison would run against
+   * ciphertext and match nothing — silently, which is the worst possible failure for an audience. A
+   * geographic campaign is therefore evaluated per customer, which is slower and correct.
+   */
+  if (field.startsWith('address.')) return null
 
   if (field === 'score.points') {
     if (!NUMERIC_OPS.has(operator)) return null
@@ -250,6 +268,7 @@ export function describeNarrowing(plan: NarrowingPlan): string {
       if (predicate.kind === 'hasTag') return `tag:${predicate.slug}`
       if (predicate.kind === 'hasAnyTag') return 'tag:*'
       if (predicate.kind === 'scorePoints') return `score.points${predicate.op}${predicate.value}`
+      if (predicate.kind === 'purchasedSku') return `sku:${predicate.sku}`
       return `orders.${predicate.metric}${predicate.op}${predicate.value}`
     })
     .join(plan.narrowing.kind === 'or' ? '|' : '&')
