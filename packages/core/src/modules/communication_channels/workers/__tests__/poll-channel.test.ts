@@ -225,13 +225,13 @@ describe('poll-channel worker behaviour', () => {
     function makeScopedCtx(channel: Record<string, unknown>) {
       const fetchHistory = jest.fn(async () => ({ messages: [] }))
       const credentialsResolve = jest.fn(async () => ({}))
-      const { ctx } = makeCtx(channel, { providerKey: 'imap' }, fetchHistory)
+      const { ctx, em } = makeCtx(channel, { providerKey: 'imap' }, fetchHistory)
       const baseResolve = ctx.resolve
       ctx.resolve = (<T>(name: string): T =>
         name === 'integrationCredentialsService'
           ? ({ resolve: credentialsResolve } as T)
           : baseResolve<T>(name)) as typeof ctx.resolve
-      return { ctx, fetchHistory, credentialsResolve }
+      return { ctx, em, fetchHistory, credentialsResolve }
     }
 
     function makeChannel(channelOrganizationId: string | null) {
@@ -249,8 +249,9 @@ describe('poll-channel worker behaviour', () => {
     }
 
     it('passes organizationId: null to fetchHistory for a channel with no organization', async () => {
-      const { ctx, fetchHistory } = makeScopedCtx(makeChannel(null))
+      const { ctx, em, fetchHistory } = makeScopedCtx(makeChannel(null))
       await handler(makeJob({ scope: { tenantId, organizationId: null } }), ctx)
+      expect(em.findOne.mock.calls[0][1]).toMatchObject({ tenantId, organizationId: null })
       expect(fetchHistory).toHaveBeenCalledTimes(1)
       expect(fetchHistory.mock.calls[0][0]).toMatchObject({
         scope: { tenantId, organizationId: null },

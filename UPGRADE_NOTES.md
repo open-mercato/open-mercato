@@ -60,8 +60,10 @@ adapter that scoped its own storage or provider queries by `input.scope.organiza
 looked in a bucket that does not exist.
 
 `FetchHistoryInput.scope` is now typed as the new exported `ChannelScope`
-(`{ tenantId: string; organizationId: string | null }`), and the worker passes the channel's own
-organization — `null` when it has none. `TenantScope` and every other adapter input are unchanged,
+(`{ tenantId: string; organizationId: string | null }`), and the poll worker passes the channel's
+own organization — `null` when it has none. The Gmail push path (`gmail-history-sync` →
+`applyPushNotification`, which forwards its scope into `fetchHistory`) still substitutes the tenant
+id and is tracked in #6634, so adapters should keep handling both shapes for now. `TenantScope` and every other adapter input are unchanged,
 and the hub still resolves channel credentials under the key they are written with (the tenant id
 for an organization-less channel).
 
