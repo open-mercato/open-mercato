@@ -24,6 +24,7 @@ import {
 } from './runs.js'
 import type { RunScope } from './runs.js'
 import { buildSubjectDocument, loadSubjectTimeZone } from './subject-document.js'
+import type { SubjectDocument } from './engine/types.js'
 
 /**
  * How many times a dispatch may cascade before it is refused.
@@ -142,6 +143,98 @@ async function persist(
   }
 }
 
+
+/**
+ * How often the same subject may enter one campaign.
+ *
+ * Three cases, kept explicit because collapsing them onto a nullable number made "do not check"
+ * and "only ever once" indistinguishable:
+ *
+ *  - `unlimited` — every occurrence starts a run. Right for event triggers: each order placed
+ *    is its own reason to run.
+ *  - `once` — at most one run per subject, ever.
+ *  - `cooldown` — at most one run per subject per window. Required for a scheduled sweep, whose
+ *    audience ("dormant for 90 days") stays true on every tick.
+ */
+export type ReentryPolicy =
+  | { kind: 'unlimited' }
+  | { kind: 'once' }
+  | { kind: 'cooldown'; afterDays: number }
+
+export type StartOutcome = 'started' | 'audience' | 'guard'
+
+/**
+ * Enrols one subject in one campaign, if the guards and the audience allow it.
+ *
+ * Shared by the event path and the scheduled sweep on purpose: the two ways a campaign starts
+ * must apply the same re-entry guard and the same audience, or a sweep would quietly bypass
+ * protections the event path has.
+ */
+export async function startCampaignForSubject(
+  campaign: MarketingCampaign,
+  input: {
+    subject: SubjectDocument
+    subjectEntityId: string | null
+    triggerEventId: string
+    triggerContext: Record<string, unknown>
+    dispatchDepth: number
+    reentryPolicy: ReentryPolicy
+  },
+  deps: DispatchDeps,
+): Promise<StartOutcome> {
+  if (input.subjectEntityId) {
+    if (await hasActiveRun(deps.em, campaign.id, input.subjectEntityId, deps.scope)) {
+      // Already mid-journey here; a second concurrent entry would double every remaining step.
+      return 'guard'
+    }
+    if (input.reentryPolicy.kind !== 'unlimited') {
+      const since = input.reentryPolicy.kind === 'once'
+        ? null
+        : new Date(deps.now.getTime() - input.reentryPolicy.afterDays * 86_400_000)
+      if (await hasRecentRun(deps.em, campaign.id, input.subjectEntityId, deps.scope, since)) return 'guard'
+    }
+  }
+
+  const definition = readDefinition(campaign)
+  if (!matchesAudience(definition.audience, input.subject, { now: deps.now, logger: deps.logger, campaignId: campaign.id })) {
+    return 'audience'
+  }
+
+  const context: AutomationContext = {
+    tenantId: deps.scope.tenantId,
+    organizationId: deps.scope.organizationId,
+    eventId: input.triggerEventId,
+    occurredAt: deps.now.toISOString(),
+    dispatchDepth: input.dispatchDepth,
+    subjectEntityId: input.subjectEntityId,
+    subjectEmail: input.subject.customer?.email ?? null,
+    campaignId: campaign.id,
+    customer: input.subject.customer,
+    trigger: input.triggerContext,
+  }
+
+  const run = await createRun(deps.em, {
+    campaignId: campaign.id,
+    scope: deps.scope,
+    subjectEntityId: input.subjectEntityId,
+    triggerEventId: input.triggerEventId,
+    context,
+  })
+
+  const claimToken = await claimRun(deps.em, run.id, deps.scope, deps.now)
+  if (!claimToken) return 'guard'
+
+  await persist(
+    deps,
+    { id: run.id, campaignId: campaign.id, subjectEntityId: input.subjectEntityId, attempts: 1 },
+    claimToken,
+    definition.steps,
+    readSendPolicy(definition),
+    { currentStepIndex: 0, stepLog: [], context },
+  )
+  return 'started'
+}
+
 export type DispatchResult = { started: number; skippedByAudience: number; skippedByGuard: number }
 
 /**
@@ -184,55 +277,21 @@ export async function dispatchEvent(
 
   for (const { campaign } of candidates) {
     try {
-      if (input.subjectEntityId && await hasActiveRun(deps.em, campaign.id, input.subjectEntityId, deps.scope)) {
-        // Already mid-journey in this campaign; a second concurrent entry would double every
-        // remaining step.
-        result.skippedByGuard += 1
-        continue
-      }
-
-      const definition = readDefinition(campaign)
-      if (!matchesAudience(definition.audience, subject, { now: deps.now, logger: deps.logger, campaignId: campaign.id })) {
-        result.skippedByAudience += 1
-        continue
-      }
-
-      const context: AutomationContext = {
-        tenantId: deps.scope.tenantId,
-        organizationId: deps.scope.organizationId,
-        eventId: input.eventId,
-        occurredAt: deps.now.toISOString(),
-        dispatchDepth: dispatchDepth + 1,
-        subjectEntityId: input.subjectEntityId,
-        subjectEmail: subject.customer?.email ?? null,
-        campaignId: campaign.id,
-        customer: subject.customer,
-        trigger: input.triggerContext,
-      }
-
-      const run = await createRun(deps.em, {
-        campaignId: campaign.id,
-        scope: deps.scope,
-        subjectEntityId: input.subjectEntityId,
-        triggerEventId: input.eventId,
-        context,
-      })
-
-      const claimToken = await claimRun(deps.em, run.id, deps.scope, deps.now)
-      if (!claimToken) {
-        result.skippedByGuard += 1
-        continue
-      }
-
-      await persist(
+      const started = await startCampaignForSubject(
+        campaign,
+        {
+          subject,
+          subjectEntityId: input.subjectEntityId,
+          triggerEventId: input.eventId,
+          triggerContext: input.triggerContext,
+          dispatchDepth: dispatchDepth + 1,
+          reentryPolicy: { kind: 'unlimited' },
+        },
         deps,
-        { id: run.id, campaignId: campaign.id, subjectEntityId: input.subjectEntityId, attempts: 1 },
-        claimToken,
-        definition.steps,
-        readSendPolicy(definition),
-        { currentStepIndex: 0, stepLog: [], context },
       )
-      result.started += 1
+      if (started === 'started') result.started += 1
+      else if (started === 'audience') result.skippedByAudience += 1
+      else result.skippedByGuard += 1
     } catch (error) {
       deps.logger.error('[internal] marketing campaign dispatch failed', {
         campaignId: campaign.id,
