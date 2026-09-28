@@ -415,6 +415,9 @@ export default function ResourcesResourcesPage() {
         const indent = depth > 0 ? 18 : 0
         const isGroup = row.original.rowKind === 'group'
         const showEdit = isGroup && canManage && row.original.resourceTypeId
+        const editLabel = t('resources.resourceTypes.actions.editNamed', 'Edit {resourceType}', {
+          resourceType: row.original.name,
+        })
         return (
           <div className={isGroup ? 'flex items-center justify-between gap-3' : 'flex items-center gap-2'}>
             <span style={{ marginLeft: indent }} className={isGroup ? 'text-sm font-semibold text-foreground' : 'text-sm font-medium text-foreground'}>
@@ -426,8 +429,8 @@ export default function ResourcesResourcesPage() {
                 size="icon"
                 variant="ghost"
                 className="h-7 w-7"
-                title={t('resources.resourceTypes.actions.edit', 'Edit')}
-                aria-label={t('resources.resourceTypes.actions.edit', 'Edit')}
+                title={editLabel}
+                aria-label={editLabel}
               >
                 <Link href={`/backend/resources/resource-types/${encodeURIComponent(row.original.resourceTypeId ?? '')}/edit`}>
                   <Pencil className="h-4 w-4" />
