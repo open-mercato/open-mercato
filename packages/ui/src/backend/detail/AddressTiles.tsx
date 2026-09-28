@@ -445,7 +445,7 @@ export function AddressTiles<C = unknown>({
               ? label('editTitle', 'Edit address')
               : label('addTitle', 'Add address')}
           </span>
-          <Button type="button" variant="ghost" size="icon" onClick={handleCancel} disabled={disableActions}>
+          <Button type="button" variant="ghost" size="icon"            onClick={handleCancel}            disabled={disableActions}            aria-label={label('closeForm', 'Close address form')}            title={label('closeForm', 'Close address form')}>
             <X className="h-4 w-4" />
           </Button>
         </div>
