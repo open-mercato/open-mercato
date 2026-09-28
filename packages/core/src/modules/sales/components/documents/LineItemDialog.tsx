@@ -650,6 +650,7 @@ export function LineItemDialog({
       }
       setInitialValues(base);
       setLineMode(base.lineMode);
+      selectedProductIdRef.current = null;
       setProductOption(null);
       setVariantOption(null);
       setPriceOptions([]);
@@ -1930,18 +1931,17 @@ export function LineItemDialog({
                       selectedOption?.defaultUnit ??
                       null;
                     setFormValue?.("quantityUnit", defaultQuantityUnit);
-                    if (
+                    const defaultQuantity =
                       typeof selectedOption?.defaultSalesUnitQuantity ===
                         "number" &&
                       Number.isFinite(
                         selectedOption.defaultSalesUnitQuantity,
                       ) &&
                       selectedOption.defaultSalesUnitQuantity > 0
-                    ) {
-                      setFormValue?.(
-                        "quantity",
-                        String(selectedOption.defaultSalesUnitQuantity),
-                      );
+                        ? String(selectedOption.defaultSalesUnitQuantity)
+                        : null;
+                    if (defaultQuantity) {
+                      setFormValue?.("quantity", defaultQuantity);
                     }
                     const taxSelection = selectedOption
                       ? resolveTaxSelection(selectedOption)
@@ -1976,6 +1976,7 @@ export function LineItemDialog({
                         name:
                           existingName.trim() || selectedOption?.title || "",
                         catalogSnapshot: productSnapshot,
+                        quantity: defaultQuantity ?? values?.quantity,
                         quantityUnit: defaultQuantityUnit,
                       };
                       void autoSelectSoleVariant({
@@ -2795,6 +2796,7 @@ export function LineItemDialog({
       return;
     }
     let cancelled = false;
+    selectedProductIdRef.current = null;
     setDeletedCatalogReference(false);
     setEditingId(initialLine.id);
     const nextForm = defaultForm(initialLine.currencyCode ?? currencyCode);

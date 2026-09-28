@@ -12,19 +12,19 @@ export function normalizeNumber(value: unknown, fallback = 0): number {
 /**
  * A catalog price is only usable on a line when it carries a positive amount, because line
  * submission rejects a unit price of zero. Returns the amount for the requested mode, falling
- * back to the other mode, or `null` when neither amount is positive.
+ * back to the other mode only when the requested amount is missing, or `null` when the price
+ * has no positive amount to use.
  */
 export function resolveCatalogPriceAmount(
   amountNet: number | null | undefined,
   amountGross: number | null | undefined,
   mode: 'net' | 'gross',
 ): number | null {
-  const isPositive = (value: number | null | undefined): value is number =>
-    typeof value === 'number' && Number.isFinite(value) && value > 0
+  const isPresent = (value: number | null | undefined): value is number =>
+    typeof value === 'number' && Number.isFinite(value)
   const [preferred, fallback] = mode === 'net' ? [amountNet, amountGross] : [amountGross, amountNet]
-  if (isPositive(preferred)) return preferred
-  if (isPositive(fallback)) return fallback
-  return null
+  const amount = isPresent(preferred) ? preferred : isPresent(fallback) ? fallback : null
+  return amount !== null && amount > 0 ? amount : null
 }
 
 /**

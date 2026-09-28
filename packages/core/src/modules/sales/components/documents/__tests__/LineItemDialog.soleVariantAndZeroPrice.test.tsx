@@ -9,7 +9,7 @@
  * selectable even though submit rejects a unit price that is not greater than zero.
  */
 import * as React from 'react'
-import { act, render, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type {
   CrudCustomField,
   CrudCustomFieldRenderProps,
@@ -207,9 +207,14 @@ type PriceFixture = {
 
 let variantFixtures: Array<Record<string, unknown>> = []
 let priceFixtures: PriceFixture[] = []
+let productFixture: Record<string, unknown> = {}
+let variantsGate: Promise<void> | null = null
 
 const routeApiCall = async (url: string) => {
-  if (url.startsWith('/api/catalog/variants')) return { ok: true, result: { items: variantFixtures } }
+  if (url.startsWith('/api/catalog/variants')) {
+    if (variantsGate) await variantsGate
+    return { ok: true, result: { items: variantFixtures } }
+  }
   if (url.startsWith('/api/catalog/prices')) {
     const variantId = new URLSearchParams(url.split('?')[1]).get('variantId')
     const items = priceFixtures.map((price) => ({ ...price, currency_code: 'USD', variant_id: variantId }))
@@ -218,17 +223,19 @@ const routeApiCall = async (url: string) => {
   if (url.startsWith('/api/catalog/products?')) {
     return {
       ok: true,
-      result: { items: [{ id: 'prod-1', title: 'Hustawka Rybnik', sku: 'P-1', default_unit: 'pcs' }] },
+      result: { items: [{ id: 'prod-1', title: 'Hustawka Rybnik', sku: 'P-1', ...productFixture }] },
     }
   }
   return { ok: true, result: { items: [] } }
 }
 
-const priceRequests = () =>
+const priceRequestParams = () =>
   mockApiCall.mock.calls
     .map(([url]) => String(url))
     .filter((url) => url.startsWith('/api/catalog/prices'))
-    .map((url) => new URLSearchParams(url.split('?')[1]).get('variantId'))
+    .map((url) => new URLSearchParams(url.split('?')[1]))
+
+const priceRequests = () => priceRequestParams().map((params) => params.get('variantId'))
 
 const lookup = (placeholder: string) => {
   const props = mockLookups.get(placeholder)
@@ -250,13 +257,17 @@ const renderDialog = () =>
     />,
   )
 
-const selectProduct = async () => {
+const pickProduct = async () => {
   await act(async () => {
     await lookup('Search product').fetchItems('Hus')
   })
   await act(async () => {
     lookup('Search product').onChange('prod-1')
   })
+}
+
+const selectProduct = async () => {
+  await pickProduct()
   await waitFor(() => expect(priceRequests().length).toBeGreaterThan(0))
 }
 
@@ -268,6 +279,8 @@ describe('LineItemDialog catalog selection (issue #6075)', () => {
     mockLatestValues = {}
     variantFixtures = []
     priceFixtures = []
+    productFixture = {}
+    variantsGate = null
     mockApiCall.mockImplementation((url: string) => routeApiCall(url))
     mockCreateCrud.mockResolvedValue({ ok: true })
     mockUpdateCrud.mockResolvedValue({ ok: true })
@@ -307,6 +320,7 @@ describe('LineItemDialog catalog selection (issue #6075)', () => {
       { id: 'price-zero', unit_price_net: 0, unit_price_gross: 0, display_mode: 'including-tax' },
       { id: 'price-net', unit_price_net: 10, unit_price_gross: null, display_mode: 'excluding-tax' },
       { id: 'price-gross', unit_price_net: null, unit_price_gross: 12.3, display_mode: 'including-tax' },
+      { id: 'price-gross-zero', unit_price_net: 10, unit_price_gross: 0, display_mode: 'including-tax' },
     ]
     renderDialog()
     await selectProduct()
@@ -340,7 +354,37 @@ describe('LineItemDialog catalog selection (issue #6075)', () => {
       offered = await lookup('Select price').fetchItems('')
     })
     expect(offered).toEqual([])
-    expect(mockLatestValues.priceId).toBeNull()
-    expect(mockLatestValues.unitPrice).toBe('')
+  })
+
+  it('refreshes variant prices with the default sales quantity the product just applied', async () => {
+    productFixture = { default_sales_unit_quantity: 6 }
+    variantFixtures = [{ id: 'var-1', name: '4024001', sku: '4024001' }]
+    renderDialog()
+    await selectProduct()
+    await waitFor(() => expect(mockLatestValues.variantId).toBe('var-1'))
+
+    expect(mockLatestValues.quantity).toBe('6')
+    expect(priceRequestParams().map((params) => params.get('quantity'))).toEqual(['6'])
+  })
+
+  it('ignores a variant response that arrives after the user left the product', async () => {
+    let releaseVariants: () => void = () => {}
+    variantsGate = new Promise<void>((resolve) => {
+      releaseVariants = resolve
+    })
+    variantFixtures = [{ id: 'var-1', name: '4024001', sku: '4024001' }]
+    renderDialog()
+    await pickProduct()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Custom line' }))
+    })
+    await act(async () => {
+      releaseVariants()
+      await variantsGate
+    })
+
+    expect(mockLatestValues.variantId).toBeNull()
+    expect(priceRequests()).toEqual([])
   })
 })

@@ -82,10 +82,15 @@ describe('resolveCatalogPriceAmount (issue #6075)', () => {
     expect(resolveCatalogPriceAmount(null, 12.3, 'gross')).toBe(12.3)
   })
 
-  it('prefers the amount of the requested mode and falls back to the other positive amount', () => {
+  it('uses the amount of the requested mode and falls back only when that amount is missing', () => {
     expect(resolveCatalogPriceAmount(10, 12.3, 'net')).toBe(10)
     expect(resolveCatalogPriceAmount(10, 12.3, 'gross')).toBe(12.3)
-    expect(resolveCatalogPriceAmount(0, 12.3, 'net')).toBe(12.3)
-    expect(resolveCatalogPriceAmount(10, 0, 'gross')).toBe(10)
+    expect(resolveCatalogPriceAmount(null, 12.3, 'net')).toBe(12.3)
+    expect(resolveCatalogPriceAmount(10, undefined, 'gross')).toBe(10)
+  })
+
+  it('never substitutes the other mode for a zero amount, which would misprice the line', () => {
+    expect(resolveCatalogPriceAmount(0, 12.3, 'net')).toBeNull()
+    expect(resolveCatalogPriceAmount(10, 0, 'gross')).toBeNull()
   })
 })
