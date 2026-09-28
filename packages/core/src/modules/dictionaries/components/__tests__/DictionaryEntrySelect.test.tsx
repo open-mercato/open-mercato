@@ -114,6 +114,22 @@ describe('DictionaryEntrySelect', () => {
     await waitFor(() => expect(optionLabels()).toEqual(['Beta', 'Alpha']))
   })
 
+  it('connects inline-create labels to their inputs', () => {
+    render(
+      <DictionaryEntrySelect
+        value={undefined}
+        onChange={jest.fn()}
+        fetchOptions={fetchOptions}
+        createOption={jest.fn()}
+        labels={labels}
+        showManage={false}
+      />,
+    )
+
+    expect(screen.getByLabelText('Value')).toHaveAttribute('placeholder', 'Value')
+    expect(screen.getByLabelText('Label')).toHaveAttribute('placeholder', 'Label')
+  })
+
   it('keeps existing label ascending default', async () => {
     render(
       <DictionaryEntrySelect
