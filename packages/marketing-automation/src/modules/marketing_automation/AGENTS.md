@@ -81,6 +81,8 @@ its own. Spec:
   the other order lands an "optimised" send at 3am.
 - Never learn a send hour from fewer than `MINIMUM_OPENS_FOR_PATTERN` opens, and never group open hours
   in server time — both produce a confident answer about the wrong customer.
+- Never give an AI tool the power to enable a campaign. Publishing starts messaging real customers and is
+  gated behind a human permission; `ai-tools/__tests__` refuses any tool whose name suggests it.
 - Never push an ENCRYPTED field down to SQL. Customer addresses are encrypted at rest, so a country
   comparison in SQL matches nothing and says nothing — `narrowing.ts` refuses `address.*` on purpose and
   a test asserts each field.
@@ -166,6 +168,8 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | score ledger, idempotent awarding | `lib/scores.ts`, `steps/add-points.ts` |
 | tier ladder, derivation and its defaults | `lib/engine/tiers.ts`, `lib/tiers.ts` |
 | everything known about one customer | `api/customers/[id]/profile/route.ts` |
+| agent/MCP authoring tools and their invariants | `ai-tools/authoring-pack.ts` |
+| daily series behind the results chart | `lib/analytics/daily-series.ts` |
 | journey preview, and why it reuses the engine | `lib/preview.ts` |
 | learned send hour, and its minimum evidence | `lib/analytics/send-time.ts` |
 | A/B results, winner rules | `lib/analytics/split-results.ts` |

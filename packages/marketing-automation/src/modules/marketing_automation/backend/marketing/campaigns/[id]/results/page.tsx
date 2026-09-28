@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { KpiCard } from '@open-mercato/ui/backend/charts'
+import { KpiCard, LineChart } from '@open-mercato/ui/backend/charts'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -27,12 +27,15 @@ type SplitResult = {
 
 type Winner = { stepId: string; variant: string; clickRate: number; runnerUpClickRate: number | null; sends: number }
 
+type DailyPoint = { date: string; sent: number; opened: number; clicked: number }
+
 type Results = {
   campaign: { id: string; name: string }
   sends: { sent: number; suppressed: number }
   events: { delivered: number; opened: number; clicked: number; bounced: number }
   uniqueRecipients: { opened: number; clicked: number }
   splits: SplitResult[]
+  daily: DailyPoint[]
   winners: Winner[]
   attribution: Array<{ campaignId: string; currencyCode: string | null; orders: number; revenue: number }>
   settings: { windowDays: number; minimumSends: number }
@@ -165,6 +168,28 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
             }
           />
         </div>
+
+        {/* The chart is only drawn once something has happened: an empty 90-day line is a worse answer
+            than saying nothing, because it looks like a campaign that failed rather than one that has
+            not run. */}
+        {results.daily.some((point) => point.sent > 0 || point.opened > 0 || point.clicked > 0) ? (
+          <div className="mb-6">
+            <SectionHeader title={t('marketing_automation.results.overTime', 'Over time')} />
+            <LineChart
+              data={results.daily as unknown as Record<string, string | number | null>[]}
+              index="date"
+              categories={['sent', 'opened', 'clicked']}
+              categoryLabels={{
+                sent: t('marketing_automation.results.kpi.sent', 'Sent'),
+                opened: t('marketing_automation.results.kpi.opened', 'Opened'),
+                clicked: t('marketing_automation.results.kpi.clicked', 'Clicked'),
+              }}
+              curveType="monotone"
+              showLegend
+              emptyMessage={t('marketing_automation.results.noActivity', 'Nothing has been sent yet.')}
+            />
+          </div>
+        ) : null}
 
         {results.attribution.length > 1 ? (
           <div className="mb-6">

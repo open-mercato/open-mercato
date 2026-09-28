@@ -8,6 +8,7 @@ import { describeLanes } from '../../../../lib/engine/split.js'
 import type { CampaignStep } from '../../../../lib/engine/types.js'
 import { loadSplitResults, pickSplitWinner } from '../../../../lib/analytics/split-results.js'
 import { loadAttribution } from '../../../../lib/analytics/attribution.js'
+import { loadDailySeries } from '../../../../lib/analytics/daily-series.js'
 
 /**
  * What happened to this campaign's messages: how many were sent, and how many were opened, clicked,
@@ -30,6 +31,7 @@ const EVENT_TYPES = ['delivered', 'opened', 'clicked', 'bounced'] as const
 
 /** How far back attribution looks, and how long after a click an order still counts. */
 const DEFAULT_ATTRIBUTION_WINDOW_DAYS = 7
+/** How far back the report looks, for attribution and for the daily chart alike. */
 const DEFAULT_REPORT_DAYS = 90
 /**
  * Sends per lane before a winner is offered.
@@ -96,6 +98,8 @@ export async function GET(req: Request) {
   const definition = campaignDefinitionSchema.safeParse(campaign.definition)
   const lanes = definition.success ? describeLanes(definition.data.steps as CampaignStep[]) : []
   const splits = await loadSplitResults(em, campaign.id, scope, lanes)
+  const seriesFrom = new Date(Date.now() - (DEFAULT_REPORT_DAYS - 1) * 86_400_000)
+  const daily = await loadDailySeries(em, campaign.id, scope, { from: seriesFrom, to: new Date() })
   const attribution = await loadAttribution(em, scope, {
     windowDays,
     since: new Date(Date.now() - DEFAULT_REPORT_DAYS * 86_400_000),
@@ -114,6 +118,7 @@ export async function GET(req: Request) {
     events: counts,
     uniqueRecipients: unique,
     splits,
+    daily,
     winners,
     attribution,
     settings: { windowDays, minimumSends },

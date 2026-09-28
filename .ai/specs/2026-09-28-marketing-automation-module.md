@@ -144,6 +144,36 @@ canvas must not show a branch that never runs. Nesting is capped at five levels,
 hand-edited or imported definition that is cyclic in spirit into a truncated campaign instead of a
 stack overflow in a worker.
 
+### Charts, and an agent that can author
+
+**Charts.** Sends, opens and clicks per day, over the report window. Grouped in SQL over a GENERATED date
+series rather than in JavaScript over rows: a chart that skips empty days draws a line through them and
+implies activity that did not happen, and filling the gaps afterwards means the query and the filling
+disagree about what a day is. Days bucket in UTC — arbitrary, but engagement arrives from mail clients all
+over the world, so every bucketing is arbitrary and an arbitrary rule everybody can see beats a clever one
+nobody can reproduce. The chart is drawn only once something has happened, because an empty ninety-day
+line reads as a campaign that failed rather than one that has not run.
+
+**An agent that can author.** A module-root `ai-tools.ts` contributes six tools, which the platform
+registers for both the MCP server (external agents) and the in-app chat. Deliberately thin: the step
+registry, the trigger catalogue and the save command already ARE the authoring API, so each tool delegates
+to one of them rather than growing a parallel surface.
+
+Three invariants, each with a test:
+
+- **Nothing is ever published.** There is no tool that enables a campaign, and the test refuses any tool
+  whose name looks like it publishes or destroys. Enabling starts messaging real customers, it is gated
+  behind its own human permission, and an agent that could do it would turn a misunderstood sentence into
+  mail nobody approved. Draft, review, publish by hand.
+- **Nothing bypasses the save validation.** `save_campaign_graph` goes through the command, so an agent's
+  graph faces the same checks a person's does and gets the same stable codes back — a code an agent can
+  act on, rather than prose it can only apologise for.
+- **Nothing crosses a tenant.** `requireToolScope` refuses a principal without both halves of the scope
+  rather than answering with data from somewhere.
+
+`describe_building_blocks` exists because availability differs per installation: an agent that composes a
+campaign from what it remembers of the documentation writes graphs the save refuses.
+
 ### Product and geographic targeting
 
 Two new audience dimensions, and they sit on opposite sides of the pushdown line — which is the whole
@@ -646,6 +676,9 @@ eight-way concurrent worker and is now backed by a partial unique index on the a
   optimistic lock; canvas editor reusing the `business_rules` condition builder; `en`/`pl`
   locales. Verified against a running instance: palette, create, save, round-trip, 409 on a
   stale save, and five rejected invalid graphs.
+- **2026-09-28** — Backlog X-06 (charts) and X-05 (MCP/agent tools): a daily series generated in SQL so
+  gaps are zeroes rather than absences, and a six-tool authoring pack that can draft a campaign but can
+  never publish one. 492 unit tests, 66 integration tests.
 - **2026-09-28** — Backlog B-13 (product) and X-01 (geography), plus B-19 (real test send). The two
   targeting dimensions land on opposite sides of the pushdown line: a purchased SKU is exact in the
   database, an address can never be because it is encrypted — asserted per field so nobody optimises it
