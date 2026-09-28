@@ -138,6 +138,42 @@ describe('TasksSection', () => {
     expect(screen.getByText('No tasks yet')).toBeInTheDocument()
   })
 
+  it('identifies row actions by task title', () => {
+    usePersonTasksMock.mockReturnValue({
+      tasks: [
+        sampleTask,
+        { ...sampleTask, id: 'link-2', todoId: 'todo-2', title: 'Send proposal' },
+      ],
+      isInitialLoading: false,
+      isLoadingMore: false,
+      isMutating: false,
+      hasMore: false,
+      pendingTaskId: null,
+      error: null,
+      loadMore: jest.fn(async () => undefined),
+      refresh: jest.fn(async () => undefined),
+      createTask: jest.fn(async () => undefined),
+      updateTask: jest.fn(async () => undefined),
+      toggleTask: jest.fn(async () => undefined),
+      unlinkTask: jest.fn(async () => undefined),
+    })
+
+    renderWithProviders(
+      <TasksSection
+        entityId="customer-1"
+        initialTasks={[]}
+        emptyLabel="No date"
+        addActionLabel="Create task"
+        emptyState={{ title: 'No tasks yet', actionLabel: 'Create task' }}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Edit task: Follow up call' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete task: Follow up call' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Edit task: Send proposal' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete task: Send proposal' })).toBeInTheDocument()
+  })
+
   describe('delete confirmation (#5937)', () => {
     function renderWithTask(unlinkTask: jest.Mock) {
       usePersonTasksMock.mockReturnValue({
@@ -178,7 +214,7 @@ describe('TasksSection', () => {
       confirmMock.mockReturnValue(new Promise<boolean>(() => {}))
       renderWithTask(unlinkTask)
 
-      fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Delete task: Follow up call' }))
 
       expect(confirmMock).toHaveBeenCalledTimes(1)
       expect(confirmMock).toHaveBeenCalledWith(expect.objectContaining({ variant: 'destructive' }))
@@ -190,7 +226,7 @@ describe('TasksSection', () => {
       confirmMock.mockResolvedValue(true)
       renderWithTask(unlinkTask)
 
-      fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Delete task: Follow up call' }))
 
       await waitFor(() => expect(unlinkTask).toHaveBeenCalledTimes(1))
       expect(unlinkTask).toHaveBeenCalledWith(expect.objectContaining({ id: 'link-1', todoId: 'todo-1' }))
@@ -201,7 +237,7 @@ describe('TasksSection', () => {
       confirmMock.mockResolvedValue(false)
       renderWithTask(unlinkTask)
 
-      fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Delete task: Follow up call' }))
 
       await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1))
       expect(unlinkTask).not.toHaveBeenCalled()
