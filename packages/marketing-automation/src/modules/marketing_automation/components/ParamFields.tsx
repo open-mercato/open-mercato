@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -10,7 +11,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type UiFieldSpec = {
   name: string
-  kind: 'text' | 'textarea' | 'number' | 'select' | 'customer_tag'
+  kind: 'text' | 'textarea' | 'number' | 'select' | 'customer_tag' | 'boolean'
   labelKey: string
   required?: boolean
   options?: { value: string; labelKey: string }[]
@@ -65,6 +66,20 @@ export function ParamFields({
         const label = t(field.labelKey, field.name)
         const value = values[field.name]
         const id = `param-${field.name}`
+
+        if (field.kind === 'boolean') {
+          return (
+            <CheckboxField
+              key={field.name}
+              id={id}
+              label={label}
+              // Absent means on: a step's schema supplies the default, and an unchecked box for a
+              // parameter the author never touched would misreport what the step will do.
+              checked={value === undefined ? true : value === true}
+              onCheckedChange={(next) => set(field.name, next === true)}
+            />
+          )
+        }
 
         if (field.kind === 'textarea') {
           return (

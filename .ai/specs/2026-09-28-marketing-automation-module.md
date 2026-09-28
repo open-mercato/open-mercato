@@ -144,6 +144,50 @@ canvas must not show a branch that never runs. Nesting is capped at five levels,
 hand-edited or imported definition that is cyclic in spirit into a truncated campaign instead of a
 stack overflow in a worker.
 
+### Delivery tracking
+
+Opens and clicks, because "did this campaign work" is the question the module exists to answer and
+every later feature — attribution, A/B winners, send-time learning, deliverability guards — reads from
+here rather than computing its own version.
+
+Two PUBLIC endpoints, which is the only public surface this module has. A recipient's mail client
+fetches them with no session, so a signed token is the entire authorisation, and it carries the
+tenant and organization the write belongs to: an unauthenticated request has no scope of its own, and
+reading one from a query parameter would let anybody write rows into any tenant. The token identifies
+the SEND — campaign, run, step — never the person.
+
+What each endpoint refuses matters as much as what it records:
+
+- The pixel answers a 1×1 GIF **whatever** the token turns out to be. A broken image in somebody's
+  inbox is worse than a lost statistic, and an error status would tell a prober which tokens are real.
+  It is served `no-store`, or a proxy would serve the second open from cache and it would never be
+  recorded.
+- The click destination travels INSIDE the signature, which is what keeps the redirect from being an
+  open one. Signed by us is still not the same as safe — the author writes the links — so the scheme
+  is checked again at redirect time and anything but http(s) answers 404. The redirect is 302, because
+  a permanent one would be cached and the second click would never reach us.
+- An open token cannot be replayed as a click, or the other way round: the purpose is part of the
+  signed claims.
+- Recording failures never change the response. Somebody clicked a link in an email and expects the
+  page, not an apology about our statistics.
+
+The signing key is derived from the configured secret with a purpose label, so a tracking token can
+neither be forged from nor confused for anything else signed with the same secret. The secret falls
+back to the platform's data-encryption key material rather than requiring a new variable — tracking
+that only works after an operator reads a changelog is tracking that quietly does nothing — but
+session and JWT secrets are deliberately NOT candidates: a tracking token is handed to every recipient
+and lives in mail archives forever.
+
+`marketing_message_send_events` stores no IP address and no user agent. The question this table exists
+to answer never needs them, and a marketing module that quietly builds a device-and-location log of
+every recipient is a liability nobody asked for. Counts are reported with unique-recipient figures
+alongside raw totals, because a mail client re-fetching the pixel is not a second person reading it.
+
+`send_email` rewrites links and embeds the pixel after interpolation — a link assembled from a
+substituted value has to be tracked too — and leaves the body untouched whenever anything needed is
+missing or the author opted out per step. Tracking is an enhancement to a send; a send must never fail
+because it could not be tracked.
+
 ### Event idempotency
 
 Queues and webhooks redeliver as a matter of course: a BullMQ job whose worker died mid-handler comes
@@ -382,6 +426,10 @@ written down.* *Residual: blocked on `SPEC-029`.*
   optimistic lock; canvas editor reusing the `business_rules` condition builder; `en`/`pl`
   locales. Verified against a running instance: palette, create, save, round-trip, 409 on a
   stale save, and five rejected invalid graphs.
+- **2026-09-28** — Phase 3: delivery tracking. `marketing_message_send_events`, two signed public
+  endpoints (open pixel, click redirect), link rewriting and pixel embedding in `send_email` with a
+  per-step opt-out, and a counts endpoint with unique-recipient figures. 322 unit tests, 28
+  integration tests.
 - **2026-09-28** — Phase 2.3: event idempotency. Occurrence key derived from the delivered payload,
   enforced by a partial unique index on `(tenant, org, campaign, occurrence_key)` and released after
   six hours so re-entry policies keep their meaning. Verified against Postgres: the redelivery is

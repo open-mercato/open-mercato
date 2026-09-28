@@ -117,6 +117,10 @@ export const enabledModules: ModuleEntry[] = [
   // OM_ENABLE_ENTERPRISE_MODULES + OM_ENABLE_ENTERPRISE_MODULES_AGENTS.
   { id: 'translations', from: '@open-mercato/core' },
   { id: 'scheduler', from: '@open-mercato/scheduler' },
+  // Marketing automation — campaigns as trigger -> audience expression -> ordered steps.
+  // Audience expressions reuse the business_rules condition evaluator; sends go through
+  // the shared email transport and the customers tag commands.
+  { id: 'marketing_automation', from: '@open-mercato/marketing-automation' },
   { id: 'inbox_ops', from: '@open-mercato/core' },
   { id: 'payment_gateways', from: '@open-mercato/core' },
   { id: 'checkout', from: '@open-mercato/checkout' },

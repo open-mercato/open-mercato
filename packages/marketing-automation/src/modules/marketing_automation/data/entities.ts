@@ -337,3 +337,61 @@ export class MarketingMessageSend {
   @Property({ name: 'updated_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date(), onUpdate: () => new Date() })
   updatedAt!: Date
 }
+
+/**
+ * What happened to a message after it left: delivered, opened, clicked, bounced.
+ *
+ * Append-only and keyed to the SEND rather than to the person. That is the whole privacy stance of
+ * this table: it deliberately stores no IP address and no user agent, because the question it exists
+ * to answer — did this campaign work — never needs them, and a marketing module that quietly builds
+ * a device-and-location log of every recipient is a liability nobody asked for.
+ *
+ * `send_id` is resolved when the event arrives and stays nullable: the tracking token identifies the
+ * run and step, which exist before the send row is written, so an event can never be lost merely
+ * because it arrived in an unexpected order.
+ */
+@Entity({ tableName: 'marketing_message_send_events' })
+@Index({ name: 'mkt_send_events_campaign_idx', properties: ['tenantId', 'organizationId', 'campaignId', 'type'] })
+@Index({ name: 'mkt_send_events_run_step_idx', properties: ['tenantId', 'organizationId', 'runId', 'stepId'] })
+@Index({ name: 'mkt_send_events_send_idx', properties: ['sendId', 'type'] })
+export class MarketingMessageSendEvent {
+  [OptionalProps]?: 'occurredAt' | 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'campaign_id', type: 'uuid' })
+  campaignId!: string
+
+  @Property({ name: 'run_id', type: 'uuid' })
+  runId!: string
+
+  @Property({ name: 'step_id', type: 'text' })
+  stepId!: string
+
+  /** The send this belongs to, once one has been recorded. */
+  @Property({ name: 'send_id', type: 'uuid', nullable: true })
+  sendId?: string | null
+
+  @Property({ type: 'text' })
+  type!: 'delivered' | 'opened' | 'clicked' | 'bounced'
+
+  /**
+   * The link a click went to. Truncated on write, because it is an author-authored URL and this
+   * column is not the place to discover how long one can be.
+   */
+  @Property({ name: 'link_url', type: 'text', nullable: true })
+  linkUrl?: string | null
+
+  @Property({ name: 'occurred_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
+  occurredAt!: Date
+
+  @Property({ name: 'created_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
+  createdAt!: Date
+}

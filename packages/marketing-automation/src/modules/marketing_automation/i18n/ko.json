@@ -86,6 +86,7 @@
   "marketing_automation.step.send_email.label": "이메일 보내기",
   "marketing_automation.step.send_email.param.bodyHtml": "본문",
   "marketing_automation.step.send_email.param.subject": "제목",
+  "marketing_automation.step.send_email.param.track": "열어본 횟수와 클릭 추적",
   "marketing_automation.step.split.description": "고객군을 나누어 서로 다른 변형을 보내고 비교합니다.",
   "marketing_automation.step.split.label": "A/B 테스트",
   "marketing_automation.step.wait.description": "이 고객에 대해 캠페인의 나머지 단계를 일시 중지합니다.",

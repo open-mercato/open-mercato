@@ -86,6 +86,7 @@
   "marketing_automation.step.send_email.label": "E-Mail senden",
   "marketing_automation.step.send_email.param.bodyHtml": "Inhalt",
   "marketing_automation.step.send_email.param.subject": "Betreff",
+  "marketing_automation.step.send_email.param.track": "Öffnungen und Klicks erfassen",
   "marketing_automation.step.split.description": "Sendet verschiedene Varianten an verschiedene Kunden und vergleicht sie.",
   "marketing_automation.step.split.label": "A/B-Test",
   "marketing_automation.step.wait.description": "Pausiert den Rest der Kampagne für diesen Kunden.",

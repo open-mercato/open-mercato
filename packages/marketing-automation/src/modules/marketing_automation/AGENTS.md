@@ -62,6 +62,12 @@ its own. Spec:
   drops a send or sends twice.
 - Never make the frequency cap per-campaign. Five campaigns each politely sending one message
   still buries the customer, which is why `marketing_message_sends` is counted across all of them.
+- Never store an IP address or a user agent on a delivery event. The question the table answers does
+  not need them, and a marketing module that builds a device-and-location log of every recipient is a
+  liability nobody asked for.
+- Never sign a tracking token with a session or JWT secret, and never put a destination in the URL
+  instead of inside the signature — the first widens the blast radius of a token that lives in mail
+  archives forever, the second is an open redirect wearing the shop's domain.
 - Never make an occurrence key permanent, and never derive it from anything but the delivered
   payload. It is a duplicate guard for a window: kept forever it turns every `unlimited` re-entry
   policy into `once`, because two separate occurrences with identical payloads hash the same.
@@ -117,6 +123,8 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | frequency cap, quiet hours | `lib/engine/gates.ts` |
 | claim-and-lease, backoff, dead-lettering | `lib/runs.ts`, `lib/engine/scheduling.ts` |
 | duplicate-delivery guard and its window | `lib/occurrence.ts`, `lib/runs.ts` → `createRun` |
+| signed tracking tokens, link rewriting | `lib/tracking/` (`token.ts`, `rewrite.ts`, `urls.ts`) |
+| the only PUBLIC routes in the module | `api/track/open`, `api/track/click` |
 | enrolment shared by events and sweeps | `lib/dispatcher.ts` → `startCampaignForSubject` |
 | trigger context hydration | `lib/trigger-catalog.ts` |
 | a step handler with a channel | `steps/send-email.ts` |

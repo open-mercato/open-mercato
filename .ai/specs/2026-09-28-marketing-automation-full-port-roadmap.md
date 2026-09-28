@@ -44,6 +44,218 @@ So the only real cost of deferring all three is that WhatsApp and SMS are absent
 open/click demo has to be shown through the database and the runs view rather than through a real
 mailbox. No earlier phase is gated.
 
+## Coverage audit against the source module — 2026-09-28
+
+A full inventory of the source module was taken (14 triggers, 19 conditions, 15 actions, 62 tables,
+35 cron jobs, 24 ACL resources, one flat admin entry whose dashboard links 20+ screens) and compared
+against every phase above. Phase 1 counts as coverage; frequency cap, quiet hours, dead-lettering,
+nested AND/OR audiences, canvas authoring and queue durability are already delivered and are not
+listed here.
+
+**Not in the source module either, so not port targets:** geographic or location targeting (no
+country/region/city/postcode/radius condition exists anywhere in it), birthday and anniversary
+campaigns, landing pages, an on-site form builder, charts in reports, and per-campaign store or
+language targeting. Anything we build in those areas would be new product, not a port.
+
+### Whole subsystems with no phase yet
+
+Ordered by how much of the original's value they carry.
+
+**A. Lead scoring engine** — points per customer, demographic score rules with an admin CRUD, a
+`score_threshold_crossed` trigger, a `score_at_least` audience predicate, an `add_points` step, and
+bulk scoring over a segment. It is the backbone several other features hang off.
+
+**B. Loyalty tiers** — bronze/silver/gold derived from score thresholds, a `loyalty_tier_at_least`
+predicate, and a tier distribution on the dashboard. Cheap once A exists.
+
+**C. Customer 360** — one read-only screen aggregating everything the module already computes about
+one customer: score, tier, recency, frequency, monetary total, RFM label, tags, NPS, matching
+segments, order count and total. Almost free once the pieces exist, and it is the screen that makes
+the module feel like a CDP rather than a campaign list.
+
+**D. Referral programme** — referral codes, redemption on first order, and a `referral_converted`
+trigger whose context targets the REFERRER rather than the buyer.
+
+**E. Price-drop and back-in-stock alerts** — customer watch subscriptions, two scan jobs, two
+triggers, and a guest notifier. Needs catalogue price/stock reads, which the platform has.
+
+**F. Review-request automation** — a delayed request after a completed order, claimed once per order.
+
+**G. Win-back lifecycle** — inactivity tagging plus a win-back send, with the day threshold as
+configuration. Phase 2.2's narrowing already makes the audience side cheap.
+
+**H. NPS surveys** — a single-question 0–10 prompt, an `nps_score_at_least` predicate, and a public
+answer endpoint.
+
+**I. Product recommendations** — co-purchase affinity with best-seller padding, injected into a
+message as a content block.
+
+**J. Multi-touch revenue attribution** — linear split of an order's revenue across every campaign
+click-through inside a window. Phase 4.1 stops at single-touch conversion.
+
+**K. Two-way messaging inbox** — inbound replies stored and readable, with STOP-keyword opt-out
+detection feeding the consent register.
+
+**L. Per-provider outbound rate limiting** — pacing, distinct from the retry and dead-letter handling
+Phase 6 delegates to `communication_channels`.
+
+**M. GDPR export and erasure** — Phase 6.1 covers the consent model only; the source also exports and
+erases a customer's data across every table and keeps an append-only consent audit log.
+
+**N. Free gift offers** — cascading subtotal tiers with a gift pool. Arguably promotions rather than
+marketing automation, and it depends on cart/pricing surfaces.
+
+**O. Ad audience sync** — hashed segment members pushed to Google Ads and Meta.
+
+**P. Product/shopping feeds** — Google Merchant and Meta catalogue feeds, cached per store.
+
+**Q. AI content generation** — an LLM step writing copy into the run context.
+
+**R. Operational observability** — a job-run log, an admin audit trail of who changed which campaign,
+email template versioning with restore, and a dashboard beyond one widget.
+
+**S. Lead routing** — round-robin assignment of new leads to sales reps, plus a weekly rep digest.
+
+**T. Setup wizard** — a guided first-run screen.
+
+### Phases that name a feature but cover a fraction of it
+
+- **Segments (5.1/5.2)** omit audience-size history, the segment overlap tool, queued bulk actions
+  over a segment's members, and import/export.
+- **Audience predicates (5.3)** cover RFM/CLV percentiles only. Missing: `purchased_sku`,
+  `purchased_category` with a window, `event_occurred` (cart add, wishlist add), plus the predicates
+  belonging to A, B and H.
+- **Reorder (7.4)** covers reminders; omits the cycle-detection engine, its admin grid with manual
+  recalculation, building a cart from a detected cycle, and drift-based at-risk tagging.
+- **B2B quotes** are stubbed as one trigger; the source has an offer lifecycle with expiry reminders,
+  overdue expiry, and customer self-service extension.
+- **Content blocks** (Phase 8's "dynamic content") are four producer types in the source — snippet,
+  RSS with a fetch cache, product feed and recommendations.
+- **Inbound webhook as a trigger** — Phase 8 lists the outbound step only.
+- **Test dispatch (2.4)** is explicitly dry; the source also has a real test send per channel and a
+  per-node "send test" on the canvas.
+- **Anonymous visitors** — visitor tags as a first-class segmentation primitive, a
+  `visitor_tag_added` trigger, and anonymous→customer identity stitching on login.
+- **Push subscription management** — the admin grid and register/unregister endpoints.
+
+### What this changes about the plan
+
+Nothing already built is invalidated. The audit says the engine and authoring surface are ported and
+the remaining work is mostly FEATURE BREADTH on top of them — which is the right order, because every
+item above is a step type, a predicate, a trigger source or a screen, and all four are extension
+points Phase 1 deliberately made public.
+
+Priority for the next phases, if breadth is the goal: **A + B + C** together (scoring, tiers, Customer
+360) because they compound and produce a visible screen, then **G + E + F** (win-back, alerts, review
+requests) because they are three campaigns merchants ask for first and each is one trigger source plus
+one audience predicate, then **J** (attribution) since Phase 3's tracking now makes it possible.
+
+## Backlog — every remaining capability, scored
+
+One row per shippable capability. `Size` is honest engineering effort on top of what already exists:
+**S** ≈ a step type or a predicate plus tests, **M** ≈ a table, a job and a screen, **L** ≈ a
+subsystem with an external dependency or a new provider package. `Extends` names the Phase 1
+extension point it plugs into, which is the reason most of these are S rather than M: the engine was
+built to be extended, so breadth is additive by construction.
+
+### Parity — capabilities the source module has
+
+| ID | Capability | Why a merchant pays for it | Size | Extends | Depends on |
+|---|---|---|---|---|---|
+| B-01 | Lead scoring: points per customer, rules, `score_threshold_crossed` trigger, `score_at_least` predicate, `add_points` step | Turns behaviour into one number a salesperson can sort by; every "hot lead" workflow starts here | M | step registry + trigger catalog + subject document | — |
+| B-02 | Loyalty tiers derived from score thresholds, `loyalty_tier_at_least` predicate | Lets one campaign say "gold customers only" without maintaining a list | S | subject document + audience fields | B-01 |
+| B-03 | Customer 360 screen: score, tier, RFM, recency, frequency, spend, tags, segments, sends, opens, clicks | The screen that makes the module a customer profile rather than a send log; nearly free because the data already exists | M | backend page + read API | B-01, B-02, 3.1 |
+| B-04 | Win-back lifecycle: inactivity tagging and a win-back send with a configurable day threshold | The single highest-ROI campaign in ecommerce | S | sweep source + audience narrowing | — |
+| B-05 | Review-request automation: delayed request after a completed order, claimed once per order | Review volume is a ranking and conversion input, and nobody asks manually | S | sweep source | — |
+| B-06 | Price-drop and back-in-stock alerts: watch subscriptions, two scan jobs, two triggers, guest notifier | Recovers demand that already declared itself; the highest intent signal a shop gets | M | trigger catalog + new table | catalogue price/stock reads |
+| B-07 | NPS survey: 0–10 prompt step, `nps_score_at_least` predicate, public answer endpoint | Closes the loop from sending to satisfaction, and feeds segmentation | M | step registry + public route | — |
+| B-08 | Product recommendations: co-purchase affinity with best-seller padding, injected into a message | Raises revenue per send without the author writing anything | M | step registry + interpolation context | order history reads |
+| B-09 | Referral programme: codes, redemption on first order, `referral_converted` trigger targeting the REFERRER | Acquisition at near-zero cost; the trigger's subject flip is the whole trick | M | trigger catalog + new tables | — |
+| B-10 | Multi-touch revenue attribution: linear split across every click-through inside a window | Answers "what did marketing earn", which is the question that renews the budget | M | tracking events + order reads | 3.1, 3.2 |
+| B-11 | Segment overlap, audience-size history, queued bulk actions over members, import/export | Makes segments operable rather than merely definable | M | segments + progress module | 5.1 |
+| B-12 | Reorder-cycle engine: per-customer/SKU interval detection, drift-based at-risk tagging, build-a-cart, admin grid | Consumables businesses live on this; it is the one feature with no substitute | L | sweep source + new tables + cart | 7.4, cart surface |
+| B-13 | Audience predicates: `purchased_sku`, `purchased_category` with a window, `event_occurred` (cart add, wishlist add) | Product-level targeting is the difference between a newsletter and a campaign | S | subject document | order/behaviour reads |
+| B-14 | Two-way messaging inbox: inbound replies stored and readable, STOP-keyword opt-out feeding consent | A reply nobody reads is a customer you lost; STOP handling is also a legal duty | L | webhooks module + new table | 6.x channel |
+| B-15 | GDPR export and erasure across every table, plus an append-only consent audit log | Legally required once you store engagement data, and a deal-blocker in enterprise procurement | M | commands + admin screen | 6.1 |
+| B-16 | Per-provider outbound rate limiting (pacing, distinct from retry) | One burst can get a sending domain throttled or blocked for everyone | M | queue + new table | 6.x |
+| B-17 | Content blocks: snippet, RSS with a fetch cache, product feed, recommendations | Lets marketing change message content without touching campaigns | M | step params + new table | B-08 |
+| B-18 | Inbound webhook as a trigger, signed | Makes the module reactable-to by anything outside the platform | S | trigger catalog + webhooks module | — |
+| B-19 | Real test send per channel, and a per-node "send test" on the canvas | Authors do not trust a campaign they could not try once | S | canvas + step registry | 2.4 |
+| B-20 | Anonymous visitors: visitor tags as a first-class primitive, `visitor_tag_added`, identity stitching on login | Most of a shop's traffic is not logged in; without this they are invisible to marketing | L | trigger catalog + new tables | storefront tracking |
+| B-21 | Free gift offers: cascading subtotal tiers with a gift pool | Raises average order value; arguably promotions rather than automation | L | cart/pricing surfaces | cart |
+| B-22 | Ad audience sync: hashed segment members to Google Ads and Meta | Extends a segment beyond email at no extra content cost | L | new provider package | 5.1 |
+| B-23 | Product/shopping feeds: Google Merchant and Meta catalogue, cached per store | Table stakes for paid acquisition | L | new provider package | catalogue |
+| B-24 | AI content generation step: LLM writes subject and body into the run context | Removes the blank-page problem that stops campaigns being written at all | M | step registry + ai-assistant | — |
+| B-25 | Operational observability: job-run log, admin audit trail of campaign changes, email template versioning with restore | What you need the morning after a campaign went wrong | M | workers + admin screens | — |
+| B-26 | Lead routing: round-robin assignment to sales reps, weekly rep digest | B2B: a lead with no owner is a lead nobody calls | M | new tables + admin CRUD | B-01 |
+| B-27 | Setup wizard: guided first run | The difference between an installed module and a used one | S | onboarding module | — |
+| B-28 | Push subscription management: admin grid, register/unregister endpoints, service worker | Operability for the push channel | M | public routes + new table | 6.2 |
+
+### Beyond parity — what Open Mercato makes cheap that the source module never had
+
+These are NOT in the source. They are listed because the platform already carries the hard part, so
+each is unusually cheap here, and because a port that only reproduces the original has not used its
+new home.
+
+| ID | Capability | Why it belongs here | Size | Platform surface it reuses |
+|---|---|---|---|---|
+| X-01 | Geographic targeting: country, region, city, postcode, and radius predicates | The most-asked targeting dimension in the original's own feature requests, and absent from it | M | customer addresses + audience fields |
+| X-02 | Birthday and anniversary campaigns | One date field and a sweep source; the highest open-rate message a shop sends | S | sweep source + custom fields |
+| X-03 | Per-campaign store, channel and language targeting | The original cannot do it at all; multi-channel is native here | M | channel/organization scoping |
+| X-04 | Campaign authoring by an AI agent: describe a campaign in chat, get a draft graph to review | The platform ships an agent runtime with mutation approval; a campaign is a JSON definition, which is exactly what an agent can safely propose | M | `ai-assistant`, `prepareMutation`, agent tools |
+| X-05 | MCP tools for campaigns: list, inspect, estimate audience, enable, from any MCP client | Makes the module scriptable by external assistants with no new API design | S | `registerMcpTool` |
+| X-06 | Charts on the campaign dashboard: sends, opens, clicks, revenue over time | The original has tiles and tables only; the platform ships a chart family | S | `ui` chart components |
+| X-07 | In-app notifications and progress for long operations (bulk enrolment, segment actions) | Operators can watch work finish instead of guessing | S | `core:progress`, notifications, DOM event bridge |
+| X-08 | Customer-portal preference centre: the recipient manages their own consent and frequency | Fewer unsubscribes, and consent that is provably first-party | M | customer portal + portal auth |
+| X-09 | Segment membership in the search index, so campaigns can target fulltext and vector queries | Semantic audiences ("customers who bought something like X") are impossible in the original | L | `search` module |
+| X-10 | Workflow bridge: let a campaign step start a platform workflow, and a workflow start a campaign | Marketing and operations stop being two disconnected automations | M | `workflows` module |
+| X-11 | Optimal send-time per recipient learned from their own open history | The original has a send-time gate but no learning; tracking data now makes it possible | M | 3.1 tracking events |
+| X-12 | A/B winner auto-selection on click-through once a minimum sample is reached | Completes the split feature already shipped | S | 2.1 split + 3.1 tracking |
+| X-13 | Deliverability guardrails: bounce-rate and complaint-rate circuit breaker that pauses a campaign | Protects the sending domain, which no amount of content quality can undo | M | 3.1 events + campaign state |
+| X-14 | Dry-run preview of a whole journey for one named customer: every step, every gate, every timestamp | The fastest way for an author to trust a campaign, and a superb demo | M | executor + audience narrowing |
+
+### What is actually blocked, and what is only work
+
+The distinction that matters for planning. Nothing below is blocked on difficulty — the engine's
+extension points make most items a step type, a predicate or a sweep source. These are blocked on
+something that is not ours to write:
+
+| Blocked item | What it waits for |
+|---|---|
+| B-12 reorder engine (build-a-cart half), B-21 free gifts | A cart entity. The platform has orders and quotes; `SPEC-029` (storefront) owns the cart |
+| B-14 two-way inbox, B-16 provider pacing | A live SMS or WhatsApp channel provider — an account with a verified sender, not code |
+| B-20 anonymous visitors | Storefront behaviour tracking, which is a storefront concern |
+| B-22 ad audiences, B-23 product feeds | Google Ads / Meta credentials and an approved app |
+| B-28 push management | Push rails plus a public origin for the service worker |
+| X-09 semantic segments | A decision about indexing customers, which touches the `search` module's own scope |
+| X-10 workflow bridge | A contract decision in `workflows`, whose activity enum is a frozen surface |
+
+**Everything else on both tables is plain work**, and most of it is S: one step type or one predicate
+plus its tests, five locale files and a migration when it needs a table — the same shape as the A/B
+split, which took one sitting end to end. The per-feature cost that is easy to underestimate is not
+the logic, it is the tests, the five locales, the DS lint and the migration review that make it
+survivable in review. That is the rate limiter, and it is the reason each item is sized in this table
+rather than waved at.
+
+### Suggested shipping order
+
+Value per unit of effort, given what already exists:
+
+1. **B-01, B-02, B-03** — scoring, tiers, Customer 360. They compound, and they end in a screen.
+2. **B-04, B-05, X-02** — win-back, review requests, birthdays. Three merchant-recognisable campaigns, each one sweep source.
+3. **X-12, B-10, X-11** — A/B winners, attribution, send-time learning. All unlocked by Phase 3 and all invisible without it.
+4. **X-14, B-19** — journey preview and real test send. Author confidence, and the two best things to show on a demo.
+5. **B-13, X-01** — product-level and geographic targeting. The two dimensions authors reach for next.
+6. **X-04, X-05, X-06** — agent authoring, MCP tools, charts. Each one is small here and each one is impossible in the original.
+7. **B-07, B-09, B-11, B-15, B-17, B-18, B-24, B-25, B-27, X-03, X-07, X-08** — NPS, referrals,
+   segment operability, GDPR export/erasure, content blocks, inbound webhook trigger, AI copy,
+   observability, setup wizard, per-channel targeting, progress/notifications, portal preference
+   centre. All unblocked, all additive.
+8. The blocked table above, each item the moment its dependency lands.
+
+Target for the current push: every unblocked item. The blocked ones are documented so nobody mistakes
+a missing dependency for a missing plan.
+
 ## Phase 2 — structural decisions and shared foundations
 
 Everything later rests on these, and each gets more expensive the more steps exist.
@@ -85,7 +297,7 @@ demonstrate a campaign.
 **2.5 Runs UI.** `marketing_campaign_runs` and its `step_log` exist with no page. An operator
 cannot currently see who is mid-journey, what each step did, or why a run died.
 
-## Phase 3 — delivery tracking (prerequisite for three later features)
+## Phase 3 — delivery tracking (prerequisite for three later features) — ✅ Implemented 2026-09-28
 
 **3.1** `marketing_message_send_events` — delivered / opened / clicked / bounced, keyed to
 `marketing_message_sends`.
@@ -94,8 +306,13 @@ the token identifies the send, not the person.
 **3.3** `send_email` rewrites links and embeds the pixel.
 
 Unlocks 4.1, 4.2 and 4.3 — all three read from here, which is why tracking comes before them
-rather than alongside. Verifiable without a public URL: integration tests call the endpoints
-directly and assert the recorded events.
+rather than alongside. Verified without a public URL exactly as planned: the integration tests mint
+tokens with the server's own secret, call the endpoints and assert the recorded counts, including
+every refusal (tampered token, wrong purpose, non-http destination).
+
+Landed with two decisions worth carrying forward: the event table stores no IP and no user agent, and
+the signing secret falls back to the platform's data-encryption key material so tracking works without
+new configuration — never to a session or JWT secret, because the token lives in mail archives forever.
 
 ## Phase 4 — what tracking unlocks
 

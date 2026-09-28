@@ -95,6 +95,14 @@ export type AutomationContext = {
   subjectEntityId?: string | null
   campaignId?: string
   runId?: string
+  /**
+   * The id of the step currently executing.
+   *
+   * Passed by the executor and typed here because a step legitimately needs its own identity —
+   * tracking tokens key on (run, step), which is what makes one message's opens distinguishable
+   * from another's in the same journey.
+   */
+  actionId?: string
 } & Record<string, unknown>
 
 export type EngineLogger = {

@@ -39,7 +39,7 @@ test.describe('TC-MA-003 palette', () => {
     expect(byType.get('wait')?.channel ?? null).toBeNull()
 
     // Every field kind must be one the inspector can render.
-    const renderable = new Set(['text', 'textarea', 'number', 'select', 'customer_tag'])
+    const renderable = new Set(['text', 'textarea', 'number', 'select', 'customer_tag', 'boolean'])
     for (const step of steps) {
       for (const field of step.uiFields ?? []) {
         expect(renderable.has(String(field.kind)), `${step.type}.${field.name} has a renderable kind`).toBe(true)

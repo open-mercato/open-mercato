@@ -4,7 +4,7 @@ import type { AutomationContext, EngineLogger } from './types.js'
 /** How a step's parameter is edited in the canvas inspector. */
 export type UiFieldSpec = {
   name: string
-  kind: 'text' | 'textarea' | 'number' | 'select' | 'customer_tag'
+  kind: 'text' | 'textarea' | 'number' | 'select' | 'customer_tag' | 'boolean'
   labelKey: string
   required?: boolean
   options?: { value: string; labelKey: string }[]
