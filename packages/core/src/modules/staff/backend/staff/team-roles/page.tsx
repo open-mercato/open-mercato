@@ -209,7 +209,7 @@ export default function StaffTeamRolesPage() {
     } catch (error) {
       logger.error('staff.team-roles.list', { err: error })
       flash(labels.errors.load, 'error')
-    } finally {
+    } finally 
       setIsLoading(false)
     }
   }, [filterValues.teamId, labels.errors.load, labels.groups, page, search])
