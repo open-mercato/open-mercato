@@ -112,6 +112,10 @@ interface DataSyncAdapter {
   getMapping(input: { entityType: string; scope: TenantScope }): Promise<DataMapping>
   persistsSharedCursor?(entityType: string): boolean
   supportsStartControl?(control: 'fullSync' | 'batchSize', entityType: string): boolean
+  describeProgressJob?(input: {
+    entityType: string
+    direction: 'import' | 'export'
+  }): DataSyncProgressJobDescription | undefined
   validateConnection?(input: {
     entityType: string
     credentials: Record<string, unknown>
@@ -223,6 +227,28 @@ response.
 Do not derive applicability from `persistsSharedCursor` — where a cursor is
 stored and whether restarting from scratch is meaningful are independent facts,
 and both belong to the adapter to state.
+
+### Progress job description
+
+Every run started through `startDataSyncRun` (`lib/start-run.ts`) — the run
+route, Retry, the scheduled worker and provider-owned routes — creates a
+`ProgressJob` that `ProgressTopBar` shows to every user with `progress.view`,
+with Cancel for anyone holding `progress.cancel`. An adapter may describe that
+job per entity type:
+
+```typescript
+describeProgressJob: ({ entityType }) =>
+  entityType === 'orders.feed' ? { meta: { hiddenFromTopBar: true } } : undefined,
+```
+
+Use it for an entity type whose run is long-lived — a continuously running feed
+never reaches 100%, so without it the top bar reads as running forever and
+offers a Cancel that stops the feed. `name`, `description` and `meta` merge as
+core default < adapter < the caller's own `progressJob` (meta key by key), so a
+provider route that passes `progressJob.meta` still wins. The hook is not
+consulted when the caller passes `createProgressJob: false`, and an answer that
+throws or has the wrong shape is ignored with a warning — an adapter cannot make
+itself unstartable over how its progress job reads.
 
 If the sync provider needs bootstrap credentials, mappings, locales, channels, or other default sync settings after a fresh install, implement a provider-owned env preset flow:
 
