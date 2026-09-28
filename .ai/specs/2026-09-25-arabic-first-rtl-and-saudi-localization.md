@@ -169,7 +169,10 @@ Arabic-to-English matches being literal examples that must stay that way (`USD` 
 code example, `$` as a symbol example, `slug_name` as a key example, the
 `⌘/Ctrl + Enter` shortcut, the `—` empty-value dash), plus the `JSON` type name, a logo
 URL placeholder, and one statutory string — `onboarding.form.legalEntity`, the Polish
-entity's register entry, which a translation would misstate.
+entity's register entry, which a translation would misstate. The customer portal
+(`portal`, 141 keys) followed on 2026-09-27 — a customer-facing surface for the Saudi
+market, and its only English-identical values are the password mask and the two
+`you@example.com` email placeholders, which are examples rather than copy.
 Policy that the gate now enforces: a module's `ar.json` must be *whole* — every key
 present, values actually Arabic — because a partially translated file renders a
 half-English screen that looks finished. `scripts/i18n-check-sync.ts` therefore
@@ -179,9 +182,17 @@ platform's `pl/es/de/ko` parity set is still required everywhere;
 high-visibility surfaces first: `dashboards` ✅, `notifications` ✅, `currencies` ✅,
 `dictionaries` ✅, `progress` ✅, `api_keys` ✅, `phone_calls` ✅, `audit_logs` ✅,
 `directory` ✅, `onboarding` ✅, `feature_toggles` ✅, `integrations` ✅,
-`sync_excel` ✅, then the large ones in their own slices: `auth` ✅ (718,
+`sync_excel` ✅, `portal` ✅ (141), then the large ones in their own slices: `auth` ✅ (718,
 455 of which are the ACL matrix), `catalog` ✅ (724), `sales` (1 494),
-`customers` (2 880), `staff` (2 066).
+`customers` (2 880), `staff` (2 066). Still without an `ar.json` and therefore
+English-only for Arabic users, in rough value order: `wms` (1 057), `workflows` (2 262),
+`agent_orchestrator` (1 493), `warranty_claims` (1 268), `resources` (768), `eudr` (749),
+`planner` (563), `security` (485), `business_rules` (399), `customer_accounts` (363),
+`messages` (262), `entities` (258), `configs` (201), `inbox_ops` (195), `attachments` (183),
+`communication_channels` (177), `sso` (146), `data_sync` (134), `payment_gateways` (85),
+`shipping_carriers` (83), `push_notifications` (77), `record_locks` (76), `query_index` (67)
+and `translations` (46) — the counts come from an audit of every module dictionary that
+ships `en.json` without `ar.json`.
 
 1. Ship `ar` dictionaries for every module that ships `en` (module-level
    `i18n/ar.json`), and make `i18n:check-sync` aware of the app-extended locale
