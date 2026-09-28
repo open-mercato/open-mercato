@@ -276,7 +276,15 @@ export function AddressEditor<C = unknown>({
           {addressTypesAdapter?.create ? (
             <Dialog open={typeDialogOpen} onOpenChange={setTypeDialogOpen}>
               <DialogTrigger asChild>
-                <Button type="button" variant="outline" size="icon" className="shrink-0" disabled={disabled}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0"
+                  disabled={disabled}
+                  aria-label={label('types.add', 'Add address type')}
+                  title={label('types.add', 'Add address type')}
+                >
                   <Plus className="h-4 w-4" />
                 </Button>
               </DialogTrigger>
@@ -529,5 +537,3 @@ export function AddressEditor<C = unknown>({
 }
 
 export default AddressEditor
-
-// Accessibility regression coverage is added with the implementation commit.
