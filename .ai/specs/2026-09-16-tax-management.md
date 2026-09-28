@@ -171,9 +171,12 @@ that installs `financial_pl` after this module already exists is the
 gap the original draft left open. `financial_pl`'s `setup.ts` declares
 `defaultRoleFeatures` the way every module does, and additionally calls
 `registerTaxCode` for `VAT`/`CIT`/`PIT` from its own
-`onModuleInstalled`-style hook (matching the pattern
-`seedPolishAccountGroups` already uses for `ledger`'s own Phase 1
-seeding, per `financial-module-knowledge-base.md` §2) — this runs once
+`setup.ts` hook (matching the real pattern `ledger/setup.ts` already
+uses, calling `seedPolishAccountGroups(ctx.em, scope)` for its own
+Phase 1 seeding — verified directly against that file, not the
+knowledge-base's §2 entry, which discusses a related but distinct
+point, illustrative-vs-tenant-specific account numbers) — this runs
+once
 per tenant/organization at install time, not at process-global module
 load, so a tenant that installs `financial_pl` later still gets its
 `TaxCode` rows created correctly. Two plugins registering the same code
