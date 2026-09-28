@@ -4,6 +4,7 @@ import * as React from 'react'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { createCrud, deleteCrud, fetchCrudList, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { withFlash } from '@open-mercato/ui/backend/utils/flash'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -14,6 +15,7 @@ import type { AttendanceRow } from './AttendanceTable'
 const ENTITY_ID = 'hr_management:hr_attendance_record'
 const LIST_HREF = '/backend/hr/attendance'
 const RESOURCE = 'hr_management/attendance'
+const SUBMIT_ENDPOINT = '/api/hr_management/approvals/submit'
 
 // Mirrors ATTENDANCE_STATUSES in data/entities.ts; the API rejects an unknown value.
 const STATUS_VALUES: AttendanceStatus[] = ['present', 'absent', 'late', 'on_leave', 'holiday']
@@ -35,6 +37,12 @@ export type AttendanceFormValues = {
   status: AttendanceStatus
   workedMinutes: string
   notes: string
+  /**
+   * Not part of the entity payload: choosing a workflow means "ask for this lateness to be excused"
+   * after saving. The engine flips a `late` record to `present` when that request is approved, which
+   * is why the picker only appears on a late record.
+   */
+  workflowId: string
   // Carries the optimistic-lock version into `CrudForm`, which derives the expected-version
   // header from `initialValues.updatedAt` for update AND delete.
   updatedAt?: string | null
@@ -88,6 +96,7 @@ export function toAttendanceFormValues(row: AttendanceRow): AttendanceFormValues
     status: row.status,
     workedMinutes: row.worked_minutes === null || row.worked_minutes === undefined ? '' : String(row.worked_minutes),
     notes: row.notes ?? '',
+    workflowId: '',
     updatedAt: row.updatedAt ?? row.updated_at ?? null,
   }
 }
@@ -102,6 +111,7 @@ export function buildAttendanceFormDefaults(id = ''): AttendanceFormValues {
     status: 'present',
     workedMinutes: '',
     notes: '',
+    workflowId: '',
     updatedAt: null,
   }
 }
@@ -140,51 +150,125 @@ function useEmployeePickerOptions(): Option[] {
   )
 }
 
-function useAttendanceFields(t: Translate, employeeOptions: Option[]): CrudField[] {
-  return React.useMemo<CrudField[]>(() => [
-    {
-      id: 'employeeId',
-      label: t('hr_management.attendance.form.fields.employee', 'Employee'),
-      type: 'select',
-      required: true,
-      options: employeeOptions,
-    },
-    { id: 'date', label: t('hr_management.attendance.form.fields.date', 'Attendance date'), type: 'date', required: true },
-    {
-      id: 'status',
-      label: t('hr_management.attendance.form.fields.status', 'Status'),
-      type: 'select',
-      required: true,
-      options: STATUS_VALUES.map((value) => ({
-        value,
-        label: t(`hr_management.attendance.status.${value}`, STATUS_FALLBACKS[value]),
-      })),
-    },
-    { id: 'checkInAt', label: t('hr_management.attendance.form.fields.checkIn', 'Check in'), type: 'datetime-local' },
-    { id: 'checkOutAt', label: t('hr_management.attendance.form.fields.checkOut', 'Check out'), type: 'datetime-local' },
-    {
-      id: 'workedMinutes',
-      label: t('hr_management.attendance.form.fields.worked', 'Worked minutes'),
-      type: 'number',
-      description: t('hr_management.attendance.form.fields.workedHint', 'Leave empty to count the difference between check in and check out.'),
-    },
-    { id: 'notes', label: t('hr_management.attendance.form.fields.notes', 'Notes'), type: 'textarea' },
-  ], [t, employeeOptions])
+function useAttendanceFields(
+  t: Translate,
+  employeeOptions: Option[],
+  workflowOptions: Option[],
+  includeWorkflow: boolean,
+): CrudField[] {
+  return React.useMemo<CrudField[]>(() => {
+    const fields: CrudField[] = [
+      {
+        id: 'employeeId',
+        label: t('hr_management.attendance.form.fields.employee', 'Employee'),
+        type: 'select',
+        required: true,
+        options: employeeOptions,
+      },
+      { id: 'date', label: t('hr_management.attendance.form.fields.date', 'Attendance date'), type: 'date', required: true },
+      {
+        id: 'status',
+        label: t('hr_management.attendance.form.fields.status', 'Status'),
+        type: 'select',
+        required: true,
+        options: STATUS_VALUES.map((value) => ({
+          value,
+          label: t(`hr_management.attendance.status.${value}`, STATUS_FALLBACKS[value]),
+        })),
+      },
+      { id: 'checkInAt', label: t('hr_management.attendance.form.fields.checkIn', 'Check in'), type: 'datetime-local' },
+      { id: 'checkOutAt', label: t('hr_management.attendance.form.fields.checkOut', 'Check out'), type: 'datetime-local' },
+      {
+        id: 'workedMinutes',
+        label: t('hr_management.attendance.form.fields.worked', 'Worked minutes'),
+        type: 'number',
+        description: t('hr_management.attendance.form.fields.workedHint', 'Leave empty to count the difference between check in and check out.'),
+      },
+      { id: 'notes', label: t('hr_management.attendance.form.fields.notes', 'Notes'), type: 'textarea' },
+    ]
+    if (includeWorkflow) {
+      fields.push({
+        id: 'workflowId',
+        label: t('hr_management.attendance.form.fields.workflow', 'Approval workflow'),
+        type: 'select',
+        options: workflowOptions,
+        description: t('hr_management.attendance.form.fields.workflowHint', 'Choosing a workflow asks for this lateness permission after saving; approval clears the lateness.'),
+      })
+    }
+    return fields
+  }, [t, employeeOptions, workflowOptions, includeWorkflow])
 }
 
-function useAttendanceGroups(t: Translate): CrudFormGroup[] {
-  return React.useMemo<CrudFormGroup[]>(() => [
-    { id: 'record', title: t('hr_management.attendance.form.groups.record'), column: 1, fields: ['employeeId', 'date', 'status'] },
-    { id: 'times', title: t('hr_management.attendance.form.groups.times'), column: 2, fields: ['checkInAt', 'checkOutAt', 'workedMinutes'] },
-    { id: 'notes', title: t('hr_management.attendance.form.groups.notes'), column: 1, fields: ['notes'] },
-  ], [t])
+function useAttendanceGroups(t: Translate, workflow: 'none' | 'offer' | 'pending'): CrudFormGroup[] {
+  return React.useMemo<CrudFormGroup[]>(() => {
+    const groups: CrudFormGroup[] = [
+      { id: 'record', title: t('hr_management.attendance.form.groups.record'), column: 1, fields: ['employeeId', 'date', 'status'] },
+      { id: 'times', title: t('hr_management.attendance.form.groups.times'), column: 2, fields: ['checkInAt', 'checkOutAt', 'workedMinutes'] },
+      { id: 'notes', title: t('hr_management.attendance.form.groups.notes'), column: 1, fields: ['notes'] },
+    ]
+    if (workflow === 'offer') {
+      groups.push({ id: 'approval', title: t('hr_management.attendance.form.groups.approval'), column: 2, fields: ['workflowId'] })
+    }
+    if (workflow === 'pending') {
+      // The picker is absent because a request is already open. Saying so is the difference between
+      // "the screen is broken" and "someone else has this in their queue".
+      groups.push({
+        id: 'approval',
+        title: t('hr_management.attendance.form.groups.approval'),
+        column: 2,
+        component: () => (
+          <p className="text-sm text-muted-foreground">
+            {t('hr_management.attendance.form.approvalPending', 'A lateness permission for this record is already waiting for a decision.')}
+          </p>
+        ),
+      })
+    }
+    return groups
+  }, [t, workflow])
+}
+
+/** Active workflows, so a permission cannot be started against a definition nobody can act on. */
+function useActiveWorkflowOptions(): Option[] {
+  const t = useT()
+  const [workflows, setWorkflows] = React.useState<Array<{ id: string; name: string }>>([])
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const data = await fetchCrudList<{ id: string; name: string }>('hr_management/approval-workflows', { pageSize: 50, isActive: true })
+        if (!cancelled) setWorkflows(data?.items ?? [])
+      } catch {
+        if (!cancelled) setWorkflows([])
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+  return React.useMemo<Option[]>(() => [
+    { value: '', label: t('hr_management.attendance.form.workflowNone', 'Do not ask for a permission') },
+    ...workflows.map((workflow) => ({ value: workflow.id, label: workflow.name })),
+  ], [t, workflows])
+}
+
+/** Starts a lateness permission for a saved attendance record. */
+async function submitAttendanceForApproval(workflowId: string, attendanceId: string): Promise<void> {
+  await apiCallOrThrow(SUBMIT_ENDPOINT, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      workflowId,
+      entityType: 'hr_attendance_record',
+      entityId: attendanceId,
+    }),
+  })
 }
 
 export function AttendanceCreateForm() {
   const t = useT()
   const employeeOptions = useEmployeePickerOptions()
-  const fields = useAttendanceFields(t, employeeOptions)
-  const groups = useAttendanceGroups(t)
+  // No workflow picker on create: a lateness permission is about a record that already exists.
+  const fields = useAttendanceFields(t, employeeOptions, [], false)
+  const groups = useAttendanceGroups(t, 'none')
   const initialValues = React.useMemo(() => buildAttendanceFormDefaults(), [])
   const successRedirect = React.useMemo(
     () => withFlash(LIST_HREF, t('hr_management.attendance.form.flash.saved', 'Attendance record saved.'), 'success'),
@@ -213,12 +297,24 @@ export function AttendanceCreateForm() {
 export function AttendanceEditForm({ id }: { id: string }) {
   const t = useT()
   const employeeOptions = useEmployeePickerOptions()
-  const fields = useAttendanceFields(t, employeeOptions)
-  const groups = useAttendanceGroups(t)
+  const workflowOptions = useActiveWorkflowOptions()
   const [initial, setInitial] = React.useState<AttendanceFormValues | null>(null)
+  const [existingApprovalRequestId, setExistingApprovalRequestId] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [notFound, setNotFound] = React.useState(false)
+
+  // The permission picker is offered only where the engine can act on it: a record that is late and
+  // has no request awaiting a decision. Re-offering it after a rejection is deliberate — that is how
+  // a refused permission is retried with different words.
+  const workflowMode = initial?.status !== 'late'
+    ? 'none'
+    : existingApprovalRequestId === null
+      ? 'offer'
+      : 'pending'
+  const includeWorkflow = workflowMode === 'offer'
+  const fields = useAttendanceFields(t, employeeOptions, workflowOptions, includeWorkflow)
+  const groups = useAttendanceGroups(t, workflowMode)
 
   React.useEffect(() => {
     let cancelled = false
@@ -234,6 +330,14 @@ export function AttendanceEditForm({ id }: { id: string }) {
           return
         }
         if (!cancelled) setInitial(toAttendanceFormValues(item))
+
+        const requests = await fetchCrudList<{ id: string }>('hr_management/approval-requests', {
+          entityType: 'hr_attendance_record',
+          entityId: String(id),
+          status: 'pending',
+          pageSize: 1,
+        })
+        if (!cancelled) setExistingApprovalRequestId(requests?.items?.[0]?.id ?? null)
       } catch (caught: unknown) {
         if (!cancelled) {
           if ((caught as { status?: number }).status === 404) {
@@ -288,6 +392,11 @@ export function AttendanceEditForm({ id }: { id: string }) {
       loadingMessage={t('hr_management.attendance.form.loading', 'Loading attendance record…')}
       onSubmit={async (values) => {
         await updateCrud(RESOURCE, { id, ...toAttendancePayload(values) })
+        // Only when the picker was actually offered: re-submitting an existing request would open a
+        // second one against the same late record, and the API would happily allow it.
+        if (includeWorkflow && values.workflowId) {
+          await submitAttendanceForApproval(values.workflowId, id)
+        }
       }}
       onDelete={async () => {
         await deleteCrud(RESOURCE, id)

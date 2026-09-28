@@ -78,8 +78,34 @@ const handoverVehicleCommand: CommandHandler<
       vehicle.assignedEmployeeId = input.employeeId
       vehicle.currentOdometer = handoverOdometer
       vehicle.updatedAt = assignedAt
+
+      // Flush before writing the log: a freshly created entity has no primary key until the flush
+      // assigns one, so reading `assignment.id` first would store a NULL link. The return path never
+      // hits this because it loads the assignment it is closing.
       await transactionEm.persist([assignment, vehicle]).flush()
-      return { assignment, vehicle, assignedAt }
+
+      // The handover reading is logged too, not only the return. A custody change is the one moment
+      // the mileage is agreed by two parties, and a vehicle held long-term would otherwise have no
+      // reading in its history until it came back — which is exactly the stretch a maintenance
+      // interval has to cover. The reading is already stored on the assignment; this keeps the
+      // vehicle's own history consistent with the return path instead of trusting one of the two.
+      const odometerLog = transactionEm.create(FleetVehicleOdometerLog, {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        vehicleId: vehicle.id,
+        reading: handoverOdometer,
+        recordedAt: assignedAt,
+        source: 'assignment_handover',
+        assignmentId: assignment.id,
+        notes: input.custodyNotes ?? null,
+        createdBy: ctx.auth?.sub ?? null,
+        createdAt: assignedAt,
+        updatedAt: assignedAt,
+        deletedAt: null,
+      })
+
+      await transactionEm.persist(odometerLog).flush()
+      return { assignment, vehicle, odometerLog, assignedAt }
     })
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
@@ -92,6 +118,11 @@ const handoverVehicleCommand: CommandHandler<
       dataEngine, action: 'updated', entity: result.vehicle,
       identifiers: { id: result.vehicle.id, ...scope }, actorUserId: ctx.auth?.sub ?? null,
       events: fleetVehicleEvents, indexer: fleetVehicleIndexer,
+    })
+    await emitCrudSideEffects({
+      dataEngine, action: 'created', entity: result.odometerLog,
+      identifiers: { id: result.odometerLog.id, ...scope }, actorUserId: ctx.auth?.sub ?? null,
+      events: fleetOdometerLogEvents, indexer: fleetOdometerLogIndexer,
     })
     return { assignmentId: result.assignment.id, vehicleId: result.vehicle.id, assignedAt: result.assignedAt }
   },

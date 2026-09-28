@@ -44,13 +44,13 @@ const crud = makeCrudRoute({
     buildFilters: (query) => ({
       ...(query.id ? { id: { $eq: query.id } } : {}),
       ...(query.ids ? { id: { $in: query.ids.split(',').map((value) => value.trim()).filter(Boolean) } } : {}),
-      ...(query.departmentId ? { departmentId: { $eq: query.departmentId } } : {}),
+      ...(query.departmentId ? { department_id: { $eq: query.departmentId } } : {}),
       ...(query.status ? { status: { $eq: query.status } } : {}),
-      ...(query.employeeNumber ? { employeeNumber: { $ilike: `%${escapeLikePattern(query.employeeNumber)}%` } } : {}),
+      ...(query.employeeNumber ? { employee_number: { $ilike: `%${escapeLikePattern(query.employeeNumber)}%` } } : {}),
       ...(query.search ? { $or: [
-        { firstName: { $ilike: `%${escapeLikePattern(query.search)}%` } },
-        { lastName: { $ilike: `%${escapeLikePattern(query.search)}%` } },
-        { employeeNumber: { $ilike: `%${escapeLikePattern(query.search)}%` } },
+        { first_name: { $ilike: `%${escapeLikePattern(query.search)}%` } },
+        { last_name: { $ilike: `%${escapeLikePattern(query.search)}%` } },
+        { employee_number: { $ilike: `%${escapeLikePattern(query.search)}%` } },
       ] } : {}),
     }),
     transformItem: (item) => ({ ...item, updatedAt: item.updated_at ?? null }),

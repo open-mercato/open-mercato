@@ -1,11 +1,15 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseScopedCommandInput, resolveCrudRecordId } from '@open-mercato/shared/lib/api/scoped'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { HrEmployeeDocument } from '../../data/entities'
 import { createEmployeeDocumentSchema, updateEmployeeDocumentSchema } from '../../data/validators'
+import { EMPLOYEE_DOCUMENT_TYPES } from '../../data/entities'
 import { createHrCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../openapi'
 import { HR_EMPLOYEE_DOCUMENT_ENTITY_ID } from '../../commands/hr'
+import { EXPIRY_WINDOW_DAYS } from '../../lib/expiry'
+import { withOrConditions } from '../../lib/crudFilters'
 import '../../commands/hr'
 
 const rawBodySchema = z.object({}).passthrough()
@@ -15,15 +19,22 @@ const listSchema = z.object({
   id: z.string().uuid().optional(),
   ids: z.string().optional(),
   employeeId: z.string().uuid().optional(),
+  documentType: z.enum(EMPLOYEE_DOCUMENT_TYPES).optional(),
+  // `expired` is the compliance breach; `within30` is what an operator renews this week.
+  expiry: z.enum(['expired', 'within30']).optional(),
+  search: z.string().optional(),
   sortField: z.string().optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
 }).passthrough()
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['hr.read'] },
-  POST: { requireAuth: true, requireFeatures: ['hr.write'] },
-  PUT: { requireAuth: true, requireFeatures: ['hr.write'] },
-  DELETE: { requireAuth: true, requireFeatures: ['hr.write'] },
+  // The ACL declares `hr.documents.manage` for exactly this surface; it was granted to the default
+  // roles as part of `hr.*`, so honouring it here adds no privilege and removes a declared-but-dead
+  // feature id.
+  POST: { requireAuth: true, requireFeatures: ['hr.documents.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['hr.documents.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['hr.documents.manage'] },
 }
 
 export const metadata = { path: '/hr_management/employee-documents', ...routeMetadata }
@@ -36,12 +47,32 @@ const crud = makeCrudRoute({
     schema: listSchema,
     entityId: HR_EMPLOYEE_DOCUMENT_ENTITY_ID,
     fields: ['id', 'organization_id', 'tenant_id', 'employee_id', 'document_type', 'document_number', 'issue_date', 'expiry_date', 'file_attachment_id', 'notes', 'created_at', 'updated_at'],
-    sortFieldMap: { employeeId: 'employee_id', documentType: 'document_type', documentNumber: 'document_number', issueDate: 'issue_date', createdAt: 'created_at', updatedAt: 'updated_at' },
-    buildFilters: (query) => ({
-      ...(query.id ? { id: { $eq: query.id } } : {}),
-      ...(query.ids ? { id: { $in: query.ids.split(',').map((value) => value.trim()).filter(Boolean) } } : {}),
-      ...(query.employeeId ? { employeeId: { $eq: query.employeeId } } : {}),
-    }),
+    sortFieldMap: { employeeId: 'employee_id', documentType: 'document_type', documentNumber: 'document_number', issueDate: 'issue_date', expiryDate: 'expiry_date', createdAt: 'created_at', updatedAt: 'updated_at' },
+    buildFilters: (query) => {
+      const cutoff = query.expiry === 'expired'
+        ? new Date()
+        : query.expiry === 'within30'
+          ? new Date(Date.now() + EXPIRY_WINDOW_DAYS * 24 * 60 * 60 * 1000)
+          : null
+
+      const orConditions: Record<string, unknown>[] = []
+      if (query.search) {
+        orConditions.push({ $or: [
+          { document_number: { $ilike: `%${escapeLikePattern(query.search)}%` } },
+          { document_type: { $ilike: `%${escapeLikePattern(query.search)}%` } },
+        ] })
+      }
+      if (cutoff) {
+        orConditions.push({ expiry_date: { $lte: cutoff, $ne: null } })
+      }
+
+      return withOrConditions({
+        ...(query.id ? { id: { $eq: query.id } } : {}),
+        ...(query.ids ? { id: { $in: query.ids.split(',').map((value) => value.trim()).filter(Boolean) } } : {}),
+        ...(query.employeeId ? { employee_id: { $eq: query.employeeId } } : {}),
+        ...(query.documentType ? { document_type: { $eq: query.documentType } } : {}),
+      }, orConditions)
+    },
     transformItem: (item) => ({ ...item, updatedAt: item.updated_at ?? null }),
   },
   actions: {

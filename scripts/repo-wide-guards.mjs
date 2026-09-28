@@ -97,6 +97,14 @@ export const REPO_WIDE_GUARDS = [
         scans: 'packages/ and apps/ — CRUD indexer configuration',
       },
       {
+        path: 'src/__tests__/crud-resource-path.test.ts',
+        scans: 'apps/mercato and the create-app template module trees plus the generated route manifest — URLs the screens build that no route answers',
+      },
+      {
+        path: 'src/__tests__/crud-filter-keys.test.ts',
+        scans: 'apps/mercato and the create-app template module trees — camelCase CRUD list filter keys, which the query matches against nothing',
+      },
+      {
         path: 'src/modules/design_system/gallery/__tests__/gallery-coverage.test.ts',
         scans: 'packages/ui/src/primitives — design-system gallery coverage',
       },

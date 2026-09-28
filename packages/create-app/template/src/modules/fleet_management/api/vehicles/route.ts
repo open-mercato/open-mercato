@@ -42,7 +42,7 @@ const crud = makeCrudRoute({
       ...(query.id ? { id: { $eq: query.id } } : {}),
       ...(query.ids ? { id: { $in: query.ids.split(',').map((value) => value.trim()).filter(Boolean) } } : {}),
       ...(query.status ? { status: { $eq: query.status } } : {}),
-      ...(query.assignedEmployeeId ? { assignedEmployeeId: { $eq: query.assignedEmployeeId } } : {}),
+      ...(query.assignedEmployeeId ? { assigned_employee_id: { $eq: query.assignedEmployeeId } } : {}),
     }),
     transformItem: (item) => ({ ...item, updatedAt: item.updated_at ?? null }),
   },

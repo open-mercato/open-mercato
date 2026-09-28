@@ -116,3 +116,46 @@ Validation for either module: `yarn generate` (route discovery), the app typeche
 (`cd apps/mercato; node --max-old-space-size=6144 ../../node_modules/typescript/bin/tsc
 --noEmit` — the default heap runs out of memory), `yarn i18n:check-sync`,
 `yarn template:sync` (app modules mirror into the create-app template).
+
+## 2026-09-27 — HR screens finished, and two silent defects closed
+
+**Screens.** Departments (`/backend/hr/departments`, list/create/edit, ancestor-cycle guard in the
+form and in `assertDepartmentWritable`), drivers (`/backend/hr/drivers`, where the licence **and** the
+medical certificate are watched together — a driver is compliant only while both are valid), employee
+documents (`/backend/hr/documents`, the register an inspection asks for), and the approvals inbox from
+the previous slice. Each list carries the filters an operator actually uses (employee, document type,
+compliance window) and each form threads `updatedAt` for optimistic locking.
+
+**The filter-key defect (31 keys, 12 routes).** Every `buildFilters` in these two modules emitted
+camelCase keys, which the query resolves against nothing: `?departmentId=<uuid>` returned zero rows
+while `?department_id=<uuid>` returned the row, same route, same session, same value. The schema's
+`.passthrough()` accepted the parameter, so no gate noticed and the tables came up empty whenever a
+filter was used. All 31 keys now name columns; `packages/core/src/__tests__/crud-filter-keys.test.ts`
+fails the build on a recurrence; the contract is written down in
+`.ai/lessons/crud-filter-keys-must-be-column-names.md`.
+
+**Odometer log on handover (deliberate behaviour change).** `assignments.handover` now writes an
+`assignment_handover` log beside the `assignment_return` one the module already wrote. A custody change
+is the moment the mileage is agreed by two parties, and a vehicle held long-term otherwise had no
+reading in its history until it came back — exactly the stretch a maintenance interval has to cover.
+The log is created **after** the assignment is flushed, because a freshly created entity has no primary
+key until then (the first attempt stored a NULL link, which the filter sweep caught).
+
+**Adding a module to an existing tenant needs an ACL sync.** The seeded tenant predates these modules,
+so every route answered `403 {"requiredFeatures":["hr.write"]}` although `setup.ts` declares the grants
+— those are applied when a tenant is created. `yarn mercato auth sync-role-acls` (additive,
+`ensureDefaultRoleAcls`) fixed it, and the app had to be restarted because the running process holds the
+role ACL it resolved at boot.
+
+**Phase 4–5 verification.** Live against a running app: 22/22 flow checks (department → employee →
+workflow → step → leave request → submit → approve → entity flipped with decision trail + audit log;
+cycle and self-parent rejected with 409, unknown parent with 400; handover → assigned → second handover
+refused → return → released, with both odometer readings) and 26/26 filter checks. Committed as
+`__integration__/TC-HR-001` (approval round trip), `TC-HR-002` (department integrity), `TC-HR-003`
+(list filters) and `TC-FLEET-001` (custody). Playwright's static discovery of ~1.5k specs takes minutes
+on a developer machine, which is why the same sequences were also driven straight over HTTP; the specs
+are the CI artefact.
+
+**Still open here:** attendance records cannot be turned into a lateness permission from the list (only
+the record's own screen offers the workflow picker); `transport_operations` has no backend UI; the
+Arabic rollout continues with the modules listed in the localization spec.

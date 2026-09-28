@@ -18,6 +18,9 @@ const listSchema = z.object({
   workflowId: z.string().uuid().optional(),
   status: z.string().optional(),
   entityType: z.string().optional(),
+  // The pair the index `hr_approval_requests_entity_idx` covers: "is there already a request about
+  // this record?" is the question every approval entry point has to ask before offering to submit one.
+  entityId: z.string().uuid().optional(),
   search: z.string().optional(),
   sortField: z.string().optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
@@ -44,17 +47,18 @@ const crud = makeCrudRoute({
     buildFilters: (query) => ({
       ...(query.id ? { id: { $eq: query.id } } : {}),
       ...(query.ids ? { id: { $in: query.ids.split(',').map((value) => value.trim()).filter(Boolean) } } : {}),
-      ...(query.workflowId ? { workflowId: { $eq: query.workflowId } } : {}),
+      ...(query.workflowId ? { workflow_id: { $eq: query.workflowId } } : {}),
       ...(query.status ? { status: { $eq: query.status } } : {}),
       // The inbox's request-type filter is the one an operator reaches for when the queue mixes
       // leave requests with permissions, so it has to reach the query rather than being dropped by
       // `passthrough()` and quietly returning everything.
-      ...(query.entityType ? { entityType: { $eq: query.entityType } } : {}),
+      ...(query.entityType ? { entity_type: { $eq: query.entityType } } : {}),
+      ...(query.entityId ? { entity_id: { $eq: query.entityId } } : {}),
       // The search box looks for what the operator sees: the summary they wrote or the request type.
       // `summary` is nullable, so a null row simply never matches.
       ...(query.search ? { $or: [
         { summary: { $ilike: `%${escapeLikePattern(query.search)}%` } },
-        { entityType: { $ilike: `%${escapeLikePattern(query.search)}%` } },
+        { entity_type: { $ilike: `%${escapeLikePattern(query.search)}%` } },
       ] } : {}),
     }),
     transformItem: (item) => ({ ...item, updatedAt: item.updated_at ?? null }),

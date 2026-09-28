@@ -40,7 +40,7 @@ const crud = makeCrudRoute({
     buildFilters: (query) => ({
       ...(query.id ? { id: { $eq: query.id } } : {}),
       ...(query.ids ? { id: { $in: query.ids.split(',').map((value) => value.trim()).filter(Boolean) } } : {}),
-      ...(query.workflowId ? { workflowId: { $eq: query.workflowId } } : {}),
+      ...(query.workflowId ? { workflow_id: { $eq: query.workflowId } } : {}),
     }),
     transformItem: (item) => ({ ...item, updatedAt: item.updated_at ?? null }),
   },

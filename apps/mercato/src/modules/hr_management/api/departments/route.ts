@@ -43,8 +43,8 @@ const crud = makeCrudRoute({
     buildFilters: (query) => ({
       ...(query.id ? { id: { $eq: query.id } } : {}),
       ...(query.ids ? { id: { $in: query.ids.split(',').map((value) => value.trim()).filter(Boolean) } } : {}),
-      ...(query.parentDepartmentId ? { parentDepartmentId: { $eq: query.parentDepartmentId } } : {}),
-      ...(query.isActive === undefined ? {} : { isActive: { $eq: query.isActive } }),
+      ...(query.parentDepartmentId ? { parent_department_id: { $eq: query.parentDepartmentId } } : {}),
+      ...(query.isActive === undefined ? {} : { is_active: { $eq: query.isActive } }),
       ...(query.name ? { name: { $ilike: `%${escapeLikePattern(query.name)}%` } } : {}),
     }),
     transformItem: (item) => ({ ...item, updatedAt: item.updated_at ?? null }),
