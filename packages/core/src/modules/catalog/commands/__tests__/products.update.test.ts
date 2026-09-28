@@ -1,6 +1,6 @@
 export {}
 
-import { CatalogOffer, CatalogProductCategoryAssignment } from '../../data/entities'
+import { CatalogOffer, CatalogOptionSchemaTemplate, CatalogProductCategoryAssignment } from '../../data/entities'
 
 const registerCommand = jest.fn()
 const findWithDecryption = jest.fn().mockImplementation(async (...args: unknown[]) => {
@@ -144,6 +144,125 @@ describe('catalog.products.update', () => {
     expect(firstFlush).toBeLessThan(firstFindWithDecryption)
     expect(events).toContain(`find:${CatalogOffer.name}`)
     expect(events).toContain(`find:${CatalogProductCategoryAssignment.name}`)
+  })
+
+  it('looks up an inline option schema template on the forked em, not the em with pending scalar changes', async () => {
+    let updateCommand: unknown
+    jest.isolateModules(() => {
+      require('../products')
+      updateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'catalog.products.update')?.[0]
+    })
+    expect(updateCommand).toBeDefined()
+
+    const record = {
+      id: '11111111-1111-4111-8111-111111111113',
+      organizationId: '22222222-2222-4222-8222-222222222222',
+      tenantId: '33333333-3333-4333-8333-333333333333',
+      title: 'Old title',
+      subtitle: null,
+      description: null,
+      sku: null,
+      handle: null,
+      taxRateId: null,
+      taxRate: null,
+      productType: 'simple',
+      statusEntryId: null,
+      primaryCurrencyCode: null,
+      defaultUnit: null,
+      defaultMediaId: null,
+      defaultMediaUrl: null,
+      weightValue: null,
+      weightUnit: null,
+      dimensions: null,
+      metadata: null,
+      customFieldsetCode: null,
+      optionSchemaTemplate: null,
+      isConfigurable: false,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+
+    const lookupEm = {
+      findOne: jest.fn().mockResolvedValue(null),
+      find: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+      create: jest.fn().mockImplementation((_entity: unknown, payload: unknown) => payload),
+      persist: jest.fn(),
+    }
+
+    const em = {
+      findOne: jest.fn().mockResolvedValue(record),
+      find: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+      create: jest.fn().mockImplementation((_entity: unknown, payload: unknown) => payload),
+      remove: jest.fn(),
+      persist: jest.fn(),
+      flush: jest.fn(),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
+      fork: jest.fn().mockReturnValue(lookupEm),
+    }
+
+    const containerEm = {
+      fork: jest.fn().mockReturnValue(em),
+    }
+
+    const dataEngine = {
+      markOrmEntityChange: jest.fn(),
+    }
+
+    const container = {
+      resolve: jest.fn((token: string) => {
+        if (token === 'em') return containerEm
+        if (token === 'dataEngine') return dataEngine
+        return undefined
+      }),
+    }
+
+    const ctx = {
+      container,
+      auth: {
+        sub: 'user-1',
+        tenantId: '33333333-3333-4333-8333-333333333333',
+        orgId: '22222222-2222-4222-8222-222222222222',
+      },
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+    }
+
+    findOneWithDecryption.mockResolvedValue(record)
+
+    await (updateCommand as { execute: (payload: Record<string, unknown>, ctx: unknown) => Promise<void> }).execute(
+      {
+        id: '11111111-1111-4111-8111-111111111113',
+        organizationId: '22222222-2222-4222-8222-222222222222',
+        tenantId: '33333333-3333-4333-8333-333333333333',
+        title: 'New title',
+        optionSchema: {
+          options: [{ code: 'size', label: 'Size', inputType: 'select', choices: [] }],
+        },
+        offers: [],
+        categoryIds: [],
+        tags: [],
+      },
+      ctx
+    )
+
+    expect(record.title).toBe('New title')
+    const lookupCall = lookupEm.findOne.mock.calls.find(
+      ([entity]) => (entity as { name?: string })?.name === CatalogOptionSchemaTemplate.name,
+    )
+    expect(lookupCall).toBeDefined()
+    expect(lookupCall?.[1]).toEqual(
+      expect.objectContaining({ organizationId: record.organizationId, tenantId: record.tenantId }),
+    )
+    const emLookupCall = em.findOne.mock.calls.find(
+      ([entity]) => (entity as { name?: string })?.name === CatalogOptionSchemaTemplate.name,
+    )
+    expect(emLookupCall).toBeUndefined()
   })
 
   it('rejects clearing base unit when default sales unit is configured', async () => {
