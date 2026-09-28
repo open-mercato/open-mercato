@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 146 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 147 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -51,6 +51,7 @@ This catalog indexes 146 focused lessons. Route the task first, then read only r
 - [`dbMigrate` must not write migration snapshots during initialize flows](lessons/dbmigrate-must-not-write-migration-snapshots-during.md) — area:module-data,architecture; module:cli,create_app; topic:generated-files,database-migrations,runtime-startup
 - [A route's metadata.path is the URL; the OpenAPI document is not](lessons/api-url-prefix-must-match-the-module-id.md) — area:module-data,testing,integration; module:hr_management,fleet_management,transport_operations,saudi_localization,cli,shared; topic:auto-discovery,generated-files,error-states
 - [A CRUD list filter key is a column name, not a property name](lessons/crud-filter-keys-must-be-column-names.md) — area:module-data,testing,integration; module:hr_management,fleet_management,create_app,shared,core; topic:auto-discovery,error-states,crud-forms
+- [A line-based script that writes a tracked JSON dictionary must insert inside the object](lessons/json-dictionary-edits-must-stay-inside-the-object.md) — area:debugging,module-data,testing; module:hr_management,create_app; topic:generated-files,regeneration,error-states
 - [A self-request needs data committed outside the caller's transaction](lessons/a-self-request-needs-data-committed-outside-the-callers.md) — area:module-data; module:auth,checkout,query_index; topic:data-integrity,query-index,workers
 - [Avoid identity-map stale snapshots in command logs](lessons/avoid-identity-map-stale-snapshots-in-command-logs.md) — area:module-data,debugging; module:audit_logs,cache; topic:command-pattern,data-integrity,generated-files
 - [Classify entity metadata by ORM ownership before custom declarations](lessons/classify-entity-metadata-by-orm-ownership-before-custom.md) — area:module-data; module:entities; topic:access-control,filters

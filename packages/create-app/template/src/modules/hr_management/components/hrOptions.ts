@@ -30,6 +30,38 @@ export function employeeLabel(employee: Pick<EmployeeOption, 'first_name' | 'las
   return `${employee.first_name} ${employee.last_name}`.trim()
 }
 
+export type WorkflowOption = {
+  id: string
+  name: string
+  code?: string | null
+  entity_type?: string | null
+  is_active?: boolean | null
+}
+
+/**
+ * Approval workflows once per scope, for the step screens: the label of a step's workflow, the
+ * options of a filter, and the choice a new step is created under.
+ */
+export function useWorkflowOptions() {
+  const scopeVersion = useOrganizationScopeVersion()
+  const query = useQuery({
+    queryKey: ['hr-workflow-options', scopeVersion],
+    queryFn: () => fetchCrudList<WorkflowOption>('hr_management/approval-workflows', {
+      pageSize: 100,
+      sortField: 'name',
+      sortDir: 'asc',
+    }),
+    staleTime: 5 * 60 * 1000,
+  })
+  const workflows = query.data?.items ?? []
+  const labels = React.useMemo(() => {
+    const map = new Map<string, string>()
+    for (const workflow of workflows) map.set(workflow.id, workflow.name)
+    return map
+  }, [workflows])
+  return { workflows, labels }
+}
+
 /** Departments once per scope: the labels for a column and the options for a filter or picker. */
 export function useDepartmentOptions() {
   const scopeVersion = useOrganizationScopeVersion()

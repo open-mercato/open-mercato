@@ -7,6 +7,7 @@ import {
   HrEmployeeDocument,
   HrLeaveRequest,
   HrApprovalRequest,
+  HrApprovalWorkflow,
 } from '../data/entities'
 
 export type HrScope = { tenantId: string; organizationId: string }
@@ -34,6 +35,14 @@ export type LeaveInput = {
 export type DepartmentInput = {
   id?: string
   parentDepartmentId?: string | null
+}
+
+export type StepDefinitionInput = {
+  id?: string
+  workflowId: string
+  approverType: string
+  approverRoleId?: string | null
+  approverUserId?: string | null
 }
 
 export type HrDashboardSummary = {
@@ -104,6 +113,30 @@ export async function assertDepartmentWritable(
     if (visited.has(cursor)) break
     visited.add(cursor)
     cursor = parentsById.get(cursor) ?? null
+  }
+}
+
+export async function assertStepDefinitionWritable(
+  em: EntityManager,
+  input: StepDefinitionInput,
+  scope: HrScope,
+): Promise<void> {
+  const scoped = scopedOf(scope)
+
+  const workflow = await em.findOne(HrApprovalWorkflow, { ...scoped, id: input.workflowId })
+  if (!workflow) {
+    return raiseHrError(400, 'workflow_not_found', 'The selected approval workflow does not exist.')
+  }
+
+  // A step names who decides it, and the engine resolves that differently per type: a `user` step is
+  // decided by that account, a `role` step by role membership. Either without its target is a step
+  // that can never be decided — the request would sit at it forever with nothing to point at — which
+  // is why this is a service rule rather than a form-level nicety.
+  if (input.approverType === 'user' && !input.approverUserId) {
+    return raiseHrError(400, 'step_approver_user_required', 'A step approved by a named user must name that user.')
+  }
+  if (input.approverType === 'role' && !input.approverRoleId) {
+    return raiseHrError(400, 'step_approver_role_required', 'A step approved by a role must name that role.')
   }
 }
 

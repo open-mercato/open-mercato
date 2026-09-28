@@ -159,3 +159,38 @@ are the CI artefact.
 **Still open here:** attendance records cannot be turned into a lateness permission from the list (only
 the record's own screen offers the workflow picker); `transport_operations` has no backend UI; the
 Arabic rollout continues with the modules listed in the localization spec.
+
+## 2026-09-27 (later) — approval configuration, and the lateness permission on the list
+
+**Workflow and step configuration ships.** The engine could decide requests but nothing could define
+what decides them: `/backend/hr/approval-workflows` (list, create, edit) and `/backend/hr/approval-steps`
+(list across workflows, create, edit) plus a workflow's own steps screen at
+`/backend/hr/approval-workflows/<id>/steps`. A workflow's `entityType` is a **select** of the two targets
+the engine implements rather than free text — the string is compared at submit time, so a typo produced a
+workflow that was never selected and never complained. A step's approver target follows its type
+(`user` → a user, `role` → a role, `manager` → neither, resolved from the reporting line), and the
+payload sends only the target the chosen type uses.
+
+**`assertStepDefinitionWritable`** (service, wired into the step CRUD's create and update) enforces what
+the form also checks: the workflow must exist in scope, and a step must name the approver its type
+requires. A step without one can never be decided — the request would sit at it forever — and the
+partial-update path sees through a type switch that does not touch the target. Verified live: 9/9 checks
+(unknown workflow 400, user/role without a target 400, manager step accepted, type switch refused until
+the target is supplied, unrelated edit keeps the stored approver).
+
+**The lateness permission is reachable from the list.** An "Ask for permission" row action on late
+attendance records opens `LatenessPermissionDialog`, which discovers an open request itself (so a second
+one cannot be started), offers only active workflows declared for attendance records, and submits through
+the same helper the record screen uses. Verified live: 10/10 checks including submit → approve → the
+record becomes `present` with an audit entry.
+
+**Two filter defects fixed on the way.** The workflow routes accepted `isActive`/`entityType` and applied
+neither, so every picker listed inactive definitions and leave workflows; and `isActive: z.coerce.boolean()`
+read `'false'` as `true`, so `?isActive=false` returned the active rows. The routes now filter
+`is_active`/`entity_type`, and a boolean query parameter spells out its tokens
+(`hr_management/lib/queryBoolean.ts`); the example module's todo route carried the same coercion trap.
+
+**Still open here:** `transport_operations` has no backend UI; the Arabic rollout continues with the
+modules listed in the localization spec (`wms`, `workflows`, `agent_orchestrator`, `warranty_claims`, then
+the small admin surfaces, and `sales`/`customers`/`staff` in their own slices).
+

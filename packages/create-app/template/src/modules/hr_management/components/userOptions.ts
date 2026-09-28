@@ -58,6 +58,29 @@ export async function loadHrUserOptions(query?: string): Promise<HrUserOption[]>
   return (await fetchUsers(params, 'search')) ?? []
 }
 
+/**
+ * Roles for the step configuration's approver picker.
+ *
+ * A failed lookup is an empty list, like the user picker: the form then cannot offer that approver
+ * type, which is honest — a step whose role does not resolve can never be decided.
+ */
+export async function loadHrRoleOptions(): Promise<HrUserOption[]> {
+  const params = new URLSearchParams()
+  params.set('page', '1')
+  params.set('pageSize', '100')
+  const call = await apiCall<{ items?: Array<{ id?: unknown; name?: unknown }> }>(
+    `/api/auth/roles?${params.toString()}`,
+    { headers: { 'x-om-forbidden-redirect': '0' } },
+    { fallback: null },
+  ).catch(() => null)
+  if (!call || !call.ok) return []
+  return (call.result?.items ?? []).flatMap((role) => {
+    if (typeof role.id !== 'string' || !role.id.trim()) return []
+    const name = typeof role.name === 'string' && role.name.trim() ? role.name.trim() : role.id.trim()
+    return [{ value: role.id.trim(), label: name }]
+  })
+}
+
 export type HrUserLookup = {
   options: HrUserOption[]
   /** The ids the server actually answered for; callers cache on these, so a failure is retried. */

@@ -41,6 +41,7 @@ import {
   assertDepartmentWritable,
   assertEmployeeWritable,
   assertLeaveRequestBookable,
+  assertStepDefinitionWritable,
   type HrScope,
 } from '../lib/hrService'
 
@@ -300,6 +301,32 @@ registerCrudCommands({
   toUpdateData: patched,
   events: hrApprovalStepEvents,
   indexer: hrApprovalStepIndexer,
+  beforeCreate: async (input, scope, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await assertStepDefinitionWritable(em, {
+      workflowId: String(input.workflowId),
+      approverType: String(input.approverType),
+      approverRoleId: typeof input.approverRoleId === 'string' ? input.approverRoleId : null,
+      approverUserId: typeof input.approverUserId === 'string' ? input.approverUserId : null,
+    }, scope)
+  },
+  beforeUpdate: async (input, current, scope, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    // A partial patch inherits the stored values it does not mention, so switching only the approver
+    // type still has to satisfy the rule for the type that ends up stored.
+    const stored = current as HrApprovalStepDefinition
+    await assertStepDefinitionWritable(em, {
+      id: String(stored.id),
+      workflowId: typeof input.workflowId === 'string' ? input.workflowId : String(stored.workflowId),
+      approverType: typeof input.approverType === 'string' ? input.approverType : String(stored.approverType),
+      approverRoleId: input.approverRoleId === undefined
+        ? stored.approverRoleId ?? null
+        : (typeof input.approverRoleId === 'string' ? input.approverRoleId : null),
+      approverUserId: input.approverUserId === undefined
+        ? stored.approverUserId ?? null
+        : (typeof input.approverUserId === 'string' ? input.approverUserId : null),
+    }, scope)
+  },
 })
 
 // Registered here so the CRUD route for approval requests has commands to dispatch to.
