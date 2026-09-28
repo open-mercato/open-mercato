@@ -199,6 +199,9 @@ describe('catalog.products.update', () => {
       remove: jest.fn(),
       persist: jest.fn(),
       flush: jest.fn(),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
       fork: jest.fn().mockReturnValue(lookupEm),
     }
 
