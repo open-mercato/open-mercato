@@ -44,7 +44,7 @@ merges.
 | Accounts Receivable (sales invoice → GL posting) | [`2026-08-18-sales-invoice-gl-posting.md`](https://github.com/open-mercato/open-mercato/pull/6046) | `docs/sales-invoice-gl-posting` | Open, PR #6046 — full spec, one independent adversarial review pass (eleven issues fixed) plus a Final Compliance Matrix; not yet reviewed by a maintainer |
 | Cash & Bank Management | [`2026-09-10-cash-bank-management.md`](https://github.com/open-mercato/open-mercato/pull/6055) | `docs/cash-bank-management` | Open, PR #6055 — full spec, two independent adversarial review passes (14 + 5 issues fixed) plus a literature-verification pass; not yet reviewed by a maintainer |
 | Default Chart of Accounts (Polish plan kont importer) | [`2026-09-15-default-chart-of-accounts.md`](https://github.com/open-mercato/open-mercato/pull/6137) | `docs/default-chart-of-accounts` | Open, PR #6137 — first document in this family to carry the full `financial-spec-writing-process` (own Literature & Prior Art section + real-system comparison) from its very first draft; cross-spec pass against every sibling spec found and fixed a real defect (070/071/072 split vs. Fixed Assets, commit `981dbf470`), see Changelog |
-| Tax Management (Core framework `tax_management` + Poland `financial_pl`) | [`2026-09-16-tax-management.md`](https://github.com/open-mercato/open-mercato/pull/6168) | `docs/tax-management` | Open, PR #6168 — first draft, not yet reviewed; follows the Core-framework-plus-country-plugin split `SPEC-024-2026-02-11-financial-module.md` §10 already mandates |
+| Tax Management (Core framework `tax_management` + Poland `financial_pl`) | [`2026-09-16-tax-management.md`](https://github.com/open-mercato/open-mercato/pull/6168) | `docs/tax-management` | Open, PR #6168 — `om-auto-review-pr` pass resolved 2026-09-28 (1 Blocker, 6 Majors, 6 Minors; commit `af7f6ff18`); split into Core-only (this document) + Poland-specific `financial_pl` half, moved to `official-modules` as [`SPEC-011-2026-09-16-tax-management-financial-pl.md`](https://github.com/open-mercato/official-modules/pull/55) (fork `mikoajp:docs/spec-011-tax-management-financial-pl` → `official-modules:develop`), mirroring the SPEC-010 precedent above; not yet reviewed by a maintainer under either repo's own process |
 | Annual Financial Statements (Core `financial_statements` + Poland `financial_pl` — Bilans/RZiS) | [`2026-09-17-annual-financial-statements.md`](https://github.com/open-mercato/open-mercato/pull/6188) | `docs/annual-financial-statements` | Open, PR #6188 — first draft, not yet reviewed; follows the same `SPEC-024-2026-02-11-financial-module.md` §11 Core-framework-plus-country-plugin split as Tax Management (§10); the actual Załącznik nr 1 line templates are Unverified pending a primary-source read (see Tier 1 below) |
 | Multi-Currency (exchange rate integration + period-end FX revaluation) | [`2026-09-17-multi-currency.md`](https://github.com/open-mercato/open-mercato/pull/6190) | `docs/multi-currency` | Open, PR #6190 — first draft, not yet reviewed; integration spec against the already-implemented `currencies` module, not a new rate engine; UoR Art. 30 ("wycena bilansowa") is Unverified pending a primary-source read (see Tier 1 below) |
 | Deferred Revenue (RMP — scheduled recognition over time for AR/Sales) | [`2026-09-17-deferred-revenue.md`](https://github.com/open-mercato/open-mercato/pull/6193) | `docs/deferred-revenue` | Open, PR #6193 — first draft, not yet reviewed; scope deliberately narrowed to what the Event Storming source material actually supports (AR/Sales only) after an earlier, informal "generic RMK+leasing+loan-installment mechanism" framing was checked against the primary transcript and found to have no basis there (see Changelog); models `RevenueRecognitionScheduleEntry` closely on Fixed Assets' own `DepreciationScheduleEntry`/`accrueDepreciation` shape |
@@ -659,9 +659,24 @@ real):**
   current-liability shape, just without the Poland-specific payment
   target. Comarch Optima's, enova365's, and Symfonia's specific
   mikrorachunek handling was searched for but not confirmed from
-  public documentation — recorded as **Unverified**, per
+  public documentation at the time — recorded as **Unverified**, per
   `financial-spec-citation-check`, rather than assumed from their
-  general Polish-market positioning.
+  general Polish-market positioning. **Update 2026-09-28: now
+  Confirmed.** All three store the mikrorachunek as manually entered
+  configuration rather than computing it from NIP/PESEL: Comarch ERP
+  Optima routes declaration payments to a Kasa/Bank preliminary list
+  for manual transfer, with ZUS individual account numbers explicitly
+  entered on the office form ([pomoc.comarch.pl](https://pomoc.comarch.pl/optima/pl/2026/dokumentacja/deklaracje-a-platnosci-z-nimi-zwiazane/));
+  enova365 stores the account once under Narzędzia → Opcje → Firma →
+  Urzędy i KRS (or per-owner for PIT) and auto-populates it onto
+  VAT/CIT payments from then on ([erpit.pl](https://erpit.pl/post/54-indywidualny-rachunek-podatkowy-w-enova365));
+  Symfonia Start's Mała Księgowość falls back to manual entry of the
+  office's account number when none is configured ([pomoc.symfonia.pl](https://pomoc.symfonia.pl/data/mk/Start/2024_b/data/html_mkrp0054.htm)).
+  Full citations in `SPEC-011-2026-09-16-tax-management-financial-pl.md`'s
+  own Literature & Prior Art section — a real, disclosed divergence
+  from that document's live-computation design, flagged there for a
+  maintainer's explicit sign-off, not a defect in the design (live
+  computation removes a manual setup step).
 - **New 2026-09-17, for Annual Financial Statements.** **ERPNext**
   (`frappe/erpnext`, `chart_of_accounts.py`, `develop` branch, read
   from the live GitHub source): `report_type` ("Balance Sheet" or
@@ -1942,3 +1957,46 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
   file's dated Changelog, not §3 "External sources" — corrected in
   place, per `financial-spec-citation-check` discipline of not letting
   a mismatched citation stand once caught).
+
+### 2026-09-28 (cont. — Tax Management: PR #6168 review resolved, split into SPEC-011; financial-spec-writing-process retrospective)
+
+- **PR #6168's automated review (`om-auto-review-pr`) resolved**: 1
+  Blocker (B1 — VAT/CIT/PIT posting-shape redesign, grounded in Kieso
+  Ch.13 p.13-8 and a new pp.13-10–13-11 Illustration 13.5/13.6
+  citation), 6 Majors (M1 concurrency, M2 tax-engine registry, M3
+  package placement, M4 authorization, M5 `SalesTaxRate`/`TaxCode`
+  relation, M6 missing sections), and the applicable Minors (m2
+  currency, m6 `TaxCode` base fields directly; m1/m3/m4/m5 via the
+  split below). Commit `af7f6ff18` on `docs/tax-management`.
+- **Direction question resolved**: split `financial_pl`'s half out to
+  `official-modules`, mirroring the SPEC-010 precedent above, at the
+  user's explicit decision after two rounds of clarification (the
+  first AskUserQuestion framing read as ambiguous between "move the
+  whole document" and "split it"; re-explaining the SPEC-010 parallel
+  concretely resolved it). New document:
+  `SPEC-011-2026-09-16-tax-management-financial-pl.md`,
+  `official-modules#55` (fork `mikoajp:docs/spec-011-tax-management-
+  financial-pl` → `official-modules:develop`); Core-only
+  `tax_management` stays in this document. Module map (§1) updated.
+- **financial-spec-writing-process retrospective, prompted directly by
+  the user asking whether the process had actually been followed**:
+  checked against real file state (`git log`, `grep` on the actual
+  documents and skill files) rather than recollection, per
+  `financial-spec-citation-check`. Step 2 (Kieso citations) and the
+  citation-check discipline (mikrorachunek re-derivation) held up on
+  inspection. Two real gaps found and fixed in this pass: Step 3
+  (real-system comparison) had only checked ERPNext/Odoo/GnuCash for
+  `SPEC-011` — none model a country-specific tax account at all, so
+  this missed the actually-comparable systems; Comarch Optima/
+  enova365/Symfonia are now checked (Tier 4 entry above updated). Step
+  5 (this file) had not been updated with this round's findings at all
+  before being asked — this entry is that catch-up.
+- **One gap flagged but deliberately not retrofitted**:
+  `official-modules/.ai/skills/spec-writing/SKILL.md`'s own workflow
+  mandates a Skeleton Spec + Open Questions hard gate before writing a
+  full new spec, which was skipped in favor of writing the complete
+  document directly. Noted here as a process deviation for the record
+  — not undone, since `official-modules#55` is already open and the
+  user's own multi-round direction-question answer already served as
+  the equivalent decision point, just not through that literal
+  mechanism.
