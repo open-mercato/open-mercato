@@ -242,6 +242,32 @@ const referralConverted: TriggerCatalogEntry = {
   },
 }
 
+/**
+ * A product this customer asked to be told about got cheaper.
+ *
+ * The highest-intent signal in the module: the subject told you the product and the condition. The drop
+ * percentage travels as context so an audience can require a real discount — "at least 20% off" is a
+ * different campaign from "any drop".
+ */
+const priceDropped: TriggerCatalogEntry = {
+  eventId: 'marketing_automation.product.price_dropped',
+  labelKey: 'marketing_automation.trigger.marketing_automation.product.price_dropped.label',
+  available: true,
+  contextKeys: ['trigger.sku', 'trigger.dropPercent', 'trigger.currentPrice', 'trigger.previousPrice'],
+  async build(payload) {
+    return {
+      subjectEntityId: readString(payload.entityId),
+      trigger: {
+        sku: readString(payload.sku),
+        currencyCode: readString(payload.currencyCode),
+        previousPrice: readAmount(payload.previousPrice),
+        currentPrice: readAmount(payload.currentPrice),
+        dropPercent: readAmount(payload.dropPercent),
+      },
+    }
+  },
+}
+
 export const TRIGGER_CATALOG: TriggerCatalogEntry[] = [
   personCreated,
   tagAssigned,
@@ -251,6 +277,7 @@ export const TRIGGER_CATALOG: TriggerCatalogEntry[] = [
   fulfilledOrder,
   inboundReceived,
   referralConverted,
+  priceDropped,
   abandonedCart,
 ]
 

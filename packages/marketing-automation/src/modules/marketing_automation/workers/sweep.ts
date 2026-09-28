@@ -17,6 +17,8 @@ import type { RowSweepSource } from '../lib/sweep-sources.js'
 import { isSweepDue } from '../lib/sweep-interval.js'
 import { pruneJobRuns, recordJobRun } from '../lib/job-runs.js'
 import { pruneSegmentSnapshots, takeSegmentSnapshots } from '../lib/segment-snapshots.js'
+import { scanPriceWatches } from '../lib/product-watches.js'
+import { emitMarketingAutomationEvent } from '../events.js'
 import { MarketingCampaignTrigger as TriggerEntity } from '../data/entities.js'
 import type { MarketingCampaign, MarketingCampaignTrigger } from '../data/entities.js'
 import type { SweepJob } from '../lib/queue.js'
@@ -322,6 +324,36 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
         attributes: { campaignId: campaign.id },
       })
     }
+  }
+
+  /**
+   * Price watches, on the same periodic pass.
+   *
+   * One pass rather than a queue of its own, for the reason the snapshots share it: a module with three
+   * schedules has three things that can be unscheduled. The scan commits its bookkeeping BEFORE the events go
+   * out, so a crash between the two sends nothing rather than sending twice.
+   */
+  try {
+    const watches = await scanPriceWatches(deps.em, scope, deps.now)
+    for (const firing of watches.fired) {
+      await emitMarketingAutomationEvent('marketing_automation.product.price_dropped', {
+        entityId: firing.watch.subjectEntityId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        sku: firing.watch.sku,
+        currencyCode: firing.watch.currencyCode,
+        previousPrice: String(firing.decision.previous),
+        currentPrice: String(firing.decision.current),
+        dropPercent: String(firing.decision.dropPercent),
+      }, { persistent: true })
+    }
+    if (watches.fired.length > 0) {
+      logger.info('marketing price drops announced', { count: watches.fired.length, scanned: watches.scanned })
+    }
+  } catch (error) {
+    logger.warn('[internal] marketing price watch scan failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
   }
 
   /**

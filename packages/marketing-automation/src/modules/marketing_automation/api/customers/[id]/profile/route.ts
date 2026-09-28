@@ -14,6 +14,7 @@ import { loadScorePoints } from '../../../../lib/scores.js'
 import { recommendForSubject } from '../../../../lib/recommendations.js'
 import { loadReferralSummary, loadReferralUrlTemplate } from '../../../../lib/referrals.js'
 import { computeSegmentSlugs, loadSegmentDefinitions, namesForSlugs } from '../../../../lib/segments.js'
+import { loadWatchSummaries } from '../../../../lib/product-watches.js'
 import { buildSubjectDocument } from '../../../../lib/subject-document.js'
 import { loadConsentState } from '../../../../lib/consent.js'
 import { loadLatestNps, npsBand } from '../../../../lib/survey.js'
@@ -115,6 +116,14 @@ export async function GET(req: Request) {
       )
     : []
 
+  /**
+   * What they are waiting to get cheaper.
+   *
+   * The most explicit thing a customer ever tells a shop, so it belongs on the screen where somebody decides
+   * what to offer them.
+   */
+  const watches = await loadWatchSummaries(em, scope, customerId)
+
   const referral = await loadReferralSummary(
     em,
     scope,
@@ -192,6 +201,8 @@ export async function GET(req: Request) {
     messages: { sent, suppressed, opened: engagement.opened, clicked: engagement.clicked },
     /** Segment NAMES, not slugs: the slug is a reference for audiences, the name is for people. */
     segments,
+    /** Each carries the price they last saw and the price now, which is the whole point of a watch. */
+    watches,
     /** `code` is null until a campaign step has issued one, which the screen says plainly. */
     referral,
     /** Each carries the signal that chose it, so the screen can say why rather than just what. */

@@ -137,6 +137,17 @@ its own. Spec:
   which lane a subject takes is decided by the engine, not by an edge somebody drew — an author who
   can draw an edge has been promised a topology it cannot run. Edges are derived; order lives in the
   definition arrays.
+- Never read a shopper's price from a targeted price row. A watch compares the UNTARGETED list price — regular
+  kind, quantity one, no channel, user, group or customer dimension, inside its window — because a contract
+  price for a different buyer is not this customer's price.
+- Never treat a missing current price as a price drop. A product that was unpublished has not become cheaper,
+  and "it is gone" is not the message the customer asked for.
+- Never keep a watch's reference price when the product got DEARER. The reference follows the price upwards so
+  a recovery to where the customer started is announced, and a partial recovery is not.
+- Never emit a price-drop event before the watch bookkeeping is committed. The reference price and the notified
+  timestamp are the only things stopping a redelivered scan from telling the same person twice.
+- Never add a back-in-stock scan by reading `wms` tables. Stock belongs behind the availability contract that
+  does not exist yet; the module says so in the roadmap rather than reaching across a module boundary.
 - Never resolve segment membership anywhere but `resolveSegmentMembers`. Five callers need that answer — the
   members screen, overlap, size snapshots, bulk actions and the CSV export — and the moment two of them
   compute it differently one of the screens starts disagreeing with what actually sends.
@@ -267,6 +278,7 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | ONE membership resolver, shared by five callers | `lib/segment-members.ts` |
 | daily segment sizes and their retention | `lib/segment-snapshots.ts` |
 | a queued bulk action with real progress | `workers/segment-action.ts`, `api/segments/[id]/actions/` |
+| price watches, the drop rules and the scan | `lib/engine/price-watch.ts`, `lib/product-watches.ts` |
 | a step that writes into the run context | `steps/issue-referral-code.ts` |
 | enrolment shared by events and sweeps | `lib/dispatcher.ts` → `startCampaignForSubject` |
 | trigger context hydration | `lib/trigger-catalog.ts` |
@@ -294,6 +306,8 @@ there, whereas a detached `yarn dev` exits instead of restarting.
   `MAX_RUNS_PER_SUBJECT` bounds runs per subject per hour across ALL campaigns. An in-context
   depth counter was tried first and could not work — the events are emitted by the modules that
   own them and carry nothing of ours, so nothing could increment a depth across the hop.
+- `em.getConnection().execute` does not bind a JS array to `= any(?)` — it errors rather than binding. Expand
+  placeholders (`in (?, ?, …)`) and spread the values; they are still parameters.
 - `moduleConfigService.getValue` takes the scope inside an OPTIONS object (`{ scope }`) while `setValue`
   takes it positionally. Passing it positionally to `getValue` compiles, drops the scope and reads the
   instance-wide record instead, so a tenant's configured value never applies — and nothing fails, because

@@ -1062,3 +1062,70 @@ export class MarketingSegmentSnapshot {
   @Property({ name: 'taken_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
   takenAt!: Date
 }
+
+/**
+ * A customer waiting for a product to get cheaper.
+ *
+ * The highest-intent signal a shop gets: somebody has told you exactly what they want and what would make
+ * them buy. Keyed on the SKU rather than a catalogue id, for the same reason the order-line snapshot is —
+ * a SKU is what a customer, an importer and a feed all agree on, and it survives a product being replaced.
+ *
+ * `watchedPriceGross` is the price when the watch started (or when the customer was last told), so a drop is
+ * measured against what THEY last saw. Measuring against an all-time low would tell somebody a price
+ * dropped when it had only returned to where they first met it.
+ */
+@Entity({ tableName: 'marketing_product_watches' })
+@Index({
+  name: 'marketing_product_watch_uniq',
+  expression:
+    'create unique index "marketing_product_watch_uniq" on "marketing_product_watches" ("tenant_id", "organization_id", "subject_entity_id", "sku") where deleted_at is null',
+})
+@Index({ name: 'mkt_product_watches_sku_idx', properties: ['tenantId', 'organizationId', 'sku'] })
+export class MarketingProductWatch {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'notifiedCount'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  /** The customer who is waiting, and the subject of the campaign the drop starts. */
+  @Property({ name: 'subject_entity_id', type: 'uuid' })
+  subjectEntityId!: string
+
+  @Property({ type: 'text' })
+  sku!: string
+
+  @Property({ name: 'currency_code', type: 'text' })
+  currencyCode!: string
+
+  /**
+   * The price this customer last saw, as text.
+   *
+   * Money from the catalogue is `numeric` mapped to string everywhere else in this codebase; storing it as a
+   * float here to save a parse would introduce the one rounding class of bug nobody finds until a customer
+   * is told about a one-cent drop.
+   */
+  @Property({ name: 'watched_price_gross', type: 'text', nullable: true })
+  watchedPriceGross?: string | null
+
+  @Property({ name: 'notified_at', type: Date, nullable: true })
+  notifiedAt?: Date | null
+
+  /** How many times this watch has fired, which is what makes an unwanted repeat visible. */
+  @Property({ name: 'notified_count', type: 'int', default: 0 })
+  notifiedCount!: number
+
+  @Property({ name: 'created_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
+  createdAt!: Date
+
+  @Property({ name: 'updated_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt!: Date
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}

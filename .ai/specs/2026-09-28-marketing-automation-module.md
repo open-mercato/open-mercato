@@ -775,6 +775,23 @@ eight-way concurrent worker and is now backed by a partial unique index on the a
 
 ## Changelog
 
+- **2026-09-29** — Backlog B-06, price-drop half: product watches. A customer can be registered as waiting for
+  a SKU to get cheaper; the periodic pass compares today's untargeted list price against the price they last
+  saw and fires `marketing_automation.product.price_dropped` with the drop percentage, so an audience can
+  require a real discount rather than any change. Decisions, each with a test: the reference is what THAT
+  customer last saw rather than an all-time low, because otherwise a recovery looks like a drop; a drop under
+  5% is rounding, tax or currency noise; a missing current price is not a drop, since an unpublished product
+  has not become cheaper; the reference follows the price UPWARDS so a partial recovery is not announced; and a
+  watch may not fire again for seven days, or a shop moving a price down in three steps sends three emails.
+  The scan commits its bookkeeping before the events go out, so a crash between them sends nothing rather than
+  twice. Watches are idempotent per customer and SKU and asking again does NOT reset the reference, which
+  would cancel a drop the customer was already owed.
+  **Back-in-stock is blocked, and the block is real:** the platform has no availability contract, stock lives
+  in the optional `wms` module's inventory balances, and reading its tables from here is the cross-module
+  coupling this codebase forbids — so it is recorded rather than bodged. What reads it: the customer profile
+  shows what they are waiting for with the price then and now, and a price-watch screen ranks products by how
+  many people are waiting, which is demand that has declared itself. 678 unit tests, 133 integration tests.
+
 - **2026-09-29** — Backlog B-11: segments made operable. Membership resolution moved into ONE shared resolver
   now used by five callers (members screen, overlap, daily sizes, bulk actions, CSV export), because the
   moment two of them compute it differently a screen starts disagreeing with what actually sends. Overlap

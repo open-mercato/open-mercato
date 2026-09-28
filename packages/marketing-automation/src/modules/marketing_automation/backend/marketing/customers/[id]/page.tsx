@@ -33,6 +33,13 @@ type Profile = {
   messages: { sent: number; suppressed: number; opened: number; clicked: number }
   recommendations: Array<{ sku: string; name: string; source: 'affinity' | 'bestSeller' }>
   segments?: string[]
+  watches?: Array<{
+    sku: string
+    currencyCode: string
+    watchedPriceGross: string | null
+    currentPriceGross: string | null
+    notifiedAt: string | null
+  }>
   referral?: {
     code: string | null
     url: string | null
@@ -258,6 +265,37 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
                 : t('marketing_automation.profile.consent.unrecorded', 'No email preference recorded')}
           </StatusBadge>
         </div>
+
+        {(profile.watches ?? []).length > 0 ? (
+          <div className="mb-6">
+            <SectionHeader
+              title={t('marketing_automation.profile.watches', 'Waiting for a price drop')}
+              count={(profile.watches ?? []).length}
+            />
+            <ul className="space-y-1">
+              {(profile.watches ?? []).map((watch) => (
+                <li key={watch.sku} className="flex items-baseline justify-between gap-2 border-b border-border py-1 text-sm">
+                  <span className="font-mono text-xs text-foreground">{watch.sku}</span>
+                  <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                    {/* Both numbers, because one without the other says nothing: the interesting fact is the
+                        distance between what they saw and what it costs now. */}
+                    <span className="tabular-nums">
+                      {watch.watchedPriceGross
+                        ? `${watch.watchedPriceGross} ${watch.currencyCode}`
+                        : t('marketing_automation.profile.watchNoReference', 'no price when they started')}
+                    </span>
+                    <span aria-hidden="true">→</span>
+                    <span className="tabular-nums font-medium text-foreground">
+                      {watch.currentPriceGross
+                        ? `${watch.currentPriceGross} ${watch.currencyCode}`
+                        : t('marketing_automation.profile.watchNoPrice', 'not on sale')}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         <div className="mb-6">
           <SectionHeader title={t('marketing_automation.profile.referral', 'Referrals')} />
