@@ -8,9 +8,10 @@
  * Client consumer: `packages/ui/src/backend/injection/eventBridge.ts`
  */
 
-import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
+import { resolveRequestContext, type RequestContext } from '@open-mercato/shared/lib/api/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isBroadcastEvent } from '@open-mercato/shared/modules/events'
+import type { OrganizationScopeService } from '@open-mercato/shared/lib/auth/principal-service'
 import {
   CROSS_PROCESS_EVENT_INSTANCE_ID,
   registerCrossProcessEventListener,
@@ -225,6 +226,28 @@ function ensureGlobalTapSubscription(): void {
   })
 }
 
+// The Directory module (in @open-mercato/core) owns organization-scope
+// resolution; events MUST NOT take a hard dependency on core (see
+// "Cross-Module Coupling" in packages/core/AGENTS.md). `organizationScopeService`
+// is a DI contract typed in @open-mercato/shared/lib/auth/principal-service for
+// exactly this kind of optional cross-package read — resolve it softly and fall
+// back to the caller's home organization when Directory is unavailable.
+async function resolveSelectedOrganizationId(
+  container: RequestContext['container'],
+  auth: NonNullable<RequestContext['auth']>,
+  request: Request,
+): Promise<string | null> {
+  let scopeService: OrganizationScopeService | null = null
+  try { scopeService = container.resolve<OrganizationScopeService>('organizationScopeService') } catch { scopeService = null }
+  if (!scopeService) return auth.orgId ?? null
+  try {
+    const scope = await scopeService.resolveForRequest({ auth, request })
+    return scope.selectedId ?? auth.orgId ?? null
+  } catch {
+    return auth.orgId ?? null
+  }
+}
+
 export async function GET(req: Request): Promise<Response> {
   const { ctx } = await resolveRequestContext(req)
 
@@ -233,7 +256,7 @@ export async function GET(req: Request): Promise<Response> {
   }
 
   const tenantId = ctx.auth.tenantId
-  const organizationId = (ctx.selectedOrganizationId as string) ?? ctx.auth.orgId ?? null
+  const organizationId = await resolveSelectedOrganizationId(ctx.container, ctx.auth, req)
   const userId = ctx.auth.sub
   const roleIds = Array.isArray(ctx.auth.roles)
     ? ctx.auth.roles.filter((role): role is string => typeof role === 'string' && role.trim().length > 0)

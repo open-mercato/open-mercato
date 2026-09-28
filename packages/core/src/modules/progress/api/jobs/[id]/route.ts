@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { ProgressJob } from '../../../data/entities'
 import { updateProgressSchema } from '../../../data/validators'
@@ -22,11 +23,13 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
+  const orgScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const organizationId = orgScope?.selectedId ?? auth.orgId
 
   const job = await em.findOne(ProgressJob, {
     id: params.id,
     tenantId: auth.tenantId,
-    ...(auth.orgId ? { organizationId: auth.orgId } : {}),
+    ...(organizationId ? { organizationId } : {}),
   })
 
   if (!job) {
@@ -75,10 +78,12 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
+  const orgScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const organizationId = orgScope?.selectedId ?? auth.orgId
   const existing = await em.findOne(ProgressJob, {
     id: params.id,
     tenantId: auth.tenantId,
-    ...(auth.orgId ? { organizationId: auth.orgId } : {}),
+    ...(organizationId ? { organizationId } : {}),
   })
   if (!existing) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -88,7 +93,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
 
   const job = await progressService.updateProgress(params.id, parsed.data, {
     tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    organizationId,
     userId: auth.sub,
   })
 
@@ -103,11 +108,13 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
 
   const container = await createRequestContainer()
   const progressService = container.resolve('progressService') as ProgressService
+  const orgScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const organizationId = orgScope?.selectedId ?? auth.orgId
 
   try {
     await progressService.cancelJob(params.id, {
       tenantId: auth.tenantId,
-      organizationId: auth.orgId,
+      organizationId,
       userId: auth.sub,
     })
     return NextResponse.json({ ok: true })

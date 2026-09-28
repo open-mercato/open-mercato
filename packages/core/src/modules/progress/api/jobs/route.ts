@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
@@ -87,14 +88,16 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
+  const orgScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const organizationId = orgScope?.selectedId ?? auth.orgId
 
   const { status, jobType, parentJobId, includeCompleted, completedSince, page, pageSize, search, sortField, sortDir } = parsed.data
   const filter: FilterQuery<ProgressJob> = {
     tenantId: auth.tenantId,
   }
 
-  if (auth.orgId) {
-    filter.organizationId = auth.orgId
+  if (organizationId) {
+    filter.organizationId = organizationId
   }
 
   if (status) {
@@ -155,10 +158,11 @@ export async function POST(req: Request) {
 
     const container = await createRequestContainer()
     const progressService = container.resolve('progressService') as import('../../lib/progressService').ProgressService
+    const orgScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
 
     const job = await progressService.createJob(parsed.data, {
       tenantId: auth.tenantId,
-      organizationId: auth.orgId,
+      organizationId: orgScope?.selectedId ?? auth.orgId,
       userId: auth.sub,
     })
 
