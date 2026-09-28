@@ -140,6 +140,7 @@ export function ScheduleActivityDialog({
   defaultCountryIso2,
 }: ScheduleActivityDialogProps) {
   const t = useT()
+  const titleInputId = React.useId()
   const state = useScheduleFormState({ open, editData: editData ?? null })
   const visibleFields = FIELD_VISIBILITY[state.activityType]
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -579,10 +580,11 @@ export function ScheduleActivityDialog({
 
         {/* Title */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-overline font-semibold text-muted-foreground tracking-wider">
+          <label htmlFor={titleInputId} className="text-overline font-semibold text-muted-foreground tracking-wider">
             {getFieldLabel(state.activityType, 'title', t, 'customers.schedule.titleLabel', 'Title')}
           </label>
           <input
+            id={titleInputId}
             type="text"
             value={state.title}
             onChange={(e) => state.setTitle(e.target.value)}
