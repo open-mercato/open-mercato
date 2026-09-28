@@ -157,6 +157,65 @@ describe('DefaultCustomerGroupsService.resolveGroups', () => {
     expect(result).toEqual({ groupIds: [], groups: [] })
   })
 
+  it('returns the tenant default group for a signed-in customer with no memberships', async () => {
+    const defaultGroup = makeGroup({ id: GROUP_DEFAULT_ID, code: 'default', name: 'Default', isDefault: true, priority: 0 })
+    const em = {
+      find: jest.fn().mockResolvedValueOnce([]),
+      findOne: jest.fn().mockResolvedValue(defaultGroup),
+    }
+    const service = new DefaultCustomerGroupsService(em as any)
+
+    const result = await service.resolveGroups({ customerId: CUSTOMER_ID, tenantId: TENANT_ID })
+
+    expect(result.groupIds).toEqual([GROUP_DEFAULT_ID])
+    expect(em.findOne).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ tenantId: TENANT_ID, isDefault: true, isActive: true }))
+  })
+
+  it('falls back to the tenant default group when every membership is expired', async () => {
+    const at = new Date('2026-06-01T00:00:00.000Z')
+    const memberships = [makeMembership({ id: 'm-expired', groupId: GROUP_LOW_ID, validUntil: new Date('2026-01-01T00:00:00.000Z') })]
+    const defaultGroup = makeGroup({ id: GROUP_DEFAULT_ID, code: 'default', name: 'Default', isDefault: true, priority: 0 })
+    const em = {
+      find: jest.fn().mockResolvedValueOnce(memberships),
+      findOne: jest.fn().mockResolvedValue(defaultGroup),
+    }
+    const service = new DefaultCustomerGroupsService(em as any)
+
+    const result = await service.resolveGroups({ customerId: CUSTOMER_ID, tenantId: TENANT_ID, at })
+
+    expect(result.groupIds).toEqual([GROUP_DEFAULT_ID])
+    expect(em.find).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back to the tenant default group when every membership points at an inactive group', async () => {
+    const memberships = [makeMembership({ id: 'm-inactive', groupId: GROUP_INACTIVE_ID })]
+    const defaultGroup = makeGroup({ id: GROUP_DEFAULT_ID, code: 'default', name: 'Default', isDefault: true, priority: 0 })
+    const em = {
+      find: jest.fn().mockResolvedValueOnce(memberships).mockResolvedValueOnce([]),
+      findOne: jest.fn().mockResolvedValue(defaultGroup),
+    }
+    const service = new DefaultCustomerGroupsService(em as any)
+
+    const result = await service.resolveGroups({ customerId: CUSTOMER_ID, tenantId: TENANT_ID })
+
+    expect(result.groupIds).toEqual([GROUP_DEFAULT_ID])
+  })
+
+  it('does not add the default group when the customer has an effective membership', async () => {
+    const memberships = [makeMembership({ id: 'm-low', groupId: GROUP_LOW_ID })]
+    const lowGroup = makeGroup({ id: GROUP_LOW_ID, code: 'low', priority: 5 })
+    const em = {
+      find: jest.fn().mockResolvedValueOnce(memberships).mockResolvedValueOnce([lowGroup]),
+      findOne: jest.fn(),
+    }
+    const service = new DefaultCustomerGroupsService(em as any)
+
+    const result = await service.resolveGroups({ customerId: CUSTOMER_ID, tenantId: TENANT_ID })
+
+    expect(result.groupIds).toEqual([GROUP_LOW_ID])
+    expect(em.findOne).not.toHaveBeenCalled()
+  })
+
   it('excludes an inactive group even though its membership row still exists', async () => {
     const memberships = [makeMembership({ id: 'm-inactive', groupId: GROUP_INACTIVE_ID })]
     // The `isActive: true` filter in the CustomerGroup lookup means an inactive

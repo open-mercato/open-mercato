@@ -163,7 +163,7 @@ describe('DefaultCustomerGroupsService.resolveTerms', () => {
     expect(result.sources.priceKindId).toBe(LOW_PRIORITY_GROUP_ID)
   })
 
-  it('resolves to tenant defaults, every source null, when the customer has no matching group', async () => {
+  it('resolves to tenant defaults, every source null, when the customer has no matching group and no default group exists', async () => {
     const em = createEm({ memberships: [] })
     const service = new DefaultCustomerGroupsService(em as never)
 
@@ -183,7 +183,8 @@ describe('DefaultCustomerGroupsService.resolveTerms', () => {
         minOrderValue: null,
       },
     })
-    expect(em.findOne).not.toHaveBeenCalled()
+    expect(em.findOne).toHaveBeenCalledTimes(1)
+    expect(em.findOne).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ isDefault: true, tenantId: TENANT_ID }))
   })
 
   it('resolves the nullable fields to tenant defaults when a matched group and every ancestor have terms rows with all-null fields', async () => {

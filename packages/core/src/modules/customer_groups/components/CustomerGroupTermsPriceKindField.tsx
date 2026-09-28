@@ -49,7 +49,7 @@ async function loadPriceKindOptions(query?: string): Promise<ComboboxOption[]> {
 
 async function resolvePriceKindLabel(id: string): Promise<string> {
   try {
-    const params = new URLSearchParams({ id, pageSize: '1' })
+    const params = new URLSearchParams({ ids: id, pageSize: '1' })
     const payload = await readApiResultOrThrow<{ items?: RemotePriceKind[] }>(
       `/api/catalog/price-kinds?${params.toString()}`,
       undefined,

@@ -236,16 +236,7 @@ export class DefaultCustomerGroupsService implements CustomerGroupsService {
   async resolveGroups(input: ResolveGroupsInput): Promise<GroupResolution> {
     const at = input.at ?? new Date()
 
-    if (input.customerId == null) {
-      const defaultGroup = await this.em.findOne(CustomerGroup, {
-        tenantId: input.tenantId,
-        isDefault: true,
-        isActive: true,
-        deletedAt: null,
-      })
-      if (!defaultGroup) return { groupIds: [], groups: [] }
-      return { groupIds: [defaultGroup.id], groups: [toGroupSummary(defaultGroup)] }
-    }
+    if (input.customerId == null) return this.resolveDefaultGroup(input.tenantId)
 
     const memberships = await this.em.find(CustomerGroupMembership, {
       tenantId: input.tenantId,
@@ -254,7 +245,7 @@ export class DefaultCustomerGroupsService implements CustomerGroupsService {
     })
 
     const validMemberships = memberships.filter((membership) => isMembershipValidAt(membership, at))
-    if (!validMemberships.length) return { groupIds: [], groups: [] }
+    if (!validMemberships.length) return this.resolveDefaultGroup(input.tenantId)
 
     // Precedence rule: when a customer has more than one membership row for the
     // same group (e.g. re-added after a prior removal), the most recently created
@@ -282,10 +273,23 @@ export class DefaultCustomerGroupsService implements CustomerGroupsService {
       return membershipB.createdAt.getTime() - membershipA.createdAt.getTime()
     })
 
+    if (!sortedGroups.length) return this.resolveDefaultGroup(input.tenantId)
+
     return {
       groupIds: sortedGroups.map((group) => group.id),
       groups: sortedGroups.map(toGroupSummary),
     }
+  }
+
+  private async resolveDefaultGroup(tenantId: string): Promise<GroupResolution> {
+    const defaultGroup = await this.em.findOne(CustomerGroup, {
+      tenantId,
+      isDefault: true,
+      isActive: true,
+      deletedAt: null,
+    })
+    if (!defaultGroup) return { groupIds: [], groups: [] }
+    return { groupIds: [defaultGroup.id], groups: [toGroupSummary(defaultGroup)] }
   }
 
   async resolveTerms(input: ResolveTermsInput): Promise<ResolvedTerms> {

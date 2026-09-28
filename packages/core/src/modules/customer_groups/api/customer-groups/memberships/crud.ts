@@ -59,12 +59,28 @@ function scopeFromContext(ctx: CrudCtx): { tenantId: string; organizationId?: st
   return { tenantId, organizationId }
 }
 
+const uuidSchema = z.string().uuid()
+
+// `assigned_by_user_id` is an audit column: it records the acting user, so it is
+// taken from the session and never from the request body. API-key callers have
+// no user id (`sub` is `api_key:<id>`) and are recorded as null.
+export function actorUserIdFromContext(ctx: CrudCtx): string | null {
+  const auth = ctx.auth
+  if (!auth || auth.isApiKey) return null
+  return uuidSchema.safeParse(auth.sub).success ? auth.sub : null
+}
+
 function parseCreateInput(input: RawCustomerGroupMembershipInput, ctx: CrudCtx): CustomerGroupMembershipCreateInput {
-  return customerGroupMembershipCreateSchema.parse({ ...input, ...scopeFromContext(ctx) })
+  return customerGroupMembershipCreateSchema.parse({
+    ...input,
+    ...scopeFromContext(ctx),
+    assignedByUserId: actorUserIdFromContext(ctx),
+  })
 }
 
 function parseUpdateInput(input: RawCustomerGroupMembershipInput, ctx: CrudCtx): CustomerGroupMembershipUpdateInput {
-  return customerGroupMembershipUpdateSchema.parse({ ...input, ...scopeFromContext(ctx) })
+  const { assignedByUserId: _ignoredAssignedByUserId, ...rest } = input
+  return customerGroupMembershipUpdateSchema.parse({ ...rest, ...scopeFromContext(ctx) })
 }
 
 function hasOwn(input: object, key: string): boolean {
@@ -90,13 +106,17 @@ function toCustomerGroupMembershipEntityData(input: CustomerGroupMembershipCreat
 function applyCustomerGroupMembershipUpdate(
   entity: CustomerGroupMembership,
   input: CustomerGroupMembershipUpdateInput,
+  actorUserId: string | null,
 ): void {
+  const reassigned =
+    (hasOwn(input, 'groupId') && !!input.groupId && input.groupId !== entity.groupId)
+    || (hasOwn(input, 'customerId') && !!input.customerId && input.customerId !== entity.customerId)
   if (hasOwn(input, 'groupId') && input.groupId) entity.groupId = input.groupId
   if (hasOwn(input, 'customerId') && input.customerId) entity.customerId = input.customerId
   if (hasOwn(input, 'source') && input.source) entity.source = input.source
   if (hasOwn(input, 'validFrom')) entity.validFrom = input.validFrom ?? null
   if (hasOwn(input, 'validUntil')) entity.validUntil = input.validUntil ?? null
-  if (hasOwn(input, 'assignedByUserId')) entity.assignedByUserId = input.assignedByUserId ?? null
+  if (reassigned) entity.assignedByUserId = actorUserId
   if (hasOwn(input, 'notes')) entity.notes = input.notes ?? null
 }
 
@@ -239,7 +259,11 @@ export const customerGroupMembershipCrud = makeCrudRoute<
     schema: rawBodySchema,
     getId: (input) => (typeof input.id === 'string' ? input.id : ''),
     applyToEntity: (entity, input, ctx) => {
-      applyCustomerGroupMembershipUpdate(entity as CustomerGroupMembership, parseUpdateInput(input, ctx))
+      applyCustomerGroupMembershipUpdate(
+        entity as CustomerGroupMembership,
+        parseUpdateInput(input, ctx),
+        actorUserIdFromContext(ctx),
+      )
     },
     response: () => ({ ok: true }),
   },

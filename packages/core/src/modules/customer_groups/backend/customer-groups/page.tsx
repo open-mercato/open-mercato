@@ -62,6 +62,7 @@ type ResponsePayload = {
   total: number
   page: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 const PAGE_SIZE = 100
@@ -123,6 +124,7 @@ export default function CustomerGroupsPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [filters, setFilters] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
@@ -173,6 +175,7 @@ export default function CustomerGroupsPage() {
         setRows(items)
         setTotal(typeof payload.total === 'number' ? payload.total : items.length)
         setTotalPages(typeof payload.totalPages === 'number' && payload.totalPages > 0 ? payload.totalPages : 1)
+        setTotalIsCapped(payload.totalIsCapped === true)
       } catch {
         if (!cancelled) {
           setRows([])
@@ -208,7 +211,7 @@ export default function CustomerGroupsPage() {
   // (and scramble) the priorities of groups on other pages. Reordering therefore
   // also requires the whole set to be loaded, and the manage feature.
   const isUnfilteredView = !search && (!filters.isActive || filters.isActive === '')
-  const allGroupsLoaded = page === 1 && total <= rows.length
+  const allGroupsLoaded = page === 1 && !totalIsCapped && total <= rows.length
   const dragReorderEnabled = canManage && !loadError && isUnfilteredView && allGroupsLoaded
   const showReorderUnavailableHint = canManage && !loadError && !isLoading && isUnfilteredView && !allGroupsLoaded
 
@@ -438,6 +441,7 @@ export default function CustomerGroupsPage() {
         pageSize: PAGE_SIZE,
         total,
         totalPages,
+        totalIsCapped,
         onPageChange: setPage,
       }}
       isLoading={isLoading}

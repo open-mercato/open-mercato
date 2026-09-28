@@ -66,11 +66,11 @@ function pickString(item: Record<string, unknown>, ...keys: string[]): string {
 
 // Mirrors `resolvePriceKindLabel` in `../../components/CustomerGroupTermsPriceKindField.tsx`
 // — that file's helper is an unexported implementation detail of its combobox, and
-// this panel is read-only display (no combobox), so the same `/api/catalog/price-kinds?id=`
+// this panel is read-only display (no combobox), so the same `/api/catalog/price-kinds?ids=`
 // lookup is re-implemented locally rather than imported.
 async function resolvePriceKindLabel(id: string): Promise<string> {
   try {
-    const params = new URLSearchParams({ id, pageSize: '1' })
+    const params = new URLSearchParams({ ids: id, pageSize: '1' })
     const payload = await readApiResultOrThrow<{ items?: Record<string, unknown>[] }>(
       `/api/catalog/price-kinds?${params.toString()}`,
       undefined,

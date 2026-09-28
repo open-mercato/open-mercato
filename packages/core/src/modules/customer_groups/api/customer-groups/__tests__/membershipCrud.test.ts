@@ -12,7 +12,7 @@ jest.mock('../../../events', () => ({
 }))
 
 import type { CrudCtx, CrudFactoryOptions } from '@open-mercato/shared/lib/crud/factory'
-import { customerGroupMembershipCrud } from '../memberships/crud'
+import { customerGroupMembershipCrud, actorUserIdFromContext } from '../memberships/crud'
 import { CustomerGroup, CustomerGroupMembership } from '../../../data/entities'
 
 type RawInput = Record<string, unknown>
@@ -119,5 +119,49 @@ describe('customer group membership CRUD route', () => {
       { id: MEMBERSHIP_ID, tenantId: TENANT_ID, organizationId: null, groupId: GROUP_ID, customerId: CUSTOMER_ID },
       { persistent: true, tenantId: TENANT_ID, organizationId: null },
     )
+  })
+
+  describe('assigned_by_user_id attribution', () => {
+    const ACTOR_ID = '66666666-6666-4666-8666-666666666666'
+    const SPOOFED_ID = '77777777-7777-4777-8777-777777777777'
+
+    function ctxWithAuth(auth: Record<string, unknown>): CrudCtx {
+      return { ...createCtx(createFakeEm()), auth: { tenantId: TENANT_ID, orgId: null, ...auth } } as unknown as CrudCtx
+    }
+
+    it('records the session user on create and ignores a body-supplied value', () => {
+      const data = opts.create!.mapToEntity(
+        { groupId: GROUP_ID, customerId: CUSTOMER_ID, assignedByUserId: SPOOFED_ID },
+        ctxWithAuth({ sub: ACTOR_ID }),
+      ) as Record<string, unknown>
+
+      expect(data.assignedByUserId).toBe(ACTOR_ID)
+    })
+
+    it('records null for an API-key caller', () => {
+      expect(actorUserIdFromContext(ctxWithAuth({ sub: 'api_key:abc', isApiKey: true }))).toBeNull()
+    })
+
+    it('keeps the original attribution when an update only renews the validity window', () => {
+      const entity = makeMembership({ assignedByUserId: ACTOR_ID })
+
+      opts.update!.applyToEntity(
+        entity,
+        { id: MEMBERSHIP_ID, validUntil: null, assignedByUserId: SPOOFED_ID },
+        ctxWithAuth({ sub: SPOOFED_ID }),
+      )
+
+      expect(entity.assignedByUserId).toBe(ACTOR_ID)
+    })
+
+    it('re-attributes the membership to the session user when it moves to another group', () => {
+      const entity = makeMembership({ assignedByUserId: ACTOR_ID })
+      const mover = '88888888-8888-4888-8888-888888888888'
+
+      opts.update!.applyToEntity(entity, { id: MEMBERSHIP_ID, groupId: OTHER_GROUP_ID }, ctxWithAuth({ sub: mover }))
+
+      expect(entity.groupId).toBe(OTHER_GROUP_ID)
+      expect(entity.assignedByUserId).toBe(mover)
+    })
   })
 })
