@@ -12,6 +12,15 @@
 > `official-modules#54`. This document's own `financial_pl` half hasn't made
 > that move yet — the staging reasoning above still applies to it until it
 > does.
+>
+> **Update (2026-09-28):** `2026-09-16-tax-management.md` has now also
+> completed that same move, after its own PR #6168 review — its
+> `financial_pl` half is now
+> `.ai/specs/SPEC-011-2026-09-16-tax-management-financial-pl.md` in
+> `official-modules#55`; `2026-09-16-tax-management.md` itself now covers
+> only the Core `tax_management` framework. Two of the three siblings this
+> document names have completed the split; this document's own
+> `financial_pl` half still hasn't.
 
 ## TLDR
 
