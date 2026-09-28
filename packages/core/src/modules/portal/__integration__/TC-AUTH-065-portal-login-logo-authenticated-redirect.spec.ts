@@ -88,6 +88,13 @@ test.describe('TC-AUTH-065: public header logo leads a signed-in customer to the
       await page.goto(`/${orgSlug}/portal/login`, { waitUntil: 'domcontentloaded' })
       const headerLogo = page.locator(`header a[href="/${orgSlug}/portal"]`)
       await expect(headerLogo).toBeVisible({ timeout: 15_000 })
+      // Before hydration a Next <Link> behaves as a native anchor, which would mask the bug.
+      await expect
+        .poll(
+          () => headerLogo.evaluate((element) => Object.keys(element).some((key) => key.startsWith('__reactFiber'))),
+          { timeout: 15_000 },
+        )
+        .toBe(true)
 
       await headerLogo.click()
       await page.waitForURL(new RegExp(`/${orgSlug}/portal/dashboard$`), { timeout: 15_000 })
