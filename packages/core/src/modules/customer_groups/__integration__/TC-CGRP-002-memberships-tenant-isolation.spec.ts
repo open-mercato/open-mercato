@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api';
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
@@ -8,6 +7,7 @@ import {
   deleteCustomerGroupIfExists,
   deleteCustomerGroupMembershipIfExists,
 } from '@open-mercato/core/helpers/integration/customerGroupsFixtures';
+import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures';
 import {
   cleanupSecondTenantActor,
   createSecondTenantActor,
@@ -28,7 +28,9 @@ import {
  * `makeCrudRoute` instance in `api/customer-groups/memberships/crud.ts`.
  * `customerId` is a plain uuid column with no FK/ORM relation into the
  * `customers` module (per root AGENTS.md § Never — cross-module ORM
- * relationships), so a random uuid is a valid fixture value.
+ * relationships), but the route checks that it names a live customer visible
+ * in the caller's organization scope (`lib/customerScope.ts`), so the fixture
+ * is a real tenant-A person.
  */
 const GROUPS_PATH = '/api/customer_groups/customer-groups';
 const MEMBERSHIPS_PATH = '/api/customer_groups/customer-groups/memberships';
@@ -38,13 +40,18 @@ test.describe('TC-CGRP-002: customer group memberships tenant isolation', () => 
     const adminToken = await getAuthToken(request, 'admin');
     const superadminToken = await getAuthToken(request, 'superadmin');
     const stamp = uniqueStamp();
-    const customerId = randomUUID();
 
+    let customerId: string | null = null;
     let groupId: string | null = null;
     let membershipId: string | null = null;
     let actor: SecondTenantActor | null = null;
 
     try {
+      customerId = await createPersonFixture(request, adminToken, {
+        firstName: 'QA',
+        lastName: `CGRP002 ${stamp}`,
+        displayName: `QA CGRP002 ${stamp}`,
+      });
       groupId = await createCustomerGroupFixture(request, adminToken, {
         code: `qa-cgrp-002-${stamp}`,
         name: `QA CGRP 002 Group ${stamp}`,
@@ -68,19 +75,28 @@ test.describe('TC-CGRP-002: customer group memberships tenant isolation', () => 
         'tenant B list must not include the tenant-A membership',
       ).toBe(false);
 
-      // GET by customerId filter: tenant B must see zero memberships for the shared customerId value.
+      // GET by customerId filter: the tenant-A person does not exist in tenant B,
+      // so the customer scope check answers 404 before any membership is read.
       const byCustomerResponse = await apiRequest(
         request,
         'GET',
         `${MEMBERSHIPS_PATH}?customerId=${encodeURIComponent(customerId)}`,
         { token: actor.token },
       );
-      expect(byCustomerResponse.status(), 'tenant B customerId lookup should be 200').toBe(200);
+      expect(byCustomerResponse.status(), 'tenant B customerId lookup of a tenant-A customer should be 404').toBe(404);
       const byCustomerBody = await readJsonSafe<{ items?: Array<{ id: string }> }>(byCustomerResponse);
       expect(
         byCustomerBody?.items ?? [],
         'tenant B must not resolve any membership for a customerId that only has a tenant-A membership',
       ).toHaveLength(0);
+
+      // POST: tenant B cannot attach the tenant-A customer to a group either —
+      // neither the customer nor the group exists in tenant B, so the create is a 400.
+      const crossCreateResponse = await apiRequest(request, 'POST', MEMBERSHIPS_PATH, {
+        token: actor.token,
+        data: { groupId, customerId, source: 'manual' },
+      });
+      expect(crossCreateResponse.status(), 'tenant B create for a tenant-A customer must be 400').toBe(400);
 
       // GET by id: tenant B must get zero rows.
       const byIdResponse = await apiRequest(
@@ -125,6 +141,7 @@ test.describe('TC-CGRP-002: customer group memberships tenant isolation', () => 
       ).toBeFalsy();
     } finally {
       await deleteCustomerGroupMembershipIfExists(request, adminToken, membershipId);
+      await deleteEntityIfExists(request, adminToken, '/api/customers/people', customerId);
       await deleteCustomerGroupIfExists(request, adminToken, groupId);
       await cleanupSecondTenantActor(request, superadminToken, actor);
     }

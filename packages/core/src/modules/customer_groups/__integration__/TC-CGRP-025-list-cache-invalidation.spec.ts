@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api';
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
@@ -8,6 +7,7 @@ import {
   deleteCustomerGroupIfExists,
   deleteCustomerGroupMembershipIfExists,
 } from '@open-mercato/core/helpers/integration/customerGroupsFixtures';
+import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures';
 import { fixturePriority, uniqueStamp } from './helpers';
 
 /**
@@ -67,13 +67,18 @@ test.describe('TC-CGRP-025: tenant-level list cache is invalidated on create', (
   }) => {
     const token = await getAuthToken(request, 'admin');
     const stamp = uniqueStamp();
-    const customerId = randomUUID();
-    const listUrl = `${MEMBERSHIPS_PATH}?customerId=${encodeURIComponent(customerId)}&pageSize=10`;
 
+    let customerId: string | null = null;
     let groupId: string | null = null;
     let membershipId: string | null = null;
 
     try {
+      customerId = await createPersonFixture(request, token, {
+        firstName: 'QA',
+        lastName: `CGRP025 ${stamp}`,
+        displayName: `QA CGRP025 ${stamp}`,
+      });
+      const listUrl = `${MEMBERSHIPS_PATH}?customerId=${encodeURIComponent(customerId)}&pageSize=10`;
       groupId = await createCustomerGroupFixture(request, token, {
         code: `qa-cgrp-025-m-${stamp}`,
         name: `QA CGRP 025 Membership Group ${stamp}`,
@@ -90,6 +95,7 @@ test.describe('TC-CGRP-025: tenant-level list cache is invalidated on create', (
       ).toEqual([membershipId]);
     } finally {
       await deleteCustomerGroupMembershipIfExists(request, token, membershipId);
+      await deleteEntityIfExists(request, token, '/api/customers/people', customerId);
       await deleteCustomerGroupIfExists(request, token, groupId);
     }
   });

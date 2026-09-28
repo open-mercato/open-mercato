@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api';
 import {
@@ -20,6 +19,7 @@ import {
   deleteCustomerGroupIfExists,
   deleteCustomerGroupMembershipIfExists,
 } from '@open-mercato/core/helpers/integration/customerGroupsFixtures';
+import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures';
 import { selectBestPrice, type PriceRow, type PricingContext } from '@open-mercato/core/modules/catalog/lib/pricing';
 import { fixturePriority, uniqueStamp } from './helpers';
 
@@ -81,9 +81,9 @@ test.describe('TC-CGRP-007: Phase 1 gate — group-scoped price resolves for a m
   test('selectBestPrice honors real HTTP-resolved group membership', async ({ request }) => {
     const token = await getAuthToken(request, 'admin');
     const stamp = uniqueStamp();
-    const memberCustomerId = randomUUID();
-    const nonMemberCustomerId = randomUUID();
 
+    let memberCustomerId: string | null = null;
+    let nonMemberCustomerId: string | null = null;
     let groupId: string | null = null;
     let membershipId: string | null = null;
     let productId: string | null = null;
@@ -94,6 +94,18 @@ test.describe('TC-CGRP-007: Phase 1 gate — group-scoped price resolves for a m
     let groupScopedPriceId: string | null = null;
 
     try {
+      memberCustomerId = await createPersonFixture(request, token, {
+        firstName: 'QA',
+        lastName: `CGRP007 Member ${stamp}`,
+        displayName: `QA CGRP007 Member ${stamp}`,
+      });
+      // The non-member must be a real customer too: the memberships API answers a
+      // `customerId` it cannot find in the caller's scope with 404, not an empty list.
+      nonMemberCustomerId = await createPersonFixture(request, token, {
+        firstName: 'QA',
+        lastName: `CGRP007 NonMember ${stamp}`,
+        displayName: `QA CGRP007 NonMember ${stamp}`,
+      });
       groupId = await createCustomerGroupFixture(request, token, {
         code: `qa-cgrp-007-${stamp}`,
         name: `QA CGRP 007 Group ${stamp}`,
@@ -178,6 +190,7 @@ test.describe('TC-CGRP-007: Phase 1 gate — group-scoped price resolves for a m
         `${MEMBERSHIPS_PATH}?customerId=${encodeURIComponent(nonMemberCustomerId)}&activeOnly=true&pageSize=100`,
         { token },
       );
+      expect(nonMemberMembershipsResponse.status(), 'the non-member lookup should be 200').toBe(200);
       const nonMemberMembershipsBody = await readJsonSafe<{ items?: Array<unknown> }>(nonMemberMembershipsResponse);
       expect(nonMemberMembershipsBody?.items ?? [], 'the non-member customer must have zero memberships').toHaveLength(
         0,
@@ -206,6 +219,8 @@ test.describe('TC-CGRP-007: Phase 1 gate — group-scoped price resolves for a m
       await deleteCurrenciesEntityIfExists(request, token, '/api/currencies/currencies', currencyId);
       await deleteCatalogProductIfExists(request, token, productId);
       await deleteCustomerGroupMembershipIfExists(request, token, membershipId);
+      await deleteEntityIfExists(request, token, '/api/customers/people', memberCustomerId);
+      await deleteEntityIfExists(request, token, '/api/customers/people', nonMemberCustomerId);
       await deleteCustomerGroupIfExists(request, token, groupId);
     }
   });

@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api';
 import {
@@ -20,6 +19,7 @@ import {
   deleteCustomerGroupIfExists,
   deleteCustomerGroupMembershipIfExists,
 } from '@open-mercato/core/helpers/integration/customerGroupsFixtures';
+import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures';
 import { selectBestPrice, type PriceRow, type PricingContext } from '@open-mercato/core/modules/catalog/lib/pricing';
 import { fixturePriority, uniqueStamp } from './helpers';
 
@@ -72,7 +72,6 @@ test.describe('TC-CGRP-012: deprecated PricingContext.customerGroupId equals cus
   test('selectBestPrice returns the same winning row for the singular and plural fields', async ({ request }) => {
     const token = await getAuthToken(request, 'admin');
     const stamp = uniqueStamp();
-    const memberCustomerId = randomUUID();
 
     let groupId: string | null = null;
     let membershipId: string | null = null;
@@ -82,8 +81,14 @@ test.describe('TC-CGRP-012: deprecated PricingContext.customerGroupId equals cus
     let currencyCode: string | null = null;
     let baselinePriceId: string | null = null;
     let groupScopedPriceId: string | null = null;
+    let memberCustomerId: string | null = null;
 
     try {
+      memberCustomerId = await createPersonFixture(request, token, {
+        firstName: 'QA',
+        lastName: `CGRP012 Member ${stamp}`,
+        displayName: `QA CGRP012 Member ${stamp}`,
+      });
       groupId = await createCustomerGroupFixture(request, token, {
         code: `qa-cgrp-012-${stamp}`,
         name: `QA CGRP 012 Group ${stamp}`,
@@ -179,6 +184,7 @@ test.describe('TC-CGRP-012: deprecated PricingContext.customerGroupId equals cus
       await deleteCurrenciesEntityIfExists(request, token, '/api/currencies/currencies', currencyId);
       await deleteCatalogProductIfExists(request, token, productId);
       await deleteCustomerGroupMembershipIfExists(request, token, membershipId);
+      await deleteEntityIfExists(request, token, '/api/customers/people', memberCustomerId);
       await deleteCustomerGroupIfExists(request, token, groupId);
     }
   });

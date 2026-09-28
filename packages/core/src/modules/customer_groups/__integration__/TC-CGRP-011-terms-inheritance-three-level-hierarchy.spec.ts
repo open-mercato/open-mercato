@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api';
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
@@ -9,6 +8,7 @@ import {
   deleteCustomerGroupIfExists,
   deleteCustomerGroupMembershipIfExists,
 } from '@open-mercato/core/helpers/integration/customerGroupsFixtures';
+import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures';
 import { fixturePriority, uniqueStamp } from './helpers';
 
 /**
@@ -45,14 +45,19 @@ test.describe('TC-CGRP-011: Phase 2 gate — per-field terms inheritance across 
   }) => {
     const token = await getAuthToken(request, 'admin');
     const stamp = uniqueStamp();
-    const customerId = randomUUID();
 
     let grandparentId: string | null = null;
     let parentId: string | null = null;
     let childId: string | null = null;
     let membershipId: string | null = null;
+    let customerId: string | null = null;
 
     try {
+      customerId = await createPersonFixture(request, token, {
+        firstName: 'QA',
+        lastName: `CGRP011 ${stamp}`,
+        displayName: `QA CGRP011 ${stamp}`,
+      });
       grandparentId = await createCustomerGroupFixture(request, token, {
         code: `qa-cgrp-011-gp-${stamp}`,
         name: `QA CGRP 011 Grandparent ${stamp}`,
@@ -143,6 +148,7 @@ test.describe('TC-CGRP-011: Phase 2 gate — per-field terms inheritance across 
       ).toEqual([childId, parentId, grandparentId]);
     } finally {
       await deleteCustomerGroupMembershipIfExists(request, token, membershipId);
+      await deleteEntityIfExists(request, token, '/api/customers/people', customerId);
       await deleteCustomerGroupIfExists(request, token, childId);
       await deleteCustomerGroupIfExists(request, token, parentId);
       await deleteCustomerGroupIfExists(request, token, grandparentId);

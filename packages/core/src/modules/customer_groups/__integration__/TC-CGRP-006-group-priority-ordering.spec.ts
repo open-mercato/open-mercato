@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api';
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
@@ -8,6 +7,7 @@ import {
   deleteCustomerGroupIfExists,
   deleteCustomerGroupMembershipIfExists,
 } from '@open-mercato/core/helpers/integration/customerGroupsFixtures';
+import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures';
 import { fixturePriority, uniqueStamp } from './helpers';
 
 /**
@@ -34,14 +34,19 @@ test.describe('TC-CGRP-006: overlapping memberships resolve priority-ordered gro
   test('a customer in two groups sees them retrievable in descending priority order', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'admin');
     const stamp = uniqueStamp();
-    const customerId = randomUUID();
 
     let highPriorityGroupId: string | null = null;
     let lowPriorityGroupId: string | null = null;
     let highMembershipId: string | null = null;
     let lowMembershipId: string | null = null;
+    let customerId: string | null = null;
 
     try {
+      customerId = await createPersonFixture(request, adminToken, {
+        firstName: 'QA',
+        lastName: `CGRP006 ${stamp}`,
+        displayName: `QA CGRP006 ${stamp}`,
+      });
       highPriorityGroupId = await createCustomerGroupFixture(request, adminToken, {
         code: `qa-cgrp-006-high-${stamp}`,
         name: `QA CGRP 006 High ${stamp}`,
@@ -98,6 +103,7 @@ test.describe('TC-CGRP-006: overlapping memberships resolve priority-ordered gro
     } finally {
       await deleteCustomerGroupMembershipIfExists(request, adminToken, highMembershipId);
       await deleteCustomerGroupMembershipIfExists(request, adminToken, lowMembershipId);
+      await deleteEntityIfExists(request, adminToken, '/api/customers/people', customerId);
       await deleteCustomerGroupIfExists(request, adminToken, highPriorityGroupId);
       await deleteCustomerGroupIfExists(request, adminToken, lowPriorityGroupId);
     }

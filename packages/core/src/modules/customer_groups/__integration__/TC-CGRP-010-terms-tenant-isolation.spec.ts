@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api';
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
@@ -9,6 +8,7 @@ import {
   deleteCustomerGroupIfExists,
   deleteCustomerGroupMembershipIfExists,
 } from '@open-mercato/core/helpers/integration/customerGroupsFixtures';
+import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures';
 import {
   CUSTOMER_GROUPS_FEATURES,
   cleanupSecondTenantActor,
@@ -31,13 +31,12 @@ import {
  * group, proving the group-existence check (not just the terms lookup) is
  * tenant-scoped.
  *
- * `GET /api/customer_groups/customer-groups/explain-terms?customerId=`: resolves via
- * `resolveGroups()`, which queries `CustomerGroupMembership` scoped to the
- * CALLER's own tenant. A tenant-A customerId sent with a tenant-B token has
- * zero memberships under tenant B's tenantId (even though it has real ones
- * under tenant A's), so the route must resolve it exactly like an unknown
- * customer: zero groups, tenant-default terms, no tenant-A data anywhere in
- * the response.
+ * `GET /api/customer_groups/customer-groups/explain-terms?customerId=`: before
+ * resolving anything, the route checks that the customer is a live
+ * `customer_entities` row of the CALLER's tenant, visible in the caller's
+ * organization scope (`lib/customerScope.ts`). A tenant-A customer sent with a
+ * tenant-B token does not exist in tenant B, so the route answers 404 and no
+ * tenant-A group or terms data appears anywhere in the response.
  */
 const GROUPS_PATH = '/api/customer_groups/customer-groups';
 const EXPLAIN_TERMS_PATH = '/api/customer_groups/customer-groups/explain-terms';
@@ -54,13 +53,18 @@ test.describe('TC-CGRP-010: Phase 2 (terms) tenant isolation', () => {
     const adminToken = await getAuthToken(request, 'admin');
     const superadminToken = await getAuthToken(request, 'superadmin');
     const stamp = uniqueStamp();
-    const memberCustomerId = randomUUID();
 
+    let memberCustomerId: string | null = null;
     let groupId: string | null = null;
     let membershipId: string | null = null;
     let actor: SecondTenantActor | null = null;
 
     try {
+      memberCustomerId = await createPersonFixture(request, adminToken, {
+        firstName: 'QA',
+        lastName: `CGRP010 Member ${stamp}`,
+        displayName: `QA CGRP010 Member ${stamp}`,
+      });
       groupId = await createCustomerGroupFixture(request, adminToken, {
         code: `qa-cgrp-010-${stamp}`,
         name: `QA CGRP 010 Group ${stamp}`,
@@ -105,37 +109,22 @@ test.describe('TC-CGRP-010: Phase 2 (terms) tenant isolation', () => {
         'tenant-A terms must be unaffected by tenant-B attempts',
       ).toBe(45);
 
-      // explain-terms: tenant B resolving a tenant-A customerId must not leak
-      // any tenant-A group/terms data — it must resolve as a customer with
-      // zero groups (tenant B's own resolveGroups() has no membership row for
-      // this customerId under tenant B's tenantId).
+      // explain-terms: the tenant-A customer does not exist in tenant B, so the
+      // customer scope check answers 404 before any group or terms resolution.
       const explainResponse = await apiRequest(
         request,
         'GET',
         `${EXPLAIN_TERMS_PATH}?customerId=${encodeURIComponent(memberCustomerId)}`,
         { token: actor.token },
       );
-      expect(explainResponse.status(), 'tenant B explain-terms for a tenant-A customerId should be 200').toBe(200);
-      const explainBody = await readJsonSafe<{
-        groups?: Array<{ id: string }>;
-        fields?: Record<string, { value: unknown; sourceGroupId: string | null; path: unknown[] }>;
-      }>(explainResponse);
-      expect(explainBody?.groups ?? [], 'tenant B must resolve zero groups for a tenant-A customerId').toHaveLength(
-        0,
-      );
-      expect(
-        explainBody?.fields?.paymentTermsDays,
-        'no field should attribute its value to the tenant-A group',
-      ).toMatchObject({ value: null, sourceGroupId: null, path: [] });
-      expect(explainBody?.fields?.allowPurchaseOnAccount).toMatchObject({
-        value: false,
-        sourceGroupId: null,
-        path: [],
-      });
+      expect(explainResponse.status(), 'tenant B explain-terms for a tenant-A customerId should be 404').toBe(404);
+      const explainBody = await readJsonSafe<{ groups?: unknown; fields?: unknown }>(explainResponse);
+      expect(explainBody?.groups, 'the 404 body must not carry any resolved groups').toBeUndefined();
+      expect(explainBody?.fields, 'the 404 body must not carry any resolved terms').toBeUndefined();
 
       // Sanity: the SAME customerId under tenant A's own token still resolves
-      // the real terms (proves the empty tenant-B result above is genuine
-      // isolation, not a broken route).
+      // the real terms (proves the tenant-B 404 above is genuine isolation, not
+      // a broken route).
       const ownerExplainResponse = await apiRequest(
         request,
         'GET',
@@ -149,6 +138,7 @@ test.describe('TC-CGRP-010: Phase 2 (terms) tenant isolation', () => {
       expect(ownerExplainBody?.fields?.paymentTermsDays).toMatchObject({ value: 45, sourceGroupId: groupId });
     } finally {
       await deleteCustomerGroupMembershipIfExists(request, adminToken, membershipId);
+      await deleteEntityIfExists(request, adminToken, '/api/customers/people', memberCustomerId);
       await deleteCustomerGroupIfExists(request, adminToken, groupId);
       await cleanupSecondTenantActor(request, superadminToken, actor);
     }

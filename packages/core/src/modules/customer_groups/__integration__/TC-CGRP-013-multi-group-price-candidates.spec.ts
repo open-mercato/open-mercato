@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api';
 import {
@@ -20,6 +19,7 @@ import {
   deleteCustomerGroupIfExists,
   deleteCustomerGroupMembershipIfExists,
 } from '@open-mercato/core/helpers/integration/customerGroupsFixtures';
+import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures';
 import { selectBestPrice, type PriceRow, type PricingContext } from '@open-mercato/core/modules/catalog/lib/pricing';
 import { fixturePriority, uniqueStamp } from './helpers';
 
@@ -93,7 +93,6 @@ test.describe('TC-CGRP-013: two group-scoped price rows both match a multi-group
   }) => {
     const token = await getAuthToken(request, 'admin');
     const stamp = uniqueStamp();
-    const memberCustomerId = randomUUID();
 
     let higherPriorityGroupId: string | null = null;
     let lowerPriorityGroupId: string | null = null;
@@ -105,8 +104,14 @@ test.describe('TC-CGRP-013: two group-scoped price rows both match a multi-group
     let currencyCode: string | null = null;
     let higherPriorityPriceId: string | null = null;
     let lowerPriorityPriceId: string | null = null;
+    let memberCustomerId: string | null = null;
 
     try {
+      memberCustomerId = await createPersonFixture(request, token, {
+        firstName: 'QA',
+        lastName: `CGRP013 Member ${stamp}`,
+        displayName: `QA CGRP013 Member ${stamp}`,
+      });
       // Deliberately HIGHER numeric priority for group A, LOWER for group B —
       // the winner below comes from group B despite this, proving priority is
       // not the deciding dimension.
@@ -245,6 +250,7 @@ test.describe('TC-CGRP-013: two group-scoped price rows both match a multi-group
       await deleteCatalogProductIfExists(request, token, productId);
       await deleteCustomerGroupMembershipIfExists(request, token, membershipHighId);
       await deleteCustomerGroupMembershipIfExists(request, token, membershipLowId);
+      await deleteEntityIfExists(request, token, '/api/customers/people', memberCustomerId);
       await deleteCustomerGroupIfExists(request, token, higherPriorityGroupId);
       await deleteCustomerGroupIfExists(request, token, lowerPriorityGroupId);
     }

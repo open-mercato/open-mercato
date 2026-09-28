@@ -1,7 +1,7 @@
-import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api';
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
+import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures';
 import {
   createCustomerGroupFixture,
   createCustomerGroupMembershipFixture,
@@ -43,11 +43,26 @@ test.describe('TC-CGRP-005: membership validity window exclusion', () => {
     let futureMembershipId: string | null = null;
     let expiredMembershipId: string | null = null;
     let currentMembershipId: string | null = null;
-    const futureCustomerId = randomUUID();
-    const expiredCustomerId = randomUUID();
-    const currentCustomerId = randomUUID();
+    let futureCustomerId: string | null = null;
+    let expiredCustomerId: string | null = null;
+    let currentCustomerId: string | null = null;
 
     try {
+      futureCustomerId = await createPersonFixture(request, adminToken, {
+        firstName: 'QA',
+        lastName: `CGRP005 Future ${stamp}`,
+        displayName: `QA CGRP005 Future ${stamp}`,
+      });
+      expiredCustomerId = await createPersonFixture(request, adminToken, {
+        firstName: 'QA',
+        lastName: `CGRP005 Expired ${stamp}`,
+        displayName: `QA CGRP005 Expired ${stamp}`,
+      });
+      currentCustomerId = await createPersonFixture(request, adminToken, {
+        firstName: 'QA',
+        lastName: `CGRP005 Current ${stamp}`,
+        displayName: `QA CGRP005 Current ${stamp}`,
+      });
       groupId = await createCustomerGroupFixture(request, adminToken, {
         code: `qa-cgrp-005-${stamp}`,
         name: `QA CGRP 005 Group ${stamp}`,
@@ -108,6 +123,9 @@ test.describe('TC-CGRP-005: membership validity window exclusion', () => {
       await deleteCustomerGroupMembershipIfExists(request, adminToken, futureMembershipId);
       await deleteCustomerGroupMembershipIfExists(request, adminToken, expiredMembershipId);
       await deleteCustomerGroupMembershipIfExists(request, adminToken, currentMembershipId);
+      await deleteEntityIfExists(request, adminToken, '/api/customers/people', futureCustomerId);
+      await deleteEntityIfExists(request, adminToken, '/api/customers/people', expiredCustomerId);
+      await deleteEntityIfExists(request, adminToken, '/api/customers/people', currentCustomerId);
       await deleteCustomerGroupIfExists(request, adminToken, groupId);
     }
   });
