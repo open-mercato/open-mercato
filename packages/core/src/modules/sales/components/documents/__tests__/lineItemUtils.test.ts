@@ -1,4 +1,4 @@
-import { resolveLineDiscountDisplay } from '../lineItemUtils'
+import { resolveCatalogPriceAmount, resolveLineDiscountDisplay } from '../lineItemUtils'
 
 describe('resolveLineDiscountDisplay', () => {
   it('returns null when neither a discount amount nor a percentage is recorded', () => {
@@ -66,5 +66,26 @@ describe('resolveLineDiscountDisplay', () => {
     expect(
       resolveLineDiscountDisplay({ discountAmount: 0, discountPercent: 10, unitPriceNet: 100, quantity: 2 }),
     ).toEqual({ amount: null, percent: 10 })
+  })
+})
+
+describe('resolveCatalogPriceAmount (issue #6075)', () => {
+  it('returns null for a zero-only price, which line submission would reject', () => {
+    expect(resolveCatalogPriceAmount(0, 0, 'gross')).toBeNull()
+    expect(resolveCatalogPriceAmount(0, 0, 'net')).toBeNull()
+    expect(resolveCatalogPriceAmount(null, null, 'gross')).toBeNull()
+    expect(resolveCatalogPriceAmount(-5, Number.NaN, 'net')).toBeNull()
+  })
+
+  it('keeps net-only and gross-only positive prices selectable', () => {
+    expect(resolveCatalogPriceAmount(10, null, 'net')).toBe(10)
+    expect(resolveCatalogPriceAmount(null, 12.3, 'gross')).toBe(12.3)
+  })
+
+  it('prefers the amount of the requested mode and falls back to the other positive amount', () => {
+    expect(resolveCatalogPriceAmount(10, 12.3, 'net')).toBe(10)
+    expect(resolveCatalogPriceAmount(10, 12.3, 'gross')).toBe(12.3)
+    expect(resolveCatalogPriceAmount(0, 12.3, 'net')).toBe(12.3)
+    expect(resolveCatalogPriceAmount(10, 0, 'gross')).toBe(10)
   })
 })
