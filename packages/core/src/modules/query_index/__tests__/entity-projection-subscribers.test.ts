@@ -48,6 +48,7 @@ import {
   applyQueryIndexOverrides,
   resetQueryIndexProjectionPolicyForTests,
 } from '@open-mercato/shared/modules/query-index'
+import { registerSearchModuleConfigs } from '@open-mercato/shared/modules/search'
 import handleUpsertOne from '../subscribers/upsert_one'
 import handleCoverageRefresh from '../subscribers/coverage_refresh'
 
@@ -77,11 +78,13 @@ function flushFireAndForget() {
 beforeEach(() => {
   jest.clearAllMocks()
   resetQueryIndexProjectionPolicyForTests()
+  registerSearchModuleConfigs([])
   applyQueryIndexOverrides([{ entities: { [STOPPED]: null } }])
 })
 
 afterEach(() => {
   resetQueryIndexProjectionPolicyForTests()
+  registerSearchModuleConfigs([])
 })
 
 describe('query_index.upsert_one', () => {
@@ -109,6 +112,27 @@ describe('query_index.upsert_one', () => {
     await flushFireAndForget()
 
     expect(mockUpsertIndexRow).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('entity types search still indexes', () => {
+  // `query_index.upsert_one` is the only emitter of `query_index.vectorize_one` and
+  // `search.index_record`, so honouring the switch for a searchable entity type would
+  // freeze its fulltext and vector indexes. The policy refuses the declaration instead.
+  it('keeps projecting one, so the search events still fire', async () => {
+    registerSearchModuleConfigs([{ entities: [{ entityId: STOPPED }] }] as never)
+    const { ctx, emitEvent } = createContext()
+
+    await handleUpsertOne(
+      { entityType: STOPPED, recordId: 'r1', tenantId: 't1', organizationId: null, crudAction: 'created' },
+      ctx,
+    )
+    await flushFireAndForget()
+
+    expect(mockUpsertIndexRow).toHaveBeenCalledTimes(1)
+    const emitted = (emitEvent.mock.calls as unknown as unknown[][]).map((call) => call[0])
+    expect(emitted).toContain('query_index.vectorize_one')
+    expect(emitted).toContain('search.index_record')
   })
 })
 

@@ -96,7 +96,7 @@ Every write path honours the switch, so the table holds **zero** rows for the en
 
 | Path | Behaviour |
 | --- | --- |
-| `query_index.upsert_one` (DataEngine, CRUD bridge) | Returns before the scope lookup, the row write and the coverage adjustment. |
+| `query_index.upsert_one` (DataEngine, CRUD bridge) | Returns before the scope lookup, the row write and the coverage adjustment — and before the `query_index.vectorize_one` / `search.index_record` emits, which is why a search-configured entity type cannot be stopped (below). |
 | `query_index.reindex` event and `mercato query_index reindex` | Skipped, whether the entity is named explicitly or reached by a whole-account run. |
 | `mercato query_index rebuild` / `rebuild-all` | Skipped — `upsertIndexBatch` attempts nothing, so batch-write reconciliation reads it as "nothing was asked for". |
 | `query_index.coverage.warmup` / `.refresh` | No snapshot is written. |
@@ -108,15 +108,34 @@ indexed**, never as partially covered. That distinction is the point: with
 though it were complete, so rows that are not indexed silently vanish from filtered results and from
 the total count. Zero rows is safe; half is not.
 
+### Search-configured entity types are refused
+
+An entity type that any enabled module declares in its [`search.ts`](./hybrid-search) config is
+**never stopped**, whatever the declaration says. `isEntityTypeProjected()` returns `true` for it and
+logs a warning naming the entity and the remedy.
+
+The reason is that search rides on the projection write path. `query_index.upsert_one` is the only
+emitter of `query_index.vectorize_one` and `search.index_record`, so stopping the projection stops the
+fulltext and vector indexes from ever seeing a create or an update — silently, with no error, leaving
+Cmd+K answering from a frozen index. And the presenter enricher builds every search result's title,
+subtitle and links from `entity_indexes.doc`, so even the hits that survived would render bare.
+
+To stop projecting a searchable entity type, take it out of search first: set `enabled: false` for it
+in the owning module's `search.ts`, or drop its entry. The projection declaration then takes effect on
+the next boot.
+
 ### Before you switch one off
 
-A read reaches `entity_indexes` in exactly three ways. Check all three before stopping an entity type:
+A read reaches `entity_indexes` in exactly four ways. Check all four before stopping an entity type:
 
 1. **Custom-field values** — the engine LEFT JOINs the index and reads `doc ->> 'cf:<key>'`. An
    entity with no active `custom_field_defs` row gains nothing from the join.
 2. **Token / trigram search** — a `like`/`ilike` filter is rewritten into a `search_tokens` semi-join.
    Only a caller that issues one reaches it.
 3. **Expression indexes you declared on `doc`** — a custom-field sort or filter served by a btree.
+4. **Search (`search.ts`)** — fulltext, vector and result presenters all read through the projection.
+   This one the switch enforces for you: a search-configured entity type is refused, per the section
+   above.
 
 Switching off an entity type does not delete the rows it already has; that is a data migration, and
 whose it is depends on the deployment. Purge them with

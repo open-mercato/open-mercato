@@ -101,6 +101,25 @@ filtered results and from the total count with no error. A stopped entity type m
   that reach a coverage decision for an entity *other* than the one being queried: the
   `customFieldSources` loop and the global-scope check.
 
+### Search rides on the projection write path
+
+`query_index.upsert_one` is the only emitter of `query_index.vectorize_one` and
+`search.index_record`, and the search presenter enricher builds every result's title, subtitle and
+links from `entity_indexes.doc`. Stopping a searchable entity type would therefore freeze its
+fulltext and vector indexes and strip the presenters from the hits that remained — silently, with no
+error anywhere.
+
+The switch is therefore **refused** for an entity type that any enabled module declares in its
+`search.ts` with `enabled !== false`: `isEntityTypeProjected()` returns `true` and logs a warning
+naming the entity and the remedy (disable search for it first). This is checked at call time rather
+than folded into the memoised declaration map, because bootstrap registers search configs after the
+module registry. The search-config registry moved onto `globalThis` in the same change so the two
+sides cannot disagree across duplicated module instances.
+
+The alternative — keep emitting the two search events for a stopped type — was rejected: it keeps the
+indexes fresh but cannot restore the presenters, so search results would still degrade, and the
+degradation would be invisible rather than announced.
+
 ## Risks & impact review
 
 - **Backward compatibility:** additive. `Module.queryIndex`, the `queryIndex` override domain and
@@ -113,9 +132,14 @@ filtered results and from the total count with no error. A stopped entity type m
 - **A relation custom field pointing at a stopped entity type** reads it through an empty index —
   correctly, via the `indexAnyRows` fallback, but from the base table. Worth checking before
   stopping a type that `GET /api/entities/relations/options` can reach.
+- **A search-configured entity type cannot be stopped at all**, per the section above. An app that
+  wants one stopped must disable search for it first. The refusal is a warning, not a throw, so a
+  declaration that names such an entity boots normally and keeps its historical behaviour.
 - **Not in scope:** which *fields* of a projected entity earn an index. That is the declarative index
   contract proposed separately in the list-views-at-scale RFC.
 
 ## Changelog
 
 - 2026-09-22 — Initial specification and implementation.
+- 2026-09-28 — Refuse the switch for search-configured entity types (review finding); move the
+  projection policy and the search-config registry onto `globalThis`.

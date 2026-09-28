@@ -30,6 +30,11 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
   // type as not indexed rather than as covered-with-zero-rows.
   // `query_index.delete_one` is deliberately left unfiltered, so a row written
   // before the switch was set still cleans itself up.
+  // This also skips the only emitters of `query_index.vectorize_one` and
+  // `search.index_record` below. That is safe because the projection policy
+  // refuses to stop an entity type whose module declares an enabled `search.ts`
+  // config — see `isEntityTypeProjected` — so a type that reaches this return is
+  // one search does not index either.
   if (!isEntityTypeProjected(entityType)) return
   let organizationId: string | null = payload?.organizationId ?? null
   let tenantId: string | null = payload?.tenantId ?? null
