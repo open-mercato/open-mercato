@@ -147,6 +147,18 @@ export class MarketingCampaignTrigger {
  * stranding it forever.
  */
 @Entity({ tableName: 'marketing_campaign_runs' })
+/**
+ * One run per (campaign, event occurrence), enforced by the database rather than by a check.
+ *
+ * A check-then-insert cannot be made safe: two workers handed the same redelivered job both read
+ * "no run yet" and both insert. Partial, so the sweep's key-less runs are unaffected, and erasable,
+ * so a legitimate repeat after the window is still allowed.
+ */
+@Index({
+  name: 'marketing_runs_occurrence_uniq',
+  expression:
+    'create unique index "marketing_runs_occurrence_uniq" on "marketing_campaign_runs" ("tenant_id", "organization_id", "campaign_id", "occurrence_key") where occurrence_key is not null',
+})
 @Index({ name: 'mkt_runs_due_idx', properties: ['resumeAt', 'status'] })
 @Index({ name: 'mkt_runs_entry_idx', properties: ['campaignId', 'subjectEntityId', 'status'] })
 @Index({ name: 'mkt_runs_scope_idx', properties: ['tenantId', 'organizationId', 'status'] })
@@ -171,6 +183,16 @@ export class MarketingCampaignRun {
 
   @Property({ name: 'trigger_event_id', type: 'text' })
   triggerEventId!: string
+
+  /**
+   * Identifies the event delivery that started this run, so a redelivery cannot start a second one.
+   *
+   * Null for a run a sweep started — a sweep has no event occurrence, and its re-entry policy is
+   * what governs repeats there. Erased once the dedup window has passed, which is what keeps the
+   * unique index below from turning every `unlimited` re-entry policy into `once`.
+   */
+  @Property({ name: 'occurrence_key', type: 'text', nullable: true })
+  occurrenceKey?: string | null
 
   /** JSON-serializable dispatch context, including patches earlier steps contributed. */
   @Property({ type: 'jsonb' })

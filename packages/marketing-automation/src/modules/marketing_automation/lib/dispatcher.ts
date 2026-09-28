@@ -11,6 +11,7 @@ import { getMarketingStep } from './engine/registry.js'
 import type { AutomationContext, CampaignDefinition, EngineLogger, StepOutcome } from './engine/types.js'
 import { buildCampaignCommandContext } from './command-context.js'
 import { findCampaignsForEvent } from './campaign-lookup.js'
+import { occurrenceKeyFor } from './occurrence.js'
 import { recordDeadLetter } from './dead-letter.js'
 import {
   applyTransition,
@@ -207,7 +208,7 @@ export type ReentryPolicy =
   | { kind: 'once' }
   | { kind: 'cooldown'; afterDays: number }
 
-export type StartOutcome = 'started' | 'audience' | 'guard'
+export type StartOutcome = 'started' | 'audience' | 'guard' | 'duplicate'
 
 /**
  * Enrols one subject in one campaign, if the guards and the audience allow it.
@@ -225,6 +226,8 @@ export async function startCampaignForSubject(
     triggerContext: Record<string, unknown>
     dispatchDepth: number
     reentryPolicy: ReentryPolicy
+    /** Identifies the event delivery, so a redelivery cannot start a second run. */
+    occurrenceKey?: string | null
   },
   deps: DispatchDeps,
 ): Promise<StartOutcome> {
@@ -280,7 +283,12 @@ export async function startCampaignForSubject(
     subjectEntityId: input.subjectEntityId,
     triggerEventId: input.triggerEventId,
     context,
+    occurrenceKey: input.occurrenceKey ?? null,
   })
+  // Null means this exact delivery already started a run for this campaign — a redelivered queue
+  // job or a repeated provider callback. Not a failure, and deliberately not counted as a guard:
+  // the two say different things when a campaign looks like it did not fire.
+  if (!run) return 'duplicate'
 
   const claimToken = await claimRun(deps.em, run.id, deps.scope, deps.now)
   if (!claimToken) return 'guard'
@@ -296,7 +304,7 @@ export async function startCampaignForSubject(
   return 'started'
 }
 
-export type DispatchResult = { started: number; skippedByAudience: number; skippedByGuard: number }
+export type DispatchResult = { started: number; skippedByAudience: number; skippedByGuard: number; duplicates: number }
 
 /**
  * Starts every campaign listening on one platform event, for one subject.
@@ -314,8 +322,11 @@ export async function dispatchEvent(
   },
   deps: DispatchDeps,
 ): Promise<DispatchResult> {
-  const result: DispatchResult = { started: 0, skippedByAudience: 0, skippedByGuard: 0 }
+  const result: DispatchResult = { started: 0, skippedByAudience: 0, skippedByGuard: 0, duplicates: 0 }
   const dispatchDepth = input.dispatchDepth ?? 0
+  // Derived from the delivered payload rather than taken from the job, so a queue redelivery and a
+  // repeated emission of the same fact both arrive at the same key.
+  const occurrenceKey = occurrenceKeyFor(input.eventId, deps.scope, input.eventPayload)
   const candidates = await findCampaignsForEvent(deps.em, input.eventId, deps.scope)
   if (!candidates.length) return result
 
@@ -338,11 +349,13 @@ export async function dispatchEvent(
           triggerContext: input.triggerContext,
           dispatchDepth: dispatchDepth + 1,
           reentryPolicy: { kind: 'unlimited' },
+          occurrenceKey,
         },
         deps,
       )
       if (started === 'started') result.started += 1
       else if (started === 'audience') result.skippedByAudience += 1
+      else if (started === 'duplicate') result.duplicates += 1
       else result.skippedByGuard += 1
     } catch (error) {
       deps.logger.error('[internal] marketing campaign dispatch failed', {

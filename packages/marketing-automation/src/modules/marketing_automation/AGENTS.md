@@ -62,6 +62,9 @@ its own. Spec:
   drops a send or sends twice.
 - Never make the frequency cap per-campaign. Five campaigns each politely sending one message
   still buries the customer, which is why `marketing_message_sends` is counted across all of them.
+- Never make an occurrence key permanent, and never derive it from anything but the delivered
+  payload. It is a duplicate guard for a window: kept forever it turns every `unlimited` re-entry
+  policy into `once`, because two separate occurrences with identical payloads hash the same.
 - Never proceed without the claim token returned by `claimRun`, and never write a run without
   re-asserting it — that is the entire concurrency story.
 - Never let a per-subject failure abort a batch. A sweep and the due-run scan catch per row.
@@ -113,6 +116,7 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | audience evaluation and the missing-operand veto | `lib/engine/audience.ts` |
 | frequency cap, quiet hours | `lib/engine/gates.ts` |
 | claim-and-lease, backoff, dead-lettering | `lib/runs.ts`, `lib/engine/scheduling.ts` |
+| duplicate-delivery guard and its window | `lib/occurrence.ts`, `lib/runs.ts` → `createRun` |
 | enrolment shared by events and sweeps | `lib/dispatcher.ts` → `startCampaignForSubject` |
 | trigger context hydration | `lib/trigger-catalog.ts` |
 | a step handler with a channel | `steps/send-email.ts` |
@@ -143,6 +147,6 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 
 - `storefront.cart.abandoned` — no cart entity exists in the platform. It is in the catalog as
   unavailable with a reason so the palette explains itself; blocked on `SPEC-029`.
-- Marketing consent, funnel analytics, segments, SMS/WhatsApp/push, and exactly-once delivery.
+- Marketing consent, funnel analytics, segments, and SMS/WhatsApp/push.
   See the spec's phase backlog. A/B splits exist, but picking a winner does not — that needs
   click-through attribution first.

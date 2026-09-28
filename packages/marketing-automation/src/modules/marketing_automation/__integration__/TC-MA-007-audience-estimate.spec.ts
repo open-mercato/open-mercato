@@ -123,7 +123,7 @@ test.describe('TC-MA-007 audience estimate', () => {
   })
 
   test('rejects an unauthenticated request', async ({ request }) => {
-    const response = await apiRequest(request, 'POST', `${CAMPAIGNS_PATH}/00000000-0000-4000-8000-000000000000/audience-estimate`, {
+    const response = await request.post(`${CAMPAIGNS_PATH}/00000000-0000-4000-8000-000000000000/audience-estimate`, {
       data: { audience: null },
     })
     expect([401, 403]).toContain(response.status())

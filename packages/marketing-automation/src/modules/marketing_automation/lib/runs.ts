@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { raw } from '@mikro-orm/core'
+import { raw, UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { MarketingCampaignRun, MarketingMessageSend } from '../data/entities.js'
 import type { RunTransition } from './engine/executor.js'
@@ -12,6 +12,16 @@ import type { AutomationContext, StepOutcome } from './engine/types.js'
 
 export type RunScope = { tenantId: string; organizationId: string }
 
+/**
+ * Starts a run, or returns null when this event occurrence already started one.
+ *
+ * The insert goes through a FORK so a rejected insert cannot leave the caller's entity manager
+ * holding a failed entity — the next flush would retry it. Callers use `run.id`, which a detached
+ * entity carries.
+ *
+ * Null is not an error: it is the guard working. It means the same delivery arrived twice, which
+ * queues and provider webhooks do routinely.
+ */
 export async function createRun(
   em: EntityManager,
   input: {
@@ -20,14 +30,17 @@ export async function createRun(
     subjectEntityId: string | null
     triggerEventId: string
     context: AutomationContext
+    occurrenceKey?: string | null
   },
-): Promise<MarketingCampaignRun> {
-  const run = em.create(MarketingCampaignRun, {
+): Promise<MarketingCampaignRun | null> {
+  const fork = em.fork()
+  const run = fork.create(MarketingCampaignRun, {
     campaignId: input.campaignId,
     tenantId: input.scope.tenantId,
     organizationId: input.scope.organizationId,
     subjectEntityId: input.subjectEntityId,
     triggerEventId: input.triggerEventId,
+    occurrenceKey: input.occurrenceKey ?? null,
     context: input.context as Record<string, unknown>,
     currentStepIndex: 0,
     stepLog: [],
@@ -35,9 +48,40 @@ export async function createRun(
     attempts: 0,
     startedAt: new Date(),
   })
-  em.persist(run)
-    await em.flush()
+  try {
+    fork.persist(run)
+    await fork.flush()
+  } catch (error) {
+    if (error instanceof UniqueConstraintViolationException) return null
+    throw error
+  }
   return run
+}
+
+/**
+ * Releases occurrence keys older than the dedup window.
+ *
+ * This is what keeps the unique index a DUPLICATE guard rather than a permanent one-run-ever rule:
+ * after the window, the key is gone and an author's `unlimited` re-entry policy means what it says.
+ * Driven by the periodic resume scan, which already runs on a schedule.
+ */
+export async function expireOccurrenceKeys(
+  em: EntityManager,
+  scope: RunScope,
+  now: Date,
+  windowHours: number,
+): Promise<number> {
+  const cutoff = new Date(now.getTime() - windowHours * 3_600_000)
+  return em.nativeUpdate(
+    MarketingCampaignRun,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      occurrenceKey: { $ne: null },
+      startedAt: { $lt: cutoff },
+    },
+    { occurrenceKey: null },
+  )
 }
 
 /**

@@ -68,9 +68,14 @@ candidates, and `POST /campaigns/:id/audience-estimate` exposes the count with a
 This is the foundation segments need (Phase 5). Files: `lib/engine/narrowing.ts`,
 `lib/audience/set-resolver.ts`.
 
-**2.3 Event idempotency.** Dedupe a redelivered platform event: a deterministic queue job id
-plus a unique key per (trigger, subject, campaign) so the same occurrence cannot start two runs.
-Provider webhooks duplicate routinely, so this matters before any webhook-driven channel.
+**2.3 Event idempotency.** ✅ Implemented 2026-09-28. The deterministic queue job id is not available
+— `EnqueueOptions` carries only `delayMs`, and adding a job id would change a contract surface in
+`packages/queue` that every strategy would have to honour — so the guarantee lives where it belongs
+anyway: a partial unique index on `(tenant, org, campaign, occurrence_key)` over the run table, with
+the key derived from the delivered payload. Released after six hours, because two separate
+occurrences with identical payloads hash the same and permanent uniqueness would turn every
+`unlimited` re-entry policy into `once`. Provider webhooks duplicate routinely, so this was needed
+before any webhook-driven channel.
 
 **2.4 Dry-run and test dispatch.** A CLI command and an API endpoint that answer "who would
 receive this, and what would they get" without sending. The `marketing_automation.test_dispatch`

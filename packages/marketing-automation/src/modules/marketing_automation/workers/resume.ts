@@ -1,6 +1,7 @@
 import type { QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { resumeRun } from '../lib/dispatcher.js'
-import { findDueRunIds } from '../lib/runs.js'
+import { expireOccurrenceKeys, findDueRunIds } from '../lib/runs.js'
+import { OCCURRENCE_DEDUP_WINDOW_HOURS } from '../lib/occurrence.js'
 import type { ResumeJob } from '../lib/queue.js'
 import { buildDispatchDeps, logger, readScope } from './shared.js'
 import type { HandlerContext } from './shared.js'
@@ -38,6 +39,11 @@ export default async function handle(job: QueuedJob<ResumeJob>, ctx: HandlerCont
     logger.info('marketing run resumed', { runId, outcome })
     return
   }
+
+  // Housekeeping on the periodic pass: an occurrence key is a duplicate guard for a window, not a
+  // permanent one-run-ever rule, so it has to be released or `unlimited` re-entry stops working.
+  const released = await expireOccurrenceKeys(deps.em, scope, deps.now, OCCURRENCE_DEDUP_WINDOW_HOURS)
+  if (released > 0) logger.info('marketing occurrence keys released', { released })
 
   const dueIds = await findDueRunIds(deps.em, scope, deps.now, SCAN_BATCH)
   if (!dueIds.length) return

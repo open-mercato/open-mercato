@@ -195,6 +195,23 @@
           "enumItems": [],
           "mappedType": "datetime"
         },
+        "occurrence_key": {
+          "name": "occurrence_key",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
         "organization_id": {
           "name": "organization_id",
           "type": "uuid",
@@ -359,6 +376,15 @@
           "keyName": "marketing_campaign_runs_pkey",
           "primary": true,
           "unique": true
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "marketing_runs_occurrence_uniq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"marketing_runs_occurrence_uniq\" on \"marketing_campaign_runs\" (\"tenant_id\", \"organization_id\", \"campaign_id\", \"occurrence_key\") where occurrence_key is not null"
         },
         {
           "columnNames": [

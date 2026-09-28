@@ -144,6 +144,33 @@ canvas must not show a branch that never runs. Nesting is capped at five levels,
 hand-edited or imported definition that is cyclic in spirit into a truncated campaign instead of a
 stack overflow in a worker.
 
+### Event idempotency
+
+Queues and webhooks redeliver as a matter of course: a BullMQ job whose worker died mid-handler comes
+back, a provider retries a callback it never saw acknowledged. Without a key, the second delivery is
+indistinguishable from a second thing happening and the customer receives the campaign twice.
+
+The key is DERIVED from the delivery, not assigned: the platform's event bus passes a payload through
+untouched and carries no per-emission identifier, so a redelivery is byte-identical and a sha256 over
+the canonicalised `{eventId, tenantId, organizationId, payload}` is what makes the two recognisably
+the same occurrence. Object keys are sorted before hashing, because the same payload assembled in a
+different order would otherwise hash differently and the duplicate would slip through.
+
+It is enforced by a PARTIAL UNIQUE INDEX on
+`(tenant_id, organization_id, campaign_id, occurrence_key)` rather than by a check, because
+check-then-insert cannot be made safe: two workers handed the same redelivered job both read "no run
+yet" and both insert. `createRun` performs the insert on a FORKED entity manager so a rejected insert
+cannot sit in the caller's persist stack and be retried by the next unrelated flush, and returns null
+— a duplicate, which `dispatchEvent` counts separately from a guard, because the two say different
+things when somebody asks why a campaign did not fire.
+
+**The key is erased after six hours**, by the periodic resume scan. This is the part worth
+understanding: two genuinely separate occurrences with identical payloads — a tag removed and re-added
+— hash the same, so permanent uniqueness would quietly convert every `unlimited` re-entry policy into
+`once`. Six hours is far longer than any redelivery a queue or provider attempts (minutes) and well
+inside the day-scale windows a re-entry policy is expressed in. A sweep-started run has no occurrence
+at all and stores null, which the partial index ignores.
+
 ### Set-level audience narrowing
 
 A sweep's cost is projecting, not matching. Building a subject document is a decrypting read plus
@@ -355,6 +382,10 @@ written down.* *Residual: blocked on `SPEC-029`.*
   optimistic lock; canvas editor reusing the `business_rules` condition builder; `en`/`pl`
   locales. Verified against a running instance: palette, create, save, round-trip, 409 on a
   stale save, and five rejected invalid graphs.
+- **2026-09-28** — Phase 2.3: event idempotency. Occurrence key derived from the delivered payload,
+  enforced by a partial unique index on `(tenant, org, campaign, occurrence_key)` and released after
+  six hours so re-entry policies keep their meaning. Verified against Postgres: the redelivery is
+  rejected, two key-less sweep runs are not. 269 unit tests.
 - **2026-09-28** — Phase 2.2: set-level audience narrowing. Pure planner with a superset guarantee,
   candidate resolver over tag and order-aggregate queries, sweep enrols from candidates instead of
   scanning the organization, and an audience-estimate endpoint that is explicit about whether its
