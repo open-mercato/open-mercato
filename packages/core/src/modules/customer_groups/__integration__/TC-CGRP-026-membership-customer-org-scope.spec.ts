@@ -27,7 +27,8 @@ import { fixturePriority, uniqueStamp } from './helpers';
  * limited to org A:
  *   - creates a membership for the org-A person (201) — control, proves the
  *     role's features are enough;
- *   - gets 400 creating a membership for the org-B person;
+ *   - gets 400 creating a membership for the org-B person, also when the body
+ *     carries a bogus `assignedByUserId`;
  *   - gets 404 on `GET memberships?customerId=` and `explain-terms?customerId=`
  *     for the org-B person;
  *   - gets 404 updating or deleting an existing org-B membership.
@@ -153,6 +154,17 @@ test.describe('TC-CGRP-026: membership customers are scoped to the caller organi
         data: { groupId, customerId: personBId, source: 'manual' },
       });
       expect(crossCreate.status(), 'org-A user creating a membership for an org-B customer must be 400').toBe(400);
+
+      // `assigned_by_user_id` is set from the session, so a body value the hook's
+      // validation would reject must not let the request skip the scope check.
+      const crossCreateBogusActor = await apiRequest(request, 'POST', MEMBERSHIPS_PATH, {
+        token: restrictedToken,
+        data: { groupId, customerId: personBId, source: 'manual', assignedByUserId: 'not-a-uuid' },
+      });
+      expect(
+        crossCreateBogusActor.status(),
+        'a bogus assignedByUserId must not bypass the org-scope check',
+      ).toBe(400);
 
       // The unrestricted admin, with org B selected, can attach the org-B customer.
       membershipBId = await createMembershipInOrg(request, adminToken, orgBId, { groupId, customerId: personBId });

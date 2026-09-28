@@ -56,15 +56,16 @@ describe('customer group column bounds', () => {
   const NUMERIC_16_2_MAX = 99999999999999.99
   const groupInput = { tenantId: TENANT_ID, code: 'wholesale', name: 'Wholesale', kind: 'b2b' }
 
-  it('accepts priorities across the int4 range, including the negative placeholders adopt produces', () => {
-    expect(customerGroupCreateSchema.safeParse({ ...groupInput, priority: -2147483648 }).success).toBe(true)
+  it('accepts priorities down to the floor, including the negative placeholders adopt produces', () => {
+    expect(customerGroupCreateSchema.safeParse({ ...groupInput, priority: -1000000000 }).success).toBe(true)
     expect(customerGroupCreateSchema.safeParse({ ...groupInput, priority: INT4_MAX }).success).toBe(true)
     expect(customerGroupUpdateSchema.safeParse({ id: GROUP_ID, tenantId: TENANT_ID, priority: -15 }).success).toBe(true)
   })
 
-  it('rejects priorities outside int4 instead of letting them overflow the column', () => {
+  it('rejects priorities outside the range that keeps reorder parking and adopt inside int4', () => {
     expect(customerGroupCreateSchema.safeParse({ ...groupInput, priority: INT4_MAX + 1 }).success).toBe(false)
-    expect(customerGroupCreateSchema.safeParse({ ...groupInput, priority: -2147483649 }).success).toBe(false)
+    expect(customerGroupCreateSchema.safeParse({ ...groupInput, priority: -1000000001 }).success).toBe(false)
+    expect(customerGroupCreateSchema.safeParse({ ...groupInput, priority: -2147483648 }).success).toBe(false)
     expect(customerGroupUpdateSchema.safeParse({ id: GROUP_ID, tenantId: TENANT_ID, priority: INT4_MAX + 1 }).success).toBe(false)
   })
 

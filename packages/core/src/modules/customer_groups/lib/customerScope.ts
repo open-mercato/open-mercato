@@ -24,11 +24,13 @@ export async function isCustomerInScope(
   em: EntityManager,
   customerId: string,
   scope: CustomerScope,
+  options: { includeDeleted?: boolean } = {},
 ): Promise<boolean> {
   const organizationIds = scope.organizationIds
   if (Array.isArray(organizationIds) && organizationIds.length === 0) return false
   const params: string[] = [customerId, scope.tenantId]
-  let sql = `select 1 from ${CUSTOMER_TABLE} where id = ? and tenant_id = ? and deleted_at is null`
+  let sql = `select 1 from ${CUSTOMER_TABLE} where id = ? and tenant_id = ?`
+  if (!options.includeDeleted) sql += ' and deleted_at is null'
   if (Array.isArray(organizationIds)) {
     sql += ` and organization_id in (${organizationIds.map(() => '?').join(', ')})`
     params.push(...organizationIds)

@@ -73,17 +73,25 @@ export function actorUserIdFromContext(ctx: CrudCtx): string | null {
   return uuidSchema.safeParse(auth.sub).success ? auth.sub : null
 }
 
+// The hooks and `mapToEntity`/`applyToEntity` MUST validate the same normalized payload:
+// the hooks skip their checks (scope, group, uniqueness) when validation fails, trusting
+// the later parse to reject the request. Validating different payloads would let a body
+// that fails only the hook's parse skip every check and still be written.
+function normalizeCreatePayload(input: RawCustomerGroupMembershipInput, ctx: CrudCtx): Record<string, unknown> {
+  return { ...input, ...scopeFromContext(ctx), assignedByUserId: actorUserIdFromContext(ctx) }
+}
+
+function normalizeUpdatePayload(input: RawCustomerGroupMembershipInput, ctx: CrudCtx): Record<string, unknown> {
+  const { assignedByUserId: _ignoredAssignedByUserId, ...rest } = input
+  return { ...rest, ...scopeFromContext(ctx) }
+}
+
 function parseCreateInput(input: RawCustomerGroupMembershipInput, ctx: CrudCtx): CustomerGroupMembershipCreateInput {
-  return customerGroupMembershipCreateSchema.parse({
-    ...input,
-    ...scopeFromContext(ctx),
-    assignedByUserId: actorUserIdFromContext(ctx),
-  })
+  return customerGroupMembershipCreateSchema.parse(normalizeCreatePayload(input, ctx))
 }
 
 function parseUpdateInput(input: RawCustomerGroupMembershipInput, ctx: CrudCtx): CustomerGroupMembershipUpdateInput {
-  const { assignedByUserId: _ignoredAssignedByUserId, ...rest } = input
-  return customerGroupMembershipUpdateSchema.parse({ ...rest, ...scopeFromContext(ctx) })
+  return customerGroupMembershipUpdateSchema.parse(normalizeUpdatePayload(input, ctx))
 }
 
 function hasOwn(input: object, key: string): boolean {
@@ -202,7 +210,10 @@ async function assertExistingMembershipInScope(
 ): Promise<void> {
   if (!membership) return
   const { tenantId } = scopeFromContext(ctx)
-  if (await isCustomerInScope(em, membership.customerId, { tenantId, organizationIds: ctx.organizationIds })) return
+  const scope = { tenantId, organizationIds: ctx.organizationIds }
+  // A soft-deleted customer keeps its organization, so its leftover memberships stay
+  // manageable (removable) by callers who can see that organization.
+  if (await isCustomerInScope(em, membership.customerId, scope, { includeDeleted: true })) return
   throw notFound(translate('customer_groups.errors.membershipNotFound', 'Customer group membership not found.'))
 }
 
@@ -261,8 +272,12 @@ export function membershipUpdateEvents(
       { eventId: 'customer_groups.membership.added', membership: after },
     ]
   }
-  if (!before.validAtUpdate && isMembershipValidAt(after, at)) {
+  const validAfter = isMembershipValidAt(after, at)
+  if (!before.validAtUpdate && validAfter) {
     return [{ eventId: 'customer_groups.membership.added', membership: after }]
+  }
+  if (before.validAtUpdate && !validAfter) {
+    return [{ eventId: 'customer_groups.membership.removed', membership: after }]
   }
   return []
 }
@@ -358,7 +373,7 @@ export const customerGroupMembershipCrud = makeCrudRoute<
     },
     beforeCreate: async (input, ctx) => {
       const scope = scopeFromContext(ctx)
-      const result = customerGroupMembershipCreateSchema.safeParse({ ...input, ...scope })
+      const result = customerGroupMembershipCreateSchema.safeParse(normalizeCreatePayload(input, ctx))
       if (!result.success) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const { translate } = await resolveTranslations()
@@ -371,7 +386,7 @@ export const customerGroupMembershipCrud = makeCrudRoute<
     },
     beforeUpdate: async (input, ctx) => {
       const scope = scopeFromContext(ctx)
-      const result = customerGroupMembershipUpdateSchema.safeParse({ ...input, ...scope })
+      const result = customerGroupMembershipUpdateSchema.safeParse(normalizeUpdatePayload(input, ctx))
       if (!result.success) return
       const parsed = result.data
       const em = (ctx.container.resolve('em') as EntityManager).fork()

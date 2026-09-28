@@ -12,7 +12,7 @@ jest.mock('../../../events', () => ({
 }))
 
 import type { CrudCtx, CrudFactoryOptions } from '@open-mercato/shared/lib/crud/factory'
-import { customerGroupMembershipCrud, actorUserIdFromContext } from '../memberships/crud'
+import { customerGroupMembershipCrud, actorUserIdFromContext, membershipUpdateEvents } from '../memberships/crud'
 import { CustomerGroup, CustomerGroupMembership } from '../../../data/entities'
 
 type RawInput = Record<string, unknown>
@@ -330,6 +330,62 @@ describe('customer group membership CRUD route', () => {
       await opts.hooks!.beforeList!({ page: 1, pageSize: 50 }, scopedCtx(em, [ORG_A]))
 
       expect(em.execute).not.toHaveBeenCalled()
+    })
+  })
+  describe('hook validation matches the persisted payload', () => {
+    const ORG_A = '99999999-9999-4999-8999-999999999999'
+
+    it('still runs the scope check on create when the body carries an invalid assignedByUserId', async () => {
+      const em = createFakeEm({ visibleCustomerIds: [] })
+      const ctx = { ...createCtx(em), organizationIds: [ORG_A] } as unknown as CrudCtx
+
+      await expect(
+        opts.hooks!.beforeCreate!({ groupId: GROUP_ID, customerId: CUSTOMER_ID, assignedByUserId: 'not-a-uuid' }, ctx),
+      ).rejects.toMatchObject({ status: 400 })
+      expect(em.execute).toHaveBeenCalled()
+    })
+
+    it('still runs the scope check on update when the body carries an invalid assignedByUserId', async () => {
+      const em = createFakeEm({ membership: makeMembership(), visibleCustomerIds: [] })
+      const ctx = { ...createCtx(em), organizationIds: [ORG_A] } as unknown as CrudCtx
+
+      await expect(
+        opts.hooks!.beforeUpdate!({ id: MEMBERSHIP_ID, notes: 'x', assignedByUserId: 'not-a-uuid' }, ctx),
+      ).rejects.toMatchObject({ status: 404 })
+    })
+
+    it('checks an existing membership against its customer including soft-deleted customer rows', async () => {
+      const em = createFakeEm({ membership: makeMembership() })
+
+      await opts.hooks!.beforeDelete!(MEMBERSHIP_ID, createCtx(em))
+
+      const [sql] = em.execute.mock.calls[0]
+      expect(sql).not.toContain('deleted_at')
+    })
+  })
+
+  describe('membershipUpdateEvents', () => {
+    const at = new Date('2026-06-01T00:00:00.000Z')
+    const target = { id: MEMBERSHIP_ID, tenantId: TENANT_ID, organizationId: null, groupId: GROUP_ID, customerId: CUSTOMER_ID }
+
+    it('emits membership.removed when an update ends a valid membership', () => {
+      const events = membershipUpdateEvents(
+        { groupId: GROUP_ID, customerId: CUSTOMER_ID, validAtUpdate: true },
+        { ...target, validFrom: null, validUntil: new Date('2026-05-01T00:00:00.000Z') },
+        at,
+      )
+
+      expect(events.map((event) => event.eventId)).toEqual(['customer_groups.membership.removed'])
+    })
+
+    it('emits nothing for an edit that keeps a valid membership valid', () => {
+      const events = membershipUpdateEvents(
+        { groupId: GROUP_ID, customerId: CUSTOMER_ID, validAtUpdate: true },
+        { ...target, validFrom: null, validUntil: null },
+        at,
+      )
+
+      expect(events).toEqual([])
     })
   })
 })

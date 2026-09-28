@@ -46,8 +46,11 @@ export const CUSTOMER_GROUP_MAX_ANCESTOR_DEPTH = 5
 // Column bounds: without them an out-of-range value reaches Postgres and fails as a raw
 // numeric-overflow 500 instead of a 400. `int4` is the `int` column type of `priority`
 // and `payment_terms_days`; `numeric(16,2)` holds at most 14 integer digits.
-const INT4_MIN = -2147483648
 const INT4_MAX = 2147483647
+// Priorities are floored well above `int4`'s minimum: reorder parks rows below the
+// tenant's lowest priority and adopt places placeholders 10 below it, and both must stay
+// inside `int4` or they fail as a raw overflow 500.
+const PRIORITY_MIN = -1000000000
 const NUMERIC_16_2_MAX = 99999999999999.99
 
 export const customerGroupKindValues = ['b2c', 'b2b', 'internal', 'partner'] as const
@@ -71,7 +74,7 @@ const customerGroupBaseShape = {
   // Not floored at 0: reconcile adopt places orphan placeholders below the tenant's
   // lowest priority (spec §8.2: "priority at the bottom"), which can be negative, and the
   // edit form must still be able to save such a group.
-  priority: z.number().int().min(INT4_MIN).max(INT4_MAX),
+  priority: z.number().int().min(PRIORITY_MIN).max(INT4_MAX),
   isDefault: z.boolean(),
   isActive: z.boolean(),
   metadata: clearableMetadataSchema,

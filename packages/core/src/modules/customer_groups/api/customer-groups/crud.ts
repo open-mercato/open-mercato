@@ -6,6 +6,7 @@ import { CrudHttpError, badRequest, conflict, isUniqueViolation } from '@open-me
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { canonicalizeResourceTag, invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { E } from '#generated/entities.ids.generated'
 import { CustomerGroup, CustomerGroupMembership, CustomerGroupTerms } from '../../data/entities'
 import {
@@ -125,6 +126,11 @@ export async function clearOtherDefaultGroups(em: EntityManager, tenantId: strin
 }
 
 const CUSTOMER_GROUP_DEFAULT_UNIQUE_CONSTRAINT = 'customer_groups_tenant_default_unique'
+
+// The memberships route has no `events`/`actions`, so `makeCrudRoute` tags its list
+// cache with the canonicalized entity name; the group delete cascade flushes the same tag.
+const CUSTOMER_GROUP_MEMBERSHIP_CACHE_RESOURCE =
+  canonicalizeResourceTag('CustomerGroupMembership') ?? 'customer.group.membership'
 
 // Clear-and-set cannot stop two CONCURRENT promotions: each clears the defaults it can
 // see, then both set their own row, and the loser trips the partial unique index
@@ -453,6 +459,13 @@ export const customerGroupCrud = makeCrudRoute<RawCustomerGroupInput, RawCustome
       const removedMemberships = await softDeleteGroupMemberships(em, tenantId, id)
       for (const membership of removedMemberships) {
         await emitMembershipEvent('customer_groups.membership.removed', membership)
+        await invalidateCrudCache(
+          ctx.container,
+          CUSTOMER_GROUP_MEMBERSHIP_CACHE_RESOURCE,
+          { id: membership.id, tenantId, organizationId: membership.organizationId ?? null },
+          tenantId,
+          'deleted',
+        )
       }
     },
   },
