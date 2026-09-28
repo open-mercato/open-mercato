@@ -174,10 +174,41 @@ describe('ListView expanded day', () => {
     renderList({
       days: buildTimesheetDays(WEEK, [entry({ id: 'e1', date: '2026-07-17', isLocked: true })]),
     })
-    expect(screen.getByRole('button', { name: 'Edit' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Duplicate' })).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: 'Edit Contract discounts, 09:15 – 13:30' }),
+    ).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: 'Duplicate Contract discounts, 09:15 – 13:30' }),
+    ).toBeDisabled()
     expect(screen.getByText('locked')).toBeInTheDocument()
   })
-})
 
-// Regression coverage is added with the implementation commit.
+  it('identifies which entry each edit and duplicate button acts on', () => {
+    renderList({
+      days: buildTimesheetDays(WEEK, [
+        entry({ id: 'e1', date: '2026-07-17' }),
+        entry({
+          id: 'e2',
+          date: '2026-07-17',
+          taskTitle: 'Review proposal',
+          startText: '14:00',
+          endText: '15:00',
+          durationMinutes: 60,
+        }),
+      ]),
+    })
+
+    expect(
+      screen.getByRole('button', { name: 'Edit Contract discounts, 09:15 – 13:30' }),
+    ).toBeEnabled()
+    expect(
+      screen.getByRole('button', { name: 'Duplicate Contract discounts, 09:15 – 13:30' }),
+    ).toBeEnabled()
+    expect(
+      screen.getByRole('button', { name: 'Edit Review proposal, 14:00 – 15:00' }),
+    ).toBeEnabled()
+    expect(
+      screen.getByRole('button', { name: 'Duplicate Review proposal, 14:00 – 15:00' }),
+    ).toBeEnabled()
+  })
+})
