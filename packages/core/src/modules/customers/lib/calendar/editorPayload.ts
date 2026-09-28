@@ -1,4 +1,5 @@
 import type { CalendarItem } from '../../components/calendar/types'
+import { calendarEventTypeKeySchema, resolveCalendarEventType } from '../../calendar-event-types'
 import { parseRecurrenceRule } from './recurrence'
 
 export type EditorKind = 'meeting' | 'call' | 'email' | 'note' | 'event' | 'task'
@@ -41,7 +42,11 @@ const KIND_BY_INTERACTION_TYPE: Record<string, EditorKind> = {
   deadline: 'task',
 }
 
+/** @deprecated Resolve the effective calendar event type and read `behavior.baseKind`. */
 export function editorKindOfInteractionType(interactionType: string): EditorKind {
+  const parsedKey = calendarEventTypeKeySchema.safeParse(interactionType)
+  const effectiveKind = parsedKey.success ? resolveCalendarEventType(parsedKey.data)?.behavior.baseKind : undefined
+  if (effectiveKind) return effectiveKind
   return KIND_BY_INTERACTION_TYPE[interactionType] ?? 'meeting'
 }
 
