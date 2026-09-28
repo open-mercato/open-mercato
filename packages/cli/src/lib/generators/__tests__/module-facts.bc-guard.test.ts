@@ -79,6 +79,26 @@ describe('module-facts BC resolve guard (T2)', () => {
       .toContain(recoveredContribution)
   })
 
+  it('declares the customers calendar event type convention and exact panel host', () => {
+    const customers = factsByModule.customers
+    expect(customers.ownedContracts?.['generator-plugin']).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'customers.calendar-event-types',
+        metadata: {
+          conventionFile: 'calendar-event-types.ts',
+          outputFileName: 'calendar-event-types.generated.ts',
+        },
+      }),
+    ]))
+    expect(customers.extensionSurfaces?.hosts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'section:customers.calendar-event-editor.type-panel',
+        family: 'component-handle',
+        bound: true,
+      }),
+    ]))
+  })
+
   it('keeps generated extension facts within bounded build-time and context budgets', () => {
     const completeJson = renderModuleFactsJson(factsByModule)
     const legacyJson = renderModuleFactsJson(Object.fromEntries(

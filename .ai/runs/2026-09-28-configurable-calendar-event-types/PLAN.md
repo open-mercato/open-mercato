@@ -13,7 +13,7 @@
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
 | 1 | 1.1 | Add the public event-type behavior contract and deterministic registry | group:A:capable | done | 1e3ed8d3c |
-| 1 | 1.2 | Generate and bootstrap module event-type contributions | group:A:capable | todo | — |
+| 1 | 1.2 | Generate and bootstrap module event-type contributions | group:A:capable | done | 16873badc |
 | 1 | 1.3 | Persist activity-type behavior through dictionary commands and APIs | group:B:capable | todo | — |
 | 1 | 1.4 | Expose the scoped effective activity-type catalog | group:B:capable | todo | — |
 | 1 | 1.5 | Enforce applicability and reversible destructive type switches | group:B:capable | todo | — |
