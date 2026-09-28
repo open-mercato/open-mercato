@@ -158,6 +158,7 @@ function EntityLinkSearchPopover({
           <Search className="size-3.5 text-muted-foreground shrink-0" />
           <input
             type="text"
+            aria-label={t('customers.schedule.searchEntity', 'Search...')}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t('customers.schedule.searchEntity', 'Search...')}
