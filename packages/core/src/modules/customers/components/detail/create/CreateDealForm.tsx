@@ -53,6 +53,14 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
   // useCurrentUserId resolves asynchronously, so this seeds once the id arrives and never
   // overrides an explicit seed or a choice the user has already made.
   const currentUserId = useCurrentUserId()
+  // Seeds the picker for the self-assigned id, which may not be on the assignable roster
+  // (an admin who is not a staff team member, or any user when the `staff` module is off).
+  const ownerInitialOption = React.useMemo(
+    () => (currentUserId
+      ? { id: currentUserId, name: tr('customers.filters.currentUser', 'Current user') }
+      : null),
+    [currentUserId, tr],
+  )
   const ownerSeeded = React.useRef(false)
   React.useEffect(() => {
     if (ownerSeeded.current || !currentUserId) return
@@ -149,7 +157,10 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
         probability: typeof data.probability === 'number' ? data.probability : undefined,
         expectedCloseAt,
         description: data.description && data.description.length ? data.description : undefined,
-        ownerUserId: data.ownerUserId && data.ownerUserId.length ? data.ownerUserId : undefined,
+        // `null`, not omitted — matching DealForm, so both create surfaces send the same
+        // shape. `dealCreateSchema.ownerUserId` is `.optional().nullable()` (validators.ts:183)
+        // and createDealCommand maps null to null (commands/deals.ts:591).
+        ownerUserId: data.ownerUserId && data.ownerUserId.length ? data.ownerUserId : null,
         personIds: values.personIds.length ? values.personIds : undefined,
         companyIds: values.companyIds.length ? values.companyIds : undefined,
       }
@@ -242,6 +253,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
               pipelines={pipelines}
               stages={stages}
               statusLabels={statusLabels}
+              ownerInitialOption={ownerInitialOption}
               tr={tr}
             />
           </DealSectionCard>

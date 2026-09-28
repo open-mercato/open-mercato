@@ -169,7 +169,7 @@ describe('CreateDealForm owner', () => {
     })
   })
 
-  it('omits the owner from the payload when none is set', async () => {
+  it('sends null rather than omitting when no owner is set, matching DealForm', async () => {
     mockCurrentUserId = ''
     render(<CreateDealForm />)
 
@@ -177,6 +177,6 @@ describe('CreateDealForm owner', () => {
     submit()
 
     await waitFor(() => expect(mockCreateCrud).toHaveBeenCalled())
-    expect(mockCreateCrud.mock.calls[0][1].ownerUserId).toBeUndefined()
+    expect(mockCreateCrud.mock.calls[0][1].ownerUserId).toBeNull()
   })
 })

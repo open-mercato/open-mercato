@@ -75,8 +75,19 @@ function DealOwnerCreateField(props: {
   initialOption: DealOwnerOption | null
   disabled: boolean
 }) {
+  const t = useT()
   const currentUserId = useCurrentUserId()
-  return <DealOwnerFieldControl {...props} autoAssignUserId={currentUserId} />
+  // The self-assigned id may not be on the assignable roster (an admin who is not a staff
+  // team member, or any user when the optional `staff` module is off). Seed it so the field
+  // names whoever it just assigned instead of rendering blank while holding their id.
+  const initialOption = React.useMemo<DealOwnerOption | null>(
+    () => props.initialOption
+      ?? (currentUserId
+        ? { id: currentUserId, name: t('customers.filters.currentUser', 'Current user') }
+        : null),
+    [currentUserId, props.initialOption, t],
+  )
+  return <DealOwnerFieldControl {...props} initialOption={initialOption} autoAssignUserId={currentUserId} />
 }
 
 export type DealFormBaseValues = {

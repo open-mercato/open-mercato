@@ -62,17 +62,29 @@ export function DealOwnerSelect({
   )
 
   const searchOwners = React.useCallback(async (query: string): Promise<LookupSelectItem[]> => {
+    let items: LookupSelectItem[] = []
     try {
       // The assignable roster belongs to the optional `staff` module; when it is disabled the
       // helper turns the 404 into an empty page, so this resolves to "no candidates" rather
       // than an error state.
       const members = await fetchAssignableStaffMembers(query, { pageSize: ROSTER_PAGE_SIZE })
-      return members.map((member) => toLookupItem(member.userId, member.displayName, member.email))
+      items = members.map((member) => toLookupItem(member.userId, member.displayName, member.email))
     } catch (error) {
       logger.error('customers.deals.searchOwners failed', { err: error })
-      return []
+      items = []
     }
-  }, [])
+
+    // `LookupSelect` only falls back to its `options` prop when it is NOT searching. A set
+    // `value` makes it search, so the fetch result replaces that seed — which would leave an
+    // owner outside the roster (a departed user, or anyone when the `staff` module is off)
+    // rendering as no selection at all. Merge the seed back in so the current value always
+    // has a matching, named item.
+    const seeded = seededOptions[0]
+    if (seeded && seeded.id === value && !items.some((item) => item.id === seeded.id)) {
+      return [seeded, ...items]
+    }
+    return items
+  }, [seededOptions, value])
 
   return (
     <LookupSelect

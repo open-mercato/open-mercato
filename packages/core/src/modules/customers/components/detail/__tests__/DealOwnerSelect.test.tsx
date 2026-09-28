@@ -106,3 +106,67 @@ describe('DealOwnerSelect', () => {
     expect(getInput(container).disabled).toBe(false)
   })
 })
+
+// LookupSelect ignores its `options` prop while searching, and a set `value` makes it search —
+// so the seed has to be merged into the fetch result or an owner outside the roster renders as
+// no selection at all (a departed user, or anyone when the optional `staff` module is off).
+describe('DealOwnerSelect seed survives the roster fetch', () => {
+  it('keeps the seeded owner listed when the roster does not contain them', async () => {
+    fetchAssignableStaffMembers.mockResolvedValue([
+      { teamMemberId: 'tm-2', userId: 'someone-else', displayName: 'Grace Hopper', email: 'grace@example.com', teamName: null },
+    ])
+
+    const { container } = render(
+      <DealOwnerSelect
+        value="departed-user"
+        onChange={() => {}}
+        initialOption={{ id: 'departed-user', name: 'Departed Person' }}
+      />,
+    )
+
+    fireEvent.change(getInput(container), { target: { value: 'gra' } })
+    await waitFor(() => expect(fetchAssignableStaffMembers).toHaveBeenCalled())
+
+    await waitFor(() => expect(screen.getByText('Departed Person')).toBeTruthy())
+    expect(screen.getByText('Grace Hopper')).toBeTruthy()
+  })
+
+  it('does not duplicate the seed when the roster already contains that user', async () => {
+    fetchAssignableStaffMembers.mockResolvedValue([
+      { teamMemberId: 'tm-1', userId: 'user-1', displayName: 'Ada Lovelace', email: 'ada@example.com', teamName: null },
+    ])
+
+    const { container } = render(
+      <DealOwnerSelect
+        value="user-1"
+        onChange={() => {}}
+        initialOption={{ id: 'user-1', name: 'Ada Lovelace' }}
+      />,
+    )
+
+    fireEvent.change(getInput(container), { target: { value: 'ada' } })
+    await waitFor(() => expect(fetchAssignableStaffMembers).toHaveBeenCalled())
+
+    await waitFor(() => expect(screen.getAllByRole('option').length).toBe(1))
+  })
+
+  it('does not inject the seed when it no longer matches the selected value', async () => {
+    fetchAssignableStaffMembers.mockResolvedValue([
+      { teamMemberId: 'tm-2', userId: 'user-9', displayName: 'Grace Hopper', email: 'grace@example.com', teamName: null },
+    ])
+
+    const { container } = render(
+      <DealOwnerSelect
+        value="user-9"
+        onChange={() => {}}
+        initialOption={{ id: 'stale-seed', name: 'Stale Seed' }}
+      />,
+    )
+
+    fireEvent.change(getInput(container), { target: { value: 'gra' } })
+    await waitFor(() => expect(fetchAssignableStaffMembers).toHaveBeenCalled())
+
+    await waitFor(() => expect(screen.getByText('Grace Hopper')).toBeTruthy())
+    expect(screen.queryByText('Stale Seed')).toBeNull()
+  })
+})
