@@ -137,6 +137,18 @@ its own. Spec:
   which lane a subject takes is decided by the engine, not by an edge somebody drew — an author who
   can draw an edge has been promised a topology it cannot run. Edges are derived; order lives in the
   definition arrays.
+- Never invent a code alphabet. `lib/engine/referral-code.ts` uses Crockford base32 with its documented fold;
+  the first hand-rolled attempt folded a character onto one that was itself in the alphabet, so a legitimate
+  code stopped resolving. A test asserts no valid character is ever rewritten.
+- Never reissue a customer's referral code. It is already printed in every message that mentioned it, so
+  `ensureReferralCode` is idempotent and one live code per customer is enforced by a partial unique index.
+- Never fire a referral reward on the claim. A claim is somebody typing a code; the conversion is their first
+  order, and only the second is worth paying for. The conversion is a conditional UPDATE so two orders
+  arriving together cannot both emit it.
+- Never make the referral claim endpoint public. It attaches a customer to a code, so an unauthenticated
+  version is a reward-fraud machine; a storefront claims through its own backend, which holds a credential.
+- Never return the referrer from a claim. The caller does not need it, and answering turns a shared code into
+  a way to look up who shared it.
 - Never let history bookkeeping fail a save. `recordRevision` swallows its own errors and logs them: the
   cost of a lost revision is a gap in a list, the cost of a rolled-back save is an author's work.
 - Never restore a version by writing to the campaign directly. Replay it through
@@ -230,6 +242,8 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | AI copy drafting, its prompt and its sanitiser | `lib/ai-copy.ts`, `lib/engine/copy-draft.ts` |
 | campaign history, versions and restore | `lib/revisions.ts`, `api/campaigns/[id]/revisions/` |
 | background job log and its retention | `lib/job-runs.ts`, `api/jobs/` |
+| referral codes, claims and the subject flip | `lib/referrals.ts`, `lib/engine/referral-code.ts` |
+| a step that writes into the run context | `steps/issue-referral-code.ts` |
 | enrolment shared by events and sweeps | `lib/dispatcher.ts` → `startCampaignForSubject` |
 | trigger context hydration | `lib/trigger-catalog.ts` |
 | a step handler with a channel | `steps/send-email.ts` |
@@ -242,6 +256,9 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 
 ## Gotchas Carried From Production Experience
 
+- A referral conversion's event SUBJECT is the referrer, not the buyer. No audience expression can turn one
+  person's order into a different person's run, which is why it is an event of its own rather than a rule over
+  `sales.order.created`.
 - `customers.person.created` puts the PERSON PROFILE id in `payload.id`; the customer is
   `payload.entityId`. Reading `id` keys every run and every tag on the wrong row.
 - `sales.order.created` carries only `{ id, organizationId, tenantId, userId }` — no customer and

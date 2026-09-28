@@ -861,3 +861,109 @@ export class MarketingJobRun {
   @Property({ type: 'text', nullable: true })
   error?: string | null
 }
+
+/**
+ * One customer's referral code.
+ *
+ * One live code per customer, not per campaign: a person hands out their code, and a second code for the same
+ * person would split the credit for the same word of mouth. Unique among LIVE rows so a revoked code's
+ * characters are not burnt forever.
+ */
+@Entity({ tableName: 'marketing_referral_codes' })
+@Index({
+  name: 'marketing_referral_code_uniq',
+  expression:
+    'create unique index "marketing_referral_code_uniq" on "marketing_referral_codes" ("tenant_id", "organization_id", "code") where deleted_at is null',
+})
+@Index({
+  name: 'marketing_referral_referrer_uniq',
+  expression:
+    'create unique index "marketing_referral_referrer_uniq" on "marketing_referral_codes" ("tenant_id", "organization_id", "referrer_entity_id") where deleted_at is null',
+})
+export class MarketingReferralCode {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  /** The customer who shares it, and who the conversion event is about. */
+  @Property({ name: 'referrer_entity_id', type: 'uuid' })
+  referrerEntityId!: string
+
+  @Property({ type: 'text' })
+  code!: string
+
+  @Property({ name: 'created_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
+  createdAt!: Date
+
+  @Property({ name: 'updated_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt!: Date
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+/**
+ * One person arriving on somebody else's code, and what became of it.
+ *
+ * Two stages, because a referral is claimed before it is worth anything: `pending` when the code was entered,
+ * `converted` when that person placed their first order. The trigger fires on the second, which is the only
+ * one a shop should pay a reward for.
+ *
+ * Unique per referred customer among live rows: being referred is something that happens to a person once,
+ * and a second claim would let somebody collect twice for the same arrival.
+ */
+@Entity({ tableName: 'marketing_referral_redemptions' })
+@Index({
+  name: 'marketing_referral_referred_uniq',
+  expression:
+    'create unique index "marketing_referral_referred_uniq" on "marketing_referral_redemptions" ("tenant_id", "organization_id", "referred_entity_id")',
+})
+@Index({ name: 'mkt_referral_redemptions_code_idx', properties: ['tenantId', 'organizationId', 'codeId'] })
+@Index({ name: 'mkt_referral_redemptions_status_idx', properties: ['tenantId', 'organizationId', 'status'] })
+export class MarketingReferralRedemption {
+  [OptionalProps]?: 'createdAt' | 'status'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'code_id', type: 'uuid' })
+  codeId!: string
+
+  /** Denormalised from the code so a conversion needs one read, not two. */
+  @Property({ name: 'referrer_entity_id', type: 'uuid' })
+  referrerEntityId!: string
+
+  @Property({ name: 'referred_entity_id', type: 'uuid' })
+  referredEntityId!: string
+
+  /** `pending` until the referred customer orders, then `converted`. */
+  @Property({ type: 'text', default: 'pending' })
+  status!: string
+
+  /** The order that converted it, so the reward can be traced to a real purchase. */
+  @Property({ name: 'order_id', type: 'uuid', nullable: true })
+  orderId?: string | null
+
+  /** What that order was worth, kept as text like every other money value read from sales. */
+  @Property({ name: 'order_total', type: 'text', nullable: true })
+  orderTotal?: string | null
+
+  @Property({ name: 'converted_at', type: Date, nullable: true })
+  convertedAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
+  createdAt!: Date
+}

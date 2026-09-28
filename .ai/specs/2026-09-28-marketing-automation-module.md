@@ -775,6 +775,23 @@ eight-way concurrent worker and is now backed by a partial unique index on the a
 
 ## Changelog
 
+- **2026-09-29** — Backlog B-09: the referral programme. A customer's code is Crockford base32, eight
+  characters, one live code per person forever — reissuing it would break every message that already printed
+  it — with the standard fold so a code typed in lower case, with dashes, or with `O` for zero still resolves.
+  A hand-rolled alphabet was tried first and folded `L` onto a character that was itself valid, which broke
+  legitimate codes; the test that now guards that is the reason to prefer a documented encoding.
+  Two stages: a **claim** when somebody enters a code, and a **conversion** when that person places their
+  first order — only the second is worth a reward, and it is a conditional UPDATE so two orders arriving
+  together cannot both pay out. The conversion emits an event whose **subject is the referrer**, with the
+  buyer travelling as trigger context: no audience expression could turn one person's order into another
+  person's run, which is exactly why this needs an event of its own. Claiming is authenticated on purpose — a
+  public endpoint attaching any customer to any code is a reward-fraud machine — and it never returns the
+  referrer, since that would turn a shared code into a way to look up who shared it. Self-referral and a
+  second claim are each refused with their own code. What reads it: the customer profile shows the code, how
+  many used it and how many bought, plus who referred this customer; a referrals screen ranks codes by
+  conversions, because "who brings people who actually buy" is the question being asked. 643 unit tests, 116
+  integration tests, including one that claims a code, places a real order and waits for the conversion.
+
 - **2026-09-29** — Backlog B-25: operational observability. `marketing_campaign_revisions` serves both the
   audit trail and the restorable versions, because they are the same data: every save records what the
   campaign looked like AFTER it, so version 1 is the first save rather than a gap. A restore replays the

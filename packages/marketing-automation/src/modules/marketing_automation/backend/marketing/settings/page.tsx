@@ -19,6 +19,7 @@ const SETTINGS_PATH = '/api/marketing_automation/settings'
 type Settings = {
   productUrlTemplate: string
   brandVoice: string
+  referralUrlTemplate: string
   loyaltyTiers: Array<{ key: string; minPoints: number }>
 }
 
@@ -114,6 +115,22 @@ export default function MarketingSettingsPage() {
                 'marketing_automation.settings.productUrlHint',
                 'Must contain {sku}. Recommended products link through it; without it they render as plain names.',
               )}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <SectionHeader title={t('marketing_automation.settings.referral', 'Referral links')} />
+            <Label htmlFor="referral-url-template">
+              {t('marketing_automation.settings.referralUrlTemplate', 'Referral URL template')}
+            </Label>
+            <Input
+              id="referral-url-template"
+              value={settings.referralUrlTemplate}
+              placeholder="https://shop.example/r/{code}"
+              onChange={(event) => setSettings({ ...settings, referralUrlTemplate: event.target.value })}
+            />
+            <div className="text-xs text-muted-foreground">
+              {t('marketing_automation.settings.referralUrlHint', 'Must contain {code}. Messages can then print {{referral.url}} as well as {{referral.code}}.')}
             </div>
           </div>
 

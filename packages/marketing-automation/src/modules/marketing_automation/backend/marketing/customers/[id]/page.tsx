@@ -32,6 +32,13 @@ type Profile = {
   nps: { score: number; band: 'detractor' | 'passive' | 'promoter'; answeredAt: string } | null
   messages: { sent: number; suppressed: number; opened: number; clicked: number }
   recommendations: Array<{ sku: string; name: string; source: 'affinity' | 'bestSeller' }>
+  referral?: {
+    code: string | null
+    url: string | null
+    claimed: number
+    converted: number
+    referredBy: { referrerEntityId: string; status: string } | null
+  }
   recentScoreEntries: Array<{
     id: string
     points: number
@@ -249,6 +256,39 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
                 ? t('marketing_automation.profile.consent.subscribed', 'Subscribed to email')
                 : t('marketing_automation.profile.consent.unrecorded', 'No email preference recorded')}
           </StatusBadge>
+        </div>
+
+        <div className="mb-6">
+          <SectionHeader title={t('marketing_automation.profile.referral', 'Referrals')} />
+          {/* Two numbers, because they answer different questions: how many people used the code, and how
+              many of those actually bought — which is the one a reward should be based on. */}
+          {profile.referral?.code ? (
+            <div className="space-y-1 text-sm">
+              <div className="flex items-baseline gap-2">
+                <span className="font-mono text-foreground">{profile.referral.code}</span>
+                {profile.referral.url ? (
+                  <a className="text-xs underline text-muted-foreground" href={profile.referral.url}>
+                    {t('marketing_automation.profile.referralLink', 'Shared link')}
+                  </a>
+                ) : null}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {t('marketing_automation.profile.referralCounts', '{claimed} used the code · {converted} went on to buy')
+                  .replace('{claimed}', String(profile.referral.claimed))
+                  .replace('{converted}', String(profile.referral.converted))}
+              </div>
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground">
+              {t('marketing_automation.profile.noReferralCode', 'No referral code yet — a campaign step issues one.')}
+            </div>
+          )}
+          {profile.referral?.referredBy ? (
+            <div className="mt-2 text-xs text-muted-foreground">
+              {t('marketing_automation.profile.referredBy', 'Referred by another customer ({status})')
+                .replace('{status}', t(`marketing_automation.referral.status.${profile.referral.referredBy.status}`, profile.referral.referredBy.status))}
+            </div>
+          ) : null}
         </div>
 
         <div className="mb-6">

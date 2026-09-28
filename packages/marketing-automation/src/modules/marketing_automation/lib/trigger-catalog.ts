@@ -216,6 +216,32 @@ const inboundReceived: TriggerCatalogEntry = {
   },
 }
 
+/**
+ * Somebody who arrived on this customer's referral code has bought something.
+ *
+ * The subject is the REFERRER — the person to thank or reward — which is why this exists as its own event
+ * rather than as an audience rule over `sales.order.created`: that event is about the buyer, and no audience
+ * expression can turn one person's order into a different person's run.
+ */
+const referralConverted: TriggerCatalogEntry = {
+  eventId: 'marketing_automation.referral.converted',
+  labelKey: 'marketing_automation.trigger.marketing_automation.referral.converted.label',
+  available: true,
+  contextKeys: ['trigger.code', 'trigger.referredEntityId', 'trigger.orderTotal'],
+  async build(payload) {
+    return {
+      subjectEntityId: readString(payload.entityId),
+      trigger: {
+        code: readString(payload.code),
+        referredEntityId: readString(payload.referredEntityId),
+        orderId: readString(payload.orderId),
+        // Parsed, because sales money is a numeric mapped to string and an audience has to compare it.
+        orderTotal: readAmount(payload.orderTotal),
+      },
+    }
+  },
+}
+
 export const TRIGGER_CATALOG: TriggerCatalogEntry[] = [
   personCreated,
   tagAssigned,
@@ -224,6 +250,7 @@ export const TRIGGER_CATALOG: TriggerCatalogEntry[] = [
   expiringQuote,
   fulfilledOrder,
   inboundReceived,
+  referralConverted,
   abandonedCart,
 ]
 

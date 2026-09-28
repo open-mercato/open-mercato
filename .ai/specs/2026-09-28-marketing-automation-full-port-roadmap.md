@@ -170,7 +170,7 @@ built to be extended, so breadth is additive by construction.
 | B-06 | Price-drop and back-in-stock alerts: watch subscriptions, two scan jobs, two triggers, guest notifier | Recovers demand that already declared itself; the highest intent signal a shop gets | M | trigger catalog + new table | catalogue price/stock reads |
 | B-07 | NPS survey: 0–10 prompt step, `nps_score_at_least` predicate, public answer endpoint | Closes the loop from sending to satisfaction, and feeds segmentation — ✅ 2026-09-28 — the step renders the scale itself; the score is signed, not a parameter | M | step registry + public route | — |
 | B-08 | Product recommendations: co-purchase affinity with best-seller padding, injected into a message | Raises revenue per send without the author writing anything — ✅ 2026-09-29 — `{{recommendations}}` in a body, ranked by distinct co-purchasing customers and padded with best sellers, shown on the customer profile with the signal that chose it; links go through a per-tenant product URL template, so recommendation clicks are tracked and attributed like any other | M | step registry + interpolation context | order history reads |
-| B-09 | Referral programme: codes, redemption on first order, `referral_converted` trigger targeting the REFERRER | Acquisition at near-zero cost; the trigger's subject flip is the whole trick | M | trigger catalog + new tables | — |
+| B-09 | Referral programme: codes, redemption on first order, `referral_converted` trigger targeting the REFERRER | Acquisition at near-zero cost; the trigger's subject flip is the whole trick — ✅ 2026-09-29 — Crockford base32 codes (one live code per customer, forever), a two-stage claim→convert model so a reward is only ever paid for a real purchase, and an event whose SUBJECT is the referrer while the buyer travels as trigger context. The claim endpoint is authenticated on purpose: a public one would let anybody attach any customer to any code | M | trigger catalog + new tables | — |
 | B-10 | Multi-touch revenue attribution: linear split across every click-through inside a window | Answers "what did marketing earn", which is the question that renews the budget — ✅ 2026-09-28 — linear, computed from recorded clicks; a campaign filter applies after the split | M | tracking events + order reads | 3.1, 3.2 |
 | B-11 | Segment overlap, audience-size history, queued bulk actions over members, import/export | Makes segments operable rather than merely definable | M | segments + progress module | 5.1 |
 | B-12 | Reorder-cycle engine: per-customer/SKU interval detection, drift-based at-risk tagging, build-a-cart, admin grid | Consumables businesses live on this; it is the one feature with no substitute | L | sweep source + new tables + cart | 7.4, cart surface |
@@ -257,11 +257,10 @@ Value per unit of effort, given what already exists:
 4. **X-14, B-19** — journey preview and real test send. Author confidence, and the two best things to show on a demo.
 5. **B-13, X-01** — product-level and geographic targeting. The two dimensions authors reach for next.
 6. **X-04, X-05, X-06** — agent authoring, MCP tools, charts. Each one is small here and each one is impossible in the original.
-7. **B-09, B-11, B-27, X-03, X-07, X-08** — referrals, segment operability, setup wizard,
-   per-channel targeting, progress/notifications, portal preference centre. All unblocked, all
-   additive.
+7. **B-11, B-27, X-03, X-07, X-08** — segment operability, setup wizard, per-channel targeting,
+   progress/notifications, portal preference centre. All unblocked, all additive.
    (B-07 NPS, B-15 GDPR, B-17 content blocks, B-08 recommendations, B-18 inbound hooks, B-24 AI copy
-   drafting and B-25 observability landed on 2026-09-28/29.)
+   drafting, B-25 observability and B-09 referrals landed on 2026-09-28/29.)
 8. The blocked table above, each item the moment its dependency lands.
 
 Target for the current push: every unblocked item. The blocked ones are documented so nobody mistakes

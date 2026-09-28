@@ -12,6 +12,9 @@ const events = [
   // Customer state the module itself maintains, and which a campaign may react to
   { id: 'marketing_automation.customer.score_changed', label: 'Customer Score Changed', entity: 'customer_score', category: 'lifecycle' },
 
+  // Somebody arrived on a customer's referral code and then bought something
+  { id: 'marketing_automation.referral.converted', label: 'Referral Converted', entity: 'referral', category: 'lifecycle' },
+
   // Something outside the platform asking a campaign to run
   { id: 'marketing_automation.inbound.received', label: 'Inbound Hook Received', entity: 'inbound_hook', category: 'lifecycle' },
 

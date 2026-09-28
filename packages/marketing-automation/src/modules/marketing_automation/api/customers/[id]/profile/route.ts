@@ -12,6 +12,7 @@ import {
 import { loadOrderAggregates, loadTagSlugs } from '../../../../lib/subject-document.js'
 import { loadScorePoints } from '../../../../lib/scores.js'
 import { recommendForSubject } from '../../../../lib/recommendations.js'
+import { loadReferralSummary, loadReferralUrlTemplate } from '../../../../lib/referrals.js'
 import { loadConsentState } from '../../../../lib/consent.js'
 import { loadLatestNps, npsBand } from '../../../../lib/survey.js'
 import { resolveTier } from '../../../../lib/engine/tiers.js'
@@ -86,6 +87,19 @@ export async function GET(req: Request) {
    */
   const recommendations = await recommendForSubject(em, scope, customerId, PROFILE_RECOMMENDATION_COUNT)
 
+  /**
+   * Their referral code, how many people used it, and who referred them.
+   *
+   * On the profile because a referral is a fact about a person, and because the operational question — "did
+   * this customer actually bring anybody" — is asked while looking at that person.
+   */
+  const referral = await loadReferralSummary(
+    em,
+    scope,
+    customerId,
+    await loadReferralUrlTemplate(container, scope),
+  )
+
   const [scoreEntries, runs, sent, suppressed] = await Promise.all([
     em.find(
       MarketingCustomerScoreEntry,
@@ -154,6 +168,8 @@ export async function GET(req: Request) {
     /** Null when they have never answered, which the screen states rather than showing a zero. */
     nps: nps ? { score: nps.score, band: npsBand(nps.score), answeredAt: nps.answeredAt } : null,
     messages: { sent, suppressed, opened: engagement.opened, clicked: engagement.clicked },
+    /** `code` is null until a campaign step has issued one, which the screen says plainly. */
+    referral,
     /** Each carries the signal that chose it, so the screen can say why rather than just what. */
     recommendations: recommendations.map((item) => ({ sku: item.sku, name: item.name, source: item.source })),
     recentScoreEntries: scoreEntries.map((entry) => ({
