@@ -179,3 +179,5 @@ describe('ListView expanded day', () => {
     expect(screen.getByText('locked')).toBeInTheDocument()
   })
 })
+
+// Regression coverage is added with the implementation commit.
