@@ -100,6 +100,7 @@ export function TriggersEditor({ value, onChange }: TriggersEditorProps) {
     <div className="space-y-2">
       {value.map((trigger) => {
         const expanded = expandedId === trigger.triggerId
+        const triggerLabel = trigger.name || t('workflows.triggers.placeholders.name', 'New trigger')
         const config = (trigger.config ?? {}) as {
           filterConditions?: FilterCondition[]
           contextMapping?: ContextMapping[]
@@ -121,7 +122,9 @@ export function TriggersEditor({ value, onChange }: TriggersEditorProps) {
               <Switch
                 checked={!!trigger.enabled}
                 onCheckedChange={(checked) => patch(trigger.triggerId, { enabled: checked })}
-                aria-label={t('workflows.triggers.fields.enabled', 'Enabled')}
+                aria-label={t('workflows.triggers.fields.enabledNamed', 'Enabled: {trigger}', {
+                  trigger: triggerLabel,
+                })}
               />
               <button
                 type="button"
@@ -129,7 +132,7 @@ export function TriggersEditor({ value, onChange }: TriggersEditorProps) {
                 className="flex min-w-0 flex-1 flex-col items-start text-left focus-visible:outline-none"
               >
                 <span className="truncate text-sm font-semibold text-foreground">
-                  {trigger.name || t('workflows.triggers.placeholders.name', 'New trigger')}
+                  {triggerLabel}
                 </span>
                 <code className="truncate font-mono text-xs text-muted-foreground">
                   {trigger.eventPattern || '—'}
@@ -139,7 +142,9 @@ export function TriggersEditor({ value, onChange }: TriggersEditorProps) {
               <IconButton
                 type="button"
                 variant="ghost"
-                aria-label={t('workflows.triggers.actions.edit', 'Edit')}
+                aria-label={t('workflows.triggers.actions.editNamed', 'Edit {trigger}', {
+                  trigger: triggerLabel,
+                })}
                 onClick={() => setExpandedId(expanded ? null : trigger.triggerId)}
               >
                 <Pencil className="size-4" />
@@ -147,7 +152,9 @@ export function TriggersEditor({ value, onChange }: TriggersEditorProps) {
               <IconButton
                 type="button"
                 variant="ghost"
-                aria-label={t('workflows.triggers.actions.delete', 'Delete')}
+                aria-label={t('workflows.triggers.actions.deleteNamed', 'Delete {trigger}', {
+                  trigger: triggerLabel,
+                })}
                 onClick={() => remove(trigger.triggerId)}
               >
                 <Trash2 className="size-4 text-status-error-icon" />
@@ -229,7 +236,9 @@ export function TriggersEditor({ value, onChange }: TriggersEditorProps) {
                       <IconButton
                         type="button"
                         variant="ghost"
-                        aria-label={t('workflows.triggers.actions.delete', 'Delete')}
+                        aria-label={t('workflows.triggers.actions.deleteNamed', 'Delete {trigger}', {
+                  trigger: triggerLabel,
+                })}
                         onClick={() => setFilters(filters.filter((_, i) => i !== index))}
                       >
                         <Trash2 className="size-4 text-status-error-icon" />
@@ -316,7 +325,9 @@ export function TriggersEditor({ value, onChange }: TriggersEditorProps) {
                           <IconButton
                             type="button"
                             variant="ghost"
-                            aria-label={t('workflows.triggers.actions.delete', 'Delete')}
+                            aria-label={t('workflows.triggers.actions.deleteNamed', 'Delete {trigger}', {
+                  trigger: triggerLabel,
+                })}
                             onClick={() => setMappings(mappings.filter((_, i) => i !== index))}
                           >
                             <Trash2 className="size-4 text-status-error-icon" />
