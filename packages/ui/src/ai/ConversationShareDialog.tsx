@@ -272,7 +272,11 @@ export function ConversationShareDialog({ open, onOpenChange, conversationId }: 
                     size="icon"
                     onClick={() => void handleRemove(p.userId)}
                     disabled={removingId === p.userId}
-                    aria-label={t('ai_assistant.share.removeParticipant', 'Remove')}
+                    aria-label={t(
+                      'ai_assistant.share.removeParticipantNamed',
+                      'Remove {participant}',
+                      { participant: getUserLabel(p.userId) },
+                    )}
                   >
                     {removingId === p.userId ? (
                       <Loader2 className="size-3 animate-spin" />
@@ -297,5 +301,3 @@ export function ConversationShareDialog({ open, onOpenChange, conversationId }: 
 }
 
 export default ConversationShareDialog
-
-// Regression coverage is added with the implementation commit.
