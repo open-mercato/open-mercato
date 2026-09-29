@@ -83,6 +83,38 @@ test.describe('TC-MA-042 campaign authoring on the canvas', () => {
     }
   })
 
+  test('results and runs are reachable from the list and from the editor', async ({ page, request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const name = `TC-MA-042 links ${Date.now()}`
+    const campaignId = await createCampaign(request, token, name)
+    try {
+      await login(page, 'admin')
+      const listed = page.waitForResponse((response) =>
+        response.url().includes(CAMPAIGNS_PATH) && response.request().method() === 'GET')
+      await page.goto('/backend/marketing/campaigns', { waitUntil: 'domcontentloaded' })
+      await listed
+      const row = page.getByRole('row', { name: new RegExp(name) }).first()
+      await expect(row).toBeVisible({ timeout: 20_000 })
+
+      await row.getByRole('button', { name: 'Open actions' }).click()
+      await page.getByRole('menuitem', { name: 'Results' }).click()
+      await page.waitForURL(`**/backend/marketing/campaigns/${campaignId}/results`, { timeout: 20_000 })
+
+      await page.goBack()
+      await expect(row).toBeVisible({ timeout: 20_000 })
+      await row.getByRole('button', { name: 'Open actions' }).click()
+      await page.getByRole('menuitem', { name: 'Runs' }).click()
+      await page.waitForURL(`**/backend/marketing/campaigns/${campaignId}/runs`, { timeout: 20_000 })
+
+      await openEditor(page, campaignId)
+      await expect(page.getByRole('link', { name: 'Results', exact: true })).toHaveAttribute('href', `/backend/marketing/campaigns/${campaignId}/results`)
+      await page.getByRole('link', { name: 'Runs', exact: true }).click()
+      await page.waitForURL(`**/backend/marketing/campaigns/${campaignId}/runs`, { timeout: 20_000 })
+    } finally {
+      await deleteCampaignIfExists(request, token, campaignId)
+    }
+  })
+
   test('triggers and steps come from the palette, are edited in the inspector, reordered and removed', async ({ page, request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()

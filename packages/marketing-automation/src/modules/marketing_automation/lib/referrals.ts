@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { MarketingReferralCode, MarketingReferralRedemption } from '../data/entities.js'
 import {
   generateReferralCode,
@@ -110,6 +111,21 @@ export type ClaimOutcome =
  * time. Both answer with a distinct outcome rather than an error, because the caller is a checkout or a
  * sign-up form that needs to tell the person something specific.
  */
+/** Whether a referrer is still a live customer: codes of deleted customers neither resolve nor list. */
+async function liveReferrerIds(em: EntityManager, scope: ReferralScope, ids: string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set()
+  const rows = await em.find(
+    CustomerEntity,
+    { id: { $in: ids }, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
+    { fields: ['id'] },
+  )
+  return new Set(rows.map((row) => row.id))
+}
+
+async function isLiveReferrer(em: EntityManager, scope: ReferralScope, id: string): Promise<boolean> {
+  return (await liveReferrerIds(em, scope, [id])).has(id)
+}
+
 export async function claimReferral(
   em: EntityManager,
   scope: ReferralScope,
@@ -123,6 +139,13 @@ export async function claimReferral(
   // An erased referrer's code is retired in the same statement that unlinks them, so this is belt and
   // braces — but a code with nobody behind it must never be claimable: there would be nobody to reward.
   if (!code.referrerEntityId) return { status: 'unknown_code' }
+  /**
+   * Nor a code whose owner was deleted from the CRM.
+   *
+   * The code is not retired on delete, because a delete can be undone and the code is already printed in every
+   * message that mentioned it; it simply stops resolving while its owner is gone.
+   */
+  if (!(await isLiveReferrer(em, scope, code.referrerEntityId))) return { status: 'unknown_code' }
   if (code.referrerEntityId === input.referredEntityId) return { status: 'self_referral' }
 
   const existing = await em.findOne(MarketingReferralRedemption, { ...scope, referredEntityId: input.referredEntityId })

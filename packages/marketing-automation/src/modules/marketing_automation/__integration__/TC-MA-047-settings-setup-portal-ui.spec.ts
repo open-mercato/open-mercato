@@ -284,6 +284,28 @@ test.describe('TC-MA-047 settings, setup and portal preferences screens', () => 
     }
   })
 
+  test('what is typed right after the form appears survives the scope settling', async ({ page, request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const snapshot = await readSettings(request, token)
+    try {
+      await login(page, 'admin')
+      // Deliberately NOT openSettings: this types as soon as the first answer arrives, which is when the second load
+      // used to swap the form for a spinner and back, wiping the field.
+      const first = page.waitForResponse((response) =>
+        response.url().includes(SETTINGS_PATH) && response.request().method() === 'GET')
+      await page.goto('/backend/marketing/settings', { waitUntil: 'domcontentloaded' })
+      await first
+      const field = page.locator('#product-url-template')
+      await expect(field).toBeVisible()
+      const typed = 'https://shop.example/early/{sku}'
+      await field.fill(typed)
+      await page.waitForTimeout(2_500)
+      await expect(field).toHaveValue(typed)
+    } finally {
+      await restoreSettings(request, token, snapshot)
+    }
+  })
+
   test('the getting-started checklist shows every check as the live state reports it', async ({ page }) => {
     await login(page, 'admin')
     const loaded = page.waitForResponse((candidate) =>

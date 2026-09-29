@@ -235,6 +235,9 @@ export default function CampaignsListPage() {
       cell: ({ row }) => {
         const actions: RowActionItem[] = [
           { id: 'edit', label: t('marketing_automation.action.edit', 'Edit'), onSelect: () => router.push(`/backend/marketing/campaigns/${row.original.id}`) },
+          // Results and runs were reachable only from each other and from a customer's profile.
+          { id: 'results', label: t('marketing_automation.results.title', 'Results'), onSelect: () => router.push(`/backend/marketing/campaigns/${row.original.id}/results`) },
+          { id: 'runs', label: t('marketing_automation.runs.title', 'Runs'), onSelect: () => router.push(`/backend/marketing/campaigns/${row.original.id}/runs`) },
           { id: 'delete', label: t('marketing_automation.action.delete', 'Delete'), destructive: true, onSelect: () => void deleteCampaign(row.original) },
         ]
         return <RowActions items={actions} />

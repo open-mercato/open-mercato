@@ -835,6 +835,13 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
               {t('marketing_automation.action.export', 'Export')}
             </a>
           </Button>
+          {/* Plain links: the unsaved-changes guard intercepts them like any other way out of the editor. */}
+          <Button variant="outline" asChild>
+            <a href={`/backend/marketing/campaigns/${campaignId}/results`}>{t('marketing_automation.results.title', 'Results')}</a>
+          </Button>
+          <Button variant="outline" asChild>
+            <a href={`/backend/marketing/campaigns/${campaignId}/runs`}>{t('marketing_automation.runs.title', 'Runs')}</a>
+          </Button>
           <Button onClick={save} disabled={saving || !dirty}>
             {saving ? <Spinner /> : t('marketing_automation.action.save', 'Save')}
           </Button>

@@ -56,16 +56,19 @@ export default function InboundHooksPage() {
   const [loadFailed, setLoadFailed] = React.useState(false)
   const [draft, setDraft] = React.useState<{ campaignId: string; name: string }>({ campaignId: '', name: '' })
   const [creating, setCreating] = React.useState(false)
+  // Off until the list says otherwise: a control briefly offered and then withdrawn is worse than one that appears.
+  const [canManage, setCanManage] = React.useState(false)
 
   const load = React.useCallback(async () => {
     setLoading(true)
     setLoadFailed(false)
     try {
       const [hooks, campaignList] = await Promise.all([
-        apiCall<{ items?: HookRow[] }>(`${HOOKS_PATH}?pageSize=100`),
+        apiCall<{ items?: HookRow[]; canManage?: boolean }>(`${HOOKS_PATH}?pageSize=100`),
         apiCall<{ items?: Array<{ id?: unknown; name?: unknown }> }>('/api/marketing_automation/campaigns?pageSize=100'),
       ])
       setRows(hooks.ok && Array.isArray(hooks.result?.items) ? hooks.result.items : [])
+      setCanManage(hooks.ok && hooks.result?.canManage === true)
       setCampaigns((campaignList.ok && Array.isArray(campaignList.result?.items) ? campaignList.result.items : [])
         .flatMap((item) => (typeof item.id === 'string' && typeof item.name === 'string' ? [{ id: item.id, name: item.name }] : [])))
     } catch {
@@ -181,15 +184,17 @@ export default function InboundHooksPage() {
               {t('marketing_automation.hooks.noSecret', 'No signing secret configured')}
             </span>
           )}
-          <Button variant="outline" size="sm" onClick={() => void setRevoked(row.original, !row.original.revokedAt)}>
-            {row.original.revokedAt
-              ? t('marketing_automation.hooks.restore', 'Restore')
-              : t('marketing_automation.hooks.revoke', 'Revoke')}
-          </Button>
+          {canManage ? (
+            <Button variant="outline" size="sm" onClick={() => void setRevoked(row.original, !row.original.revokedAt)}>
+              {row.original.revokedAt
+                ? t('marketing_automation.hooks.restore', 'Restore')
+                : t('marketing_automation.hooks.revoke', 'Revoke')}
+            </Button>
+          ) : null}
         </div>
       ),
     },
-  ], [t])
+  ], [t, canManage])
 
   return (
     <Page>
@@ -201,6 +206,7 @@ export default function InboundHooksPage() {
           </div>
         ) : null}
 
+        {canManage ? (
         <div className="mb-6 space-y-2">
           <SectionHeader title={t('marketing_automation.hooks.new', 'New hook')} />
           <div className="flex flex-wrap items-end gap-2">
@@ -240,6 +246,7 @@ export default function InboundHooksPage() {
             )}
           </div>
         </div>
+        ) : null}
 
         <DataTable
           columns={columns}

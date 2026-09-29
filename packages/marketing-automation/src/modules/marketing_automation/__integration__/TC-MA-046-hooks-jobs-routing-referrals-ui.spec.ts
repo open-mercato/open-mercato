@@ -179,6 +179,9 @@ test.describe('TC-MA-046 hooks, jobs, lead routing and referrals screens', () =>
       await expect(row).toContainText('URL hidden — needs campaign management rights')
       await expect(row.getByRole('button', { name: 'Copy URL' })).toHaveCount(0)
       await expect(page.getByText(hook.url as string)).toHaveCount(0)
+      // Nor controls the API would refuse: no create form, no revoke.
+      await expect(page.getByRole('button', { name: 'Create hook' })).toHaveCount(0)
+      await expect(row.getByRole('button', { name: 'Revoke' })).toHaveCount(0)
     } finally {
       await removeHooksOf(request, token, campaignId)
       await deleteCampaignIfExists(request, token, campaignId)
@@ -338,6 +341,24 @@ test.describe('TC-MA-046 hooks, jobs, lead routing and referrals screens', () =>
       await expect(cells.nth(0)).toHaveText(code)
       await expect(cells.nth(2)).toHaveText('1')
       await expect(cells.nth(3)).toHaveText('0')
+
+      // Deleting the referrer takes the code off the screen and out of use, without retiring it: a delete can be undone.
+      await deleteEntityIfExists(request, token, '/api/customers/people', referrerId)
+      const listed = await readJsonSafe<{ items?: Array<{ code?: string }> }>(
+        await apiRequest(request, 'GET', `${REFERRALS_PATH}?limit=100`, { token }),
+      )
+      expect((listed?.items ?? []).some((item) => item.code === code)).toBe(false)
+      const lateClaimer = await createPersonFixture(request, token, {
+        firstName: 'QA', lastName: `Late${stamp}`, displayName: `QA UI Late ${stamp}`,
+      })
+      try {
+        const late = await apiRequest(request, 'POST', `${REFERRALS_PATH}/claim`, { token, data: { code, customerId: lateClaimer } })
+        expect(late.status()).toBe(404)
+      } finally {
+        await deleteEntityIfExists(request, token, '/api/customers/people', lateClaimer)
+      }
+      await openScreen(page, '/backend/marketing/referrals', REFERRALS_PATH)
+      await expect(page.getByRole('row').filter({ hasText: code })).toHaveCount(0)
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/people', referredId)
       await deleteEntityIfExists(request, token, '/api/customers/people', referrerId)

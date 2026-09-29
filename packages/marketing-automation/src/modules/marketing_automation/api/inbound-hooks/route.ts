@@ -120,6 +120,13 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     items: items.map((hook) => present(hook, namesById.get(hook.campaignId) ?? null, secret, baseUrl, mayRevealUrl)),
+    /**
+     * Whether this reader may create, revoke and restore hooks — the same grant that reveals a URL.
+     *
+     * Said here so the screen can leave out controls the API would refuse, rather than offering a form that ends
+     * in a generic error for somebody who was only ever allowed to look.
+     */
+    canManage: mayRevealUrl,
     total,
     page,
     pageSize,

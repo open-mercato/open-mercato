@@ -89,6 +89,15 @@ export default function MarketingSettingsPage() {
     }
   }
 
+  /**
+   * What the server last said, so a repeat of the same answer leaves the form alone.
+   *
+   * The organisation scope settles a moment after the page opens and triggers a second load; that load used to
+   * replace the form with a spinner and then with the server's values, throwing away whatever had been typed in
+   * the first second. A load that brings DIFFERENT values — another organisation picked — still replaces them.
+   */
+  const lastLoaded = React.useRef<string | null>(null)
+
   const load = React.useCallback(async () => {
     setLoading(true)
     setLoadFailed(false)
@@ -97,8 +106,13 @@ export default function MarketingSettingsPage() {
         apiCall<Settings>(SETTINGS_PATH),
         apiCall<{ items?: Array<{ userId?: string; displayName?: string }> }>('/api/staff/team-members/assignable?pageSize=100'),
       ])
-      if (result.ok && result.result) setSettings(result.result)
-      else setLoadFailed(true)
+      if (result.ok && result.result) {
+        const loaded = JSON.stringify(result.result)
+        if (loaded !== lastLoaded.current) {
+          lastLoaded.current = loaded
+          setSettings(result.result)
+        }
+      } else setLoadFailed(true)
       setStaff((people.ok && Array.isArray(people.result?.items) ? people.result.items : [])
         .flatMap((member) => (member.userId ? [{ userId: member.userId, displayName: member.displayName ?? member.userId }] : [])))
     } catch {
@@ -119,7 +133,10 @@ export default function MarketingSettingsPage() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(settings),
       })
-      if (saved.result) setSettings(saved.result)
+      if (saved.result) {
+        lastLoaded.current = JSON.stringify(saved.result)
+        setSettings(saved.result)
+      }
       flash(t('marketing_automation.settings.saved', 'Settings saved.'), 'success')
     } catch (error) {
       const message = readApiErrorField(error, 'error')
@@ -140,7 +157,8 @@ export default function MarketingSettingsPage() {
     setSettings({ ...settings, loyaltyTiers: tiers })
   }
 
-  if (loading) return <Page><PageBody><LoadingMessage label={t('marketing_automation.settings.loading', 'Loading settings…')} /></PageBody></Page>
+  // Only before there is a form to show: a reload must not swap a form somebody is typing into for a spinner.
+  if (loading && !settings) return <Page><PageBody><LoadingMessage label={t('marketing_automation.settings.loading', 'Loading settings…')} /></PageBody></Page>
   if (loadFailed || !settings) {
     return (
       <Page>

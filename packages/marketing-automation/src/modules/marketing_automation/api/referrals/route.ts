@@ -44,12 +44,25 @@ export async function GET(req: Request) {
    * a different fifty for no reason anybody can see. The list is re-sorted by performance below; this decides
    * WHICH fifty are read.
    */
-  const codes = await em.find(
-    MarketingReferralCode,
-    { ...scope, deletedAt: null },
-    { orderBy: { createdAt: 'DESC', id: 'ASC' }, limit },
+  /**
+   * Only codes whose owner is still a customer, decided in the query rather than after it: the page is the newest
+   * `limit` codes, and filtering after the limit let deleted customers' codes crowd live ones off the page.
+   */
+  const liveIds = await em.getConnection().execute<Array<{ id: string }>>(
+    `select c.id
+       from marketing_referral_codes c
+       join customer_entities e
+         on e.id = c.referrer_entity_id and e.tenant_id = c.tenant_id
+        and e.organization_id = c.organization_id and e.deleted_at is null
+      where c.tenant_id = ? and c.organization_id = ? and c.deleted_at is null
+      order by c.created_at desc, c.id asc
+      limit ${limit}`,
+    [scope.tenantId, scope.organizationId],
   )
-  if (codes.length === 0) return NextResponse.json({ items: [] })
+  if (liveIds.length === 0) return NextResponse.json({ items: [] })
+  const order = new Map(liveIds.map((row, index) => [row.id, index]))
+  const codes = (await em.find(MarketingReferralCode, { ...scope, id: { $in: liveIds.map((row) => row.id) } }))
+    .sort((left, right) => (order.get(left.id) ?? 0) - (order.get(right.id) ?? 0))
 
   /**
    * Counted in ONE grouped query rather than per code.
@@ -69,7 +82,6 @@ export async function GET(req: Request) {
   const countsById = new Map(counts.map((row) => [row.referrer_entity_id, row]))
 
   const template = await loadReferralUrlTemplate(container, scope)
-
   const items = codes.flatMap((code) => {
     if (!code.referrerEntityId) return []
     const row = countsById.get(code.referrerEntityId)

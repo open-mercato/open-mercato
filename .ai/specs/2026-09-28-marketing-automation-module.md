@@ -887,6 +887,10 @@ rather than worked around silently:
 
 ## Changelog
 
+- **2026-09-29** — Four UI findings from the browser coverage, fixed: a deleted customer's referral code no longer
+  lists or resolves (not retired — a delete can be undone); the inbound-hooks screen leaves out create/revoke for a
+  reader the API would refuse (`canManage` on the list response); the settings form survives the scope settling after
+  it opens; results and runs are linked from the campaign list and the editor. 255 integration tests.
 - **2026-09-29** — Playwright UI coverage for every screen of the module (TC-MA-042..047: campaign authoring on the
   canvas, publish dialog, templates, results and runs, segments, content blocks, customer profile, demand, inbound
   hooks, jobs, lead routing, referrals, settings, setup, portal preferences), and the five defects it found: no
