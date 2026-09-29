@@ -13,6 +13,7 @@ import { hasFeature } from '@open-mercato/shared/security/features'
 import { ScopeFields, type PolicyScope } from '../ScopeFields'
 import { ResolutionPreviewPanel } from '../ResolutionPreviewPanel'
 import { buildPolicyFieldGroups } from '../formGroups'
+import { toIsoDateTimeOrNull } from '../policyPayload'
 
 type PolicyRecord = {
   id: string
@@ -93,7 +94,7 @@ export default function AvailabilityPolicyEditPage({ params }: { params?: { id?:
 
   const groups = React.useMemo(() => buildPolicyFieldGroups(t), [t])
 
-  if (isLoading) return <LoadingMessage label={t('common.loading')} />
+  if (isLoading) return <LoadingMessage label={t('availability.common.loading')} />
   if (error || !policy) return <ErrorMessage label={error ?? t('availability.policies.edit.notFound')} />
 
   return (
@@ -170,7 +171,7 @@ export default function AvailabilityPolicyEditPage({ params }: { params?: { id?:
           isStockManaged: !!values.isStockManaged,
           allowBackorder: !!values.allowBackorder,
           backorderLeadTimeDays: toNullableInt(values.backorderLeadTimeDays),
-          preorderReleaseAt: values.preorderReleaseAt || null,
+          preorderReleaseAt: toIsoDateTimeOrNull(values.preorderReleaseAt),
           lowStockThreshold: toNullableInt(values.lowStockThreshold),
           minOrderQuantity: min,
           maxOrderQuantity: max,
