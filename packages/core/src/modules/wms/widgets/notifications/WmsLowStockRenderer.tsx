@@ -28,7 +28,7 @@ export function WmsLowStockRenderer({
   const viewAction = actions.find((action) => action.id === 'view') ?? actions[0] ?? null
 
   const handleView = async () => {
-    if (!viewAction) {
+    if (!viewAction || notification.status === 'actioned') {
       if (notification.linkHref) router.push(notification.linkHref)
       return
     }

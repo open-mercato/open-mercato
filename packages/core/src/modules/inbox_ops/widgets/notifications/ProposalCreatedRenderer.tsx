@@ -25,7 +25,7 @@ export function ProposalCreatedRenderer({
   const reviewAction = actions.find((action) => action.id === 'review') ?? actions[0] ?? null
 
   const handleReview = async () => {
-    if (!reviewAction) {
+    if (!reviewAction || notification.status === 'actioned') {
       if (notification.linkHref) router.push(notification.linkHref)
       return
     }

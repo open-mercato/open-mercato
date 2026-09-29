@@ -42,11 +42,12 @@ export function WmsReservationShortfallRenderer({
         : actionId === 'view-inventory'
           ? inventoryAction
           : null
-    if (!action && fallbackHref) {
+    const alreadyActioned = notification.status === 'actioned'
+    if ((!action || alreadyActioned) && fallbackHref) {
       router.push(fallbackHref)
       return
     }
-    if (!action) return
+    if (!action || alreadyActioned) return
     setExecuting(actionId)
     try {
       await onAction(action.id)
