@@ -1458,3 +1458,40 @@ related feature (a single hardcoded starter template, not a general
 import of a tenant's own numbering) has since shipped as
 `2026-09-15-default-chart-of-accounts.md` — see the annotation on the
 Out of scope bullet above for the precise distinction.
+
+### 2026-09-29 — Full-module implementation shipped, PR #6711
+
+Implemented per this document's own Design Decisions and the "Cały
+moduł od razu" scope decision (full module — engine, sweeper, guard,
+CRUD, UI — in one branch/PR, matching the JELD precedent): `lib/
+reclassify.ts` (`reclassifyLine`, shared between the real-time
+subscriber and `reconcileCostRing`), full CRUD (commands, API routes,
+backend UI) for `CostCenter` and `DefaultAccountPostingRule`, a
+`PostingRulesSettings` settings page, migration, seed defaults, ACL
+features, en/pl i18n. Branch `feat/posting-rules-engine`, stacked on
+the still-unmerged GL core engine and JELD branches. Opened as
+[PR #6711](https://github.com/open-mercato/open-mercato/pull/6711)
+against `develop`.
+
+A scoped `tsc` sweep over the new code (run after fetching a missing
+native `linux-arm64` platform package the environment's own `tsc`
+needed just to start) caught three real bugs before review: a
+computed-class-field ASI trap in `PostingRulesSettings` (`[OptionalProps]`
+placed after a statement missing a semicolon parsed as
+`new Date()[OptionalProps]`, not a class member); `commandBus.execute()`
+resolving `CommandExecuteResult<TResult>` (`{ result, logEntry }`)
+rather than the bare result, in four call sites across
+`postReclassification`, `lockFiscalPeriod`, and the settings/reconcile
+API routes; and a fabricated `translateCrudErrorBody` export in two
+routes' error handling that doesn't exist anywhere in this codebase,
+replaced with the real convention (`NextResponse.json(err.body, {
+status: err.status })`). Full detail recorded in
+`2026-09-08-financial-module-knowledge-base.md`'s own 2026-09-29 entry.
+
+Unit tests added for the core `reclassifyLine` engine
+(`lib/__tests__/reclassify.test.ts`, 8 passing): Invariant 3, zespół-4
+detection, both "cannot resolve where to post" rejections, and all
+three MPK priority-hybrid paths. Disclosed, not yet covered: the
+contra-side (reversal/mirror) path, which needs its own two-entry
+fixture. Full `yarn build:app`/`yarn typecheck`, CLA/label/QA-routing
+items on the PR, and doc/locale-generator updates remain open.
