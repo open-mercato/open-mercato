@@ -3,7 +3,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
-import { buildRequestCommandContext } from '../../../shared.js'
+import { buildRequestCommandContext, readPathUuid } from '../../../shared.js'
 
 const routeMetadata = {
   PUT: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.manage'] },
@@ -12,9 +12,8 @@ const routeMetadata = {
 export const metadata = routeMetadata
 
 function readCampaignId(req: Request): string | null {
-  const segments = new URL(req.url).pathname.split('/').filter(Boolean)
   // .../campaigns/<id>/save-graph
-  return segments[segments.length - 2] ?? null
+  return readPathUuid(req, 2)
 }
 
 export async function PUT(req: Request) {

@@ -4,6 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { MarketingCampaign, MarketingCampaignRun } from '../../../../data/entities.js'
 import type { StepOutcome } from '../../../../lib/engine/types.js'
+import { readPathUuid } from '../../../shared.js'
 
 /**
  * Who is mid-journey in this campaign, and what happened to them.
@@ -22,9 +23,8 @@ const RUN_STATUSES = ['running', 'waiting', 'claimed', 'completed', 'failed', 'd
 type RunStatus = (typeof RUN_STATUSES)[number]
 
 function readCampaignId(req: Request): string | null {
-  const segments = new URL(req.url).pathname.split('/').filter(Boolean)
   // .../campaigns/<id>/runs
-  return segments[segments.length - 2] ?? null
+  return readPathUuid(req, 2)
 }
 
 function readStepLog(value: unknown): StepOutcome[] {

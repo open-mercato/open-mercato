@@ -86,7 +86,38 @@ async function ensureSchedules(ctx: {
   }
 }
 
+/**
+ * Registers the ticks for a tenant created AFTER installation.
+ *
+ * `seedDefaults` runs during `mercato init`, so a tenant created later — through the onboarding wizard —
+ * never reached it, and its scheduled campaigns silently never swept. Nothing reported anything: an author
+ * published a daily win-back campaign, the canvas showed a schedule, and no message ever went out.
+ *
+ * The container is built here because the platform's tenant-created context carries only an entity manager
+ * and the scope (`TenantSetupContext` in `@open-mercato/shared/modules/setup`), and the scheduler is a DI
+ * registration. Passing the container to that hook is a core change and is written up as a roadmap proposal;
+ * until then this is the module closing its own hole, best-effort like everything else in this file.
+ */
+async function ensureSchedulesForNewTenant(ctx: { tenantId: string; organizationId: string }): Promise<void> {
+  try {
+    const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+    const container = await createRequestContainer()
+    await ensureSchedules({
+      container: container as unknown as { resolve: (name: string) => unknown; hasRegistration?: (name: string) => boolean },
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    })
+  } catch (error) {
+    logger.warn('[internal] marketing_automation: could not register schedules for a new tenant', { err: error })
+  }
+}
+
 export const setup: ModuleSetupConfig = {
+  // Both hooks, because they cover different moments and `schedulerService.register` is an idempotent upsert
+  // on a deterministic id — running twice costs one redundant write and never creates a second schedule.
+  onTenantCreated: async (ctx) => {
+    await ensureSchedulesForNewTenant(ctx)
+  },
   seedDefaults: async (ctx) => {
     await ensureSchedules(ctx)
   },

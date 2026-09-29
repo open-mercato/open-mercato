@@ -6,6 +6,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { MarketingContentBlock } from '../../../data/entities.js'
 import { contentBlockUpdateSchema } from '../../../data/validators.js'
+import { readPathUuid } from '../../shared.js'
 
 /**
  * One content block: read, edit, remove.
@@ -23,8 +24,7 @@ const routeMetadata = {
 export const metadata = routeMetadata
 
 function readId(req: Request): string | null {
-  const segments = new URL(req.url).pathname.split('/').filter(Boolean)
-  return segments[segments.length - 1] ?? null
+  return readPathUuid(req, 1)
 }
 
 async function load(req: Request) {

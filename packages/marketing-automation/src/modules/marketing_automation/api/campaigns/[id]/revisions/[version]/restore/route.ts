@@ -4,7 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
-import { buildRequestCommandContext } from '../../../../../shared.js'
+import { buildRequestCommandContext, readPathUuid } from '../../../../../shared.js'
 import { MarketingCampaign } from '../../../../../../data/entities.js'
 import { readRevision } from '../../../../../../lib/revisions.js'
 
@@ -70,11 +70,13 @@ export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const segments = new URL(req.url).pathname.split('/').filter(Boolean)
   // .../campaigns/<id>/revisions/<version>/restore
-  const campaignId = segments[segments.length - 4]
-  const version = Number.parseInt(segments[segments.length - 2] ?? '', 10)
-  if (!campaignId || !Number.isFinite(version)) return NextResponse.json({ error: 'Missing id or version' }, { status: 400 })
+  const campaignId = readPathUuid(req, 4)
+  const versionSegment = new URL(req.url).pathname.split('/').filter(Boolean).slice(-2, -1)[0] ?? ''
+  const version = Number.parseInt(versionSegment, 10)
+  if (!campaignId || !Number.isFinite(version) || version <= 0) {
+    return NextResponse.json({ error: 'Missing id or version' }, { status: 400 })
+  }
 
   const container = await createRequestContainer()
   const em = container.resolve<EntityManager>('em')

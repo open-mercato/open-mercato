@@ -6,6 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
 import { MarketingSegment } from '../../../../data/entities.js'
 import { enqueueSegmentAction } from '../../../../lib/queue.js'
+import { readPathUuid } from '../../../shared.js'
 
 /**
  * Starts a bulk action over everybody in a segment.
@@ -35,9 +36,8 @@ export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const path = new URL(req.url).pathname.split('/').filter(Boolean)
   // .../segments/<id>/actions
-  const segmentId = path[path.length - 2]
+  const segmentId = readPathUuid(req, 2)
   if (!segmentId) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
   const parsed = bodySchema.safeParse(await req.json().catch(() => null))

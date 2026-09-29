@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { MarketingProductWatch } from '../../../data/entities.js'
+import { readPathUuid } from '../../shared.js'
 
 /**
  * Stops a watch.
@@ -23,8 +24,7 @@ export async function DELETE(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const segments = new URL(req.url).pathname.split('/').filter(Boolean)
-  const id = segments[segments.length - 1]
+  const id = readPathUuid(req, 1)
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
   const container = await createRequestContainer()

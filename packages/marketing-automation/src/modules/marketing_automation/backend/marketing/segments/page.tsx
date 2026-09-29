@@ -93,16 +93,53 @@ export default function SegmentsPage() {
 
   React.useEffect(() => { void load() }, [load, scopeVersion])
 
-  const startNew = () => {
-    setSelected(null)
-    setMembers(null)
-    setDraft({ name: '', description: '', expression: null })
+  /**
+   * What the editor was last loaded with, so "has this been edited" is answerable.
+   *
+   * An audience expression is built by clicking through a condition tree — minutes of work with nothing
+   * written down anywhere — and picking another segment from the list simply overwrote it. No warning, no way
+   * back. The baseline is compared structurally rather than tracking a dirty flag per field, because the
+   * expression is a nested object and a flag would have to be set from inside the builder.
+   */
+  const [baseline, setBaseline] = React.useState<string>(JSON.stringify({ name: '', description: '', expression: null }))
+  const isDirty = JSON.stringify(draft) !== baseline
+
+  const applyDraft = (next: { name: string; description: string; expression: GroupCondition | null }) => {
+    setDraft(next)
+    setBaseline(JSON.stringify(next))
   }
 
-  const startEdit = (row: SegmentRow) => {
+  /** Asks before throwing away work, and only when there is work to throw away. */
+  const leaveDraft = async (): Promise<boolean> => {
+    if (!isDirty) return true
+    return confirm({
+      title: t('marketing_automation.segments.discardTitle', 'Discard unsaved changes?'),
+      text: t(
+        'marketing_automation.segments.discardText',
+        'This segment has changes that have not been saved. Leaving now loses them.',
+      ),
+    })
+  }
+
+  const startNew = async () => {
+    if (!(await leaveDraft())) return
+    setSelected(null)
+    setMembers(null)
+    applyDraft({ name: '', description: '', expression: null })
+  }
+
+  const startEdit = async (row: SegmentRow) => {
+    if (!(await leaveDraft())) return
     setSelected(row)
     setMembers(null)
-    setDraft({ name: row.name, description: row.description ?? '', expression: row.expression })
+    applyDraft({ name: row.name, description: row.description ?? '', expression: row.expression })
+  }
+
+  /** Used after a save or a delete, where there is nothing left to lose and nothing to ask about. */
+  const resetDraft = () => {
+    setSelected(null)
+    setMembers(null)
+    applyDraft({ name: '', description: '', expression: null })
   }
 
   const save = async () => {
@@ -130,7 +167,7 @@ export default function SegmentsPage() {
         })
       }
       flash(t('marketing_automation.segments.saved', 'Segment saved.'), 'success')
-      startNew()
+      resetDraft()
       await load()
     } catch (error) {
       if (!surfaceRecordConflict(error, t)) {
@@ -159,7 +196,7 @@ export default function SegmentsPage() {
         buildOptimisticLockHeader(row.updatedAt),
         () => apiCallOrThrow(`${SEGMENTS_PATH}/${row.id}`, { method: 'DELETE' }),
       )
-      if (selected?.id === row.id) startNew()
+      if (selected?.id === row.id) resetDraft()
       await load()
     } catch (error) {
       if (!surfaceRecordConflict(error, t)) {
@@ -169,12 +206,14 @@ export default function SegmentsPage() {
   }
 
   const showMembers = async (row: SegmentRow) => {
+    // This loads another segment into the editor too, so it asks the same question.
+    if (!(await leaveDraft())) return
     setCounting(true)
     setMembers(null)
     setHistory(null)
     setOverlap(null)
     setSelected(row)
-    setDraft({ name: row.name, description: row.description ?? '', expression: row.expression })
+    applyDraft({ name: row.name, description: row.description ?? '', expression: row.expression })
     try {
       const [membersResult, historyResult] = await Promise.all([
         apiCall<MembersAnswer>(`${SEGMENTS_PATH}/${row.id}/members`),
@@ -246,7 +285,7 @@ export default function SegmentsPage() {
           <Button variant="outline" size="sm" onClick={() => void showMembers(row.original)}>
             {t('marketing_automation.segments.members', 'Members')}
           </Button>
-          <Button variant="outline" size="sm" onClick={() => startEdit(row.original)}>
+          <Button variant="outline" size="sm" onClick={() => { void startEdit(row.original) }}>
             {t('marketing_automation.segments.edit', 'Edit')}
           </Button>
           <Button variant="outline" size="sm" onClick={() => void remove(row.original)}>
@@ -421,7 +460,7 @@ export default function SegmentsPage() {
                 {saving ? <Spinner /> : t('marketing_automation.action.save', 'Save')}
               </Button>
               {selected ? (
-                <Button variant="outline" onClick={startNew}>
+                <Button variant="outline" onClick={() => { void startNew() }}>
                   {t('marketing_automation.segments.new', 'New segment')}
                 </Button>
               ) : null}

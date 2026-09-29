@@ -6,7 +6,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { MarketingCampaign, MarketingCampaignTrigger } from '../../data/entities.js'
 import { campaignDefinitionSchema } from '../../data/validators.js'
-import { buildRequestCommandContext } from '../shared.js'
+import { buildRequestCommandContext, commandErrorResponse } from '../shared.js'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.view'] },
@@ -91,12 +91,15 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   const commandBus = container.resolve<CommandBus>('commandBus')
-  const { result } = await commandBus.execute<typeof parsed.data, { id: string }>(
-    'marketing_automation.campaigns.create',
-    { input: parsed.data, ctx: buildRequestCommandContext(container, auth, req) },
-  )
-
-  return NextResponse.json({ id: result.id }, { status: 201 })
+  try {
+    const { result } = await commandBus.execute<typeof parsed.data, { id: string }>(
+      'marketing_automation.campaigns.create',
+      { input: parsed.data, ctx: buildRequestCommandContext(container, auth, req) },
+    )
+    return NextResponse.json({ id: result.id }, { status: 201 })
+  } catch (error) {
+    return commandErrorResponse(error)
+  }
 }
 
 export const openApi = {

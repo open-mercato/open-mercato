@@ -399,22 +399,27 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
   }
 
   const updateScheduleTrigger = (nodeId: string, patch: Partial<Extract<CampaignTriggerInput, { kind: 'schedule' }>>) => {
-    const next = triggers.map((trigger) => (
-      triggerNodeId(trigger) === nodeId && trigger.kind === 'schedule' ? { ...trigger, ...patch } : trigger
+    /**
+     * Found by POSITION, not by a predicate over the result.
+     *
+     * A schedule's node id is derived from its source and interval, so editing either CHANGES the id, and the
+     * selection has to follow it — otherwise one keystroke in the interval field unmounts the panel being
+     * typed into and leaves a Remove button pointing at an id that no longer exists. Identifying the edited
+     * trigger by searching for "a schedule whose id differs from the old one" found the FIRST such trigger,
+     * which in a campaign with two schedules is usually the other one: editing either moved the selection to
+     * its sibling.
+     */
+    const index = triggers.findIndex((trigger) => trigger.kind === 'schedule' && triggerNodeId(trigger) === nodeId)
+    if (index === -1) return
+
+    const next: CampaignTriggerInput[] = triggers.map((trigger, at) => (
+      // Narrowed by the search above; `at === index` is a schedule trigger.
+      at === index && trigger.kind === 'schedule' ? { ...trigger, ...patch } : trigger
     ))
     mutate({ triggers: next })
 
-    /**
-     * A schedule's node id is derived from its source and interval, so editing either CHANGES the id.
-     * Without following the selection, one keystroke in the interval field unmounted the panel being
-     * typed into — and left a Remove button pointing at an id that no longer existed.
-     */
-    const patched = next.find((trigger) => (
-      trigger.kind === 'schedule' && triggerNodeId(trigger) !== nodeId
-        && triggers.some((original) => triggerNodeId(original) === nodeId)
-    ))
-    const movedId = patched ? triggerNodeId(patched) : null
-    if (movedId && movedId !== nodeId) setSelectedNodeId(movedId)
+    const movedId = triggerNodeId(next[index])
+    if (movedId !== nodeId) setSelectedNodeId(movedId)
   }
 
   const withSteps = (steps: CampaignStep[]) => mutate({ definition: { ...definition, steps } })

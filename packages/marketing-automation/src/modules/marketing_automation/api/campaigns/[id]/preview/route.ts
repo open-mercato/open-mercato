@@ -14,6 +14,7 @@ import { buildSubjectDocument } from '../../../../lib/subject-document.js'
 import { loadTierThresholds } from '../../../../lib/tiers.js'
 import { buildCampaignCommandContext } from '../../../../lib/command-context.js'
 import type { AutomationContext } from '../../../../lib/engine/types.js'
+import { readPathUuid } from '../../../shared.js'
 
 /**
  * What one named customer would receive from this campaign, and when.
@@ -44,9 +45,8 @@ const bodySchema = z.object({
 })
 
 function readCampaignId(req: Request): string | null {
-  const segments = new URL(req.url).pathname.split('/').filter(Boolean)
   // .../campaigns/<id>/preview
-  return segments[segments.length - 2] ?? null
+  return readPathUuid(req, 2)
 }
 
 export async function POST(req: Request) {

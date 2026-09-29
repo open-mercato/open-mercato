@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
@@ -61,24 +62,41 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
   const [rows, setRows] = React.useState<RunRow[]>([])
   const [campaignName, setCampaignName] = React.useState<string>('')
   const [loading, setLoading] = React.useState(true)
+  /**
+   * A failed request is not an empty list.
+   *
+   * `result.ok === false` used to fall through to `setRows([])`, so an expired session or a 500 rendered
+   * "This campaign has not run yet." — the most reassuring possible lie about a campaign that may have been
+   * messaging customers all night.
+   */
+  const [loadError, setLoadError] = React.useState<string | null>(null)
   const [status, setStatus] = React.useState<string | null>(null)
   const [expanded, setExpanded] = React.useState<string | null>(null)
 
   const load = React.useCallback(async () => {
     if (!campaignId) return
     setLoading(true)
+    setLoadError(null)
     try {
       const query = new URLSearchParams({ pageSize: '50' })
       if (status) query.set('status', status)
       const result = await apiCall<RunsResponse>(
         `/api/marketing_automation/campaigns/${campaignId}/runs?${query.toString()}`,
       )
-      setRows(result.ok && Array.isArray(result.result?.items) ? result.result.items : [])
+      if (!result.ok || !Array.isArray(result.result?.items)) {
+        setRows([])
+        setLoadError(t('marketing_automation.runs.loadFailed', 'The runs could not be loaded.'))
+        return
+      }
+      setRows(result.result.items)
       setCampaignName(result.result?.campaign?.name ?? '')
+    } catch {
+      setRows([])
+      setLoadError(t('marketing_automation.runs.loadFailed', 'The runs could not be loaded.'))
     } finally {
       setLoading(false)
     }
-  }, [campaignId, status])
+  }, [campaignId, status, t])
 
   React.useEffect(() => { void load() }, [load, scopeVersion])
 
@@ -178,6 +196,19 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
             </Button>
           ))}
         </div>
+
+        {loadError ? (
+          <div className="mb-3">
+            <ErrorMessage
+              label={loadError}
+              action={(
+                <Button variant="outline" size="sm" onClick={() => { void load() }}>
+                  {t('marketing_automation.runs.retry', 'Try again')}
+                </Button>
+              )}
+            />
+          </div>
+        ) : null}
 
         <DataTable
           columns={columns}

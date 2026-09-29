@@ -140,6 +140,19 @@ async function resolveSubject(
     if (found) return found.id
   }
   if (email) {
+    /**
+     * Matching by address is BEST EFFORT, and a caller that can should send `customerId`.
+     *
+     * `primary_email` is encrypted with a random IV, so with tenant encryption on there is no `where
+     * primary_email = ?` to run: the platform helper decrypts the most recent `MATCH_CANDIDATE_LIMIT` (500)
+     * person rows and compares in memory. On an installation with more people than that, an older customer's
+     * address will not be found — not a failure this module can fix from here, because a blind-index column
+     * on `customer_entities` is a core change (platform issue #5515, and a roadmap proposal in the spec).
+     *
+     * What saves it from being silent: an unmatched address is recorded as the hook's outcome, which the
+     * inbound-hooks screen shows to somebody who is logged in. The endpoint itself still answers 202, because
+     * telling the caller would turn a leaked hook URL into an address-existence oracle.
+     */
     const matches = await findPeopleByAddresses(em, [email], scope.tenantId, scope.organizationId)
     if (matches.length > 0) return matches[0].id
   }

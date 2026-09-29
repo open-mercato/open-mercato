@@ -21,6 +21,7 @@ import { loadConsentState } from '../../../../lib/consent.js'
 import { loadLatestNps, npsBand } from '../../../../lib/survey.js'
 import { resolveTier } from '../../../../lib/engine/tiers.js'
 import { loadTierThresholds } from '../../../../lib/tiers.js'
+import { readPathUuid } from '../../../shared.js'
 
 /**
  * Everything this module knows about one customer, on one response.
@@ -45,9 +46,8 @@ const PROFILE_RECOMMENDATION_COUNT = 5
 const RECENT_LIMIT = 10
 
 function readCustomerId(req: Request): string | null {
-  const segments = new URL(req.url).pathname.split('/').filter(Boolean)
   // .../customers/<id>/profile
-  return segments[segments.length - 2] ?? null
+  return readPathUuid(req, 2)
 }
 
 export async function GET(req: Request) {

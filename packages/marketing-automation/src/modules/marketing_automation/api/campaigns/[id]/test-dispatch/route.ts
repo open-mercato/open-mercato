@@ -11,6 +11,7 @@ import { planSteps } from '../../../../lib/engine/chain-planner.js'
 import { getMarketingStep } from '../../../../lib/engine/registry.js'
 import { loadTierThresholds } from '../../../../lib/tiers.js'
 import { buildSubjectDocument } from '../../../../lib/subject-document.js'
+import { readPathUuid } from '../../../shared.js'
 
 const logger = createLogger('marketing_automation')
 
@@ -33,8 +34,7 @@ const bodySchema = z.object({
 })
 
 function readCampaignId(req: Request): string | null {
-  const segments = new URL(req.url).pathname.split('/').filter(Boolean)
-  return segments[segments.length - 2] ?? null
+  return readPathUuid(req, 2)
 }
 
 export async function POST(req: Request) {

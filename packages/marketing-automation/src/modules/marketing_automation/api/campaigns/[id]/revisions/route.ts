@@ -4,6 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { MarketingCampaign } from '../../../../data/entities.js'
 import { listRevisions } from '../../../../lib/revisions.js'
+import { readPathUuid } from '../../../shared.js'
 
 /**
  * The campaign's history: who saved it, when, and what to go back to.
@@ -21,9 +22,8 @@ export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) return NextResponse.json({ items: [] }, { status: 401 })
 
-  const segments = new URL(req.url).pathname.split('/').filter(Boolean)
   // .../campaigns/<id>/revisions
-  const campaignId = segments[segments.length - 2]
+  const campaignId = readPathUuid(req, 2)
   if (!campaignId) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
   const container = await createRequestContainer()

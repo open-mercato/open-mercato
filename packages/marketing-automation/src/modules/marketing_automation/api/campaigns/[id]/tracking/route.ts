@@ -9,6 +9,7 @@ import type { CampaignStep } from '../../../../lib/engine/types.js'
 import { loadSplitResults, pickSplitWinner } from '../../../../lib/analytics/split-results.js'
 import { loadAttribution } from '../../../../lib/analytics/attribution.js'
 import { loadDailySeries } from '../../../../lib/analytics/daily-series.js'
+import { readPathUuid } from '../../../shared.js'
 
 /**
  * What happened to this campaign's messages: how many were sent, and how many were opened, clicked,
@@ -43,9 +44,8 @@ const DEFAULT_MINIMUM_SENDS = 50
 type EventType = (typeof EVENT_TYPES)[number]
 
 function readCampaignId(req: Request): string | null {
-  const segments = new URL(req.url).pathname.split('/').filter(Boolean)
   // .../campaigns/<id>/tracking
-  return segments[segments.length - 2] ?? null
+  return readPathUuid(req, 2)
 }
 
 export async function GET(req: Request) {

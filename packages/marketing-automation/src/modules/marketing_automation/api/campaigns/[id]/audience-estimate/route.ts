@@ -7,6 +7,7 @@ import { MarketingCampaign } from '../../../../data/entities.js'
 import { campaignDefinitionSchema } from '../../../../data/validators.js'
 import { describeNarrowing, planNarrowing } from '../../../../lib/engine/narrowing.js'
 import { createSqlCandidateSource, resolveCandidates } from '../../../../lib/audience/set-resolver.js'
+import { readPathUuid } from '../../../shared.js'
 
 /**
  * How many customers an audience would reach.
@@ -31,9 +32,8 @@ const VERIFY_LIMIT = 20_000
 const VERIFY_CHUNK = 500
 
 function readCampaignId(req: Request): string | null {
-  const segments = new URL(req.url).pathname.split('/').filter(Boolean)
   // .../campaigns/<id>/audience-estimate
-  return segments[segments.length - 2] ?? null
+  return readPathUuid(req, 2)
 }
 
 export async function POST(req: Request) {

@@ -7,6 +7,7 @@ import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/opti
 import { MarketingSegment } from '../../../data/entities.js'
 import { segmentUpdateSchema } from '../../../data/validators.js'
 import { isSelfReferentialSegment } from '../../../lib/engine/segment-expression.js'
+import { readPathUuid } from '../../shared.js'
 
 /**
  * One segment: read, edit, remove.
@@ -25,8 +26,7 @@ export const metadata = routeMetadata
 async function load(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
-  const segments = new URL(req.url).pathname.split('/').filter(Boolean)
-  const id = segments[segments.length - 1]
+  const id = readPathUuid(req, 1)
   if (!id) return { error: NextResponse.json({ error: 'Missing id' }, { status: 400 }) }
 
   const container = await createRequestContainer()

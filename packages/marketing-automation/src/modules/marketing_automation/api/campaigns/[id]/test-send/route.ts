@@ -22,6 +22,7 @@ import { loadTierThresholds } from '../../../../lib/tiers.js'
 import { redactEmails } from '../../../../lib/redact.js'
 import { applyContentBlocks, loadContentBlocks, referencedBlockKeys } from '../../../../lib/content-blocks.js'
 import type { AutomationContext } from '../../../../lib/engine/types.js'
+import { readPathUuid } from '../../../shared.js'
 
 /**
  * Sends one real message, to the author, so they can see what they wrote.
@@ -57,9 +58,8 @@ const bodySchema = z.object({
 })
 
 function readCampaignId(req: Request): string | null {
-  const segments = new URL(req.url).pathname.split('/').filter(Boolean)
   // .../campaigns/<id>/test-send
-  return segments[segments.length - 2] ?? null
+  return readPathUuid(req, 2)
 }
 
 export async function POST(req: Request) {

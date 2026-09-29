@@ -5,6 +5,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { eraseSubjectData, exportSubjectData } from '../../../../lib/gdpr.js'
+import { readPathUuid } from '../../../shared.js'
 
 /**
  * A customer's marketing data: hand it over, or stop holding it.
@@ -33,9 +34,8 @@ const eraseSchema = z.object({
 })
 
 function readCustomerId(req: Request): string | null {
-  const segments = new URL(req.url).pathname.split('/').filter(Boolean)
   // .../customers/<id>/gdpr
-  return segments[segments.length - 2] ?? null
+  return readPathUuid(req, 2)
 }
 
 export async function GET(req: Request) {

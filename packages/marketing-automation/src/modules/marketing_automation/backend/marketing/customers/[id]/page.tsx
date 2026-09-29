@@ -96,8 +96,20 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
       const anchor = document.createElement('a')
       anchor.href = url
       anchor.download = `marketing-data-${customerId}.json`
+      /**
+       * In the document, and revoked on the next tick.
+       *
+       * An anchor outside the document does not reliably start a download, and revoking the URL in the same
+       * turn as the click races the browser starting it: the subject access response then silently failed to
+       * save, which is the one download in this module somebody is legally waiting for.
+       */
+      anchor.style.display = 'none'
+      document.body.appendChild(anchor)
       anchor.click()
-      URL.revokeObjectURL(url)
+      window.setTimeout(() => {
+        anchor.remove()
+        URL.revokeObjectURL(url)
+      }, 0)
     } catch {
       flash(t('marketing_automation.gdpr.exportFailed', 'Could not export the data.'), 'error')
     } finally {

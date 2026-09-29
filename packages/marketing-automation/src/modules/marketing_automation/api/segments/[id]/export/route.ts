@@ -7,6 +7,7 @@ import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entiti
 import type { ConditionExpression } from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
 import { MarketingSegment } from '../../../../data/entities.js'
 import { REQUEST_MAX_CHECKED, resolveSegmentMembers } from '../../../../lib/segment-members.js'
+import { readPathUuid } from '../../../shared.js'
 
 /**
  * A segment's members as CSV.
@@ -44,8 +45,7 @@ export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const path = new URL(req.url).pathname.split('/').filter(Boolean)
-  const segmentId = path[path.length - 2]
+  const segmentId = readPathUuid(req, 2)
   if (!segmentId) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
   const container = await createRequestContainer()

@@ -3,7 +3,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
-import { buildRequestCommandContext } from '../../../shared.js'
+import { buildRequestCommandContext, readPathUuid } from '../../../shared.js'
 
 /**
  * Ends an A/B test by promoting the winning lane.
@@ -18,9 +18,8 @@ const routeMetadata = {
 export const metadata = routeMetadata
 
 function readCampaignId(req: Request): string | null {
-  const segments = new URL(req.url).pathname.split('/').filter(Boolean)
   // .../campaigns/<id>/apply-split-winner
-  return segments[segments.length - 2] ?? null
+  return readPathUuid(req, 2)
 }
 
 export async function POST(req: Request) {

@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { MarketingSegment, MarketingSegmentSnapshot } from '../../../../data/entities.js'
+import { readPathUuid } from '../../../shared.js'
 
 /**
  * How big this segment has been, by day.
@@ -22,8 +23,7 @@ export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) return NextResponse.json({ items: [] }, { status: 401 })
 
-  const path = new URL(req.url).pathname.split('/').filter(Boolean)
-  const segmentId = path[path.length - 2]
+  const segmentId = readPathUuid(req, 2)
   if (!segmentId) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
   const container = await createRequestContainer()

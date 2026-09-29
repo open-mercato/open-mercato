@@ -36,24 +36,42 @@ export function ParamFields({
 }) {
   const t = useT()
   const [tags, setTags] = React.useState<TagOption[] | null>(null)
+  /**
+   * Whether the tag list could not be loaded, which is a third state and not the same as "no tags".
+   *
+   * An empty picker says "this installation has no tags, go and make one"; a failed request says nothing at
+   * all and used to look identical. Worse, an `apiCall` that threw left `tags` null forever, so the field was
+   * a spinner that never resolved and the author could not tell whether to wait.
+   */
+  const [tagsFailed, setTagsFailed] = React.useState(false)
   const needsTags = fields.some((field) => field.kind === 'customer_tag')
 
   React.useEffect(() => {
     if (!needsTags || tags !== null) return
     let cancelled = false
     void (async () => {
-      const result = await apiCall<{ items?: Array<Record<string, unknown>> }>('/api/customers/tags?pageSize=100')
-      if (cancelled) return
-      const items = result.ok && Array.isArray(result.result?.items) ? result.result.items : []
-      setTags(items
-        .map((item) => {
-          const id = typeof item.id === 'string' ? item.id : null
-          const label = typeof item.label === 'string'
-            ? item.label
-            : typeof item.slug === 'string' ? item.slug : id
-          return id && label ? { id, label } : null
-        })
-        .filter((option): option is TagOption => option !== null))
+      try {
+        const result = await apiCall<{ items?: Array<Record<string, unknown>> }>('/api/customers/tags?pageSize=100')
+        if (cancelled) return
+        if (!result.ok || !Array.isArray(result.result?.items)) {
+          setTagsFailed(true)
+          setTags([])
+          return
+        }
+        setTags(result.result.items
+          .map((item) => {
+            const id = typeof item.id === 'string' ? item.id : null
+            const label = typeof item.label === 'string'
+              ? item.label
+              : typeof item.slug === 'string' ? item.slug : id
+            return id && label ? { id, label } : null
+          })
+          .filter((option): option is TagOption => option !== null))
+      } catch {
+        if (cancelled) return
+        setTagsFailed(true)
+        setTags([])
+      }
     })()
     return () => { cancelled = true }
   }, [needsTags, tags])
@@ -120,6 +138,16 @@ export function ParamFields({
               <div key={field.name} className="space-y-1">
                 <Label htmlFor={id}>{label}</Label>
                 <div className="flex h-9 items-center px-1"><Spinner /></div>
+              </div>
+            )
+          }
+          if (field.kind === 'customer_tag' && tagsFailed) {
+            return (
+              <div key={field.name} className="space-y-1">
+                <Label htmlFor={id}>{label}</Label>
+                <div className="text-xs text-status-error-base">
+                  {t('marketing_automation.params.tagsUnavailable', 'The tag list could not be loaded. Reload the page to try again.')}
+                </div>
               </div>
             )
           }

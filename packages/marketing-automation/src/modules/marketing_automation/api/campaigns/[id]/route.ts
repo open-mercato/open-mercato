@@ -5,7 +5,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { MarketingCampaign, MarketingCampaignTrigger } from '../../../data/entities.js'
 import { campaignDefinitionSchema } from '../../../data/validators.js'
-import { buildRequestCommandContext } from '../../shared.js'
+import { buildRequestCommandContext, commandErrorResponse, readPathUuid } from '../../shared.js'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.view'] },
@@ -15,8 +15,7 @@ const routeMetadata = {
 export const metadata = routeMetadata
 
 function readId(req: Request): string | null {
-  const segments = new URL(req.url).pathname.split('/').filter(Boolean)
-  return segments[segments.length - 1] ?? null
+  return readPathUuid(req, 1)
 }
 
 export async function GET(req: Request) {
@@ -69,10 +68,15 @@ export async function DELETE(req: Request) {
 
   const container = await createRequestContainer()
   const commandBus = container.resolve<CommandBus>('commandBus')
-  await commandBus.execute('marketing_automation.campaigns.delete', {
-    input: { id },
-    ctx: buildRequestCommandContext(container, auth, req),
-  })
+  try {
+    await commandBus.execute('marketing_automation.campaigns.delete', {
+      input: { id },
+      ctx: buildRequestCommandContext(container, auth, req),
+    })
+  } catch (error) {
+    // A delete carries an expected version too, so 409 is a real outcome here and not a server fault.
+    return commandErrorResponse(error)
+  }
 
   return NextResponse.json({ ok: true })
 }

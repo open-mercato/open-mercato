@@ -7,6 +7,7 @@ import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entiti
 import { MarketingSegment } from '../../../../data/entities.js'
 import { resolveSegmentMembers, SCREEN_MAX_CHECKED } from '../../../../lib/segment-members.js'
 import type { ConditionExpression } from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
+import { readPathUuid } from '../../../shared.js'
 
 /**
  * Who is in a segment, and whether that answer is the whole of it.
@@ -33,9 +34,8 @@ export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) return NextResponse.json({ items: [] }, { status: 401 })
 
-  const path = new URL(req.url).pathname.split('/').filter(Boolean)
   // .../segments/<id>/members
-  const segmentId = path[path.length - 2]
+  const segmentId = readPathUuid(req, 2)
   if (!segmentId) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
   const container = await createRequestContainer()

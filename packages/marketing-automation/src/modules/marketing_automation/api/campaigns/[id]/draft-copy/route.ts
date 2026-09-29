@@ -14,6 +14,7 @@ import {
   loadBrandVoice,
 } from '../../../../lib/ai-copy.js'
 import { COPY_PLACEHOLDERS } from '../../../../lib/interpolate.js'
+import { readPathUuid } from '../../../shared.js'
 
 /**
  * Drafts a subject and body for one message in this campaign.
@@ -37,9 +38,8 @@ const bodySchema = z.object({
 })
 
 function readCampaignId(req: Request): string | null {
-  const segments = new URL(req.url).pathname.split('/').filter(Boolean)
   // .../campaigns/<id>/draft-copy
-  return segments[segments.length - 2] ?? null
+  return readPathUuid(req, 2)
 }
 
 /** What the campaign reacts to, in a sentence a model can use. */
