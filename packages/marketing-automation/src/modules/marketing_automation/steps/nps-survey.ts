@@ -5,7 +5,7 @@ import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entiti
 import { reportError } from '@open-mercato/telemetry'
 import { interpolate } from '../lib/interpolate.js'
 import { redactEmails } from '../lib/redact.js'
-import { NPS_MAX_SCORE, NPS_MIN_SCORE, recordSurveyAsked } from '../lib/survey.js'
+import { markSurveySent, NPS_MAX_SCORE, NPS_MIN_SCORE, recordSurveyAsked } from '../lib/survey.js'
 import { resolveTrackingBaseUrl, resolveTrackingSecret } from '../lib/tracking/secret.js'
 import { surveyAnswerUrl, unsubscribeUrl } from '../lib/tracking/urls.js'
 import type { StepHandler } from '../lib/engine/registry.js'
@@ -83,9 +83,15 @@ export const npsSurveyStep: StepHandler<StepDeps> = {
     const to = entity?.primaryEmail?.trim()
     if (!to) return { status: 'skipped', detail: 'no email address on the subject' }
 
-    // Recorded BEFORE sending: a prompt row that exists without a message is a survey nobody answers, while
-    // a message without a row is an answer with nowhere to go.
-    const { asked } = await recordSurveyAsked(deps.em, {
+    /**
+     * Recorded BEFORE sending, and the two states are kept apart.
+     *
+     * A prompt row without a message is a survey nobody answers; a message without a row is an answer with
+     * nowhere to go, which is worse — so the row goes first. But the row's existence alone used to mean
+     * "asked", so a transport failure after writing it could never be retried: the next attempt reported
+     * success and nobody was ever invited. `alreadySent` is the state that actually means stop.
+     */
+    const { asked, alreadySent, promptId } = await recordSurveyAsked(deps.em, {
       scope: deps.scope,
       subjectEntityId: ctx.subjectEntityId,
       campaignId: ctx.campaignId,
@@ -94,7 +100,8 @@ export const npsSurveyStep: StepHandler<StepDeps> = {
       question: params.question,
       now: deps.now,
     })
-    if (!asked) return { status: 'done', detail: 'this survey was already asked for this step' }
+    if (alreadySent) return { status: 'done', detail: 'this survey was already sent for this step' }
+    if (!asked && !promptId) return { status: 'done', detail: 'this survey was already asked for this step' }
 
     const question = interpolate(params.question, ctx, 'html')
     const unsubscribe = unsubscribeUrl(
@@ -137,6 +144,9 @@ export const npsSurveyStep: StepHandler<StepDeps> = {
       throw new Error(`[internal] survey transport rejected the send: ${redactEmails(original)}`)
     }
 
-    return { status: 'done', detail: 'survey sent' }
+    // Only now has it been asked. A redelivery from here on stops at `alreadySent` above.
+    if (promptId) await markSurveySent(deps.em, deps.scope, promptId, deps.now)
+
+    return { status: 'done', detail: asked ? 'survey sent' : 'survey sent on a retry' }
   },
 }

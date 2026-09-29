@@ -642,6 +642,17 @@ export class MarketingSurveyPrompt {
   @Property({ name: 'asked_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
   askedAt!: Date
 
+  /**
+   * When the message carrying the scale actually left, as distinct from when the row was written.
+   *
+   * The row is written first, so that an answer always has somewhere to land. That made the row itself the
+   * idempotency key, and a send that failed after it was written could never be retried: the next attempt saw
+   * "already asked" and reported success, leaving a survey nobody was ever invited to answer. This column is
+   * what separates "we intend to ask" from "we asked".
+   */
+  @Property({ name: 'sent_at', type: Date, nullable: true })
+  sentAt?: Date | null
+
   @Property({ name: 'answered_at', type: Date, nullable: true })
   answeredAt?: Date | null
 }

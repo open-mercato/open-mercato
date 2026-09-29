@@ -35,12 +35,14 @@ describe('the NPS scale', () => {
 })
 
 describe('recordSurveyAsked', () => {
-  function fakeEm(reject?: unknown) {
+  function fakeEm(reject?: unknown, existing: Record<string, unknown> | null = null) {
     const persisted: Record<string, unknown>[] = []
     const fork = {
       create: (_entity: unknown, data: Record<string, unknown>) => ({ id: 'p1', ...data }),
       persist: (row: Record<string, unknown>) => { persisted.push(row) },
       flush: async () => { if (reject) throw reject },
+      // Reached only on the duplicate path, to ask whether the earlier attempt got as far as sending.
+      findOne: async () => existing,
     }
     return { em: { fork: () => fork } as unknown as EntityManager, persisted }
   }
@@ -51,17 +53,37 @@ describe('recordSurveyAsked', () => {
       scope, subjectEntityId: 'c1', campaignId: 'camp-1', runId: 'r1', stepId: 's1',
       question: 'How likely are you to recommend us?', now,
     })
-    expect(result).toEqual({ asked: true })
+    expect(result).toEqual({ asked: true, alreadySent: false, promptId: 'p1' })
     expect(persisted[0]).toMatchObject({ score: null, answeredAt: null, question: 'How likely are you to recommend us?' })
   })
 
   // A customer who receives the same survey twice has been given two chances to answer one question, which
   // quietly doubles their weight in the result.
-  test('asking the same step twice is reported, not repeated', async () => {
-    const { em } = fakeEm(new UniqueConstraintViolationException(new Error('duplicate key')))
+  test('a step whose message already went out is reported as sent, not repeated', async () => {
+    const { em } = fakeEm(
+      new UniqueConstraintViolationException(new Error('duplicate key')),
+      { id: 'p1', sentAt: new Date('2026-09-27T09:00:00.000Z') },
+    )
     expect(await recordSurveyAsked(em, {
       scope, subjectEntityId: 'c1', campaignId: 'camp-1', runId: 'r1', stepId: 's1', question: 'q', now,
-    })).toEqual({ asked: false })
+    })).toEqual({ asked: false, alreadySent: true, promptId: 'p1' })
+  })
+
+  /**
+   * The row exists and the message never left.
+   *
+   * This is the state a failed transport leaves behind, and it used to be indistinguishable from a completed
+   * ask — so the retry reported success and the customer was never invited to answer anything. Reported as
+   * NOT sent, which is what lets the step try again.
+   */
+  test('a step whose message never left is reported as unsent, so a retry can send it', async () => {
+    const { em } = fakeEm(
+      new UniqueConstraintViolationException(new Error('duplicate key')),
+      { id: 'p1', sentAt: null },
+    )
+    expect(await recordSurveyAsked(em, {
+      scope, subjectEntityId: 'c1', campaignId: 'camp-1', runId: 'r1', stepId: 's1', question: 'q', now,
+    })).toEqual({ asked: false, alreadySent: false, promptId: 'p1' })
   })
 
   test('any other failure still throws', async () => {

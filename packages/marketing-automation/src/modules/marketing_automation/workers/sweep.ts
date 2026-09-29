@@ -338,6 +338,16 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
       // The tick is the clock; the campaign's own interval is the gate.
       if (!isSweepDue(trigger.scheduleValue, trigger.lastSweptAt, deps.now)) continue
 
+      /**
+       * Advanced BEFORE the work, deliberately.
+       *
+       * This makes a sweep at-most-once per interval rather than at-least-once, and for work that sends
+       * email that is the right way round: a sweep that failed halfway has already enrolled people, and
+       * re-running it on the next tick would enrol them again wherever the campaign's re-entry policy
+       * allows it. The failure is not lost by this — the job-run row below records `failed` with the
+       * message, and the handler at the bottom reports it — it is deferred to the next interval, which is
+       * the cheaper of the two mistakes.
+       */
       await deps.em.nativeUpdate(
         TriggerEntity,
         { id: trigger.id, tenantId: scope.tenantId, organizationId: scope.organizationId },

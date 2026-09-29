@@ -25,6 +25,12 @@ export type JobRunResult = { counters?: Record<string, number> }
  *
  * A failure is recorded and then RE-THROWN: the queue's retry and dead-lettering are what they are, and
  * swallowing the error here to keep the log tidy would turn a failed job into a successful one.
+ *
+ * The terminal status is written by ID rather than through the managed entity, and that is not a style
+ * choice: the work legitimately calls `em.clear()` — the referral claim does it to recover from a unique
+ * violation — which detaches this row from the identity map, so a later `flush()` on it writes nothing at
+ * all. Every such job stayed `running` forever, which is precisely the state this log exists to make
+ * meaningful.
  */
 export async function recordJobRun<T extends JobRunResult>(
   em: EntityManager,
@@ -32,9 +38,9 @@ export async function recordJobRun<T extends JobRunResult>(
   input: { kind: JobKind; campaignId?: string | null },
   work: () => Promise<T>,
 ): Promise<T> {
-  let row: MarketingJobRun | null = null
+  let rowId: string | null = null
   try {
-    row = em.create(MarketingJobRun, {
+    const row = em.create(MarketingJobRun, {
       ...scope,
       kind: input.kind,
       campaignId: input.campaignId ?? null,
@@ -42,35 +48,31 @@ export async function recordJobRun<T extends JobRunResult>(
     })
     em.persist(row)
     await em.flush()
+    rowId = row.id
   } catch {
     // Bookkeeping must never stop the job it describes.
-    row = null
+    rowId = null
+  }
+
+  const finish = async (data: Record<string, unknown>): Promise<void> => {
+    if (!rowId) return
+    try {
+      await em.nativeUpdate(MarketingJobRun, { id: rowId, ...scope }, data)
+    } catch {
+      // The work either succeeded or is about to be re-thrown; the log entry is not worth failing it for.
+    }
   }
 
   try {
     const result = await work()
-    if (row) {
-      try {
-        row.status = 'ok'
-        row.finishedAt = new Date()
-        row.counters = result.counters ?? null
-        await em.flush()
-      } catch {
-        // As above: the work is done and committed; the log entry is not worth failing it for.
-      }
-    }
+    await finish({ status: 'ok', finishedAt: new Date(), counters: result.counters ?? null })
     return result
   } catch (error) {
-    if (row) {
-      try {
-        row.status = 'failed'
-        row.finishedAt = new Date()
-        row.error = error instanceof Error ? error.message : String(error)
-        await em.flush()
-      } catch {
-        // Nothing more to do — the throw below is what matters.
-      }
-    }
+    await finish({
+      status: 'failed',
+      finishedAt: new Date(),
+      error: error instanceof Error ? error.message : String(error),
+    })
     throw error
   }
 }

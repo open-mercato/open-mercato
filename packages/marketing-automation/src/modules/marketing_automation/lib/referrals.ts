@@ -9,6 +9,9 @@ import {
   referralUrlFor,
 } from './engine/referral-code.js'
 
+/** Postgres unique violation — losing a race against a concurrent claim, which the index is there to win. */
+const POSTGRES_UNIQUE_VIOLATION = '23505'
+
 /**
  * The referral programme: issuing a code, claiming one, and converting it on a first order.
  *
@@ -135,10 +138,18 @@ export async function claimReferral(
     })
     em.persist(redemption)
     await em.flush()
-  } catch {
-    // The unique index is the real guard; two simultaneous claims land here and the honest answer is that
-    // this person is already referred.
+  } catch (error) {
+    /**
+     * Only a unique violation means "already referred".
+     *
+     * The unique index is the real guard against two simultaneous claims, and losing that race is not a
+     * failure. Everything ELSE is: a bare catch here answered `already_referred` to a dead connection, a
+     * statement timeout and a constraint nobody anticipated alike, so a storefront told the customer their
+     * code had been used and the real error was never reported.
+     */
     em.clear()
+    const code = (error as { code?: unknown })?.code
+    if (code !== POSTGRES_UNIQUE_VIOLATION) throw error
     return { status: 'already_referred' }
   }
 

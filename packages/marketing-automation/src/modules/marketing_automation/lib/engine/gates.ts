@@ -30,6 +30,24 @@ export function frequencyWindowStart(at: Date, cap: FrequencyCap): Date {
 }
 
 /**
+ * A timezone Intl accepts, or UTC.
+ *
+ * The same tolerance `localHourIn` applies, exported because SQL needs it too: `at time zone ?` is a bound
+ * parameter, so a typo in a customer's profile cannot inject anything — but Postgres does raise on a name it
+ * does not know, which turned one bad profile row into a failed step. Falling back to UTC is what the rest of
+ * the timing code already does.
+ */
+export function usableTimeZone(timeZone: string | null | undefined): string {
+  if (!timeZone) return 'UTC'
+  try {
+    new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', hour12: false }).format(new Date(0))
+    return timeZone
+  } catch {
+    return 'UTC'
+  }
+}
+
+/**
  * The subject's local hour, falling back to UTC for a timezone Intl rejects.
  *
  * A bad timezone string must not stop a send — it comes from customer data, and refusing to

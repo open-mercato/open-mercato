@@ -1130,6 +1130,10 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                             {revision.note.startsWith('restored:')
                               ? ` · ${t('marketing_automation.history.restoredFrom', 'restored v{from}').replace('{from}', revision.note.slice('restored:'.length))}`
                               : ''}
+                            {/* Promoting an A/B winner rewrites the campaign, so it is a version like any other. */}
+                            {revision.note.startsWith('winner:')
+                              ? ` · ${t('marketing_automation.history.winnerApplied', 'promoted {variant}').replace('{variant}', revision.note.slice('winner:'.length))}`
+                              : ''}
                           </span>
                           <span className="flex shrink-0 items-center gap-2">
                             <span className="text-muted-foreground">

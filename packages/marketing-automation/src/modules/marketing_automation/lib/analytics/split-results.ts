@@ -33,6 +33,16 @@ export type SplitVariantResult = {
    * numerator: a two-email lane sends twice as many messages to the same people.
    */
   reached: number
+  /**
+   * Whether the lane has steps of its own.
+   *
+   * False for a HOLDOUT — a control lane that deliberately sends nothing. It is reported like any other lane,
+   * because the number of people held back is the whole point of having one, but it is not a candidate in a
+   * comparison of copy and it must not be counted as a lane still gathering its sample. Treating it as one
+   * made a winner unreachable forever in every campaign that had a holdout: nothing can raise a control
+   * group's click rate.
+   */
+  hasSteps: boolean
   opened: number
   clicked: number
   /** Clicks per person reached, or null with nobody reached — a rate over zero is not a zero rate. */
@@ -129,6 +139,7 @@ export async function loadSplitResults(
         runs: runsOnly[0]?.runs ?? 0,
         sends: 0,
         reached: 0,
+        hasSteps: false,
         opened: 0,
         clicked: 0,
         clickRate: null,
@@ -153,6 +164,7 @@ export async function loadSplitResults(
       runs: row?.runs ?? 0,
       sends: row?.sends ?? 0,
       reached: row?.reached ?? 0,
+      hasSteps: true,
       opened: row?.opened ?? 0,
       clicked: row?.clicked ?? 0,
       clickRate: rate(row?.clicked ?? 0, row?.reached ?? 0),
@@ -193,7 +205,14 @@ export function pickSplitWinner(
   stepId: string,
   minimumReached: number,
 ): SplitWinner | null {
-  const lanes = results.filter((result) => result.stepId === stepId)
+  /**
+   * Holdouts are excluded from the comparison, not from the results.
+   *
+   * A control lane sends nothing on purpose, so it has no click rate and never will. Requiring every lane to
+   * reach the minimum therefore meant no campaign with a holdout could ever produce a winner — the one
+   * configuration where an operator most wants to know which message worked.
+   */
+  const lanes = results.filter((result) => result.stepId === stepId && result.hasSteps)
   if (lanes.length < 2) return null
   if (lanes.some((lane) => lane.reached < minimumReached)) return null
 

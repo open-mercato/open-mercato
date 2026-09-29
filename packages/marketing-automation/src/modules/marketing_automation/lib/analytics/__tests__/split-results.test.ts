@@ -16,6 +16,7 @@ const lane = (variant: string, reached: number, clicked: number, opened = clicke
   runs: reached,
   sends,
   reached,
+  hasSteps: true,
   opened,
   clicked,
   clickRate: reached > 0 ? clicked / reached : null,
@@ -43,7 +44,7 @@ describe('loadSplitResults', () => {
     const results = await loadSplitResults(em, 'camp-1', scope, [lane('a', ['a1', 'a2'])])
     // Sixteen messages to eight people: the rates are over the eight, because the numerators are people too.
     expect(results).toEqual([{
-      stepId: 'sp1', variant: 'a', runs: 10, sends: 16, reached: 8, opened: 4, clicked: 2,
+      stepId: 'sp1', variant: 'a', runs: 10, sends: 16, reached: 8, hasSteps: true, opened: 4, clicked: 2,
       clickRate: 0.25, openRate: 0.5,
     }])
     const { sql, params } = executed[0]
@@ -70,7 +71,7 @@ describe('loadSplitResults', () => {
     const results = await loadSplitResults(em, 'camp-1', scope, [lane('holdout', [])])
     expect(results).toEqual([{
       stepId: 'sp1', variant: 'holdout', runs: 5, sends: 0, opened: 0, clicked: 0,
-      reached: 0, clickRate: null, openRate: null,
+      reached: 0, hasSteps: false, clickRate: null, openRate: null,
     }])
     expect(executed[0].sql).not.toContain('step_id in ()')
   })
@@ -127,6 +128,31 @@ describe('pickSplitWinner', () => {
     const thin = lane('a', 10, 5, 5, 20)
     const thick = lane('b', 100, 10)
     expect(pickSplitWinner([thin, thick], 'sp1', 50)).toBeNull()
+  })
+
+  /**
+   * A holdout must not veto the whole test.
+   *
+   * A control lane sends nothing by design, so its rate is null forever. Counting it as a lane still gathering
+   * its sample meant every campaign with a holdout — the configuration where measuring matters most — could
+   * never produce a winner at all.
+   */
+  test('a holdout lane does not stop a winner being called', () => {
+    const holdout: SplitVariantResult = {
+      stepId: 'sp1', variant: 'control', runs: 300, sends: 0, reached: 0, hasSteps: false,
+      opened: 0, clicked: 0, clickRate: null, openRate: null,
+    }
+    const winner = pickSplitWinner([holdout, lane('a', 100, 12), lane('b', 100, 5)], 'sp1', 50)
+    expect(winner).toMatchObject({ variant: 'a' })
+  })
+
+  test('a holdout is never itself the winner', () => {
+    const holdout: SplitVariantResult = {
+      stepId: 'sp1', variant: 'control', runs: 300, sends: 0, reached: 0, hasSteps: false,
+      opened: 0, clicked: 0, clickRate: null, openRate: null,
+    }
+    // Two lanes, one of which sends nothing: there is nothing to compare, so there is no winner.
+    expect(pickSplitWinner([holdout, lane('a', 100, 12)], 'sp1', 50)).toBeNull()
   })
 
   test('refuses until EVERY lane has reached the minimum', () => {

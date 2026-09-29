@@ -20,7 +20,14 @@ export type RevisionScope = { tenantId: string; organizationId: string }
  */
 export const MAX_REVISIONS_PER_CAMPAIGN = 30
 
-export type RevisionNote = 'saved' | `restored:${number}`
+/**
+ * Why this version exists, as a closed set.
+ *
+ * A union rather than free text so the history list can render each kind: an ordinary save, a restore of an
+ * earlier version, and the promotion of an A/B winner — which rewrites the campaign more drastically than
+ * either of the others and was previously not recorded at all.
+ */
+export type RevisionNote = 'saved' | `restored:${number}` | `winner:${string}`
 
 type RevisionInput = {
   campaignId: string

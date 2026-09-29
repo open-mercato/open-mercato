@@ -15,7 +15,7 @@ import { getMarketingStep } from '../lib/engine/registry.js'
 import { WAIT_STEP_TYPE } from '../lib/engine/chain-planner.js'
 import { SPLIT_STEP_TYPE, readVariants, writeVariants } from '../lib/engine/split.js'
 import { availableEventTriggers } from '../lib/trigger-catalog.js'
-import { isSweepIntervalValid } from '../lib/sweep-interval.js'
+import { carrySweepClocks, isSweepIntervalValid, sweepClockKey } from '../lib/sweep-interval.js'
 import { emitMarketingAutomationEvent } from '../events.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { recordRevision } from '../lib/revisions.js'
@@ -231,9 +231,18 @@ async function replaceTriggers(
   scope: Scope,
   triggers: CampaignTriggerInput[],
 ): Promise<void> {
-  // Delete-and-reinsert rather than a diff: there are a handful of rows, they carry no state of
-  // their own (the campaign's jsonb holds the graph and layout), and diffing would buy nothing
-  // but a class of bugs.
+  // Delete-and-reinsert rather than a diff: there are a handful of rows, and diffing would buy nothing
+  // but a class of bugs. The campaign's jsonb holds the graph and the layout, so the only per-row state
+  // is the sweep clock — carried across below, because losing it is not cosmetic.
+  const existing = await em.find(MarketingCampaignTrigger, {
+    campaignId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
+
+  // The sweep clock survives the save — `carrySweepClocks` says why, and is where it is tested.
+  const sweptAt = carrySweepClocks(existing)
+
   await em.nativeDelete(MarketingCampaignTrigger, {
     campaignId,
     tenantId: scope.tenantId,
@@ -241,16 +250,18 @@ async function replaceTriggers(
   })
 
   for (const trigger of triggers) {
+    const schedule = trigger.kind === 'schedule'
     const row = em.create(MarketingCampaignTrigger, {
       campaignId,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       kind: trigger.kind,
       eventId: trigger.kind === 'event' ? trigger.eventId : null,
-      scheduleValue: trigger.kind === 'schedule' ? trigger.scheduleValue : null,
-      reentryAfterDays: trigger.kind === 'schedule' ? trigger.reentryAfterDays : null,
-      sweepSource: trigger.kind === 'schedule' ? trigger.sweepSource : null,
-      sweepParams: trigger.kind === 'schedule' ? trigger.sweepParams : null,
+      scheduleValue: schedule ? trigger.scheduleValue : null,
+      reentryAfterDays: schedule ? trigger.reentryAfterDays : null,
+      sweepSource: schedule ? trigger.sweepSource : null,
+      sweepParams: schedule ? trigger.sweepParams : null,
+      lastSweptAt: schedule ? sweptAt.get(sweepClockKey(trigger.sweepSource, trigger.scheduleValue)) ?? null : null,
     })
     em.persist(row)
   }
@@ -364,6 +375,18 @@ const applySplitWinnerCommand: CommandHandler<
       throw invalidGraph(VALIDATION_CODES.invalidPayload, 'stepId and variantKey are required')
     }
 
+    /**
+     * The expected version is a string or it is ABSENT, and there is no third option.
+     *
+     * `enforceCommandOptimisticLock` falls back to the request header when no version is passed, so anything
+     * that is neither a string nor undefined — a number, an object, a client's `null` — used to reach it as a
+     * value it could not compare, and the lock on a rewrite of the whole campaign quietly opened. Refused
+     * here instead.
+     */
+    if (rawInput.updatedAt !== undefined && typeof rawInput.updatedAt !== 'string') {
+      throw invalidGraph(VALIDATION_CODES.invalidPayload, 'updatedAt must be the version string the client last read')
+    }
+
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const campaign = await em.findOne(MarketingCampaign, {
       id: rawInput.id,
@@ -413,6 +436,32 @@ const applySplitWinnerCommand: CommandHandler<
       if (!managed) throw new CrudHttpError(404, { error: 'Campaign not found' })
       managed.definition = rewritten as unknown as Record<string, unknown>
     })
+
+    /**
+     * Recorded in the history like any other edit, because it IS one.
+     *
+     * Promoting a winner replaces the split with one lane's steps — the most consequential single change this
+     * module can make to a campaign, and the only one that was invisible in the version list and therefore
+     * impossible to undo. The note names the variant, since "why does this campaign no longer have an A/B
+     * test in it" is the question somebody reads the list to answer.
+     */
+    await recordRevision(
+      em,
+      scope,
+      {
+        campaignId: campaign.id,
+        name: campaign.name,
+        definition: rewritten as unknown as Record<string, unknown>,
+        actorId: typeof ctx.auth?.sub === 'string' ? ctx.auth.sub : null,
+        note: `winner:${variantKey}`,
+      },
+      (error) => {
+        logger.warn('[internal] marketing campaign revision not recorded', {
+          campaignId: campaign.id,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      },
+    )
 
     await emitMarketingAutomationEvent('marketing_automation.campaign.saved', {
       id: campaign.id,

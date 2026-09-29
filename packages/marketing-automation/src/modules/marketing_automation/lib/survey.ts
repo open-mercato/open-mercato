@@ -53,7 +53,13 @@ export type AskInput = {
  * is: a redelivered job must not ask twice, and a customer who receives the same survey twice has been
  * given two chances to answer one question — which quietly doubles that person's weight in the result.
  */
-export async function recordSurveyAsked(em: EntityManager, input: AskInput): Promise<{ asked: boolean }> {
+/**
+ * `asked` is true when this call created the row. `alreadySent` is true when a previous attempt got the
+ * message out — which is the only reason to stop, and the distinction a retry depends on.
+ */
+export type AskOutcome = { asked: boolean; alreadySent: boolean; promptId: string | null }
+
+export async function recordSurveyAsked(em: EntityManager, input: AskInput): Promise<AskOutcome> {
   const fork = em.fork()
   const prompt = fork.create(MarketingSurveyPrompt, {
     tenantId: input.scope.tenantId,
@@ -71,11 +77,34 @@ export async function recordSurveyAsked(em: EntityManager, input: AskInput): Pro
   try {
     fork.persist(prompt)
     await fork.flush()
-    return { asked: true }
+    return { asked: true, alreadySent: false, promptId: prompt.id }
   } catch (error) {
-    if (error instanceof UniqueConstraintViolationException) return { asked: false }
-    throw error
+    if (!(error instanceof UniqueConstraintViolationException)) throw error
+    /**
+     * The row is already there, and the question is whether the MESSAGE went with it.
+     *
+     * A redelivery after a successful send must not send again; a retry after a failed one must. Those were
+     * indistinguishable while the row's existence was the whole record, so a transport hiccup silently
+     * cancelled the survey.
+     */
+    const existing = await em.fork().findOne(MarketingSurveyPrompt, {
+      tenantId: input.scope.tenantId,
+      organizationId: input.scope.organizationId,
+      runId: input.runId,
+      stepId: input.stepId,
+    })
+    return { asked: false, alreadySent: Boolean(existing?.sentAt), promptId: existing?.id ?? null }
   }
+}
+
+/** Marks the prompt as sent, once the transport has accepted it. */
+export async function markSurveySent(
+  em: EntityManager,
+  scope: SubjectScope,
+  promptId: string,
+  now: Date,
+): Promise<void> {
+  await em.nativeUpdate(MarketingSurveyPrompt, { id: promptId, ...scope }, { sentAt: now })
 }
 
 export type AnswerOutcome = 'recorded' | 'changed' | 'unknown_prompt'

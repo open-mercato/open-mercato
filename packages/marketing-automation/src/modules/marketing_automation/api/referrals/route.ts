@@ -36,7 +36,19 @@ export async function GET(req: Request) {
   const em = container.resolve<EntityManager>('em')
   const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
 
-  const codes = await em.find(MarketingReferralCode, { ...scope, deletedAt: null }, { limit })
+  /**
+   * Newest first, explicitly.
+   *
+   * A `limit` with no `orderBy` takes whichever rows Postgres hands back, which is stable until it is not —
+   * an update, a vacuum or a plan change silently reshuffles the page, so the "top fifty codes" screen shows
+   * a different fifty for no reason anybody can see. The list is re-sorted by performance below; this decides
+   * WHICH fifty are read.
+   */
+  const codes = await em.find(
+    MarketingReferralCode,
+    { ...scope, deletedAt: null },
+    { orderBy: { createdAt: 'DESC', id: 'ASC' }, limit },
+  )
   if (codes.length === 0) return NextResponse.json({ items: [] })
 
   /**

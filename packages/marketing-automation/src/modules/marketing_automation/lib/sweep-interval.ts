@@ -42,3 +42,36 @@ export function isSweepDue(
   if (intervalMs == null) return true
   return now.getTime() - lastSweptAt.getTime() >= intervalMs
 }
+
+/**
+ * Carries the sweep clock across a save.
+ *
+ * Triggers are saved by delete-and-reinsert, and `lastSweptAt` is the one piece of state living on those
+ * rows. An absent one means "due now" — so reinserting without it made every save of a scheduled campaign
+ * sweep again immediately, and an author adjusting the copy of a daily campaign three times in an afternoon
+ * swept it three more times that afternoon. Where the source has no claim key (expiring quotes, the
+ * population scan) each of those is a real message to the same people.
+ *
+ * Keyed by SOURCE AND INTERVAL together, because a schedule's identity is both — the same rule the canvas
+ * node ids and the save-time duplicate check follow. Changing either is a different schedule and starts a
+ * fresh clock, which is what an author changing "daily" to "hourly" means.
+ */
+export type SweepClockRow = {
+  kind: string
+  sweepSource?: string | null
+  scheduleValue?: string | null
+  lastSweptAt?: Date | null
+}
+
+export function sweepClockKey(source: string | null | undefined, interval: string | null | undefined): string {
+  return `${source ?? ''}|${interval ?? ''}`
+}
+
+export function carrySweepClocks(existing: SweepClockRow[]): Map<string, Date> {
+  const clocks = new Map<string, Date>()
+  for (const row of existing) {
+    if (row.kind !== 'schedule' || !row.lastSweptAt) continue
+    clocks.set(sweepClockKey(row.sweepSource, row.scheduleValue), row.lastSweptAt)
+  }
+  return clocks
+}

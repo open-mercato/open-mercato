@@ -20,6 +20,7 @@ type SplitResult = {
   runs: number
   sends: number
   reached: number
+  hasSteps: boolean
   opened: number
   clicked: number
   clickRate: number | null
@@ -260,7 +261,15 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
                     <TableBody>
                       {lanes.map((laneResult) => (
                         <TableRow key={laneResult.variant}>
-                          <TableCell>{laneResult.variant}</TableCell>
+                          <TableCell>
+                            {laneResult.variant}
+                            {/* A holdout sends nothing on purpose; without saying so its empty row reads as missing data. */}
+                            {laneResult.hasSteps ? null : (
+                              <span className="ml-2 text-xs text-muted-foreground">
+                                {t('marketing_automation.results.holdout', 'control — sends nothing')}
+                              </span>
+                            )}
+                          </TableCell>
                           <TableCell className="tabular-nums text-muted-foreground">{laneResult.runs}</TableCell>
                           <TableCell className="tabular-nums text-muted-foreground">{laneResult.sends}</TableCell>
                           {/* The denominator of both rates: people, not messages. */}

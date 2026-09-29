@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { usableTimeZone } from '../engine/gates.js'
 import type { SubjectScope } from '../subject-document.js'
 
 /**
@@ -24,14 +25,15 @@ export const MINIMUM_OPENS_FOR_PATTERN = 5
  *
  * Ties resolve to the EARLIER hour: with equal evidence the earlier slot reaches the customer sooner,
  * and an arbitrary but deterministic rule beats one that depends on row order.
+ *
+ * The minimum applies to the CHOSEN hour, not to the total across all of them. Summing the total was the
+ * mistake: five opens spread over five different hours passed a gate written to reject exactly that, and the
+ * winner was then an hour with a single open — the confidently wrong 3am this constant exists to prevent.
  */
 export function pickPreferredHour(
   rows: HourlyOpens[],
   minimumOpens: number = MINIMUM_OPENS_FOR_PATTERN,
 ): number | null {
-  const total = rows.reduce((sum, row) => sum + row.opens, 0)
-  if (total < minimumOpens) return null
-
   let best: HourlyOpens | null = null
   for (const row of rows) {
     if (row.opens <= 0) continue
@@ -40,7 +42,8 @@ export function pickPreferredHour(
       best = row
     }
   }
-  return best ? best.hour : null
+  if (!best || best.opens < minimumOpens) return null
+  return best.hour
 }
 
 const HOURLY_OPENS_SQL = `
@@ -72,7 +75,9 @@ export async function loadPreferredSendHour(
 ): Promise<number | null> {
   const rows = await em.getConnection().execute<Array<{ hour: number; opens: number }>>(
     HOURLY_OPENS_SQL,
-    [timeZone, scope.tenantId, scope.organizationId, subjectEntityId],
+    // A name Postgres does not know raises rather than injecting — it is a bound parameter — so one typo in
+    // one customer's profile used to fail the step. Same UTC fallback as the quiet-hours code.
+    [usableTimeZone(timeZone), scope.tenantId, scope.organizationId, subjectEntityId],
   )
   return pickPreferredHour(rows.map((row) => ({ hour: row.hour, opens: row.opens })), minimumOpens)
 }
