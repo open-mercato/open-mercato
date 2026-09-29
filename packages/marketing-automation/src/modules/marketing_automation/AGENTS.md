@@ -394,7 +394,6 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | daily series behind the results chart | `lib/analytics/daily-series.ts` |
 | which links were clicked, and its overlap rule | `lib/analytics/links.ts` |
 | drop-off INSIDE a journey, and the split rule | `lib/analytics/step-funnel.ts` |
-| importing somebody else's suppression list | `lib/engine/csv-emails.ts`, `api/consent/import/` |
 | journey preview, and why it reuses the engine | `lib/preview.ts` |
 | learned send hour, and its minimum evidence | `lib/analytics/send-time.ts` |
 | A/B results, winner rules, the two metrics | `lib/analytics/split-results.ts`, `lib/winner-metric.ts` |

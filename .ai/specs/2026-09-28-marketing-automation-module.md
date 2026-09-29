@@ -850,13 +850,6 @@ rather than worked around silently:
 
 ## Changelog
 
-- **2026-09-29** — the last two items on the list: a CSV suppression-list import (the migration path from
-  another tool) and the send-volume estimate shown at the moment of publishing. The import can only ever
-  SUPPRESS — a CSV is not consent — and reports what it could not match rather than claiming the whole file
-  was applied. The publish dialog counts PEOPLE and says whether the next sweep starts the journey or the
-  trigger has yet to fire, with the largest lane's sending steps beside it rather than a multiplied message
-  count. 1021 unit tests, 200 integration tests.
-
 - **2026-09-29** — the last two items on the list: a CSV suppression-list import (suppress-only by design —
   a file is not consent — reporting what it could not match, because the encrypted address lookup sees only
   a bounded window and "unmatched" is not "not a customer"), and the audience estimate shown at the moment
