@@ -1,5 +1,5 @@
-import { forwardEventToCampaigns } from './shared.js'
-import type { SubscriberContext } from './shared.js'
+import { forwardEventToCampaigns } from '../lib/subscriber-forward.js'
+import type { SubscriberContext } from '../lib/subscriber-forward.js'
 
 /**
  * The module's own score change, forwarded to campaigns like any platform event.

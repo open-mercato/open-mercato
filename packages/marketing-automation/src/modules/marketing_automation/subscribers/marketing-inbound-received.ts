@@ -1,5 +1,5 @@
-import { forwardEventToCampaigns } from './shared.js'
-import type { SubscriberContext } from './shared.js'
+import { forwardEventToCampaigns } from '../lib/subscriber-forward.js'
+import type { SubscriberContext } from '../lib/subscriber-forward.js'
 
 /**
  * An inbound hook, forwarded to campaigns like any other event.

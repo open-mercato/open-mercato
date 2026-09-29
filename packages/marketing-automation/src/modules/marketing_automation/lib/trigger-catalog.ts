@@ -268,6 +268,258 @@ const priceDropped: TriggerCatalogEntry = {
   },
 }
 
+/**
+ * A tag being taken away, which is the mirror of `customers.tag.assigned`.
+ *
+ * Worth having for the campaign nobody thinks of until they need it: a customer losing the `vip` tag, or the
+ * `at-risk` tag being cleared because they came back. The payload is identical to the assigned counterpart, so
+ * this reads it the same way.
+ */
+const tagRemoved: TriggerCatalogEntry = {
+  eventId: 'customers.tag.removed',
+  labelKey: 'marketing_automation.trigger.customers.tag.removed.label',
+  available: true,
+  contextKeys: ['trigger.tagId'],
+  async build(payload) {
+    return {
+      subjectEntityId: readString(payload.entityId),
+      trigger: { tagId: readString(payload.tagId) },
+    }
+  },
+}
+
+/**
+ * An order reaching a confirmed status, as distinct from being created.
+ *
+ * The two are genuinely different moments and the useful one is usually this: an order is created the instant
+ * somebody presses buy, while confirmation is the shop accepting it. A thank-you or a cross-sell hung off
+ * creation goes out for orders that are then rejected.
+ *
+ * The event's own payload is richer than the CRUD one — it carries the order number and both statuses — but
+ * still no customer and no total, so the order is loaded for those.
+ */
+const orderConfirmed: TriggerCatalogEntry = {
+  eventId: 'sales.order.confirmed',
+  labelKey: 'marketing_automation.trigger.sales.order.confirmed.label',
+  available: true,
+  contextKeys: ['trigger.orderId', 'trigger.orderNumber', 'trigger.orderTotal', 'trigger.currencyCode', 'trigger.previousStatus'],
+  async build(payload, em, scope) {
+    const orderId = readString(payload.orderId) ?? readString(payload.id)
+    if (!orderId) return { subjectEntityId: null, trigger: {} }
+
+    const order = await em.findOne(SalesOrder, {
+      id: orderId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+    })
+    if (!order) return { subjectEntityId: null, trigger: { orderId } }
+
+    return {
+      subjectEntityId: order.customerEntityId ?? null,
+      trigger: {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        orderTotal: readAmount(order.grandTotalGrossAmount),
+        currencyCode: order.currencyCode,
+        status: order.status ?? null,
+        // Carried because "confirmed from draft" and "confirmed from on-hold" are different stories.
+        previousStatus: readString(payload.previousStatus),
+      },
+    }
+  },
+}
+
+/**
+ * An invoice being created, which is the closest thing the platform has to one being issued.
+ *
+ * There is no `sales.invoice.issued` event and no issue command — checked, not assumed — so this is what a
+ * payment-reminder or a document-delivery campaign has to hang off. The outstanding amount travels in the
+ * context because it is what such a campaign is actually about.
+ *
+ * An invoice reaches a customer THROUGH its order: the invoice itself carries no customer column. An invoice
+ * with no order therefore produces no subject, and no run — which is correct rather than unfortunate, since
+ * there is nobody for the campaign to be about.
+ */
+const invoiceCreated: TriggerCatalogEntry = {
+  eventId: 'sales.invoice.created',
+  labelKey: 'marketing_automation.trigger.sales.invoice.created.label',
+  available: true,
+  contextKeys: [
+    'trigger.invoiceId', 'trigger.invoiceNumber', 'trigger.invoiceTotal',
+    'trigger.outstanding', 'trigger.currencyCode', 'trigger.orderId',
+  ],
+  async build(payload, em, scope) {
+    const invoiceId = readString(payload.id)
+    if (!invoiceId) return { subjectEntityId: null, trigger: {} }
+
+    const rows = await em.getConnection().execute<Array<{
+      invoice_number: string | null
+      grand_total_gross_amount: string | null
+      outstanding_amount: string | null
+      currency_code: string | null
+      status: string | null
+      order_id: string | null
+      customer_entity_id: string | null
+    }>>(
+      `select i.invoice_number, i.grand_total_gross_amount, i.outstanding_amount, i.currency_code, i.status,
+              i.order_id, o.customer_entity_id
+         from sales_invoices i
+         left join sales_orders o on o.id = i.order_id and o.deleted_at is null
+        where i.id = ? and i.tenant_id = ? and i.organization_id = ? and i.deleted_at is null`,
+      [invoiceId, scope.tenantId, scope.organizationId],
+    )
+    const row = rows[0]
+    if (!row) return { subjectEntityId: null, trigger: { invoiceId } }
+
+    return {
+      subjectEntityId: readString(row.customer_entity_id),
+      trigger: {
+        invoiceId,
+        invoiceNumber: readString(row.invoice_number),
+        invoiceTotal: readAmount(row.grand_total_gross_amount),
+        outstanding: readAmount(row.outstanding_amount),
+        currencyCode: readString(row.currency_code),
+        status: readString(row.status),
+        orderId: readString(row.order_id),
+      },
+    }
+  },
+}
+
+/**
+ * Money actually arriving, from the gateway rather than from the ledger.
+ *
+ * `payment_gateways.payment.captured` is the honest "paid" signal: `sales.payment.created` fires when a
+ * payment ROW is written, which happens for a pending authorisation too, so a thank-you hung off it thanks
+ * people who have not paid. This one is emitted when a provider reports the capture, and it carries the
+ * payment id, which is what leads to the customer.
+ *
+ * Also offered below as `sales.payment.created` for installations recording payments by hand, where no gateway
+ * ever reports anything — that trigger carries the status so an author can filter it themselves.
+ */
+const paymentCaptured: TriggerCatalogEntry = {
+  eventId: 'payment_gateways.payment.captured',
+  labelKey: 'marketing_automation.trigger.payment.captured.label',
+  available: true,
+  contextKeys: ['trigger.paymentId', 'trigger.amount', 'trigger.currencyCode', 'trigger.providerKey', 'trigger.orderId'],
+  async build(payload, em, scope) {
+    const paymentId = readString(payload.paymentId)
+    if (!paymentId) return { subjectEntityId: null, trigger: {} }
+    const hydrated = await hydratePayment(paymentId, em, scope)
+    return {
+      subjectEntityId: hydrated.subjectEntityId,
+      trigger: { ...hydrated.trigger, providerKey: readString(payload.providerKey) },
+    }
+  },
+}
+
+/** A payment row being written, whatever its status. See `paymentCaptured` for why both exist. */
+const paymentCreated: TriggerCatalogEntry = {
+  eventId: 'sales.payment.created',
+  labelKey: 'marketing_automation.trigger.sales.payment.created.label',
+  available: true,
+  contextKeys: ['trigger.paymentId', 'trigger.amount', 'trigger.currencyCode', 'trigger.status', 'trigger.orderId'],
+  async build(payload, em, scope) {
+    const paymentId = readString(payload.id)
+    if (!paymentId) return { subjectEntityId: null, trigger: {} }
+    return hydratePayment(paymentId, em, scope)
+  },
+}
+
+/**
+ * A payment's customer and amounts, reached through its order.
+ *
+ * Shared by both payment triggers so the two cannot drift: a payment carries no customer column, and the order
+ * is the only route from one to the other.
+ */
+async function hydratePayment(
+  paymentId: string,
+  em: EntityManager,
+  scope: RunScope,
+): Promise<TriggerContext> {
+  const rows = await em.getConnection().execute<Array<{
+    amount: string | null
+    captured_amount: string | null
+    currency_code: string | null
+    status: string | null
+    order_id: string | null
+    customer_entity_id: string | null
+  }>>(
+    `select p.amount, p.captured_amount, p.currency_code, p.status, p.order_id, o.customer_entity_id
+       from sales_payments p
+       left join sales_orders o on o.id = p.order_id and o.deleted_at is null
+      where p.id = ? and p.tenant_id = ? and p.organization_id = ? and p.deleted_at is null`,
+    [paymentId, scope.tenantId, scope.organizationId],
+  )
+  const row = rows[0]
+  if (!row) return { subjectEntityId: null, trigger: { paymentId } }
+
+  return {
+    subjectEntityId: readString(row.customer_entity_id),
+    trigger: {
+      paymentId,
+      amount: readAmount(row.amount),
+      capturedAmount: readAmount(row.captured_amount),
+      currencyCode: readString(row.currency_code),
+      status: readString(row.status),
+      orderId: readString(row.order_id),
+    },
+  }
+}
+
+/**
+ * A deal closing, won or lost.
+ *
+ * **The subject is the deal's PRIMARY contact, and nothing else will do.** A deal links to several people, so
+ * "who is this run about" has no obvious answer — and the two tempting answers are both wrong: the first link
+ * by row order makes the campaign depend on insertion order, and fanning out to everybody mails the whole
+ * buying committee a message written for one person. `is_primary` is the field the CRM already uses to say who
+ * the deal is with, so a deal without one produces no run, which is a state an operator can see and fix.
+ *
+ * The event's payload carries the deal's title and value already; only the contact needs looking up.
+ */
+function dealClosure(won: boolean): TriggerCatalogEntry {
+  const outcome = won ? 'won' : 'lost'
+  return {
+    eventId: `customers.deal.${outcome}`,
+    labelKey: `marketing_automation.trigger.customers.deal.${outcome}.label`,
+    available: true,
+    contextKeys: ['trigger.dealId', 'trigger.dealTitle', 'trigger.dealValue', 'trigger.currencyCode', 'trigger.outcome'],
+    async build(payload, em, scope) {
+      const dealId = readString(payload.id)
+      if (!dealId) return { subjectEntityId: null, trigger: {} }
+
+      const rows = await em.getConnection().execute<Array<{ person_entity_id: string | null }>>(
+        `select l.person_entity_id
+           from customer_deal_person_links l
+           join customer_entities e on e.id = l.person_entity_id
+          where l.deal_id = ?
+            and l.is_primary = true
+            and e.tenant_id = ? and e.organization_id = ?
+            and e.deleted_at is null
+            and e.kind = 'person'
+          limit 1`,
+        [dealId, scope.tenantId, scope.organizationId],
+      )
+
+      return {
+        subjectEntityId: readString(rows[0]?.person_entity_id),
+        trigger: {
+          dealId,
+          dealTitle: readString(payload.title),
+          dealValue: readAmount(payload.valueAmount),
+          currencyCode: readString(payload.valueCurrency),
+          outcome,
+        },
+      }
+    },
+  }
+}
+
+const dealWon = dealClosure(true)
+const dealLost = dealClosure(false)
+
 export const TRIGGER_CATALOG: TriggerCatalogEntry[] = [
   personCreated,
   tagAssigned,
@@ -279,6 +531,13 @@ export const TRIGGER_CATALOG: TriggerCatalogEntry[] = [
   referralConverted,
   priceDropped,
   abandonedCart,
+  tagRemoved,
+  orderConfirmed,
+  invoiceCreated,
+  paymentCaptured,
+  paymentCreated,
+  dealWon,
+  dealLost,
 ]
 
 export function findTrigger(eventId: string): TriggerCatalogEntry | undefined {

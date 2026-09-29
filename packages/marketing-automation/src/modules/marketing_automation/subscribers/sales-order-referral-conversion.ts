@@ -3,8 +3,8 @@ import { reportError } from '@open-mercato/telemetry'
 import { SalesOrder } from '@open-mercato/core/modules/sales/data/entities'
 import { emitMarketingAutomationEvent } from '../events.js'
 import { convertPendingReferral } from '../lib/referrals.js'
-import { logger } from './shared.js'
-import type { SubscriberContext } from './shared.js'
+import { logger } from '../lib/subscriber-forward.js'
+import type { SubscriberContext } from '../lib/subscriber-forward.js'
 
 /**
  * Turns a pending referral into a converted one when the referred customer buys.

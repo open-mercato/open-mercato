@@ -6,6 +6,14 @@ import { reportError } from '@open-mercato/telemetry'
 
 export const logger = createLogger('marketing_automation')
 
+/**
+ * Deliberately in `lib/` rather than in `subscribers/`.
+ *
+ * The generator registers EVERY file under `subscribers/` as a subscriber, reading its `metadata.event` — so a
+ * shared helper living there was registered as a subscriber for the empty-string event, with a handler that
+ * imports a module having no default export. Harmless only because nothing emits `''`.
+ */
+
 export type SubscriberContext = {
   resolve: <T = unknown>(name: string) => T
 }
