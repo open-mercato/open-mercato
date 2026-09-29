@@ -1654,6 +1654,74 @@ describe('CRUD Factory', () => {
     })
   })
 
+  // `translateZodIssues` (factory.ts) is the opt-in mechanism that routes a `.refine()`/
+  // `superRefine` issue's message through the resolved translate() when the issue's `params`
+  // carries `i18nKey`/`i18nFallback` (see `ledger/data/validators.ts` for the first real schema
+  // to use it, and "Zod .refine()/superRefine messages" in packages/shared/AGENTS.md). Shipped
+  // with no direct test — these two cases cover the opt-in behavior itself and its explicit
+  // non-goal: every issue without an `i18nKey` (including zod's own built-in messages) must
+  // keep flowing through unchanged.
+  describe('translateZodIssues opt-in convention (i18nKey/i18nFallback on a .refine() issue)', () => {
+    const i18nRefineSchema = z.object({ amount: z.string() }).refine(
+      (input) => /^\d+$/.test(input.amount),
+      {
+        message: 'Amount must be a whole number.',
+        params: { i18nKey: 'example.errors.amountNotWhole', i18nFallback: 'Amount must be a whole number.' },
+      },
+    )
+
+    const i18nRefineRoute = () => makeCrudRoute({
+      metadata: { POST: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      actions: {
+        create: {
+          commandId: 'example.todo.create',
+          schema: i18nRefineSchema,
+          response: () => ({ ok: true }),
+        },
+      },
+    })
+
+    const postI18nRefineRequest = (route: ReturnType<typeof i18nRefineRoute>, body: unknown) => route.POST(
+      new Request('http://x/api/example/todos/command', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+
+    it('translates a .refine() issue that opted in via params.i18nKey/i18nFallback', async () => {
+      mockTranslate.mockImplementationOnce((key: string, fallback?: string) =>
+        key === 'example.errors.amountNotWhole' ? 'Kwota musi być liczbą całkowitą.' : (fallback ?? key),
+      )
+
+      const res = await postI18nRefineRequest(i18nRefineRoute(), { amount: '12.5' })
+
+      expect(res.status).toBe(400)
+      const body = await res.json()
+      expect(body.error).toBe('Invalid input')
+      expect(body.details).toEqual([
+        expect.objectContaining({ path: [], message: 'Kwota musi być liczbą całkowitą.' }),
+      ])
+      expect(mockTranslate).toHaveBeenCalledWith('example.errors.amountNotWhole', 'Amount must be a whole number.')
+    })
+
+    it('leaves an issue with no i18nKey exactly as it was, so every schema that has not opted in keeps its verbatim message', async () => {
+      const res = await postI18nRefineRequest(i18nRefineRoute(), {})
+
+      expect(res.status).toBe(400)
+      const body = await res.json()
+      // The schema's own base type check (a missing required `amount`) fails before the
+      // `.refine()` even runs, and carries no `params.i18nKey` — `translateZodIssues` must
+      // pass it through untouched rather than calling translate() on it.
+      expect(body.details).toEqual([
+        expect.objectContaining({ path: ['amount'], message: 'Invalid input: expected string, received undefined' }),
+      ])
+      expect(mockTranslate).not.toHaveBeenCalled()
+    })
+  })
+
   // Issue #5608 — a generic 500 must carry a requestId the client/support can cite, and
   // that same id must appear on the server log line so the two can be correlated.
   describe('generic 500 requestId correlation', () => {

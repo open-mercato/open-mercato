@@ -199,6 +199,36 @@ throw new Error('[internal] Event bus not available in container')
 
 The detection scripts (`yarn i18n:check-hardcoded`, `yarn i18n:check-values`) live in `scripts/`. See `.ai/specs/2026-05-26-missing-translations-audit-and-remediation.md` for the full convention and the per-module allowlist format (`<module>/i18n/.hardcoded-allowlist.json`).
 
+### Zod `.refine()`/`superRefine` messages — opt in to translation via `params.i18nKey`
+
+A zod schema's built-in messages (`z.uuid()`'s "Invalid UUID", `min`/`max`, etc.) are not
+translated — that is a separate, larger effort and out of scope here. A `.refine()` or
+`superRefine` call's own `message`, however, is business-rule text this codebase writes, and
+it CAN opt in to translation: attach `params: { i18nKey, i18nFallback }` alongside `message`,
+and `makeCrudRoute`'s `handleError` (via `translateZodIssues` in
+`packages/shared/src/lib/crud/factory.ts`) translates that issue's `message` through
+`translate(i18nKey, i18nFallback)` before it reaches the client.
+
+```typescript
+const schema = z.object({ /* ... */ }).refine(
+  (value) => /* business rule */,
+  {
+    message: 'Each journal entry line must have exactly one side (debit or credit) greater than zero.',
+    params: {
+      i18nKey: 'ledger.errors.journalEntryLineNotOneSided',
+      i18nFallback: 'Each journal entry line must have exactly one side (debit or credit) greater than zero.',
+    },
+  },
+)
+```
+
+This is per-schema, per-message and additive: an issue whose `params` has no `i18nKey` string
+is left exactly as `.refine()` produced it — zero behavior change for every schema that hasn't
+opted in. See `packages/core/src/modules/ledger/data/validators.ts` for the first real usage.
+
+MUST NOT rely on this for a schema's own built-in type/format messages — only a `.refine()`/
+`superRefine` custom `message` carries a `params` bag zod will pass through onto the issue.
+
 ### Request Scoping — use for scoped API payloads
 
 ```typescript
