@@ -166,6 +166,11 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
   const recordConsentDecision = async (state: 'subscribed' | 'unsubscribed') => {
     setConsentBusy(true)
     try {
+      // optimistic-lock-exempt: this records a consent DECISION, not an edit of a record this screen holds —
+      // there is no version on the page to send. Two operators recording "unsubscribed" converge on the same
+      // state, and when they disagree the consent TRAIL keeps both entries with who did which, which is the
+      // answer a version token could not give. The other calls on this page are POST actions (export, erase,
+      // explain), which cannot lose an update because they overwrite no field.
       await apiCallOrThrow(`/api/marketing_automation/customers/${customerId}/consent`, {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },

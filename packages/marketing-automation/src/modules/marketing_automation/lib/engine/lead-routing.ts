@@ -36,7 +36,8 @@ export type RoutingInput = {
 export function chooseAssignee(input: RoutingInput): RoutingDecision {
   if (input.currentOwnerUserId && !input.reassign) return { assign: false, reason: 'already_owned' }
 
-  const pool = [...new Set(input.pool.filter((userId) => userId.trim().length > 0))].sort()
+  // Deterministic tie-breaking depends on this order, so it is a codepoint comparison rather than a locale one.
+  const pool = [...new Set(input.pool.filter((userId) => userId.trim().length > 0))].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
   if (pool.length === 0) return { assign: false, reason: 'empty_pool' }
 
   let best = pool[0]

@@ -3,7 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { MarketingProductWatch } from '../../../data/entities.js'
 import { readPathUuid } from '../../shared.js'
 
@@ -35,7 +35,7 @@ export async function DELETE(req: Request) {
   if (!watch) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   try {
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(container, {
       resourceKind: 'marketing_automation.product_watch',
       resourceId: watch.id,
       current: watch.updatedAt,

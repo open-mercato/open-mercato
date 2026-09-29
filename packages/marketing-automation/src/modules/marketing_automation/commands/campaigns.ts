@@ -3,7 +3,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { MarketingCampaign, MarketingCampaignRun, MarketingCampaignTrigger } from '../data/entities.js'
 import {
   campaignDefinitionSchema,
@@ -439,7 +439,7 @@ const applySplitWinnerCommand: CommandHandler<
 
     // Applying a winner rewrites the campaign, so it collides with a concurrent edit exactly as a
     // save does — the author on the other screen is mid-change to the very steps being replaced.
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
       resourceKind: 'marketing_automation.campaign',
       resourceId: campaign.id,
       current: campaign.updatedAt,
@@ -566,7 +566,7 @@ const saveCampaignGraphCommand: CommandHandler<
     // and the shared conflict bar already know how to render. The payload's `updatedAt` is passed
     // explicitly AND the request is threaded, so the canvas can send the version as the extension
     // header while an API client may keep sending it in the body.
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
       resourceKind: 'marketing_automation.campaign',
       resourceId: campaign.id,
       current: campaign.updatedAt,
@@ -672,7 +672,7 @@ const setCampaignEnabledCommand: CommandHandler<
     })
     if (!campaign) throw new CrudHttpError(404, { error: 'Campaign not found' })
 
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
       resourceKind: 'marketing_automation.campaign',
       resourceId: campaign.id,
       current: campaign.updatedAt,
@@ -731,7 +731,7 @@ const deleteCampaignCommand: CommandHandler<{ id: string }, { id: string }> = {
 
     // Deleting is a mutation of a user-editable record, so it carries the same version check as a
     // save — the platform's locking covers update AND delete.
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
       resourceKind: 'marketing_automation.campaign',
       resourceId: campaign.id,
       current: campaign.updatedAt,

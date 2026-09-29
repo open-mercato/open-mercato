@@ -208,6 +208,7 @@
   "auth.acl.features.marketing_automation.campaigns.manage": "Kampagnen verwalten",
   "auth.acl.features.marketing_automation.campaigns.publish": "Kampagnen aktivieren oder deaktivieren",
   "auth.acl.features.marketing_automation.campaigns.view": "Kampagnen ansehen",
+  "auth.acl.features.marketing_automation.consent.manage": "Eine Einwilligungsentscheidung im Namen des Kunden erfassen",
   "auth.acl.features.marketing_automation.runs.view": "Kampagnenausführungen ansehen",
   "auth.acl.features.marketing_automation.test_dispatch": "Kampagne testweise auslösen (sendet echte Nachrichten)",
   "auth.acl.features.messages.actions": "Execute message actions",

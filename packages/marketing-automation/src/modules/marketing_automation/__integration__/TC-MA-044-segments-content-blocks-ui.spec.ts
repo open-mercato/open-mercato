@@ -198,7 +198,18 @@ test.describe('TC-MA-044 segments and content blocks screens', () => {
       const exportLink = page.getByRole('link', { name: 'Export CSV' })
       await expect(exportLink).toHaveAttribute('href', `${SEGMENTS_PATH}/${main.id}/export`)
       await expect(exportLink).toHaveAttribute('download', '')
-      const exported = await page.request.get(`${SEGMENTS_PATH}/${main.id}/export`)
+      /**
+       * The file is fetched with the API token, not through `page.request`.
+       *
+       * `page.request` carries the browser context's cookies, and that made this assertion depend on the app
+       * being reached by the same host spelling the cookie was set for. Locally that is always
+       * `localhost:3000`; under the ephemeral harness the app answers on its own host and port, the session
+       * cookie did not travel, and the export came back 401 — a failure about addressing, not about the export.
+       *
+       * What the BROWSER has to prove is already proven above: the link's href and its `download` attribute. The
+       * file's contents are an API fact, so they are fetched the way every other spec here fetches one.
+       */
+      const exported = await apiRequest(request, 'GET', `${SEGMENTS_PATH}/${main.id}/export`, { token })
       expect(exported.status()).toBe(200)
       expect(await exported.text()).toContain(marker)
 

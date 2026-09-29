@@ -1,9 +1,10 @@
+import type { AwilixContainer } from 'awilix'
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { MarketingScoreRule } from '../../../data/entities.js'
 import { scoreRuleUpdateSchema } from '../../../data/validators.js'
 import { isForbiddenRuleExpression } from '../../../lib/score-rules.js'
@@ -35,12 +36,19 @@ async function load(req: Request) {
   const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
   const rule = await em.findOne(MarketingScoreRule, { id, ...scope, deletedAt: null })
   if (!rule) return { error: NextResponse.json({ error: 'Not found' }, { status: 404 }) }
-  return { em, rule, scope }
+  // The container travels with the loaded record so the guarded lock seam can reach the optional enterprise
+  // `record_locks` service through DI — the OSS floor alone would leave this module outside that guard.
+  return { em, rule, scope, container }
 }
 
-function lock(req: Request, rule: MarketingScoreRule, expected: string | undefined): NextResponse | null {
+async function lock(
+  container: AwilixContainer,
+  req: Request,
+  rule: MarketingScoreRule,
+  expected: string | undefined,
+): Promise<NextResponse | null> {
   try {
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(container, {
       resourceKind: 'marketing_automation.score_rule',
       resourceId: rule.id,
       current: rule.updatedAt,
@@ -78,9 +86,9 @@ export async function PUT(req: Request) {
 
   const loaded = await load(req)
   if ('error' in loaded) return loaded.error
-  const { em, rule, scope } = loaded
+  const { em, rule, scope, container } = loaded
 
-  const conflict = lock(req, rule, parsed.data.updatedAt)
+  const conflict = await lock(container, req, rule, parsed.data.updatedAt)
   if (conflict) return conflict
 
   if (parsed.data.name !== undefined) rule.name = parsed.data.name
@@ -99,9 +107,9 @@ export async function PUT(req: Request) {
 export async function DELETE(req: Request) {
   const loaded = await load(req)
   if ('error' in loaded) return loaded.error
-  const { em, rule, scope } = loaded
+  const { em, rule, scope, container } = loaded
 
-  const conflict = lock(req, rule, undefined)
+  const conflict = await lock(container, req, rule, undefined)
   if (conflict) return conflict
 
   rule.deletedAt = new Date()

@@ -128,6 +128,9 @@ export default function MarketingSettingsPage() {
     if (!settings) return
     setSaving(true)
     try {
+      // optimistic-lock-exempt: per-tenant CONFIG, not a record — there is no row and no `updatedAt` to hold a
+      // version against, which is the same reason this screen is not a `CrudForm`. Last write wins deliberately:
+      // a concurrent edit of a tier ladder is not a conflict worth a dialogue about.
       const saved = await apiCallOrThrow<Settings>(SETTINGS_PATH, {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },

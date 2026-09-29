@@ -3,7 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { MarketingSegment } from '../../../data/entities.js'
 import { segmentUpdateSchema } from '../../../data/validators.js'
 import { isSelfReferentialSegment } from '../../../lib/engine/segment-expression.js'
@@ -34,7 +34,9 @@ async function load(req: Request) {
   const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
   const segment = await em.findOne(MarketingSegment, { id, ...scope, deletedAt: null })
   if (!segment) return { error: NextResponse.json({ error: 'Not found' }, { status: 404 }) }
-  return { em, segment }
+  // The container travels with the loaded record so the guarded lock seam can reach the optional enterprise
+  // `record_locks` service through DI — the OSS floor alone would leave this module outside that guard.
+  return { em, segment, container }
 }
 
 function present(segment: MarketingSegment) {
@@ -75,10 +77,10 @@ export async function PUT(req: Request) {
 
   const loaded = await load(req)
   if ('error' in loaded) return loaded.error
-  const { em, segment } = loaded
+  const { em, segment, container } = loaded
 
   try {
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(container, {
       resourceKind: 'marketing_automation.segment',
       resourceId: segment.id,
       current: segment.updatedAt,
@@ -103,10 +105,10 @@ export async function PUT(req: Request) {
 export async function DELETE(req: Request) {
   const loaded = await load(req)
   if ('error' in loaded) return loaded.error
-  const { em, segment } = loaded
+  const { em, segment, container } = loaded
 
   try {
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(container, {
       resourceKind: 'marketing_automation.segment',
       resourceId: segment.id,
       current: segment.updatedAt,

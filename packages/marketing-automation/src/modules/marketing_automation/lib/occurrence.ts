@@ -56,7 +56,10 @@ function canonicalize(value: unknown, depth = 0): unknown {
   if (value && typeof value === 'object') {
     const source = value as Record<string, unknown>
     const canonical: Record<string, unknown> = {}
-    for (const key of Object.keys(source).sort()) {
+    // These sorted keys go into a HASH, so the comparator must be locale-independent: `localeCompare` would make
+    // the same payload hash differently under a different server locale, and every duplicate-delivery guard
+    // keyed on that hash would stop recognising its own past.
+    for (const key of Object.keys(source).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
       // An absent key and a key set to undefined are the same fact, and `JSON.stringify` already
       // drops the latter — dropping it here too keeps the two from hashing differently.
       if (source[key] === undefined) continue

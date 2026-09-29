@@ -3,7 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { MarketingContentBlock } from '../../../data/entities.js'
 import { contentBlockUpdateSchema } from '../../../data/validators.js'
 import { readPathUuid } from '../../shared.js'
@@ -38,7 +38,9 @@ async function load(req: Request) {
   const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
   const block = await em.findOne(MarketingContentBlock, { id, ...scope, deletedAt: null })
   if (!block) return { error: NextResponse.json({ error: 'Not found' }, { status: 404 }) }
-  return { em, block }
+  // The container travels with the loaded record so the guarded lock seam can reach the optional enterprise
+  // `record_locks` service through DI — the OSS floor alone would leave this module outside that guard.
+  return { em, block, container }
 }
 
 export async function GET(req: Request) {
@@ -67,10 +69,10 @@ export async function PUT(req: Request) {
 
   const loaded = await load(req)
   if ('error' in loaded) return loaded.error
-  const { em, block } = loaded
+  const { em, block, container } = loaded
 
   try {
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(container, {
       resourceKind: 'marketing_automation.content_block',
       resourceId: block.id,
       current: block.updatedAt,
@@ -103,10 +105,10 @@ export async function PUT(req: Request) {
 export async function DELETE(req: Request) {
   const loaded = await load(req)
   if ('error' in loaded) return loaded.error
-  const { em, block } = loaded
+  const { em, block, container } = loaded
 
   try {
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(container, {
       resourceKind: 'marketing_automation.content_block',
       resourceId: block.id,
       current: block.updatedAt,

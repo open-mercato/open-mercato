@@ -501,7 +501,19 @@ describe('the narrowing never excludes a subject the audience accepts', () => {
     ['hot vip', group('AND', [leaf('score.points', '>=', 50), leaf('tags', 'CONTAINS', 'vip')])],
   ]
 
-  const subjects: SubjectDocument[] = []
+  /**
+   * Generated one at a time, never collected.
+   *
+   * The population is a cartesian product — 5 tag sets × 5 order shapes × up to 12 recencies × 7 scores × 3
+   * sku/category/country triples × 4 NPS values × 4 engagement states — which is a little over eighty thousand
+   * subject documents. Materialising that into an array held every one of them for the whole file and killed the
+   * jest worker under the repo-wide `yarn test`, whose heap cap is 1 GB: the suite reported no failing TEST, it
+   * reported "Jest worker ran out of memory and crashed" and took its own 111 tests out of the run.
+   *
+   * A generator costs the same CPU — each test already walked the whole population once — and retains one subject
+   * at a time instead of all of them.
+   */
+  function* generateSubjects(): Generator<SubjectDocument> {
   for (const tags of [[], ['vip'], ['churned'], ['vip', 'churned'], ['wholesale']]) {
     for (const [count, totalGross] of [[0, 0], [1, 0], [1, 99.99], [3, 500], [12, 4200]] as const) {
       for (const daysAgo of count === 0 ? [null] : [0, 1, 7, 30, 44, 45, 46, 60, 89, 90, 91, 400]) {
@@ -513,36 +525,51 @@ describe('the narrowing never excludes a subject the audience accepts', () => {
            * here keeps the generated population realistic — and gives the category pushdown subjects it can
            * actually match, which is what makes the property assertion mean something.
            */
-          for (const [skus, categories, country] of [
-            [[], [], null],
-            [['ATLAS-RUNNER'], ['footwear'], 'PL'],
-            [['OTHER-SKU'], ['accessories'], 'DE'],
-          ] as const) {
-            for (const nps of [null, 2, 7, 10]) {
-              /**
-               * Four engagement states, and the last two are the point.
-               *
-               * Never written to (absent silence), engaged recently, mailed a year ago and never opened, and
-               * opened a year ago. A sunset audience must collect the last two and spare the first — which is
-               * only testable if the population contains all four.
-               */
-              for (const engagement of [
-                { sent: 0, opened: 0, clicked: 0 },
-                { sent: 10, opened: 4, clicked: 2, daysSinceEngaged: 3 },
-                { sent: 10, opened: 0, clicked: 0, daysSinceEngaged: 400 },
-                { sent: 10, opened: 1, clicked: 0, daysSinceEngaged: 365 },
-              ] as const) {
-                subjects.push(subjectOf({
-                  tags, count, totalGross, daysAgo, points,
-                  skus: [...skus], categories: [...categories], country, nps,
-                  engagement: { ...engagement },
-                }))
-              }
-            }
+          /**
+           * These three vary in LOCKSTEP, not as a further cross product — and that is a deliberate limit on
+           * what this test proves.
+           *
+           * Crossed, they multiplied the population by forty-eight and pushed one jest worker's peak past the
+           * 1 GB heap the repo-wide `yarn test` pins, so the suite crashed and took its own 111 tests out of the
+           * run. Cycled, every value of every list still appears against every combination of the dimensions the
+           * PUSHDOWNS actually key on — tags, order count, order total, recency and score — which is where the
+           * bugs this test exists to catch live ("never push `orders.count <= 5` down, a never-buyer satisfies
+           * it"). What is given up is the seven-way combination, and no narrowing decision reads more than one of
+           * these three at a time.
+           */
+          const incidental = [
+            { skus: [] as string[], categories: [] as string[], country: null as string | null },
+            { skus: ['ATLAS-RUNNER'], categories: ['footwear'], country: 'PL' },
+            { skus: ['OTHER-SKU'], categories: ['accessories'], country: 'DE' },
+          ]
+          const npsValues = [null, 2, 7, 10]
+          /**
+           * Four engagement states, and the last two are the point.
+           *
+           * Never written to (absent silence), engaged recently, mailed a year ago and never opened, and opened a
+           * year ago. A sunset audience must collect the last two and spare the first — which is only testable if
+           * the population contains all four.
+           */
+          const engagements = [
+            { sent: 0, opened: 0, clicked: 0 },
+            { sent: 10, opened: 4, clicked: 2, daysSinceEngaged: 3 },
+            { sent: 10, opened: 0, clicked: 0, daysSinceEngaged: 400 },
+            { sent: 10, opened: 1, clicked: 0, daysSinceEngaged: 365 },
+          ]
+          const lanes = Math.max(incidental.length, npsValues.length, engagements.length)
+          for (let lane = 0; lane < lanes; lane += 1) {
+            const { skus, categories, country } = incidental[lane % incidental.length]
+            yield subjectOf({
+              tags, count, totalGross, daysAgo, points,
+              skus: [...skus], categories: [...categories], country,
+              nps: npsValues[lane % npsValues.length],
+              engagement: { ...engagements[lane % engagements.length] },
+            })
           }
         }
       }
     }
+  }
   }
 
   const describeSubject = (subject: SubjectDocument) =>
@@ -552,7 +579,7 @@ describe('the narrowing never excludes a subject the audience accepts', () => {
     const plan = planNarrowing(audience)
     const excluded: string[] = []
     let matched = 0
-    for (const subject of subjects) {
+    for (const subject of generateSubjects()) {
       if (!matchesAudience(audience, subject, { now: NOW, logger })) continue
       matched += 1
       if (!satisfiesNarrowing(plan.narrowing, subject)) excluded.push(describeSubject(subject))
@@ -569,7 +596,7 @@ describe('the narrowing never excludes a subject the audience accepts', () => {
     for (const [label, audience] of audiences) {
       const plan = planNarrowing(audience)
       if (!plan.complete) continue
-      for (const subject of subjects) {
+      for (const subject of generateSubjects()) {
         const narrowed = satisfiesNarrowing(plan.narrowing, subject)
         const matches = matchesAudience(audience, subject, { now: NOW, logger })
         if (narrowed !== matches) disagreements.push(`${label}: ${describeSubject(subject)}`)

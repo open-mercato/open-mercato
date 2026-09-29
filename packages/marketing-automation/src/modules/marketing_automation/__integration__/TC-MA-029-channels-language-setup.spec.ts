@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { createCampaign, deleteCampaignIfExists } from './helpers/marketing'
 
 const CAMPAIGNS_PATH = '/api/marketing_automation/campaigns'
 const READINESS_PATH = '/api/marketing_automation/readiness'
@@ -89,6 +90,25 @@ test.describe('TC-MA-029 channel and language targeting, readiness', () => {
 
   test('readiness is answered from live state, with blocking checks named', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
+    /**
+     * Its own campaign, so `first_campaign` is satisfied by something THIS test did.
+     *
+     * It used to lean on "the installation has campaigns from the rest of the suite", which held while the specs
+     * ran in one process against a database other specs had already filled. Sharded across three lanes on a fresh
+     * database it is a coin toss: the spec that happened to create a campaign lands in another lane. The module's
+     * own AGENTS.md asks for self-contained fixtures for exactly this reason, and this was the one test that
+     * quietly ignored it.
+     */
+    let campaignId: string | null = null
+    try {
+      campaignId = await createCampaign(request, token, `QA readiness ${Date.now()}`)
+      await assertReadiness(request, token)
+    } finally {
+      await deleteCampaignIfExists(request, token, campaignId)
+    }
+  })
+
+  async function assertReadiness(request: Parameters<typeof apiRequest>[0], token: string) {
     const response = await apiRequest(request, 'GET', READINESS_PATH, { token })
     expect(response.status()).toBe(200)
     const body = await readJsonSafe<{
@@ -113,10 +133,9 @@ test.describe('TC-MA-029 channel and language targeting, readiness', () => {
     const malformed = (body?.checks ?? []).filter((check) => !['blocking', 'recommended'].includes(String(check.severity)))
     expect(malformed).toEqual([])
 
-    // This installation has campaigns and runs from the rest of the suite, so those checks are satisfied by
-    // live state rather than by anything this test did.
+    // Satisfied by the campaign this test created, not by whatever else happens to be in the database.
     expect((body?.checks ?? []).find((check) => check.id === 'first_campaign')?.done).toBe(true)
-  })
+  }
 
   test('an anonymous caller cannot read readiness', async ({ request }) => {
     expect([401, 403]).toContain((await request.get(READINESS_PATH)).status())

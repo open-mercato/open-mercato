@@ -137,7 +137,9 @@ export async function resolveCandidates(
   const result = await resolveNode(narrowing, source, state)
   return {
     // Sorted so the sweep can page through them with a stable cursor.
-    ids: result.ids ? [...result.ids].sort() : null,
+    // Uuids compared by codepoint, never by locale — this ordering is what makes a candidate set comparable
+    // between two runs.
+    ids: result.ids ? [...result.ids].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)) : null,
     abandoned: result.abandoned,
     queries: state.queries,
   }

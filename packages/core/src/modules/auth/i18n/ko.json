@@ -208,6 +208,7 @@
   "auth.acl.features.marketing_automation.campaigns.manage": "캠페인 관리",
   "auth.acl.features.marketing_automation.campaigns.publish": "캠페인 활성화 및 비활성화",
   "auth.acl.features.marketing_automation.campaigns.view": "캠페인 보기",
+  "auth.acl.features.marketing_automation.consent.manage": "고객을 대신해 수신 동의 결정을 기록",
   "auth.acl.features.marketing_automation.runs.view": "캠페인 실행 기록 보기",
   "auth.acl.features.marketing_automation.test_dispatch": "캠페인 테스트 실행(실제 메시지 발송)",
   "auth.acl.features.messages.actions": "Execute message actions",

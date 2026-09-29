@@ -74,7 +74,9 @@ export function buildLinkReport(rows: LinkRow[], clickers: number, limit = LINK_
     clicks: row.clicks,
     shareOfClickers: clickers > 0 ? Math.round((row.people / clickers) * 10_000) / 10_000 : null,
     // De-duplicated and ordered here rather than in SQL, so the shape is the same whichever driver answers.
-    stepIds: [...new Set(row.step_ids ?? [])].sort(),
+    // Canonical ids, so codepoint order rather than `localeCompare`: the guard for #3620 asks for an explicit
+    // comparator, and a locale-dependent one would order step ids differently per server locale.
+    stepIds: [...new Set(row.step_ids ?? [])].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
   }))
   return { links: ranked, clickers, truncated: rows.length > limit }
 }
