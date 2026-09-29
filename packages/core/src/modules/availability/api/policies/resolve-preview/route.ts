@@ -5,6 +5,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveActiveOrganizationId, organizationScopeRequiredResponse } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createPolicyResolutionService } from '../../../lib/policyResolution'
 
 /**
@@ -19,16 +20,30 @@ const routeMetadata = {
 
 export const metadata = routeMetadata
 
-export const openApi = {
-  tags: ['Availability'],
-  summary: 'Preview the currently persisted policy resolution chain for a product/variant/store target.',
-}
-
 const querySchema = z.object({
   productId: z.uuid(),
   variantId: z.uuid().nullable().optional(),
   storeId: z.uuid().nullable().optional(),
 })
+
+const previewResponseSchema = z.object({ policyTrace: z.record(z.string(), z.unknown()) })
+const errorSchema = z.object({ error: z.string() })
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Availability',
+  summary: 'Preview the currently persisted policy resolution chain for a product/variant/store target.',
+  methods: {
+    GET: {
+      summary: 'Preview the persisted availability policy resolution chain',
+      query: querySchema,
+      responses: [{ status: 200, description: 'Resolved policy trace', schema: previewResponseSchema }],
+      errors: [
+        { status: 400, description: 'Invalid request or missing organization scope', schema: errorSchema },
+        { status: 401, description: 'Unauthorized', schema: errorSchema },
+      ],
+    },
+  },
+}
 
 export async function GET(req: Request) {
   const { translate } = await resolveTranslations()

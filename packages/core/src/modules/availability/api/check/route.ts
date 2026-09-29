@@ -7,6 +7,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveAvailability, availabilityItemKey } from '@open-mercato/shared/lib/availability'
 import type { AvailabilityModuleConfigReader, AvailabilityQuery } from '@open-mercato/shared/lib/availability'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { tryResolve } from '../../lib/tryResolve'
 import type { PolicyResolutionService } from '../../lib/policyResolution'
 
@@ -21,18 +22,36 @@ const routeMetadata = {
 
 export const metadata = routeMetadata
 
-export const openApi = {
-  tags: ['Availability'],
-  summary: 'Reproduce the availability state and policy trace a buyer would see for one item.',
-  description: 'Admin/debug tool. Mirrors resolveAvailability() and includes the per-field policySourceId trace.',
-}
-
 const checkSchema = z.object({
   productId: z.uuid(),
   variantId: z.uuid().nullable().optional(),
   quantity: z.coerce.number().int().min(1).default(1),
   storeId: z.uuid().nullable().optional(),
 })
+
+const checkResponseSchema = z.object({
+  availability: z.record(z.string(), z.unknown()).nullable(),
+  policyTrace: z.record(z.string(), z.unknown()).nullable(),
+})
+const errorSchema = z.object({ error: z.string() })
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Availability',
+  summary: 'Reproduce the availability state and policy trace a buyer would see for one item.',
+  methods: {
+    POST: {
+      summary: 'Check availability for one item',
+      description: 'Admin/debug tool. Mirrors resolveAvailability() and includes the per-field policySourceId trace.',
+      requestBody: { schema: checkSchema },
+      responses: [{ status: 200, description: 'Availability result and policy trace', schema: checkResponseSchema }],
+      errors: [
+        { status: 400, description: 'Invalid request or missing organization scope', schema: errorSchema },
+        { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 404, description: 'Product or variant not found', schema: errorSchema },
+      ],
+    },
+  },
+}
 
 export async function POST(req: Request) {
   const { translate } = await resolveTranslations()
