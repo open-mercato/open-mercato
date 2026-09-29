@@ -449,11 +449,16 @@ jobs:
         # `yarn dev` in another terminal and is why this was missed. On a runner every spec failed with
         # `ECONNREFUSED ::1:3000` — not one test failure, all of them, at the login call.
         #
-        # The ephemeral variant is the one that provisions: `yarn mercato test:integration` starts a pgvector
-        # Postgres through testcontainers, spawns the app against it, drains the queue for specs that need a
-        # worker, and tears it all down. It takes `--shard=N/M` itself, and its own comments talk about fifteen
-        # ephemeral shards booting in parallel, so this is its designed use rather than a trick.
-        run: yarn test:integration:ephemeral --shard=${{ matrix.shard }}/3
+        # The provisioning variants start a pgvector Postgres through testcontainers, spawn the app against it,
+        # drain the queue for specs that need a worker, and tear it all down.
+        #
+        # Of those, the COVERAGE one is the only one that can be sharded: `--shard` is parsed by
+        # `parseIntegrationCoverageOptions` and not by the plain command's `parseOptions`, whose whole option set
+        # is `--filter --force-rebuild --keep --no-reuse-env --screenshots --verbose`. Passing `--shard=1/3` to
+        # `test:integration:ephemeral` is answered with `Unknown option`, which is what the previous version of
+        # this step did. That is also why upstream's CI shards the coverage flavour — not for the coverage, for
+        # the flag.
+        run: yarn test:integration:coverage --shard=${{ matrix.shard }}/3
 
       - name: Upload failure artefacts
         # Traces, screenshots and the error context each failing spec writes. Without them a red run on a machine
