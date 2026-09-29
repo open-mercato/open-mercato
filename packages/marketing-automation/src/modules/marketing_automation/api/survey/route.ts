@@ -16,8 +16,15 @@ import { TRACKING_TOKEN_PARAM } from '../../lib/tracking/urls.js'
  * travels INSIDE the signature, so a recipient cannot change their own answer by editing the URL, and a
  * different score is a different link rather than a different parameter.
  *
- * GET records the score. POST additionally accepts a comment from the thank-you page's form, which is why
- * that page exists at all: the score is the number, and the sentence after it is usually where the value is.
+ * **GET records nothing.** Every URL in an email is fetched by something that is not the recipient —
+ * SafeLinks, antivirus gateways, proxies, chat unfurlers — and a GET that stored the score let any of them
+ * invent an answer. That is worse here than an unsubscribe: the score is what `survey.nps <= 6` audiences
+ * target, so a fabricated 9 hides a detractor and a fabricated 0 mails an apology to somebody who is happy.
+ *
+ * So GET shows the score back with a Send button, and POST records it along with whatever they typed. The
+ * extra click costs an answer from somebody who closes the tab; it buys answers that are real, and it is the
+ * SAME click that submits the comment — which the page already existed to collect, because the score is the
+ * number and the sentence after it is usually where the value is.
  */
 const routeMetadata = {
   GET: { requireAuth: false },
@@ -39,7 +46,7 @@ function page(title: string, body: string, status = 200): NextResponse {
 }
 
 /**
- * The comment form posts back to the same signed URL, so the token is the only thing identifying the answer.
+ * The page that asks, showing the score the person picked and collecting the sentence after it.
  *
  * The token is RE-MINTED from the verified claims rather than echoed from the request. Echoing request bytes into
  * an HTML attribute was a reflected XSS: the signature is base64url, and a lenient decoder let a valid signature
@@ -47,15 +54,16 @@ function page(title: string, body: string, status = 200): NextResponse {
  * verifier now rejects that shape too, but this page must not depend on the verifier for its escaping: a minted
  * token is a value we produced, which is the only kind of value safe to interpolate.
  */
-function thankYou(claims: TrackingClaims, secret: string): NextResponse {
+function confirmAnswer(claims: TrackingClaims, secret: string, score: number): NextResponse {
   const canonicalToken = encodeURIComponent(signTrackingToken(claims, secret))
   return page(
     'Thank you',
-    `<p>Your answer has been recorded.</p>`
+    // The score came out of the signed token and is validated as an NPS score, so it is a number, not input.
+    `<p>You picked <strong>${score}</strong> out of 10.</p>`
     + `<form method="post" action="?${TRACKING_TOKEN_PARAM}=${canonicalToken}">`
     + `<p><label for="c">Anything you would like to add?</label></p>`
     + `<textarea id="c" name="comment" rows="4" maxlength="${MAX_COMMENT_LENGTH}" style="width:100%;font:inherit;padding:.5rem"></textarea>`
-    + `<p><button type="submit" style="font:inherit;padding:.5rem 1rem">Send</button></p>`
+    + `<p><button type="submit" style="font:inherit;padding:.5rem 1rem">Send my answer</button></p>`
     + `</form>`,
   )
 }
@@ -75,17 +83,25 @@ async function readComment(req: Request): Promise<string | null> {
   }
 }
 
-async function handle(req: Request, comment: string | null): Promise<NextResponse> {
+type VerifiedAnswer = { claims: TrackingClaims; secret: string; score: number }
+
+function readAnswer(req: Request): VerifiedAnswer | null {
   const token = new URL(req.url).searchParams.get(TRACKING_TOKEN_PARAM)
   const secret = resolveTrackingSecret()
-  if (!token || !secret) return page('This link is not valid', '<p>Please use the link from the message we sent you.</p>', 400)
+  if (!token || !secret) return null
 
   const claims = verifyTrackingToken(token, secret)
   // The purpose is signed, so an open, click or unsubscribe token cannot be replayed as an answer.
-  if (!claims || claims.purpose !== 'survey' || !isValidNpsScore(claims.target)) {
-    return page('This link is not valid', '<p>Please use the link from the message we sent you.</p>', 400)
-  }
-  const score = Number(claims.target)
+  if (!claims || claims.purpose !== 'survey' || !isValidNpsScore(claims.target)) return null
+  return { claims, secret, score: Number(claims.target) }
+}
+
+const UNUSABLE = () => page('This link is not valid', '<p>Please use the link from the message we sent you.</p>', 400)
+
+async function handle(req: Request, comment: string | null): Promise<NextResponse> {
+  const verified = readAnswer(req)
+  if (!verified) return UNUSABLE()
+  const { claims, score } = verified
 
   try {
     const container = await createRequestContainer()
@@ -117,31 +133,33 @@ async function handle(req: Request, comment: string | null): Promise<NextRespons
     return page('Something went wrong', '<p>We could not record that just now. Please try the link again.</p>', 500)
   }
 
-  return comment === null
-    ? thankYou(claims, secret)
-    : page('Thank you', '<p>Your comment has been recorded.</p>')
+  return page('Thank you', '<p>Your answer has been recorded.</p>')
 }
 
+/** Asks, and records nothing — see the note at the top about who else fetches a link in an email. */
 export async function GET(req: Request) {
-  return handle(req, null)
+  const verified = readAnswer(req)
+  if (!verified) return UNUSABLE()
+  return confirmAnswer(verified.claims, verified.secret, verified.score)
 }
 
+/** Records the score and the comment together, in one action by the person who meant it. */
 export async function POST(req: Request) {
   return handle(req, await readComment(req))
 }
 
 export const openApi = {
   GET: {
-    summary: 'Record an NPS answer',
+    summary: 'Show the NPS answer back for confirmation',
     description:
-      'Records the score carried inside the signed token and answers a thank-you page with an optional comment form. Public, authorised only by the token; the score is signed, so a recipient cannot change their answer by editing the URL.',
+      'Answers a page showing the score carried inside the signed token, with a Send button and a comment box. Deliberately records nothing: link scanners and gateways fetch every URL in an email, and a GET that stored the score would let them fabricate one — which matters more here than elsewhere, because the score is what win-back audiences target.',
     tags: ['Marketing Automation'],
-    responses: { 200: { description: 'Recorded' }, 400: { description: 'Unusable link' }, 404: { description: 'No such survey' } },
+    responses: { 200: { description: 'The confirmation page' }, 400: { description: 'Unusable link' } },
   },
   POST: {
-    summary: 'Record an NPS answer with a comment',
-    description: 'As GET, and additionally stores the comment from the thank-you form.',
+    summary: 'Record an NPS answer',
+    description: 'Stores the signed score along with the optional comment. The score is inside the signature, so a recipient cannot change their answer by editing the URL.',
     tags: ['Marketing Automation'],
-    responses: { 200: { description: 'Recorded' } },
+    responses: { 200: { description: 'Recorded' }, 400: { description: 'Unusable link' }, 404: { description: 'No such survey' } },
   },
 }

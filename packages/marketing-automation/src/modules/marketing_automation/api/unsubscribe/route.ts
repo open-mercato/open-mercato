@@ -6,7 +6,8 @@ import { reportError } from '@open-mercato/telemetry'
 import { MarketingCampaignRun } from '../../data/entities.js'
 import { recordConsent } from '../../lib/consent.js'
 import { resolveTrackingSecret } from '../../lib/tracking/secret.js'
-import { verifyTrackingToken } from '../../lib/tracking/token.js'
+import { signTrackingToken, verifyTrackingToken } from '../../lib/tracking/token.js'
+import type { TrackingClaims } from '../../lib/tracking/token.js'
 import { TRACKING_TOKEN_PARAM } from '../../lib/tracking/urls.js'
 
 /**
@@ -19,6 +20,14 @@ import { TRACKING_TOKEN_PARAM } from '../../lib/tracking/urls.js'
  *
  * Answers HTML rather than JSON because a mail client opens it in a browser, and a person who has just
  * asked to be left alone should see a sentence confirming it rather than a JSON object.
+ *
+ * **GET changes nothing.** Every URL in an email gets fetched by things that are not the recipient: Outlook
+ * SafeLinks, antivirus gateways, corporate proxies and chat unfurlers all follow links to inspect them. A GET
+ * that unsubscribed meant a scanner could opt somebody out of mail they never chose to leave, silently, and
+ * nothing in the trail would distinguish it from the person's own click. So GET asks, and POST acts.
+ *
+ * The one-click promise is kept where it is actually made: RFC 8058 clients POST, so their unsubscribe still
+ * takes exactly one action and shows the person a confirmation afterwards rather than before.
  */
 const routeMetadata = {
   GET: { requireAuth: false },
@@ -39,18 +48,44 @@ function page(title: string, body: string, status = 200): NextResponse {
   )
 }
 
-async function handle(req: Request): Promise<NextResponse> {
+/**
+ * The page a person sees when they follow the link, with the button that does the work.
+ *
+ * The token is RE-MINTED from the verified claims rather than echoed out of the request: interpolating
+ * request bytes into an HTML attribute is how the survey page acquired a reflected XSS, and a minted token is
+ * a value we produced.
+ */
+function confirmPage(claims: TrackingClaims, secret: string): NextResponse {
+  const token = encodeURIComponent(signTrackingToken(claims, secret))
+  return new NextResponse(
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Unsubscribe</title></head>`
+    + `<body style="font-family:system-ui,sans-serif;margin:3rem auto;max-width:32rem;line-height:1.5;color:#111">`
+    + `<h1 style="font-size:1.25rem">Unsubscribe</h1>`
+    + `<p>Confirm that you no longer want marketing email from us.</p>`
+    + `<form method="post" action="?${TRACKING_TOKEN_PARAM}=${token}">`
+    + `<p><button type="submit" style="font:inherit;padding:.5rem 1rem">Unsubscribe me</button></p>`
+    + `</form>`
+    + `</body></html>`,
+    { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } },
+  )
+}
+
+function readClaims(req: Request): { claims: TrackingClaims; secret: string } | null {
   const token = new URL(req.url).searchParams.get(TRACKING_TOKEN_PARAM)
   const secret = resolveTrackingSecret()
-  if (!token || !secret) {
-    return page('This link is not valid', 'Please use the unsubscribe link from a recent message.', 400)
-  }
-
+  if (!token || !secret) return null
   const claims = verifyTrackingToken(token, secret)
   // The purpose is signed, so an open or click token cannot be replayed here.
-  if (!claims || claims.purpose !== 'unsubscribe') {
+  if (!claims || claims.purpose !== 'unsubscribe') return null
+  return { claims, secret }
+}
+
+async function handle(req: Request): Promise<NextResponse> {
+  const verified = readClaims(req)
+  if (!verified) {
     return page('This link is not valid', 'Please use the unsubscribe link from a recent message.', 400)
   }
+  const { claims } = verified
 
   try {
     const container = await createRequestContainer()
@@ -91,20 +126,32 @@ async function handle(req: Request): Promise<NextResponse> {
   return page('You have been unsubscribed', 'You will not receive marketing email from us again. It may take a moment to take effect for messages already on their way.')
 }
 
+/** Asks. A link scanner fetching this changes nothing, which is the entire reason it only asks. */
 export async function GET(req: Request) {
-  return handle(req)
+  const verified = readClaims(req)
+  if (!verified) {
+    return page('This link is not valid', 'Please use the unsubscribe link from a recent message.', 400)
+  }
+  return confirmPage(verified.claims, verified.secret)
 }
 
-/** Mail clients that implement RFC 8058 one-click use POST; the effect is identical. */
+/** Acts — for the button on that page, and for mail clients that implement RFC 8058 one-click. */
 export async function POST(req: Request) {
   return handle(req)
 }
 
 export const openApi = {
   GET: {
-    summary: 'One-click unsubscribe',
+    summary: 'Ask to confirm an unsubscribe',
     description:
-      'Records a marketing opt-out for the customer behind the signed token and answers a short HTML confirmation. Public, authorised only by the token, which names the run rather than the person. POST behaves identically, for RFC 8058 one-click clients.',
+      'Answers a short HTML page with a button that POSTs. Deliberately changes nothing: link scanners, antivirus gateways and chat unfurlers fetch every URL in an email, and a GET that opted somebody out would let them do it on the recipient\'s behalf. Public, authorised only by the signed token, which names the run rather than the person.',
+    tags: ['Marketing Automation'],
+    responses: { 200: { description: 'The confirmation page' }, 400: { description: 'Unusable link' } },
+  },
+  POST: {
+    summary: 'Unsubscribe',
+    description:
+      'Records a marketing opt-out for the customer behind the signed token. Used by the button on the GET page and by RFC 8058 one-click mail clients, whose single action still lands here.',
     tags: ['Marketing Automation'],
     responses: { 200: { description: 'Unsubscribed' }, 400: { description: 'Unusable link' }, 404: { description: 'No such subscription' } },
   },

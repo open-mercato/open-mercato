@@ -54,6 +54,15 @@ function withTracking(
   html: string,
   ctx: AutomationContext,
   enabled: boolean,
+  /**
+   * The unsubscribe URL, which is left exactly as it is.
+   *
+   * An unsubscribe is not a click. Rewriting it would record one, which inflates every click rate — and
+   * because `pickSplitWinner` ranks lanes on click rate, the variant that drove the most unsubscribes would
+   * be promoted as the winner. It also broke the footer: once the author's own link had been rewritten, the
+   * "did they place it themselves" check could not find it and appended a second one.
+   */
+  preserveTarget: string | null,
 ): string {
   if (!enabled) return html
   const secret = resolveTrackingSecret()
@@ -69,7 +78,7 @@ function withTracking(
     stepId: ctx.actionId,
   }
   return applyTracking(html, {
-    makeClickUrl: (target) => clickUrl(baseUrl, claims, secret, target),
+    makeClickUrl: (target) => (preserveTarget && target === preserveTarget ? null : clickUrl(baseUrl, claims, secret, target)),
     pixelUrl: openPixelUrl(baseUrl, claims, secret),
   })
 }
@@ -105,10 +114,14 @@ function unsubscribeLinkFor(ctx: AutomationContext): string | null {
  * It happens because a marketing email with no way out is not a shippable default — in much of the world
  * it is not lawful — and an author who wants control has it by using `{{unsubscribeUrl}}` anywhere in the
  * body, which suppresses the footer entirely.
+ *
+ * Whether the author placed it is decided by the CALLER, on the body before tracking is applied. It used to
+ * be decided here, by looking for the URL in the finished HTML — by which point the rewriter had turned the
+ * author's link into a tracking URL, so it was never found and every such message went out with two
+ * unsubscribe links.
  */
 function withUnsubscribeFooter(html: string, url: string | null): string {
   if (!url) return html
-  if (html.includes(url)) return html
 
   const footer = `<p style="margin-top:2rem;font-size:12px;color:#666">`
     + `<a href="${url.replace(/&/g, '&amp;')}" style="color:#666">Unsubscribe</a>`
@@ -170,35 +183,37 @@ export function renderEmail(
     ? { ...ctx, unsubscribeUrl: unsubscribe }
     : ctx
 
+  /**
+   * Blocks and recommendations first, then interpolation, then tracking.
+   *
+   * Blocks before interpolation so a shared footer can carry its own placeholders and have them filled;
+   * recommendations in the same pass because they are generated HTML, not customer data; interpolation
+   * before tracking so every link — including the product links just inserted — is rewritten and therefore
+   * attributable. `'html'` is not optional on the interpolation: the body is rendered as HTML, and
+   * substituted values can be customer-controlled.
+   */
+  const interpolated = interpolate(
+    applyRecommendations(
+      applyContentBlocks(params.bodyHtml, resolved.blocks ?? {}),
+      resolved.recommendationsHtml ?? '',
+    ),
+    withUnsubscribeAvailable,
+    'html',
+  )
+
+  /**
+   * Decided here, before tracking, and this is the whole point.
+   *
+   * The author places the link by writing `{{unsubscribeUrl}}`, which interpolation has just resolved into
+   * the URL — so the body contains it now and will not recognisably contain it a moment later, once the
+   * rewriter has wrapped every href in a tracking URL.
+   */
+  const authorPlacedUnsubscribe = unsubscribe !== null && interpolated.includes(unsubscribe)
+  const tracked = withTracking(interpolated, ctx, params.track !== false, unsubscribe)
+
   return {
     subject: interpolate(params.subject, ctx),
-    // Interpolate FIRST, then rewrite: a link assembled from a substituted value has to be tracked too,
-    // and rewriting first would sign a URL containing the placeholder instead of the value.
-    // `'html'` is not optional here: the body is rendered as HTML, and substituted values can be
-    // customer-controlled.
-    /**
-     * Blocks and recommendations first, then interpolation, then tracking.
-     *
-     * Blocks before interpolation so a shared footer can carry its own placeholders and have them filled;
-     * recommendations in the same pass because they are generated HTML, not customer data; interpolation
-     * before tracking so every link — including the product links just inserted — is rewritten and
-     * therefore attributable.
-     */
-    html: withUnsubscribeFooter(
-      withTracking(
-        interpolate(
-          applyRecommendations(
-            applyContentBlocks(params.bodyHtml, resolved.blocks ?? {}),
-            resolved.recommendationsHtml ?? '',
-          ),
-          withUnsubscribeAvailable,
-          'html',
-        ),
-        ctx,
-        params.track !== false,
-      ),
-      unsubscribe,
-    ),
+    html: authorPlacedUnsubscribe ? tracked : withUnsubscribeFooter(tracked, unsubscribe),
     text: params.bodyText ? interpolate(params.bodyText, withUnsubscribeAvailable) : undefined,
   }
 }

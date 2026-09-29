@@ -90,6 +90,33 @@ test.describe('TC-MA-017 NPS survey', () => {
     }
   })
 
+  /**
+   * Following the link records nothing.
+   *
+   * SafeLinks, antivirus gateways and chat unfurlers fetch every URL in an email. Storing the score on GET
+   * let any of them invent an answer — and this score is what `survey.nps <= 6` audiences target, so an
+   * invented 9 hides a detractor and an invented 0 mails an apology to somebody who is perfectly happy.
+   */
+  test('following a survey link shows the score back instead of storing it', async ({ request }) => {
+    const authToken = await getAuthToken(request, 'admin')
+    const scope = callerScope(authToken)
+    const token = signTrackingToken({
+      ...scope,
+      campaignId: '11111111-1111-4111-8111-111111111111',
+      runId: '33333333-3333-4333-8333-333333333333',
+      stepId: 's1',
+      purpose: 'survey',
+      target: '9',
+    }, secret as string)
+
+    const response = await request.get(`${SURVEY_ANSWER_PATH}?${TRACKING_TOKEN_PARAM}=${token}`)
+    // 200 with a form, where an endpoint that had tried to store it would have answered 404 for this run.
+    expect(response.status()).toBe(200)
+    const html = await response.text()
+    expect(html).toContain('method="post"')
+    expect(html).toContain('9')
+  })
+
   // An answer with nowhere to attach must not be confirmed: somebody would believe they had been heard.
   test('a valid answer for a survey that was never asked says so', async ({ request }) => {
     const authToken = await getAuthToken(request, 'admin')
@@ -102,9 +129,9 @@ test.describe('TC-MA-017 NPS survey', () => {
       purpose: 'survey',
       target: '9',
     }, secret as string)
-    const response = await request.get(`${SURVEY_ANSWER_PATH}?${TRACKING_TOKEN_PARAM}=${token}`)
+    const response = await request.post(`${SURVEY_ANSWER_PATH}?${TRACKING_TOKEN_PARAM}=${token}`)
     expect(response.status()).toBe(404)
-    expect((await response.text()).toLowerCase()).not.toContain('thank you')
+    expect((await response.text()).toLowerCase()).not.toContain('your answer has been recorded')
   })
 
   test('answers HTML with no-store and no referrer, because a mail client opens it', async ({ request }) => {

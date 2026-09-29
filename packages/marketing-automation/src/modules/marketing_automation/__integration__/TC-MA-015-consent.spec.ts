@@ -71,6 +71,33 @@ test.describe('TC-MA-015 consent and unsubscribe', () => {
     expect(response.status()).toBe(400)
   })
 
+  /**
+   * A GET never unsubscribes anybody — it asks.
+   *
+   * Every URL in an email is fetched by things that are not the recipient: SafeLinks, antivirus gateways,
+   * proxies, chat unfurlers. A GET that opted somebody out let any of them do it on that person's behalf,
+   * indistinguishably from a real click.
+   */
+  test('following the link asks rather than acting', async ({ request }) => {
+    const authToken = await getAuthToken(request, 'admin')
+    const scope = callerScope(authToken)
+    const token = signTrackingToken({
+      ...scope,
+      campaignId: '11111111-1111-4111-8111-111111111111',
+      runId: '33333333-3333-4333-8333-333333333333',
+      stepId: 'step-1',
+      purpose: 'unsubscribe',
+    }, secret as string)
+
+    const response = await request.get(`${UNSUBSCRIBE_PATH}?${TRACKING_TOKEN_PARAM}=${token}`)
+    expect(response.status()).toBe(200)
+    const html = await response.text()
+    // It offers the action and claims nothing.
+    expect(html).toContain('method="post"')
+    expect(html.toLowerCase()).not.toContain('you have been unsubscribed')
+    // The run above does not exist, so an endpoint that had acted would have had to answer 404 instead.
+  })
+
   // A correctly signed link for a run that no longer exists must not pretend: there is nobody to
   // unsubscribe, and saying otherwise leaves somebody subscribed while believing they are not.
   test('a signed link for an unknown run answers honestly rather than confirming', async ({ request }) => {
@@ -84,7 +111,7 @@ test.describe('TC-MA-015 consent and unsubscribe', () => {
       purpose: 'unsubscribe',
     }, secret as string)
 
-    const response = await request.get(`${UNSUBSCRIBE_PATH}?${TRACKING_TOKEN_PARAM}=${token}`)
+    const response = await request.post(`${UNSUBSCRIBE_PATH}?${TRACKING_TOKEN_PARAM}=${token}`)
     expect(response.status()).toBe(404)
     const html = await response.text()
     expect(html.toLowerCase()).not.toContain('you have been unsubscribed')
@@ -97,8 +124,9 @@ test.describe('TC-MA-015 consent and unsubscribe', () => {
     expect(await response.text()).toContain('referrer')
   })
 
-  // RFC 8058 clients POST; the effect must be identical, or one-click works in some clients and not others.
-  test('POST behaves like GET', async ({ request }) => {
+  // RFC 8058 clients POST, and that single action is what actually unsubscribes — so an unusable token must
+  // fail the same way on both verbs.
+  test('POST rejects an unusable token the same way', async ({ request }) => {
     const response = await request.post(`${UNSUBSCRIBE_PATH}?${TRACKING_TOKEN_PARAM}=garbage`)
     expect(response.status()).toBe(400)
     expect(response.headers()['content-type']).toContain('text/html')

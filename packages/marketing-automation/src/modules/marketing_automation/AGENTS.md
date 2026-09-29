@@ -90,6 +90,20 @@ its own. Spec:
   record: forgetting an unsubscribe is how somebody gets mailed again.
 - Never check consent after a timing gate. Consent is permission and the others are scheduling, so a
   refused message is DROPPED, never deferred — deferring it only sends it later.
+- Never let a link in an email change anything on GET. SafeLinks, antivirus gateways, proxies and chat
+  unfurlers fetch every URL in a message, so a mutating GET lets them unsubscribe people and invent NPS
+  scores indistinguishably from the recipient. GET asks, POST acts — and RFC 8058 one-click still POSTs, so
+  the one-click promise is kept where it is actually made.
+- Never decide whether the author placed the unsubscribe link AFTER tracking has been applied. The rewriter
+  turns their link into a tracking URL, so the check finds nothing and appends a second way out. And never
+  track the unsubscribe URL itself: an unsubscribe counted as a click inflates every rate and lets the
+  variant that drove the most opt-outs win the A/B test.
+- Never divide a per-run numerator by a per-message denominator. Opens and clicks are counted as unique runs,
+  so the rates and the minimum-sample gate divide by people REACHED; per-message, a lane holding two emails
+  has every rate halved and loses to a one-email lane whatever it says.
+- Never let a truncation sentinel pass through a filter that removes rows. The membership resolver detects its
+  ceiling by asking for one candidate more than it will examine; one deleted customer among them used to eat
+  the sentinel, and five screens printed a truncated count as a total.
 - Never let the unsubscribe endpoint confirm something it did not do. A person who believes they
   unsubscribed and did not is worse off than one who sees an error.
 - Never put an identity in an unsubscribe link. It names the run; the endpoint resolves the customer.
