@@ -8,7 +8,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
 import { CustomerGroup, CustomerGroupMembership } from '../../../data/entities'
 import { emitCustomerGroupsEvent } from '../../../events'
-import { isCustomerInScope } from '../../../lib/customerScope'
+import { isCustomerInScope, listMembershipIdsInCustomerScope } from '../../../lib/customerScope'
 import { isMembershipValidAt } from '../../../services/customerGroupsService'
 import {
   customerGroupMembershipCreateSchema,
@@ -61,6 +61,8 @@ function scopeFromContext(ctx: CrudCtx): { tenantId: string; organizationId?: st
   const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
   return { tenantId, organizationId }
 }
+
+const NO_MATCH_MEMBERSHIP_ID = '00000000-0000-0000-0000-000000000000'
 
 const uuidSchema = z.string().uuid()
 
@@ -323,11 +325,23 @@ export const customerGroupMembershipCrud = makeCrudRoute<
       validFrom: 'valid_from',
       validUntil: 'valid_until',
     },
-    buildFilters: async (query) => {
+    buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
       if (query.customerId) filters.customer_id = { $eq: query.customerId }
       if (query.groupId) filters.group_id = { $eq: query.groupId }
+      // `beforeList` already verified a named customer; any other list must be
+      // narrowed to memberships whose customer is in the caller's organizations.
+      if (!query.customerId && Array.isArray(ctx.organizationIds)) {
+        const em = (ctx.container.resolve('em') as EntityManager).fork()
+        const { tenantId } = scopeFromContext(ctx)
+        const visibleIds = await listMembershipIdsInCustomerScope(
+          em,
+          { tenantId, organizationIds: ctx.organizationIds },
+          { groupId: query.groupId ?? null, membershipId: query.id ?? null },
+        )
+        filters.id = visibleIds.length > 0 ? { $in: visibleIds } : { $eq: NO_MATCH_MEMBERSHIP_ID }
+      }
       const activeOnly = parseBooleanToken(query.activeOnly)
       if (activeOnly === true) {
         const now = new Date()

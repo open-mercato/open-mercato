@@ -40,6 +40,39 @@ export async function isCustomerInScope(
   return Array.isArray(rows) && rows.length > 0
 }
 
+// Membership ids whose customer is visible in the caller's organization scope. Used
+// to narrow membership lists that do not name a customer (by group, by id, or
+// unfiltered) so an organization-restricted caller never sees memberships of
+// customers outside its organizations. Only call it for a restricted caller
+// (`organizationIds` is an array); an empty array yields no ids.
+export async function listMembershipIdsInCustomerScope(
+  em: EntityManager,
+  scope: CustomerScope & { organizationIds: string[] },
+  filters: { groupId?: string | null; membershipId?: string | null } = {},
+): Promise<string[]> {
+  if (scope.organizationIds.length === 0) return []
+  const params: string[] = [scope.tenantId, scope.tenantId]
+  let sql =
+    `select m.id from customer_group_memberships m ` +
+    `join ${CUSTOMER_TABLE} c on c.id = m.customer_id ` +
+    `where m.tenant_id = ? and m.deleted_at is null and c.tenant_id = ?`
+  sql += ` and c.organization_id in (${scope.organizationIds.map(() => '?').join(', ')})`
+  params.push(...scope.organizationIds)
+  if (filters.groupId) {
+    sql += ' and m.group_id = ?'
+    params.push(filters.groupId)
+  }
+  if (filters.membershipId) {
+    sql += ' and m.id = ?'
+    params.push(filters.membershipId)
+  }
+  const rows = await em.getConnection().execute(sql, params)
+  if (!Array.isArray(rows)) return []
+  return rows
+    .map((row) => (row && typeof row === 'object' ? (row as { id?: unknown }).id : null))
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+}
+
 // Hand-written routes resolve an `OrganizationScope` themselves; this derives the
 // `organizationIds` list exactly the way `makeCrudRoute` derives `ctx.organizationIds`
 // from the same scope, so the memberships CRUD and explain-terms enforce one rule.
