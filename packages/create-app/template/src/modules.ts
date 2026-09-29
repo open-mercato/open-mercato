@@ -22,12 +22,6 @@ export function applyProgrammaticComponentOverrides(): void {
   }
 }
 
-export const exampleModuleEntry: ModuleEntry = {
-  id: 'example',
-  from: '@app',
-  overrides: { calendar: exampleCalendarOverrides },
-}
-
 export type ModuleEntry = {
   id: string
   from?: '@open-mercato/core' | '@app' | string
