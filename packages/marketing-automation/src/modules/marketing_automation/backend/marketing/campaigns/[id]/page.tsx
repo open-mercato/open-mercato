@@ -467,7 +467,91 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
     setDirty(true)
   }, [])
 
+  /**
+   * How many people this is about to start messaging, asked at the moment somebody publishes.
+   *
+   * The audience estimate has existed since Phase 2 and lived behind a button in the audience panel, which is
+   * not where the decision is made — publishing is. "This will start the journey for 12,400 people" is the one
+   * fact an operator wants before that click, and it was two panels away from it.
+   *
+   * Counted in PEOPLE, with the number of sending steps beside it rather than multiplied into a message count:
+   * the gates decide how many messages each person actually gets, so a product of the two would be a confident
+   * number that is wrong in the direction that matters.
+   */
+  /**
+   * How many messages ONE person can receive from this journey.
+   *
+   * A step's channel comes from the palette, which is the server's own registry — so a channel added by another
+   * module counts without this screen knowing its name. Recursing into `readVariants` because a split lane's steps
+   * are steps, the rule every walk in this module obeys.
+   *
+   * A split takes the LARGEST lane rather than the sum: a subject walks one lane, so adding them together would
+   * report a number nobody can receive. That is the same per-person-versus-total confusion the A/B rates and the
+   * funnel both refuse, applied to the figure an operator reads just before publishing.
+   */
+  const countSendingSteps = React.useCallback((steps: CampaignStep[]): number => {
+    let total = 0
+    for (const step of steps) {
+      if (palette?.steps.find((item) => item.type === step.type)?.channel) total += 1
+      if (step.type === SPLIT_STEP_TYPE) {
+        const lanes = readVariants(step).map((variant) => countSendingSteps(variant.steps))
+        total += lanes.length > 0 ? Math.max(...lanes) : 0
+      }
+    }
+    return total
+  }, [palette])
+
+  const confirmPublish = async (): Promise<boolean> => {
+    let estimated: AudienceEstimate | null = null
+    try {
+      const response = await apiCallOrThrow<AudienceEstimate>(
+        `/api/marketing_automation/campaigns/${campaignId}/audience-estimate`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ audience: definition.audience }),
+          headers: { 'content-type': 'application/json' },
+        },
+      )
+      estimated = response.result ?? null
+    } catch {
+      // An estimate that cannot be produced must not block publishing: the dialog then asks without a number
+      // rather than refusing, because the author may know perfectly well what they are enabling.
+      estimated = null
+    }
+
+    const sendingSteps = countSendingSteps(definition.steps)
+    /**
+     * Which kind of campaign this is, because the same number means two different things.
+     *
+     * A scheduled campaign's next sweep starts the journey for everybody who matches; an event-triggered one
+     * messages nobody until the event happens, and the count is the pool that would qualify when it does.
+     */
+    const scheduled = triggers.some((trigger) => trigger.kind === 'schedule')
+    const people = estimated
+      ? (estimated.qualifier === 'exact'
+        ? String(estimated.count)
+        : t('marketing_automation.publish.atMost', 'at most {count}').replace('{count}', String(estimated.count)))
+      : t('marketing_automation.publish.unknownCount', 'an unknown number of')
+
+    return confirm({
+      title: t('marketing_automation.publish.title', 'Publish this campaign?'),
+      text: [
+        scheduled
+          ? t('marketing_automation.publish.scheduled', 'The next scheduled pass will start this journey for {people} people.')
+            .replace('{people}', people)
+          : t('marketing_automation.publish.event', 'Nobody is messaged until the trigger fires. {people} people currently match this audience.')
+            .replace('{people}', people),
+        sendingSteps > 0
+          ? t('marketing_automation.publish.steps', 'Each of them can receive up to {count} messages, subject to consent, quiet hours and the frequency cap.')
+            .replace('{count}', String(sendingSteps))
+          : t('marketing_automation.publish.noSendingSteps', 'This campaign has no sending step, so it will change data without messaging anybody.'),
+      ].join(' '),
+    })
+  }
+
   const toggleEnabled = async () => {
+    // Only on the way IN. Switching a campaign off needs no warning about volume; it is the safe direction.
+    if (!isEnabled && !(await confirmPublish())) return
     setSaving(true)
     try {
       const response = await withScopedApiRequestHeaders(

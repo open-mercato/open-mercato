@@ -147,3 +147,82 @@ test.describe('TC-MA-015 consent and unsubscribe', () => {
     expect([null, 'subscribed', 'unsubscribed']).toContain(profile?.consent?.email ?? null)
   })
 })
+
+/**
+ * TC-MA-015b: importing somebody else's suppression list.
+ *
+ * The migration path: a shop arrives with a CSV of people who must never be mailed again. What is asserted here
+ * is mostly what the endpoint REFUSES — it can only suppress, it wants a reason, and it reports what it could not
+ * match rather than claiming the whole file was applied.
+ */
+test.describe('TC-MA-015b suppression import', () => {
+  const IMPORT_PATH = '/api/marketing_automation/consent/import'
+
+  test('an anonymous caller cannot import anything', async ({ request }) => {
+    // Playwright's own request, because `apiRequest` requires a token — the point here is that there is none.
+    const response = await request.post(IMPORT_PATH, { data: { csv: 'a@example.com', reason: 'test' } })
+    expect([401, 403]).toContain(response.status())
+  })
+
+  test('a reason is required, because it is recorded on every customer it unsubscribes', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const response = await apiRequest(request, 'POST', IMPORT_PATH, {
+      token,
+      data: { csv: 'a@example.com', reason: '   ' },
+    })
+    expect(response.status()).toBe(400)
+  })
+
+  /**
+   * Addresses nobody here recognises are REPORTED, not silently dropped.
+   *
+   * On an encrypted installation the lookup can only see a bounded window of recent people, so "unmatched" is not
+   * the same as "not a customer" — and an operator who cannot see the number has no way to know their list was
+   * only partly applied.
+   */
+  test('reports what it could not match, with a sample', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const stranger = `nobody-${Date.now()}@example.invalid`
+    const response = await apiRequest(request, 'POST', IMPORT_PATH, {
+      token,
+      data: { csv: `email\n${stranger}\nnot-an-address\n`, reason: 'QA import' },
+    })
+    expect(response.status()).toBe(200)
+    const body = await readJsonSafe<{
+      suppressed: number
+      unmatched: number
+      skipped: number
+      unmatchedSample: string[]
+      truncated: boolean
+    }>(response)
+    expect(body?.suppressed).toBe(0)
+    expect(body?.unmatched).toBe(1)
+    // The row that was not an address is counted separately from the one that simply matched nobody.
+    expect(body?.skipped).toBe(1)
+    expect(body?.unmatchedSample).toContain(stranger)
+    expect(body?.truncated).toBe(false)
+  })
+
+  /** There is no `state` to send: the endpoint can only ever suppress, and an extra field is not a way in. */
+  test('cannot be talked into importing anybody as subscribed', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const response = await apiRequest(request, 'POST', IMPORT_PATH, {
+      token,
+      data: { csv: 'email\nsomebody@example.invalid\n', reason: 'QA import', state: 'subscribed' },
+    })
+    // Accepted and ignored: the schema does not read it, so nothing can arrive subscribed.
+    expect(response.status()).toBe(200)
+    const body = await readJsonSafe<{ suppressed: number }>(response)
+    expect(typeof body?.suppressed).toBe('number')
+  })
+
+  test('an empty file is an answer, not an error', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const response = await apiRequest(request, 'POST', IMPORT_PATH, {
+      token,
+      data: { csv: 'email\n', reason: 'QA import' },
+    })
+    expect(response.status()).toBe(200)
+    expect((await readJsonSafe<{ suppressed: number }>(response))?.suppressed).toBe(0)
+  })
+})

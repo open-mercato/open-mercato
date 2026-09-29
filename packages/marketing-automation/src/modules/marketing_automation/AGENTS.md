@@ -109,6 +109,15 @@ its own. Spec:
 - Never ship a structural guard without a positive control. The hook-order guard passed for weeks while missing
   `useT()` after an early return, `return null` guards, and any file holding two components — a regex that has
   stopped matching reports a clean module for ever, so the fixtures it MUST flag live beside it.
+- Never let a CSV import mark anybody as SUBSCRIBED. A file is not consent: nobody in it agreed to anything in
+  this system, and an import that could add people would manufacture the exact evidence a shop may one day have to
+  substantiate. Suppression needs no such evidence, which is why that direction is safe and the other is not.
+- Never let a suppression import treat "unmatched" as "not a customer". The address lookup can only see a bounded
+  window of recent people on an encrypted installation, so the count and a sample are REPORTED — an operator who
+  cannot see them has no way to know their list was only partly applied.
+- Never multiply an audience estimate by a step count to get a message volume. A subject walks ONE split lane, and
+  every gate can still drop a message, so the product is a confident number that is wrong in the direction that
+  matters. Report people, and the largest number of messages one person can receive, separately.
 - Never make erasure delete rows. It nulls the subject link — including inside the run context's jsonb —
   so the person is unidentifiable while last quarter's reported totals stay true. And never erase a consent
   record: forgetting an unsubscribe is how somebody gets mailed again.
@@ -369,6 +378,7 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | NPS asking, answering and the latest score | `lib/survey.ts`, `steps/nps-survey.ts`, `api/survey/` |
 | subject export and erasure, and what they keep | `lib/gdpr.ts` |
 | consent state, its trail, and the send gate | `lib/consent.ts`, `api/unsubscribe/` |
+| importing somebody else's suppression list | `lib/engine/csv-emails.ts`, `api/consent/import/` |
 | reusable HTML blocks and their substitution | `lib/content-blocks.ts`, `api/content-blocks/` |
 | recommendation ranking and its two signals | `lib/engine/recommendations.ts`, `lib/recommendations.ts` |
 | per-tenant settings, and the only screen that writes them | `api/settings/route.ts` |

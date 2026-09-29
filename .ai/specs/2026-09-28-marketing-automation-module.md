@@ -850,6 +850,12 @@ rather than worked around silently:
 
 ## Changelog
 
+- **2026-09-29** — the last two items on the list: a CSV suppression-list import (suppress-only by design —
+  a file is not consent — reporting what it could not match, because the encrypted address lookup sees only
+  a bounded window and "unmatched" is not "not a customer"), and the audience estimate shown at the moment
+  somebody presses Enable, phrased as people plus the largest number of messages ONE person can receive
+  rather than a product of the two. 1021 unit tests, 200 integration tests.
+
 - **2026-09-29** — the six review findings left below the cut, all fixed with tests that fail against the
   old code: GDPR erasure runs in one transaction (its report is the answer to a legal request, so it must
   describe committed state); the row sweep clears the identity map between pages like the two population
