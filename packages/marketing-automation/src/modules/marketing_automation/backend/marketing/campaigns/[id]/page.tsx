@@ -549,6 +549,36 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
    */
   const [draft, setDraft] = React.useState<{ subject: string; bodyHtml: string; bodyText: string } | null>(null)
   const [drafting, setDrafting] = React.useState(false)
+  const [rendered, setRendered] = React.useState<{ subject: string; html: string; personalised: boolean } | null>(null)
+  const [rendering, setRendering] = React.useState(false)
+
+  /**
+   * Shows the author their own message with the placeholders filled in.
+   *
+   * Until this existed the only way to see that was to test send it to yourself and go and look at your inbox —
+   * for the one thing an author most wants to check before publishing. It goes through the same `renderEmail` a
+   * real send uses, so what is shown is what would be delivered rather than a second rendering that could drift.
+   */
+  const requestRender = async (stepId: string) => {
+    setRendering(true)
+    try {
+      const response = await apiCallOrThrow<{ subject: string; html: string; personalised: boolean }>(
+        `/api/marketing_automation/campaigns/${campaignId}/render`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          // The same customer the journey preview is pointed at, when one is chosen.
+          // The same customer the journey preview is pointed at, when the author has named one.
+          body: JSON.stringify({ stepId, subjectEntityId: previewSubject.trim() || null }),
+        },
+      )
+      if (response.result) setRendered(response.result)
+    } catch {
+      flash(t('marketing_automation.render.failed', 'That message could not be rendered.'), 'error')
+    } finally {
+      setRendering(false)
+    }
+  }
   const [brief, setBrief] = React.useState('')
   /**
    * The campaign's saved versions, loaded on demand.
@@ -972,6 +1002,10 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                           <Button variant="outline" disabled={drafting} onClick={() => void requestDraft(selectedStep.id)}>
                             {drafting ? <Spinner /> : t('marketing_automation.ai.draft', 'Draft')}
                           </Button>
+                          {/* Seeing the finished message, without sending it to yourself first. */}
+                          <Button variant="outline" disabled={rendering} onClick={() => void requestRender(selectedStep.id)}>
+                            {rendering ? <Spinner /> : t('marketing_automation.render.preview', 'Preview')}
+                          </Button>
                           {draft ? (
                             <>
                               <Button
@@ -994,6 +1028,38 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                             </>
                           ) : null}
                         </div>
+                        {rendered ? (
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-xs font-medium text-foreground">{rendered.subject}</div>
+                              <Button variant="outline" size="sm" onClick={() => setRendered(null)}>
+                                {t('marketing_automation.render.close', 'Close')}
+                              </Button>
+                            </div>
+                            {rendered.personalised ? null : (
+                              <div className="text-xs text-muted-foreground">
+                                {t(
+                                  'marketing_automation.render.noSubject',
+                                  'No customer chosen, so the placeholders are empty — put an id in the journey preview field to fill them in.',
+                                )}
+                              </div>
+                            )}
+                            {/*
+                              A sandboxed iframe with no permissions at all.
+                              This is the author's own HTML with a customer's data interpolated into it, so it is
+                              shown as it will arrive rather than as text — but `sandbox=""` means no scripts, no
+                              forms and no same-origin access, so a body that contains something unexpected cannot
+                              reach this page. The rule this module has about never rendering a MODEL's markup is
+                              about trust in the author; this is the author's own copy, after a human wrote it.
+                            */}
+                            <iframe
+                              title={t('marketing_automation.render.preview', 'Preview')}
+                              sandbox=""
+                              className="h-64 w-full rounded-sm border border-border bg-background"
+                              srcDoc={rendered.html}
+                            />
+                          </div>
+                        ) : null}
                         {draft ? (
                           <div className="space-y-1">
                             <div className="text-xs font-medium text-foreground">{draft.subject}</div>

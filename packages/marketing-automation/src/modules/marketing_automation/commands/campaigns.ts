@@ -740,6 +740,22 @@ const deleteCampaignCommand: CommandHandler<{ id: string }, { id: string }> = {
 
     // Soft delete, and the resume path already refuses a removed campaign, so customers parked
     // inside it stop rather than continuing to receive messages from a deleted campaign.
+    /**
+     * The trigger rows go with it.
+     *
+     * The dispatcher already refuses a deleted campaign, so nothing ever ran — but the SUBSCRIBER's "is anybody
+     * listening" probe counts trigger rows, so every matching platform event kept enqueueing a dispatch job that
+     * then found nothing to do. A deleted campaign quietly taxed every order in the shop, forever, and showed up
+     * as dispatch work in the job log.
+     *
+     * Deleted rather than soft-deleted, because a trigger row has no life of its own: it exists to be found by
+     * that probe, and a restore replays the save which writes them again.
+     */
+    await em.nativeDelete(MarketingCampaignTrigger, {
+      campaignId: campaign.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
     campaign.deletedAt = new Date()
     campaign.isEnabled = false
     await em.flush()

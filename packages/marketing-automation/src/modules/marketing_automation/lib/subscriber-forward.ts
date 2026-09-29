@@ -55,13 +55,27 @@ export async function forwardEventToCampaigns(
 
   try {
     const em = ctx.resolve<EntityManager>('em')
-    const listening = await em.count(MarketingCampaignTrigger, {
-      kind: 'event',
-      eventId,
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-    })
-    if (listening === 0) return
+    /**
+     * Counted against LIVE campaigns, not against trigger rows alone.
+     *
+     * Two things had to be true for a deleted campaign to stop costing anything: the delete must remove its
+     * trigger rows, and this probe must not be fooled by one that survived — a disabled campaign's rows legitimately
+     * stay, and they must not enqueue work either. One join answers both, and it is still a single index probe on
+     * the hot path of every platform event.
+     */
+    const listening = await em.getConnection().execute<Array<{ listening: number }>>(
+      `select 1 as listening
+         from marketing_campaign_triggers t
+         join marketing_campaigns c on c.id = t.campaign_id
+        where t.kind = 'event'
+          and t.event_id = ?
+          and t.tenant_id = ? and t.organization_id = ?
+          and c.is_enabled = true
+          and c.deleted_at is null
+        limit 1`,
+      [eventId, scope.tenantId, scope.organizationId],
+    )
+    if (listening.length === 0) return
 
     await enqueueDispatch({
       eventId,
