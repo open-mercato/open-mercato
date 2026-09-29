@@ -3,7 +3,7 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { getEnabledModuleIds, hasEnabledModulesRegistry } from '@open-mercato/shared/security/enabledModulesRegistry'
 import type { CalendarEventTypeBehavior } from '@open-mercato/core/modules/customers/calendar-event-types'
-import { evaluateVisitAvailability, visitAvailabilityInputSchema } from './visitAvailability'
+import { evaluateVisitAvailability, resolveVisitService, visitAvailabilityInputSchema } from './visitAvailability'
 
 type Row = Record<string, unknown>
 
@@ -68,8 +68,8 @@ export function selectVisitSubjectsForSave(args: {
 }
 
 async function resolveVisitBehavior(context: CommandInterceptorContext, tenantId: string, organizationId: string): Promise<CalendarEventTypeBehavior | null> {
-  if (!context.container.hasRegistration('calendarEventTypeCatalogService')) throw new Error('visit_availability_catalog_unavailable')
-  const service = context.container.resolve<{ resolveBehavior: (input: { tenantId: string; organizationId: string; key: string }) => Promise<CalendarEventTypeBehavior | null> }>('calendarEventTypeCatalogService')
+  const service = resolveVisitService<{ resolveBehavior: (input: { tenantId: string; organizationId: string; key: string }) => Promise<CalendarEventTypeBehavior | null> }>(context.container, 'calendarEventTypeCatalogService')
+  if (!service) throw new Error('visit_availability_catalog_unavailable')
   return service.resolveBehavior({ tenantId, organizationId, key: 'visit' })
 }
 
@@ -94,9 +94,10 @@ async function beforeVisitWrite(rawInput: unknown, context: CommandInterceptorCo
   if (!tenantId || !organizationId) return blocked('example.calendar.visitAvailability.missingScope', 403)
   let existing: Row = {}
   if (context.commandId === 'customers.interactions.update') {
-    if (typeof input.id !== 'string' || !context.container.hasRegistration('queryEngine')) return blocked('example.calendar.visitAvailability.retry', 503)
+    if (typeof input.id !== 'string') return blocked('example.calendar.visitAvailability.retry', 503)
     try {
-      const engine = context.container.resolve<QueryEngine>('queryEngine')
+      const engine = resolveVisitService<QueryEngine>(context.container, 'queryEngine')
+      if (!engine) return blocked('example.calendar.visitAvailability.retry', 503)
       const result = await engine.query<Row>('customers:customer_interaction', {
         tenantId, organizationId, filters: { id: input.id },
         fields: ['id', 'interaction_type', 'scheduled_at', 'duration_minutes', 'participants', 'linked_entities', 'all_day', 'recurrence_rule', 'updated_at'],

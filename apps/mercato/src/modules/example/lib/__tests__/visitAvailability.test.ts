@@ -32,6 +32,7 @@ const visitBehavior: CalendarEventTypeBehavior = {
 function setup(overrides: {
   inactive?: boolean; noRules?: boolean; denied?: boolean; gap?: boolean; nonUtc?: boolean; invalidZone?: boolean
   behavior?: CalendarEventTypeBehavior
+  existingType?: string
   existingParticipants?: unknown[]
   existingLinks?: unknown[]
 } = {}) {
@@ -42,7 +43,7 @@ function setup(overrides: {
     if (entity === 'resources:resources_resource') return { items: [{ id: RESOURCE_ID, is_active: true }], total: 1 }
     if (entity === 'planner:planner_availability_rule_set') return { items: [{ id: RULE_ID }], total: 1 }
     if (entity === 'planner:planner_availability_rule') return { items: overrides.noRules ? [] : [{ id: RULE_ID, rrule: 'DTSTART:20261005T090000Z\nRRULE:FREQ=WEEKLY\nDURATION:PT2H', kind: 'availability', timezone: overrides.invalidZone ? 'Mars/Olympus' : overrides.nonUtc ? 'Europe/Warsaw' : 'UTC' }], total: overrides.noRules ? 0 : 1 }
-    if (entity === 'customers:customer_interaction') return { items: [{ id: RULE_ID, interaction_type: 'visit', scheduled_at: input.startAt, duration_minutes: 60, participants: overrides.existingParticipants ?? [{ userId: USER_ID }], linked_entities: overrides.existingLinks ?? [], updated_at: '2026-09-29T12:00:00.000Z' }], total: 1 }
+    if (entity === 'customers:customer_interaction') return { items: [{ id: RULE_ID, interaction_type: overrides.existingType ?? 'visit', scheduled_at: input.startAt, duration_minutes: 60, participants: overrides.existingParticipants ?? [{ userId: USER_ID }], linked_entities: overrides.existingLinks ?? [], updated_at: '2026-09-29T12:00:00.000Z' }], total: 1 }
     throw new Error('unexpected entity')
   })
   const planner = { getMergedAvailabilityWindows: jest.fn(() => overrides.gap ? [] : [{ start: new Date('2026-10-05T09:00:00.000Z'), end: new Date('2026-10-05T11:00:00.000Z') }]) }
@@ -64,6 +65,17 @@ describe('Visit availability', () => {
     expect(query).toHaveBeenCalledWith('staff:staff_team_member', expect.objectContaining({ filters: { user_id: { $in: [USER_ID] }, is_active: true } }))
     expect(query).toHaveBeenCalledWith('planner:planner_availability_rule', expect.objectContaining({ filters: { $or: expect.arrayContaining([{ subject_type: 'member', subject_id: MEMBER_ID }, { subject_type: 'ruleset', subject_id: RULE_ID }]) } }))
     expect(planner.getMergedAvailabilityWindows).toHaveBeenCalledWith(expect.objectContaining({ range: { start: new Date(input.startAt), end: new Date(input.endAt) } }))
+  })
+
+  it('accepts a resolver-only worker container for a non-visit update', async () => {
+    const { container, query } = setup({ existingType: 'task' })
+    const interceptor = visitAvailabilityInterceptors.find((item) => item.targetCommand === 'customers.interactions.update')!
+    const result = await interceptor.beforeExecute!({ id: RULE_ID, title: 'Synced task' }, {
+      commandId: 'customers.interactions.update', auth: { sub: USER_ID, tenantId: scope.tenantId } as never,
+      selectedOrganizationId: scope.organizationId, container: { resolve: container.resolve } as never,
+    })
+    expect(result).toMatchObject({ ok: true })
+    expect(query).toHaveBeenCalledWith('customers:customer_interaction', expect.anything())
   })
 
   it('fails closed for uncovered intervals and missing rules', async () => {

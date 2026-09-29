@@ -27,6 +27,14 @@ type Window = { start: Date; end: Date }
 type PlannerService = { getMergedAvailabilityWindows: (input: { rules: Array<{ id?: string; rrule: string; timezone?: string; exdates?: string[]; kind?: 'availability' | 'unavailability' }>; range: Window }) => Window[] }
 type Rbac = { userHasAllFeatures: (userId: string, features: string[], scope: { tenantId: string; organizationId: string }) => Promise<boolean> }
 
+export function resolveVisitService<T>(container: Pick<AwilixContainer, 'resolve'>, name: string): T | null {
+  try {
+    return container.resolve<T>(name) ?? null
+  } catch {
+    return null
+  }
+}
+
 function value(row: Row, camel: string, snake: string): unknown {
   return row[camel] ?? row[snake]
 }
@@ -75,9 +83,9 @@ export async function evaluateVisitAvailability(args: {
     ...input.resourceIds.map((id): VisitAvailabilitySubject => ({ type: 'resource', id, status: 'unknown', reasonKey: 'example.calendar.visitAvailability.unknown' })),
   ]
   if (!subjects.length) return subjects
-  const queryEngine = container.hasRegistration('queryEngine') ? container.resolve<QueryEngine>('queryEngine') : null
-  const planner = container.hasRegistration('plannerAvailabilityService') ? container.resolve<PlannerService>('plannerAvailabilityService') : null
-  const rbac = container.hasRegistration('rbacService') ? container.resolve<Rbac>('rbacService') : null
+  const queryEngine = resolveVisitService<QueryEngine>(container, 'queryEngine')
+  const planner = resolveVisitService<PlannerService>(container, 'plannerAvailabilityService')
+  const rbac = resolveVisitService<Rbac>(container, 'rbacService')
   if (!queryEngine || !planner || !rbac) return subjects
 
   const start = new Date(input.startAt)
