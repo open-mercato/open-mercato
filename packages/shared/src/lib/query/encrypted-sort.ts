@@ -20,7 +20,14 @@ export function fieldNameCandidates(field: string): string[] {
   const raw = String(field || '').trim()
   if (!raw) return []
   const candidates = [raw, toSnakeCase(raw), toCamelCase(raw)]
-  if (raw.startsWith('cf:')) candidates.push(raw.replace(/[^a-zA-Z0-9_]/g, '_'))
+  if (raw.startsWith('cf:')) {
+    const sanitized = raw.replace(/[^a-zA-Z0-9_]/g, '_')
+    // The ORM query engine's plaintext-sort candidate scan projects a `cf:`
+    // sort key only under its dedicated `<alias>__sort` projection alias, never
+    // the plain jsonb-aggregate alias — so the in-memory sort needs that exact
+    // name to find the value on the phase-1 candidate rows (#5674 review).
+    candidates.push(sanitized, `${sanitized}__sort`)
+  }
   return Array.from(new Set(candidates))
 }
 

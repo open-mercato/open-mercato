@@ -24,6 +24,33 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### `loadDictionary` now lets a host app's own locale file override a module-defined translation key (#5995)
+
+`loadDictionary` (`@open-mercato/shared/lib/i18n/server`) used to merge the host app's dictionary
+(`apps/<host>/src/i18n/<locale>.json`) first and then layer every registered module's dictionary
+on top, so a module-defined key always won over the host's own value for the same key — with no
+error or warning. A host that added, say, `"customers.columnGroups.crm"` to its own locale file
+would see it silently overwritten by `packages/core/src/modules/customers/i18n/<locale>.json`.
+
+The merge order is now reversed: module dictionaries are layered first (registration order,
+unchanged relative precedence between modules), and the host app dictionary is applied last, so it
+is always the final word. `apps/<host>/src/i18n/<locale>.json` is now the supported way to
+override any translation key a module defines.
+
+**Action for module/app authors:** if your app's locale file happens to define a key that
+collides with a module-defined key, your app's value now wins where the module's used to. Audit
+your own locale files for accidental collisions with module dictionaries if you rely on a
+module's translation for a key your app also happens to define.
+
+As part of this change, `apps/mercato/src/i18n/*.json` (and the mirrored `create-app` template)
+had 90 stale, drifted duplicate keys removed — mostly `inbox_ops.*` copies left over from before
+that module owned its own translations, plus a handful of `common.*`/`catalog.*` keys. Those
+duplicates had already diverged from the module's current wording in at least one locale; leaving
+them in place would have flipped several translated strings to outdated text the moment this
+precedence change landed. If you maintain a fork with its own `apps/<host>/src/i18n/*.json`, audit
+it the same way before upgrading: a key that duplicates a module key with a different value now
+silently wins, for better or for worse.
+
 ### `customers` now requires `progress` to be enabled (#6302)
 
 `customers`'s deal bulk-update workers and lib (`lib/bulkDeals.ts`,
@@ -80,6 +107,42 @@ reference pattern (the scaffolded app template calls `encryptEntityPayload` and 
 propagate). If you hit `WRONG_KEY` in production, see "Key mismatch fails the write" in
 [`apps/docs/docs/architecture/data-encryption.mdx`](apps/docs/docs/architecture/data-encryption.mdx)
 for how to resolve an affected row.
+
+### The company create form publishes `crud-form:customers.company`, and bridges the entity-derived spot (#5875)
+
+`packages/core/src/modules/customers/backend/customers/companies/create/page.tsx` rendered its
+`CrudForm` without an `injectionSpotId`. `CrudForm` therefore fell back to deriving the injection
+host from the first entry of `entityIds`, which on that page is `E.customers.customer_entity`, so
+the create form published `crud-form:customers.customer_entity` (and its
+`crud-form:customers.customer_entity:fields` child). The company **edit** surface passes the
+module's declared host explicitly, so the two surfaces of the same logical form addressed
+different spots and a widget registered against the declared company host reached editing but
+never creation. The create page now passes `injectionSpotId={extensionPoints.hosts.companyForm.spotId}`,
+so both surfaces publish `crud-form:customers.company` and its `:fields` child.
+
+**This is an additive change — no action required for existing widgets.** Rather than remove
+`crud-form:customers.customer_entity` (§6, FROZEN) as a live surface on this page, the page also
+passes `legacyInjectionSpotId={crudFormExtensionSpotId('customers.customer_entity')}` — the same
+`CrudForm` bridge prop #6017 introduced for the sales quick-create dialogs, which dual-publishes a
+prior spot id's header, body, and field widgets alongside the primary one. Any widget still
+targeting `crud-form:customers.customer_entity` or its `:fields` child keeps rendering here,
+unchanged.
+
+No other frozen surface is touched: `entityIds` still drives custom-field resolution and the
+component-replacement handle, `CrudForm`'s fallback spot resolution is unchanged for every other
+host, the context shape published at the surviving spots is unchanged, and no prop, API route,
+event or database column changes.
+
+**Deprecation window.** `legacyInjectionSpotId` on this page is intended to be removed after at
+least one minor version, in step with the same bridge on the #6017 sales dialogs. Until then, no
+action is required from module authors targeting either the legacy id or the declared host.
+
+**Action for module authors — none required to keep current behavior.** Widgets already
+registered against `crud-form:customers.company` need no change and now additionally render during
+company creation — including the `customer_accounts` portal-users group, which finds no `recordId`
+in create mode and renders its empty state. The bridge also keeps the shipped `example` module's
+`example.injection.customer-priority-field` field widget rendering on this page exactly as before,
+via the dual-published `:fields` child.
 
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
@@ -148,6 +211,82 @@ opts in first.
 resolution, pass `currencyCode` in your `PricingContext` and audit any `CatalogProductPrice` rows
 that only differ by currency for the product/variant you resolve most often — those are the rows
 whose resolution outcome can change.
+
+### `SEND_EMAIL` activity forwards an optional `signal` to `emailService.send` (no action required)
+
+The `SEND_EMAIL` activity handler now passes a `signal?: AbortSignal` field inside the object it sends to `emailService.send()`. Implementations that ignore unknown fields are unaffected. Implementations that wish to cancel an in-flight send on activity timeout may read the field:
+
+```ts
+// your email service adapter — honoring signal is optional
+async send(input: { to: string; subject: string; signal?: AbortSignal; … }) {
+  const result = await someMailClient.deliver(input, { signal: input.signal })
+  return result
+}
+```
+
+If your adapter serializes the payload for a message queue, strip `signal` before enqueuing to avoid a non-serializable field in the job data.
+
+### `EXECUTE_FUNCTION` passes an optional `AbortSignal` as its third argument (no action required)
+
+Registered workflow functions (`workflowFunction:<name>` in DI) now receive `(args, context, signal?: AbortSignal)` instead of `(args, context)`. Existing two-argument functions are unaffected — the third parameter is additive. Functions that want to cancel cooperative work on activity timeout can read it:
+
+```ts
+container.register('workflowFunction:myFn', asValue(
+  async (args, _ctx, signal?: AbortSignal) => {
+    return await someSlowOperation(args, { signal })
+  }
+))
+```
+
+### `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS` opt-in now ANDs per word (#5803, tracked by #5383)
+
+`OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS`, introduced as an opt-in carve-out in #4622, still
+**defaults to `false`** — #5383 tracks making `search_tokens` tokenization semantically equivalent
+to ILIKE before this can default on with confidence, and that plan is unchanged. **No action is
+required for a default installation.**
+
+For a deployment that already sets it to `true`, or opts in now: a multi-word term is applied as
+**one containment predicate per word, ANDed**, instead of one verbatim literal —
+`?search=Warehouse 12` now becomes `name ILIKE '%Warehouse%' AND name ILIKE '%12%'` rather than
+`name ILIKE '%Warehouse 12%'`. That is deliberate: the token subquery this switch replaces matched a
+value carrying every token in any order with anything between them, so a single literal predicate
+would stop matching `Warehouse A 12`. Per-word ANDing preserves that word-order independence —
+`smith john` still matches a `John Smith` value — while applying the declared predicate on a
+plaintext column exactly, closing the #5803 defect for anyone who opts in: `?search=2026-08` no
+longer answers with a `2026-01` row, and `?search=08` filters instead of matching every row.
+Columns the tenant encryption map reports as encrypted keep the token path either way, because
+ILIKE against ciphertext cannot match.
+
+**What to check if you already opt in.** One capability narrows: with `OM_SEARCH_ENABLE_PARTIALS`
+on, the token index also matched prefixes, so `?search=warehou` could match `Warehouse` through
+expanded tokens even where the fragment was not a contiguous substring of the stored value.
+Containment matches only real substrings. Fuzzy, typo-tolerant search belongs on `SearchService`
+(`/api/search`, `/api/search/global`), which is unaffected by this change.
+
+A second capability widens: multi-word terms such as document numbers containing a space now also
+match values holding the words non-contiguously or in another order — `?search=ZK 1/2026` also
+matches `ZK 11/2026` and `1/2026 ZK`, where the previous single-literal ILIKE matched neither. This
+is the same word-order independence the `Warehouse 12` example above relies on; it is a trade-off,
+not a strict improvement, over the single-literal behavior this switch previously had.
+
+Encrypted-column search is unchanged in both settings, and no schema, route, or response shape moved.
+
+### `AssignableStaffMember.teamMemberId` is now `string | null` (staff-absent fallback)
+
+When the optional `staff` module is absent, assignable-owner rosters resolve via
+`GET /api/auth/users`. Auth user ids are **not** staff team-member ids — passing them to a staff
+API would produce a wrong lookup.
+
+**Type change:** `AssignableStaffMember.teamMemberId` is now `string | null` (`null` on the auth-users
+fallback path). Downstream code that assumed a non-null team-member id must branch on `null` or use
+`userId` for owner assignment (owner fields store auth user ids).
+
+**Import path:** prefer `@open-mercato/core/modules/customers/lib/assignableStaff`. The
+`components/detail/assignableStaff` re-export is deprecated and will be removed in 0.7.0.
+
+**Existing tenants:** default CRM roles now include `auth.users.list` so owner pickers work without
+the `staff` module. Run `yarn mercato auth sync-role-acls` (or your app's equivalent) so existing
+admin/employee roles pick up the grant.
 
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 
@@ -396,6 +535,17 @@ Nothing changes at runtime beyond the tag name — no prop was added, removed, o
 - The forwarded ref type changes from `HTMLParagraphElement` to `HTMLDivElement`.
 
 **Action for module authors:** if you hold a ref to `AlertDescription` as `useRef<HTMLParagraphElement>(null)`, or annotate one of its event handlers with `React.*Event<HTMLParagraphElement>`, change the element type to `HTMLDivElement`. Nothing else is affected: the component is used by composition in 97 files across this repository and not one of them passes a ref, so the practical migration surface is very small. There is no runtime bridge to stage because the element type is the entire changed surface — a mismatched annotation is a compile error in your own package, never a silent behavior change. Callers that previously worked around the restriction by rendering block `<span>`s inside the description (for example the record-locks settings page shipped in #5481) keep working unchanged and may be simplified back to real paragraphs at leisure.
+
+### A saved DataTable view stores one entry per column, and a pre-existing view may hide one column once (#5117)
+
+`PerspectiveSettings.columnVisibility` — what a saved `DataTable` view persists through `/api/perspectives/*` — used to be a **sparse** map: it carried only the columns the user had explicitly toggled. TanStack Table treats a missing key as *visible*, so a view saved before a column existed described nothing about that column, and a module's declared `meta.hidden` default (which the CRM lists derive from a custom field's `listVisible: false`) was skipped for anyone who had a saved view at all. `DataTable` now serializes an explicit boolean for every leaf column it can see, unioned with any decision the stored view holds for a column that has not registered yet.
+
+The type is unchanged — the schema has always been `z.record(z.string(), z.boolean()).optional()` — so a dense map validates and round-trips through existing storage without migration, and nothing about the API surface moves. Two consequences are worth knowing about:
+
+- **Stored payloads grow.** A view's `columnVisibility` goes from a handful of keys to one per column. It is a flat boolean map, so the increase is small in absolute terms, but a downstream consumer that assumed "the keys present are the columns the user hid" must now read the value rather than the key's presence. `true` still means visible and is still treated as equivalent to an absent key everywhere in the platform's own comparisons.
+- **One column may hide once, on the first load after upgrading.** A view saved under the old sparse format that un-hid a column declaring `meta.hidden` carries no `true` for it — the old format simply could not express "shown on purpose", because the column chooser *deletes* an entry when a column is turned back on. That map is genuinely ambiguous, and the platform now resolves the ambiguity in favour of the module's declared default, so the column is hidden once. Re-showing it and saving the view records the explicit `true` and it sticks from then on.
+
+**Action for module authors:** none for normal use. Only code that reads or writes `PerspectiveSettings.columnVisibility` directly — a module seeding a role perspective, or a migration that rewrites stored views — should switch from testing key presence to testing the boolean value, and may seed dense maps to avoid the one-time wrinkle above for its own views.
 
 ### Device API responses are camelCase; the snake_case keys are deprecated aliases (#5513)
 
