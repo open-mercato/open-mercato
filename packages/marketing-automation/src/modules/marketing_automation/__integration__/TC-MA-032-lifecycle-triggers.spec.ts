@@ -134,6 +134,36 @@ test.describe('TC-MA-032 lifecycle triggers', () => {
     }
   })
 
+  /**
+   * Zero notice is a real answer, and it used to be unsaveable.
+   *
+   * The birthday source's own default is "on the day itself", which the save validator refused because it
+   * required a positive number — so an author could ask for today AND tomorrow, but not for today.
+   */
+  test('a schedule can ask for no notice at all', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const name = `Birthday on the day ${Date.now()}`
+    const campaignId = await createCampaign(request, token, name)
+    try {
+      const created = await getCampaign(request, token, campaignId)
+      const saved = await saveGraph(request, token, campaignId, {
+        updatedAt: created.updatedAt,
+        name,
+        definition: { version: 1, audience: null, steps: [] },
+        triggers: [{
+          kind: 'schedule',
+          scheduleValue: '1d',
+          sweepSource: 'birthdays',
+          sweepParams: { withinDays: 0 },
+          reentryAfterDays: null,
+        }],
+      })
+      expect(saved.ok(), await saved.text()).toBe(true)
+    } finally {
+      await deleteCampaignIfExists(request, token, campaignId)
+    }
+  })
+
   test('a made-up event id is still refused', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const name = `Bogus trigger ${Date.now()}`

@@ -17,7 +17,24 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
+
+type TemplateOption = {
+  id: string
+  labelKey: string
+  descriptionKey: string
+  requiresKey: string
+  stepCount: number
+  triggerCount: number
+  document: unknown
+}
 
 type CampaignRow = {
   id: string
@@ -98,6 +115,76 @@ export default function CampaignsListPage() {
     }
   }
 
+  /**
+   * Starting from a template, and from a file.
+   *
+   * Both go through the same import endpoint, which is what guarantees a template cannot produce a campaign an
+   * import could not — and both arrive DISABLED, so the author reads before anybody is messaged.
+   */
+  const [templates, setTemplates] = React.useState<TemplateOption[] | null>(null)
+  const [importing, setImporting] = React.useState(false)
+  const fileInput = React.useRef<HTMLInputElement | null>(null)
+
+  React.useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const result = await apiCall<{ items?: TemplateOption[] }>('/api/marketing_automation/templates')
+        if (cancelled) return
+        setTemplates(result.ok && Array.isArray(result.result?.items) ? result.result.items : [])
+      } catch {
+        // A missing template list is not worth an error on the campaign list: the New campaign button still works.
+        if (!cancelled) setTemplates([])
+      }
+    })()
+    return () => { cancelled = true }
+  }, [scopeVersion])
+
+  const importDocument = async (document: unknown, successKey: string, fallback: string) => {
+    setImporting(true)
+    try {
+      const response = await apiCallOrThrow<{ id?: string; warnings?: Array<{ stepId: string; param: string }> }>(
+        '/api/marketing_automation/campaigns/import',
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(document) },
+      )
+      const warnings = response.result?.warnings ?? []
+      if (warnings.length > 0) {
+        /**
+         * Said out loud rather than left to be discovered.
+         *
+         * A step carrying a tag id from another installation points at a row that does not exist here. The
+         * campaign is imported anyway and left disabled, because "pick a tag" is a five-second fix and a
+         * silently dropped parameter is a step that looks configured and does nothing.
+         */
+        flash(
+          t('marketing_automation.import.warnings', 'Imported, but {count} step settings point at another installation and need picking again.')
+            .replace('{count}', String(warnings.length)),
+          'warning',
+        )
+      } else {
+        flash(t(successKey, fallback), 'success')
+      }
+      const id = response.result?.id
+      if (id) router.push(`/backend/marketing/campaigns/${id}`)
+    } catch {
+      flash(t('marketing_automation.import.failed', 'That document could not be imported.'), 'error')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const importFromFile = async (file: File) => {
+    let document: unknown
+    try {
+      document = JSON.parse(await file.text())
+    } catch {
+      // Refused before it reaches the server, so a mistyped file says something an author understands.
+      flash(t('marketing_automation.import.notJson', 'That file is not a campaign export.'), 'error')
+      return
+    }
+    await importDocument(document, 'marketing_automation.import.done', 'Campaign imported, and left disabled.')
+  }
+
   const deleteCampaign = async (row: CampaignRow) => {
     const confirmed = await confirm({
       text: t('marketing_automation.confirm.delete', 'Delete this campaign? Customers currently waiting in it will stop.'),
@@ -158,7 +245,51 @@ export default function CampaignsListPage() {
   return (
     <Page>
       <PageBody>
-        <div className="mb-3 flex justify-end">
+        <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+          {/* A template is the difference between an installed module and a used one: an empty canvas asks the
+              author what a good campaign looks like, while a welcome sequence asks whether they agree with it. */}
+          {(templates ?? []).length > 0 ? (
+            <Select
+              value=""
+              disabled={importing}
+              onValueChange={(id) => {
+                const template = (templates ?? []).find((entry) => entry.id === id)
+                if (template) {
+                  void importDocument(
+                    template.document,
+                    'marketing_automation.template.created',
+                    'Campaign created from a template, and left disabled.',
+                  )
+                }
+              }}
+            >
+              <SelectTrigger className="w-64">
+                <SelectValue placeholder={t('marketing_automation.action.fromTemplate', 'Start from a template…')} />
+              </SelectTrigger>
+              <SelectContent>
+                {(templates ?? []).map((template) => (
+                  <SelectItem key={template.id} value={template.id}>
+                    {t(template.labelKey, template.id)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
+          <input
+            ref={fileInput}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              // Cleared so choosing the same file twice still fires a change.
+              event.target.value = ''
+              if (file) void importFromFile(file)
+            }}
+          />
+          <Button variant="outline" disabled={importing} onClick={() => fileInput.current?.click()}>
+            {t('marketing_automation.action.import', 'Import')}
+          </Button>
           <Button onClick={() => void createCampaign()}>
             {t('marketing_automation.action.create', 'New campaign')}
           </Button>

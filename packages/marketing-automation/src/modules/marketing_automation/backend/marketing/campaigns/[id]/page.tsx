@@ -677,6 +677,20 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
           >
             {t('marketing_automation.action.autoArrange', 'Auto-arrange')}
           </Button>
+          {/*
+            A plain link rather than a fetch-and-blob dance: the endpoint already answers with a
+            content-disposition, so the browser does the saving and there is no object URL to leak or revoke.
+            Disabled while dirty, because exporting the SAVED campaign while the screen shows something else
+            would hand somebody a file that does not match what they are looking at.
+          */}
+          <Button variant="outline" asChild disabled={dirty}>
+            <a
+              href={dirty ? undefined : `/api/marketing_automation/campaigns/${campaignId}/export`}
+              title={dirty ? t('marketing_automation.canvas.unsavedChanges', 'Unsaved changes') : undefined}
+            >
+              {t('marketing_automation.action.export', 'Export')}
+            </a>
+          </Button>
           <Button onClick={save} disabled={saving || !dirty}>
             {saving ? <Spinner /> : t('marketing_automation.action.save', 'Save')}
           </Button>

@@ -69,7 +69,16 @@ export const campaignTriggerSchema = z.discriminatedUnion('kind', [
     reentryAfterDays: z.number().int().positive().nullable().default(null),
     /** What the sweep iterates over; the ids come from the source registry, not a second list. */
     sweepSource: z.enum(SWEEP_SOURCE_IDS).default('customers'),
-    sweepParams: z.object({ withinDays: z.number().int().positive().optional() }).default({}),
+    /**
+     * `withinDays` is a NOTICE PERIOD, and zero is a meaningful one.
+     *
+     * `positive()` refused it, which made the birthday source's own default — "on the day itself" — impossible
+     * to save: an author could only ask for today AND tomorrow. Zero reads the same way for every source that
+     * takes it (a quote expiring today, an order delivered today), so the floor is zero and the meaning is
+     * unchanged everywhere else. The reorder source is the one where the number is a PERCENTAGE of the cycle
+     * rather than a count of days, and its label says so.
+     */
+    sweepParams: z.object({ withinDays: z.number().int().min(0).optional() }).default({}),
   }),
 ])
 
