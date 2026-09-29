@@ -9,6 +9,16 @@ import { reconcileCostRingSchema, type ReconcileCostRingInput } from '../data/va
 import { findUnreclassifiedEntries } from '../lib/findUnreclassifiedEntries'
 import { reclassifyLine, selectLinesNeedingReclassification, type ReclassifyCandidate } from '../lib/reclassify'
 
+// MikroORM's `'date'`-typed columns (see `ledger.JournalEntry.operationDate`,
+// `@Property({ type: 'date' })`) come back from a fresh `em.findOne` read as a
+// driver-formatted string ("YYYY-MM-DD"), not a `Date` instance, despite the
+// entity's own TS annotation claiming `Date` -- the same caveat `ledger`'s own
+// `api/journal-entries/route.ts` already documents and guards against with an
+// identical `formatDateOnly` helper. Format defensively here too, rather than
+// assuming `.toISOString()` exists.
+const formatOperationDate = (value: Date | string): string =>
+  value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10)
+
 export type ReconcileCostRingResult = {
   entriesInspected: number
   linesReclassified: number
@@ -65,7 +75,7 @@ const reconcileCostRingCommand: CommandHandler<ReconcileCostRingInput, Reconcile
         const candidate: ReclassifyCandidate = {
           entry: {
             id: entry.id,
-            operationDate: entry.operationDate.toISOString().slice(0, 10),
+            operationDate: formatOperationDate(entry.operationDate),
             currencyId: entry.currencyId,
             type: entry.type,
             referenceType: entry.referenceType ?? null,

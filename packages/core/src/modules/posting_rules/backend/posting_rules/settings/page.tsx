@@ -8,7 +8,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { loadLedgerAccountOptions } from '../lib/optionLoaders'
+import { loadLedgerAccountOptions } from '../../lib/optionLoaders'
 
 type PostingRulesSettingsData = {
   settingsId: string

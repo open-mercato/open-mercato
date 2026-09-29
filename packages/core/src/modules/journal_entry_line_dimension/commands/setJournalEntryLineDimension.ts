@@ -31,23 +31,30 @@ type SetDimensionUndoPayload = {
 }
 
 /**
- * Resolves the acting scope from the runtime context rather than the input —
- * `setJournalEntryLineDimensionSchema` (per the spec's own quoted schema)
- * carries no `tenantId`/`organizationId` fields, since this command is only
- * ever called in-process by a trusted hard-dependency consumer
- * (`posting_rules`, later `fixed_assets`), never through an HTTP route. The
- * consumer's own `commandBus.execute(...)` call already carries its caller's
- * real auth/tenant context, so there is no separate "target org" a caller
- * could smuggle in through the input — deriving scope from `ctx` is exactly
- * as safe as validating an input-supplied id against `ctx` would be, with one
- * fewer place for the two to silently disagree.
+ * Resolves the acting scope from the runtime context, falling back to an
+ * explicit `input.tenantId`/`input.organizationId` only when `ctx.auth`
+ * carries none — this command is only ever called in-process by a trusted
+ * hard-dependency consumer (`posting_rules`, later `fixed_assets`), never
+ * through an HTTP route, so there is no end-user-facing "target org" a
+ * caller could smuggle in through the input.
  *
- * Honors the SELECTED organization (`ctx.selectedOrganizationId`), not just
- * `ctx.auth.orgId` — see `financial-command-implementation-checklist` item 3.
+ * The pure ctx-only version of this (no input fallback) turned out to be
+ * unreachable from a real `systemActor` caller: `posting_rules`' own
+ * `reclassify.ts` engine calls this command through a `ctx.auth: null`
+ * context (it "posts on nobody's behalf"), which left `ctx.auth?.tenantId`
+ * always `null` and made every real call 404 with "tenant/organization scope
+ * required" (`ctx.selectedOrganizationId` already has an equivalent
+ * fallback for the organization half — see
+ * `financial-command-implementation-checklist` item 3 — but nothing
+ * analogous existed for tenantId). `warranty_claims`' own systemActor
+ * subscriber call (`auto-vendor-recovery.ts` -> `create_vendor_recovery`)
+ * already establishes the precedent this follows: a trusted in-process
+ * caller passes its own already-resolved scope as an explicit input field
+ * rather than relying on an absent `ctx.auth`.
  */
-function resolveScope(ctx: CommandRuntimeContext): Scope {
-  const tenantId = ctx.auth?.tenantId ?? null
-  const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+function resolveScope(ctx: CommandRuntimeContext, input: { tenantId?: string; organizationId?: string }): Scope {
+  const tenantId = ctx.auth?.tenantId ?? input.tenantId ?? null
+  const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? input.organizationId ?? null
   if (!tenantId || !organizationId) {
     throw notFound('journal_entry_line_dimension: tenant/organization scope required')
   }
@@ -136,7 +143,7 @@ const setJournalEntryLineDimensionCommand: CommandHandler<SetJournalEntryLineDim
 
   async prepare(rawInput, ctx) {
     const parsed = setJournalEntryLineDimensionSchema.parse(rawInput)
-    const scope = resolveScope(ctx)
+    const scope = resolveScope(ctx, parsed)
     const em = ctx.container.resolve('em') as EntityManager
     const before = await loadDimensionIds(em, parsed.journalEntryLineId, parsed.dimensionType, scope)
     return { before }
@@ -144,7 +151,7 @@ const setJournalEntryLineDimensionCommand: CommandHandler<SetJournalEntryLineDim
 
   async execute(rawInput, ctx) {
     const parsed = setJournalEntryLineDimensionSchema.parse(rawInput)
-    const scope = resolveScope(ctx)
+    const scope = resolveScope(ctx, parsed)
     ensureTenantScope(ctx, scope.tenantId)
     ensureOrganizationScope(ctx, scope.organizationId)
 
@@ -168,9 +175,9 @@ const setJournalEntryLineDimensionCommand: CommandHandler<SetJournalEntryLineDim
     }
   },
 
-  buildLog: async ({ result, snapshots, ctx }) => {
+  buildLog: async ({ input, result, snapshots, ctx }) => {
     const { translate } = await resolveTranslations()
-    const scope = resolveScope(ctx)
+    const scope = resolveScope(ctx, input)
     const before = (snapshots.before as string[] | undefined) ?? []
     return {
       actionLabel: translate('journal_entry_line_dimension.audit.set', 'Set journal entry line dimension'),

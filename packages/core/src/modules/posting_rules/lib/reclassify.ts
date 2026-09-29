@@ -191,6 +191,7 @@ async function loadCostCenterTagsForLine(
 async function tagCostCenter(
   ctx: CommandRuntimeContext,
   container: AwilixContainer,
+  scope: Scope,
   journalEntryLineId: string,
   costCenterId: string,
 ): Promise<void> {
@@ -199,6 +200,16 @@ async function tagCostCenter(
     journalEntryLineId,
     dimensionType: 'CostCenter',
     dimensionIds: [costCenterId],
+    // `resolveScope`'s ctx-only lookup is unreachable from this engine's own
+    // `systemActor` context (`ctx.auth: null` below -- see
+    // `buildCommandRuntimeContext`'s own doc comment): `ctx.auth?.tenantId`
+    // is always null there, with no fallback field on `CommandRuntimeContext`
+    // analogous to `selectedOrganizationId`. Passing the already-resolved
+    // scope explicitly matches the working precedent `warranty_claims`'
+    // `auto-vendor-recovery.ts` -> `create_vendor_recovery` already
+    // establishes for the same systemActor shape.
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
   }
   await commandBus.execute<SetJournalEntryLineDimensionInput, unknown>(
     'journal_entry_line_dimension.setJournalEntryLineDimension',
@@ -463,7 +474,7 @@ export async function reclassifyLine(
 
     const debitLine = result.lines.find((line) => line.accountId === targetAccountId) ?? result.lines[0]
     const ctx = buildCommandRuntimeContext(container, scope)
-    await tagCostCenter(ctx, container, debitLine.id, costCenterId)
+    await tagCostCenter(ctx, container, scope, debitLine.id, costCenterId)
 
     return { reclassified: true, journalEntryId: result.journalEntryId }
   }
@@ -508,7 +519,7 @@ export async function reclassifyLine(
   // found by accountId, not by debit/credit side.
   const targetLine = result.lines.find((line) => line.accountId === original.debitAccountId) ?? result.lines[0]
   const ctx = buildCommandRuntimeContext(container, scope)
-  await tagCostCenter(ctx, container, targetLine.id, costCenterId)
+  await tagCostCenter(ctx, container, scope, targetLine.id, costCenterId)
 
   return { reclassified: true, journalEntryId: result.journalEntryId }
 }

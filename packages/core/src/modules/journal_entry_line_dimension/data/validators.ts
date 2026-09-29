@@ -28,6 +28,17 @@ export const setJournalEntryLineDimensionSchema = z
     journalEntryLineId: z.string().uuid(),
     dimensionType: z.enum(DIMENSION_TYPES),
     dimensionIds: z.array(z.string().min(1)).min(1),
+    // Optional scope override for trusted, in-process systemActor callers
+    // (`ctx.auth: null`, e.g. `posting_rules`' `reclassify.ts` engine, which
+    // "posts on nobody's behalf") -- `resolveScope` in the command below
+    // only falls back to these when `ctx.auth` carries no tenantId, matching
+    // the same trusted-caller shape `warranty_claims`' own
+    // `create_vendor_recovery`/`VendorRecoveryInput.tenantId` already relies
+    // on for its own systemActor subscriber call
+    // (`auto-vendor-recovery.ts`). A real end-user HTTP request always
+    // carries `ctx.auth`, so these fields are never consulted for one.
+    tenantId: z.string().uuid().optional(),
+    organizationId: z.string().uuid().optional(),
   })
   .refine((v) => new Set(v.dimensionIds).size === v.dimensionIds.length, {
     message: 'dimensionIds must not contain duplicates',

@@ -36,7 +36,20 @@ export async function findUnreclassifiedEntries(
   const entryFilter: Record<string, unknown> = {
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
-    referenceType: { $ne: RECLASSIFICATION_REFERENCE_TYPE },
+    // `$ne` only becomes a null-safe `is not` when the *compared value*
+    // is null (see @mikro-orm/sql QueryBuilderHelper's getOperatorReplacement) --
+    // here the value is the reclassification marker string, so it compiles
+    // to a plain SQL `<>`, which is UNKNOWN (excluded) for rows where
+    // `reference_type IS NULL`. A perfectly ordinary journal entry with no
+    // external reference legitimately has `referenceType: null` (see
+    // `ledger/data/validators.ts`'s postJournalEntry schema), so the naive
+    // `$ne` would silently skip every such entry. This explicit `$or`
+    // keeps null-referenceType entries in scope while still excluding
+    // actual reclassification entries.
+    $or: [
+      { referenceType: null },
+      { referenceType: { $ne: RECLASSIFICATION_REFERENCE_TYPE } },
+    ],
   }
 
   if (periodId) {
