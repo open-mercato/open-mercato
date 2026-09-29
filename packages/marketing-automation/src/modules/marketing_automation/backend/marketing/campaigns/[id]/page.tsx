@@ -1353,11 +1353,44 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
                     {t('marketing_automation.sendPolicy.title', 'Send rules')}
                   </div>
 
+                  {/*
+                    * The author's own hour, above the learned one because it outranks it.
+                    *
+                    * A decision beats a guess, so when this is set the learned hour is not consulted at all —
+                    * said on the screen rather than left for somebody to deduce from two settings that appear
+                    * to be additive.
+                    */}
+                  <CheckboxField
+                    id="policy-send-hour-on"
+                    label={t('marketing_automation.sendPolicy.sendHour', 'Send at a fixed hour, in the recipient\'s local time')}
+                    description={t('marketing_automation.sendPolicy.sendHourHint', 'A message that comes due later than this waits for the hour to come round again, so it suits scheduled campaigns rather than reactions to something a customer just did. Quiet hours still apply, and an hour inside them is refused when you save.')}
+                    checked={definition.sendPolicy?.sendHour != null}
+                    onCheckedChange={(next) => updateSendPolicy({ sendHour: next === true ? 9 : null })}
+                  />
+                  {definition.sendPolicy?.sendHour != null ? (
+                    <div className="w-24 space-y-1 pl-6">
+                      <Label htmlFor="policy-send-hour">
+                        {t('marketing_automation.sendPolicy.sendHourLabel', 'Hour (0–23)')}
+                      </Label>
+                      <Input
+                        id="policy-send-hour"
+                        type="number"
+                        min={0}
+                        max={23}
+                        value={definition.sendPolicy.sendHour}
+                        onChange={(event) => updateSendPolicy({ sendHour: clampHour(event.target.value, 9) })}
+                      />
+                    </div>
+                  ) : null}
+
                   <CheckboxField
                     id="policy-optimize"
                     label={t('marketing_automation.sendPolicy.optimizeSendTime', 'Send at the hour each customer usually opens email')}
-                    description={t('marketing_automation.sendPolicy.optimizeSendTimeHint', 'Needs a few opens from that customer first; until then the message goes out immediately.')}
+                    description={definition.sendPolicy?.sendHour != null
+                      ? t('marketing_automation.sendPolicy.optimizeSendTimeOverridden', 'Ignored while a fixed hour is set above: a decision outranks a guess about the same question.')
+                      : t('marketing_automation.sendPolicy.optimizeSendTimeHint', 'Needs a few opens from that customer first; until then the message goes out immediately.')}
                     checked={definition.sendPolicy?.optimizeSendTime === true}
+                    disabled={definition.sendPolicy?.sendHour != null}
                     onCheckedChange={(next) => updateSendPolicy({ optimizeSendTime: next === true })}
                   />
 

@@ -78,6 +78,14 @@ its own. Spec:
   only when the value is ABSENT, so a default silently switches the lock off. Pass `undefined`.
 - Never persist or return third-party error text from a step that handles an address. Redact it at the
   step (`lib/redact.ts`), log the original, and re-throw the redacted form.
+- Never let the learned send hour compete with an authored one. `sendPolicy.sendHour` is a decision and the
+  learned hour is a guess about the same question, so when an hour is authored the learned one is not consulted at
+  all — and the editor says so instead of showing two settings that look additive.
+- Never push an authored send hour out of quiet hours; discard it, exactly as the learned hour is discarded. A
+  recurring proposal that is pushed parks the run until the window ends and then proposes the same forbidden hour
+  tomorrow, for ever, and `applyTransition` resets the attempt counter on every wait so no retry budget catches
+  it. The save rules refuse the combination; the runtime discard is the net under it, because quiet hours can be
+  edited afterwards.
 - Never let send-time optimisation override quiet hours. The optimisation proposes, quiet hours dispose;
   the other order lands an "optimised" send at 3am.
 - Never learn a send hour from fewer than `MINIMUM_OPENS_FOR_PATTERN` opens, and never group open hours

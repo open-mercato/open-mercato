@@ -71,6 +71,7 @@ export async function POST(req: Request) {
     frequencyCap: definition.sendPolicy?.frequencyCap ?? null,
     quietHours: definition.sendPolicy?.quietHours ?? null,
     optimizeSendTime: definition.sendPolicy?.optimizeSendTime ?? false,
+    sendHour: definition.sendPolicy?.sendHour ?? null,
   }
 
   const tierThresholds = await loadTierThresholds(container, scope)

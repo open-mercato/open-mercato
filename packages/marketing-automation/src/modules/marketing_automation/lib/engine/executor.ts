@@ -23,6 +23,13 @@ export type SendPolicy = {
    * requested.
    */
   optimizeSendTime?: boolean
+  /**
+   * The hour the author chose, in the recipient's local time, or null for "as soon as it comes due".
+   *
+   * Outranks `optimizeSendTime`: an author who wrote nine o'clock has made a decision, and the learned hour is a
+   * guess about the same question. Both are still subordinate to quiet hours.
+   */
+  sendHour?: number | null
   frequencyCap: FrequencyCap | null
   quietHours: QuietHoursWindow | null
 }
@@ -194,7 +201,21 @@ export async function executeRun<TDeps>(
        * dispose — never the reverse, which could land an "optimised" send at 3am.
        */
       let sendAt = now
-      if (policy.optimizeSendTime) {
+      /**
+       * The author's hour first, and if they set one the learned hour is not consulted at all.
+       *
+       * Two mechanisms proposing an hour for the same message could only be resolved by picking one, so it is
+       * picked here and stated: a decision outranks a guess. Discarded rather than pushed when quiet hours
+       * forbid it, for exactly the reason the learned hour is — pushing a recurring proposal past a quiet
+       * window parks the run until the window ends and then proposes the same forbidden hour tomorrow, forever.
+       * The save rules refuse that combination anyway; this is the net under it, because quiet hours can be
+       * edited after the fact.
+       */
+      const authoredHour = policy.sendHour ?? null
+      if (authoredHour !== null) {
+        const proposed = nextOccurrenceOfHour(authoredHour, timeZone, sendAt)
+        if (!isWithinQuietHours(policy.quietHours, timeZone, proposed)) sendAt = proposed
+      } else if (policy.optimizeSendTime) {
         const preferredHour = await effects.resolvePreferredSendHour(run.subjectEntityId)
         if (preferredHour !== null) {
           const proposed = nextOccurrenceOfHour(preferredHour, timeZone, sendAt)

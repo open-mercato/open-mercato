@@ -22,7 +22,7 @@ import type { EngineLogger, SubjectDocument } from './types.js'
  */
 
 export type GateVerdict = {
-  /** `audience` | `consent` | `pause` | `preferenceCap` | `quietHours` | `frequencyCap`. */
+  /** `audience` | `consent` | `pause` | `preferenceCap` | `sendHour` | `quietHours` | `frequencyCap`. */
   gate: string
   /** `pass` — this gate is happy. `drop` — it refuses the message outright. `defer` — later, not never. */
   outcome: 'pass' | 'drop' | 'defer'
@@ -100,6 +100,24 @@ export function explainDelivery(input: ExplainInput): Explanation {
   })
 
   const zone = usableTimeZone(facts.timeZone)
+
+  /**
+   * The author's chosen hour, reported BEFORE quiet hours because that is the order the executor applies them
+   * in: the hour proposes, quiet hours dispose.
+   *
+   * "It is waiting for nine o'clock" is one of the commonest answers to "why has this not gone out", and without
+   * this row the explanation would show six passing gates and no reason. Passes when no hour is authored and when
+   * the recipient is already in it — `nextOccurrenceOfHour` sends immediately inside the target hour rather than
+   * waiting for the top of it.
+   */
+  const authoredHour = policy.sendHour ?? null
+  const localHour = localHourIn(zone, now)
+  record('sendHour', authoredHour === null || localHour === authoredHour ? 'pass' : 'defer', {
+    hour: authoredHour,
+    localHour,
+    timeZone: zone,
+  })
+
   const quiet = isWithinQuietHours(policy.quietHours, zone, now)
   record('quietHours', quiet ? 'defer' : 'pass', {
     localHour: localHourIn(zone, now),

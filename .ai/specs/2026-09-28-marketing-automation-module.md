@@ -850,6 +850,14 @@ rather than worked around silently:
 
 ## Changelog
 
+- **2026-09-29** — an author can say "send at nine, local time" (`sendPolicy.sendHour`). It outranks the
+  learned hour — a decision beats a guess about the same question, so the learned one is not consulted at
+  all and the editor says so — and is still subordinate to quiet hours. An hour inside the campaign's own
+  quiet window is refused at SAVE time, because at runtime it would simply be discarded and the campaign
+  would quietly do something other than what its screen says; the runtime discard remains as the net,
+  since quiet hours can be edited later. The delivery explainer gained a `sendHour` gate, so "it is
+  waiting for nine o'clock" is an answer it can give. 991 unit tests, 195 integration tests.
+
 - **2026-09-29** — a per-STEP funnel, aggregated from the `step_log` every run already carries, so a
   six-step journey can finally say where people stop. Read in authored order, never sorted by volume; a
   step inside a split lane is measured against the SPLIT rather than the trunk (otherwise the lane weights

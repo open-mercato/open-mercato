@@ -307,7 +307,9 @@ test.describe('TC-MA-002 save graph', () => {
       expect(response.ok(), await response.text()).toBe(true)
 
       const saved = await getCampaign(request, token, campaignId)
-      expect((saved.definition as { sendPolicy?: unknown }).sendPolicy).toEqual(sendPolicy)
+      // `sendHour` defaults to null — no fixed hour — and is asserted rather than ignored, because the whole
+      // point of this test is that the stored policy is exactly what the engine will read back.
+      expect((saved.definition as { sendPolicy?: unknown }).sendPolicy).toEqual({ ...sendPolicy, sendHour: null })
     } finally {
       await deleteCampaignIfExists(request, token, campaignId)
     }

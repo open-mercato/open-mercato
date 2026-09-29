@@ -42,6 +42,35 @@ export const campaignSendPolicySchema = z.object({
   quietHours: quietHoursSchema.nullable().default(null),
   /** Defer a send to the hour this customer usually opens email. Off unless asked for. */
   optimizeSendTime: z.boolean().default(false),
+  /**
+   * The hour the AUTHOR chose, in the recipient's own local time. Null means "as soon as it comes due".
+   *
+   * Distinct from `optimizeSendTime`, which learns an hour per customer: this one is a decision, and a decision
+   * outranks a guess. When both are set the authored hour applies and the learned one is ignored.
+   */
+  sendHour: z.number().int().min(0).max(23).nullable().default(null),
+}).superRefine((policy, ctx) => {
+  /**
+   * An authored hour inside the campaign's OWN quiet window is refused at save time.
+   *
+   * At runtime quiet hours dispose and the hour would simply be discarded, so the campaign would work — and do
+   * something other than what its own screen says, forever, with nothing to notice. At author time it is always
+   * a mistake, and the writer refusing it is the only moment anybody finds out.
+   */
+  if (policy.sendHour === null || !policy.quietHours) return
+  const { startHour, endHour } = policy.quietHours
+  const hour = policy.sendHour
+  const inside = startHour === endHour
+    ? true
+    : startHour < endHour
+      ? hour >= startHour && hour < endHour
+      : hour >= startHour || hour < endHour
+  if (!inside) return
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ['sendHour'],
+    message: 'marketing_automation.validation.sendHourInQuietHours',
+  })
 })
 
 export const campaignDefinitionSchema = z.object({

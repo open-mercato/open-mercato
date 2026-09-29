@@ -70,6 +70,7 @@ function readSendPolicy(definition: CampaignDefinition): SendPolicy {
     frequencyCap: definition.sendPolicy?.frequencyCap ?? null,
     quietHours: definition.sendPolicy?.quietHours ?? null,
     optimizeSendTime: definition.sendPolicy?.optimizeSendTime === true,
+    sendHour: definition.sendPolicy?.sendHour ?? null,
   }
 }
 

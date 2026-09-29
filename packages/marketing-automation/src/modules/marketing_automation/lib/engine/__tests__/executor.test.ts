@@ -268,6 +268,68 @@ describe('executeRun — send-time optimisation', () => {
     expect(handler.execute).not.toHaveBeenCalled()
   })
 
+  /**
+   * The author's hour, and the rule that it outranks the learned one.
+   *
+   * Two mechanisms proposing an hour for the same message can only be resolved by picking one. A decision beats a
+   * guess, so the learned hour must not even be consulted — asserted on the mock, because a version that read
+   * both and happened to agree would pass a test that only checked the resulting time.
+   */
+  test('an authored hour is used, and the learned hour is not even consulted', async () => {
+    const handler = emailHandler()
+    const preferred = jest.fn().mockResolvedValue(8)
+    const effects = makeEffects([handler], { now: morning, resolvePreferredSendHour: preferred })
+    const transition = await executeRun(
+      run(),
+      [step('s1', 'send_email')],
+      { frequencyCap: null, quietHours: null, optimizeSendTime: true, sendHour: 19 },
+      deps,
+      effects,
+    )
+    expect(transition.kind).toBe('waiting')
+    if (transition.kind !== 'waiting') return
+    expect(transition.reason).toBe('send_time')
+    expect(preferred).not.toHaveBeenCalled()
+    expect(handler.execute).not.toHaveBeenCalled()
+  })
+
+  test('sends now when the authored hour has arrived', async () => {
+    const handler = emailHandler()
+    const effects = makeEffects([handler], { now: morning })
+    const transition = await executeRun(
+      run(),
+      [step('s1', 'send_email')],
+      { frequencyCap: null, quietHours: null, sendHour: 8 },
+      deps,
+      effects,
+    )
+    expect(transition.kind).toBe('completed')
+    expect(handler.execute).toHaveBeenCalledTimes(1)
+  })
+
+  /**
+   * An authored hour quiet hours forbid is DISCARDED, exactly like a learned one.
+   *
+   * Pushing it instead is an infinite loop: the proposal recurs every day, so the run parks until the window
+   * ends, then proposes the same forbidden hour tomorrow, and `applyTransition` resets the attempt counter on
+   * every wait so no retry budget ever catches it. The save rules refuse this combination; quiet hours can be
+   * edited afterwards, which is why the net is here too.
+   */
+  test('an authored hour inside quiet hours is discarded rather than pushed', async () => {
+    const handler = emailHandler()
+    const effects = makeEffects([handler], { now: morning })
+    const transition = await executeRun(
+      run(),
+      [step('s1', 'send_email')],
+      { frequencyCap: null, quietHours: { startHour: 22, endHour: 8 }, sendHour: 3 },
+      deps,
+      effects,
+    )
+    // 08:30 local is outside the window, so discarding the 03:00 proposal means it goes now.
+    expect(transition.kind).toBe('completed')
+    expect(handler.execute).toHaveBeenCalledTimes(1)
+  })
+
   test('sends now when the preferred hour has arrived', async () => {
     const handler = emailHandler()
     const effects = makeEffects([handler], {

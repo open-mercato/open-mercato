@@ -66,7 +66,7 @@ test.describe('TC-MA-037 explaining delivery', () => {
        * first is the answer somebody should go and fix.
        */
       expect((body?.gates ?? []).map((gate) => gate.gate)).toEqual([
-        'audience', 'consent', 'pause', 'preferenceCap', 'quietHours', 'frequencyCap',
+        'audience', 'consent', 'pause', 'preferenceCap', 'sendHour', 'quietHours', 'frequencyCap',
       ])
     } finally {
       await deleteCampaignIfExists(request, token, campaignId)

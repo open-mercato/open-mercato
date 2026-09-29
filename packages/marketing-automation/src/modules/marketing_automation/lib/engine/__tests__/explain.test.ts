@@ -120,8 +120,38 @@ describe('explainDelivery', () => {
   test('every gate is reported, so a screen can show the whole chain', () => {
     const answer = explain()
     expect(answer.gates.map((gate) => gate.gate)).toEqual([
-      'audience', 'consent', 'pause', 'preferenceCap', 'quietHours', 'frequencyCap',
+      'audience', 'consent', 'pause', 'preferenceCap', 'sendHour', 'quietHours', 'frequencyCap',
     ])
+  })
+
+  /**
+   * The authored hour is reported BEFORE quiet hours, because that is the order the executor applies them in:
+   * the hour proposes, quiet hours dispose. A screen that showed them the other way round would suggest a fix
+   * that cannot work.
+   */
+  test('an authored send hour defers, and passes once the recipient is in it', () => {
+    const waiting = explain({
+      policy: { sendHour: 9, quietHours: null, frequencyCap: null },
+      facts: facts({ timeZone: 'UTC' }),
+      now: new Date('2026-03-02T14:00:00Z'),
+    })
+    const gate = waiting.gates.find((entry) => entry.gate === 'sendHour')
+    expect(gate).toMatchObject({ outcome: 'defer', detail: { hour: 9, localHour: 14 } })
+    expect(waiting.wouldSend).toBe(false)
+    expect(waiting.decidedBy).toBe('sendHour')
+
+    // Inside the hour it passes: the engine sends immediately rather than waiting for the top of it.
+    const inside = explain({
+      policy: { sendHour: 9, quietHours: null, frequencyCap: null },
+      facts: facts({ timeZone: 'UTC' }),
+      now: new Date('2026-03-02T09:45:00Z'),
+    })
+    expect(inside.gates.find((entry) => entry.gate === 'sendHour')?.outcome).toBe('pass')
+  })
+
+  test('no authored hour is a passing gate, not a missing one', () => {
+    const gate = explain().gates.find((entry) => entry.gate === 'sendHour')
+    expect(gate).toMatchObject({ outcome: 'pass', detail: { hour: null } })
   })
 
   test('the detail carries what somebody would need to fix it', () => {

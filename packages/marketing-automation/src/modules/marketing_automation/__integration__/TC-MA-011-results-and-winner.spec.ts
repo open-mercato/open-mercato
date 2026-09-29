@@ -100,6 +100,50 @@ test.describe('TC-MA-011 results and winner promotion', () => {
     }
   })
 
+  /**
+   * The authored send hour, and the one combination the writer refuses.
+   *
+   * An hour inside the campaign's own quiet window would simply be discarded at runtime, so the campaign would
+   * work and do something other than what its screen says — for ever, with nothing to notice. Save time is the
+   * only moment anybody finds out, which makes this a save-rule test rather than an engine one.
+   */
+  test('a fixed send hour saves, and one inside the campaign\'s own quiet hours is refused', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    let campaignId: string | null = null
+    try {
+      campaignId = await createCampaign(request, token, `QA send hour ${Date.now()}`)
+      const campaign = await getCampaign(request, token, campaignId)
+      const graph = (sendHour: number) => ({
+        updatedAt: campaign.updatedAt,
+        name: campaign.name,
+        triggers: [{ kind: 'event', eventId: 'sales.order.created' }],
+        definition: {
+          version: 1,
+          audience: null,
+          steps: [email('s1', 'morning')],
+          sendPolicy: { frequencyCap: null, quietHours: { startHour: 21, endHour: 8 }, optimizeSendTime: false, sendHour },
+        },
+      })
+
+      // 03:00 is inside 21→08, so the message could never go out at it.
+      const refused = await apiRequest(request, 'PUT', `${CAMPAIGNS_PATH}/${campaignId}/save-graph`, {
+        token,
+        data: graph(3),
+      })
+      expect(refused.status()).toBe(400)
+
+      const accepted = await apiRequest(request, 'PUT', `${CAMPAIGNS_PATH}/${campaignId}/save-graph`, {
+        token,
+        data: graph(9),
+      })
+      expect(accepted.status()).toBe(200)
+      const saved = await getCampaign(request, token, campaignId)
+      expect((saved.definition as { sendPolicy?: { sendHour?: number } })?.sendPolicy?.sendHour).toBe(9)
+    } finally {
+      await deleteCampaignIfExists(request, token, campaignId)
+    }
+  })
+
   test('the attribution window is bounded rather than trusted', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     let campaignId: string | null = null
