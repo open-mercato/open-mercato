@@ -5,7 +5,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 }))
 
 import * as React from 'react'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { LookupSelect } from '../LookupSelect'
 
 function getInput(container: HTMLElement): HTMLInputElement {
@@ -305,6 +305,151 @@ describe('LookupSelect selected value display', () => {
   it('renders nothing selected when there is no value', () => {
     render(<LookupSelect value={null} onChange={() => {}} fetchItems={async () => []} />)
     expect(screen.queryByTestId('lookup-select-selected')).not.toBeInTheDocument()
+  })
+})
+
+// A set `value` opens the list and fires a browse fetch with an empty query. Its
+// result used to replace the items outright, so an edit form hydrated with
+// `value={storedId}` + `options={[storedOption]}` lost the stored selection from
+// the list whenever the record fell outside that arbitrary first page — the form
+// still held the id, but nothing on screen was marked as chosen.
+describe('LookupSelect keeps the selection across browse fetches', () => {
+  const STORED = { id: 'contractor-99', title: 'Stored Contractor' }
+  const FIRST_PAGE = [
+    { id: 'contractor-1', title: 'Alpha' },
+    { id: 'contractor-2', title: 'Beta' },
+  ]
+
+  it('keeps a hydrated selection that is missing from the first page', async () => {
+    const fetchItems = jest.fn(async () => FIRST_PAGE)
+    render(
+      <LookupSelect
+        value={STORED.id}
+        onChange={() => {}}
+        options={[STORED]}
+        fetchItems={fetchItems}
+      />,
+    )
+
+    await screen.findByText('Alpha')
+    expect(fetchItems).toHaveBeenCalledWith('')
+    expect(screen.getByRole('option', { selected: true })).toHaveTextContent(STORED.title)
+    expect(screen.getAllByRole('option')).toHaveLength(3)
+  })
+
+  it('uses the fetched copy and adds no duplicate when the page contains the selection', async () => {
+    const fetchItems = jest.fn(async () => [
+      ...FIRST_PAGE,
+      { id: STORED.id, title: 'Stored Contractor (renamed)' },
+    ])
+    render(
+      <LookupSelect
+        value={STORED.id}
+        onChange={() => {}}
+        options={[STORED]}
+        fetchItems={fetchItems}
+      />,
+    )
+
+    await screen.findByText('Alpha')
+    expect(screen.getAllByRole('option')).toHaveLength(3)
+    expect(screen.getByRole('option', { selected: true })).toHaveTextContent('Stored Contractor (renamed)')
+  })
+
+  it('does not inject the selection into the results of a typed search', async () => {
+    const fetchItems = jest.fn(async (query: string) => (query ? [FIRST_PAGE[0]] : FIRST_PAGE))
+    const { container } = render(
+      <LookupSelect
+        value={STORED.id}
+        onChange={() => {}}
+        options={[STORED]}
+        fetchItems={fetchItems}
+      />,
+    )
+    await screen.findByText('Beta')
+
+    fireEvent.change(getInput(container), { target: { value: 'Alp' } })
+    await waitFor(() => expect(screen.queryByText('Beta')).toBeNull())
+
+    expect(screen.getAllByRole('option')).toHaveLength(1)
+    expect(screen.getByRole('option')).toHaveTextContent('Alpha')
+  })
+
+  it('restores the selection once the typed query is cleared again', async () => {
+    const fetchItems = jest.fn(async (query: string) => (query ? [FIRST_PAGE[0]] : FIRST_PAGE))
+    const { container } = render(
+      <LookupSelect
+        value={STORED.id}
+        onChange={() => {}}
+        options={[STORED]}
+        fetchItems={fetchItems}
+      />,
+    )
+    const input = getInput(container)
+    await screen.findByText('Beta')
+
+    fireEvent.change(input, { target: { value: 'Alp' } })
+    await waitFor(() => expect(screen.queryByText('Beta')).toBeNull())
+    fireEvent.change(input, { target: { value: '' } })
+
+    await screen.findByText('Beta')
+    expect(screen.getByRole('option', { selected: true })).toHaveTextContent(STORED.title)
+  })
+
+  it('keeps a selection picked from a search when the list goes back to browsing', async () => {
+    const fetchItems = jest.fn(async (query: string) => (query ? [STORED] : FIRST_PAGE))
+    function Harness() {
+      const [value, setValue] = React.useState<string | null>(null)
+      return <LookupSelect value={value} onChange={setValue} fetchItems={fetchItems} />
+    }
+    const { container } = render(<Harness />)
+    const input = getInput(container)
+
+    fireEvent.change(input, { target: { value: 'Stored' } })
+    fireEvent.click(await screen.findByRole('option'))
+    fireEvent.change(input, { target: { value: '' } })
+
+    await screen.findByText('Alpha')
+    expect(screen.getByRole('option', { selected: true })).toHaveTextContent(STORED.title)
+  })
+
+  it('never re-adds a previous selection after the value moves on', async () => {
+    const fetchItems = jest.fn(async (query: string) => (query ? [FIRST_PAGE[0]] : FIRST_PAGE))
+    const view = render(
+      <LookupSelect
+        value={STORED.id}
+        onChange={() => {}}
+        options={[STORED]}
+        fetchItems={fetchItems}
+      />,
+    )
+    await screen.findByText('Beta')
+
+    view.rerender(
+      <LookupSelect
+        value="contractor-unknown"
+        onChange={() => {}}
+        options={[STORED]}
+        fetchItems={fetchItems}
+      />,
+    )
+    const input = getInput(view.container)
+    fireEvent.change(input, { target: { value: 'Alp' } })
+    await waitFor(() => expect(screen.queryByText('Beta')).toBeNull())
+    fireEvent.change(input, { target: { value: '' } })
+
+    await screen.findByText('Beta')
+    expect(screen.queryByText(STORED.title)).toBeNull()
+    expect(screen.queryByRole('option', { selected: true })).toBeNull()
+  })
+
+  it('leaves the browse results untouched when nothing is selected', async () => {
+    render(
+      <LookupSelect value={null} onChange={() => {}} fetchItems={async () => FIRST_PAGE} minQuery={0} />,
+    )
+
+    expect(await screen.findAllByRole('option')).toHaveLength(2)
+    expect(screen.queryByRole('option', { selected: true })).toBeNull()
   })
 })
 
