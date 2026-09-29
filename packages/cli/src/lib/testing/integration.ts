@@ -2182,6 +2182,11 @@ function buildReusableEnvironment(
     OM_TEST_MODE: '1',
     OM_TEST_EMAIL_CAPTURE_PATH: process.env.OM_TEST_EMAIL_CAPTURE_PATH ?? EPHEMERAL_EMAIL_CAPTURE_PATH,
     OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
+    // Browser RUM is an environment-wide env switch, so without a per-request opt-in a spec
+    // could only cover the enabled path by booting the OTel web SDK on every page of every
+    // other spec. Same shape as the auth rate-limit escape hatch above: inert unless a request
+    // also carries the `om_test_browser_telemetry=on` cookie, which only TC-TELEMETRY-002 sets.
+    OM_TEST_BROWSER_TELEMETRY_MODE: 'opt-in',
     OM_DISABLE_EMAIL_DELIVERY: '0',
     OM_ENABLE_TEST_CHANNEL_SEEDING: 'true',
     OM_ENABLE_TEST_EMAIL_CAPTURE_DELIVERY: 'true',
@@ -3571,6 +3576,11 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       OM_TEST_MODE: '1',
       OM_TEST_EMAIL_CAPTURE_PATH: process.env.OM_TEST_EMAIL_CAPTURE_PATH ?? EPHEMERAL_EMAIL_CAPTURE_PATH,
       OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
+      // Browser RUM is an environment-wide env switch, so without a per-request opt-in a spec
+      // could only cover the enabled path by booting the OTel web SDK on every page of every
+      // other spec. Same shape as the auth rate-limit escape hatch above: inert unless a request
+      // also carries the `om_test_browser_telemetry=on` cookie, which only TC-TELEMETRY-002 sets.
+      OM_TEST_BROWSER_TELEMETRY_MODE: 'opt-in',
       OM_ENABLE_TEST_CHANNEL_SEEDING: 'true',
       OM_ENABLE_TEST_EMAIL_CAPTURE_DELIVERY: 'true',
       OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH: EPHEMERAL_SYSTEM_EMAIL_CAPTURE_PATH,

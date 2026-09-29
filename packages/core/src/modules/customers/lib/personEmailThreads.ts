@@ -1,7 +1,9 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerInteraction } from '../data/entities'
+import { resolveUserNames } from './userNames'
 import { buildEmailVisibilityMikroFilter } from './visibilityFilter'
+import type { ConversationShareGrant } from './conversationShares'
 
 /**
  * Read model that turns a Person's email `CustomerInteraction` rows into
@@ -30,6 +32,15 @@ export type PersonEmailMessage = {
   direction: EmailThreadDirection
   fromName: string | null
   fromEmail: string | null
+  /**
+   * True when the viewer is the author of this message. Outbound email carries
+   * no `from` header in `channelMetadata`, so the sender label cannot be derived
+   * from the addresses — and since conversation/channel sharing lets a teammate
+   * read someone else's outbound mail, direction alone is not the author either.
+   */
+  authoredByViewer: boolean
+  /** Display label of the sending colleague; null for the viewer's own mail and for inbound. */
+  authorName: string | null
   to: string[]
   cc: string[]
   subject: string | null
@@ -56,6 +67,13 @@ export type BuildPersonEmailThreadsOptions = {
   organizationId: string | null
   viewerUserId: string | null
   userFeatures: string[] | null | undefined
+  /**
+   * Conversation shares that widen this viewer's access. Optional and fail-closed:
+   * omitting it yields the strict owner-only view.
+   */
+  sharedConversations?: ConversationShareGrant[]
+  /** Channels marked as shared team mailboxes; optional and fail-closed. */
+  sharedChannelIds?: string[]
   maxThreads?: number
   maxMessagesPerThread?: number
 }
@@ -128,6 +146,8 @@ export async function buildPersonEmailThreads(
     organizationId,
     viewerUserId,
     userFeatures,
+    sharedConversations,
+    sharedChannelIds,
     maxThreads = DEFAULT_MAX_THREADS,
     maxMessagesPerThread = DEFAULT_MAX_MESSAGES_PER_THREAD,
   } = opts
@@ -154,10 +174,18 @@ export async function buildPersonEmailThreads(
   //     CRM history is never silently hidden.
   // Fail-closed: a null viewer (API-key caller) never matches the author arm, so
   // it only ever sees shared/legacy rows — never anyone's private email.
-  interactionWhere.$or = buildEmailVisibilityMikroFilter({
-    currentUserId: viewerUserId,
-    userFeatures,
-  }).$or
+  // Merge the WHOLE fragment. Cherry-picking `.$or` here would silently discard
+  // any other arm the predicate grows, which fails OPEN at a compile-clean call
+  // site — the exact hazard the fragment contract now documents.
+  Object.assign(
+    interactionWhere,
+    buildEmailVisibilityMikroFilter({
+      currentUserId: viewerUserId,
+      userFeatures,
+      sharedConversations,
+      sharedChannelIds,
+    }),
+  )
 
   // `customer_interaction.title`/`body` are encrypted at rest, so reads go
   // through `findWithDecryption` even though we only consume non-encrypted
@@ -171,12 +199,15 @@ export async function buildPersonEmailThreads(
     dscope,
   )) as CustomerInteraction[]
 
-  const linkIdByInteraction = new Map<string, { occurredAt: Date }>()
+  const linkIdByInteraction = new Map<string, { occurredAt: Date; authorUserId: string | null }>()
   const linkIds: string[] = []
   for (const interaction of interactions) {
     const linkId = interaction.externalMessageId
     if (!linkId || linkIdByInteraction.has(linkId)) continue
-    linkIdByInteraction.set(linkId, { occurredAt: interaction.occurredAt ?? interaction.createdAt })
+    linkIdByInteraction.set(linkId, {
+      occurredAt: interaction.occurredAt ?? interaction.createdAt,
+      authorUserId: interaction.authorUserId ?? null,
+    })
     linkIds.push(linkId)
   }
   if (linkIds.length === 0) return []
@@ -216,6 +247,23 @@ export async function buildPersonEmailThreads(
     }
   }
 
+  // ── (3b) Resolve sender labels for colleagues' messages ─────────────────
+  //
+  // Only for authors other than the viewer: their own mail renders as "You" and
+  // needs no lookup. A shared conversation is exactly the case where a message
+  // the viewer did not write shows up in their thread list, so without this the
+  // UI would have to fall back on direction and misattribute it to the reader.
+  const foreignAuthorIds = Array.from(
+    new Set(
+      Array.from(linkIdByInteraction.values())
+        .map((entry) => entry.authorUserId)
+        .filter((id): id is string => !!id && id !== viewerUserId),
+    ),
+  )
+  const authorNames = foreignAuthorIds.length
+    ? await resolveUserNames(em, tenantId, organizationId, foreignAuthorIds)
+    : new Map<string, string>()
+
   // ── (4) Build per-message DTOs grouped by thread ────────────────────────
   const threadsByKey = new Map<string, PersonEmailThread>()
 
@@ -223,6 +271,11 @@ export async function buildPersonEmailThreads(
     const linkId = typeof link.id === 'string' ? (link.id as string) : null
     if (!linkId) continue
     const direction: EmailThreadDirection = link.direction === 'outbound' ? 'outbound' : 'inbound'
+    // `authorUserId` on the interaction is the MAILBOX OWNER, which on an
+    // inbound message is the recipient, not the sender — so authorship is an
+    // outbound-only notion. Inbound senders are named by the `from` header.
+    const authorUserId = direction === 'outbound' ? linkIdByInteraction.get(linkId)?.authorUserId ?? null : null
+    const authoredByViewer = !!viewerUserId && !!authorUserId && authorUserId === viewerUserId
     const providerKey = typeof link.providerKey === 'string' ? (link.providerKey as string) : null
     const payload = (link.channelPayload ?? null) as JsonRecord | null
     const meta = (link.channelMetadata ?? null) as JsonRecord | null
@@ -269,6 +322,8 @@ export async function buildPersonEmailThreads(
       direction,
       fromName: fromList[0]?.name ?? null,
       fromEmail: fromList[0]?.email ?? null,
+      authoredByViewer,
+      authorName: authoredByViewer ? null : authorUserId ? authorNames.get(authorUserId) ?? null : null,
       to: toList.map((a) => a.email),
       cc: ccList.map((a) => a.email),
       subject,

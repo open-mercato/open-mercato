@@ -10,6 +10,7 @@ import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@ope
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   runMutationGuards,
   bridgeLegacyGuard,
@@ -41,7 +42,7 @@ import {
   type ResolvedCustomFieldDefinitions,
 } from './custom-field-definition-index'
 import { serializeExport, normalizeExportFormat, defaultExportFilename, ensureColumns, type CrudExportFormat, type PreparedExport } from './exporters'
-import { CrudHttpError, isCrudHttpError } from './errors'
+import { CrudHttpError, isCrudHttpError, translateCrudErrorBody } from './errors'
 import type { CommandBus, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -634,9 +635,12 @@ function classifyCrudError(err: unknown): { code: CrudErrorCode; pgSqlState: str
   return { code: 'INTERNAL_ERROR', pgSqlState: null }
 }
 
-function handleError(err: unknown, request?: Request): Response {
+async function handleError(err: unknown, request?: Request): Promise<Response> {
   if (err instanceof Response) return err
-  if (isCrudHttpError(err)) return json(err.body, { status: err.status })
+  if (isCrudHttpError(err)) {
+    const { translate } = await resolveTranslations()
+    return json(translateCrudErrorBody(err.body, translate), { status: err.status })
+  }
   // A command interceptor that blocked with an explicit status is a deliberate business
   // rejection, not a server fault — surface its status and message instead of a generic 500.
   // Without a usable status the error falls through to the historical handling below (issue #5045).
@@ -2027,15 +2031,25 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
               nextPage += 1
             }
           }
+          const exportPayload = { items: exportItems, total, page: 1, pageSize: exportItems.length, totalPages: 1, ...(res.meta ? { meta: res.meta } : {}) }
+          // Serialize only after `afterList` has run: the hook is the documented place to
+          // patch values the base query cannot compute, and an export built before it runs
+          // ships a different shape than the JSON list response for the same request (#5969).
+          await opts.hooks?.afterList?.(exportPayload, { ...ctx, query: validated as any })
+          profiler.mark('after_list_hook')
+          const hookExportItems = Array.isArray(exportPayload.items) ? exportPayload.items : exportItems
+          // Re-normalize after the hook: `afterList` can add keys the full-export contract
+          // strips (`_`-prefixed metadata, `cf_*`) or fail to flatten (#6019 review).
+          // Idempotent on records already shaped by normalizeFullRecordForExport above.
+          const finalExportItems = exportFullRequested
+            ? hookExportItems.map(normalizeFullRecordForExport)
+            : hookExportItems
           const prepared = exportFullRequested
-            ? { columns: ensureColumns(exportItems), rows: exportItems }
-            : prepareExportData(exportItems, opts.list, validated as any, ctx)
+            ? { columns: ensureColumns(finalExportItems), rows: finalExportItems }
+            : prepareExportData(finalExportItems, opts.list, validated as any, ctx)
           const fallbackBase = `${opts.events?.entity || resourceKind || 'list'}${exportFullRequested ? '_full' : ''}`
           const filename = finalizeExportFilename(opts.list, requestedExport, fallbackBase)
           const serialized = serializeExport(prepared, requestedExport)
-          const exportPayload = { items: exportItems, total, page: 1, pageSize: exportItems.length, totalPages: 1, ...(res.meta ? { meta: res.meta } : {}) }
-          await opts.hooks?.afterList?.(exportPayload, { ...ctx, query: validated as any })
-          profiler.mark('after_list_hook')
           const response = new Response(serialized.body, {
             headers: {
               'content-type': serialized.contentType,
@@ -2058,7 +2072,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           finishProfile({
             result: 'export',
             cacheStatus,
-            itemCount: exportItems.length,
+            itemCount: finalExportItems.length,
             total,
           })
           return response
@@ -2230,14 +2244,22 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       profiler.mark('access_logged', accessLogResult)
       if (exportRequested && requestedExport) {
         const exportItems = exportFullRequested ? list.map(normalizeFullRecordForExport) : list
+        const exportPayload = { items: exportItems, total: exportItems.length, page: 1, pageSize: exportItems.length, totalPages: 1 }
+        // Same ordering contract as the query-engine export path above (#5969).
+        await opts.hooks?.afterList?.(exportPayload, { ...ctx, query: validated as any })
+        profiler.mark('after_list_hook')
+        const hookExportItems = Array.isArray(exportPayload.items) ? exportPayload.items : exportItems
+        // Re-normalize after the hook: same full-export contract as the query-engine path
+        // above (#6019 review).
+        const finalExportItems = exportFullRequested
+          ? hookExportItems.map(normalizeFullRecordForExport)
+          : hookExportItems
         const prepared = exportFullRequested
-          ? { columns: ensureColumns(exportItems), rows: exportItems }
-          : prepareExportData(exportItems, opts.list, validated as any, ctx)
+          ? { columns: ensureColumns(finalExportItems), rows: finalExportItems }
+          : prepareExportData(finalExportItems, opts.list, validated as any, ctx)
         const fallbackBase = `${opts.events?.entity || resourceKind || 'list'}${exportFullRequested ? '_full' : ''}`
         const filename = finalizeExportFilename(opts.list, requestedExport, fallbackBase)
         const serialized = serializeExport(prepared, requestedExport)
-        await opts.hooks?.afterList?.({ items: exportItems, total: exportItems.length, page: 1, pageSize: exportItems.length, totalPages: 1 }, { ...ctx, query: validated as any })
-        profiler.mark('after_list_hook')
         const response = new Response(serialized.body, {
           headers: {
             'content-type': serialized.contentType,
@@ -2247,8 +2269,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         finishProfile({
           result: 'export',
           cacheStatus,
-          itemCount: exportItems.length,
-          total: exportItems.length,
+          itemCount: finalExportItems.length,
+          total: finalExportItems.length,
           branch: 'fallback',
         })
         return response
