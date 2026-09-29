@@ -6,112 +6,74 @@
 
 ## TLDR
 
-Allow enabled modules and downstream apps to add, patch, disable, replace, or programmatically alter calendar event types without importing into or forking the customers module. The extension model deliberately matches AI module extensibility: co-located base/override/extension exports, `modules.ts` inline overrides, programmatic APIs, deterministic tier precedence, `null` disablement, generated registry exports, runtime introspection, and stable validation rules. This spec also owns the canonical customers calendar-type foundation—the six definitions, schema, resolver, minimal read API, editor transport, and interaction validation—so contributed keys work before either companion capability ships. A separate companion spec defines optional React panels through the existing UI component override system.
+Customers owns a six-type calendar foundation, a scoped read API, and authoritative interaction validation. Other enabled modules contribute event types and patches through the existing widget injection system; apps can configure overrides in `modules.ts`; bootstrap or runtime code can add, patch, disable, and remove contributions through a customers-owned DI service. No calendar-specific generator, convention file, or generated event-type registry is introduced. Optional contributors must continue loading when customers is disabled, with a diagnostic for the unused contribution.
 
-Persisted `CustomerInteraction.interactionType` strings remain durable. A module disappearing hides its types from new selection but historical records still open through a safe fallback.
-
-## Resolved assumptions (autonomous defaults)
-
-| # | Question | Applied default | Why | Confirm? |
-|---|---|---|---|---|
-| Q1 | Should module extensions share the administrator-configuration spec? | No; publish a linked companion spec over this spec's foundation. | A fresh-context review found separately reviewable capabilities with one canonical prerequisite. | Reversible |
-| Q2 | What does a module “delete” mean? | A `null` tombstone hides a key from new selection only. | Modules must not delete dictionary rows or rewrite historical interactions. | Reversible |
-| Q3 | Should event-type extensibility offer every AI module authoring tier? | Yes: co-located base/override/extension exports, `modules.ts`, and programmatic APIs. | Explicit maintainer direction; shared semantics reduce framework surprise. | Confirmed |
+When a widget for the selected event type is mounted in the calendar form, its `onBeforeSave` handler can block a save and return field errors through the existing `CrudForm` injection pipeline, as the catalog SEO widget does. Server-side rules remain authoritative for direct API callers.
 
 ## Goals and non-goals
 
 ### Goals
 
-- Discover module-owned type definitions and overrides through generated enabled-module facts.
-- Match the AI registry's base → file override/extension → `modules.ts` → programmatic extensibility options and semantics.
-- Compose contributions deterministically with provenance, collision diagnostics, runtime snapshots, and process-global idempotent registration.
-- Deliver the effective static catalog to the existing client editor and validate persisted interaction keys against the same resolver.
-- Preserve host-owned validation, storage, interaction mutation guards, and optimistic locking.
-- Degrade gracefully when an optional contributing module is disabled.
+- Reuse `widgets/injection/<name>/widget.ts`, `widgets/injection-table.ts`, existing widget overrides, and the unified `modules.ts` override dispatcher.
+- Compose the six customers definitions, enabled widget declarations, app configuration, and programmatic changes deterministically; expose the result to the separate administrator overlay.
+- Expose a small programmatic API through Awilix, with explicit removal and cleanup semantics.
+- Allow optional modules to reference the public calendar contract by type without hard dependencies or customers-owned imports of contributor code.
+- Keep exact persisted `CustomerInteraction.interactionType` keys, historical fallback, mutation guards, optimistic locking, and undo behavior.
+- Let a mounted selected-type widget validate the form before save without giving it mutation authority.
 
 ### Non-goals
 
-- Tenant/admin configuration; the linked configurable-types spec owns that overlay.
-- React panel replacement or wrapping; the linked optional React-panels spec owns that capability after this foundation lands.
-- Direct ORM relations from customers to optional modules.
-- Renaming stored interaction type values.
+- A new `calendar-event-types.ts` auto-discovery convention, generator plugin, or `calendar-event-types.generated.ts` artifact.
+- A second calendar form or component registry. The optional React-panel companion uses existing UMES component replacement.
+- Tenant-authored JavaScript, executable dictionary configuration, or direct ORM relationships across modules.
+- Treating browser widget validation as a substitute for server validation.
 
 ## User stories and acceptance criteria
 
-### US-B1 — Contribute a vertical type
+### US-B1 — Contribute types through widgets
 
-As an HRM module author, I want to contribute a `site-visit` type with visit semantics so CRM users can schedule it without a customers fork.
+An enabled HRM module can expose a `site-visit` type from a declarative, headless injection widget mapped to the customers calendar-type spot. The type appears in the scoped catalog and editor and persists with its exact key. Disabling HRM removes it from new selection while existing records open with a raw-key warning and compatibility fallback. Duplicate base keys produce a deterministic conflict diagnostic; an explicit override is required to change another owner's definition.
 
-- An enabled module can add a stable-key definition through `calendar-event-types.ts`.
-- Generation fails on duplicate base definitions and identifies both owners.
-- The exact key is selectable and persists byte-for-byte.
-- Disabling the module removes the type from new selection but historical records still render/edit through fallback.
+### US-B2 — Configure and change types
 
-### US-B2 — Replace, disable, or patch an existing type
+An app can replace, patch, or disable a type through `ModuleEntry.overrides.calendar`. Code can use the DI registry to add a type, change it, disable selection, and remove its contribution. Each operation is validated before it changes the effective catalog. Removing a higher-tier contribution reveals the next surviving tier; it never deletes interactions or dictionary rows.
 
-As a module author, I want to extend or hide a core/contributed type when my module is enabled.
+### US-B3 — Validate selected types in the form
 
-- A non-null override is a complete replacement whose `key` must match its map key; `null` disables selection without deleting data.
-- An extension changes only declared properties and supports explicit replace/delete/append operations for `customFieldsetIds`.
-- Extensions apply after full overrides, cannot resurrect a missing/disabled definition, and use replace → delete → append order like AI agent extensions.
-- File exports, `modules.ts` inline configuration, and programmatic APIs expose equivalent override and extension capabilities.
-- Resolution order, winning provenance, skipped entries, and runtime snapshots are observable and pinned by tests.
+An optional module can map a UI widget to the existing interaction `CrudForm` spot and declare which event-type keys activate it. The calendar host mounts only widgets applicable to the selected key. A mounted widget's `onBeforeSave` can return `{ ok: false, message, fieldErrors }`; `CrudForm` shows the same inline errors and prevents its write. Switching to another key unmounts the widget and removes its validator. Direct API requests still pass customers-owned validation and any explicitly registered server-side rule.
 
-### US-B3 — Configure extensions at the app or bootstrap tier
+### US-B4 — Survive absent optional peers
 
-As a downstream app owner, I want the same choice AI provides between a reusable module export, app-local `modules.ts` configuration, and dynamic boot-time code.
-
-- `ModuleEntry.overrides.calendar.eventTypes` accepts full replacements or `null` by stable key.
-- `ModuleEntry.overrides.calendar.extensions` accepts the same normalized extension records as file exports.
-- Public `applyCalendarEventTypeOverrides()` and `applyCalendarEventTypeExtensions()` functions provide the highest-precedence boot/test tier.
-- A non-null override for a missing key creates a synthetic definition with a warning; `null` for a missing key is a no-op.
-- No override source mutates another module's source, dictionary rows, or persisted interactions.
+The contributing module has no hard `requires: ['customers']`. With customers disabled, the module loads and its unrelated features work; its calendar declaration is inert and a structured warning names the module, widget ID, and missing host. A programmatic caller uses a local `tryResolve` helper; absent `calendarEventTypeRegistry` yields the same optional-integration warning and a no-op, never a boot failure.
 
 ## Market reference
 
-- [Backstage extension overrides](https://backstage.io/docs/frontend-system/architecture/extension-overrides/) separates configuration, wrappers, and replacements. Adopt the explicit wrapper/replace model and deterministic ownership diagnostics.
-- [Odoo CRM activity types](https://www.odoo.com/documentation/19.0/applications/sales/crm/optimize/utilize_activities.html) shows why installed applications need vertical activity types. Adopt module contributions while avoiding direct app-to-CRM imports.
+[Backstage extension overrides](https://backstage.io/docs/frontend-system/architecture/extension-overrides/) distinguish routine configuration from explicit overrides and avoid mutating the original extension. This spec makes common event-type customization declarative through widgets and module config, while the DI API provides explicit source-owned overrides and removal. It reuses Open Mercato's widget and override infrastructure rather than adopting Backstage's separate frontend extension model.
 
 ## Architecture
 
 ```text
-enabled modules
-  └── calendar-event-types.ts
-       └── customers generator plugin
-            └── calendar-event-types.generated.ts
-                 └── registerCalendarEventTypeEntries()
-                      └── process-global normalized registry
-                           ├── file overrides + extensions
-modules.ts overrides.calendar ─┤
-programmatic apply* APIs ───────┘
-                           └── resolve base + replacement/tombstone + extensions
-                                ├── GET /api/customers/activity-types
-                                ├── CalendarEventEditor
-                                ├── interaction create/update validation
-                                └── optional admin overlay from companion spec
+enabled widget injection tables ──> calendar:customers.event-types ──┐
+modules.ts overrides.calendar ────────────────────────────────────────┤
+Awilix calendarEventTypeRegistry operations ─────────────────────────┤
+six customers definitions ───────────────────────────────────────────┤
+                                                                      ▼
+                                              customers calendar resolver
+                                               ├─ scoped catalog API
+                                               ├─ CalendarEventEditor
+                                               └─ interaction commands
+
+selected key ──> mounted crud-form:customers.customer_interaction widget
+                     └─ existing onBeforeSave / fieldErrors pipeline
 ```
 
-The registry is metadata, not a second interaction store. Customers owns the host and resolver. Contributors declare facts at build time. No runtime import from customers to HRM or another optional peer is permitted.
+Customers owns the foundation, resolver, DI service, route, and command validation. The extension module owns its widget declaration and any widget UI or server rule. The generic widget registry discovers enabled modules as it does today; implementation may expose its already registered widget entries to the server resolver, but must not add a calendar-specific generation pass or generated exports. Existing generic `yarn generate` obligations for newly added widget files still apply.
 
 ### Canonical foundation ownership
 
-This spec is the single owner of `CalendarEventBaseKind`, `CalendarEventTypeBehavior`, the immutable six-type baseline, `EffectiveCalendarEventType`, the compatibility fallback, `resolveCalendarEventTypes()`, and the minimal `GET /api/customers/activity-types` contract. Those contracts live in the customers public path even when there are zero contributed modules.
+This spec alone defines `CalendarEventBaseKind`, `CalendarEventTypeBehavior`, `CalendarEventTypeDefinition`, `EffectiveCalendarEventType`, six immutable baseline definitions, the meeting-shaped historical fallback, `resolveCalendarEventTypes()`, and the minimal `GET /api/customers/activity-types` route. The customers foundation, catalog route, editor consumption, and command key validation ship together before widget contributions are enabled. The administrator-configuration companion adds scoped dictionary overlays to this resolver and route; it does not redeclare them. The React-panels companion consumes `EffectiveCalendarEventType` and can fall back when `panelKey` is absent.
 
-The configurable-types companion imports and enriches this foundation with scoped dictionary overlays; it MUST NOT redeclare the schema, baseline, endpoint, or resolver. Its implementation therefore follows this spec's foundation phase, while the extension registry itself remains optional at runtime. The React-panels companion consumes the same public effective-definition type and can treat absent `panelKey` as the default panel. This ordering removes duplicate ownership and permits the static registry to ship and function on its own.
-
-### Module isolation and optionality
-
-This is inversion of control, not a reverse business-module dependency. Customers owns the public contract and generator plugin but never imports, resolves, or hard-requires a contributor. A contributor may use `import type` from the stable customers public path; its declaration remains serializable and contains no customer entity, service, or component import. The generated bootstrap joins enabled declarations to the host registry.
-
-- A general module that only optionally enriches CRM MUST NOT declare `requires: ['customers']`; when customers is disabled its generator plugin is absent, the convention is not scanned, and stale generated output is reconciled away.
-- An app-only module whose sole purpose is CRM customization MAY explicitly declare `requires: ['customers']`; that is an intentional hard product dependency, not hidden coupling.
-- Runtime access to an optional peer service still uses a local `tryResolve()` and no-ops when absent. This spec itself needs no cross-module service call.
-- Durable cross-module data uses custom fields or an extension entity with FK IDs/snapshots, never a direct ORM relationship.
-- `packages/core/src/__tests__/module-decoupling.test.ts` covers both the contributor-absent and customers-absent graphs.
-
-## Public registry contract
-
-The public contract lives at `@open-mercato/core/modules/customers/calendar-event-types`:
+The public contract stays at `@open-mercato/core/modules/customers/calendar-event-types`. `CalendarEventBaseKind` is `'meeting' | 'call' | 'email' | 'note' | 'event' | 'task'`. The versioned behavior contains `baseKind`, `selectable`, `order`, closed core-field applicability (`endTime`, `allDay`, `recurrence`, `location`, `people`, `priority`, `resources`), and `customFieldsetIds`. A definition contains a stable `key`, localized label metadata, appearance, behavior, optional `adminConfigurable`, and optional opaque `panelKey`. The existing six keys and persisted strings are immutable. Zod validates definitions and all contribution paths against the same closed schema; fieldset IDs and order use the bounds in the configurable-types companion.
 
 ```ts
 type CalendarEventBaseKind = 'meeting' | 'call' | 'email' | 'note' | 'event' | 'task'
@@ -143,13 +105,14 @@ type CalendarEventTypeDefinition = {
   adminConfigurable?: boolean
   panelKey?: string
 }
+```
 
-type CalendarEventTypeOverridesMap = Record<
-  string,
-  CalendarEventTypeDefinition | null
->
+`EffectiveCalendarEventType` carries the resolved definition plus selectability, source provenance, and a historical-fallback marker. The administrator companion adds inherited/local state and nullable `updatedAt` without removing these base fields.
 
-type CalendarEventTypeExtension = {
+The exported patch contract is bounded and stable:
+
+```ts
+type CalendarEventTypePatch = {
   targetEventTypeKey: string
   replaceLabel?: string
   replaceLabelKey?: string | null
@@ -165,345 +128,184 @@ type CalendarEventTypeExtension = {
   deleteCustomFieldsetIds?: string[]
   appendCustomFieldsetIds?: string[]
 }
-
-export const calendarEventTypes: CalendarEventTypeDefinition[]
-export const calendarEventTypeOverrides: CalendarEventTypeOverridesMap
-export const calendarEventTypeExtensions: CalendarEventTypeExtension[]
-
-export function defineCalendarEventTypeExtension(
-  extension: CalendarEventTypeExtension,
-): CalendarEventTypeExtension
 ```
 
-`CalendarEventTypeBehavior` and `CalendarEventBaseKind` come from the customers-owned resolver contract and default to the six stable base kinds. The three exports deliberately mirror AI's `aiAgents`, `aiAgentOverrides`, and `aiAgentExtensions`: base definitions are additive, overrides fully replace or disable, and extensions patch the surviving effective definition. There is no separate `calendar-event-type-overrides.ts` file.
+`replaceFields` accepts only named core fields; list operations run replace, then delete, then append. Unknown behavior keys, arbitrary callbacks, and a patch that changes `key` are rejected.
 
-Extension application follows AI's operation ordering:
+### Widget contribution contract
 
-1. apply all `replace*` scalar/field operations; `replaceCustomFieldsetIds` replaces the entire list;
-2. apply `deleteCustomFieldsetIds` by exact fieldset ID;
-3. apply `appendCustomFieldsetIds`, preserving declared order and de-duplicating by exact ID.
+Add one headless data-widget payload to the existing injection widget union, with declarative arrays/maps of base definitions, full overrides (`definition | null`), and patches. The public spot is `calendar:customers.event-types`. A module maps its widget ID to this spot in its normal `widgets/injection-table.ts`; there is no new root module file. The payload is serializable metadata, without React components, callbacks, service instances, tenant values, or interaction values. The generic widget loader must recognize this payload kind and expose it to the customers server resolver. It loads only widgets mapped to the spot, through existing enabled-module and widget-override gates; it must not load all widgets in an API request.
 
-`replaceFields` replaces only its named closed-schema field properties; it cannot add arbitrary behavior keys. `key` is immutable under an extension. This extension can ship before administrator overlays because every definition is complete after static composition.
+The server registration path is explicit: bootstrap registers the existing generic widget entries/tables in the server runtime before the first catalog or command resolution, and customers asks the generic loader for this exact spot. Re-registration replaces a source's prior declaration for HMR/tests. A cache version change invalidates composed definitions and tenant/organization catalog caches. No browser-only widget registry may become the source of truth for the server. The browser receives effective serializable definitions from the catalog API, not widget module functions.
 
-### Discovery and generation
-
-`packages/core/src/modules/customers/generators.ts` adds a generator plugin scanning the additive convention `calendar-event-types.ts` in enabled modules and emitting `calendar-event-types.generated.ts`. `yarn generate` is mandatory after contributions change.
-
-- Keys are trimmed lowercase dictionary keys under the existing length limit.
-- Duplicate base definitions fail generation; changes to existing keys use overrides.
-- Generated entries preserve module ID, source path, enabled-module order, and separate base/override/extension provenance.
-- Generated module facts declare the new convention.
-- Registration occurs before route/UI resolution and uses the established `globalThis` registry pattern.
-- Re-registration replaces the same module entry idempotently for development/test reloads.
-- Convention files are declaration-only: runtime imports of another business module are rejected; public `import type` statements are allowed.
-
-The new convention and public export path become frozen after release and require the normal deprecation protocol thereafter.
-
-### Generated output contract
-
-`calendar-event-types.generated.ts` mirrors the AI generated-registry shape and exports:
-
-```ts
-type CalendarEventTypeConfigEntry = {
-  moduleId: string
-  eventTypes: CalendarEventTypeDefinition[]
-  overrides: CalendarEventTypeOverridesMap
-  extensions: CalendarEventTypeExtension[]
-}
-
-export const calendarEventTypeConfigEntries: CalendarEventTypeConfigEntry[]
-export const allCalendarEventTypes: CalendarEventTypeDefinition[]
-export const calendarEventTypeOverrideEntries: Array<{
-  moduleId: string
-  overrides: CalendarEventTypeOverridesMap
-}>
-export const calendarEventTypeExtensionEntries: Array<{
-  moduleId: string
-  extensions: CalendarEventTypeExtension[]
-}>
-export const allCalendarEventTypeExtensions: CalendarEventTypeExtension[]
-```
-
-The base/override/extension entry shapes and export names become stable generated-file contracts. Missing optional override/extension exports normalize to empty maps/arrays, so older modules remain byte-for-byte behavior compatible.
-
-## Three override paths
-
-### AI parity matrix
-
-| AI extensibility contract | Calendar event-type equivalent | Parity requirement |
-|---|---|---|
-| `aiAgents` / `aiTools` | `calendarEventTypes` | Additive base registration; duplicate base IDs fail. |
-| `aiAgentOverrides` / `aiToolOverrides` | `calendarEventTypeOverrides` | Full definition or `null`; matching map key; missing non-null target may create a warned synthetic entry. |
-| `aiAgentExtensions` | `calendarEventTypeExtensions` | Patch the surviving definition; replace → delete → append; cannot resurrect disabled/missing targets. |
-| `ModuleEntry.overrides.ai.*` | `ModuleEntry.overrides.calendar.*` | Same app-level inline tier and enabled-module ordering. |
-| `applyAi*Overrides/Extensions()` | `applyCalendarEventTypeOverrides/Extensions()` | Highest-precedence process-lifetime tier with immutable snapshots. |
-| Generated AI config/override/extension entries | Generated calendar config/override/extension entries | Separate stable exports with module provenance. |
-| Programmatic → inline → file → base | Programmatic → inline → file → base | Same replacement/disable precedence; extensions apply after the winner is selected. |
-
-Calendar-specific names and fields differ, but every AI authoring option, precedence class, disable/replace/patch distinction, validation invariant, state bucket, and introspection capability has an explicit equivalent. Tenant dictionary overlays are an additional higher layer owned by the companion spec; they are not a substitute for any static AI-parity tier.
-
-### Path A — co-located module exports
-
-Reusable modules export `calendarEventTypeOverrides` and `calendarEventTypeExtensions` beside `calendarEventTypes` in the discovered convention file. A module MUST edit its own canonical entry instead of overriding/extending it; these exports target definitions owned by other modules or the six customers baselines.
-
-### Path B — `modules.ts` inline
-
-The unified override umbrella gains one additive domain:
-
-```ts
-interface CalendarOverridesShape {
-  eventTypes?: LooseOverrideMap
-  extensions?: readonly unknown[]
-}
-
-interface ModuleOverrides {
-  // existing domains remain unchanged
-  calendar?: CalendarOverridesShape
-}
-```
-
-Example app-level replacement, disablement, and patch without a synthetic override module:
-
-```ts
-{
-  id: 'customers',
-  from: '@open-mercato/core',
-  overrides: {
-    calendar: {
-      eventTypes: {
-        note: null,
-        meeting: replacementMeetingDefinition,
-      },
-      extensions: [
-        defineCalendarEventTypeExtension({
-          targetEventTypeKey: 'event',
-          replacePanelKey: 'my_app.conference',
-          appendCustomFieldsetIds: ['conference_details'],
-        }),
-      ],
-    },
-  },
-}
-```
-
-Customers registers a `calendar` applier with `registerModuleOverrideApplier()`. The app's existing `applyModuleOverridesFromEnabledModules(enabledModules)` call dispatches entries in module order; no second bootstrap call is added. `apps/mercato` and the create-app template keep the same shared wiring.
-
-Shared cannot import customers/core types, so `CalendarOverridesShape` stays deliberately loose in `@open-mercato/shared`; the customers registrar zod-parses it into `CalendarEventTypeOverridesMap` and `CalendarEventTypeExtension[]` before changing state. Wiring is explicit and complete:
-
-1. add `calendar?: CalendarOverridesShape` to `ModuleOverrides`;
-2. add `'calendar'` to the closed `ModuleOverrideDomain` union and `DOMAIN_KEYS`;
-3. expose the focused side-effect registrar at `@open-mercato/core/modules/customers/calendar-event-type-overrides`;
-4. import that registrar in both `apps/mercato/src/bootstrap-common.ts` and the create-app template before `applyModuleOverridesFromEnabledModules()`;
-5. add the same specifier to `OPTIONAL_OVERRIDE_APPLIER_MODULES` for CLI/worker dynamic bootstrap.
-
-An integration test declares only `overrides.calendar`, starts each bootstrap path, and fails on either the dispatcher's “domain not yet wired” warning or an unchanged registry. This prevents a typed-but-ignored domain.
-
-### Path C — programmatic API
-
-The public customers contract exports:
-
-```ts
-applyCalendarEventTypeOverrides(overrides: CalendarEventTypeOverridesMap): void
-applyCalendarEventTypeExtensions(extensions: CalendarEventTypeExtension[]): void
-snapshotCalendarEventTypeOverrides(): {
-  eventTypes: Readonly<CalendarEventTypeOverridesMap>
-  modulesConfigEventTypes: Readonly<CalendarEventTypeOverridesMap>
-  extensions: readonly CalendarEventTypeExtension[]
-  modulesConfigExtensions: readonly CalendarEventTypeExtension[]
-}
-```
-
-Programmatic calls are process-lifetime, idempotent for empty input, and highest precedence. Override calls are last-write-wins per key; extension calls append in call order. The immutable snapshot mirrors AI's `snapshotProgrammaticOverrides()` by exposing both the programmatic and `modules.ts` buckets; it never includes file declarations, resolved tenant dictionary values, or mutable references.
-
-An `@__internal resetCalendarEventTypeOverridesForTests()` hook clears file-registration test state, inline state, programmatic state, and diagnostic snapshots between tests. Production code cannot invoke it through the public package export.
-
-## End-to-end custom module example
-
-An app module named `my_custom_overrides` can add `site-visit`, patch the existing `meeting` type, and disable `note` without a customers source edit:
-
-```ts
-// apps/mercato/src/modules/my_custom_overrides/calendar-event-types.ts
-import {
-  defineCalendarEventTypeExtension,
-  type CalendarEventTypeDefinition,
-  type CalendarEventTypeOverridesMap,
-} from '@open-mercato/core/modules/customers/calendar-event-types'
-
-export const calendarEventTypes: CalendarEventTypeDefinition[] = [
-  {
-    key: 'site-visit',
-    label: 'Site visit',
-    labelKey: 'myCustomOverrides.eventTypes.siteVisit',
-    icon: 'MapPin',
-    color: 'info',
-    behavior: {
-      schemaVersion: 1,
-      baseKind: 'event',
-      selectable: true,
-      order: 70,
-      fields: {
-        endTime: true,
-        allDay: false,
-        recurrence: false,
-        location: 'location',
-        people: 'attendees',
-        priority: false,
-        resources: false,
-      },
-      customFieldsetIds: ['site_visit_details'],
-    },
-    panelKey: 'my_custom_overrides.site_visit',
-  },
-]
-
-export const calendarEventTypeOverrides: CalendarEventTypeOverridesMap = {
-  note: null,
-}
-
-export const calendarEventTypeExtensions = [
-  defineCalendarEventTypeExtension({
-    targetEventTypeKey: 'meeting',
-    replaceLabelKey: 'myCustomOverrides.eventTypes.customerMeeting',
-    replacePanelKey: 'my_custom_overrides.customer_meeting',
-    appendCustomFieldsetIds: ['meeting_outcome'],
-  }),
-]
-```
-
-The module is then enabled through the normal `modules.ts` entry and `yarn generate` materializes its declaration. The linked React-panels spec shows the companion `widgets/components.ts` wrapper. If the decision is app-local instead, the same replacement/disable/extension values can live under that module entry's `overrides.calendar`; if it is dynamic at boot, the two `applyCalendarEventType*` functions provide the final tier.
+The host checks the enabled module set before loading optional contributions. A table entry from a module whose host is absent remains legal; its widget is not evaluated and one structured warning is emitted per registration/version. Do not set `metadata.requiredModules: ['customers']` on an otherwise optional widget solely to hide the warning: the explicit missing-host diagnostic is part of this contract. The host never imports optional modules. Contributors may use `import type` from the public customers contract and `tryResolve()` for optional runtime services, but may not import customers entities, private editor code, or service implementations.
 
 ### Composition and precedence
 
 1. Start with the immutable six-type customers baseline.
-2. Append enabled-module definitions in generated module order.
-3. Compose full replacement/disable maps, lowest to highest: file exports → `modules.ts` inline → programmatic. Last source per key wins within each tier.
-4. Apply the composed map: `null` disables; a non-null definition replaces; a non-null definition for a missing key adds a warned synthetic definition.
-5. Apply extensions after overrides, in file → `modules.ts` → programmatic order. Each extension applies replace → delete → append; an extension targeting a missing/disabled key is skipped with a warning and cannot resurrect it.
-6. Optionally pass the static result to the administrator overlay resolver from the companion spec.
+2. Add definitions from enabled widgets in stable enabled-module order, then injection-table priority and widget ID. A duplicate base key is rejected with both owners named; later changes use an override or patch.
+3. Apply complete replacement/`null` maps from widget declarations, then `modules.ts` entries in enabled-module order, then DI programmatic operations. The last override in a tier wins. A higher-tier definition can re-enable a lower-tier tombstone; `null` hides new selection only.
+4. Apply patches from widgets, then `modules.ts`, then programmatic code to surviving definitions. Patches cannot change a key or resurrect a missing/disabled definition. Fieldset list operations run replace → delete → append with exact-ID de-duplication.
+5. The administrator companion applies inherited and local organization dictionary overlays last, only where `adminConfigurable !== false`.
 
-Higher-precedence non-null overrides can resurrect a lower-tier tombstone, exactly like AI overrides. Every effective property and fieldset-list operation records winning provenance. Diagnostics contain module IDs and keys, never loaded source or credentials.
+Every effective property records source tier and module/widget or programmatic owner. A non-null replacement for an unknown key may add a synthetic type with a warning; a `null` for an unknown key is a warning/no-op. Malformed entries are rejected atomically per source with no partial application. Snapshots are immutable and exclude tenant labels, interaction values, and executable code.
 
-`null` makes a key non-selectable for new records. `resolveCalendarEventType(key, { includeHistorical: true })` still returns the last known base semantics or the meeting-shaped compatibility fallback. Disabling a module has the same selection effect without persisting a tombstone.
+## Module configuration and programmatic API
 
-### Validation parity with AI
+The unified override umbrella adds a loose `ModuleOverrides.calendar` shape in shared and a customers-owned zod-parsing `calendar` applier. Its public, typed form is:
 
-| Input | Result |
-|---|---|
-| Unique, valid base definition | Added to the base catalog. |
-| Duplicate base key | Generation fails and names both owners. |
-| Override map key equals non-null `value.key` | Full replacement is accepted. |
-| Override map key differs from non-null `value.key` | Entry is skipped with a structured warning; the lower tier survives. |
-| Non-null override targets a missing key | Synthetic type is accepted with a warning; code review should prefer `calendarEventTypes` when possible. |
-| `null` targets a missing key | No-op; provenance records the attempted tombstone for diagnostics. |
-| Extension targets a missing/disabled key | Skipped with a warning; extensions never resurrect. |
-| Malformed definition/extension | Rejected by zod before registration; no partial application. |
+```ts
+type CalendarOverrides = {
+  eventTypes?: Record<string, CalendarEventTypeDefinition | null>
+  patches?: CalendarEventTypePatch[]
+}
+```
 
-Registration and every `apply*` function normalize input before mutating global state. Repeated registration of the same module replaces that module's previous entry, which keeps HMR/tests idempotent.
+For example, an optional module's `modules.ts` entry can hide `note` and alter `meeting` without importing customers at runtime:
 
-Each accepted/skipped replacement, tombstone, extension, resurrection, and synthetic definition emits a structured log containing source tier, module ID when applicable, type key, operation, and outcome. Logs never include interaction values, dictionary labels supplied by tenants, or credentials.
+```ts
+{
+  id: 'my_custom_overrides',
+  from: '@app',
+  overrides: {
+    calendar: {
+      eventTypes: { note: null },
+      patches: [{ targetEventTypeKey: 'meeting', replaceOrder: 25 }],
+    },
+  },
+}
+```
 
-`panelKey` is opaque serializable metadata. It never loads code; the linked React-panels spec defines how a UI component may consume it through the existing component registry.
+The existing `applyModuleOverridesFromEnabledModules()` call dispatches the domain in module order. Register the customers applier only when customers is enabled in each app and create-app bootstrap path, including CLI/worker paths; no unconditional customers import or second global bootstrap call. The dispatcher must tolerate a missing optional domain applier with a diagnostic. An integration test proves an inline-only override reaches both server and client catalog consumers.
+
+`calendarEventTypeRegistry` is an Awilix-resolved application-singleton customers service, registered only when customers is enabled. Its public interface uses stable `sourceId` ownership:
+
+```ts
+interface CalendarEventTypeRegistry {
+  upsert(sourceId: string, definition: CalendarEventTypeDefinition): void
+  replace(sourceId: string, key: string, definition: CalendarEventTypeDefinition | null): void
+  patch(sourceId: string, patch: CalendarEventTypePatch): void
+  remove(sourceId: string, key: string): void
+  removeSource(sourceId: string): void
+  snapshot(): Readonly<CalendarEventTypeRegistrySnapshot>
+}
+```
+
+`upsert` adds or updates the caller's own base definition; it cannot silently overwrite another owner's base. `replace` is the explicit cross-owner full override or selection tombstone. `patch` is the bounded partial edit. `remove` clears that source's base/override/patch contributions for one key; `removeSource` is teardown for a module reload or test. Neither deletes persisted customer data. Repeating the same input is idempotent. Registry operations validate first, update an immutable process-local snapshot with definitions, source provenance, and version, then invalidate affected catalog caches. Programmatic changes are process-local; multi-worker deployments register the same declarations in each worker at bootstrap. Runtime changes across workers require application-level coordination and are not advertised as globally transactional.
+
+An optional module resolves the service inside a local `tryResolve` helper. Failure to resolve because customers is disabled logs one missing-host warning and returns without changing its other module behavior. Other DI failures propagate; they are not mistaken for an absent peer. No customer service resolves the optional module.
+
+## Required implementation example
+
+Ship a small enabled example module under `apps/mercato/src/modules/` with a headless calendar-type widget mapped through `widgets/injection-table.ts`, and a separate conditional interaction-form widget. The example must demonstrate all three operations without a customers source edit:
+
+```ts
+// Declarative payload in the example module's calendar-type widget
+eventTypes: [{ key: 'site-visit', /* complete bounded definition */ }],
+overrides: { note: null },
+patches: [{ targetEventTypeKey: 'meeting', replaceLabelKey: 'example.customerMeeting' }],
+
+// Optional bootstrap/teardown code, after tryResolve('calendarEventTypeRegistry')
+registry?.upsert('example', fieldAuditDefinition)
+registry?.patch('example', { targetEventTypeKey: 'meeting', replaceOrder: 25 })
+registry?.remove('example', 'field-audit')
+```
+
+The tested example must make the distinction visible: the widget adds `site-visit`, the patch modifies `meeting`, the `null` override hides `note`, and DI adds then removes its own `field-audit` definition. A separate test removes a programmatic override of an existing key and verifies that the lower widget/base tier becomes effective. Show the equivalent app-level `overrides.calendar` form in documentation. Run the example module with customers disabled and assert the app and unrelated module behavior still work to prove the calendar seam is optional. Example code must keep translated labels and complete valid definitions; the abbreviated snippet above is explanatory only.
+
+## Mounted widget validation
+
+The form continues to use its existing `crud-form:customers.customer_interaction` spot. Add optional `calendarEventTypeKeys` metadata to injection widgets (or an equivalent typed applicability predicate owned by the host). The host passes the selected effective key in injection context, filters applicable widgets before rendering and before event dispatch, and runs `onBeforeSave` only for an active mounted widget. The filter must apply equally to create/update, validation, required-field markers, and `onAfterSave`; changing the selected type unmounts the old widget and clears its widget-origin field errors. Global mutation widgets without a type filter continue to behave as today.
+
+The example module's selected-type widget renders a site-visit helper and returns `{ ok: false, message, fieldErrors: { location: ... } }` for an invalid site visit. `CrudForm` merges these errors with its normal field errors and blocks submission, matching catalog SEO behavior. The host retains one form, submit/delete buttons, guarded mutation, optimistic-lock header, conflict bar, keyboard shortcuts, and retry. Widget code receives no submit callback or mutation authority. A disabled, hidden, unmounted, or nonmatching widget cannot block the save. Loading must settle before submit so a matching validator is not silently skipped; load failure shows a localized retry state and fails closed for that selected widget.
+
+Browser `onBeforeSave` improves the editor experience but is bypassable by direct API callers. The customers command always validates key selectability, bounded core fields, applicable fieldsets, ACL, scope, and optimistic locking. A contributor with additional business invariants must register an optional server-side mutation guard or command interceptor through the existing contract, keyed to its selected type; the example includes such a rule and tests the same invalid request through the API. A missing contributor removes its extra rule while customers' core safety checks remain. Never execute React widget handlers on the server as the validation authority.
 
 ## API and runtime behavior
 
-This spec owns the minimal authenticated read contract:
+`GET /api/customers/activity-types[?organizationId=<uuid>]` requires authentication and `customers.interactions.view`, exports OpenAPI, and returns `{ items: EffectiveCalendarEventType[], fallbackKey: 'meeting' }`. It uses the same server resolver as interaction create/update, scoped by tenant and organization. Items contain effective appearance, behavior, selectability, provenance, `adminConfigurable`, and `panelKey`, but no widget functions or loaders. Cache keys and tags are tenant/organization scoped; registry version changes invalidate static composition and relevant scoped responses. If authoritative widget/config resolution fails, the route returns a retryable error and commands fail closed. The editor may use the immutable six definitions only to display an existing draft, with selection and save disabled until the scoped catalog reloads; it never reuses another scope's cache or treats baseline fallback as proof that a key is selectable.
 
-`GET /api/customers/activity-types[?organizationId=<uuid>]`
-
-- Requires authentication and `customers.interactions.view`; organization scope is validated through the existing request context.
-- Returns `{ items: EffectiveCalendarEventType[], fallbackKey: 'meeting' }` from the static resolver, including key, resolved label/icon/color, behavior, selectability, static provenance, `adminConfigurable`, and `panelKey`.
-- Exports OpenAPI, never exposes component functions/loaders, and uses tenant/organization-scoped caching. The configurable companion adds inheritance and `updatedAt` fields without changing the route.
-- `CalendarEventEditor` loads this endpoint once per scoped editor session, orders selectable types by `behavior.order` then key, and uses the selected definition for core-field/custom-fieldset visibility. Read failure reports a localized retry state and uses the immutable six-type baseline; it never reuses another scope's cache.
-
-No new mutation route is introduced. Existing interaction create/update resolves the effective static key in the authenticated scope before persistence. Create and a changed type reject a missing/disabled key; an unchanged unavailable historical key remains editable through meeting-shaped fallback semantics. Direct clients therefore cannot persist a key the editor would reject.
-
-Registry output includes only serializable metadata: key, label/i18n key, appearance, behavior, selectable state, module provenance, configurability, and panel key. It never serializes functions or component loaders.
-
-Interaction create/update remains owned by customers. It verifies that new values use an effective selectable key. Historical updates of an unavailable unchanged key are allowed through fallback semantics. Module disable cannot erase or rewrite customer data.
-
-## UI/UX behavior
-
-- Contributed types appear in the existing calendar type selector in resolved order and use exact keys.
-- Module provenance is visible in the activity-type manager when the companion admin feature is present.
-- A non-configurable contribution is read-only in that manager.
-- When a module is disabled, an existing record shows the raw key plus a localized “Type no longer available” warning and baseline behavior fallback.
-- The selector and server mutations consume the same resolver result through the owned catalog API; no client-only type exists.
-
-Prototype: [configurable calendar event types](../prototypes/configurable-calendar-event-types/index.html). The artifact is illustrative and uses synthetic data.
+Existing interaction create/update rejects a missing or disabled changed key, while an unchanged historical key remains editable through the compatibility fallback. New type-specific server guards run in the guarded mutation flow after core validation and before persistence. No new interaction mutation route is introduced. A stored key is never rewritten because a widget, module, config entry, or programmatic contribution disappears.
 
 ## Failure modes and observability
 
 | Failure | User behavior | System behavior |
 |---|---|---|
-| Duplicate base key | build does not ship | generator fails with both module owners |
-| Override key/value mismatch | lower tier remains effective | skip with module/key diagnostic, matching AI validation |
-| Extension targets unknown/disabled key | lower tier remains effective | skip with warning; never resurrect |
-| Synthetic non-null override targets unknown key | new type appears with provenance | accept with explicit warning, matching AI synthetic-entry behavior |
-| Registry registration repeats | no visible change | replace same module entry idempotently |
-| Contributing module disabled | type absent from new selection; historical warning | fallback preserves exact key and stored data |
-| Registry or catalog read unavailable at runtime | shipped types remain usable | report error and use tenant-safe immutable baseline |
+| Duplicate widget base key | lower/base definition remains | reject later declaration; log both owners and keys |
+| Invalid widget or app override | last valid tier remains | zod rejection per source, no partial registration; structured warning |
+| Patch targets missing/disabled key | no change | skip with module/widget/source warning |
+| Customers disabled | contributor's unrelated features work | calendar payload inert; one missing-host warning, no hard import or `requires` |
+| Contributing module disabled | historical raw key and fallback; no new selection | widget/rule unloaded; data retained |
+| Matching widget fails to load | localized retry; save waits | do not silently bypass mounted validation |
+| Registry or scoped catalog unavailable | localized retry; baseline display only, selection/save disabled | retryable route error; command fails closed; no cross-scope cached value |
+| Programmatic source removed | lower tier becomes effective | invalidate versioned composition/cache; never delete interactions |
 
-Structured logs include module ID, type key, phase, and winning provenance but no interaction values or credentials.
+Logs identify source tier, module/widget ID, type key, operation, and outcome. They exclude interaction content, tenant-authored labels, credentials, and form values.
 
 ## Security and module safety
 
-- Registry declarations are trusted code shipped with enabled modules, never tenant-authored executable input.
-- Metadata is zod-validated before registration and normalized to immutable output.
-- No direct cross-module ORM relation or mandatory dependency on an optional contributor is introduced.
-- Existing interaction values, routes, methods, events, CrudForm spots, and exports remain stable.
+- Only trusted enabled module code may define widget payloads or use the DI API; tenant dictionary configuration stays declarative and bounded.
+- Metadata and programmatic calls are zod-validated before registry changes; the server enforces scope, ACL, core applicability, and guards on every direct write.
+- Customers never imports an optional contributor, creates cross-module ORM relations, or unconditionally resolves its service.
+- Generic widget gates and the selected-type filter use the enabled-module set and wildcard-aware feature checks. Client-side widget visibility does not authorize an API write.
 
 ## Migration & Backward Compatibility
 
-- Existing apps and modules that declare none of the new exports retain the six-type behavior byte-for-byte.
-- The six definitions, behavior/effective types, resolver, fallback, and catalog read route are the canonical additive foundation reused by both companion specs.
-- New auto-discovery filename, `ModuleOverrides.calendar` shape, public types/functions, generated exports/entry shapes, and module facts are additive but frozen once released.
-- `null` remains selection disablement; full overrides retain key/value matching; extension operation order and four-tier precedence cannot change incompatibly after release.
-- The generated reader treats absent override/extension arrays as empty for at least one minor version, allowing old generated artifacts during rolling builds.
-- Published event-type keys, the convention filename, required export names, programmatic function names, `ModuleOverrides.calendar` paths, and generated export names require the standard deprecation bridge plus `UPGRADE_NOTES.md` before any rename/removal.
-- Removing the extension machinery leaves interactions intact and returns the app to the six core definitions.
+- Existing six-type behavior and stored interaction strings remain stable when there are no contributions.
+- Existing widget spots, mutation hooks, module override domains, route URLs, and dictionary rows remain intact. The new spot, payload kind, metadata field, calendar override domain, DI key, and public resolver/types are additive contracts; record them in `BACKWARD_COMPATIBILITY.md` and `UPGRADE_NOTES.md` before release.
+- No calendar-specific generated contract exists. Existing generic widget auto-discovery output remains governed by its current compatibility contract.
+- `editorKindOfInteractionType()` remains as a deprecated bridge for at least one minor version. Removing an event-type contribution changes new selection only and preserves historical fallback.
+- The administrator and React-panel companion specs depend on this foundation but can ship without any optional contributor.
 
 ## Implementation plan
 
-### Phase A — Registry and generation
+### Phase A — Customers foundation
 
-1. Add the canonical public zod/types, six immutable definitions, compatibility fallback, normalized process-global resolver/registry, AI-parity override/extension composers, programmatic APIs/snapshots, and unit tests for add/replace/disable/extend/collision/provenance/fallback.
-2. Add the customers generator plugin and discovery convention; emit the stable base/override/extension exports, register generated entries, and extend generated module facts.
-3. Add the loose shared `ModuleOverrides.calendar` shape/domain key, customers registrar, static and dynamic bootstrap imports in the app plus create-app template, and tests that fail if the domain is unwired; then test file → `modules.ts` → programmatic precedence, resurrection, synthetic definitions, key/value validation, and extension ordering.
-4. Add one synthetic `site-visit` contribution plus cross-module replacement/disable/extension fixtures in the canonical example; mirror app-template changes and refresh the standalone harness contract.
+1. Add the canonical public zod schema/types, six definitions, historical fallback, and resolver with tests for key stability and behavior bounds.
+2. Add the scoped catalog route/OpenAPI, consume it in `CalendarEventEditor`, and replace hard-coded selection and command key validation with the same resolver. Test authoritative-read failure as retryable and nonselectable.
 
-*Exit:* enabled modules deterministically change the in-memory catalog and disabling the example preserves historical fallback.
+*Exit:* the six customers types work end-to-end through the owned API, editor, and commands before any optional contribution is enabled.
 
-### Phase B — Runtime delivery and enforcement
+### Phase B — Widget, configuration, and programmatic control
 
-5. Add the scoped, cached catalog read route/OpenAPI over the static resolver and consume it in `CalendarEventEditor` with baseline retry fallback.
-6. Replace client hard-coded type selection and server hard-coded type validation with the shared resolver while retaining the deprecated `editorKindOfInteractionType()` bridge.
+3. Extend the existing headless widget union/loader for the calendar spot, register generic widget entries/tables on the server before resolver use, and test enabled-module order, collision diagnostics, invalid-source atomicity, HMR replacement, and customers-absent boot.
+4. Add the shared loose `overrides.calendar` domain and customers applier through existing app/create-app, CLI, and worker bootstraps. Test inline-only dispatch and widget → inline precedence.
+5. Register the Awilix `calendarEventTypeRegistry` service; implement `upsert`, `replace`, `patch`, `remove`, `removeSource`, immutable snapshots, source ownership, versioned invalidation, and soft-optional `tryResolve` tests.
+6. Add the example module showing a widget-added type, widget and inline modification/disablement, and DI add/patch/remove, plus the customers-disabled scenario.
 
-*Exit:* a contributed key is selectable, persists exactly, reloads, and is rejected consistently when unavailable without either companion feature installed.
+*Exit:* every contribution tier resolves deterministically and programmatic removal reveals the next tier.
 
-### Phase C — Verification and documentation
+### Phase C — Selected-type validation
 
-7. Document all three authoring paths, precedence, replacement-vs-extension choice, tombstones, snapshots, bootstrap wiring, and compatibility alongside the AI override guide; update `UPGRADE_NOTES.md` and `BACKWARD_COMPATIBILITY.md` with the frozen surfaces.
-8. Run generation, module-decoupling tests, package build, typecheck, lint, integration tests, app build, and standalone-harness refresh.
+7. Add selected-key widget applicability and mounted `onBeforeSave` behavior to the existing `CrudForm` host. Add the example widget's field error and optional server mutation rule; preserve global widget behavior and host submission authority.
+
+*Exit:* the example event can be created and edited, its mounted widget blocks invalid form saves, and direct API writes enforce the server rule.
+
+### Phase D — Verification and documentation
+
+8. Document the widget payload, module-config overrides, DI lifecycle, missing-host warnings, server guard requirement, and example; update compatibility notes and standalone harness coverage.
+9. Run generic `yarn generate` only where normal widget auto-discovery requires it, module-decoupling tests, focused UI/unit tests, package build, typecheck, lint, integration tests, and app build.
 
 ## Integration coverage
 
-Fixtures use the canonical example module and clean all created records in `finally`.
+Fixtures create records through APIs and remove them in `finally`; no test relies on demo data.
 
-- **TC-CETE-001 — contribution lifecycle:** enable the example `site-visit` definition, verify the authenticated catalog API, editor selection, key/provenance/order, exact interaction persistence, and reload; disable it and verify new selection/server mutation rejection plus historical fallback without rewrite.
-- **TC-CETE-002 — AI-parity override tiers:** replace one core definition and tombstone another through file exports, override both through `modules.ts`, then override them programmatically; verify programmatic → inline → file → base precedence, higher-tier resurrection, key/value mismatch warnings, synthetic-definition behavior, snapshots, hidden selection, and unchanged historical edits.
-- **TC-CETE-003 — module decoupling:** run the repository module-decoupling fixture with the contributor absent and assert no unresolved first-party target, import, generated loader, or route failure.
-- **TC-CETE-004 — extension ordering:** apply file, inline, and programmatic extensions to one surviving type; verify replace → delete → append fieldset semantics, exact de-duplication, property provenance, and warning/no-op behavior against a disabled type.
-- **TC-CETE-005 — dispatcher bootstrap:** declare only `overrides.calendar` and verify application before first resolver load in Next.js and dynamic CLI/worker bootstrap; assert no unwired-domain warning and mirror coverage in the create-app template.
+- **TC-CETE-001 — widget contribution lifecycle:** enable the example widget, verify scoped API/editor selection and exact-key persistence; disable it and verify mutation rejection for new use plus unchanged historical fallback.
+- **TC-CETE-002 — add/modify/remove:** verify widget addition, a patch to `meeting`, a `note` tombstone, an inline override, DI `upsert`/`patch`/`remove`/`removeSource`, deterministic precedence, cache invalidation, and immutable provenance snapshot.
+- **TC-CETE-003 — optional module decoupling:** boot with customers absent and contributor enabled; assert one warning and working unrelated contributor functionality. Boot with contributor absent and customers enabled; assert six baseline types and no unresolved import.
+- **TC-CETE-004 — mounted validation:** select `site-visit`, mount its widget, return `fieldErrors.location`, block save, then switch type and verify the widget unmounts and no longer blocks. Assert feature-hidden/disabled widgets do not run and a failed matching widget load cannot silently allow save.
+- **TC-CETE-005 — direct API enforcement:** submit the same invalid site visit through the API; verify the optional server rule blocks it while core key/field/scope checks remain with the contributor disabled.
+- **TC-CETE-006 — bootstraps:** declare only `overrides.calendar` and verify dispatch before the first resolver read in Next.js, CLI/worker, and create-app template, with no unwired-domain warning while customers is enabled.
 
 ## Risks
 
 | Risk | Severity | Mitigation | Residual risk |
 |---|---|---|---|
-| Registry collision or load-order drift | High | Fail duplicate definitions; generated stable order; AI-parity precedence and provenance snapshots | Intentional competing overrides/extensions remain last-wins |
-| Override/extension semantics drift from AI | High | Shared terminology, three matching authoring paths, contract tests comparing precedence/disablement/validation invariants | Domain fields differ, so exact type shapes remain calendar-specific |
-| Disabled module strands records | Medium | Exact keys persist; disable affects selection only; historical fallback | Specialized fields are unavailable until module returns |
-| Generated contract breaks third parties | High | Additive convention, frozen exports, deprecation protocol | Future schema evolution needs compatibility bridges |
-| Client and server catalogs drift | High | One resolver behind catalog API and mutations; integration test exact key lifecycle | Stale client requests still require normal retry UX |
+| Widget declarations drift between server and client | High | Server resolver is authoritative; editor reads catalog API; hydration and direct API tests | A stale client may need retry |
+| Client widget rule mistaken for authoritative validation | High | Explicit server guard example and direct API test; customers always checks core invariants | Optional business rule disappears when its module is disabled |
+| Process-local programmatic changes differ across workers | Medium | Require identical bootstrap registration; document external coordination for live changes | A caller can still misconfigure one worker |
+| Optional host unavailable | Medium | Soft `tryResolve`, no hard dependency, one structured warning and module-decoupling tests | Calendar contribution has no effect until host is enabled |
+| Competing definitions or patches | Medium | Reject duplicate bases; deterministic precedence, provenance, and diagnostics | Explicit competing overrides remain last-wins |
 
 ## Final compliance report
 
@@ -511,42 +313,42 @@ Fixtures use the canonical example module and clean all created records in `fina
 
 - `AGENTS.md`, `BACKWARD_COMPATIBILITY.md`, `.ai/specs/AGENTS.md`, `.ai/qa/AGENTS.md`
 - `packages/core/AGENTS.md`, `packages/core/src/modules/customers/AGENTS.md`
-- `packages/ui/AGENTS.md`, shared override/component-registry contracts
-- AI override/extension public contracts, docs, generated registries, and `BACKWARD_COMPATIBILITY.md`
-- `.ai/ds-rules.md`, `.ai/ui-components.md`, frontend architecture contract guidance
+- `packages/ui/AGENTS.md`, `packages/ui/src/backend/AGENTS.md`, existing injection-loader and catalog SEO widget contracts
 
 ### Compliance matrix
 
 | Rule | Status | Notes |
 |---|---|---|
-| Scope cohesion | Pass after split | Static registry composition is independent from administrator overlays and React panel hosting |
-| Module isolation | Pass | Host-owned generator + public type-only contributor contract; no reverse runtime imports, optional hard requirement, or ORM links |
-| Unified overrides | Pass | File, `modules.ts`, and programmatic paths match AI replacement/disable/extension semantics and precedence |
-| Bootstrap wiring | Pass | Closed shared domain, loose boundary shape, customers registrar, static/dynamic imports, and unwired-domain tests are explicit |
-| Generated files and naming | Pass | Additive convention, stable base/override/extension exports, mandatory `yarn generate`, frozen published surfaces |
-| Compatibility | Pass | Durable keys, historical fallback, additive public contracts, deprecation policy |
-| Security/privacy | Pass | Trusted code contributions, zod metadata, no new persistence/PII |
-| Runtime delivery | Pass | Owned scoped catalog API, editor transport, and server mutation validation consume one resolver |
-| Integration coverage | Pass | Lifecycle, precedence, extension ordering, dispatcher bootstrap, and module decoupling covered |
+| Scope cohesion | Pass with staged foundation | Foundation/API/commands ship first; selected-type validation completes the widget contribution contract; administrator overlays and React panels remain separate |
+| Module isolation | Pass | Generic widgets and soft-optional DI; no customers import of contributors or cross-module ORM link |
+| Widget and override contracts | Pass | Existing injection tables, form hooks, and unified module dispatcher are reused; new surfaces are additive |
+| Server integrity | Pass | One server resolver plus optional guard; browser validator never authorizes direct writes |
+| Tenant/organization isolation | Pass | Scoped catalog, cache, and mutations; no tenant values in global declarations |
+| Compatibility | Pass | Stable stored keys, frozen existing spots, deprecated bridge, additive contracts |
+| UI/i18n/accessibility | Pass | `CrudForm` retains controls; selected widget errors use existing translated field-error flow |
+| Integration coverage | Pass | Add/modify/remove, disabled peers, mounted validation, direct API and bootstraps |
 
 ### Verdict
 
-Approved for review. The extension-registry capability is independently deployable and linked to, but not coupled to, the administrator configuration spec.
+Approved for review as a widget-based extension contract over the customers calendar foundation.
 
 ## Changelog
 
 ### 2026-09-28 — Initial proposal
 
-- Split module-owned extension contracts from administrator configuration after independent scope review.
-- Defined generated registry composition, tombstone/history behavior, and module-decoupling coverage.
+- Split module-owned extensions from administrator configuration and optional React panels.
 
-### 2026-09-28 — AI extensibility parity
+### 2026-09-29 — Widget and DI revision
 
-- Split full replacement/disablement from patch extensions and aligned operation ordering with `aiAgentOverrides` / `aiAgentExtensions`.
-- Added equivalent file, `modules.ts`, and programmatic authoring paths, stable generated exports, snapshots, validation, precedence, and synthetic-entry behavior.
-- Clarified optional-module isolation and linked the optional React-panel companion spec.
+- Replaced the calendar-specific generator and generated registry with headless widget injection, inline module configuration, and a customers-owned DI API for add/patch/disable/remove.
+- Required an optional-module example and selected-type mounted widget validation with direct API guard coverage.
 
-### 2026-09-28 — Scope cohesion review
+### Review — 2026-09-29
 
-- Moved the optional UMES panel contract, component override tiers, frontend constraints, and UI tests into the linked React-panels companion spec.
-- Added the canonical foundation, catalog/editor transport, interaction validation, and complete shared-dispatcher bootstrap wiring after final architectural review.
+- **Reviewer**: Agent fresh-context scope review and author follow-up.
+- **Security**: Passed after making catalog-load failure display-only in the editor and fail-closed on writes.
+- **Performance**: Passed with exact-spot widget loading and versioned, scoped cache invalidation.
+- **Cache**: Passed with tenant/organization keys and registry-version invalidation.
+- **Commands**: Passed with authoritative key/core-field validation and optional server guard coverage.
+- **Risks**: The reviewer proposed separate foundation and validation specs; this proposal retains them as staged prerequisites and acceptance of one end-to-end widget contribution capability. The administrator overlay and React panel remain separate.
+- **Verdict**: Ready for design review.

@@ -34,7 +34,7 @@ No executable UI, arbitrary field schema, or direct React is stored in tenant da
 - A general-purpose form builder or tenant-authored JavaScript/React.
 - Renaming or normalizing persisted `interactionType` values.
 - Replacing `CrudForm`, custom-field definitions, or dictionary inheritance.
-- Defining module-owned types or custom panels; those belong to the linked registry and React-panel companion specs.
+- Defining module-owned types or custom panels; those belong to the linked widget-extension and React-panel companion specs.
 
 ## User stories and acceptance criteria
 
@@ -90,7 +90,7 @@ resolveCalendarEventTypes(scope)
   └── destructive-switch diff + undo
 ```
 
-The customers module owns the resolver and all persistence. This spec extends—not replaces—the canonical foundation resolver and read route from the extension spec. With no contributed entries, the input is its immutable shipped six-type baseline. With contributions, the input has already resolved AI-parity file → `modules.ts` → programmatic replacement/disable/extension tiers before scoped dictionary overlays run. Dictionary overlays never import or mutate another module.
+The customers module owns the resolver and all persistence. This spec extends—not replaces—the canonical foundation resolver and read route from the extension spec. With no contributed entries, the input is its immutable shipped six-type baseline. With contributions, the input has already composed enabled widget declarations → `modules.ts` configuration → programmatic DI operations before scoped dictionary overlays run. Dictionary overlays never import or mutate another module.
 
 ### Effective behavior schema
 
@@ -116,13 +116,13 @@ No direct ORM relationship is introduced. The implementation updates the custome
 Resolution order is deterministic:
 
 1. immutable six-type core baseline;
-2. optional effective static catalog supplied by the companion registry after its base, full override/disable, and patch-extension composition;
+2. optional effective catalog supplied by the companion widget and DI resolver after its base, full override/disable, and patch composition;
 3. inherited dictionary entry;
 4. local organization dictionary entry.
 
-Dictionary arrays replace rather than concatenate. Equal `order` values preserve dictionary ordering and then key ordering. Resolver output is immutable and includes static source-tier/property provenance, inheritance, configurability, and nullable `updatedAt` metadata. Dictionary rows apply only when the static definition is `adminConfigurable !== false`; existing rows for a newly non-configurable definition remain stored but inactive and visible as a settings warning until the static restriction is removed.
+Dictionary arrays replace rather than concatenate. Equal `order` values preserve dictionary ordering and then key ordering. Resolver output is immutable and includes widget/config/programmatic source-tier and property provenance, inheritance, configurability, and nullable `updatedAt` metadata. Dictionary rows apply only when the underlying definition is `adminConfigurable !== false`; existing rows for a newly non-configurable definition remain stored but inactive and visible as a settings warning until the restriction is removed.
 
-If registry/configuration loading fails, callers report the error and use the shipped baseline. Historical resolution is always available: an unknown or unavailable key returns raw-key display metadata plus meeting-shaped behavior, but is not selectable for new records.
+If widget/configuration loading fails, callers report the error and fail closed for selection and mutation. The editor may use the shipped baseline to display an existing draft while a scoped catalog retry is pending; it cannot save from that fallback. Historical resolution is always available after successful loading: an unknown or unavailable key returns raw-key display metadata plus meeting-shaped behavior, but is not selectable for new records.
 
 `editorKindOfInteractionType()` remains as a deprecated wrapper for at least one minor release and delegates to the new resolver's `baseKind`. Existing `KIND_CONFIG`, `EDITOR_KINDS`, and `EditorKindConfig` exports remain unchanged.
 
@@ -137,7 +137,7 @@ If registry/configuration loading fails, callers report the error and use the sh
 - Returns `{ items: EffectiveCalendarEventType[], fallbackKey: 'meeting' }`.
 - Each item includes `key`, resolved label/icon/color, behavior, `selectable`, source, `isInherited`, `isLocalOverride`, `adminConfigurable`, and nullable `updatedAt`.
 - Exports OpenAPI and uses the DI-resolved cache with tenant, organization, and readable-ancestor tags.
-- Never exposes component functions or registry loaders.
+- Never exposes component functions or widget loaders.
 
 ### Dictionary mutations
 
@@ -173,7 +173,7 @@ Customers → Dictionaries → Activity types becomes the authoritative manager.
 
 The type selector orders effective selectable types by behavior order and dictionary sort. Editing an unavailable historical type prepends its current raw value with a warning, but switching away does not make it selectable again.
 
-Prototype: [configurable calendar event types](../prototypes/configurable-calendar-event-types/index.html). It uses synthetic data and validates the composed administrator + module-extension journey; it does not implement live persistence, RBAC, or registry loading.
+Prototype: [configurable calendar event types](../prototypes/configurable-calendar-event-types/index.html). It uses synthetic data and illustrates the composed administrator + module-extension journey; it does not implement live persistence, RBAC, or widget loading.
 
 ## Frontend Architecture Contract
 
@@ -190,7 +190,7 @@ Required evidence: `yarn check:client-boundaries`, `yarn build:app`, Playwright 
 
 | Failure | User behavior | System behavior |
 |---|---|---|
-| Catalog/config read fails | localized retry banner; shipped types remain usable | report error; use scoped baseline; never reuse another scope's cache |
+| Catalog/config read fails | localized retry banner; baseline display only, selection/save disabled | report error and fail closed; never reuse another scope's cache |
 | Stale settings edit | unified conflict bar with reload/retry | standard 409; no partial write |
 | Type switch would discard values | exact confirmation list | typed 409 until explicit confirm |
 | Confirmed clear fails | draft remains; localized error | transaction rolls back core and custom writes; no side effects emitted |
@@ -213,7 +213,7 @@ Structured logs include tenant/organization IDs, type key, resolver source count
 - Nullable JSONB and optional API fields are additive.
 - Existing routes, methods, custom-field spots, and stored interaction type values remain unchanged.
 - The deprecated resolver bridge and `UPGRADE_NOTES.md` entry remain for at least one minor version.
-- The canonical schema, six definitions, fallback, resolver, and read route come from the prerequisite foundation; scoped dictionary overlays remain above every static file/`modules.ts`/programmatic source and cannot execute React.
+- The canonical schema, six definitions, fallback, resolver, and read route come from the prerequisite foundation; scoped dictionary overlays remain above widget/`modules.ts`/programmatic sources and cannot execute React.
 - Old application code ignores the nullable column and continues using current fallbacks.
 - Removing this feature leaves dormant configuration but requires no data conversion.
 
@@ -304,3 +304,8 @@ Approved for review. The original combined brief was split by capability with th
 - Clarified that the companion registry fully resolves AI-parity file, `modules.ts`, and programmatic tiers before inherited/local dictionary overlays.
 - Defined inactive-row behavior when a higher static tier makes a type non-configurable.
 - Reused the registry spec's canonical schema, six definitions, resolver, fallback, and catalog route instead of duplicating ownership.
+
+### 2026-09-29 — Widget extension alignment
+
+- Superseded the generator-based input with widget injection and the programmatic DI API; dictionary overlays remain the highest scoped layer.
+- Made baseline fallback display-only when authoritative catalog loading fails, so hidden types cannot become selectable.

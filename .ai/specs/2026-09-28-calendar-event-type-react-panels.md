@@ -7,7 +7,7 @@
 
 ## TLDR
 
-After the canonical customers calendar-type foundation is present, add one stable component-replacement handle so enabled modules and downstream apps can wrap, transform, replace, or programmatically alter its React UI. The feature reuses the existing Unified Module Extension System (UMES) and therefore exposes the same three UI authoring paths as AI UI parts: `widgets/components.ts`, `modules.ts` inline component overrides, and `applyComponentOverrides()` at bootstrap/test time.
+After the canonical customers calendar-type foundation is present, add one stable component-replacement handle so enabled modules and downstream apps can wrap, transform, replace, or programmatically alter its React UI. The feature reuses the existing Unified Module Extension System (UMES) and therefore exposes the same three UI authoring paths as AI UI parts: `widgets/components.ts`, `modules.ts` inline component overrides, and `applyComponentOverrides()` at bootstrap/test time. Selected-type `onBeforeSave` validation is supplied by mounted injection widgets under the extension spec and remains active with default, wrapped, or replaced panels.
 
 Customers retains the single `CrudForm`, submission, optimistic locking, guards, and keyboard lifecycle. The panel receives form capabilities but no submit, delete, request, transaction, or raw network callback. Event-type metadata remains serializable; `panelKey` can select behavior but never dynamically imports code.
 
@@ -15,7 +15,7 @@ Customers retains the single `CrudForm`, submission, optimistic locking, guards,
 
 | # | Question | Applied default | Why | Confirm? |
 |---|---|---|---|---|
-| Q1 | Should the React host ship in the event-type registry spec? | No; keep it as this linked companion capability deployed after the registry-owned foundation. | The UI host is independently reviewable and optional, but its props intentionally reuse the canonical effective-definition contract. | Confirmed by scope review |
+| Q1 | Should the React host ship in the event-type extension spec? | No; keep it as this linked companion capability deployed after the customers-owned foundation. | The UI host is independently reviewable and optional, but its props intentionally reuse the canonical effective-definition contract. | Confirmed by scope review |
 | Q2 | Which extension framework should own the UI? | Existing UMES component replacement, not a calendar-specific registry. | It already supports wrappers, props transforms, replacement, inline configuration, and programmatic application. | Reversible |
 | Q3 | Where does submission live? | Always in the customers-owned `CrudForm`. | Preserves mutation guards, optimistic locking, errors, injection spots, and keyboard behavior. | Reversible |
 
@@ -32,7 +32,7 @@ Customers retains the single `CrudForm`, submission, optimistic locking, guards,
 
 ### Non-goals
 
-- Defining, replacing, disabling, or extending event-type metadata; the linked registry spec owns that.
+- Defining, replacing, disabling, or extending event-type metadata; the linked widget-extension spec owns that.
 - Administrator-authored React, JavaScript, component names, or import paths.
 - Replacing the whole dialog, form header/footer, mutation handler, or conflict surface.
 - Adding direct ORM relationships between customers and a contributor.
@@ -113,13 +113,13 @@ type CalendarEventTypePanelProps = {
 }
 ```
 
-`EffectiveCalendarEventType` is the canonical foundation export, and `CalendarEventPanelCapabilities` is a new UI-only closed object owned by this spec. `panelKey` is optional: all six baseline kinds work without it, and a later module definition may supply it as an opaque routing hint. This spec does not redefine event metadata or require a contributed registry entry.
+`EffectiveCalendarEventType` is the canonical foundation export, and `CalendarEventPanelCapabilities` is a new UI-only closed object owned by this spec. `panelKey` is optional: all six baseline kinds work without it, and a later widget-contributed definition may supply it as an opaque routing hint. This spec does not redefine event metadata or require a contributed type.
 
 `CalendarEventEditor` resolves `useRegisteredComponent(handle, DefaultEventTypePanel)` inside its existing single `CrudForm`. Every shipped, contributed, replaced, and administrator-configured type traverses this component path; there are no type-specific tabs that bypass it.
 
 The props intentionally omit submit, delete, `apiCall`, transaction, request-header, retry, and raw validation-bypass callbacks. A replacement remains trusted code and can import APIs independently, so server validation and code review remain enforcement boundaries.
 
-Existing frozen spots `crud-form:customers.customer_interaction` and `crud-form:customers.customer_interaction:fields` remain unchanged. The new panel handle does not supersede generic CrudForm field widgets.
+Existing frozen spots `crud-form:customers.customer_interaction` and `crud-form:customers.customer_interaction:fields` remain unchanged. The new panel handle does not supersede generic CrudForm field widgets or the selected-type mounted widget's `onBeforeSave` validation. A wrapper/replacement cannot bypass the host's injection event pipeline.
 
 ## Three React override paths
 
@@ -185,7 +185,7 @@ For all three paths, existing UMES composition remains authoritative: base regis
 
 ### End-to-end `my_custom_overrides` wrapper
 
-The module paired with the registry example contributes a statically discoverable wrapper:
+The module paired with the widget-extension example contributes a statically discoverable wrapper:
 
 ```ts
 // apps/mercato/src/modules/my_custom_overrides/widgets/components.ts
@@ -308,7 +308,7 @@ Fixtures use a canonical example module and clean created records in `finally`.
 - **TC-CETP-001 — default and module lifecycle:** render every core/contributed type through the handle, disable the contributor, and verify default fallback plus unchanged persisted data.
 - **TC-CETP-002 — React override tiers:** target the handle through file, `modules.ts`, and the dual-runtime programmatic UMES hook; verify existing precedence, `null` fallback, composed-state introspection, internal reset isolation, and the same component before/after hydration.
 - **TC-CETP-003 — type-specific wrapper:** branch on `definition.key` and `panelKey`, delegate other types to `Original`, change a sanctioned field through `setValue`, and submit through the host.
-- **TC-CETP-004 — host authority:** verify no submit/network callback is present, generic custom-field widgets still render, `Cmd/Ctrl+Enter`, `Escape`, guarded mutation, optimistic locking, conflicts, and retry remain host-owned.
+- **TC-CETP-004 — host authority:** verify no submit/network callback is present, generic custom-field widgets and selected-type `onBeforeSave` validation still run under default/wrapped/replaced panels; `Cmd/Ctrl+Enter`, `Escape`, guarded mutation, optimistic locking, conflicts, and retry remain host-owned.
 - **TC-CETP-005 — render failure boundaries:** force a composed wrapper-component render error and a replacement render error, assert the plain default fallback preserves the draft, and verify current UMES diagnostics omit form values while allowing unknown wrapper attribution; separately prove wrapper-factory/props-transform errors are outside the fallback guarantee.
 - **TC-CETP-006 — optional-module isolation:** run module-decoupling and bundle checks with customers absent and with the contributor disabled; assert no unresolved import/loader and no unrelated-route panel chunk.
 
@@ -357,3 +357,7 @@ Approved for review as a companion capability deployed after the canonical custo
 - Defined the exact handle, versioned safe props, default/error fallback, and frontend boundary.
 - Reused all existing UMES/AI UI component authoring tiers instead of adding calendar-specific registration or precedence.
 - Declared the foundation dependency, dual-runtime programmatic bootstrap hook, and current UMES fallback/diagnostic limits.
+
+### 2026-09-29 — Widget validation alignment
+
+- Clarified that panel overrides preserve the selected-type mounted widget validation owned by the extension spec.
