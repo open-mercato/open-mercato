@@ -44,7 +44,10 @@ test.describe('TC-CGRP-021: Commercial terms section — set and save via the re
       await expect(paymentInput).toBeVisible({ timeout: 10_000 });
 
       await fillControlledInput(paymentInput, '30');
-      await page.locator('[data-crud-field-id="allowPurchaseOnAccount"]').getByRole('switch').click();
+      const purchaseOnAccount = page.locator('[data-crud-field-id="allowPurchaseOnAccount"]');
+      await expect(purchaseOnAccount.getByRole('combobox')).toContainText('Inherit');
+      await purchaseOnAccount.getByRole('combobox').click();
+      await page.getByRole('option', { name: 'Allow', exact: true }).click();
       await fillControlledInput(page.locator('[data-crud-field-id="defaultCreditLimit"] input'), '5000');
       await fillControlledInput(page.locator('[data-crud-field-id="creditCurrencyCode"] input'), 'usd');
       await fillControlledInput(page.locator('[data-crud-field-id="approvalRequiredAbove"] input'), '1000');
@@ -59,9 +62,7 @@ test.describe('TC-CGRP-021: Commercial terms section — set and save via the re
       // The form now shows the saved values, not the empty state.
       await expect(page.getByText('No terms set — inheriting from parent / tenant defaults')).toHaveCount(0);
       await expect(paymentInput).toHaveValue('30');
-      await expect(
-        page.locator('[data-crud-field-id="allowPurchaseOnAccount"]').getByRole('switch'),
-      ).toHaveAttribute('aria-checked', 'true');
+      await expect(purchaseOnAccount.getByRole('combobox')).toContainText('Allow');
       await expect(page.locator('[data-crud-field-id="creditCurrencyCode"] input')).toHaveValue('USD');
 
       // Reload and confirm persistence through the real API round trip.
@@ -72,8 +73,8 @@ test.describe('TC-CGRP-021: Commercial terms section — set and save via the re
       const reloadedPaymentInput = page.locator('[data-crud-field-id="paymentTermsDays"] input');
       await expect(reloadedPaymentInput).toHaveValue('30', { timeout: 10_000 });
       await expect(
-        page.locator('[data-crud-field-id="allowPurchaseOnAccount"]').getByRole('switch'),
-      ).toHaveAttribute('aria-checked', 'true');
+        page.locator('[data-crud-field-id="allowPurchaseOnAccount"]').getByRole('combobox'),
+      ).toContainText('Allow');
       await expect(page.locator('[data-crud-field-id="defaultCreditLimit"] input')).toHaveValue('5000');
       await expect(page.locator('[data-crud-field-id="creditCurrencyCode"] input')).toHaveValue('USD');
       await expect(page.locator('[data-crud-field-id="approvalRequiredAbove"] input')).toHaveValue('1000');

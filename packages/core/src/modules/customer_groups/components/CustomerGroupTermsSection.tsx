@@ -10,7 +10,6 @@ import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { CustomerGroupTermsPriceKindField } from './CustomerGroupTermsPriceKindField'
 
@@ -21,7 +20,7 @@ export type CustomerGroupTermsDTO = {
   tenantId: string
   priceKindId: string | null
   paymentTermsDays: number | null
-  allowPurchaseOnAccount: boolean
+  allowPurchaseOnAccount: boolean | null
   defaultCreditLimit: number | null
   creditCurrencyCode: string | null
   approvalRequiredAbove: number | null
@@ -31,10 +30,27 @@ export type CustomerGroupTermsDTO = {
   updatedAt: string
 }
 
+// `inherit` maps to `null` on the wire: the field is left unset on this group and
+// resolves from the parent chain / tenant default, like the other terms fields.
+const PURCHASE_ON_ACCOUNT_VALUES = ['inherit', 'allow', 'deny'] as const
+type PurchaseOnAccountValue = (typeof PURCHASE_ON_ACCOUNT_VALUES)[number]
+
+function toPurchaseOnAccountValue(value: boolean | null | undefined): PurchaseOnAccountValue {
+  if (value === true) return 'allow'
+  if (value === false) return 'deny'
+  return 'inherit'
+}
+
+function fromPurchaseOnAccountValue(value: string | undefined): boolean | null {
+  if (value === 'allow') return true
+  if (value === 'deny') return false
+  return null
+}
+
 type CustomerGroupTermsFormValues = {
   priceKindId: string
   paymentTermsDays?: number
-  allowPurchaseOnAccount: boolean
+  allowPurchaseOnAccount: PurchaseOnAccountValue
   defaultCreditLimit?: number
   creditCurrencyCode: string
   approvalRequiredAbove?: number
@@ -45,7 +61,7 @@ function mapTermsToFormValues(terms: CustomerGroupTermsDTO | null): CustomerGrou
   return {
     priceKindId: terms?.priceKindId ?? '',
     paymentTermsDays: terms?.paymentTermsDays ?? undefined,
-    allowPurchaseOnAccount: terms?.allowPurchaseOnAccount ?? false,
+    allowPurchaseOnAccount: toPurchaseOnAccountValue(terms?.allowPurchaseOnAccount),
     defaultCreditLimit: terms?.defaultCreditLimit ?? undefined,
     creditCurrencyCode: terms?.creditCurrencyCode ?? '',
     approvalRequiredAbove: terms?.approvalRequiredAbove ?? undefined,
@@ -89,7 +105,7 @@ export function CustomerGroupTermsSection({
       z.object({
         priceKindId: z.string().trim(),
         paymentTermsDays: z.coerce.number().int().min(0, negativeMessage).optional(),
-        allowPurchaseOnAccount: z.boolean(),
+        allowPurchaseOnAccount: z.enum(PURCHASE_ON_ACCOUNT_VALUES),
         defaultCreditLimit: z.coerce.number().min(0, negativeMessage).optional(),
         creditCurrencyCode: z
           .string()
@@ -123,17 +139,24 @@ export function CustomerGroupTermsSection({
       },
       {
         id: 'allowPurchaseOnAccount',
-        label: '',
-        type: 'custom',
+        label: t('customer_groups.groups.form.terms.field.allowPurchaseOnAccount', 'Allow purchase on account'),
+        type: 'select',
         layout: 'half',
-        component: ({ value, setValue, disabled }) => (
-          <SwitchField
-            label={t('customer_groups.groups.form.terms.field.allowPurchaseOnAccount', 'Allow purchase on account')}
-            checked={value === true}
-            disabled={disabled}
-            onCheckedChange={(next) => setValue(next === true)}
-          />
-        ),
+        required: true,
+        options: [
+          {
+            value: 'inherit',
+            label: t('customer_groups.groups.form.terms.field.allowPurchaseOnAccountOptions.inherit', 'Inherit'),
+          },
+          {
+            value: 'allow',
+            label: t('customer_groups.groups.form.terms.field.allowPurchaseOnAccountOptions.allow', 'Allow'),
+          },
+          {
+            value: 'deny',
+            label: t('customer_groups.groups.form.terms.field.allowPurchaseOnAccountOptions.deny', 'Do not allow'),
+          },
+        ],
       },
       {
         id: 'defaultCreditLimit',
@@ -172,7 +195,7 @@ export function CustomerGroupTermsSection({
       const payload: Record<string, unknown> = {
         priceKindId: values.priceKindId && values.priceKindId.trim().length ? values.priceKindId : null,
         paymentTermsDays: typeof values.paymentTermsDays === 'number' ? values.paymentTermsDays : null,
-        allowPurchaseOnAccount: values.allowPurchaseOnAccount === true,
+        allowPurchaseOnAccount: fromPurchaseOnAccountValue(values.allowPurchaseOnAccount),
         defaultCreditLimit: typeof values.defaultCreditLimit === 'number' ? values.defaultCreditLimit : null,
         creditCurrencyCode:
           values.creditCurrencyCode && values.creditCurrencyCode.trim().length

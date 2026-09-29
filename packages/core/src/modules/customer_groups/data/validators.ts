@@ -194,7 +194,7 @@ const customerGroupTermsBaseShape = {
   groupId: uuid(),
   priceKindId: clearableUuidSchema,
   paymentTermsDays: clearableNonNegativeIntSchema,
-  allowPurchaseOnAccount: z.boolean(),
+  allowPurchaseOnAccount: z.boolean().nullable().optional(),
   defaultCreditLimit: clearableNonNegativeNumberSchema,
   creditCurrencyCode: currencyCodeSchema,
   approvalRequiredAbove: clearableNonNegativeNumberSchema,
@@ -202,10 +202,7 @@ const customerGroupTermsBaseShape = {
   metadata: clearableMetadataSchema,
 }
 
-export const customerGroupTermsCreateSchema = z.object({
-  ...customerGroupTermsBaseShape,
-  allowPurchaseOnAccount: z.boolean().optional().default(false),
-})
+export const customerGroupTermsCreateSchema = z.object(customerGroupTermsBaseShape)
 
 export type CustomerGroupTermsCreateInput = z.infer<typeof customerGroupTermsCreateSchema>
 

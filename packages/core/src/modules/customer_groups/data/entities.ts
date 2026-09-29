@@ -191,7 +191,6 @@ export class CustomerGroupMembership {
 })
 export class CustomerGroupTerms {
   [OptionalProps]?:
-    | 'allowPurchaseOnAccount'
     | 'createdAt'
     | 'updatedAt'
     | 'deletedAt'
@@ -214,8 +213,10 @@ export class CustomerGroupTerms {
   @Property({ name: 'payment_terms_days', type: 'int', nullable: true })
   paymentTermsDays?: number | null
 
-  @Property({ name: 'allow_purchase_on_account', type: 'boolean', default: false })
-  allowPurchaseOnAccount: boolean = false
+  // Nullable like every other terms field: `null` means "not set on this group, inherit
+  // from the parent chain / tenant default", so a group can override only some fields.
+  @Property({ name: 'allow_purchase_on_account', type: 'boolean', nullable: true })
+  allowPurchaseOnAccount?: boolean | null
 
   @Property({ name: 'default_credit_limit', type: 'numeric', precision: 16, scale: 2, nullable: true })
   defaultCreditLimit?: string | null

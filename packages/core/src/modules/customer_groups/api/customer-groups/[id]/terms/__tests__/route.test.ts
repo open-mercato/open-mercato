@@ -233,6 +233,37 @@ describe('PUT /api/customer-groups/[id]/terms', () => {
     )
   })
 
+  it('clears allowPurchaseOnAccount back to inheriting when the update sends null', async () => {
+    const em = createFakeEm({ group: existingGroup, terms: { ...existingTerms } })
+    setupContainer(em)
+
+    const res = await PUT(
+      jsonRequest(
+        { allowPurchaseOnAccount: null },
+        { [OPTIMISTIC_LOCK_HEADER_NAME]: existingTerms.updatedAt!.toISOString() },
+      ),
+      routeCtx(),
+    )
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.terms.allowPurchaseOnAccount).toBeNull()
+    expect(body.terms.paymentTermsDays).toBe(30)
+  })
+
+  it('creates a terms row that leaves allowPurchaseOnAccount unset when it is omitted', async () => {
+    const em = createFakeEm({ group: existingGroup, terms: null })
+    setupContainer(em)
+
+    const res = await PUT(jsonRequest({ paymentTermsDays: 15 }), routeCtx())
+
+    expect(res.status).toBe(200)
+    expect(em.create).toHaveBeenCalledWith(
+      CustomerGroupTerms,
+      expect.objectContaining({ paymentTermsDays: 15, allowPurchaseOnAccount: null }),
+    )
+  })
+
   it('409s on a stale optimistic-lock token against an existing row', async () => {
     const em = createFakeEm({ group: existingGroup, terms: { ...existingTerms } })
     setupContainer(em)

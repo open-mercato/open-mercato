@@ -106,7 +106,7 @@ function serializeTerms(terms: CustomerGroupTerms) {
     tenantId: terms.tenantId,
     priceKindId: terms.priceKindId ?? null,
     paymentTermsDays: terms.paymentTermsDays ?? null,
-    allowPurchaseOnAccount: terms.allowPurchaseOnAccount,
+    allowPurchaseOnAccount: terms.allowPurchaseOnAccount ?? null,
     defaultCreditLimit: toNumberOrNull(terms.defaultCreditLimit),
     creditCurrencyCode: terms.creditCurrencyCode ?? null,
     approvalRequiredAbove: toNumberOrNull(terms.approvalRequiredAbove),
@@ -152,7 +152,7 @@ type CustomerGroupTermsEntityData = {
   groupId: string
   priceKindId: string | null
   paymentTermsDays: number | null
-  allowPurchaseOnAccount: boolean
+  allowPurchaseOnAccount: boolean | null
   defaultCreditLimit: string | null
   creditCurrencyCode: string | null
   approvalRequiredAbove: string | null
@@ -167,7 +167,7 @@ function toEntityData(input: CustomerGroupTermsCreateInput): CustomerGroupTermsE
     groupId: input.groupId,
     priceKindId: input.priceKindId ?? null,
     paymentTermsDays: input.paymentTermsDays ?? null,
-    allowPurchaseOnAccount: input.allowPurchaseOnAccount ?? false,
+    allowPurchaseOnAccount: input.allowPurchaseOnAccount ?? null,
     defaultCreditLimit: toNumericString(input.defaultCreditLimit),
     creditCurrencyCode: input.creditCurrencyCode ?? null,
     approvalRequiredAbove: toNumericString(input.approvalRequiredAbove),
@@ -186,9 +186,7 @@ function hasOwn(input: object, key: string): boolean {
 function applyTermsUpdate(entity: CustomerGroupTerms, input: CustomerGroupTermsUpdateInput): void {
   if (hasOwn(input, 'priceKindId')) entity.priceKindId = input.priceKindId ?? null
   if (hasOwn(input, 'paymentTermsDays')) entity.paymentTermsDays = input.paymentTermsDays ?? null
-  if (hasOwn(input, 'allowPurchaseOnAccount') && input.allowPurchaseOnAccount !== undefined) {
-    entity.allowPurchaseOnAccount = input.allowPurchaseOnAccount
-  }
+  if (hasOwn(input, 'allowPurchaseOnAccount')) entity.allowPurchaseOnAccount = input.allowPurchaseOnAccount ?? null
   if (hasOwn(input, 'defaultCreditLimit')) entity.defaultCreditLimit = toNumericString(input.defaultCreditLimit)
   if (hasOwn(input, 'creditCurrencyCode')) entity.creditCurrencyCode = input.creditCurrencyCode ?? null
   if (hasOwn(input, 'approvalRequiredAbove')) entity.approvalRequiredAbove = toNumericString(input.approvalRequiredAbove)
@@ -297,7 +295,7 @@ const termsItemSchema = z.object({
   tenantId: z.string().uuid(),
   priceKindId: z.string().uuid().nullable(),
   paymentTermsDays: z.number().int().nullable(),
-  allowPurchaseOnAccount: z.boolean(),
+  allowPurchaseOnAccount: z.boolean().nullable(),
   defaultCreditLimit: z.number().nullable(),
   creditCurrencyCode: z.string().nullable(),
   approvalRequiredAbove: z.number().nullable(),

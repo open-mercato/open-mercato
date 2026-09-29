@@ -187,12 +187,9 @@ function toNumberOrNull(value: string | null | undefined): number | null {
   return Number.isNaN(parsed) ? null : parsed
 }
 
-// `allowPurchaseOnAccount` is the one field with no null representation at the DB
-// level (`boolean` column, `default: false`, not nullable — see `data/entities.ts`).
-// A group WITHOUT a terms row still means "unset, keep walking" for this field, but
-// a group WITH a terms row always carries a definitive true/false value for it — there
-// is no way for a terms row to leave just this field unset. The other four fields are
-// nullable columns, so their own value decides.
+// Every terms field is a nullable column: `null` means "not set on this group, keep
+// walking the ancestor chain", so a group can override a single field and inherit the
+// rest.
 function termsFieldIsSet(terms: CustomerGroupTerms, field: TermsFieldName): boolean {
   switch (field) {
     case 'priceKindId':
@@ -200,7 +197,7 @@ function termsFieldIsSet(terms: CustomerGroupTerms, field: TermsFieldName): bool
     case 'paymentTermsDays':
       return terms.paymentTermsDays != null
     case 'allowPurchaseOnAccount':
-      return true
+      return terms.allowPurchaseOnAccount != null
     case 'approvalRequiredAbove':
       return terms.approvalRequiredAbove != null
     case 'minOrderValue':
@@ -222,7 +219,7 @@ function applyTermsField(
       result.paymentTermsDays = terms.paymentTermsDays ?? null
       break
     case 'allowPurchaseOnAccount':
-      result.allowPurchaseOnAccount = terms.allowPurchaseOnAccount
+      result.allowPurchaseOnAccount = terms.allowPurchaseOnAccount === true
       break
     case 'approvalRequiredAbove':
       result.approvalRequiredAbove = toNumberOrNull(terms.approvalRequiredAbove)

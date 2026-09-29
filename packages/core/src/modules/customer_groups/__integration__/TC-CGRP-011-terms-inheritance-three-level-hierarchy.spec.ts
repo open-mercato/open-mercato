@@ -129,23 +129,12 @@ test.describe('TC-CGRP-011: Phase 2 gate — per-field terms inheritance across 
           path: [],
         });
       }
-      // `allowPurchaseOnAccount` is the one non-nullable-column field (see
-      // `termsFieldIsSet` in services/customerGroupsService.ts): the grandparent's
-      // terms row exists (created above), so this field counts as "set" there even
-      // though its value is the schema default `false` — unlike the nullable fields
-      // above, a terms row can never leave just this one field unset. It therefore
-      // resolves the same way paymentTermsDays does: value from, and sourced to, the
-      // grandparent, with the same ancestor path.
-      const allowPurchaseOnAccount = body?.fields?.allowPurchaseOnAccount;
-      expect(allowPurchaseOnAccount?.value, 'allowPurchaseOnAccount resolves to its false default value').toBe(false);
+      // `allowPurchaseOnAccount` is nullable like the fields above: the grandparent's
+      // terms row leaves it unset, so it resolves to the tenant default (`false`).
       expect(
-        allowPurchaseOnAccount?.sourceGroupId,
-        'allowPurchaseOnAccount.sourceGroupId must be the grandparent — any existing terms row defines this field, even at its default',
-      ).toBe(grandparentId);
-      expect(
-        allowPurchaseOnAccount?.path?.map((g) => g.id),
-        'allowPurchaseOnAccount.path must contain all three groups in child -> parent -> grandparent order',
-      ).toEqual([childId, parentId, grandparentId]);
+        body?.fields?.allowPurchaseOnAccount,
+        'allowPurchaseOnAccount must stay at the tenant default (never set)',
+      ).toMatchObject({ value: false, sourceGroupId: null, path: [] });
     } finally {
       await deleteCustomerGroupMembershipIfExists(request, token, membershipId);
       await deleteEntityIfExists(request, token, '/api/customers/people', customerId);

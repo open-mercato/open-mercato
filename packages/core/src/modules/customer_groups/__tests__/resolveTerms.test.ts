@@ -57,7 +57,7 @@ function makeTerms(overrides: Partial<CustomerGroupTerms> & { groupId: string })
     tenantId: TENANT_ID,
     priceKindId: null,
     paymentTermsDays: null,
-    allowPurchaseOnAccount: false,
+    allowPurchaseOnAccount: null,
     defaultCreditLimit: null,
     creditCurrencyCode: null,
     approvalRequiredAbove: null,
@@ -207,11 +207,46 @@ describe('DefaultCustomerGroupsService.resolveTerms', () => {
     expect(result.sources.paymentTermsDays).toBeNull()
     expect(result.sources.approvalRequiredAbove).toBeNull()
     expect(result.sources.minOrderValue).toBeNull()
-    // `allowPurchaseOnAccount` is a non-nullable boolean column (see
-    // `termsFieldIsSet` in `services/customerGroupsService.ts`): once the CHILD
-    // group's own terms row exists at all, its `false` default is a definitive,
-    // already-set value for this one field — it does not fall through to the
-    // parent or to the tenant default the way the four nullable fields do.
+    expect(result.allowPurchaseOnAccount).toBe(false)
+    expect(result.sources.allowPurchaseOnAccount).toBeNull()
+  })
+
+  it('inherits allowPurchaseOnAccount from the parent when the child row leaves it unset', async () => {
+    const memberships = [makeMembership({ id: 'm-child', groupId: CHILD_ID })]
+    const groups = [
+      makeGroup({ id: CHILD_ID, code: 'child', name: 'Child', priority: 20, parentId: PARENT_ID }),
+      makeGroup({ id: PARENT_ID, code: 'parent', name: 'Parent', priority: 10, parentId: null }),
+    ]
+    const terms = [
+      makeTerms({ groupId: CHILD_ID, paymentTermsDays: 14, allowPurchaseOnAccount: null }),
+      makeTerms({ groupId: PARENT_ID, allowPurchaseOnAccount: true }),
+    ]
+    const em = createEm({ memberships, groups, terms })
+    const service = new DefaultCustomerGroupsService(em as never)
+
+    const result = await service.resolveTerms({ customerId: CUSTOMER_ID, tenantId: TENANT_ID })
+
+    expect(result.paymentTermsDays).toBe(14)
+    expect(result.sources.paymentTermsDays).toBe(CHILD_ID)
+    expect(result.allowPurchaseOnAccount).toBe(true)
+    expect(result.sources.allowPurchaseOnAccount).toBe(PARENT_ID)
+  })
+
+  it('lets an explicit false on the child override an inherited true', async () => {
+    const memberships = [makeMembership({ id: 'm-child', groupId: CHILD_ID })]
+    const groups = [
+      makeGroup({ id: CHILD_ID, code: 'child', name: 'Child', priority: 20, parentId: PARENT_ID }),
+      makeGroup({ id: PARENT_ID, code: 'parent', name: 'Parent', priority: 10, parentId: null }),
+    ]
+    const terms = [
+      makeTerms({ groupId: CHILD_ID, allowPurchaseOnAccount: false }),
+      makeTerms({ groupId: PARENT_ID, allowPurchaseOnAccount: true }),
+    ]
+    const em = createEm({ memberships, groups, terms })
+    const service = new DefaultCustomerGroupsService(em as never)
+
+    const result = await service.resolveTerms({ customerId: CUSTOMER_ID, tenantId: TENANT_ID })
+
     expect(result.allowPurchaseOnAccount).toBe(false)
     expect(result.sources.allowPurchaseOnAccount).toBe(CHILD_ID)
   })
@@ -282,11 +317,9 @@ describe('DefaultCustomerGroupsService.resolveTerms', () => {
     expect(result.sources.priceKindId).toBe(CHILD_ID)
     expect(result.paymentTermsDays).toBe(45)
     expect(result.sources.paymentTermsDays).toBe(GRANDPARENT_ID)
-    // CHILD_ID has its own terms row (set above via `priceKindId`), so — per the
-    // non-nullable-boolean nuance documented in `termsFieldIsSet` — its `false`
-    // default for `allowPurchaseOnAccount` already counts as set and wins here too.
+    // No row sets `allowPurchaseOnAccount`, so it falls through to the tenant default.
     expect(result.allowPurchaseOnAccount).toBe(false)
-    expect(result.sources.allowPurchaseOnAccount).toBe(CHILD_ID)
+    expect(result.sources.allowPurchaseOnAccount).toBeNull()
   })
 
   it('accepts pre-resolved groupIds and skips the membership-resolution query', async () => {

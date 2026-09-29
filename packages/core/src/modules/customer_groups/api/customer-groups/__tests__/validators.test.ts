@@ -44,10 +44,16 @@ describe('customer group update schemas', () => {
     expect(Object.prototype.hasOwnProperty.call(parsed, 'allowPurchaseOnAccount')).toBe(false)
   })
 
-  it('keeps the allowPurchaseOnAccount default on terms create', () => {
+  it('leaves allowPurchaseOnAccount unset on terms create so it inherits', () => {
     const parsed = customerGroupTermsCreateSchema.parse({ tenantId: TENANT_ID, groupId: GROUP_ID })
 
-    expect(parsed.allowPurchaseOnAccount).toBe(false)
+    expect(parsed.allowPurchaseOnAccount).toBeUndefined()
+  })
+
+  it('accepts an explicit null allowPurchaseOnAccount on a terms update to go back to inheriting', () => {
+    const parsed = customerGroupTermsUpdateSchema.parse({ id: GROUP_ID, allowPurchaseOnAccount: null })
+
+    expect(parsed.allowPurchaseOnAccount).toBeNull()
   })
 })
 

@@ -167,7 +167,7 @@ One row per group. Absent row means "inherit from parent group, then tenant defa
 | `group_id` | uuid | FK → `customer_groups`, unique |
 | `price_kind_id` | uuid, nullable | `catalog.CatalogPriceKind.id` — the price kind this group buys at; its own `displayMode` (`including-tax` \| `excluding-tax`) is the **only** source of gross/net display for this group — see §6.1a. No separate `tax_display_mode` column: a `/om-pre-implement-spec` audit found the original draft stored gross/net twice (here, independently of `price_kind_id`), with no reconciliation rule and no codebase precedent for a buyer-level tax preference independent of the selected price kind (`catalog`'s own `LineItemDialog.tsx` derives mode from `displayMode` 1:1 everywhere). |
 | `payment_terms_days` | integer, nullable | Net days; `0` = prepayment |
-| `allow_purchase_on_account` | boolean | Default `false` |
+| `allow_purchase_on_account` | boolean, nullable | `null` = not set on this group, inherit from the parent chain; the tenant default is `false` |
 | `default_credit_limit` | numeric(16,2), nullable | Applied to new credit accounts in this group |
 | `credit_currency_code` | text, nullable | |
 | `approval_required_above` | numeric(16,2), nullable | Order gross above this routes to approval; null = never |
@@ -678,6 +678,9 @@ Approver/account manager reviews over-threshold purchase requests.
 ---
 
 ## 18) Changelog
+
+### 2026-09-29 (nullable `allow_purchase_on_account`)
+- §5.3: `allow_purchase_on_account` is now nullable. `null` means "not set on this group": the value is inherited from the parent chain, falling back to the tenant default `false`. Before, a terms row always carried an explicit `true`/`false`, so saving a child group's terms to change any other field silently switched off purchase-on-account inherited from its parent. The admin form offers Inherit / Allow / Do not allow. Migration `Migration20260929083000_customer_groups` drops the column's `NOT NULL` and default, keeping stored values.
 
 ### 2026-09-16 (per-customer assortment overrides)
 
