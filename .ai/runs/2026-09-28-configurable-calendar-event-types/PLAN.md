@@ -28,9 +28,9 @@ The source PR was revised on 2026-09-29 after the original execution plan and St
 | 2 | 2.4 | Demonstrate Visit widget add, Meeting patch, and Note tombstone in the example module | group:D:capable | done | 33035d525 |
 | 2 | 2.5 | Add selected-type widget validation and scoped Visit availability preview/server rule | group:D:capable | done | 33035d525 |
 | 2 | 2.6 | Add the Visit React panel and dual-runtime UMES override paths | group:C:capable | done | 33035d525 |
-| 3 | 3.1 | Add self-contained event-type and custom-panel integration coverage | group:D:capable | todo | — |
-| 3 | 3.2 | Document the frozen extension contract and refresh standalone coverage | group:D:capable | todo | — |
-| 3 | 3.3 | Verify live UI flows and publish screenshot evidence to the PR | group:D:capable | todo | — |
+| 3 | 3.1 | Add self-contained event-type and custom-panel integration coverage | group:D:capable | done | 4bb14a34c |
+| 3 | 3.2 | Document the frozen extension contract and refresh standalone coverage | group:D:capable | done | 437dbcace |
+| 3 | 3.3 | Verify live UI flows and publish screenshot evidence to the PR | group:D:capable | done | 2ebe740d7 |
 
 ## Progress
 
@@ -56,9 +56,9 @@ The source PR was revised on 2026-09-29 after the original execution plan and St
 
 ### Phase 3: End-to-end evidence and durable contracts
 
-- [ ] 3.1 Add self-contained event-type and custom-panel integration coverage
-- [ ] 3.2 Document the frozen extension contract and refresh standalone coverage
-- [ ] 3.3 Verify live UI flows and publish screenshot evidence to the PR
+- [x] 3.1 Add self-contained event-type and custom-panel integration coverage — 4bb14a34c
+- [x] 3.2 Document the frozen extension contract and refresh standalone coverage — 437dbcace
+- [x] 3.3 Verify live UI flows and publish screenshot evidence to the PR — 2ebe740d7
 
 ## Goal
 
