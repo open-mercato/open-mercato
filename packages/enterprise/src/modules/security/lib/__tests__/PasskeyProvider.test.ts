@@ -163,6 +163,19 @@ describe('PasskeyProvider', () => {
     expect(confirmation.metadata.credentialPublicKey).toBe('AQIDBA')
   })
 
+  test('rejects a client-supplied credentialId/publicKey/challenge setup payload, even with a matching challenge (#5296)', async () => {
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const setup = await provider.setup('user-1', { label: 'Forged key' })
+
+    await expect(provider.confirmSetup('user-1', setup.setupId, {
+      credentialId: 'attacker-credential',
+      publicKey: Buffer.from('attacker-controlled-public-key').toString('base64url'),
+      challenge: 'setup-challenge',
+    })).rejects.toThrow()
+
+    expect(verifyRegistrationResponseMock).not.toHaveBeenCalled()
+  })
+
   test('prepares and verifies passkey authentication challenge', async () => {
     const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
     const request = new Request('https://preview-ephemeralenvom-preview-0kyxui-wmfj8i.openmercato.com/api/security/mfa/prepare')

@@ -44,9 +44,7 @@ type OtpEmailEnrollmentResult = {
 }
 
 type PasskeyEnrollmentResult = {
-  setupId: string
   credentialId: string
-  challenge: string
 }
 
 export function decodeJwtPayload(token: string): JwtPayload {
@@ -220,45 +218,56 @@ export async function enrollOtpEmail(
   }
 }
 
+/**
+ * Enrolls a passkey through the real browser ceremony instead of the API. Enrollment now
+ * requires a genuine WebAuthn attestation (#5296) — there is no API-level shortcut left to
+ * post a fabricated `{ credentialId, publicKey, challenge }` payload, because accepting one
+ * was the vulnerability. This drives a Chrome DevTools Protocol virtual authenticator on the
+ * caller's own page: the authenticator answers `navigator.credentials.create()` the way a real
+ * security key would, so `startRegistration()` in `PasskeyProviderDetails` produces a response
+ * `verifyRegistrationResponse` genuinely accepts. Caller navigates to a page (any page — the
+ * authenticator only needs to exist before the ceremony starts) before calling this; it
+ * navigates to the passkey settings page and clicks "Add" itself.
+ */
 export async function enrollPasskey(
   request: APIRequestContext,
+  page: Page,
   token: string,
 ): Promise<PasskeyEnrollmentResult> {
-  const setup = await fetchJson<{
-    setupId: string
-    clientData?: { challenge?: string }
-  }>(request, 'POST', '/api/security/mfa/provider/passkey', {
-    token,
-    data: { label: 'QA Passkey' },
-  })
-  expect(setup.status).toBe(200)
-  const challenge = setup.body.clientData?.challenge
-  expect(typeof challenge).toBe('string')
-  const credentialId = `qa-passkey-${Date.now()}`
-  const confirm = await fetchJson<{ ok: true }>(
-    request,
-    'PUT',
-    '/api/security/mfa/provider/passkey',
-    {
-      token,
-      data: {
-        setupId: setup.body.setupId,
-        payload: {
-          credentialId,
-          publicKey: Buffer.from(`public-key:${credentialId}`).toString('base64url'),
-          challenge,
-          transports: ['internal'],
-          label: 'QA Passkey',
-        },
-      },
+  const cdpSession = await page.context().newCDPSession(page)
+  await cdpSession.send('WebAuthn.enable')
+  await cdpSession.send('WebAuthn.addVirtualAuthenticator', {
+    options: {
+      protocol: 'ctap2',
+      transport: 'internal',
+      hasResidentKey: true,
+      hasUserVerification: true,
+      isUserVerified: true,
+      automaticPresenceSimulation: true,
     },
-  )
-  expect(confirm.status).toBe(200)
-  return {
-    setupId: setup.body.setupId,
-    credentialId,
-    challenge: challenge as string,
-  }
+  })
+
+  await page.goto('/backend/profile/security/mfa/passkey')
+  await page.getByRole('button', { name: 'Add' }).click()
+
+  await expect.poll(async () => {
+    const methods = await fetchJson<{ methods: Array<{ type: string }> }>(
+      request,
+      'GET',
+      '/api/security/mfa/methods',
+      { token },
+    )
+    return methods.body.methods.some((method) => method.type === 'passkey')
+  }, { message: 'passkey enrollment via the real WebAuthn ceremony did not complete' }).toBe(true)
+
+  const methods = await fetchJson<{
+    methods: Array<{ type: string; providerMetadata?: { credentialId?: string } | null }>
+  }>(request, 'GET', '/api/security/mfa/methods', { token })
+  const passkeyMethod = methods.body.methods.find((method) => method.type === 'passkey')
+  const credentialId = passkeyMethod?.providerMetadata?.credentialId
+  expect(typeof credentialId).toBe('string')
+
+  return { credentialId: credentialId as string }
 }
 
 export async function prepareOtpEmailChallenge(

@@ -144,6 +144,52 @@ in create mode and renders its empty state. The bridge also keeps the shipped `e
 `example.injection.customer-priority-field` field widget rendering on this page exactly as before,
 via the dual-published `:fields` child.
 
+### Passkey MFA enrollment requires a real WebAuthn attestation (#5296)
+
+`PasskeyProvider.confirmSetup()` used to accept a second enrollment payload shape —
+`{ credentialId, publicKey, challenge, transports?, label? }` — beside the genuine `{ response }`
+WebAuthn registration response, and approved it by comparing only the `challenge` value, which the
+immediately preceding `POST /api/security/mfa/provider/passkey` already discloses to the caller.
+Accepting it stored a client-supplied public key as a trusted second factor with no proof any
+authenticator ever produced it. This is the enrollment-side twin of the verify-side fix in
+`0.6.7 → 0.7.0` (#3852) below.
+
+**`PUT /api/security/mfa/provider/{providername}` now answers `400` for a passkey payload that is
+not a WebAuthn registration response.** This is a deliberate break of the request-shape contract
+with no deprecation window, because the shape being removed *is* the vulnerability — see the
+matching entry in [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md).
+
+**Action for client authors:** send the object returned by `@simplewebauthn/browser`'s
+`startRegistration()` as `payload.response`. The first-party passkey setup UI already does this, so
+apps using the shipped `PasskeyProviderDetails` component need no change. A client that submitted
+`{ credentialId, publicKey, challenge }` was, by construction, not performing a real registration
+ceremony.
+
+**This closes the operator warning the `0.6.7 → 0.7.0` entry below left open** ("the passkey
+*enrollment* path still accepts a client-supplied `publicKey` with no attestation… this release
+does not close it"). As of this release, no *new* unattested passkey can be enrolled. Credentials
+enrolled through the removed shortcut **before** this release are not retroactively invalidated —
+the reset-and-re-enroll guidance in that entry still applies to anything enrolled earlier:
+
+- **No action needed** if your deployment has never accepted a passkey enrollment through the API
+  directly (only through the browser ceremony) — there is nothing to clean up.
+- **If you are unsure, or know API-driven enrollment was possible on your deployment**, follow the
+  reset-and-re-enroll steps in the `0.6.7 → 0.7.0` entry's "Action for operators" section below —
+  they are unchanged by this release, only the exposure window they describe is now closed for new
+  enrollments.
+
+`MfaVerificationService.findMethod` also gains a deterministic `orderBy: createdAt ASC` when more
+than one active method of a given type exists for a user, so credential selection is no longer
+left to database storage order in that (now unreachable through normal enrollment) edge case. No
+action required — this only resolves previously-undefined behavior.
+
+Also, for clarity on a question the original issue raised: a session that has only cleared a
+password but not a second factor (`mfa_pending: true`) **cannot** reach the enrollment route at
+all, on `develop` today — that was closed by an unrelated, earlier change (issue #5212, "the
+central MFA-pending token gate", PR #5453, 2026-08-24; see
+`.ai/specs/enterprise/implemented/SPEC-ENT-007-2026-03-06-auth-login-interceptors-extension.md`
+§ Amendment 2026-08-21). This release does not change that; it adds a regression test pinning it.
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).

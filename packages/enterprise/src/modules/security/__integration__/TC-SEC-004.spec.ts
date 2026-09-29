@@ -43,8 +43,9 @@ test.describe('TC-SEC-004: Passkey enrollment and MFA login', () => {
 
     await expect(page.getByRole('button', { name: 'Add' })).toBeVisible()
 
-    const enrollment = await enrollPasskey(request, userToken)
-    expect(enrollment.credentialId).toContain('qa-passkey')
+    const enrollment = await enrollPasskey(request, page, userToken)
+    expect(typeof enrollment.credentialId).toBe('string')
+    expect(enrollment.credentialId.length).toBeGreaterThan(0)
 
     const methodsResponse = await fetchJson<{ methods: Array<{ type: string }> }>(
       request,

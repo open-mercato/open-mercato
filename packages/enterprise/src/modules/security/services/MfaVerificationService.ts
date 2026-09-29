@@ -289,12 +289,11 @@ export class MfaVerificationService {
   }
 
   private async findMethod(userId: string, methodType: string): Promise<UserMfaMethod> {
-    const method = await this.em.findOne(UserMfaMethod, {
-      userId,
-      type: methodType,
-      isActive: true,
-      deletedAt: null,
-    })
+    const method = await this.em.findOne(
+      UserMfaMethod,
+      { userId, type: methodType, isActive: true, deletedAt: null },
+      { orderBy: { createdAt: 'ASC' } },
+    )
     if (!method) {
       throw new MfaVerificationServiceError(`MFA method '${methodType}' not found`, 404)
     }

@@ -19,6 +19,15 @@ describe('security module mfa completion route registration', () => {
     ])
   })
 
+  it('keeps MFA enrollment routes off the pending allowlist (#5296)', async () => {
+    await import('../lib/mfaCompletionRoutes')
+
+    expect(isMfaPendingAccessAllowed('POST', '/api/security/mfa/provider/passkey')).toBe(false)
+    expect(isMfaPendingAccessAllowed('PUT', '/api/security/mfa/provider/passkey')).toBe(false)
+    expect(isMfaPendingAccessAllowed('POST', '/api/security/mfa/provider/totp')).toBe(false)
+    expect(isMfaPendingAccessAllowed('PUT', '/api/security/mfa/provider/totp')).toBe(false)
+  })
+
   it('is idempotent — re-registering never duplicates or widens entries', async () => {
     const { registerCanonicalMfaCompletionRoutes } = await import('../lib/mfaCompletionRoutes')
     const before = listMfaPendingAccessRoutes()

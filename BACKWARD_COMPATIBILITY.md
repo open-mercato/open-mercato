@@ -484,3 +484,31 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Type definitions (§2) | New optional `CrudForm` prop `legacyInjectionSpotId?: string` | ✓ ADDITIVE |
 
 **Deprecation window.** `legacyInjectionSpotId` is scoped to these two call sites and intended for removal after at least one minor version (Deprecation Protocol step 1), tracked in the spec's Changelog and in `UPGRADE_NOTES.md`. No maintainer waiver was needed — nothing is removed by this change.
+
+## Passkey MFA Enrollment Payload (2026-09-29)
+
+Issue #5296 removes the non-cryptographic passkey **enrollment** shape from `PasskeyProvider` in the enterprise `security` module — the enrollment-side twin of #3852's verify-side fix. This is a **deliberate breaking change to an API request-shape contract surface** that ships under the [Emergency Security Exception](#emergency-security-exception) rather than the ordinary deprecation protocol.
+
+**Classification.** Weaker than the #3852 precedent in one respect: `setupConfirmationPayloadSchema` is internal to `PasskeyProvider.ts`, not exported on `MfaProviderInterface` (unlike `verifySchema`, which the interface declares directly), so no third-party code could type-check against the removed shape. It is still a real break of the `PUT /api/security/mfa/provider/{providername}` HTTP request body contract (category 7): a request that answered `200` before this change answers `400` after it. The exception, not a claim that no contract existed, is what authorizes removing it without a bridge.
+
+**Exception requirements, as met by this change:**
+
+| Requirement | How it is satisfied |
+|-------------|--------------------|
+| 1. Qualifying condition argued | The removed shape's only check was a disclosed `challenge` value, which proves nothing about who holds the credential's private key — accepting it at all is the exposure, independent of how the request is reached. See spec § Problem Statement |
+| 2. Narrowest removal, no retained vulnerable branch | Only `setupConfirmationPayloadSchema`'s second union member and the corresponding `confirmSetup` branch are deleted. The `{ response }` path, the setup-token TTL check and `verifyRegistrationResponse` are untouched, and no flag/config/opt-in keeps the old branch reachable |
+| 3. Steps 4 and 5 | [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md); spec [`.ai/specs/enterprise/2026-09-29-passkey-mfa-enrollment-require-attestation.md`](.ai/specs/enterprise/2026-09-29-passkey-mfa-enrollment-require-attestation.md) § Migration & Backward Compatibility |
+| 4. Dated entry | This section |
+| 5. Maintainer sign-off | PR carries the `security` label; waiver called out explicitly in the PR body for a human maintainer to approve by name |
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| API request shape (`PUT /api/security/mfa/provider/{providername}`, `methodType: 'passkey'`) | `payload` must be `{ response }` (or `{ response, label }`) carrying a WebAuthn registration response. The `{ credentialId, publicKey, challenge, transports?, label? }` alternative is removed and now fails schema validation (`400`) | ✗ BREAKING (deliberate — see rationale) |
+| Method selection (`MfaVerificationService.findMethod`) | Gains a deterministic `orderBy: { createdAt: 'ASC' }` when more than one active method of a type exists for a user | ✓ Strictly safer; resolves previously-undefined behavior, no observable change in the common single-method case |
+| API route URLs, HTTP methods, response schemas, database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
+
+**Why the deprecation protocol does not apply.** Same reasoning as #3852: the request shape being removed *is* the vulnerability, so a bridge release would keep an unattested credential enrollable for a whole minor version. A security fix that leaves the hole open is not a fix.
+
+**Reachability note.** The #5296 issue text also asked that `mfa_pending` (stolen-password) sessions be rejected on this route. That is already true on `develop`, independently of this change: issue #5212's central MFA-pending gate (`.ai/specs/enterprise/implemented/SPEC-ENT-007-2026-03-06-auth-login-interceptors-extension.md` § Amendment 2026-08-21, PR #5453, landed 2026-08-24) rejects pending tokens on every route not explicitly registered as an MFA-completion route, and `/api/security/mfa/provider/[providername]` was never registered. This PR adds a regression test (`mfaCompletionRoutes.test.ts`) pinning that it stays that way, but changes no code for that half.
+
+**Migration path.** Send `startRegistration()` output as `payload.response`. The first-party passkey setup UI already does this, so shipped UIs are unaffected. Credentials enrolled through the removed shortcut before this change ships are **not** invalidated by it — see [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) for the reset-and-re-enroll guidance carried over from #3852's entry.

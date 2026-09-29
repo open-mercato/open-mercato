@@ -244,6 +244,19 @@ describe('MfaVerificationService', () => {
     expect(challenges[0].providerChallenge).toEqual({ nonce: 'challenge-nonce' })
   })
 
+  test('prepareChallenge resolves the method deterministically when more than one active method of the same type exists (#5296)', async () => {
+    const { service, em } = createServiceContext()
+    await service.createChallenge('user-1')
+
+    await service.prepareChallenge('challenge-1', 'totp', undefined, { userId: 'user-1' })
+
+    const methodLookupCall = em.findOne.mock.calls.find(
+      ([, query]: [unknown, Record<string, unknown>]) => query && 'type' in query && !('id' in query),
+    )
+    expect(methodLookupCall).toBeDefined()
+    expect(methodLookupCall?.[2]).toEqual({ orderBy: { createdAt: 'ASC' } })
+  })
+
   test('verifyChallenge marks challenge verified and emits event', async () => {
     const { service, challenges, methods } = createServiceContext()
     const created = await service.createChallenge('user-1')
