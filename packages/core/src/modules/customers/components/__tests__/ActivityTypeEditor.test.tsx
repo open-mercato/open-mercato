@@ -27,8 +27,8 @@ jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
 }))
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({
-  DataTable: ({ data, actions, rowActions }: { data: Array<{ key: string }>; actions: React.ReactNode; rowActions: (item: { key: string }) => React.ReactNode }) =>
-    <div>{actions}{data.map((item) => <div key={item.key}><span>{item.key}</span>{rowActions(item)}</div>)}</div>,
+  DataTable: ({ data, actions, rowActions, columns }: { data: Array<{ key: string; label: string; labelKey?: string }>; actions: React.ReactNode; rowActions: (item: { key: string }) => React.ReactNode; columns: Array<{ accessorKey?: string; cell?: (props: { row: { original: { key: string; label: string; labelKey?: string } } }) => React.ReactNode }> }) =>
+    <div>{actions}{data.map((item) => <div key={item.key}><span>{item.key}</span>{columns.find((column) => column.accessorKey === 'label')?.cell?.({ row: { original: item } })}{rowActions(item)}</div>)}</div>,
 }))
 jest.mock('@open-mercato/ui/backend/RowActions', () => ({
   RowActions: ({ items }: { items: Array<{ id: string; onSelect: () => void }> }) => <div>{items.map((item) =>
@@ -86,5 +86,17 @@ describe('ActivityTypeEditor', () => {
     ))
     expect(headerMock).toHaveBeenCalledWith(inherited.updatedAt)
     expect(runMutationMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders the patched label key in the activity type manager', async () => {
+    readMock.mockImplementation(async (path: string) => {
+      if (path === '/api/customers/activity-types') return { items: [{ ...inherited, labelKey: 'example.calendar.customerMeeting' }] }
+      if (path === '/api/customers/dictionaries/activity-types') return { items: [] }
+      return { fieldsetsByEntity: {} }
+    })
+    renderWithProviders(<ActivityTypeEditor title="Activity types" description="Manage activity types" />, {
+      dict: { 'example.calendar.customerMeeting': 'Customer meeting' },
+    })
+    expect(await screen.findByText('Customer meeting')).toBeInTheDocument()
   })
 })

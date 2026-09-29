@@ -170,7 +170,9 @@ export function ActivityTypeEditor({ title, description }: { title: string; desc
   const columns = React.useMemo<ColumnDef<ScopedCalendarEventType>[]>(() => [
     { accessorKey: 'label', header: t('customers.config.activityTypes.columns.type', 'Activity type'), cell: ({ row }) => (
       <div className="flex items-center gap-2">{row.original.color ? renderDictionaryColor(row.original.color, 'size-4 rounded-full border border-border') : null}
-        {row.original.icon ? renderDictionaryIcon(row.original.icon, 'size-4') : null}<span>{row.original.label}</span></div>) },
+        {row.original.icon ? renderDictionaryIcon(row.original.icon, 'size-4') : null}<span>{row.original.labelKey
+          ? t(row.original.labelKey, row.original.label)
+          : row.original.label}</span></div>) },
     { accessorKey: 'key', header: t('customers.config.activityTypes.columns.key', 'Stable key') },
     { id: 'source', header: t('customers.config.activityTypes.columns.source', 'Source'), cell: ({ row }) => row.original.isLocalOverride
       ? t('customers.config.activityTypes.local', 'Local override') : row.original.isInherited
