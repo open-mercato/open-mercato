@@ -112,6 +112,20 @@ export function signTrackingToken(claims: TrackingClaims, secret: string): strin
  * — because the caller's behaviour is the same in all of them and telling them apart in a public
  * response would only help somebody probing.
  */
+/**
+ * Verifies against ANY configured secret, so a key rotation does not break links already in inboxes.
+ *
+ * Tried in order, current first, which means the common case costs exactly one HMAC. See
+ * `resolveTrackingSecrets` for why a token cannot simply be re-minted instead.
+ */
+export function verifyTrackingTokenWithAny(token: string, secrets: readonly string[]): TrackingClaims | null {
+  for (const secret of secrets) {
+    const claims = verifyTrackingToken(token, secret)
+    if (claims) return claims
+  }
+  return null
+}
+
 export function verifyTrackingToken(token: string, secret: string): TrackingClaims | null {
   const parts = token.split('.')
   if (parts.length !== 2) return null

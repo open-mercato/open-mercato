@@ -5,8 +5,8 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { reportError } from '@open-mercato/telemetry'
 import { MarketingCampaignRun } from '../../data/entities.js'
 import { recordConsent } from '../../lib/consent.js'
-import { resolveTrackingSecret } from '../../lib/tracking/secret.js'
-import { signTrackingToken, verifyTrackingToken } from '../../lib/tracking/token.js'
+import { resolveTrackingSecret, resolveTrackingSecrets } from '../../lib/tracking/secret.js'
+import { signTrackingToken, verifyTrackingTokenWithAny } from '../../lib/tracking/token.js'
 import type { TrackingClaims } from '../../lib/tracking/token.js'
 import { TRACKING_TOKEN_PARAM } from '../../lib/tracking/urls.js'
 
@@ -74,7 +74,7 @@ function readClaims(req: Request): { claims: TrackingClaims; secret: string } | 
   const token = new URL(req.url).searchParams.get(TRACKING_TOKEN_PARAM)
   const secret = resolveTrackingSecret()
   if (!token || !secret) return null
-  const claims = verifyTrackingToken(token, secret)
+  const claims = verifyTrackingTokenWithAny(token, resolveTrackingSecrets())
   // The purpose is signed, so an open or click token cannot be replayed here.
   if (!claims || claims.purpose !== 'unsubscribe') return null
   return { claims, secret }

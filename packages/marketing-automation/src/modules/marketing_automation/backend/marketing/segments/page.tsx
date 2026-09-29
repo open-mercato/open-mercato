@@ -21,6 +21,7 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
+import { useUnsavedGuard } from '../../../components/useUnsavedGuard'
 import type { GroupCondition } from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
 
 const SEGMENTS_PATH = '/api/marketing_automation/segments'
@@ -108,6 +109,21 @@ export default function SegmentsPage() {
     setDraft(next)
     setBaseline(JSON.stringify(next))
   }
+
+  /**
+   * The same protection for leaving the SCREEN, not just for switching segments.
+   *
+   * `leaveDraft` covers picking another segment; this covers the breadcrumb, a sidebar link and the browser's
+   * back button — the routes out that an unfinished audience expression was previously lost through.
+   */
+  useUnsavedGuard(isDirty, async () => confirm({
+    title: t('marketing_automation.segments.discardTitle', 'Discard unsaved changes?'),
+    text: t(
+      'marketing_automation.segments.discardText',
+      'This segment has changes that have not been saved. Leaving now loses them.',
+    ),
+    variant: 'destructive',
+  }))
 
   /** Asks before throwing away work, and only when there is work to throw away. */
   const leaveDraft = async (): Promise<boolean> => {

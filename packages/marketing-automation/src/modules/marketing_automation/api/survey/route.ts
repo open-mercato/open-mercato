@@ -4,8 +4,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { reportError } from '@open-mercato/telemetry'
 import { isValidNpsScore, recordSurveyAnswer } from '../../lib/survey.js'
-import { resolveTrackingSecret } from '../../lib/tracking/secret.js'
-import { signTrackingToken, verifyTrackingToken } from '../../lib/tracking/token.js'
+import { resolveTrackingSecret, resolveTrackingSecrets } from '../../lib/tracking/secret.js'
+import { signTrackingToken, verifyTrackingTokenWithAny } from '../../lib/tracking/token.js'
 import type { TrackingClaims } from '../../lib/tracking/token.js'
 import { TRACKING_TOKEN_PARAM } from '../../lib/tracking/urls.js'
 
@@ -90,7 +90,7 @@ function readAnswer(req: Request): VerifiedAnswer | null {
   const secret = resolveTrackingSecret()
   if (!token || !secret) return null
 
-  const claims = verifyTrackingToken(token, secret)
+  const claims = verifyTrackingTokenWithAny(token, resolveTrackingSecrets())
   // The purpose is signed, so an open, click or unsubscribe token cannot be replayed as an answer.
   if (!claims || claims.purpose !== 'survey' || !isValidNpsScore(claims.target)) return null
   return { claims, secret, score: Number(claims.target) }

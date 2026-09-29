@@ -1,6 +1,11 @@
-import { isSafeRedirectTarget, signTrackingToken, verifyTrackingToken } from '../token'
+import {
+  isSafeRedirectTarget,
+  signTrackingToken,
+  verifyTrackingToken,
+  verifyTrackingTokenWithAny,
+} from '../token'
 import type { TrackingClaims } from '../token'
-import { resolveTrackingSecret, trackingSecretEnvNames } from '../secret'
+import { resolveTrackingSecret, resolveTrackingSecrets, trackingSecretEnvNames } from '../secret'
 
 const SECRET = 'a-test-secret'
 const claims: TrackingClaims = {
@@ -169,5 +174,77 @@ describe('signature malleability', () => {
       expect(minted).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/)
       expect(verifyTrackingToken(minted, secret)?.purpose).toBe(purpose)
     }
+  })
+})
+
+/**
+ * Key rotation, which a tracking token has to survive by design.
+ *
+ * These tokens deliberately never expire — an unsubscribe link must keep working for as long as the message it is
+ * in exists in somebody's mailbox — so the moment a platform key was rotated, every unsubscribe and survey link
+ * already delivered stopped verifying. Silently, and in the one place a failure is least acceptable: a person
+ * trying to be left alone.
+ */
+describe('verifying across a key rotation', () => {
+  const claims = {
+    tenantId: '11111111-1111-4111-8111-111111111111',
+    organizationId: '22222222-2222-4222-8222-222222222222',
+    campaignId: '33333333-3333-4333-8333-333333333333',
+    runId: '44444444-4444-4444-8444-444444444444',
+    stepId: 'step-1',
+    purpose: 'unsubscribe' as const,
+  }
+
+  test('a link minted with the previous key still verifies', () => {
+    const old = signTrackingToken(claims, 'the-old-key')
+    // Current key first, previous second — which is the order the resolver returns them in.
+    expect(verifyTrackingTokenWithAny(old, ['the-new-key', 'the-old-key'])).not.toBeNull()
+  })
+
+  test('a link minted with the current key verifies on the first try', () => {
+    const fresh = signTrackingToken(claims, 'the-new-key')
+    expect(verifyTrackingTokenWithAny(fresh, ['the-new-key', 'the-old-key'])).not.toBeNull()
+  })
+
+  test('a key that was never in use verifies nothing', () => {
+    const forged = signTrackingToken(claims, 'a-key-nobody-configured')
+    expect(verifyTrackingTokenWithAny(forged, ['the-new-key', 'the-old-key'])).toBeNull()
+  })
+
+  test('no configured secrets verifies nothing, rather than everything', () => {
+    const fresh = signTrackingToken(claims, 'the-new-key')
+    expect(verifyTrackingTokenWithAny(fresh, [])).toBeNull()
+  })
+})
+
+/**
+ * The resolver's own contract, which is what makes the rotation above possible.
+ */
+describe('resolveTrackingSecrets', () => {
+  test('returns every configured candidate, most current first', () => {
+    const secrets = resolveTrackingSecrets({
+      OM_MARKETING_TRACKING_SECRET: 'dedicated',
+      TENANT_DATA_ENCRYPTION_KEY: 'current',
+      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'previous',
+    })
+    expect(secrets).toEqual(['dedicated', 'current', 'previous'])
+  })
+
+  test('the first is the one signing uses, so the two cannot disagree', () => {
+    const env = { TENANT_DATA_ENCRYPTION_KEY: 'current', TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'previous' }
+    expect(resolveTrackingSecret(env)).toBe(resolveTrackingSecrets(env)[0])
+  })
+
+  test('the same key in two variables costs one HMAC, not two', () => {
+    const secrets = resolveTrackingSecrets({
+      TENANT_DATA_ENCRYPTION_KEY: 'same',
+      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'same',
+    })
+    expect(secrets).toEqual(['same'])
+  })
+
+  test('nothing configured means no secrets, which disables tracking rather than signing with a constant', () => {
+    expect(resolveTrackingSecrets({})).toEqual([])
+    expect(resolveTrackingSecret({})).toBeNull()
   })
 })

@@ -9,6 +9,7 @@ import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitive
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -23,6 +24,18 @@ const RUN_STATUS_VARIANTS: Record<string, StatusBadgeVariant> = {
   waiting: 'neutral',
   failed: 'warning',
   dead: 'error',
+}
+
+type Explanation = {
+  campaign?: { id: string; name: string; isEnabled: boolean }
+  wouldSend?: boolean
+  decidedBy?: string | null
+  gates?: Array<{
+    gate: string
+    outcome: 'pass' | 'drop' | 'defer'
+    decisive: boolean
+    detail?: Record<string, string | number | boolean | null>
+  }>
 }
 
 type Profile = {
@@ -111,6 +124,37 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
   const [consentBusy, setConsentBusy] = React.useState(false)
   /** Bumped to re-read the profile, rather than duplicating the fetch the effect below already owns. */
   const [refreshToken, setRefreshToken] = React.useState(0)
+  const [explainCampaignId, setExplainCampaignId] = React.useState('')
+  const [explanation, setExplanation] = React.useState<Explanation | null>(null)
+  const [explaining, setExplaining] = React.useState(false)
+
+  /**
+   * Answers "why didn't they get it?" for one campaign and this customer.
+   *
+   * Asked here because this is the screen somebody is already looking at when the question arrives. The endpoint
+   * asks the engine's own gates in the engine's own order, so the answer is what a send would actually do.
+   */
+  const explainDelivery = async () => {
+    const campaignId = explainCampaignId.trim()
+    if (!campaignId) return
+    setExplaining(true)
+    try {
+      const response = await apiCallOrThrow<Explanation>(
+        `/api/marketing_automation/campaigns/${campaignId}/explain`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ subjectEntityId: customerId }),
+        },
+      )
+      setExplanation(response.result ?? null)
+    } catch {
+      flash(t('marketing_automation.explain.failed', 'That campaign could not be explained for this customer.'), 'error')
+      setExplanation(null)
+    } finally {
+      setExplaining(false)
+    }
+  }
 
   /**
    * Writes down a decision the customer gave to a person.
@@ -389,6 +433,55 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
               </span>
             }
           />
+        </div>
+
+        <div className="mb-6">
+          <SectionHeader title={t('marketing_automation.explain.title', 'Why did they not get a campaign?')} />
+          <div className="text-xs text-muted-foreground">
+            {t(
+              'marketing_automation.explain.hint',
+              'Asks every gate the engine asks, in the order it asks them, and names the one that decided.',
+            )}
+          </div>
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <div className="space-y-1">
+              <Label htmlFor="explain-campaign">{t('marketing_automation.explain.campaign', 'Campaign id')}</Label>
+              <Input
+                id="explain-campaign"
+                className="w-80 font-mono text-xs"
+                value={explainCampaignId}
+                onChange={(event) => setExplainCampaignId(event.target.value)}
+              />
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={explaining || explainCampaignId.trim().length === 0}
+              onClick={() => void explainDelivery()}
+            >
+              {explaining ? <Spinner /> : t('marketing_automation.explain.ask', 'Explain')}
+            </Button>
+          </div>
+          {explanation ? (
+            <div className="mt-2 space-y-1 rounded-sm border border-border p-2">
+              <div className="text-sm font-medium text-foreground">
+                {explanation.wouldSend
+                  ? t('marketing_automation.explain.wouldSend', 'This customer would receive it right now.')
+                  : t('marketing_automation.explain.wouldNot', 'They would not receive it right now — {gate} decided.')
+                      .replace('{gate}', t(`marketing_automation.explain.gate.${explanation.decidedBy}`, explanation.decidedBy ?? '—'))}
+              </div>
+              {(explanation.gates ?? []).map((gate) => (
+                <div key={gate.gate} className="flex items-baseline justify-between gap-2 text-xs">
+                  <span className={gate.decisive ? 'font-medium text-foreground' : 'text-muted-foreground'}>
+                    {t(`marketing_automation.explain.gate.${gate.gate}`, gate.gate)}
+                  </span>
+                  <StatusBadge variant={gate.outcome === 'pass' ? 'success' : gate.outcome === 'defer' ? 'warning' : 'error'}>
+                    {t(`marketing_automation.explain.outcome.${gate.outcome}`, gate.outcome)}
+                  </StatusBadge>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         <div className="mb-6">

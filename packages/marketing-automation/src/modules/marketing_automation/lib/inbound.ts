@@ -49,6 +49,21 @@ export function signInboundToken(claims: InboundClaims, secret: string): string 
 }
 
 /** Null for every reason a token can be unusable; a public endpoint must not say which. */
+/**
+ * Same rotation problem as a tracking token, and the same answer.
+ *
+ * A hook URL is handed to a partner and lives in THEIR configuration, so it has to keep working across a key
+ * rotation on our side — otherwise rotating a platform key silently breaks every integration somebody built,
+ * and the only symptom is a partner's POST answering 400.
+ */
+export function verifyInboundTokenWithAny(token: string, secrets: readonly string[]): InboundClaims | null {
+  for (const secret of secrets) {
+    const claims = verifyInboundToken(token, secret)
+    if (claims) return claims
+  }
+  return null
+}
+
 export function verifyInboundToken(token: string, secret: string): InboundClaims | null {
   const parts = token.split('.')
   if (parts.length !== 2) return null

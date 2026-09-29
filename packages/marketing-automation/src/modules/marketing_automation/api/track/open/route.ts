@@ -4,8 +4,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { reportError } from '@open-mercato/telemetry'
 import { recordTrackingEvent } from '../../../lib/tracking/record.js'
-import { resolveTrackingSecret } from '../../../lib/tracking/secret.js'
-import { verifyTrackingToken } from '../../../lib/tracking/token.js'
+import { resolveTrackingSecret, resolveTrackingSecrets } from '../../../lib/tracking/secret.js'
+import { verifyTrackingTokenWithAny } from '../../../lib/tracking/token.js'
 import { TRACKING_TOKEN_PARAM } from '../../../lib/tracking/urls.js'
 
 /**
@@ -50,7 +50,7 @@ export async function GET(req: Request) {
   const secret = resolveTrackingSecret()
   if (!token || !secret) return pixelResponse()
 
-  const claims = verifyTrackingToken(token, secret)
+  const claims = verifyTrackingTokenWithAny(token, resolveTrackingSecrets())
   if (!claims || claims.purpose !== 'open') return pixelResponse()
 
   try {

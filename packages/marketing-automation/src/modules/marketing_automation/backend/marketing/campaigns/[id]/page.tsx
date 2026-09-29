@@ -14,6 +14,8 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useUnsavedGuard } from '../../../../components/useUnsavedGuard'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
 import type { GroupCondition } from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
@@ -549,6 +551,24 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
    */
   const [draft, setDraft] = React.useState<{ subject: string; bodyHtml: string; bodyText: string } | null>(null)
   const [drafting, setDrafting] = React.useState(false)
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+
+  /**
+   * An authored graph is minutes of work held only in this component's state.
+   *
+   * Until this guard existed, clicking the breadcrumb threw all of it away without a word — triggers, steps, the
+   * audience expression, the canvas layout. `CrudForm` has protected against this for a long time; the editor is
+   * not a `CrudForm`, so the module carries its own version.
+   */
+  useUnsavedGuard(dirty, async () => confirm({
+    title: t('marketing_automation.canvas.leaveTitle', 'Leave without saving?'),
+    text: t(
+      'marketing_automation.canvas.leaveText',
+      'This campaign has changes that have not been saved. Leaving now loses them.',
+    ),
+    variant: 'destructive',
+  }))
+
   const [rendered, setRendered] = React.useState<{ subject: string; html: string; personalised: boolean } | null>(null)
   const [rendering, setRendering] = React.useState(false)
 
@@ -1444,6 +1464,8 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
           </aside>
         </div>
       </PageBody>
+      {/* The dialogue the leave guard asks with, and the delete confirmations if any are added later. */}
+      {ConfirmDialogElement}
     </Page>
   )
 }

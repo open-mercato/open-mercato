@@ -21,11 +21,29 @@ export type EnvLike = Record<string, string | undefined>
 
 /** Null when nothing is configured, which disables tracking rather than signing with a constant. */
 export function resolveTrackingSecret(env: EnvLike = process.env): string | null {
+  return resolveTrackingSecrets(env)[0] ?? null
+}
+
+/**
+ * EVERY configured secret, most current first — which is what makes rotating one survivable.
+ *
+ * A tracking token has no expiry, deliberately: an unsubscribe link has to keep working for as long as the
+ * message it is in exists in somebody's mailbox. So the moment `TENANT_DATA_ENCRYPTION_KEY` was rotated, every
+ * unsubscribe and every survey link already delivered stopped verifying — silently, and in the one place where a
+ * failure is least acceptable: a person trying to be left alone.
+ *
+ * Signing always uses the FIRST. Verification tries each in turn, so a rotation keeps yesterday's links working
+ * while today's are minted with the new key. The platform already has a fallback-key variable for exactly this
+ * reason; this module was simply reading only the first one that happened to be set.
+ */
+export function resolveTrackingSecrets(env: EnvLike = process.env): string[] {
+  const secrets: string[] = []
   for (const name of CANDIDATE_ENV_NAMES) {
     const value = env[name]?.trim()
-    if (value) return value
+    // De-duplicated: the same key set in two variables must not cost two HMACs on every verification.
+    if (value && !secrets.includes(value)) secrets.push(value)
   }
-  return null
+  return secrets
 }
 
 export function trackingSecretEnvNames(): readonly string[] {

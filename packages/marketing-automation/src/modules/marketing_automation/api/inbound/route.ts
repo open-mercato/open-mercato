@@ -7,12 +7,12 @@ import { findPeopleByAddresses } from '@open-mercato/core/modules/customers/lib/
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { MarketingInboundHook } from '../../data/entities.js'
 import { emitMarketingAutomationEvent } from '../../events.js'
-import { resolveTrackingSecret } from '../../lib/tracking/secret.js'
+import { resolveTrackingSecret, resolveTrackingSecrets } from '../../lib/tracking/secret.js'
 import {
   INBOUND_TOKEN_PARAM,
   MAX_INBOUND_BODY_BYTES,
   readInboundPayload,
-  verifyInboundToken,
+  verifyInboundTokenWithAny,
 } from '../../lib/inbound.js'
 
 /**
@@ -42,7 +42,7 @@ export async function POST(req: Request) {
   const secret = resolveTrackingSecret()
   if (!token || !secret) return NextResponse.json({ error: 'Invalid hook' }, { status: 400 })
 
-  const claims = verifyInboundToken(token, secret)
+  const claims = verifyInboundTokenWithAny(token, resolveTrackingSecrets())
   if (!claims) return NextResponse.json({ error: 'Invalid hook' }, { status: 400 })
 
   const raw = await req.text()
