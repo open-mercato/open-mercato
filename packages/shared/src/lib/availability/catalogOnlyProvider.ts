@@ -17,6 +17,12 @@ export type CatalogOnlyPolicyOverride = {
   isActive?: boolean
   /** ISO-8601. In the future → `preorder`. */
   preorderReleaseAt?: string | null
+  /** Requested quantities below this cannot be fulfilled. */
+  minOrderQuantity?: number | null
+  /** Requested quantities above this cannot be fulfilled — a cap independent of stock. */
+  maxOrderQuantity?: number | null
+  /** Pack size; requested quantities must be a multiple. */
+  quantityIncrement?: number | null
   /** The `AvailabilityPolicy` row id that produced this override. */
   policySourceId?: string | null
 }
@@ -54,11 +60,32 @@ function pureFallbackItem(): AvailabilityItemResult {
   }
 }
 
+function isWithinOrderQuantityRules(requested: number, override: CatalogOnlyPolicyOverride): boolean {
+  const { minOrderQuantity, maxOrderQuantity, quantityIncrement } = override
+  if (minOrderQuantity != null && requested < minOrderQuantity) return false
+  if (maxOrderQuantity != null && requested > maxOrderQuantity) return false
+  if (quantityIncrement != null && quantityIncrement > 0 && requested % quantityIncrement !== 0) return false
+  return true
+}
+
+/**
+ * Order-quantity rules are a cap independent of stock: a violation blocks
+ * fulfilment without changing the state the policy matrix produced.
+ */
+function applyOverride(
+  override: CatalogOnlyPolicyOverride | null | undefined,
+  requestedQuantity: number,
+): AvailabilityItemResult {
+  const result = applyPolicyMatrix(override)
+  if (!override || isWithinOrderQuantityRules(requestedQuantity, override)) return result
+  return { ...result, canFulfil: false }
+}
+
 /**
  * Applies decision 7's matrix (see PLAN.md § Key design decisions) for a
  * resolved policy override on top of the pure fallback.
  */
-function applyOverride(override: CatalogOnlyPolicyOverride | null | undefined): AvailabilityItemResult {
+function applyPolicyMatrix(override: CatalogOnlyPolicyOverride | null | undefined): AvailabilityItemResult {
   const base = pureFallbackItem()
   if (!override) return base
 
@@ -107,7 +134,7 @@ async function getAvailability(query: AvailabilityQuery): Promise<AvailabilityRe
 
   for (const item of query.items) {
     const key = availabilityItemKey(item)
-    byItem[key] = applyOverride(overrides[key])
+    byItem[key] = applyOverride(overrides[key], item.quantity)
   }
 
   return { byItem }

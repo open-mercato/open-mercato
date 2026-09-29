@@ -34,6 +34,9 @@ type ResolvedPolicyOverlay = {
   backorderLeadTimeDays: PolicyField<number | null>
   preorderReleaseAt: PolicyField<Date | null>
   lowStockThreshold: PolicyField<number | null>
+  minOrderQuantity: PolicyField<number | null>
+  maxOrderQuantity: PolicyField<number | null>
+  quantityIncrement: PolicyField<number | null>
   isActive: PolicyField<boolean>
 }
 type PolicyResolutionScopeLike = {
@@ -53,6 +56,9 @@ const OPEN_POLICY_DEFAULT: ResolvedPolicyOverlay = {
   backorderLeadTimeDays: { value: null, policySourceId: null },
   preorderReleaseAt: { value: null, policySourceId: null },
   lowStockThreshold: { value: null, policySourceId: null },
+  minOrderQuantity: { value: null, policySourceId: null },
+  maxOrderQuantity: { value: null, policySourceId: null },
+  quantityIncrement: { value: null, policySourceId: null },
   isActive: { value: true, policySourceId: null },
 }
 
@@ -174,6 +180,49 @@ function computeState(params: {
 }
 
 /**
+ * Order-quantity rules (§5.1) are a cap independent of stock: a violation
+ * blocks fulfilment without changing the stock-derived state.
+ */
+function isWithinOrderQuantityRules(requested: number, policy: ResolvedPolicyOverlay): boolean {
+  const min = policy.minOrderQuantity.value
+  const max = policy.maxOrderQuantity.value
+  const increment = policy.quantityIncrement.value
+  if (min != null && requested < min) return false
+  if (max != null && requested > max) return false
+  if (increment != null && increment > 0 && requested % increment !== 0) return false
+  return true
+}
+
+/**
+ * Mirrors the catalog-only fallback's precedence (preorder → inactive →
+ * not_tracked) for an item the policy excludes from stock tracking.
+ */
+function computeUntrackedItem(policy: ResolvedPolicyOverlay): AvailabilityItemResult {
+  const base: AvailabilityItemResult = {
+    state: 'not_tracked',
+    availableQuantity: null,
+    canFulfil: true,
+    leadTimeDays: null,
+    releaseAt: null,
+    isAuthoritative: true,
+    policySourceId: policy.isStockManaged.policySourceId,
+  }
+  const preorderReleaseAt = policy.preorderReleaseAt.value
+  if (preorderReleaseAt && preorderReleaseAt.getTime() > Date.now()) {
+    return {
+      ...base,
+      state: 'preorder',
+      releaseAt: preorderReleaseAt.toISOString(),
+      policySourceId: policy.preorderReleaseAt.policySourceId,
+    }
+  }
+  if (!policy.isActive.value) {
+    return { ...base, state: 'out_of_stock', canFulfil: false, policySourceId: policy.isActive.policySourceId }
+  }
+  return base
+}
+
+/**
  * Computes availability for a batch of items — always live, never cached
  * (the cache wrapper lives in `availabilityCache.ts`, Phase 2 Step 3.2).
  */
@@ -235,17 +284,11 @@ export async function computeAvailability(
   query.items.forEach((item, index) => {
     const policy = resolvedPolicies[index] ?? OPEN_POLICY_DEFAULT
     const key = availabilityItemKey(item)
+    const withinOrderQuantityRules = isWithinOrderQuantityRules(item.quantity, policy)
 
     if (!policy.isStockManaged.value) {
-      byItem[key] = {
-        state: 'not_tracked',
-        availableQuantity: null,
-        canFulfil: true,
-        leadTimeDays: null,
-        releaseAt: null,
-        isAuthoritative: true,
-        policySourceId: policy.isStockManaged.policySourceId,
-      }
+      const untracked = computeUntrackedItem(policy)
+      byItem[key] = { ...untracked, canFulfil: untracked.canFulfil && withinOrderQuantityRules }
       return
     }
 
@@ -277,7 +320,7 @@ export async function computeAvailability(
     byItem[key] = {
       state: computed.state,
       availableQuantity: sellable,
-      canFulfil: computed.canFulfil,
+      canFulfil: computed.canFulfil && withinOrderQuantityRules,
       leadTimeDays: computed.leadTimeDays,
       releaseAt: computed.releaseAt,
       isAuthoritative: true,

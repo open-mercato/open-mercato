@@ -41,6 +41,9 @@ export function register(container: AppContainer) {
         isStockManaged: policy.isStockManaged.value,
         isActive: policy.isActive.value,
         preorderReleaseAt: policy.preorderReleaseAt.value ? policy.preorderReleaseAt.value.toISOString() : null,
+        minOrderQuantity: policy.minOrderQuantity.value,
+        maxOrderQuantity: policy.maxOrderQuantity.value,
+        quantityIncrement: policy.quantityIncrement.value,
         policySourceId:
           policy.preorderReleaseAt.policySourceId
           ?? policy.isActive.policySourceId

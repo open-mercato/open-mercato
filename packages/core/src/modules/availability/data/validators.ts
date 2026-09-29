@@ -8,6 +8,7 @@ const scopedSchema = z.object({
 })
 
 const nonNegativeInt = () => z.number().int().min(0)
+const positiveInt = () => z.number().int().min(1)
 
 const policyFieldsSchema = z.object({
   storeId: uuid().nullable().optional(),
@@ -20,7 +21,7 @@ const policyFieldsSchema = z.object({
   lowStockThreshold: nonNegativeInt().nullable().optional(),
   minOrderQuantity: nonNegativeInt().nullable().optional(),
   maxOrderQuantity: nonNegativeInt().nullable().optional(),
-  quantityIncrement: nonNegativeInt().nullable().optional(),
+  quantityIncrement: positiveInt().nullable().optional(),
   hideWhenOutOfStock: z.boolean().optional(),
   isActive: z.boolean().optional(),
 })

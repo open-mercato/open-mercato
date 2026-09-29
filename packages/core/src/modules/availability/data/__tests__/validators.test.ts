@@ -70,6 +70,26 @@ describe('availabilityPolicyCreateSchema', () => {
     const result = availabilityPolicyCreateSchema.safeParse({ ...baseInput, minOrderQuantity: -1 })
     expect(result.success).toBe(false)
   })
+
+  it('accepts zero for the non-negative quantity fields', () => {
+    const result = availabilityPolicyCreateSchema.safeParse({
+      ...baseInput,
+      minOrderQuantity: 0,
+      maxOrderQuantity: 0,
+      lowStockThreshold: 0,
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects a zero quantityIncrement', () => {
+    const result = availabilityPolicyCreateSchema.safeParse({ ...baseInput, quantityIncrement: 0 })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts a positive quantityIncrement', () => {
+    const result = availabilityPolicyCreateSchema.safeParse({ ...baseInput, quantityIncrement: 6 })
+    expect(result.success).toBe(true)
+  })
 })
 
 describe('availabilityPolicyMergedConstraintsSchema', () => {

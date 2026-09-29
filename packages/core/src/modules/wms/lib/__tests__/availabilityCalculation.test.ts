@@ -28,6 +28,9 @@ type PolicyOverlayInput = {
   backorderLeadTimeDays?: number | null
   preorderReleaseAt?: Date | null
   lowStockThreshold?: number | null
+  minOrderQuantity?: number | null
+  maxOrderQuantity?: number | null
+  quantityIncrement?: number | null
   isActive?: boolean
   policySourceId?: string | null
 }
@@ -40,6 +43,9 @@ function overlay(input: PolicyOverlayInput = {}) {
     backorderLeadTimeDays: { value: input.backorderLeadTimeDays ?? null, policySourceId: src },
     preorderReleaseAt: { value: input.preorderReleaseAt ?? null, policySourceId: src },
     lowStockThreshold: { value: input.lowStockThreshold ?? null, policySourceId: src },
+    minOrderQuantity: { value: input.minOrderQuantity ?? null, policySourceId: src },
+    maxOrderQuantity: { value: input.maxOrderQuantity ?? null, policySourceId: src },
+    quantityIncrement: { value: input.quantityIncrement ?? null, policySourceId: src },
     isActive: { value: input.isActive ?? true, policySourceId: src },
   }
 }
@@ -194,6 +200,88 @@ describe('computeAvailability — not_tracked', () => {
     expect(result.byItem['p1:v1'].availableQuantity).toBeNull()
     expect(result.byItem['p1:v1'].canFulfil).toBe(true)
     expect(result.byItem['p1:v1'].policySourceId).toBe('policy-1')
+  })
+  it('reports preorder for an untracked item with a future release date, sourced from the preorder row', async () => {
+    const future = new Date(Date.now() + 86_400_000)
+    const { em } = makeEm()
+    const resolveMany = jest.fn().mockResolvedValue([{
+      ...overlay({ isStockManaged: false, isActive: false, policySourceId: 'policy-store' }),
+      preorderReleaseAt: { value: future, policySourceId: 'policy-product' },
+    }])
+    const result = await computeAvailability(em, makeContainer(resolveMany), makeQuery([
+      { catalogProductId: 'p1', catalogVariantId: 'v1', quantity: 1 },
+    ]))
+    expect(result.byItem['p1:v1'].state).toBe('preorder')
+    expect(result.byItem['p1:v1'].canFulfil).toBe(true)
+    expect(result.byItem['p1:v1'].releaseAt).toBe(future.toISOString())
+    expect(result.byItem['p1:v1'].availableQuantity).toBeNull()
+    expect(result.byItem['p1:v1'].policySourceId).toBe('policy-product')
+  })
+
+  it('reports out_of_stock for an inactive untracked item, sourced from the isActive row', async () => {
+    const { em } = makeEm()
+    const resolveMany = jest.fn().mockResolvedValue([{
+      ...overlay({ isStockManaged: false, policySourceId: 'policy-store' }),
+      isActive: { value: false, policySourceId: 'policy-variant' },
+    }])
+    const result = await computeAvailability(em, makeContainer(resolveMany), makeQuery([
+      { catalogProductId: 'p1', catalogVariantId: 'v1', quantity: 1 },
+    ]))
+    expect(result.byItem['p1:v1'].state).toBe('out_of_stock')
+    expect(result.byItem['p1:v1'].canFulfil).toBe(false)
+    expect(result.byItem['p1:v1'].policySourceId).toBe('policy-variant')
+  })
+
+  it('ignores a past release date for an untracked item', async () => {
+    const { em } = makeEm()
+    const resolveMany = jest.fn().mockResolvedValue([
+      overlay({ isStockManaged: false, preorderReleaseAt: new Date(Date.now() - 86_400_000), policySourceId: 'policy-1' }),
+    ])
+    const result = await computeAvailability(em, makeContainer(resolveMany), makeQuery([
+      { catalogProductId: 'p1', catalogVariantId: 'v1', quantity: 1 },
+    ]))
+    expect(result.byItem['p1:v1'].state).toBe('not_tracked')
+    expect(result.byItem['p1:v1'].canFulfil).toBe(true)
+  })
+})
+
+describe('computeAvailability — order-quantity rules', () => {
+  async function checkQuantity(quantity: number, input: PolicyOverlayInput) {
+    const { em } = makeEm({ balanceRows: [{ catalog_variant_id: 'v1', aggregate_available: '100' }] })
+    const resolveMany = jest.fn().mockResolvedValue([overlay(input)])
+    const result = await computeAvailability(em, makeContainer(resolveMany), makeQuery([
+      { catalogProductId: 'p1', catalogVariantId: 'v1', quantity },
+    ]))
+    return result.byItem['p1:v1']
+  }
+
+  it('blocks a quantity below minOrderQuantity without changing the stock state', async () => {
+    const item = await checkQuantity(2, { minOrderQuantity: 5 })
+    expect(item.state).toBe('in_stock')
+    expect(item.canFulfil).toBe(false)
+  })
+
+  it('blocks a quantity above maxOrderQuantity even when stock covers it', async () => {
+    const item = await checkQuantity(20, { maxOrderQuantity: 10 })
+    expect(item.state).toBe('in_stock')
+    expect(item.canFulfil).toBe(false)
+  })
+
+  it('blocks a quantity that is not a multiple of quantityIncrement', async () => {
+    const item = await checkQuantity(7, { quantityIncrement: 6 })
+    expect(item.canFulfil).toBe(false)
+  })
+
+  it('allows a quantity that satisfies min, max and increment', async () => {
+    const item = await checkQuantity(12, { minOrderQuantity: 6, maxOrderQuantity: 24, quantityIncrement: 6 })
+    expect(item.state).toBe('in_stock')
+    expect(item.canFulfil).toBe(true)
+  })
+
+  it('applies the rules to an untracked item too', async () => {
+    const item = await checkQuantity(20, { isStockManaged: false, maxOrderQuantity: 10 })
+    expect(item.state).toBe('not_tracked')
+    expect(item.canFulfil).toBe(false)
   })
 })
 

@@ -7,6 +7,7 @@ import type { FilterQuery } from '@mikro-orm/core'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveActiveOrganizationId, organizationScopeRequiredResponse } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { availabilityPolicyCreateSchema, availabilityPolicyUpdateSchema } from '../../data/validators'
 import {
   createAvailabilityCrudOpenApi,
@@ -202,7 +203,9 @@ const availabilityPolicyListItemSchema = z.object({
   updatedAt: z.string().nullable(),
 })
 
-export const openApi = createAvailabilityCrudOpenApi({
+const policyDeleteQuerySchema = z.object({ id: z.uuid() })
+
+const policyCrudOpenApi = createAvailabilityCrudOpenApi({
   resourceName: 'AvailabilityPolicy',
   pluralName: 'AvailabilityPolicies',
   querySchema: listQuerySchema,
@@ -217,8 +220,17 @@ export const openApi = createAvailabilityCrudOpenApi({
     description: 'Updates an existing availability policy by id.',
   },
   del: {
-    schema: z.object({ id: z.string().uuid() }),
     responseSchema: defaultOkResponseSchema,
-    description: 'Deletes an availability policy by id.',
+    description: 'Deletes an availability policy identified by the `id` query parameter.',
   },
 })
+
+export const openApi: OpenApiRouteDoc = {
+  ...policyCrudOpenApi,
+  methods: {
+    ...policyCrudOpenApi.methods,
+    ...(policyCrudOpenApi.methods.DELETE
+      ? { DELETE: { ...policyCrudOpenApi.methods.DELETE, query: policyDeleteQuerySchema } }
+      : {}),
+  },
+}

@@ -1,12 +1,13 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { requireId } from '@open-mercato/shared/lib/commands/helpers'
+import { emitCrudUndoSideEffects, requireId } from '@open-mercato/shared/lib/commands/helpers'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { runCrudCommandWrite } from '@open-mercato/shared/lib/commands/runCrudCommandWrite'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError, conflict, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '#generated/entities.ids.generated'
 import { AvailabilityPolicy } from '../data/entities'
 import {
@@ -17,6 +18,7 @@ import {
   type AvailabilityPolicyCreateInput,
   type AvailabilityPolicyUpdateInput,
 } from '../data/validators'
+import { resolveIsStockManagedModuleDefault } from '../lib/policyResolution'
 import { buildAvailabilityPolicyCommandWhere, ensureAvailabilityPolicyCommandScope } from './scope'
 
 const AVAILABILITY_POLICY_ENTITY_ID = E.availability.availability_policy
@@ -106,6 +108,35 @@ function applyUndoSnapshot(record: AvailabilityPolicy, snapshot: AvailabilityPol
   record.updatedAt = new Date()
 }
 
+async function emitPolicyUndoSideEffects(
+  ctx: CommandRuntimeContext,
+  action: 'created' | 'updated' | 'deleted',
+  record: AvailabilityPolicy,
+): Promise<void> {
+  const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+  await emitCrudUndoSideEffects({
+    dataEngine,
+    action,
+    entity: record,
+    identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
+    events: policyCrudEvents,
+  })
+}
+
+async function resolveCreateIsStockManagedDefault(
+  ctx: CommandRuntimeContext,
+  parsed: AvailabilityPolicyCreateInput,
+): Promise<boolean> {
+  if (!parsed.productId) return false
+  const em = (ctx.container.resolve('em') as EntityManager).fork()
+  return resolveIsStockManagedModuleDefault(em, ctx.container, {
+    tenantId: parsed.tenantId,
+    organizationId: parsed.organizationId,
+    productId: parsed.productId,
+    variantId: parsed.variantId ?? null,
+  })
+}
+
 const createPolicyCommand: CommandHandler<AvailabilityPolicyCreateInput, { policyId: string }> = {
   id: 'availability.policies.create',
   async execute(input, ctx) {
@@ -118,7 +149,7 @@ const createPolicyCommand: CommandHandler<AvailabilityPolicyCreateInput, { polic
     record.storeId = parsed.storeId ?? null
     record.productId = parsed.productId ?? null
     record.variantId = parsed.variantId ?? null
-    record.isStockManaged = parsed.isStockManaged ?? false
+    record.isStockManaged = parsed.isStockManaged ?? (await resolveCreateIsStockManagedDefault(ctx, parsed))
     record.allowBackorder = parsed.allowBackorder ?? false
     record.backorderLeadTimeDays = parsed.backorderLeadTimeDays ?? null
     record.preorderReleaseAt = parsed.preorderReleaseAt ?? null
@@ -179,6 +210,7 @@ const createPolicyCommand: CommandHandler<AvailabilityPolicyCreateInput, { polic
     if (!record) return
     record.deletedAt = new Date()
     await em.flush()
+    await emitPolicyUndoSideEffects(ctx, 'deleted', record)
   },
 }
 
@@ -283,6 +315,7 @@ const updatePolicyCommand: CommandHandler<AvailabilityPolicyUpdateInput, { polic
     if (!record) return
     applyUndoSnapshot(record, before)
     await em.flush()
+    await emitPolicyUndoSideEffects(ctx, 'updated', record)
   },
 }
 
@@ -348,6 +381,7 @@ const deletePolicyCommand: CommandHandler<{ id: string; organizationId: string; 
     record.deletedAt = null
     record.updatedAt = new Date()
     await em.flush()
+    await emitPolicyUndoSideEffects(ctx, 'created', record)
   },
 }
 

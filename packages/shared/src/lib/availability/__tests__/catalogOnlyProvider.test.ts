@@ -82,6 +82,52 @@ describe('catalog-only fallback provider', () => {
     expect(item.canFulfil).toBe(false)
   })
 
+  it('blocks a requested quantity above maxOrderQuantity without changing the state', async () => {
+    setCatalogOnlyPolicyLookup(async () => ({
+      'product-1:variant-1': { maxOrderQuantity: 5, policySourceId: 'policy-4' },
+    }))
+    const provider = availabilityProviderRegistry.get(AVAILABILITY_CATALOG_ONLY_PROVIDER_ID)!
+    const result = await provider.getAvailability(makeQuery({
+      items: [{ catalogProductId: 'product-1', catalogVariantId: 'variant-1', quantity: 6 }],
+    }))
+    const item = result.byItem['product-1:variant-1']
+    expect(item.state).toBe('not_tracked')
+    expect(item.canFulfil).toBe(false)
+  })
+
+  it('blocks a requested quantity below minOrderQuantity or off the quantityIncrement', async () => {
+    setCatalogOnlyPolicyLookup(async () => ({
+      'product-1:variant-1': { minOrderQuantity: 4, quantityIncrement: 4 },
+      'product-2:': { quantityIncrement: 4 },
+      'product-3:': { minOrderQuantity: 4, maxOrderQuantity: 12, quantityIncrement: 4 },
+    }))
+    const provider = availabilityProviderRegistry.get(AVAILABILITY_CATALOG_ONLY_PROVIDER_ID)!
+    const result = await provider.getAvailability(makeQuery({
+      items: [
+        { catalogProductId: 'product-1', catalogVariantId: 'variant-1', quantity: 2 },
+        { catalogProductId: 'product-2', catalogVariantId: null, quantity: 6 },
+        { catalogProductId: 'product-3', catalogVariantId: null, quantity: 8 },
+      ],
+    }))
+    expect(result.byItem['product-1:variant-1'].canFulfil).toBe(false)
+    expect(result.byItem['product-2:'].canFulfil).toBe(false)
+    expect(result.byItem['product-3:'].canFulfil).toBe(true)
+  })
+
+  it('keeps a future preorder fulfillable only within the order-quantity rules', async () => {
+    const future = new Date(Date.now() + 86_400_000).toISOString()
+    setCatalogOnlyPolicyLookup(async () => ({
+      'product-1:variant-1': { preorderReleaseAt: future, maxOrderQuantity: 1 },
+    }))
+    const provider = availabilityProviderRegistry.get(AVAILABILITY_CATALOG_ONLY_PROVIDER_ID)!
+    const result = await provider.getAvailability(makeQuery({
+      items: [{ catalogProductId: 'product-1', catalogVariantId: 'variant-1', quantity: 2 }],
+    }))
+    const item = result.byItem['product-1:variant-1']
+    expect(item.state).toBe('preorder')
+    expect(item.canFulfil).toBe(false)
+  })
+
   it('degrades to the pure fallback when the policy hook throws', async () => {
     setCatalogOnlyPolicyLookup(async () => {
       throw new Error('boom')

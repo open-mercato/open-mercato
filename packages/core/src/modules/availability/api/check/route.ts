@@ -32,6 +32,8 @@ type CatalogRecordRow = {
   deletedAt: Date | null
 }
 
+type CatalogVariantRow = CatalogRecordRow & { product: { id: string } }
+
 const checkSchema = z.object({
   productId: z.uuid(),
   variantId: z.uuid().nullable().optional(),
@@ -55,7 +57,11 @@ export const openApi: OpenApiRouteDoc = {
       requestBody: { schema: checkSchema },
       responses: [{ status: 200, description: 'Availability result and policy trace', schema: checkResponseSchema }],
       errors: [
-        { status: 400, description: 'Invalid request or missing organization scope', schema: errorSchema },
+        {
+          status: 400,
+          description: 'Invalid request, missing organization scope, or a variant that does not belong to the product',
+          schema: errorSchema,
+        },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 404, description: 'Product or variant not found', schema: errorSchema },
       ],
@@ -99,7 +105,7 @@ export async function POST(req: Request) {
       )
     }
     if (variantId) {
-      const CatalogProductVariant = tryResolve<EntityName<CatalogRecordRow>>(container, 'CatalogProductVariant')
+      const CatalogProductVariant = tryResolve<EntityName<CatalogVariantRow>>(container, 'CatalogProductVariant')
       if (CatalogProductVariant) {
         const variant = await em.findOne(CatalogProductVariant, {
           id: variantId,
@@ -111,6 +117,17 @@ export async function POST(req: Request) {
           return NextResponse.json(
             { error: translate('availability.errors.variantNotFound', 'No such variant') },
             { status: 404 },
+          )
+        }
+        if (variant.product.id !== productId) {
+          return NextResponse.json(
+            {
+              error: translate(
+                'availability.check.errors.variantProductMismatch',
+                'The variant does not belong to the selected product',
+              ),
+            },
+            { status: 400 },
           )
         }
       }
