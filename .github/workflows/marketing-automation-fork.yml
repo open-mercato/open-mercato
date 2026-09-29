@@ -18,9 +18,25 @@
 # provisions its own pgvector-enabled Postgres through testcontainers and then spawns the app itself. That needs
 # a Docker daemon, which GitHub-hosted `ubuntu-latest` runners already have.
 #
-# Cost: nothing, as long as the fork is PUBLIC. GitHub Actions has no minute limit for public repositories on
-# standard runners; a private fork on the Free plan gets 2 000 minutes a month, which this gate would exhaust in
-# a few days.
+# Cost: nothing, because this repository is PUBLIC. GitHub Actions has no minute limit for public repositories on
+# standard runners. While it was private nothing ran at all — not a queued run, not a failure, no check suite for
+# the pushed commit: on a private repository without minutes available Actions does not even index the workflow
+# file. That symptom is indistinguishable from a broken YAML, so it is worth writing down.
+#
+# ── Shape, and the measurements behind it ───────────────────────────────────────────────────────────────────
+#
+# The first version ran two independent jobs that each did their own install and build. A cold run measured:
+# install 110–125s, `build:packages` 93–95s, `generate` 34s, rebuild 17s — about four and a half minutes of
+# identical work, paid once per job. Sharding the integration suite would have paid it once per shard.
+#
+# So the build happens ONCE, in `prepare`, and everything downstream unpacks it:
+#
+#   scope ──▶ prepare ──┬──▶ checks                  (types, lint, unit tests, translations)
+#                       └──▶ integration × 3 shards  (app + Postgres + Chromium + the specs)
+#
+# `scope` exists because a commit that only edits specs or documentation needs none of this; it is ten seconds
+# against about fifteen minutes. Three shards rather than more: the harness boots its own app and its own
+# Postgres container per shard, which costs a minute or so each, so past three the boot cost eats the gain.
 name: Marketing automation (fork gate)
 
 permissions:
@@ -47,13 +63,85 @@ env:
   NEXT_TELEMETRY_DISABLED: '1'
 
 jobs:
-  # ── The cheap half: everything that needs no database and no browser ────────────────────────────────────────
+  # ── Is the heavy half needed at all? ────────────────────────────────────────────────────────────────────────
   #
-  # A job of its own rather than a step list in front of the integration job, so a typo in a translation key is
-  # reported in about a quarter of the time the full gate takes. It does not `needs:` anything, so both halves
-  # start at once.
-  checks:
-    name: Types, lint, unit tests, translations
+  # Ten seconds to decide, against fifteen minutes to run. A commit touching only `.ai/**`, markdown or this
+  # module's own spec changes no behaviour, and much of the traffic on this branch is exactly that.
+  #
+  # It fails OPEN: anything it cannot work out — a first push, a force push, a missing base — runs everything.
+  # A scope check that guesses "skip" is a gate that silently stops being one.
+  scope:
+    name: What needs to run
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.decide.outputs.code }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          # Two commits, so a push can be diffed against what it replaced.
+          fetch-depth: 2
+
+      - name: Decide
+        id: decide
+        env:
+          BEFORE: ${{ github.event.before }}
+          BASE_REF: ${{ github.base_ref }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          run_everything() {
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "$1 — running the full gate"
+            exit 0
+          }
+
+          # A hand-started run is somebody asking for the full answer. Written as an `if` rather than
+          # `[ ... ] && run_everything`, because under `set -e` that idiom's exemption rules are subtle enough
+          # that nobody should have to reason about them while reading a scope check.
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            run_everything "started by hand"
+          fi
+
+          if [ "$EVENT" = "pull_request" ]; then
+            git fetch origin "$BASE_REF" --depth=1 || run_everything "could not fetch the base branch"
+            CHANGED=$(git diff --name-only "origin/${BASE_REF}...HEAD") || run_everything "could not diff against the base"
+          else
+            # The all-zero sha means a new branch; a missing parent means a force push over history we do not have.
+            case "$BEFORE" in
+              ''|0000000000000000000000000000000000000000) run_everything "no previous commit to compare against" ;;
+            esac
+            git cat-file -e "$BEFORE" 2>/dev/null || run_everything "the previous commit is not in this checkout"
+            CHANGED=$(git diff --name-only "$BEFORE" HEAD) || run_everything "could not diff against the previous commit"
+          fi
+
+          [ -z "$CHANGED" ] && run_everything "no files reported as changed"
+
+          echo "changed files:"
+          echo "$CHANGED" | sed 's/^/  /'
+
+          # Everything that cannot alter behaviour. Note what is NOT here: this workflow itself is code, because a
+          # change to it has to be exercised by the thing it changes.
+          DOCS_ONLY_PATTERN='^(\.ai/|docs/|apps/docs/|README|CONTRIBUTING|CHANGELOG|LICENSE|.*\.mdx?$)'
+          if echo "$CHANGED" | grep -qvE "$DOCS_ONLY_PATTERN"; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "at least one file outside documentation changed — running the full gate"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+            echo "documentation only — skipping the build, the tests and the browser suite"
+          fi
+
+  # ── Build once ──────────────────────────────────────────────────────────────────────────────────────────────
+  #
+  # Install, compile the packages, run the generator, compile them again against its output, and build the app.
+  # Everything below unpacks the result instead of repeating it. The order is upstream's and is not arbitrary:
+  # the generator writes the module registry the app compiles, so a build before it is a build of the wrong thing.
+  prepare:
+    name: Build
+    needs: scope
+    if: needs.scope.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -77,7 +165,8 @@ jobs:
 
       - name: Cache node_modules
         # With nodeLinker:node-modules yarn extracts zips into node_modules even on a `.yarn/cache` hit, and the
-        # extraction alone costs well over a minute. Caching the result and skipping install on a hit removes it.
+        # extraction alone measured over two minutes on a cold runner. Caching the result and skipping install on
+        # a hit is what turns that into nothing.
         id: nm-cache
         uses: actions/cache@v6
         with:
@@ -88,13 +177,15 @@ jobs:
           key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Cache Turbo build outputs
+        # Shared by every job below through the same key prefix, so a package that did not change is restored
+        # rather than recompiled.
         uses: actions/cache@v6
         with:
           path: .turbo
-          key: turbo-checks-${{ runner.os }}-${{ github.sha }}
+          key: turbo-${{ runner.os }}-${{ github.sha }}
           restore-keys: |
-            turbo-checks-${{ runner.os }}-${{ github.ref_name }}-
-            turbo-checks-${{ runner.os }}-
+            turbo-${{ runner.os }}-${{ github.ref_name }}-
+            turbo-${{ runner.os }}-
 
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
@@ -104,13 +195,12 @@ jobs:
         run: yarn build:packages
 
       - name: Prepare generated modules
-        # The generator discovers modules regardless of what changed, and its output is what the app compiles.
         run: yarn generate
 
       - name: Fail if the generator left the tree dirty
-        # A module that names an icon, a queue or a spot the shared registries do not have makes `yarn generate`
+        # A module naming an icon, a queue or a spot the shared registries do not have makes `yarn generate`
         # rewrite a committed file — usually in another package. That is how this branch acquired an uncommitted
-        # change to `packages/ui`, and the only reliable way to notice is to check here rather than to remember.
+        # change to `packages/ui`, and the only reliable way to notice is to check rather than to remember.
         run: |
           if [ -n "$(git status --porcelain)" ]; then
             echo "::error::yarn generate modified tracked files — commit the output or stop using the name that caused it"
@@ -122,18 +212,108 @@ jobs:
       - name: Rebuild packages with generated files
         run: yarn build:packages
 
+      - name: Build app
+        run: yarn build:app
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-artifacts
+          path: |
+            packages/*/dist/
+            packages/*/generated/
+            apps/mercato/.mercato/generated/
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Archive app build
+        # `upload-artifact` rejects filenames containing colons, and Next.js chunk names contain them
+        # (`[externals]_node:fs_promises_*.js`). Tarring first makes the artifact one clean file.
+        run: tar -czf app-build.tar.gz -C apps/mercato .mercato/next
+
+      - name: Upload app build
+        # Separate from the packages artifact so `checks` does not download a Next.js build it never opens.
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-build
+          path: app-build.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+
+  # ── The cheap half ──────────────────────────────────────────────────────────────────────────────────────────
+  checks:
+    name: Types, lint, unit tests, translations
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # A standard runner has 16 GB, and `turbo run typecheck` fans out across some thirty packages with a `tsc`
+      # each. The first run of this workflow died on it — not a test failure but the RUNNER itself:
+      # "The runner has received a shutdown signal", then twenty-five orphaned `tsc` processes in the cleanup.
+      # Out of memory reads exactly like a cancellation, which is worth knowing before debugging the wrong thing.
+      #
+      # The repository already learned this for tests — `yarn test` carries `--concurrency=2` and a 1 GB heap cap
+      # in its own script — and `yarn typecheck` is a bare `turbo run typecheck` that inherited no limit. Upstream
+      # never hit it because its jobs run on larger self-hosted runners.
+      #
+      # 5120 MB matches what upstream's own typecheck job sets. `yarn test` overrides it to 1024 through
+      # cross-env, so this raises the ceiling for `tsc` without loosening the one tests were given.
+      NODE_OPTIONS: --max-old-space-size=5120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: build-artifacts
+
       - name: Typecheck
-        run: yarn typecheck
+        # The concurrency cap is passed explicitly rather than through `TURBO_CONCURRENCY`, so the limit is
+        # visible in the log line that runs it. Two at a time is what `yarn test` already uses for the same
+        # reason, and it is the difference between this step finishing and the runner being killed.
+        run: yarn typecheck --concurrency=2
 
       - name: Lint
+        # `turbo run lint` reaches only packages that define the script. Of twenty-odd packages only
+        # `apps/mercato` did until this module added one, so before that this step looked at none of its code.
         run: yarn lint
 
       - name: Unit tests
         run: yarn test
 
       - name: Design-system lint for this module
-        # The same invocation the module's AGENTS.md documents: this repo's typescript-eslint refuses the
-        # installed TypeScript under the default config, so the DS rules run through their own config.
+        # The invocation the module's AGENTS.md documents: this repo's typescript-eslint refuses the installed
+        # TypeScript under the default config, so the DS rules run through their own config and a require hook.
         run: |
           node --require ./scripts/typescript-js-require-hook.cjs node_modules/eslint/bin/eslint.js \
             --config eslint.ds.config.mjs packages/marketing-automation
@@ -142,9 +322,8 @@ jobs:
         run: yarn i18n:check-sync
 
       - name: No key referenced in code is missing from en.json
-        # `check-usage` also lists UNUSED keys repo-wide and that half is advisory, so only the missing half is a
-        # failure here. A missing key renders its English fallback, which is invisible until somebody switches
-        # language — exactly the kind of defect a gate is for.
+        # `check-usage` also lists UNUSED keys repo-wide and that half is advisory, so only the missing half fails
+        # here. A missing key renders its English fallback, which is invisible until somebody switches language.
         run: |
           set -o pipefail
           OUTPUT="$(yarn i18n:check-usage 2>&1 | tee /dev/stderr)"
@@ -167,20 +346,32 @@ jobs:
       - name: Agent instruction budgets
         run: yarn agents:check-budget
 
-  # ── The expensive half: the app, a real database and a browser ──────────────────────────────────────────────
+  # ── The expensive half, in three lanes ──────────────────────────────────────────────────────────────────────
+  #
+  # There is deliberately no `services: postgres`, exactly as upstream has none: the harness provisions its own
+  # pgvector Postgres through testcontainers and spawns the app itself, and `ubuntu-latest` already has the
+  # Docker daemon it needs. That is also why three lanes and not ten — each pays for its own database and its own
+  # app boot, so past three the boot cost eats the gain.
   integration:
-    name: Integration tests
+    name: Integration tests ${{ matrix.shard }}/3
+    needs: prepare
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
+    strategy:
+      # One failing lane must not cancel the others: which lane fails, and whether the rest pass, is the
+      # information a red run exists to give.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     env:
-      # What the spawned app needs to boot. None of these are secrets: they are fixtures for a database that is
-      # created and destroyed inside this run. Nothing real belongs in this file.
+      # What the spawned app needs to boot. None of these are secrets — they are fixtures for a database created
+      # and destroyed inside this run. Nothing real belongs in this file.
       JWT_SECRET: 'ci-fork-test-jwt-secret-32-chars-minimum'
-      # Without a tracking secret the specs covering the public unsubscribe, survey and open/click endpoints
-      # SKIP themselves — a green run that proved nothing about the module's only public surface.
+      # Without a tracking secret the specs covering the public unsubscribe, survey and open/click endpoints SKIP
+      # themselves — a green run that proved nothing about the module's only public surface.
       OM_MARKETING_TRACKING_SECRET: 'ci-fork-marketing-tracking-secret-32-bytes'
       APP_URL: 'http://localhost:3000'
-      # Email goes to the seeded test channel rather than a provider, so a send step records a send and nothing
+      # Email reaches the seeded test channel rather than a provider, so a send step records a send and nothing
       # leaves the runner.
       OM_ENABLE_TEST_CHANNEL_SEEDING: 'true'
       OM_DISABLE_EMAIL_DELIVERY: '0'
@@ -188,10 +379,9 @@ jobs:
       EMAIL_FROM: 'system@test-seed.local'
       NOTIFICATIONS_EMAIL_FROM: 'notifications@test-seed.local'
       ADMIN_EMAIL: 'admin@test-seed.local'
-      # A cold runner compiles the app on first request; the default readiness window is too short for that.
       OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS: '180'
-      # Narrowed on purpose. A bare run compiles all ~1270 discovered spec files before the filter applies,
-      # which costs minutes to reach the same result.
+      # Narrowed on purpose. A bare run compiles all ~1270 discovered spec files before the filter applies, which
+      # costs minutes to reach the same result.
       OM_INTEGRATION_MODULES: marketing_automation
     steps:
       - name: Checkout repository
@@ -222,30 +412,23 @@ jobs:
             apps/*/node_modules
           key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
-      - name: Cache Turbo build outputs
-        uses: actions/cache@v6
-        with:
-          path: .turbo
-          key: turbo-integration-${{ runner.os }}-${{ github.sha }}
-          restore-keys: |
-            turbo-integration-${{ runner.os }}-${{ github.ref_name }}-
-            turbo-integration-${{ runner.os }}-
-
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
         run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
 
-      - name: Build packages
-        run: yarn build:packages
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: build-artifacts
 
-      - name: Prepare generated modules
-        run: yarn generate
+      - name: Download app build
+        uses: actions/download-artifact@v8
+        with:
+          name: app-build
 
-      - name: Rebuild packages with generated files
-        run: yarn build:packages
-
-      - name: Build app
-        run: yarn build:app
+      - name: Extract app build
+        # Back into apps/mercato/ so `.mercato/next/` sits where the Next.js server expects it.
+        run: tar -xzf app-build.tar.gz -C apps/mercato/
 
       - name: Cache Playwright browser
         id: playwright-cache
@@ -255,23 +438,54 @@ jobs:
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Install Playwright browser
-        # Needed since this module's screens are driven in a real browser (TC-MA-042..047), not only over HTTP.
+        # Needed because seven of this module's specs drive real screens (TC-MA-040, 042–047) rather than only
+        # calling the API.
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
 
-      - name: Integration tests
-        # The harness starts its own pgvector Postgres through testcontainers and spawns the app; the Docker
-        # daemon on the runner is all it needs from us.
-        run: yarn test:integration
+      - name: Integration tests (shard ${{ matrix.shard }} of 3)
+        run: yarn test:integration --shard=${{ matrix.shard }}/3
 
       - name: Upload failure artefacts
-        # Traces, screenshots and the error context each failing spec writes. Without them a red run on a
-        # machine nobody can open is a line of text.
+        # Traces, screenshots and the error context each failing spec writes. Without them a red run on a machine
+        # nobody can open is one line of text.
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: integration-failures
+          name: integration-failures-shard-${{ matrix.shard }}
           path: |
             .ai/qa/test-results/
           retention-days: 7
           if-no-files-found: ignore
+
+  # ── One status to require ───────────────────────────────────────────────────────────────────────────────────
+  #
+  # A branch protection rule cannot name a matrix job's lanes, and a skipped job reports neither success nor
+  # failure — so without this a docs-only commit and a broken shard would look alike to anything reading the
+  # result. This collapses the whole gate into one conclusion, and treats `skipped` as fine only when the scope
+  # job deliberately skipped it.
+  gate:
+    name: Gate
+    needs: [scope, prepare, checks, integration]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Report
+        env:
+          SCOPE_CODE: ${{ needs.scope.outputs.code }}
+          SCOPE: ${{ needs.scope.result }}
+          PREPARE: ${{ needs.prepare.result }}
+          CHECKS: ${{ needs.checks.result }}
+          INTEGRATION: ${{ needs.integration.result }}
+        run: |
+          echo "scope=$SCOPE (code=$SCOPE_CODE) prepare=$PREPARE checks=$CHECKS integration=$INTEGRATION"
+          [ "$SCOPE" = "success" ] || { echo "::error::the scope job did not succeed"; exit 1; }
+          if [ "$SCOPE_CODE" != "true" ]; then
+            echo "documentation-only commit — nothing to verify"
+            exit 0
+          fi
+          for result in "$PREPARE" "$CHECKS" "$INTEGRATION"; do
+            [ "$result" = "success" ] || { echo "::error::a required job did not succeed"; exit 1; }
+          done
+          echo "every job passed"
