@@ -32,15 +32,15 @@ When a widget for the selected event type is mounted in the calendar form, its `
 
 ### US-B1 — Contribute types through widgets
 
-An enabled HRM module can expose a `site-visit` type from a declarative, headless injection widget mapped to the customers calendar-type spot. The type appears in the scoped catalog and editor and persists with its exact key. Disabling HRM removes it from new selection while existing records open with a raw-key warning and compatibility fallback. Duplicate base keys produce a deterministic conflict diagnostic; an explicit override is required to change another owner's definition.
+The standalone app's optional `example` module can expose a `Visit` type (stable key `visit`) from a declarative, headless injection widget mapped to the customers calendar-type spot. It appears in the scoped catalog and editor and persists with the exact `visit` key. Disabling `example` removes it from new selection while existing records open with a raw-key warning and compatibility fallback. Duplicate base keys produce a deterministic conflict diagnostic; an explicit override is required to change another owner's definition.
 
 ### US-B2 — Configure and change types
 
-An app can replace, patch, or disable a type through `ModuleEntry.overrides.calendar`. Code can use the DI registry to add a type, change it, disable selection, and remove its contribution. Each operation is validated before it changes the effective catalog. Removing a higher-tier contribution reveals the next surviving tier; it never deletes interactions or dictionary rows.
+An app can replace, patch, or disable a type through `ModuleEntry.overrides.calendar`. The standalone `example` module demonstrates renaming the visible `meeting` label through a code patch while preserving the `meeting` key, and hiding `note` from new selection with a `null` override. Code can use the DI registry to add a type, change it, disable selection, and remove its contribution. Each operation is validated before it changes the effective catalog. Removing a higher-tier contribution reveals the next surviving tier; it never deletes interactions or dictionary rows.
 
 ### US-B3 — Validate selected types in the form
 
-An optional module can map a UI widget to the existing interaction `CrudForm` spot and declare which event-type keys activate it. The calendar host mounts only widgets applicable to the selected key. A mounted widget's `onBeforeSave` can return `{ ok: false, message, fieldErrors }`; `CrudForm` shows the same inline errors and prevents its write. Switching to another key unmounts the widget and removes its validator. Direct API requests still pass customers-owned validation and any explicitly registered server-side rule.
+An optional module can map a UI widget to the existing interaction `CrudForm` spot and declare which event-type keys activate it. The calendar host mounts only widgets applicable to the selected key. For `visit`, the mounted widget checks staff recipients and selected resources against their availability calendars; its `onBeforeSave` can return `{ ok: false, message, fieldErrors }`. `CrudForm` shows the same inline errors and prevents its write. Switching to another key unmounts the widget and removes its validator. Direct API requests still pass customers-owned validation and the example's server-side availability rule.
 
 ### US-B4 — Survive absent optional peers
 
@@ -161,16 +161,16 @@ type CalendarOverrides = {
 }
 ```
 
-For example, an optional module's `modules.ts` entry can hide `note` and alter `meeting` without importing customers at runtime:
+For example, a standalone app's optional `example` entry can hide `note` and rename `meeting` for display without changing either stored key:
 
 ```ts
 {
-  id: 'my_custom_overrides',
+  id: 'example',
   from: '@app',
   overrides: {
     calendar: {
       eventTypes: { note: null },
-      patches: [{ targetEventTypeKey: 'meeting', replaceOrder: 25 }],
+      patches: [{ targetEventTypeKey: 'meeting', replaceLabelKey: 'example.calendar.customerMeeting' }],
     },
   },
 }
@@ -197,29 +197,46 @@ An optional module resolves the service inside a local `tryResolve` helper. Fail
 
 ## Required implementation example
 
-Ship a small enabled example module under `apps/mercato/src/modules/` with a headless calendar-type widget mapped through `widgets/injection-table.ts`, and a separate conditional interaction-form widget. The example must demonstrate all three operations without a customers source edit:
+Extend the existing `packages/create-app/template/src/modules/example/` module in the standalone app template. Keep it disabled in the shipped `modules.ts` by default, then enable it in standalone integration fixtures. Its calendar-type widget is mapped through `widgets/injection-table.ts`; its selected-type form widget and server availability rule are separate contributions. Mirror the example in `apps/mercato/src/modules/example/` where the repository keeps those reference surfaces in parity. Do not create `my_custom_overrides`, edit customers source for the example, or make `example` depend on customers, staff, resources, or planner to boot.
+
+The example must show all three requested code changes in one enabled standalone app:
+
+1. Add `Visit` with stable key `visit`, `baseKind: 'event'`, `panelKey: 'example.visit'`, end time, recipients, location, and resources enabled, all-day/recurrence disabled. Its label comes from `example.calendar.visit` with a translated English fallback.
+2. Rename the displayed `meeting` label to “Customer meeting” using `replaceLabelKey` from the module's calendar override/patch. Add keys to the example module's supported locale files. Keep the stored `meeting` key and historical rows unchanged.
+3. Hide `note` from new selection using a `null` override from code. Existing `note` interactions remain readable/editable through historical fallback; demonstrate removal of the override to restore selection. Never delete or rewrite the baseline type.
+
+The template example should make the seams easy to copy:
 
 ```ts
-// Declarative payload in the example module's calendar-type widget
-eventTypes: [{ key: 'site-visit', /* complete bounded definition */ }],
-overrides: { note: null },
-patches: [{ targetEventTypeKey: 'meeting', replaceLabelKey: 'example.customerMeeting' }],
+// example/widgets/injection/calendar-visit/widget.ts: declarative type payload
+eventTypes: [{ key: 'visit', labelKey: 'example.calendar.visit', panelKey: 'example.visit', /* complete bounded behavior */ }],
 
-// Optional bootstrap/teardown code, after tryResolve('calendarEventTypeRegistry')
-registry?.upsert('example', fieldAuditDefinition)
-registry?.patch('example', { targetEventTypeKey: 'meeting', replaceOrder: 25 })
-registry?.remove('example', 'field-audit')
+// src/modules.ts: example entry configuration
+overrides: { calendar: {
+  eventTypes: { note: null },
+  patches: [{ targetEventTypeKey: 'meeting', replaceLabelKey: 'example.calendar.customerMeeting' }],
+} },
 ```
 
-The tested example must make the distinction visible: the widget adds `site-visit`, the patch modifies `meeting`, the `null` override hides `note`, and DI adds then removes its own `field-audit` definition. A separate test removes a programmatic override of an existing key and verifies that the lower widget/base tier becomes effective. Show the equivalent app-level `overrides.calendar` form in documentation. Run the example module with customers disabled and assert the app and unrelated module behavior still work to prove the calendar seam is optional. Example code must keep translated labels and complete valid definitions; the abbreviated snippet above is explanatory only.
+Document the equivalent DI calls and test `upsert`, `patch`, `replace(key, null)`, `remove`, and `removeSource` with a temporary source-owned type or override; removal reveals the lower tier. The deployed `Visit` example itself uses widgets plus module configuration, so no extra throwaway event type appears in the end-user selector. Run the example module with customers disabled and assert the app and unrelated example behavior still work. The abbreviated snippet is explanatory: implementation must supply complete, valid definitions, translations, and source-owned cleanup.
+
+### Visit availability contract
+
+The `Visit` editor previews availability for the proposed half-open interval `[scheduledAt, scheduledAt + durationMinutes)` and rechecks it on create/update before persistence. It accepts a positive duration and never treats an all-day or recurring Visit as implicitly available. The preview and save-time rule share one scoped evaluation service so they cannot disagree on subject mapping or interval semantics.
+
+- For each selected recipient, resolve `participants[].userId` to an **active staff team-member ID** through a public, tenant/organization-scoped staff surface. Only matching staff members are checked against `planner` availability with `subjectType: 'member'` and the team-member ID. Customer contacts and email-only guests have no staff calendar and are skipped. An auth user ID is not a team-member ID; never send it directly as a planner subject.
+- For each selected resource in `linkedEntities` with `type: 'resource'`, resolve the active resource by ID through the public resources surface and check `planner` availability with `subjectType: 'resource'` and that resource ID. Do not import staff/resource entities or form a cross-module ORM relation. Preserve the existing resource label snapshot and all unrelated links.
+- Use planner's merged availability windows, assigned rule sets, time zones, and unavailability exceptions. Every checked subject must cover the whole proposed interval; no positive availability window, an uncovered span, or explicit unavailability reports that subject as unavailable. Batch bounded subject IDs, scope every lookup by tenant and organization, and return only subject IDs/statuses and localized messages the caller may view.
+- Expose a scoped, read-only `GET /api/example/visit-availability` preview with zod-validated ISO `startAt`/`endAt` and bounded staff-user/resource ID lists. Require `customers.interactions.manage` and the relevant `planner.view`, `staff.view`, or `resources.view` feature before reading each source. Return per-subject `available | unavailable | unknown` plus a localized reason key, not raw schedule rules. Export `openApi`; the `VisitPanel` uses `apiCall`, never raw `fetch`. The server-side mutation guard or command interceptor calls the same evaluator against fresh data immediately before save. A failed lookup, missing optional dependency for a selected staff member/resource, or unauthorized subject is an **unknown** result that blocks a Visit save with a retryable error; it must never be reported as available. When the optional modules are absent and no subject of that kind is selected, the other Visit fields continue to work.
+- The example checks published availability windows; it does not claim an exclusive reservation. Existing calendar overlap warnings may still appear. If implementation later promises no double booking, it needs a separate atomic reservation contract.
 
 ## Mounted widget validation
 
 The form continues to use its existing `crud-form:customers.customer_interaction` spot. Add optional `calendarEventTypeKeys` metadata to injection widgets (or an equivalent typed applicability predicate owned by the host). The host passes the selected effective key in injection context, filters applicable widgets before rendering and before event dispatch, and runs `onBeforeSave` only for an active mounted widget. The filter must apply equally to create/update, validation, required-field markers, and `onAfterSave`; changing the selected type unmounts the old widget and clears its widget-origin field errors. Global mutation widgets without a type filter continue to behave as today.
 
-The example module's selected-type widget renders a site-visit helper and returns `{ ok: false, message, fieldErrors: { location: ... } }` for an invalid site visit. `CrudForm` merges these errors with its normal field errors and blocks submission, matching catalog SEO behavior. The host retains one form, submit/delete buttons, guarded mutation, optimistic-lock header, conflict bar, keyboard shortcuts, and retry. Widget code receives no submit callback or mutation authority. A disabled, hidden, unmounted, or nonmatching widget cannot block the save. Loading must settle before submit so a matching validator is not silently skipped; load failure shows a localized retry state and fails closed for that selected widget.
+The template example's `visit` widget runs a fresh availability check in `onBeforeSave` and returns `{ ok: false, message, fieldErrors }` when any checked staff recipient or resource is unavailable or the lookup is unknown. `VisitPanel` owns the interactive preview/status presentation through the same scoped evaluator; the widget need not render a duplicate status UI and must validate even if the panel is replaced. Field-error keys map to the actual `CrudForm` field IDs for recipients, resources, or the time interval; the panel shows the same errors inline. `CrudForm` merges them with normal field errors and blocks submission, matching catalog SEO behavior. The host retains one form, submit/delete buttons, guarded mutation, optimistic-lock header, conflict bar, keyboard shortcuts, and retry. Widget code receives no submit callback or mutation authority. A disabled, hidden, unmounted, or nonmatching widget cannot block the save. A pending or failed pre-save check must not silently allow submission; failure shows a localized retry state and fails closed for that selected widget.
 
-Browser `onBeforeSave` improves the editor experience but is bypassable by direct API callers. The customers command always validates key selectability, bounded core fields, applicable fieldsets, ACL, scope, and optimistic locking. A contributor with additional business invariants must register an optional server-side mutation guard or command interceptor through the existing contract, keyed to its selected type; the example includes such a rule and tests the same invalid request through the API. A missing contributor removes its extra rule while customers' core safety checks remain. Never execute React widget handlers on the server as the validation authority.
+Browser `onBeforeSave` improves the editor experience but is bypassable by direct API callers. The customers command always validates key selectability, bounded core fields, applicable fieldsets, ACL, scope, and optimistic locking. The standalone example registers an optional server-side mutation guard or command interceptor for `visit` that invokes the same fresh availability evaluator before create/update. It returns typed validation/conflict details for affected recipients or resources and tests the same invalid request through the API. A missing contributor removes its extra rule while customers' core safety checks remain. Never execute React widget handlers on the server as the validation authority.
 
 ## API and runtime behavior
 
@@ -271,15 +288,15 @@ Logs identify source tier, module/widget ID, type key, operation, and outcome. T
 3. Extend the existing headless widget union/loader for the calendar spot, register generic widget entries/tables on the server before resolver use, and test enabled-module order, collision diagnostics, invalid-source atomicity, HMR replacement, and customers-absent boot.
 4. Add the shared loose `overrides.calendar` domain and customers applier through existing app/create-app, CLI, and worker bootstraps. Test inline-only dispatch and widget → inline precedence.
 5. Register the Awilix `calendarEventTypeRegistry` service; implement `upsert`, `replace`, `patch`, `remove`, `removeSource`, immutable snapshots, source ownership, versioned invalidation, and soft-optional `tryResolve` tests.
-6. Add the example module showing a widget-added type, widget and inline modification/disablement, and DI add/patch/remove, plus the customers-disabled scenario.
+6. Extend the standalone template's existing disabled `example` module: declare `visit` through its headless widget, rename `meeting` and hide `note` through its module configuration, document/test DI add/patch/remove, and verify customers-disabled boot. Add translated labels and mirror the monorepo example where needed for reference parity.
 
 *Exit:* every contribution tier resolves deterministically and programmatic removal reveals the next tier.
 
 ### Phase C — Selected-type validation
 
-7. Add selected-key widget applicability and mounted `onBeforeSave` behavior to the existing `CrudForm` host. Add the example widget's field error and optional server mutation rule; preserve global widget behavior and host submission authority.
+7. Add selected-key widget applicability and mounted `onBeforeSave` behavior to the existing `CrudForm` host. Implement the example's shared staff/resource availability evaluator, scoped preview, mounted field errors, and server mutation rule for `visit`; preserve global widget behavior and host submission authority. The React `VisitPanel` is delivered by the linked panel spec through the same example module.
 
-*Exit:* the example event can be created and edited, its mounted widget blocks invalid form saves, and direct API writes enforce the server rule.
+*Exit:* `Visit` can be created and edited in the standalone app, the mounted widget blocks invalid form saves, and direct API writes enforce the same rule. The custom React editor and its visible availability states are the cross-spec end-to-end completion gate with the linked panel spec; this phase's widget and server rule do not depend on panel implementation.
 
 ### Phase D — Verification and documentation
 
@@ -290,11 +307,11 @@ Logs identify source tier, module/widget ID, type key, operation, and outcome. T
 
 Fixtures create records through APIs and remove them in `finally`; no test relies on demo data.
 
-- **TC-CETE-001 — widget contribution lifecycle:** enable the example widget, verify scoped API/editor selection and exact-key persistence; disable it and verify mutation rejection for new use plus unchanged historical fallback.
-- **TC-CETE-002 — add/modify/remove:** verify widget addition, a patch to `meeting`, a `note` tombstone, an inline override, DI `upsert`/`patch`/`remove`/`removeSource`, deterministic precedence, cache invalidation, and immutable provenance snapshot.
-- **TC-CETE-003 — optional module decoupling:** boot with customers absent and contributor enabled; assert one warning and working unrelated contributor functionality. Boot with contributor absent and customers enabled; assert six baseline types and no unresolved import.
-- **TC-CETE-004 — mounted validation:** select `site-visit`, mount its widget, return `fieldErrors.location`, block save, then switch type and verify the widget unmounts and no longer blocks. Assert feature-hidden/disabled widgets do not run and a failed matching widget load cannot silently allow save.
-- **TC-CETE-005 — direct API enforcement:** submit the same invalid site visit through the API; verify the optional server rule blocks it while core key/field/scope checks remain with the contributor disabled.
+- **TC-CETE-001 — standalone Visit lifecycle:** scaffold a standalone app, enable the shipped `example` module in the test fixture, verify `Visit`/`visit` in the scoped API and editor, save/reload its exact key, then disable `example` and verify new-use rejection plus unchanged historical fallback.
+- **TC-CETE-002 — rename, hide, remove:** verify `meeting` displays the translated “Customer meeting” label but retains its stored key, `note` is absent from new selection but historical rows remain intact, and removing the code override restores `note`. Exercise DI `upsert`/`patch`/`replace`/`remove`/`removeSource` with a temporary source and verify precedence, cache invalidation, and immutable provenance.
+- **TC-CETE-003 — optional module decoupling:** boot the standalone app with `example` enabled and customers absent; assert one missing-host warning and working unrelated example behavior. Boot with `example` absent and customers enabled; assert six baseline types and no unresolved import.
+- **TC-CETE-004 — mounted Visit validation:** create scoped staff-member, guest/customer, resource, weekly availability, and unavailability-exception fixtures. Select `visit`, assert only staff recipients and resources are checked, an unavailable subject produces the mapped inline field error and blocks save, an available interval succeeds, and switching type unmounts the validator. Exercise the preview GET's 401/403 and cross-organization denial without exposing raw rules. Assert feature-hidden/disabled widgets do not run and a failed lookup/load never silently allows save.
+- **TC-CETE-005 — direct API enforcement:** submit the same unavailable Visit through the interaction API and verify the server rule blocks it; test member-user-ID mapping, resource IDs, time-zone boundaries, missing rule sets, cross-organization IDs, dependency failures, update rechecks, and guest/customer bypass. Reject zero/negative duration and all-day or recurring Visit requests through the direct API as well as the editor. Core key/field/scope checks remain when `example` is disabled.
 - **TC-CETE-006 — bootstraps:** declare only `overrides.calendar` and verify dispatch before the first resolver read in Next.js, CLI/worker, and create-app template, with no unwired-domain warning while customers is enabled.
 
 ## Risks
@@ -303,6 +320,9 @@ Fixtures create records through APIs and remove them in `finally`; no test relie
 |---|---|---|---|
 | Widget declarations drift between server and client | High | Server resolver is authoritative; editor reads catalog API; hydration and direct API tests | A stale client may need retry |
 | Client widget rule mistaken for authoritative validation | High | Explicit server guard example and direct API test; customers always checks core invariants | Optional business rule disappears when its module is disabled |
+| Visit availability changes after preview | High | Re-evaluate current planner windows in the server mutation flow; display refresh/retry state | Concurrent changes after the check can still occur without an atomic reservation contract |
+| Staff user ID is mistaken for planner member ID | High | Resolve active team-member ID through a scoped public staff surface; test auth-user fallback and guest/customer skipping | Staff roster changes may require retry |
+| Optional planner/staff/resources lookup fails | Medium | Unknown result blocks only selected Visit dependencies; localized retry and no cross-module import | Visit scheduling pauses until the peer recovers |
 | Process-local programmatic changes differ across workers | Medium | Require identical bootstrap registration; document external coordination for live changes | A caller can still misconfigure one worker |
 | Optional host unavailable | Medium | Soft `tryResolve`, no hard dependency, one structured warning and module-decoupling tests | Calendar contribution has no effect until host is enabled |
 | Competing definitions or patches | Medium | Reject duplicate bases; deterministic precedence, provenance, and diagnostics | Explicit competing overrides remain last-wins |
@@ -326,7 +346,7 @@ Fixtures create records through APIs and remove them in `finally`; no test relie
 | Tenant/organization isolation | Pass | Scoped catalog, cache, and mutations; no tenant values in global declarations |
 | Compatibility | Pass | Stable stored keys, frozen existing spots, deprecated bridge, additive contracts |
 | UI/i18n/accessibility | Pass | `CrudForm` retains controls; selected widget errors use existing translated field-error flow |
-| Integration coverage | Pass | Add/modify/remove, disabled peers, mounted validation, direct API and bootstraps |
+| Integration coverage | Pass | Standalone Visit/rename/hide, availability, custom editor, disabled peers, direct API and bootstraps |
 
 ### Verdict
 
@@ -352,3 +372,8 @@ Approved for review as a widget-based extension contract over the customers cale
 - **Commands**: Passed with authoritative key/core-field validation and optional server guard coverage.
 - **Risks**: The reviewer proposed separate foundation and validation specs; this proposal retains them as staged prerequisites and acceptance of one end-to-end widget contribution capability. The administrator overlay and React panel remain separate.
 - **Verdict**: Ready for design review.
+
+### 2026-09-29 — Standalone Visit implementation example
+
+- Required the existing scaffolded `example` module to add `Visit`, rename `meeting` in code, hide `note`, and provide a custom React editor through the companion panel spec.
+- Specified staff-recipient and resource availability checks through planner windows, a shared preview/save evaluator, optional-module behavior, and standalone integration coverage.

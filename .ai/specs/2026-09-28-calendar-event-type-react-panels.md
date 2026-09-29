@@ -42,9 +42,10 @@ Customers retains the single `CrudForm`, submission, optimistic locking, guards,
 
 ### US-C1 — Add a type-specific panel
 
-As a module author, I want a visit-specific panel while customers retains the canonical form lifecycle.
+As a module author, I want the standalone app's `example` module to provide a custom React editor for `Visit` while customers retains the canonical form lifecycle.
 
-- A wrapper can branch on `definition.key` or `panelKey` and delegate all other types to `Original`.
+- A wrapper branches on `definition.key === 'visit'` (or `panelKey === 'example.visit'`), renders `VisitPanel`, and delegates every other type to `Original`.
+- `VisitPanel` owns the Visit-specific field layout for time, recipients, resources, location, and availability feedback. It displays pending, available, unavailable, and retry states from the shared scoped evaluator; it does not create a second form.
 - Stable props expose the effective definition, mode, values, errors, disabled state, capabilities, and `setValue`.
 - The panel receives no submit, delete, `apiCall`, transaction, or request-header callback.
 - Durable custom data uses sanctioned custom fields or a contributor-owned extension entity linked by ID.
@@ -136,7 +137,7 @@ An app can target the handle through the existing umbrella:
 ```ts
 import type { ComponentOverride } from '@open-mercato/shared/modules/widgets/component-registry'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
-import { withMyCalendarEventTypePanel } from './modules/my_custom_overrides/calendar-event-panel'
+import { withExampleCalendarEventTypePanel } from './modules/example/widgets/components'
 
 const panelHandle = ComponentReplacementHandles.section(
   'customers.calendar-event-editor',
@@ -144,7 +145,7 @@ const panelHandle = ComponentReplacementHandles.section(
 )
 
 {
-  id: 'my_custom_overrides',
+  id: 'example',
   from: '@app',
   overrides: {
     widgets: {
@@ -152,8 +153,8 @@ const panelHandle = ComponentReplacementHandles.section(
         [panelHandle]: {
           target: { componentId: panelHandle },
           priority: 50,
-          metadata: { module: 'my_custom_overrides' },
-          wrapper: withMyCalendarEventTypePanel,
+          metadata: { module: 'example' },
+          wrapper: withExampleCalendarEventTypePanel,
         } satisfies ComponentOverride,
       },
     },
@@ -161,7 +162,7 @@ const panelHandle = ComponentReplacementHandles.section(
 }
 ```
 
-This is the existing `ComponentOverride` descriptor shape, including the repeated target used for validation and diagnostics. Client-visible component overrides must not be gated by server-only environment variables; use an unconditional entry or a `NEXT_PUBLIC_*` gate consistently on server and browser.
+This is the existing `ComponentOverride` descriptor shape, including the repeated target used for validation and diagnostics. It demonstrates an alternative to the required example's file contribution; do not register both descriptors for the same wrapper in one app. Client-visible component overrides must not be gated by server-only environment variables; use an unconditional entry or a `NEXT_PUBLIC_*` gate consistently on server and browser.
 
 ### Path C — programmatic
 
@@ -183,49 +184,49 @@ export function applyProgrammaticComponentOverrides(): void {
 
 For all three paths, existing UMES composition remains authoritative: base registration, file contributions, inline overrides, then programmatic overrides. The client resolver selects the highest-priority replacement, composes wrappers in ascending priority, and reduces props transforms in ascending priority before the final render; focused tests pin this host to that resolver. `null` disables the contributed override and falls back to the host default; it does not disable the event type.
 
-### End-to-end `my_custom_overrides` wrapper
+### Standalone `example` module Visit editor
 
-The module paired with the widget-extension example contributes a statically discoverable wrapper:
+Extend `packages/create-app/template/src/modules/example/` with a statically discoverable wrapper and a `VisitPanel`; keep `example` disabled in the shipped standalone `modules.ts` and enable it in integration fixtures. Mirror the monorepo example if needed for reference parity:
 
 ```ts
-// apps/mercato/src/modules/my_custom_overrides/widgets/components.ts
+// packages/create-app/template/src/modules/example/widgets/components.ts
 import * as React from 'react'
 import type { ComponentType } from 'react'
 import type { CalendarEventTypePanelProps } from '@open-mercato/core/modules/customers/calendar-event-types'
 import type { ComponentOverride } from '@open-mercato/shared/modules/widgets/component-registry'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
-import { SiteVisitPanel } from '../components/SiteVisitPanel'
+import { VisitPanel } from '../components/VisitPanel'
 
 const panelHandle = ComponentReplacementHandles.section(
   'customers.calendar-event-editor',
   'type-panel',
 )
 
-export function withMyCalendarEventTypePanel(
+export function withExampleCalendarEventTypePanel(
   Original: ComponentType<CalendarEventTypePanelProps>,
 ): ComponentType<CalendarEventTypePanelProps> {
-  function MyCalendarEventTypePanel(props: CalendarEventTypePanelProps) {
-    if (props.panelKey === 'my_custom_overrides.site_visit') {
-      return React.createElement(SiteVisitPanel, props)
+  function ExampleCalendarEventTypePanel(props: CalendarEventTypePanelProps) {
+    if (props.definition.key === 'visit' && props.panelKey === 'example.visit') {
+      return React.createElement(VisitPanel, props)
     }
     return React.createElement(Original, props)
   }
-  return MyCalendarEventTypePanel
+  return ExampleCalendarEventTypePanel
 }
 
 export const componentOverrides: ComponentOverride<CalendarEventTypePanelProps>[] = [
   {
     target: { componentId: panelHandle },
     priority: 50,
-    metadata: { module: 'my_custom_overrides' },
-    wrapper: (Original) => withMyCalendarEventTypePanel(Original),
+    metadata: { module: 'example' },
+    wrapper: (Original) => withExampleCalendarEventTypePanel(Original),
   },
 ]
 
 export default componentOverrides
 ```
 
-`SiteVisitPanel` renders only the specialized fields and calls `props.setValue`; it does not create another form or submit button. The local handle expression remains statically foldable by the generator. After enabling the module, run `yarn generate`.
+`VisitPanel` replaces the default type-field layout for `visit` with a custom React editor: schedule interval, recipient and resource selection, location, and per-subject availability state. It uses `props.values`, `props.errors`, and `props.setValue`, renders translated inline errors and a retry action, and delegates submission to the host `CrudForm`. Its preview calls the scoped evaluator endpoint through `apiCall`, never raw `fetch`; the selected-type injection widget performs a fresh pre-save check independently, including when another panel replaces `VisitPanel`. The optional server rule protects direct API writes. Use shared UI primitives, semantic tokens, and accessible controls. The local handle expression remains statically foldable by the existing UMES generator; after enabling the example module, run normal `yarn generate`.
 
 ## Runtime and UI behavior
 
@@ -237,7 +238,7 @@ export default componentOverrides
 - An error thrown while rendering a composed wrapper component or replacement is isolated by the existing UMES boundary; the plain default panel renders and current values remain in the host form. Wrapper-factory and props-transform code must remain pure/non-throwing because it executes before that boundary.
 - A contributor needing data fetching uses scoped public APIs and loading/error primitives but cannot bypass server-side event-type validation.
 
-Prototype: [configurable calendar event types](../prototypes/configurable-calendar-event-types/index.html). Screen 5 illustrates an HRM `site-visit` panel inside the host form. The artifact is illustrative and uses synthetic data.
+Prototype: [configurable calendar event types](../prototypes/configurable-calendar-event-types/index.html). Screen 5 illustrates a visit-like custom panel inside the host form; implementation uses the standalone `example` module's `VisitPanel` and staff/resource availability states. The artifact is illustrative and uses synthetic data.
 
 ## Frontend Architecture Contract
 
@@ -285,9 +286,9 @@ Existing UMES logs contain the component handle, outcome, and replacement module
 
 1. Export the exact component handle, zod/runtime-safe public props boundary where applicable, TypeScript props, default panel, and error boundary.
 2. Extract/bind `EventTypePanel` through `useRegisteredComponent` inside the existing single `CrudForm` without changing submission, generic injection spots, locking, or keyboard behavior.
-3. Add type-specific wrapper and replacement fixtures through `widgets/components.ts`.
+3. Extend the standalone template's `example/widgets/components.ts` with a wrapper that renders the custom `VisitPanel` only for `visit`, and add replacement fixtures; keep the module disabled by default.
 
-*Exit:* every type traverses the host and a missing/disabled contribution renders the unchanged default.
+*Exit:* every type traverses the host, the enabled standalone example renders the custom Visit editor, and a missing/disabled contribution renders the unchanged default.
 
 ### Phase B — Override tiers and safety
 
@@ -307,16 +308,18 @@ Fixtures use a canonical example module and clean created records in `finally`.
 
 - **TC-CETP-001 — default and module lifecycle:** render every core/contributed type through the handle, disable the contributor, and verify default fallback plus unchanged persisted data.
 - **TC-CETP-002 — React override tiers:** target the handle through file, `modules.ts`, and the dual-runtime programmatic UMES hook; verify existing precedence, `null` fallback, composed-state introspection, internal reset isolation, and the same component before/after hydration.
-- **TC-CETP-003 — type-specific wrapper:** branch on `definition.key` and `panelKey`, delegate other types to `Original`, change a sanctioned field through `setValue`, and submit through the host.
+- **TC-CETP-003 — standalone Visit editor:** in a scaffolded app with `example` enabled, select `visit` and verify `VisitPanel` renders its custom time, recipients, resources, and location controls; change fields through `setValue`. With scoped staff-user-to-member and resource fixtures, assert per-subject pending, available, and unavailable states, mapped inline errors, and blocked save for unavailable choices. An available Visit submits through the host, and every other type delegates to `Original`.
 - **TC-CETP-004 — host authority:** verify no submit/network callback is present, generic custom-field widgets and selected-type `onBeforeSave` validation still run under default/wrapped/replaced panels; `Cmd/Ctrl+Enter`, `Escape`, guarded mutation, optimistic locking, conflicts, and retry remain host-owned.
 - **TC-CETP-005 — render failure boundaries:** force a composed wrapper-component render error and a replacement render error, assert the plain default fallback preserves the draft, and verify current UMES diagnostics omit form values while allowing unknown wrapper attribution; separately prove wrapper-factory/props-transform errors are outside the fallback guarantee.
 - **TC-CETP-006 — optional-module isolation:** run module-decoupling and bundle checks with customers absent and with the contributor disabled; assert no unresolved import/loader and no unrelated-route panel chunk.
+- **TC-CETP-007 — unavailable preview:** force the scoped availability preview to fail; verify the Visit panel shows the fourth state, a localized retry action, preserves the draft, and cannot submit until the independent mounted widget check succeeds. Verify retry reaches an available/unavailable state, plus hydration and keyboard behavior in the standalone app.
 
 ## Risks
 
 | Risk | Severity | Mitigation | Residual risk |
 |---|---|---|---|
 | Custom code bypasses host safety | High | No mutation callbacks; server validation; wrapper-first docs; real guard/locking tests | Trusted code can import APIs, so review remains necessary |
+| Visit availability preview is stale or unavailable | Medium | Panel shows pending/retry states; mounted widget and server rule re-evaluate before save | A later schedule change remains possible without reservation semantics |
 | Full replacement fragments UX | Medium | Wrappers/props transforms preferred; host retains dialog shell and lifecycle | Specialized panels may still vary internally |
 | Handle/props change breaks modules | High | Frozen exact handle and versioned props; additive evolution/deprecation bridge | Future host needs may require a v2 contract |
 | Optional panel inflates unrelated bundles | Medium | Existing lazy boundary; bundle test with contributor disabled | Shared dependencies may remain deduplicated in common chunks |
@@ -361,3 +364,7 @@ Approved for review as a companion capability deployed after the canonical custo
 ### 2026-09-29 — Widget validation alignment
 
 - Clarified that panel overrides preserve the selected-type mounted widget validation owned by the extension spec.
+
+### 2026-09-29 — Standalone Visit example
+
+- Required a real custom `VisitPanel` in the standalone template's existing `example` module, including staff/resource availability feedback and standalone integration coverage.
