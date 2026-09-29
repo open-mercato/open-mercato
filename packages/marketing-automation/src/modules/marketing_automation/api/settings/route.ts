@@ -8,6 +8,10 @@ import { PRODUCT_URL_TEMPLATE_CONFIG } from '../../lib/recommendations.js'
 import { BRAND_VOICE_CONFIG } from '../../lib/ai-copy.js'
 import { REFERRAL_URL_TEMPLATE_CONFIG } from '../../lib/referrals.js'
 import { LEAD_ROUTING_CONFIG } from '../../lib/lead-routing.js'
+import { AUTO_APPLY_CONFIG_NAME, AUTO_APPLY_MARGIN_CONFIG_NAME } from '../../lib/auto-winner.js'
+import { VALUE_HORIZON_CONFIG_NAME } from '../../lib/value-horizon.js'
+import { DEFAULT_VALUE_HORIZON_YEARS } from '../../lib/engine/rfm.js'
+import { DEFAULT_WINNER_MARGIN } from '../../lib/engine/auto-winner.js'
 
 /**
  * The module's per-tenant settings.
@@ -65,6 +69,22 @@ const bodySchema = z.object({
     key: z.string().trim().min(1).max(50),
     minPoints: z.coerce.number().int().min(0),
   })).max(10).optional(),
+  /**
+   * Whether a decisive A/B result may rewrite the campaign with nobody watching.
+   *
+   * Off until somebody says otherwise: promoting a winner changes what customers receive, which this module
+   * otherwise reserves for a person.
+   */
+  autoApplySplitWinner: z.boolean().optional(),
+  /**
+   * How much better the winner must be, as a PROPORTION of the runner-up's click rate.
+   *
+   * Bounded at 0.05 because below that the margin stops being a guard against noise, and at 5 because a
+   * requirement to be six times better is a requirement never to conclude anything.
+   */
+  autoApplySplitWinnerMargin: z.coerce.number().min(0.05).max(5).optional(),
+  /** How many years a value projection looks ahead. Bounded: a projection is only as good as its cadence. */
+  valueHorizonYears: z.coerce.number().min(0.5).max(5).optional(),
 })
 
 type ConfigScope = { tenantId?: string | null; organizationId?: string | null }
@@ -99,13 +119,21 @@ export async function GET(req: Request) {
   if ('error' in resolved) return resolved.error
   const { service, scope } = resolved
 
-  const [template, tiers, brandVoice, referralTemplate, routingPool] = await Promise.all([
+  const [template, tiers, brandVoice, referralTemplate, routingPool, autoApply, autoApplyMargin, horizon] = await Promise.all([
     service.getValue<unknown>(MODULE_ID, PRODUCT_URL_TEMPLATE_CONFIG, { scope }),
     service.getValue<unknown>(MODULE_ID, TIER_CONFIG_NAME, { scope }),
     service.getValue<unknown>(MODULE_ID, BRAND_VOICE_CONFIG, { scope }),
     service.getValue<unknown>(MODULE_ID, REFERRAL_URL_TEMPLATE_CONFIG, { scope }),
     service.getValue<unknown>(MODULE_ID, LEAD_ROUTING_CONFIG, { scope }),
+    service.getValue<unknown>(MODULE_ID, AUTO_APPLY_CONFIG_NAME, { scope }),
+    service.getValue<unknown>(MODULE_ID, AUTO_APPLY_MARGIN_CONFIG_NAME, { scope }),
+    service.getValue<unknown>(MODULE_ID, VALUE_HORIZON_CONFIG_NAME, { scope }),
   ])
+
+  const readNumber = (value: unknown, fallback: number): number => {
+    const parsed = typeof value === 'number' ? value : Number(value)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+  }
 
   return NextResponse.json({
     productUrlTemplate: typeof template === 'string' ? template : '',
@@ -117,6 +145,10 @@ export async function GET(req: Request) {
     // Normalised on the way out as well as in, so the screen shows the ladder the engine will use
     // rather than whatever shape happens to be stored.
     loyaltyTiers: normalizeTierThresholds(tiers),
+    // The defaults are returned rather than nulls, so the screen shows what the engine will actually do.
+    autoApplySplitWinner: autoApply === true || autoApply === 'true',
+    autoApplySplitWinnerMargin: readNumber(autoApplyMargin, DEFAULT_WINNER_MARGIN),
+    valueHorizonYears: readNumber(horizon, DEFAULT_VALUE_HORIZON_YEARS),
   })
 }
 
@@ -149,6 +181,15 @@ export async function PUT(req: Request) {
   if (parsed.data.leadRoutingUserIds !== undefined) {
     // De-duplicated on the way in: the same rep twice in the pool would halve everybody else's share.
     await service.setValue(MODULE_ID, LEAD_ROUTING_CONFIG, [...new Set(parsed.data.leadRoutingUserIds)], scope)
+  }
+  if (parsed.data.autoApplySplitWinner !== undefined) {
+    await service.setValue(MODULE_ID, AUTO_APPLY_CONFIG_NAME, parsed.data.autoApplySplitWinner, scope)
+  }
+  if (parsed.data.autoApplySplitWinnerMargin !== undefined) {
+    await service.setValue(MODULE_ID, AUTO_APPLY_MARGIN_CONFIG_NAME, parsed.data.autoApplySplitWinnerMargin, scope)
+  }
+  if (parsed.data.valueHorizonYears !== undefined) {
+    await service.setValue(MODULE_ID, VALUE_HORIZON_CONFIG_NAME, parsed.data.valueHorizonYears, scope)
   }
   if (parsed.data.loyaltyTiers !== undefined) {
     // Stored normalised: the ladder is read on every profile and every tier comparison, and sorting it

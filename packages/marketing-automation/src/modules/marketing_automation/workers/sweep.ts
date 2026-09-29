@@ -23,6 +23,7 @@ import type { ValueBoundaries } from '../lib/engine/rfm.js'
 import { scanPriceWatches } from '../lib/product-watches.js'
 import { sendWeeklyLeadDigests, DIGEST_JOB_KIND } from '../lib/lead-digest.js'
 import { announceBreaker, applyDeliverabilityGuardrails } from '../lib/deliverability.js'
+import { announceAppliedWinner, applyEarnedWinners } from '../lib/auto-winner.js'
 import { emitMarketingAutomationEvent } from '../events.js'
 import { MarketingCampaignTrigger as TriggerEntity } from '../data/entities.js'
 import type { MarketingCampaign, MarketingCampaignTrigger } from '../data/entities.js'
@@ -60,6 +61,15 @@ const PAGE_SIZE = 200
  * the remainder waits for the next tick and somebody may want to know.
  */
 const MAX_ROWS_PER_TICK = 5_000
+
+/**
+ * The per-lane sample an automatic promotion waits for, before the auto-apply multiplier.
+ *
+ * The same default the results screen suggests at, so the two answers cannot drift into disagreeing about
+ * whether a test is ready — the automatic path then doubles it, because acting unattended needs more than
+ * suggesting does.
+ */
+const DEFAULT_MINIMUM_REACHED = 50
 
 /** What the subject projection needs that is tenant-wide rather than per-customer. */
 type ProjectionOptions = {
@@ -481,6 +491,29 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
    * Idempotent through a unique index on the day, so running on every tick records one point per day without
    * needing to remember whether it already did.
    */
+  /**
+   * A/B tests that have earned a conclusion, concluded.
+   *
+   * OFF unless a tenant switched it on — promoting a winner rewrites an author's campaign, which this module
+   * otherwise reserves for a person. When it does act it goes through the ordinary command, so the change is
+   * validated, version-checked and recorded as a revision like any edit.
+   */
+  try {
+    const applied = await applyEarnedWinners(deps.em, deps.container, scope, DEFAULT_MINIMUM_REACHED)
+    for (const winner of applied) {
+      logger.info('marketing split winner applied automatically', {
+        campaignId: winner.campaignId,
+        variant: winner.variant,
+        reached: winner.reached,
+      })
+      await announceAppliedWinner(deps.container, scope, winner)
+    }
+  } catch (error) {
+    logger.warn('[internal] marketing automatic winner selection failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
   /**
    * The RFM cut points, refreshed on the same daily pass as the segment sizes.
    *

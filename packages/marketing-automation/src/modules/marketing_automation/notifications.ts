@@ -46,6 +46,23 @@ export const notificationTypes: NotificationTypeDefinition[] = [
     category: 'marketing',
   },
   {
+    type: 'marketing_automation.split_winner_applied',
+    channels: ['in_app'],
+    module: 'marketing_automation',
+    titleKey: 'marketing_automation.notifications.winnerApplied.title',
+    bodyKey: 'marketing_automation.notifications.winnerApplied.body',
+    icon: 'trophy',
+    /**
+     * Information rather than a warning: the campaign is now sending the better of two messages, which is good
+     * news — but it is news, because somebody's campaign changed shape without them doing it.
+     */
+    severity: 'info',
+    actions: [],
+    labelKey: 'marketing_automation.notifications.winnerApplied.label',
+    descriptionKey: 'marketing_automation.notifications.winnerApplied.description',
+    category: 'marketing',
+  },
+  {
     type: 'marketing_automation.campaign_notice',
     channels: ['in_app'],
     module: 'marketing_automation',

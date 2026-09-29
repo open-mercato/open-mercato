@@ -23,6 +23,9 @@ type Settings = {
   referralUrlTemplate: string
   leadRoutingUserIds: string[]
   loyaltyTiers: Array<{ key: string; minPoints: number }>
+  autoApplySplitWinner: boolean
+  autoApplySplitWinnerMargin: number
+  valueHorizonYears: number
 }
 
 /**
@@ -168,6 +171,67 @@ export default function MarketingSettingsPage() {
             />
             <div className="text-xs text-muted-foreground">
               {t('marketing_automation.settings.referralUrlHint', 'Must contain {code}. Messages can then print {{referral.url}} as well as {{referral.code}}.')}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <SectionHeader title={t('marketing_automation.settings.experiments', 'A/B tests')} />
+            <CheckboxField
+              label={t('marketing_automation.settings.autoApply', 'Let a decisive test promote its own winner')}
+              checked={settings.autoApplySplitWinner}
+              onCheckedChange={(checked) => setSettings({ ...settings, autoApplySplitWinner: checked === true })}
+            />
+            <div className="text-xs text-muted-foreground">
+              {t(
+                'marketing_automation.settings.autoApplyHint',
+                'Off by default, because promoting a winner rewrites the campaign. When on, the daily pass promotes a variant only once every lane has twice the usual sample and the winner beats the runner-up by the margin below. It goes through the ordinary save, so it is recorded as a version you can restore, and whoever can manage campaigns gets a notification.',
+              )}
+            </div>
+            <Label htmlFor="winner-margin">
+              {t('marketing_automation.settings.autoApplyMargin', 'How much better the winner must be')}
+            </Label>
+            <Input
+              id="winner-margin"
+              type="number"
+              step="0.05"
+              min="0.05"
+              max="5"
+              className="w-32"
+              value={settings.autoApplySplitWinnerMargin}
+              disabled={!settings.autoApplySplitWinner}
+              onChange={(event) => setSettings({
+                ...settings,
+                autoApplySplitWinnerMargin: Number(event.target.value),
+              })}
+            />
+            <div className="text-xs text-muted-foreground">
+              {t(
+                'marketing_automation.settings.autoApplyMarginHint',
+                'A proportion, not percentage points: 0.25 means the winner needs a click rate a quarter higher than the runner-up. 3.0% against 2.9% is a coin toss; 3.0% against 2.0% is a result.',
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <SectionHeader title={t('marketing_automation.settings.value', 'Customer value')} />
+            <Label htmlFor="value-horizon">
+              {t('marketing_automation.settings.valueHorizon', 'Projection horizon, in years')}
+            </Label>
+            <Input
+              id="value-horizon"
+              type="number"
+              step="0.5"
+              min="0.5"
+              max="5"
+              className="w-32"
+              value={settings.valueHorizonYears}
+              onChange={(event) => setSettings({ ...settings, valueHorizonYears: Number(event.target.value) })}
+            />
+            <div className="text-xs text-muted-foreground">
+              {t(
+                'marketing_automation.settings.valueHorizonHint',
+                'How far ahead the projected value on a customer profile looks, assuming they keep buying at their own pace. Shorter suits a shop selling something people replace rarely.',
+              )}
             </div>
           </div>
 
