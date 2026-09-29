@@ -50,6 +50,15 @@ function makeEntry(id: string): EnricherRegistryEntry {
   return { moduleId: 'test', enricher }
 }
 
+function makeCriticalEnrichingEntry(id: string): EnricherRegistryEntry {
+  const entry = makeEntry(id)
+  entry.enricher.critical = true
+  entry.enricher.enrichMany = async (records) =>
+    records.map((record) => ({ ...record, enriched: true }))
+  entry.enricher.enrichOne = async (record) => ({ ...record, enriched: true })
+  return entry
+}
+
 function mockNow(values: number[]): jest.SpyInstance<number, []> {
   let index = 0
   return jest.spyOn(Date, 'now').mockImplementation(() => {
@@ -189,17 +198,15 @@ describe('enricher performance reporting', () => {
     )
   })
 
-  it('preserves successful critical enrichment when histogram recording fails', async () => {
-    const entry = makeEntry('test.metric-failure')
-    entry.enricher.critical = true
-    entry.enricher.enrichMany = async (records) =>
-      records.map((record) => ({ ...record, enriched: true }))
-    entry.enricher.enrichOne = async (record) => ({ ...record, enriched: true })
+  it('preserves successful critical enrichment and throttles the warning per enricher when histogram recording fails', async () => {
+    const entry = makeCriticalEnrichingEntry('test.metric-failure')
+    const otherEntry = makeCriticalEnrichingEntry('test.metric-failure-other')
+    const telemetryError = new Error('[internal] Telemetry provider failed')
     const recordHistogram = jest.fn(() => {
-      throw new Error('[internal] Telemetry provider failed')
+      throw telemetryError
     })
     registerTelemetryRuntime(makeRuntime(recordHistogram))
-    mockNow([0, 25, 1_000, 1_010])
+    mockNow([0, 25, 1_000, 1_010, 2_000, 2_020, 31_000, 31_030])
 
     const listResult = await applyResponseEnrichers(
       [{ id: 'person-1' }],
@@ -223,7 +230,40 @@ describe('enricher performance reporting', () => {
       _meta: { enrichedBy: ['test.metric-failure'] },
     })
     expect(recordHistogram).toHaveBeenCalledTimes(2)
-    expect(loggerWarn).not.toHaveBeenCalled()
+    expect(loggerWarn).toHaveBeenCalledTimes(1)
+    expect(loggerWarn).toHaveBeenCalledWith('Enricher duration metric recording failed', {
+      enricherId: 'test.metric-failure',
+      metric: 'om.enricher.duration',
+      err: telemetryError,
+    })
+
+    const otherRecordResult = await applyResponseEnricherToRecord(
+      { id: 'person-1' },
+      'customers.person',
+      context,
+      [otherEntry],
+    )
+
+    expect(otherRecordResult).toEqual({
+      record: { id: 'person-1', enriched: true },
+      _meta: { enrichedBy: ['test.metric-failure-other'] },
+    })
+    expect(loggerWarn).toHaveBeenCalledTimes(2)
+    expect(loggerWarn).toHaveBeenNthCalledWith(2, 'Enricher duration metric recording failed', {
+      enricherId: 'test.metric-failure-other',
+      metric: 'om.enricher.duration',
+      err: telemetryError,
+    })
+
+    await applyResponseEnrichers([{ id: 'person-1' }], 'customers.person', context, [entry])
+
+    expect(recordHistogram).toHaveBeenCalledTimes(4)
+    expect(loggerWarn).toHaveBeenCalledTimes(3)
+    expect(loggerWarn).toHaveBeenNthCalledWith(3, 'Enricher duration metric recording failed', {
+      enricherId: 'test.metric-failure',
+      metric: 'om.enricher.duration',
+      err: telemetryError,
+    })
   })
 })
 

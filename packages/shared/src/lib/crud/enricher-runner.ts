@@ -23,7 +23,7 @@ const logger = createLogger('shared').child({ component: 'umes' })
 const DEFAULT_TIMEOUT = 2000
 const SLOW_WARN_MS = 100
 const SLOW_ERROR_MS = 500
-const SLOW_LOG_INTERVAL_MS = 30_000
+const LOG_THROTTLE_INTERVAL_MS = 30_000
 const DEFAULT_CACHE_TTL_MS = 60_000
 const ENRICHER_DURATION_METRIC = 'om.enricher.duration'
 
@@ -34,12 +34,25 @@ type SlowLogState = {
 }
 
 const slowLogStateByEnricher = new Map<string, SlowLogState>()
+const metricFailureLoggedAtByEnricher = new Map<string, number>()
+
+function logMetricRecordingFailure(enricherId: string, err: unknown, failedAt: number): void {
+  const lastLoggedAt = metricFailureLoggedAtByEnricher.get(enricherId)
+  if (lastLoggedAt !== undefined && failedAt - lastLoggedAt < LOG_THROTTLE_INTERVAL_MS) return
+  metricFailureLoggedAtByEnricher.set(enricherId, failedAt)
+  logger.warn('Enricher duration metric recording failed', {
+    enricherId,
+    metric: ENRICHER_DURATION_METRIC,
+    err,
+  })
+}
 
 function recordEnricherDuration(
   enricherId: string,
   moduleId: string,
   targetEntity: string,
   elapsedMs: number,
+  finishedAt: number,
 ): void {
   logEnricherTiming(enricherId, moduleId, targetEntity, elapsedMs)
   try {
@@ -49,8 +62,8 @@ function recordEnricherDuration(
       { 'enricher.id': enricherId },
       's',
     )
-  } catch {
-    return
+  } catch (err) {
+    logMetricRecordingFailure(enricherId, err, finishedAt)
   }
 }
 
@@ -67,7 +80,7 @@ function logSlowEnricher(enricherId: string, elapsedMs: number, finishedAt: numb
   }
 
   const state = slowLogStateByEnricher.get(enricherId)
-  if (state && finishedAt - state.lastLoggedAt < SLOW_LOG_INTERVAL_MS) {
+  if (state && finishedAt - state.lastLoggedAt < LOG_THROTTLE_INTERVAL_MS) {
     state.suppressedCount += 1
     state.maxElapsedMs = Math.max(state.maxElapsedMs, elapsedMs)
     return
@@ -444,7 +457,7 @@ export async function applyResponseEnrichers<T extends Record<string, unknown>>(
       const finishedAt = Date.now()
       const elapsedMs = finishedAt - startTime
       logSlowEnricher(enricher.id, elapsedMs, finishedAt)
-      recordEnricherDuration(enricher.id, entry.moduleId, targetEntity, elapsedMs)
+      recordEnricherDuration(enricher.id, entry.moduleId, targetEntity, elapsedMs, finishedAt)
 
       currentItems = result
       if (shouldUseCache && cacheKey) {
@@ -542,8 +555,9 @@ export async function applyResponseEnricherToRecord<T extends Record<string, unk
         timeoutPromise(timeout),
       ])
 
-      const elapsedMs = Date.now() - startTime
-      recordEnricherDuration(enricher.id, entry.moduleId, targetEntity, elapsedMs)
+      const finishedAt = Date.now()
+      const elapsedMs = finishedAt - startTime
+      recordEnricherDuration(enricher.id, entry.moduleId, targetEntity, elapsedMs, finishedAt)
 
       currentRecord = result
       if (shouldUseCache && cacheKey) {

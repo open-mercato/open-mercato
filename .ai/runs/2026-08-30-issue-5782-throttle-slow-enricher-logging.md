@@ -63,3 +63,7 @@ Making enrichers faster, changing enricher timeout semantics, creating a general
 - [x] 5.1 Isolate histogram-provider failures from successful list and detail enrichment and add regression coverage — `210412bcd8`
 - [x] 5.2 Add `om.enricher.duration` to the telemetry spec's built-in metric catalogue — `210412bcd8`
 - [x] 5.3 Run focused validation, push the fixes, and return the PR to review — focused shared checks and the configured build, generation, i18n, typecheck, and app-build gates passed; the monorepo test graph passed 33/34 tasks, and its sole path-space false negative passed from a no-space alias
+
+### Phase 6: Address observability review
+
+- [x] 6.1 Degrade histogram-recording failures to a per-enricher throttled warning (review-checklist §23) instead of a silent swallow, and extend the list/detail regression coverage
