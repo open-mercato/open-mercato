@@ -4,6 +4,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -73,7 +74,12 @@ export async function GET(req: Request) {
     if (!canManageSettings) {
       throw new CrudHttpError(403, { error: context.translate('customers.calendar.activityTypes.errors.forbidden', 'You do not have permission to view activity types.') })
     }
-    const scopeIds = Array.from(new Set([organizationId, ...context.readableOrganizationIds]))
+    const hierarchy = context.container.resolve('organizationHierarchyService') as OrganizationHierarchyService
+    const ancestors = await hierarchy.resolveAncestorIds({ tenantId: context.tenantId, organizationId })
+    if (ancestors === null) {
+      throw new CrudHttpError(404, { error: context.translate('customers.errors.organization_not_found', 'Organization not found') })
+    }
+    const scopeIds = Array.from(new Set([organizationId, ...ancestors.slice().reverse()]))
     const cacheKey = `customers:activity-types:${context.tenantId}:org=${organizationId}:scope=${scopeIds.join('|')}:widgets=${getInjectionRegistryVersion()}:registry=${getCalendarEventTypeRegistryVersion()}`
     const cached = await context.cache?.get(cacheKey)
     if (cached) return NextResponse.json(cached)

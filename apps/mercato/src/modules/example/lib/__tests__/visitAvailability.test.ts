@@ -30,7 +30,7 @@ const visitBehavior: CalendarEventTypeBehavior = {
 }
 
 function setup(overrides: {
-  inactive?: boolean; noRules?: boolean; denied?: boolean; gap?: boolean; nonUtc?: boolean
+  inactive?: boolean; noRules?: boolean; denied?: boolean; gap?: boolean; nonUtc?: boolean; invalidZone?: boolean
   behavior?: CalendarEventTypeBehavior
   existingParticipants?: unknown[]
   existingLinks?: unknown[]
@@ -41,7 +41,7 @@ function setup(overrides: {
     if (entity === 'staff:staff_team_member') return { items: overrides.inactive ? [] : [{ id: MEMBER_ID, user_id: USER_ID, is_active: true, availability_rule_set_id: RULE_ID }], total: overrides.inactive ? 0 : 1 }
     if (entity === 'resources:resources_resource') return { items: [{ id: RESOURCE_ID, is_active: true }], total: 1 }
     if (entity === 'planner:planner_availability_rule_set') return { items: [{ id: RULE_ID }], total: 1 }
-    if (entity === 'planner:planner_availability_rule') return { items: overrides.noRules ? [] : [{ id: RULE_ID, rrule: 'DTSTART:20261005T090000Z\nRRULE:FREQ=WEEKLY\nDURATION:PT2H', kind: 'availability', timezone: overrides.nonUtc ? 'Europe/Warsaw' : 'UTC' }], total: overrides.noRules ? 0 : 1 }
+    if (entity === 'planner:planner_availability_rule') return { items: overrides.noRules ? [] : [{ id: RULE_ID, rrule: 'DTSTART:20261005T090000Z\nRRULE:FREQ=WEEKLY\nDURATION:PT2H', kind: 'availability', timezone: overrides.invalidZone ? 'Mars/Olympus' : overrides.nonUtc ? 'Europe/Warsaw' : 'UTC' }], total: overrides.noRules ? 0 : 1 }
     if (entity === 'customers:customer_interaction') return { items: [{ id: RULE_ID, interaction_type: 'visit', scheduled_at: input.startAt, duration_minutes: 60, participants: overrides.existingParticipants ?? [{ userId: USER_ID }], linked_entities: overrides.existingLinks ?? [], updated_at: '2026-09-29T12:00:00.000Z' }], total: 1 }
     throw new Error('unexpected entity')
   })
@@ -106,8 +106,17 @@ describe('Visit availability', () => {
     expect(query).not.toHaveBeenCalled()
   })
 
-  it('does not claim availability for rules requiring unsupported zone expansion', async () => {
+  it('passes zoned rules to planner availability expansion', async () => {
     const { container, planner } = setup({ nonUtc: true })
+    const subjects = await evaluateVisitAvailability({ container: container as never, actorUserId: USER_ID, scope, input })
+    expect(subjects.map((subject) => subject.status)).toEqual(['available', 'available'])
+    expect(planner.getMergedAvailabilityWindows).toHaveBeenCalledWith(expect.objectContaining({
+      rules: expect.arrayContaining([expect.objectContaining({ timezone: 'Europe/Warsaw' })]),
+    }))
+  })
+
+  it('returns unknown for an invalid rule timezone without invoking planner expansion', async () => {
+    const { container, planner } = setup({ invalidZone: true })
     const subjects = await evaluateVisitAvailability({ container: container as never, actorUserId: USER_ID, scope, input })
     expect(subjects.map((subject) => subject.status)).toEqual(['unknown', 'unknown'])
     expect(planner.getMergedAvailabilityWindows).not.toHaveBeenCalled()

@@ -1,6 +1,7 @@
 import {
   calendarEventTypeBehaviorSchema,
   calendarEventTypeDefinitionSchema,
+  calendarEventTypeKeySchema,
   calendarEventTypePatchSchema,
   calendarEventTypes,
   createCalendarEventTypeRegistry,
@@ -33,6 +34,8 @@ describe('calendar event type contracts', () => {
     expect(() => calendarEventTypeBehaviorSchema.parse({ ...meeting.behavior, unexpected: true })).toThrow()
     expect(() => calendarEventTypeDefinitionSchema.parse({ ...meeting, unexpected: true })).toThrow()
     expect(() => calendarEventTypePatchSchema.parse({ targetEventTypeKey: 'meeting', replaceKey: 'other' })).toThrow()
+    expect(calendarEventTypeKeySchema.safeParse('a'.repeat(100)).success).toBe(true)
+    expect(calendarEventTypeKeySchema.safeParse('a'.repeat(101)).success).toBe(false)
   })
 
   it('composes widgets, module configuration and DI patches in tier order', () => {

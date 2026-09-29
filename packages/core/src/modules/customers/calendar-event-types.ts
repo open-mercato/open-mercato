@@ -24,7 +24,7 @@ export const calendarEventTypeBehaviorSchema = z.strictObject({
   ),
 })
 
-export const calendarEventTypeKeySchema = z.string().trim().min(1).max(150).regex(
+export const calendarEventTypeKeySchema = z.string().trim().min(1).max(100).regex(
   /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/,
   'Calendar event type keys must be lowercase dictionary keys',
 )

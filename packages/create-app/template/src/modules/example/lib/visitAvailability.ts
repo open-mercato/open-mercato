@@ -24,7 +24,7 @@ export type VisitAvailabilitySubject = {
 
 type Row = Record<string, unknown>
 type Window = { start: Date; end: Date }
-type PlannerService = { getMergedAvailabilityWindows: (input: { rules: Array<{ id?: string; rrule: string; exdates?: string[]; kind?: 'availability' | 'unavailability' }>; range: Window }) => Window[] }
+type PlannerService = { getMergedAvailabilityWindows: (input: { rules: Array<{ id?: string; rrule: string; timezone?: string; exdates?: string[]; kind?: 'availability' | 'unavailability' }>; range: Window }) => Window[] }
 type Rbac = { userHasAllFeatures: (userId: string, features: string[], scope: { tenantId: string; organizationId: string }) => Promise<boolean> }
 
 function value(row: Row, camel: string, snake: string): unknown {
@@ -39,6 +39,16 @@ function covers(windows: Window[], start: Date, end: Date): boolean {
     if (cursor >= end.getTime()) return true
   }
   return false
+}
+
+function isValidTimezone(value: unknown): value is string {
+  if (typeof value !== 'string') return false
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value })
+    return true
+  } catch {
+    return false
+  }
 }
 
 async function list(queryEngine: QueryEngine, entity: `${string}:${string}`, scope: { tenantId: string; organizationId: string }, filters: Record<string, unknown>, fields: string[]): Promise<Row[]> {
@@ -109,7 +119,7 @@ export async function evaluateVisitAvailability(args: {
           ...(activeRuleSet ? [{ subject_type: 'ruleset', subject_id: ruleSetId }] : []),
         ] }
         const rules = await list(queryEngine, 'planner:planner_availability_rule', scope, ruleFilters, ['id', 'rrule', 'exdates', 'kind', 'timezone'])
-        if (rules.some((row) => !['UTC', 'Etc/UTC', 'Etc/GMT'].includes(String(value(row, 'timezone', 'timezone'))))) {
+        if (rules.some((row) => !isValidTimezone(value(row, 'timezone', 'timezone')))) {
           subject.reasonKey = 'example.calendar.visitAvailability.retry'
           continue
         }
@@ -118,7 +128,8 @@ export async function evaluateVisitAvailability(args: {
           if (typeof rrule !== 'string') return []
           const kind = value(row, 'kind', 'kind')
           const exdates = value(row, 'exdates', 'exdates')
-          return [{ id: typeof row.id === 'string' ? row.id : undefined, rrule, kind: kind === 'unavailability' ? 'unavailability' as const : 'availability' as const, exdates: Array.isArray(exdates) ? exdates.filter((item): item is string => typeof item === 'string') : [] }]
+          const timezone = value(row, 'timezone', 'timezone')
+          return [{ id: typeof row.id === 'string' ? row.id : undefined, rrule, timezone: timezone as string, kind: kind === 'unavailability' ? 'unavailability' as const : 'availability' as const, exdates: Array.isArray(exdates) ? exdates.filter((item): item is string => typeof item === 'string') : [] }]
         })
         if (!normalizedRules.length) {
           subject.status = 'unavailable'

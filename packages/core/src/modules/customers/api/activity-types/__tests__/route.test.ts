@@ -1,6 +1,7 @@
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
 const ancestorId = '33333333-3333-4333-8333-333333333333'
+const siblingId = '44444444-4444-4444-8444-444444444444'
 
 const cache = {
   get: jest.fn(),
@@ -10,6 +11,7 @@ const cache = {
 const resolveScopedCalendarEventTypesMock = jest.fn()
 const reportError = jest.fn()
 const userHasAllFeaturesMock = jest.fn()
+const resolveAncestorIdsMock = jest.fn()
 
 jest.mock('../../dictionaries/context', () => ({
   resolveDictionaryRouteContext: jest.fn(async () => ({
@@ -17,10 +19,14 @@ jest.mock('../../dictionaries/context', () => ({
     em: {},
     organizationId,
     tenantId,
-    readableOrganizationIds: [organizationId, ancestorId],
+    readableOrganizationIds: [organizationId, ancestorId, siblingId],
     cache,
     auth: { sub: 'user-1', tenantId, orgId: organizationId },
-    container: { resolve: (key: string) => key === 'rbacService' ? { userHasAllFeatures: userHasAllFeaturesMock } : undefined },
+    container: { resolve: (key: string) => key === 'rbacService'
+      ? { userHasAllFeatures: userHasAllFeaturesMock }
+      : key === 'organizationHierarchyService'
+        ? { resolveAncestorIds: resolveAncestorIdsMock }
+        : undefined },
   })),
 }))
 
@@ -47,6 +53,7 @@ describe('activity type catalog route', () => {
     cache.deleteByTags.mockResolvedValue(undefined)
     resolveScopedCalendarEventTypesMock.mockResolvedValue({ items: [], fallbackKey: 'meeting' })
     userHasAllFeaturesMock.mockResolvedValue(true)
+    resolveAncestorIdsMock.mockResolvedValue([ancestorId])
   })
 
   test('requires authentication and checks either interaction view or settings management in scope', async () => {
@@ -73,6 +80,7 @@ describe('activity type catalog route', () => {
       organizationId,
       readableOrganizationIds: [organizationId, ancestorId],
     }))
+    expect(resolveAncestorIdsMock).toHaveBeenCalledWith({ tenantId, organizationId })
     expect(cache.set).toHaveBeenCalledWith(
       expect.stringContaining(`${tenantId}:org=${organizationId}:scope=${organizationId}|${ancestorId}`),
       { items: [], fallbackKey: 'meeting' },
@@ -82,6 +90,19 @@ describe('activity type catalog route', () => {
           `customers:dictionaries:${tenantId}:activity_type:org:${ancestorId}`,
         ]),
       }),
+    )
+  })
+
+  test('does not include another readable sibling organization in the catalog', async () => {
+    const response = await GET(new Request('http://localhost/api/customers/activity-types'))
+    expect(response.status).toBe(200)
+    expect(resolveScopedCalendarEventTypesMock).toHaveBeenCalledWith(expect.objectContaining({
+      readableOrganizationIds: [organizationId, ancestorId],
+    }))
+    expect(cache.set).toHaveBeenCalledWith(
+      expect.not.stringContaining(siblingId),
+      expect.any(Object),
+      expect.objectContaining({ tags: expect.not.arrayContaining([`customers:dictionaries:${tenantId}:activity_type:org:${siblingId}`]) }),
     )
   })
 

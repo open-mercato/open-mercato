@@ -96,4 +96,28 @@ describe('getMergedAvailabilityWindows', () => {
       { start: '2024-01-02T00:00:00.000Z', end: '2024-01-03T00:00:00.000Z' },
     ])
   })
+
+  it('keeps a weekly local start time when daylight saving begins', () => {
+    const windows = getMergedAvailabilityWindows({
+      rules: [{
+        rrule: 'DTSTART:20260322T080000Z\nDURATION:PT2H\nRRULE:FREQ=WEEKLY',
+        timezone: 'Europe/Warsaw',
+      }],
+      range: { start: new Date('2026-03-29T06:00:00Z'), end: new Date('2026-03-29T10:00:00Z') },
+    }).map(toIsoWindow)
+
+    expect(windows).toEqual([{ start: '2026-03-29T07:00:00.000Z', end: '2026-03-29T09:00:00.000Z' }])
+  })
+
+  it('keeps a weekly local start time when daylight saving ends', () => {
+    const windows = getMergedAvailabilityWindows({
+      rules: [{
+        rrule: 'DTSTART:20261018T070000Z\nDURATION:PT2H\nRRULE:FREQ=WEEKLY',
+        timezone: 'Europe/Warsaw',
+      }],
+      range: { start: new Date('2026-10-25T06:00:00Z'), end: new Date('2026-10-25T11:00:00Z') },
+    }).map(toIsoWindow)
+
+    expect(windows).toEqual([{ start: '2026-10-25T08:00:00.000Z', end: '2026-10-25T10:00:00.000Z' }])
+  })
 })
