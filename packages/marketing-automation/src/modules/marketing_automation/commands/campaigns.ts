@@ -106,6 +106,36 @@ const STEP_EMITTED_EVENTS: Record<string, string[]> = {
   send_signal: ['marketing_automation.campaign.signal'],
 }
 
+/**
+ * No two steps may share an id, anywhere in the graph.
+ *
+ * Several guards key on `(run_id, step_id)` — the score ledger's unique index, the survey prompt's — so two
+ * `add_points` steps sharing an id award points once and report the second as done, and two `nps_survey` steps
+ * sharing one send a single survey. The author sees a campaign doing half of what it says.
+ *
+ * Collected across lanes as well, because a lane's steps are steps: an id reused between a lane and the trunk is
+ * the same collision, and both are reachable through the API and the AI authoring tool.
+ */
+export function assertStepIdsAreUnique(steps: CampaignGraphSaveInput['definition']['steps']): void {
+  const seen = new Set<string>()
+
+  const walk = (list: CampaignGraphSaveInput['definition']['steps'], depth: number): void => {
+    if (depth > 5) return
+    for (const step of list) {
+      if (seen.has(step.id)) {
+        throw invalidGraph(VALIDATION_CODES.invalidStepParams, `Two steps share the id ${step.id}`, step.id)
+      }
+      seen.add(step.id)
+      if (step.type !== SPLIT_STEP_TYPE) continue
+      for (const variant of readVariants(step)) {
+        walk(variant.steps as CampaignGraphSaveInput['definition']['steps'], depth + 1)
+      }
+    }
+  }
+
+  walk(steps, 0)
+}
+
 /** Validates a step list, descending into a split's lanes, which are step lists of their own. */
 function assertStepsAreRunnable(steps: CampaignGraphSaveInput['definition']['steps'], depth = 0): void {
   if (depth > 5) {
@@ -195,6 +225,9 @@ function assertGraphIsRunnable(payload: CampaignGraphSaveInput): void {
   const steps = payload.definition.steps
 
   assertStepsAreRunnable(steps)
+  // Before anything else about the shape: two steps sharing an id disable the idempotency guards that key on
+  // `(run, step)`, so the campaign does half of what it says while reporting success.
+  assertStepIdsAreUnique(steps)
   // A trailing wait has nothing to wait for. Silently dropping it would lose the author's
   // intent, and keeping it would park every customer forever at the end of the campaign.
   assertNoTrailingWait(steps)
@@ -428,6 +461,8 @@ const applySplitWinnerCommand: CommandHandler<
     // The result has to be runnable on its own terms: a winning lane ending on a wait, promoted to the
     // end of the campaign, would park every future subject forever.
     assertStepsAreRunnable(steps)
+    // Promoting a lane moves its steps into the trunk, which can collide with an id already there.
+    assertStepIdsAreUnique(steps)
     assertNoTrailingWait(steps)
     // And it must not become a cycle. The promoted lane's steps are the trunk now, so a lane emitting
     // an event this campaign reacts to would start driving itself the moment the test ended.

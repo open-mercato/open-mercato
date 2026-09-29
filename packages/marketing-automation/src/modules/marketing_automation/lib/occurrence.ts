@@ -34,8 +34,25 @@ export const OCCURRENCE_DEDUP_WINDOW_HOURS = 6
  * would hash differently and the duplicate would slip through. Arrays keep their order, which is
  * part of the value rather than an accident of construction.
  */
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize)
+/**
+ * How deep a payload may nest before it is treated as unusable.
+ *
+ * The inbound hook accepts 16 KB of somebody else's JSON, which buys thousands of nesting levels — enough to
+ * blow the stack in here. That matters more than it sounds: this runs OUTSIDE the per-campaign try/catch that
+ * dead-letters failures, so one crafted POST became a poison pill retried forever on the shared dispatch queue.
+ * Eight levels is far past anything a real hook payload uses.
+ */
+const MAX_CANONICAL_DEPTH = 8
+
+function canonicalize(value: unknown, depth = 0): unknown {
+  /**
+   * Past the cap the shape is REPLACED by a marker rather than dropped.
+   *
+   * Dropping it would make two different deep payloads hash identically, which is the one thing an occurrence key
+   * must never do — a duplicate guard that collides is worse than no guard.
+   */
+  if (depth > MAX_CANONICAL_DEPTH) return '[too deep]'
+  if (Array.isArray(value)) return value.map((entry) => canonicalize(entry, depth + 1))
   if (value && typeof value === 'object') {
     const source = value as Record<string, unknown>
     const canonical: Record<string, unknown> = {}

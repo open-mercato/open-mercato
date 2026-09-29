@@ -1,3 +1,4 @@
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { MarketingContactPreference } from '../data/entities.js'
 import { MAX_PAUSE_DAYS } from './engine/gates.js'
@@ -90,7 +91,19 @@ export async function saveContactPreference(
     }
   }
 
-  await em.flush()
+  try {
+    await em.flush()
+  } catch (error) {
+    /**
+     * Same race as the consent writer, from the portal: a customer double-submitting the preference centre.
+     *
+     * The unique index on (tenant, organization, subject) is the guard; losing it means the other write has
+     * already stored a preference for this person, so answering with what we intended is honest — and answering
+     * 500 to somebody who just set their preferences successfully is not.
+     */
+    if (!(error instanceof UniqueConstraintViolationException)) throw error
+    em.clear()
+  }
   return { maxPerWeek: row.maxPerWeek ?? null, pausedUntil: row.pausedUntil ?? null }
 }
 

@@ -82,6 +82,30 @@ export async function POST(req: Request) {
   const em = container.resolve<EntityManager>('em')
   const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
 
+  /**
+   * The expected version comes from the CALLER, and that is the entire point of the check.
+   *
+   * It used to be read from the database four lines below and handed straight back to the lock, which compared
+   * the row against itself — so the guard could never fire, the comment promising that a concurrent edit "must
+   * still collide" was false, and an author restoring from a stale history list silently discarded somebody
+   * else's save. `enforceCommandOptimisticLock` prefers an explicit expected version over the request header,
+   * which is exactly why passing a freshly-read one disabled it.
+   *
+   * Absent — not defaulted — when the caller sends it as the extension header instead; the platform guard reads
+   * the request in that case, and defaulting it to a value would switch the lock off again.
+   */
+  const body = await req.json().catch(() => null) as { updatedAt?: unknown } | null
+  if (body?.updatedAt !== undefined && typeof body.updatedAt !== 'string') {
+    return NextResponse.json(
+      {
+        error: 'updatedAt must be the version string the client last read',
+        code: 'marketing_automation.validation.invalidPayload',
+      },
+      { status: 400 },
+    )
+  }
+  const expectedUpdatedAt = typeof body?.updatedAt === 'string' ? body.updatedAt : undefined
+
   const campaign = await em.findOne(MarketingCampaign, { id: campaignId, ...scope, deletedAt: null })
   if (!campaign) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -95,9 +119,9 @@ export async function POST(req: Request) {
       {
         input: {
           id: campaign.id,
-          // The CURRENT version, not the snapshot's: a restore is a write against what is there now, so a
-          // concurrent edit must still collide.
-          updatedAt: campaign.updatedAt.toISOString(),
+          // The version the CLIENT last read — not the snapshot's, and not a fresh one. A restore is a write
+          // against what the author was looking at, so a concurrent edit collides exactly as it would on save.
+          updatedAt: expectedUpdatedAt,
           name: revision.name,
           definition: revision.definition,
           triggers: readTriggers(revision.triggers),

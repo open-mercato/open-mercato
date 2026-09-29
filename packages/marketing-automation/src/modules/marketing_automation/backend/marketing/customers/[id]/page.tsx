@@ -7,6 +7,8 @@ import { ErrorMessage, LoadingMessage, RecordNotFoundState } from '@open-mercato
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { Label } from '@open-mercato/ui/primitives/label'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -105,6 +107,34 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
   const [profile, setProfile] = React.useState<Profile | null>(null)
   const [state, setState] = React.useState<'loading' | 'ready' | 'missing' | 'error'>('loading')
   const [busy, setBusy] = React.useState(false)
+  const [consentReason, setConsentReason] = React.useState('')
+  const [consentBusy, setConsentBusy] = React.useState(false)
+  /** Bumped to re-read the profile, rather than duplicating the fetch the effect below already owns. */
+  const [refreshToken, setRefreshToken] = React.useState(0)
+
+  /**
+   * Writes down a decision the customer gave to a person.
+   *
+   * Goes through the endpoint rather than touching consent here, so the change is recorded with source
+   * `operator`, appended to the trail, and logged with who did it — the three things that make it defensible.
+   */
+  const recordConsentDecision = async (state: 'subscribed' | 'unsubscribed') => {
+    setConsentBusy(true)
+    try {
+      await apiCallOrThrow(`/api/marketing_automation/customers/${customerId}/consent`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ channel: 'email', state, reason: consentReason.trim() }),
+      })
+      setConsentReason('')
+      flash(t('marketing_automation.profile.consent.recorded', 'Recorded, with your name against it.'), 'success')
+      setRefreshToken((token) => token + 1)
+    } catch {
+      flash(t('marketing_automation.profile.consent.failed', 'That consent change could not be recorded.'), 'error')
+    } finally {
+      setConsentBusy(false)
+    }
+  }
 
   /**
    * Hands the person their data as a file.
@@ -191,7 +221,7 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
       }
     })()
     return () => { cancelled = true }
-  }, [customerId])
+  }, [customerId, refreshToken])
 
   if (state === 'loading') {
     return <Page><PageBody><LoadingMessage label={t('marketing_automation.profile.loading', 'Loading the profile…')} /></PageBody></Page>
@@ -372,6 +402,43 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
                 ? t('marketing_automation.profile.consent.subscribed', 'Subscribed to email')
                 : t('marketing_automation.profile.consent.unrecorded', 'No email preference recorded')}
           </StatusBadge>
+
+          {/*
+            Recording what a customer said to a PERSON.
+            The reason is required rather than optional: "asked on the phone" is what makes the trail mean
+            anything six months later, and a consent change with no stated cause is the one somebody will
+            later have to explain.
+          */}
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <div className="space-y-1">
+              <Label htmlFor="consent-reason">
+                {t('marketing_automation.profile.consent.reason', 'Why (recorded with the change)')}
+              </Label>
+              <Input
+                id="consent-reason"
+                className="w-72"
+                value={consentReason}
+                placeholder={t('marketing_automation.profile.consent.reasonPlaceholder', 'Asked on the phone')}
+                onChange={(event) => setConsentReason(event.target.value)}
+              />
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={consentBusy || consentReason.trim().length === 0}
+              onClick={() => void recordConsentDecision('unsubscribed')}
+            >
+              {t('marketing_automation.profile.consent.recordUnsubscribe', 'Record unsubscribe')}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={consentBusy || consentReason.trim().length === 0}
+              onClick={() => void recordConsentDecision('subscribed')}
+            >
+              {t('marketing_automation.profile.consent.recordSubscribe', 'Record consent')}
+            </Button>
+          </div>
         </div>
 
         {(profile.watches ?? []).length > 0 ? (

@@ -63,8 +63,25 @@ test.describe('TC-MA-022 history and job runs', () => {
       expect(history?.items?.[1]?.triggerCount).toBe(1)
       expect(history?.items?.[0]?.note).toBe('saved')
 
-      const restored = await apiRequest(request, 'POST', `${CAMPAIGNS_PATH}/${campaignId}/revisions/1/restore`, { token })
-      expect(restored.status()).toBe(200)
+      /**
+       * The version the caller last read travels with the restore.
+       *
+       * Without it the server compared the campaign against itself, so the optimistic lock could never fire and
+       * restoring from a stale history list silently discarded somebody else's save.
+       */
+      const beforeRestore = await getCampaign(request, token, campaignId)
+      const restored = await apiRequest(request, 'POST', `${CAMPAIGNS_PATH}/${campaignId}/revisions/1/restore`, {
+        token,
+        data: { updatedAt: beforeRestore.updatedAt },
+      })
+      expect(restored.status(), await restored.text()).toBe(200)
+
+      // And a stale version is refused rather than silently winning.
+      const stale = await apiRequest(request, 'POST', `${CAMPAIGNS_PATH}/${campaignId}/revisions/1/restore`, {
+        token,
+        data: { updatedAt: beforeRestore.updatedAt },
+      })
+      expect(stale.status()).toBe(409)
 
       const current = await getCampaign(request, token, campaignId)
       expect(current.definition.steps).toHaveLength(1)

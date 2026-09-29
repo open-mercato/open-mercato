@@ -156,7 +156,14 @@ function translateLeaf(leaf: SimpleCondition): LeafTranslation {
     // superset without listing every customer first.
     if (operator !== 'CONTAINS') return null
     const sku = typeof leaf.value === 'string' ? leaf.value.trim() : ''
-    return sku ? { predicate: { kind: 'purchasedSku', sku }, exact: true } : null
+    /**
+     * A superset, not an exact answer — and the reason is the projection, not the query.
+     *
+     * The SQL sees every purchase; `matchesAudience` decides from the subject document's sku list, which is capped.
+     * For a customer beyond that cap the two can disagree, so claiming `exact` made a segment report a size its
+     * own membership did not contain. Reported as sampled instead, which is true.
+     */
+    return sku ? { predicate: { kind: 'purchasedSku', sku }, exact: false } : null
   }
 
   /**
@@ -170,7 +177,8 @@ function translateLeaf(leaf: SimpleCondition): LeafTranslation {
   if (field === 'orders.categories') {
     if (operator !== 'CONTAINS') return null
     const slug = typeof leaf.value === 'string' ? leaf.value.trim() : ''
-    return slug ? { predicate: { kind: 'purchasedCategory', slug }, exact: true } : null
+    // Same caveat as the skus: the projection is capped, so this is a superset rather than an exact answer.
+    return slug ? { predicate: { kind: 'purchasedCategory', slug }, exact: false } : null
   }
 
   /**

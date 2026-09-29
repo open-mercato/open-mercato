@@ -1,4 +1,4 @@
-import { assertNoLoopRisk, collectEmittedEvents } from '../campaigns'
+import { assertNoLoopRisk, assertStepIdsAreUnique, collectEmittedEvents } from '../campaigns'
 
 type Step = { id: string; type: string; params: Record<string, unknown> }
 
@@ -65,5 +65,54 @@ describe('assertNoLoopRisk', () => {
 
   test('allows a campaign with no triggers to check against', () => {
     expect(() => assertNoLoopRisk([step('s1', 'add_tag')] as never, [])).not.toThrow()
+  })
+})
+
+/**
+ * Duplicate step ids, which silently disable the guards that key on them.
+ *
+ * The score ledger and the survey prompt both have a unique index on `(run_id, step_id)`, so two steps sharing an
+ * id award points once and send one survey while reporting both as done — a campaign doing half of what it says,
+ * with no error anywhere. Reachable through the API and through the AI authoring tool.
+ */
+describe('step ids', () => {
+  const step = (id: string, type = 'add_points') => ({ id, type, params: { points: 1 } })
+
+  test('two steps sharing an id are refused', () => {
+    expect(() => assertStepIdsAreUnique([step('award'), step('award')] as never)).toThrow()
+  })
+
+  test('distinct ids are accepted', () => {
+    expect(() => assertStepIdsAreUnique([step('award'), step('award-again')] as never)).not.toThrow()
+  })
+
+  /**
+   * Into the lanes as well: a lane's steps are steps, and an id reused between a lane and the trunk is the same
+   * collision. This module has shipped a trunk-only validation once before.
+   */
+  test('an id reused inside a split lane is refused', () => {
+    const graph = [
+      step('award'),
+      {
+        id: 'split',
+        type: 'split',
+        params: { variants: [{ key: 'a', weight: 1, steps: [step('award')] }] },
+      },
+    ]
+    expect(() => assertStepIdsAreUnique(graph as never)).toThrow()
+  })
+
+  test('two lanes may each use their own ids', () => {
+    const graph = [{
+      id: 'split',
+      type: 'split',
+      params: {
+        variants: [
+          { key: 'a', weight: 1, steps: [step('a-award')] },
+          { key: 'b', weight: 1, steps: [step('b-award')] },
+        ],
+      },
+    }]
+    expect(() => assertStepIdsAreUnique(graph as never)).not.toThrow()
   })
 })

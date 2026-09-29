@@ -492,6 +492,26 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
    * needing to remember whether it already did.
    */
   /**
+   * The RFM cut points, refreshed BEFORE any campaign is projected.
+   *
+   * Order matters and used to be wrong: the refresh sat after the campaign loop, so on an installation that had
+   * never swept there was no boundaries row when the projection read one — and a published "top 20% spenders"
+   * campaign enrolled nobody on its first run, with no diagnostic, then started working an hour later. Cheap to
+   * get right: one statement before the loop rather than after it.
+   *
+   * A failure is logged and the pass continues. Yesterday's boundaries are a perfectly good answer, and none at
+   * all means no scores — never a wrong score.
+   */
+  try {
+    const boundaries = await refreshValueBoundaries(deps.em, scope, deps.now)
+    logger.info('marketing value boundaries refreshed', { buyers: boundaries.buyerCount })
+  } catch (error) {
+    logger.warn('[internal] marketing value boundaries refresh failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  /**
    * A/B tests that have earned a conclusion, concluded.
    *
    * OFF unless a tenant switched it on — promoting a winner rewrites an author's campaign, which this module
@@ -510,23 +530,6 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
     }
   } catch (error) {
     logger.warn('[internal] marketing automatic winner selection failed', {
-      error: error instanceof Error ? error.message : String(error),
-    })
-  }
-
-  /**
-   * The RFM cut points, refreshed on the same daily pass as the segment sizes.
-   *
-   * Here rather than in the per-campaign loop because they describe the SHOP, not a campaign, and one
-   * percentile sweep over the buyers serves every campaign that runs afterwards. A failure is logged and the
-   * pass continues: the previous day's boundaries are a perfectly good answer, and no boundaries at all simply
-   * means no scores — never a wrong score.
-   */
-  try {
-    const boundaries = await refreshValueBoundaries(deps.em, scope, deps.now)
-    logger.info('marketing value boundaries refreshed', { buyers: boundaries.buyerCount })
-  } catch (error) {
-    logger.warn('[internal] marketing value boundaries refresh failed', {
       error: error instanceof Error ? error.message : String(error),
     })
   }

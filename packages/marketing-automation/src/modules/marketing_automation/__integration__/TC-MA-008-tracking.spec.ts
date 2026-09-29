@@ -108,7 +108,15 @@ test.describe('TC-MA-008 delivery tracking', () => {
       expect(tenantId, 'the test needs the caller scope to mint a token').toBeTruthy()
       expect(organizationId).toBeTruthy()
 
-      const open = tokenFor({ tenantId, organizationId, campaignId, runId: '11111111-1111-4111-8111-111111111111', purpose: 'open' })
+      /**
+       * A run id unique to this execution, which is what production has.
+       *
+       * The fixed literal this used to carry made the test depend on suite history: opens are now recorded once
+       * per message, so the second run of the suite found the first run's event and recorded nothing. A real run
+       * id is unique, so minting one here is both more faithful and self-contained.
+       */
+      const runId = `11111111-1111-4111-8111-${String(Date.now()).slice(-12).padStart(12, '0')}`
+      const open = tokenFor({ tenantId, organizationId, campaignId, runId, purpose: 'open' })
       const pixel = await request.get(`${TRACK_OPEN_PATH}?${TRACKING_TOKEN_PARAM}=${open}`)
       expect(pixel.status()).toBe(200)
       expect(pixel.headers()['content-type']).toContain('image/gif')
@@ -119,10 +127,18 @@ test.describe('TC-MA-008 delivery tracking', () => {
       expect(after.events.opened).toBe(before.events.opened + 1)
       expect(after.uniqueRecipients.opened).toBe(1)
 
-      // A second fetch from the same recipient is a second event but the same person.
-      await request.get(`${TRACK_OPEN_PATH}?${TRACKING_TOKEN_PARAM}=${open}`)
+      /**
+       * A second fetch of the same pixel records NOTHING, and still answers with a pixel.
+       *
+       * A tracking token never expires — it has to survive in a mail archive — so anybody holding one link could
+       * otherwise loop the pixel and add a row per fetch to a table nothing prunes. The metrics were always
+       * immune, because they count distinct runs, which is exactly why the growth was invisible. A mail client
+       * re-rendering a message tells us nothing we did not already know.
+       */
+      const again = await request.get(`${TRACK_OPEN_PATH}?${TRACKING_TOKEN_PARAM}=${open}`)
+      expect(again.status()).toBe(200)
       const twice = await counts(request, authToken, campaignId)
-      expect(twice.events.opened).toBe(before.events.opened + 2)
+      expect(twice.events.opened).toBe(before.events.opened + 1)
       expect(twice.uniqueRecipients.opened).toBe(1)
     } finally {
       await deleteCampaignIfExists(request, authToken, campaignId)

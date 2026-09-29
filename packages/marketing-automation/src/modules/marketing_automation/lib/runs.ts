@@ -188,6 +188,9 @@ export async function applyTransition(
  * A run that runs out of attempts becomes `dead` rather than being deleted: a customer stuck
  * halfway through a campaign is something an operator needs to be able to see.
  */
+/** What a failure did, and when the retry is due — see the note at the return statement. */
+export type FailureOutcome = { status: 'retrying' | 'dead'; resumeAt: Date | null }
+
 export async function failRun(
   em: EntityManager,
   runId: string,
@@ -207,7 +210,7 @@ export async function failRun(
     context: AutomationContext
   },
   now: Date,
-): Promise<'retrying' | 'dead'> {
+): Promise<FailureOutcome> {
   const message = input.error instanceof Error ? input.error.message : String(input.error)
   const attempts = input.attempts + 1
   const dead = hasExhaustedAttempts(attempts)
@@ -229,7 +232,16 @@ export async function failRun(
       context: input.context as Record<string, unknown>,
     },
   )
-  return dead ? 'dead' : 'retrying'
+  /**
+   * The retry instant is RETURNED rather than left to be read back.
+   *
+   * The caller used to re-read it with `em.findOne(run, { id })`, which MikroORM serves from the identity map for
+   * a primary-key lookup — and this function writes with `nativeUpdate`, which never updates that map. So the
+   * caller got the OLD instant, computed a delay of zero, enqueued an immediate retry that `claimRun` then
+   * refused, and the exponential backoff was silently discarded: retries only ever happened at the sweep's
+   * cadence. Handing the value back removes both the stale read and the query.
+   */
+  return { status: dead ? 'dead' : 'retrying', resumeAt: nextRetryAt }
 }
 
 export async function findDueRunIds(

@@ -95,20 +95,50 @@ describe('cycleNumber', () => {
   })
 
   /**
-   * The claim key's suffix, and the reason a reorder reminder is neither once-ever nor daily.
+   * The claim key's suffix, and the property that matters is STABILITY — not the particular number.
    *
-   * Somebody 31 days into a 30-day habit is in cycle 2; thirty days later they are in cycle 3 and that is a new
-   * claim. Without the number, a durable claim would silence the feature after one reminder, and without a claim
-   * at all an overdue customer would be nagged every single day.
+   * The previous version of this test asserted the numbers 2, 3 and 4 for days 31, 61 and 91, which is an
+   * implementation detail, and it passed while the real defect went unnoticed: the numbering disagreed with the
+   * firing rule inside the tolerance band, so an early reminder and an on-time one claimed different cycles and
+   * the customer was emailed twice three days apart. These tests assert what the claim key has to do instead.
    */
-  test('numbers the cycles, so each one is claimed once', () => {
-    expect(cycleNumber(cycle(31))).toBe(2)
-    expect(cycleNumber(cycle(61))).toBe(3)
-    expect(cycleNumber(cycle(91))).toBe(4)
+  test('is stable across one cycle, so the reminder is claimed once', () => {
+    const first = cycleNumber(cycle(30))
+    expect(cycleNumber(cycle(35))).toBe(first)
+    expect(cycleNumber(cycle(59))).toBe(first)
+  })
+
+  test('changes at the next cycle, so the reminder comes round again', () => {
+    expect(cycleNumber(cycle(60))).not.toBe(cycleNumber(cycle(30)))
+    expect(cycleNumber(cycle(90))).not.toBe(cycleNumber(cycle(60)))
+  })
+
+  /**
+   * The regression, stated as the arithmetic that produced it.
+   *
+   * With a ten per cent tolerance on a thirty-day habit the sweep fires on day 27; three days later it fires
+   * again as "on time". Both must carry the SAME claim, or the durable claim protects nothing.
+   */
+  test('an early reminder and an on-time one share a claim', () => {
+    const tolerance = 0.1
+    expect(cycleNumber(cycle(27), tolerance)).toBe(cycleNumber(cycle(30), tolerance))
+    expect(cycleNumber(cycle(27), tolerance)).toBe(cycleNumber(cycle(35), tolerance))
+  })
+
+  test('and the next cycle still gets its own claim, tolerance or not', () => {
+    const tolerance = 0.1
+    expect(cycleNumber(cycle(57), tolerance)).not.toBe(cycleNumber(cycle(30), tolerance))
   })
 
   test('never returns zero, so the first reminder has a claim of its own', () => {
-    expect(cycleNumber(cycle(0))).toBe(1)
-    expect(cycleNumber(cycle(29))).toBe(1)
+    expect(cycleNumber(cycle(0))).toBeGreaterThanOrEqual(1)
+    expect(cycleNumber(cycle(29))).toBeGreaterThanOrEqual(1)
+    expect(cycleNumber(cycle(27), 0.1)).toBeGreaterThanOrEqual(1)
+  })
+
+  test('a shorter cadence turns over faster, as the cycles are its own', () => {
+    // A weekly habit: day 7 and day 13 are one cycle, day 14 is the next.
+    expect(cycleNumber(cycle(13, 7))).toBe(cycleNumber(cycle(7, 7)))
+    expect(cycleNumber(cycle(14, 7))).not.toBe(cycleNumber(cycle(7, 7)))
   })
 })

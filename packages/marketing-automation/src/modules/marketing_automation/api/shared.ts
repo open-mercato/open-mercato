@@ -58,3 +58,15 @@ export function commandErrorResponse(error: unknown): NextResponse {
   if (error instanceof CrudHttpError) return NextResponse.json(error.body, { status: error.status })
   throw error
 }
+
+/**
+ * A uuid from a query parameter, or null — the counterpart to `readPathUuid`.
+ *
+ * The path version closed this hole for `/campaigns/<id>`; the same hole stayed open for `?campaignId=` and
+ * `?a=`, where Postgres still rejects a malformed uuid by RAISING and the route still answers 500 to what is
+ * plainly a bad request.
+ */
+export function readQueryUuid(url: URL, name: string): string | null {
+  const value = url.searchParams.get(name)
+  return typeof value === 'string' && UUID_PATTERN.test(value) ? value : null
+}

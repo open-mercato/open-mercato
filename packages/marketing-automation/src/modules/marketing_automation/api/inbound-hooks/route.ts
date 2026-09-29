@@ -7,6 +7,7 @@ import { MarketingCampaign, MarketingInboundHook } from '../../data/entities.js'
 import { inboundHookCreateSchema } from '../../data/validators.js'
 import { inboundHookUrl } from '../../lib/inbound.js'
 import { resolveTrackingBaseUrl, resolveTrackingSecret } from '../../lib/tracking/secret.js'
+import { readQueryUuid } from '../shared.js'
 
 /**
  * Inbound hooks: list and create.
@@ -77,7 +78,13 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const pageSize = Math.min(Math.max(Number.parseInt(url.searchParams.get('pageSize') ?? '50', 10) || 50, 1), MAX_PAGE_SIZE)
   const page = Math.max(Number.parseInt(url.searchParams.get('page') ?? '1', 10) || 1, 1)
-  const campaignId = url.searchParams.get('campaignId')
+  /**
+   * Validated, so a malformed filter is ignored rather than raising.
+   *
+   * An unusable `?campaignId=` is treated as no filter at all rather than as a 400: this is a LIST, and answering
+   * the unfiltered list is closer to what the caller asked for than refusing to answer.
+   */
+  const campaignId = readQueryUuid(url, 'campaignId')
 
   const container = await createRequestContainer()
   const em = container.resolve<EntityManager>('em')

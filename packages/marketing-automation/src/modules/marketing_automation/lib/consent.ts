@@ -1,3 +1,4 @@
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { MarketingConsent, MarketingConsentEvent } from '../data/entities.js'
 import type { SubjectScope } from './subject-document.js'
@@ -104,6 +105,20 @@ export async function recordConsent(em: EntityManager, change: ConsentChange): P
     occurredAt: change.now,
   }))
 
-  await em.flush()
+  try {
+    await em.flush()
+  } catch (error) {
+    /**
+     * Losing the insert race is the unique index doing its job, not a failure.
+     *
+     * Two near-simultaneous unsubscribes are routine rather than exotic: an RFC 8058 client posts one-click while
+     * the person also presses the button on the confirmation page. Both read no row, both insert, one loses — and
+     * without this the endpoint answered 500 "you may still be subscribed" to somebody who had in fact just been
+     * unsubscribed, which is the single worst thing this module can say. The other writer has recorded the same
+     * decision, so the outcome is already true; the trail loses one duplicate event, which is the cheaper cost.
+     */
+    if (!(error instanceof UniqueConstraintViolationException)) throw error
+    em.clear()
+  }
   return change.state
 }

@@ -214,20 +214,26 @@ test.describe('TC-MA-002 save graph', () => {
       campaignId = await createCampaign(request, token, `QA split validation ${Date.now()}`)
       const { updatedAt } = await getCampaign(request, token, campaignId)
       const trigger = { kind: 'event', eventId: 'sales.order.created' }
-      const emailStep = { id: 'ok', type: 'send_email', params: { subject: 'x', bodyHtml: '<p>x</p>' } }
+      /**
+       * A factory, because step ids must be unique across the whole graph.
+       *
+       * The fixture used to reuse one object in two lanes, which is now refused — two steps sharing an id disable
+       * the idempotency guards that key on `(run, step)`, so a campaign silently does half of what it says.
+       */
+      const emailStep = (id: string) => ({ id, type: 'send_email', params: { subject: 'x', bodyHtml: '<p>x</p>' } })
       const lane = (key: string, steps: unknown[]) => ({ key, weight: 1, steps })
 
       const cases: Array<{ label: string; steps: unknown[] }> = [
         {
           label: 'an unknown step type inside a lane',
           steps: [
-            { id: 'sp', type: 'split', params: { variants: [lane('a', [{ id: 'x', type: 'send_pigeon', params: {} }]), lane('b', [emailStep])] } },
+            { id: 'sp', type: 'split', params: { variants: [lane('a', [{ id: 'x', type: 'send_pigeon', params: {} }]), lane('b', [emailStep('lane-b')])] } },
           ],
         },
         {
           label: 'invalid step parameters inside a lane',
           steps: [
-            { id: 'sp', type: 'split', params: { variants: [lane('a', [{ id: 'x', type: 'wait', params: { minutes: -5 } }, emailStep]), lane('b', [emailStep])] } },
+            { id: 'sp', type: 'split', params: { variants: [lane('a', [{ id: 'x', type: 'wait', params: { minutes: -5 } }, emailStep('lane-a')]), lane('b', [emailStep('lane-b')])] } },
           ],
         },
         {
@@ -235,12 +241,12 @@ test.describe('TC-MA-002 save graph', () => {
           // exactly as a trailing wait at the top level does.
           label: 'a lane ending on a wait with nothing after the split',
           steps: [
-            { id: 'sp', type: 'split', params: { variants: [lane('a', [emailStep, { id: 'w', type: 'wait', params: { minutes: 5 } }]), lane('b', [emailStep])] } },
+            { id: 'sp', type: 'split', params: { variants: [lane('a', [emailStep('lane-a'), { id: 'w', type: 'wait', params: { minutes: 5 } }]), lane('b', [emailStep('lane-b')])] } },
           ],
         },
         {
           label: 'a split with only one lane',
-          steps: [{ id: 'sp', type: 'split', params: { variants: [lane('a', [emailStep])] } }],
+          steps: [{ id: 'sp', type: 'split', params: { variants: [lane('a', [emailStep('only')])] } }],
         },
       ]
 
@@ -262,7 +268,7 @@ test.describe('TC-MA-002 save graph', () => {
           version: 1,
           audience: null,
           steps: [
-            { id: 'sp', type: 'split', params: { variants: [lane('a', [emailStep, { id: 'w', type: 'wait', params: { minutes: 5 } }]), lane('b', [emailStep])] } },
+            { id: 'sp', type: 'split', params: { variants: [lane('a', [emailStep('lane-a'), { id: 'w', type: 'wait', params: { minutes: 5 } }]), lane('b', [emailStep('lane-b')])] } },
             { id: 'after', type: 'send_email', params: { subject: 'y', bodyHtml: '<p>y</p>' } },
           ],
         },

@@ -294,7 +294,15 @@ export default function SegmentsPage() {
         </div>
       ),
     },
-  ], [t, selected])
+  /**
+   * The unsaved-work guard depends on every closure this memo captures, so they all belong in the deps.
+   *
+   * With `[t, selected]` the row buttons kept `startEdit` and `showMembers` from the render where `selected` last
+   * changed — and with them a stale `isDirty`. Build a condition tree without changing the selection, click Edit
+   * on another segment, and `leaveDraft()` saw `isDirty === false`: no confirm, and minutes of work gone. Exactly
+   * the loss the guard was added to prevent, defeated by a dependency list.
+   */
+  ], [t, startEdit, showMembers, remove])
 
   return (
     <Page>

@@ -108,6 +108,20 @@ describe('the reorder sweep source', () => {
     expect(other.claimKey).not.toBe(first.claimKey)
   })
 
+  /**
+   * The defect the review found: with a tolerance, an early reminder and an on-time one used to claim different
+   * cycles, so the customer got two identical emails three days apart.
+   */
+  test('an early reminder and the on-time one share a claim', async () => {
+    const early = [{ customer_entity_id: 'c1', sku: 'COFFEE', purchased_at: [daysAgo(27), daysAgo(57), daysAgo(87)] }]
+    const onTime = [{ customer_entity_id: 'c1', sku: 'COFFEE', purchased_at: [daysAgo(30), daysAgo(60), daysAgo(90)] }]
+
+    const [first] = await source.collect(fakeEm(early).em, scope, { withinDays: 10 }, NOW, 10)
+    const [second] = await source.collect(fakeEm(onTime).em, scope, { withinDays: 10 }, NOW, 10)
+    expect(first).toBeTruthy()
+    expect(second.claimKey).toBe(first.claimKey)
+  })
+
   test('the same tick twice produces the same claim, so a retry does not nag', async () => {
     const rows = [{ customer_entity_id: 'c1', sku: 'COFFEE', purchased_at: [daysAgo(31), daysAgo(61), daysAgo(91)] }]
     const [first] = await source.collect(fakeEm(rows).em, scope, {}, NOW, 10)

@@ -31,3 +31,25 @@ export function redactEmails(text: string): string {
 export function redactForStorage(text: string, maxLength: number): string {
   return redactEmails(text).slice(0, maxLength)
 }
+
+/**
+ * Redacts a whole payload, not just a line of failure text.
+ *
+ * Needed because a dead letter stores the EVENT that failed, and an inbound hook's event carries every key a
+ * partner posted — so the interesting addresses are in the data rather than in the error message. Walks strings
+ * wherever they are, keeps the shape so the record is still diagnosable, and caps the depth for the same reason
+ * the occurrence key does: the payload is somebody else's JSON.
+ */
+export function redactPayload(value: unknown, depth = 0): unknown {
+  if (depth > 8) return '[too deep]'
+  if (typeof value === 'string') return redactEmails(value)
+  if (Array.isArray(value)) return value.map((entry) => redactPayload(entry, depth + 1))
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = redactPayload(entry, depth + 1)
+    }
+    return out
+  }
+  return value
+}

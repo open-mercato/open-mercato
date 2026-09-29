@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { redactEmails } from './redact.js'
+import { redactEmails, redactPayload } from './redact.js'
 import { MarketingDispatchDeadLetter } from '../data/entities.js'
 
 /**
@@ -36,7 +36,15 @@ export async function recordDeadLetter(
       campaignId: entry.campaignId ?? null,
       tenantId: entry.tenantId ?? null,
       organizationId: entry.organizationId ?? null,
-      payload: entry.payload,
+      /**
+       * Redacted like the error beside it, and for a stronger reason.
+       *
+       * `readInboundPayload` copies every key a partner posted into the trigger context, so a failed dispatch of
+       * an inbound hook wrote their whole body here — contact addresses, phone numbers, names — into plaintext
+       * jsonb that the jobs screen shows and every replica carries. Redacting the error while storing the payload
+       * verbatim was protecting the smaller half.
+       */
+      payload: redactPayload(entry.payload),
       // Redacted for the same reason `last_error` is: this is third-party failure text, and a transport
       // rejection quotes the address it rejected.
       error: redactEmails(entry.error instanceof Error ? entry.error.message : String(entry.error)).slice(0, 4000),

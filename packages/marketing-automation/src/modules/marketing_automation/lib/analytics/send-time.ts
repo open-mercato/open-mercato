@@ -48,7 +48,10 @@ export function pickPreferredHour(
 
 const HOURLY_OPENS_SQL = `
   select extract(hour from (e.occurred_at at time zone ?))::int as hour,
-         count(*)::int as opens
+         -- Distinct RUNS, like every other engagement count in this module. Counting raw events let one 3am
+         -- message re-fetched five times by a mail client clear the minimum-evidence bar on its own and pin
+         -- every future send to 3am — the exact "confidently wrong" answer the minimum exists to prevent.
+         count(distinct e.run_id)::int as opens
     from marketing_message_send_events e
     join marketing_campaign_runs r on r.id = e.run_id
    where e.type = 'opened'

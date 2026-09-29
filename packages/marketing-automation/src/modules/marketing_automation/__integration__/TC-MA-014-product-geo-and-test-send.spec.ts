@@ -20,7 +20,7 @@ test.describe('TC-MA-014 product and geographic targeting', () => {
     return (await readJsonSafe<{ qualifier?: string; narrowing?: string; candidates?: number | null }>(response))!
   }
 
-  test('a purchased product is answerable in the database, and exactly', async ({ request }) => {
+  test('a purchased product is answerable in the database, and says it is a superset', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     let campaignId: string | null = null
     try {
@@ -29,7 +29,14 @@ test.describe('TC-MA-014 product and geographic targeting', () => {
         operator: 'AND',
         rules: [{ field: 'orders.skus', operator: 'CONTAINS', value: 'ATLAS-RUNNER' }],
       })
-      expect(body.qualifier).toBe('exact')
+      /**
+       * A superset, and the qualifier now says so.
+       *
+       * The query sees every purchase, while `matchesAudience` decides from the subject document's sku list —
+       * which is capped. For a wholesale customer beyond that cap the two can disagree, so `exact` was a claim the
+       * pair could not honour: a segment reported a size its own membership did not contain.
+       */
+      expect(body.qualifier).toBe('atMost')
       expect(body.narrowing).toBe('sku:ATLAS-RUNNER')
       expect(body.candidates).not.toBeNull()
     } finally {

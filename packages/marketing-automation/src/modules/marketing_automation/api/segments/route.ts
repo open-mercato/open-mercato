@@ -93,10 +93,33 @@ export async function POST(req: Request) {
    */
   const base = slugifySegmentName(parsed.data.name)
   let slug = base
+  let stillTaken = false
   for (let attempt = 2; attempt <= 50; attempt += 1) {
     const taken = await em.findOne(MarketingSegment, { ...scope, slug, deletedAt: null })
-    if (!taken) break
-    slug = `${base}-${attempt}`.slice(0, 64)
+    if (!taken) {
+      stillTaken = false
+      break
+    }
+    stillTaken = true
+    /**
+     * Room for the suffix is made by trimming the BASE, not by trimming the result.
+     *
+     * `\`${base}-${attempt}\`.slice(0, 64)` returns the base unchanged once the base is already 64 characters,
+     * so a second segment whose name shares a 64-character prefix ran fifty pointless lookups and then inserted
+     * the slug that was taken — a 500 from the unique index, also reachable by double-clicking submit.
+     */
+    const suffix = `-${attempt}`
+    slug = `${base.slice(0, 64 - suffix.length)}${suffix}`
+  }
+  if (stillTaken) {
+    // Fifty variations of one name is a naming problem the author has to resolve, and saying so beats a 500.
+    return NextResponse.json(
+      {
+        error: 'Too many segments share this name — please give it a more distinct one',
+        code: 'marketing_automation.errors.segmentSlug',
+      },
+      { status: 400 },
+    )
   }
   if (!isValidSegmentSlug(slug)) {
     return NextResponse.json(

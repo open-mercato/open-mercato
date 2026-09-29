@@ -624,9 +624,20 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
   const restoreRevision = async (version: number) => {
     setRestoring(true)
     try {
+      /**
+       * The version this screen last read travels with the request.
+       *
+       * Without it the server compared the campaign against itself and the lock could never fire, so restoring
+       * from a history list somebody else had already moved on from silently discarded their work — and
+       * `surfaceRecordConflict` below was unreachable code.
+       */
       await apiCallOrThrow(
         `/api/marketing_automation/campaigns/${campaignId}/revisions/${version}/restore`,
-        { method: 'POST' },
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ updatedAt }),
+        },
       )
       flash(t('marketing_automation.history.restored', 'Version restored.'), 'success')
       // Reloaded rather than patched in: the restore went through the ordinary save, so the canvas has to

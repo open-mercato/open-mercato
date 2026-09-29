@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { ConditionExpression } from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
 import { MarketingSegment } from '../../../data/entities.js'
 import { resolveSegmentMembers, SCREEN_MAX_CHECKED } from '../../../lib/segment-members.js'
+import { readQueryUuid } from '../../shared.js'
 
 /**
  * How much two segments share.
@@ -27,8 +28,10 @@ export async function GET(req: Request) {
   if (!auth?.tenantId || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const url = new URL(req.url)
-  const first = url.searchParams.get('a')
-  const second = url.searchParams.get('b')
+  // Validated rather than passed into a query: an `IN (…)` with a malformed uuid raises, and a 500 tells the
+  // caller nothing they can act on. Here a bad id IS a bad request, because there is no sensible fallback.
+  const first = readQueryUuid(url, 'a')
+  const second = readQueryUuid(url, 'b')
   if (!first || !second) return NextResponse.json({ error: 'Two segment ids are required' }, { status: 400 })
   if (first === second) {
     return NextResponse.json(

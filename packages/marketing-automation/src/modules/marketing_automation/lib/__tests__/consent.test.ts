@@ -1,3 +1,4 @@
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   isSuppressedByConsent,
@@ -9,7 +10,7 @@ import {
 const scope = { tenantId: 't1', organizationId: 'o1' }
 const now = new Date('2026-09-28T12:00:00.000Z')
 
-function fakeEm(existing: Record<string, unknown> | null = null) {
+function fakeEm(existing: Record<string, unknown> | null = null, flushError?: unknown) {
   const created: Record<string, unknown>[] = []
   const persisted: Record<string, unknown>[] = []
   const queries: Record<string, unknown>[] = []
@@ -25,7 +26,8 @@ function fakeEm(existing: Record<string, unknown> | null = null) {
       return row
     },
     persist: (row: Record<string, unknown>) => { persisted.push(row) },
-    flush: async () => { flushes += 1 },
+    flush: async () => { flushes += 1; if (flushError) throw flushError },
+    clear: () => { /* what the module does after losing an insert race */ },
   }
   return { em: em as unknown as EntityManager, created, persisted, queries, flushes: () => flushes }
 }
@@ -105,5 +107,44 @@ describe('recordConsent', () => {
     })
     expect(existing.state).toBe('subscribed')
     expect(existing.reason).toBe('asked us on the phone')
+  })
+})
+
+describe('two people unsubscribing at once', () => {
+  /**
+   * Routine rather than exotic: an RFC 8058 client posts one-click while the person also presses the button on the
+   * confirmation page. Both read no row, both insert, one loses the unique index.
+   *
+   * Answering 500 to somebody who has in fact just been unsubscribed — "you may still be subscribed" — is the
+   * single worst thing this module can say, so losing that race reports the decision that is now true.
+   */
+  test('losing the insert race still reports the decision', async () => {
+    const { em } = fakeEm(null, new UniqueConstraintViolationException(new Error('duplicate key')))
+    await expect(recordConsent(em, {
+      scope, subjectEntityId: 'c1', channel: 'email', state: 'unsubscribed',
+      reason: 'one-click', source: 'customer', now,
+    })).resolves.toBe('unsubscribed')
+  })
+
+  test('any other failure still throws, because it is not a race', async () => {
+    const { em } = fakeEm(null, new Error('connection reset'))
+    await expect(recordConsent(em, {
+      scope, subjectEntityId: 'c1', channel: 'email', state: 'unsubscribed',
+      reason: 'one-click', source: 'customer', now,
+    })).rejects.toThrow('connection reset')
+  })
+
+  test('an operator can record a decision, and the source says who did', async () => {
+    const { em, created } = fakeEm(null)
+    await recordConsent(em, {
+      scope, subjectEntityId: 'c1', channel: 'email', state: 'unsubscribed',
+      reason: 'asked on the phone', source: 'operator', now,
+    })
+    // "Provably first-party" is a claim somebody may have to substantiate: a decision relayed by staff is a
+    // different fact from one the customer entered themselves, and the trail records which.
+    for (const row of created) {
+      expect(row.source).toBe('operator')
+      expect(row.reason).toBe('asked on the phone')
+    }
   })
 })

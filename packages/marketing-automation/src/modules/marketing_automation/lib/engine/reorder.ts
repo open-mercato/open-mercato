@@ -114,6 +114,17 @@ export function reorderCycleFor(
  * not arrive daily either once somebody is overdue. Numbering the cycles gives each one its own claim: cycle 3 of
  * a 30-day coffee habit is claimed once, and cycle 4 is a new claim thirty days later.
  */
-export function cycleNumber(cycle: ReorderCycle): number {
-  return Math.max(1, Math.floor(cycle.daysSinceLast / cycle.cycleDays) + 1)
+export function cycleNumber(cycle: ReorderCycle, tolerance = 0): number {
+  /**
+   * The tolerance has to be in here too, or the claim changes mid-reminder.
+   *
+   * `reorderCycleFor` fires EARLY by the tolerance, so with a ten per cent allowance on a thirty-day habit it
+   * fires on day 27 — where a floor of `27/30` says cycle 1 — and again on day 30, where it says cycle 2. Two
+   * claims, two identical emails, three days apart: exactly the nagging the claim key exists to prevent.
+   *
+   * Shifting the day by the same tolerance the firing rule uses makes the two agree by construction: day 27 and
+   * day 30 both land in the cycle that began at day 0.
+   */
+  const shifted = cycle.daysSinceLast + cycle.cycleDays * tolerance
+  return Math.max(1, Math.floor(shifted / cycle.cycleDays))
 }

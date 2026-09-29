@@ -216,12 +216,12 @@ async function recordFailure(
     },
     deps.now,
   )
-  if (outcome === 'retrying') {
-    const parked = await deps.em.findOne(MarketingCampaignRun, { id: run.id }, { fields: ['resumeAt'] })
-    const delayMs = Math.max(0, (parked?.resumeAt?.getTime() ?? deps.now.getTime()) - deps.now.getTime())
+  if (outcome.status === 'retrying') {
+    // The instant comes from the write that set it, not from a read that could be served stale.
+    const delayMs = Math.max(0, (outcome.resumeAt?.getTime() ?? deps.now.getTime()) - deps.now.getTime())
     await deps.enqueueResume(run.id, delayMs)
   }
-  return outcome
+  return outcome.status
 }
 
 

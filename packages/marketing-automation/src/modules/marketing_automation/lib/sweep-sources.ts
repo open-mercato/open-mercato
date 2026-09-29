@@ -364,7 +364,9 @@ const reorderDue: RowSweepSource = {
           REORDER_DUE_TRIGGER_ID,
           row.customer_entity_id,
           cycle.sku,
-          String(cycleNumber(cycle)),
+          // The SAME tolerance the firing rule used, or an early reminder and an on-time one claim different
+          // cycles and the customer is emailed twice.
+          String(cycleNumber(cycle, tolerance)),
         ]),
       }]
     })

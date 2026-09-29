@@ -30,6 +30,26 @@ export async function recordTrackingEvent(
     stepId: claims.stepId,
   })
 
+  /**
+   * One OPEN per message, however many times the pixel is fetched.
+   *
+   * A tracking token never expires — it has to survive in a mail archive — so anybody holding one link can fetch
+   * the pixel in a loop, and every fetch was a row in a table nothing prunes. The metrics were already immune
+   * (they count distinct runs), which is precisely why the growth was invisible.
+   *
+   * Clicks stay append-only: a second click is a fact about behaviour, and the link clicked is part of it. An
+   * open is not — a mail client re-rendering a message tells us nothing we did not already know.
+   */
+  if (input.type === 'opened') {
+    const alreadyOpened = await em.findOne(MarketingMessageSendEvent, {
+      ...scope,
+      runId: claims.runId,
+      stepId: claims.stepId,
+      type: 'opened',
+    })
+    if (alreadyOpened) return
+  }
+
   const event = em.create(MarketingMessageSendEvent, {
     ...scope,
     campaignId: claims.campaignId,

@@ -139,7 +139,9 @@ export default function ContentBlocksPage() {
         </div>
       ),
     },
-  ], [t])
+  // Same reason as the segments screen: a row button that closes over state must list it, or it acts on the
+  // state as it was when the memo last ran — here it left a deleted block sitting in the editor.
+  ], [t, remove, startEdit])
 
   return (
     <Page>

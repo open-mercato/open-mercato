@@ -209,10 +209,17 @@ describe('planNarrowing — what can be pushed', () => {
     expect(planNarrowing(leaf(field, operator, value)).narrowing.kind).toBe('all')
   })
 
+  /**
+   * A membership lookup, and a SUPERSET rather than an exact answer.
+   *
+   * The query sees every purchase; `matchesAudience` decides from the subject document's sku list, which is
+   * capped. For a customer beyond that cap the two can disagree, so claiming exactness made a segment report a
+   * size its own membership did not contain.
+   */
   test('a purchased SKU becomes a membership lookup over order lines', () => {
     const plan = planNarrowing(leaf('orders.skus', 'CONTAINS', 'ATLAS-RUNNER'))
     expect(plan.narrowing).toEqual({ kind: 'predicate', predicate: { kind: 'purchasedSku', sku: 'ATLAS-RUNNER' } })
-    expect(plan.complete).toBe(true)
+    expect(plan.complete).toBe(false)
   })
 
   test('"has not bought" is not pushed, because absence cannot be produced as a superset', () => {
@@ -222,7 +229,8 @@ describe('planNarrowing — what can be pushed', () => {
   test('a purchased category becomes a membership lookup too', () => {
     const plan = planNarrowing(leaf('orders.categories', 'CONTAINS', 'footwear'))
     expect(plan.narrowing).toEqual({ kind: 'predicate', predicate: { kind: 'purchasedCategory', slug: 'footwear' } })
-    expect(plan.complete).toBe(true)
+    // Same caveat as the skus, for the same reason: the projection behind `matchesAudience` is capped.
+    expect(plan.complete).toBe(false)
   })
 
   /**

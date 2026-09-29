@@ -92,14 +92,25 @@ export async function loadOrderAggregates(
   return aggregates
 }
 
-/** How many distinct SKUs a subject document carries. Beyond this the list stops being a filter. */
-const MAX_SUBJECT_SKUS = 200
+/**
+ * How many distinct SKUs a subject document carries.
+ *
+ * Raised from 200, and ordered, because the truncation was not merely a display limit: `matchesAudience` answers
+ * `orders.skus CONTAINS 'X'` from THIS list, so a wholesale customer with 250 distinct SKUs was reported as not
+ * having bought one that fell outside whatever 200 rows came back — and with no `ORDER BY`, which 200 that was
+ * could change between two runs of the same campaign.
+ *
+ * A cap is still needed (a subject document is projected per candidate and must stay bounded), so the honest
+ * position is: high enough that a real customer does not reach it, deterministic when one does, and stated in the
+ * module's guidance as a known limit rather than left to be discovered.
+ */
+const MAX_SUBJECT_SKUS = 2_000
 
 /** A shop with more than this many channels is not doing channel targeting, it is doing integrations. */
 const MAX_SUBJECT_CHANNELS = 50
 
-/** Beyond this the list stops being a filter, exactly as with skus. */
-const MAX_SUBJECT_CATEGORIES = 100
+/** Same reasoning and the same fix as the skus above; a shop with 500 categories is not filing products, it is losing them. */
+const MAX_SUBJECT_CATEGORIES = 500
 
 /**
  * Distinct product SKUs this customer has bought.
@@ -166,6 +177,9 @@ export async function loadPurchasedCategories(
       where o.customer_entity_id = ?
         and ${PLACED_ORDER_FILTER_SQL_ALIASED}
         and c.slug is not null
+      -- Deterministic for the same reason the sku list is: a capped list that changes between runs makes a
+      -- campaign's membership change with it.
+      order by c.slug
       limit ?`,
     [subjectEntityId, scope.tenantId, scope.organizationId, MAX_SUBJECT_CATEGORIES],
   )
@@ -180,14 +194,22 @@ export async function loadPurchasedSkus(
   scope: SubjectScope,
 ): Promise<string[]> {
   const rows = await em.getConnection().execute<{ sku: string | null }[]>(
-    `select distinct coalesce(
-              l.catalog_snapshot -> 'product' ->> 'sku',
-              l.catalog_snapshot -> 'variant' ->> 'sku'
-            ) as sku
-       from sales_order_lines l
-       join sales_orders o on o.id = l.order_id
-      where o.customer_entity_id = ?
-        and ${PLACED_ORDER_FILTER_SQL_ALIASED}
+    `select sku from (
+       select coalesce(
+                l.catalog_snapshot -> 'product' ->> 'sku',
+                l.catalog_snapshot -> 'variant' ->> 'sku'
+              ) as sku,
+              max(o.placed_at) as last_bought
+         from sales_order_lines l
+         join sales_orders o on o.id = l.order_id
+        where o.customer_entity_id = ?
+          and ${PLACED_ORDER_FILTER_SQL_ALIASED}
+        group by 1
+       ) ranked
+      where sku is not null
+      -- Newest purchase first, so a truncated list is a stable PREFIX rather than a different 2,000 each run —
+      -- and the ones kept are the ones a campaign is most likely to be about.
+      order by last_bought desc, sku
       limit ?`,
     [subjectEntityId, scope.tenantId, scope.organizationId, MAX_SUBJECT_SKUS],
   )
