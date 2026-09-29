@@ -13,6 +13,7 @@ import { expandOccurrences } from '../../../lib/calendar/recurrence'
 import { getFetchWindow } from '../../../lib/calendar/range'
 import type { CalendarItem } from '../types'
 import { fetchCalendarCandidates } from '../useCalendarItems'
+import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { fetchDealById, fetchRelatedEntityById, findStaffMemberName } from './lookups'
 
 // Edit-mode prefill stores ids only (parseItemToFormState is pure); resolve the
@@ -22,6 +23,7 @@ export function useEditorLabelResolution(
   form: EditorFormState,
   update: (patch: Partial<EditorFormState>) => void,
 ): void {
+  const activeOrgId = useCurrentOrganization()?.id ?? null
   React.useEffect(() => {
     if (!open) return
     const controller = new AbortController()
@@ -36,7 +38,7 @@ export function useEditorLabelResolution(
         if (!cancelled && deal) update({ dealLabel: deal.label })
       }
       if (form.assigneeUserId && !form.assigneeName) {
-        const name = await findStaffMemberName(form.assigneeUserId, controller.signal)
+        const name = await findStaffMemberName(form.assigneeUserId, controller.signal, activeOrgId)
         if (!cancelled && name) update({ assigneeName: name })
       }
     }
@@ -50,7 +52,7 @@ export function useEditorLabelResolution(
       cancelled = true
       controller.abort()
     }
-  }, [open, form.relatedTo, form.dealId, form.dealLabel, form.assigneeUserId, form.assigneeName, update])
+  }, [activeOrgId, open, form.relatedTo, form.dealId, form.dealLabel, form.assigneeUserId, form.assigneeName, update])
 }
 
 function formatClock(date: Date): string {
