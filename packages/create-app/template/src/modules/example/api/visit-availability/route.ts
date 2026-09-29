@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { resolveCustomersRequestContext, resolveAuthActorId } from '@open-mercato/core/modules/customers/lib/interactionRequestContext'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { evaluateVisitAvailability, visitAvailabilityInputSchema } from '../../lib/visitAvailability'
 
 const querySchema = z.object({
@@ -25,19 +27,24 @@ export async function GET(request: Request) {
       staffUserIds: query.staffUserIds ? query.staffUserIds.split(',') : [],
       resourceIds: query.resourceIds ? query.resourceIds.split(',') : [],
     })
-    const context = await resolveCustomersRequestContext(request)
-    if (!context.selectedOrganizationId) return NextResponse.json({ error: 'example.calendar.visitAvailability.missingScope' }, { status: 403 })
-    const actorUserId = resolveAuthActorId(context.auth)
-    const rbac = context.container.hasRegistration('rbacService')
-      ? context.container.resolve<{ userHasAllFeatures: (userId: string, features: string[], scope: { tenantId: string; organizationId: string }) => Promise<boolean> }>('rbacService')
+    const auth = await getAuthFromRequest(request)
+    if (!auth?.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const container = await createRequestContainer()
+    const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
+    const organizationId = scope?.selectedId ?? auth.orgId ?? null
+    if (!organizationId) return NextResponse.json({ error: 'example.calendar.visitAvailability.missingScope' }, { status: 403 })
+    const actorUserId = auth.sub ?? auth.userId ?? auth.keyId
+    if (!actorUserId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    const rbac = container.hasRegistration('rbacService')
+      ? container.resolve<{ userHasAllFeatures: (userId: string, features: string[], scope: { tenantId: string; organizationId: string }) => Promise<boolean> }>('rbacService')
       : null
-    if (!rbac || !await rbac.userHasAllFeatures(actorUserId, ['customers.interactions.manage'], { tenantId: context.auth.tenantId, organizationId: context.selectedOrganizationId })) {
+    if (!rbac || !await rbac.userHasAllFeatures(actorUserId, ['customers.interactions.manage'], { tenantId: auth.tenantId, organizationId })) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
     const subjects = await evaluateVisitAvailability({
-      container: context.container,
+      container,
       actorUserId,
-      scope: { tenantId: context.auth.tenantId, organizationId: context.selectedOrganizationId },
+      scope: { tenantId: auth.tenantId, organizationId },
       input,
     })
     return NextResponse.json({ subjects })
