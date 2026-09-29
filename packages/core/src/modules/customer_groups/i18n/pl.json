@@ -16,6 +16,7 @@
   "customer_groups.errors.parentNotFound": "Wybrana grupa nadrzędna nie istnieje.",
   "customer_groups.errors.parentSelf": "Grupa nie może być swoją własną grupą nadrzędną.",
   "customer_groups.errors.parentTooDeep": "Ta grupa nadrzędna sprawiłaby, że hierarchia grup miałaby więcej niż 5 poziomów.",
+  "customer_groups.errors.priceKindNotFound": "Wybrany rodzaj ceny nie istnieje.",
   "customer_groups.errors.priorityDuplicate": "Inna grupa klientów ma już ten priorytet.",
   "customer_groups.errors.reconcile_adopt_failed": "Nie udało się przejąć osieroconych odwołań do grup klientów",
   "customer_groups.errors.reconcile_scan_failed": "Nie udało się wyszukać osieroconych odwołań do grup klientów",

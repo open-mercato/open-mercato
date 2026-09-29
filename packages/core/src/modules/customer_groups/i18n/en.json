@@ -16,6 +16,7 @@
   "customer_groups.errors.parentNotFound": "The selected parent group does not exist.",
   "customer_groups.errors.parentSelf": "A group cannot be its own parent.",
   "customer_groups.errors.parentTooDeep": "This parent would make the group hierarchy deeper than 5 levels.",
+  "customer_groups.errors.priceKindNotFound": "The selected price kind does not exist.",
   "customer_groups.errors.priorityDuplicate": "Another customer group already uses this priority.",
   "customer_groups.errors.reconcile_adopt_failed": "Failed to adopt orphaned customer group references",
   "customer_groups.errors.reconcile_scan_failed": "Failed to scan for orphaned customer group references",

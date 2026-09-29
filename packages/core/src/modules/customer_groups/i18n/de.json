@@ -16,6 +16,7 @@
   "customer_groups.errors.parentNotFound": "Die ausgewählte übergeordnete Gruppe existiert nicht.",
   "customer_groups.errors.parentSelf": "Eine Gruppe kann nicht ihre eigene übergeordnete Gruppe sein.",
   "customer_groups.errors.parentTooDeep": "Mit dieser übergeordneten Gruppe wäre die Gruppenhierarchie tiefer als 5 Ebenen.",
+  "customer_groups.errors.priceKindNotFound": "Die ausgewählte Preisart existiert nicht.",
   "customer_groups.errors.priorityDuplicate": "Eine andere Kundengruppe verwendet diese Priorität bereits.",
   "customer_groups.errors.reconcile_adopt_failed": "Verwaiste Kundengruppen-Verweise konnten nicht übernommen werden",
   "customer_groups.errors.reconcile_scan_failed": "Suche nach verwaisten Kundengruppen-Verweisen fehlgeschlagen",

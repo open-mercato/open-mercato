@@ -16,6 +16,7 @@
   "customer_groups.errors.parentNotFound": "El grupo principal seleccionado no existe.",
   "customer_groups.errors.parentSelf": "Un grupo no puede ser su propio grupo principal.",
   "customer_groups.errors.parentTooDeep": "Este grupo principal haría que la jerarquía de grupos tuviera más de 5 niveles.",
+  "customer_groups.errors.priceKindNotFound": "El tipo de precio seleccionado no existe.",
   "customer_groups.errors.priorityDuplicate": "Otro grupo de clientes ya usa esta prioridad.",
   "customer_groups.errors.reconcile_adopt_failed": "No se pudieron adoptar las referencias huérfanas a grupos de clientes",
   "customer_groups.errors.reconcile_scan_failed": "No se pudieron buscar referencias huérfanas a grupos de clientes",

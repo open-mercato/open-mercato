@@ -5,13 +5,14 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
-import { CrudHttpError, conflict, isCrudHttpError, isUniqueViolation, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, badRequest, conflict, isCrudHttpError, isUniqueViolation, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CustomerGroup, CustomerGroupTerms } from '../../../../data/entities'
+import { isPriceKindInTenant } from '../../../../lib/priceKindScope'
 import {
   customerGroupTermsCreateSchema,
   customerGroupTermsUpdateSchema,
@@ -223,6 +224,18 @@ export async function PUT(req: Request, context: RouteContext) {
     if (!guarded.ok) return guarded.response
 
     const payload = guarded.modifiedPayload ?? rawInput
+
+    const requestedPriceKindId =
+      typeof payload.priceKindId === 'string' && payload.priceKindId.length > 0 ? payload.priceKindId : null
+    if (
+      requestedPriceKindId
+      && requestedPriceKindId !== existing?.priceKindId
+      && !(await isPriceKindInTenant(em, requestedPriceKindId, scope.tenantId))
+    ) {
+      throw badRequest(
+        translate('customer_groups.errors.priceKindNotFound', 'The selected price kind does not exist.'),
+      )
+    }
 
     let terms: CustomerGroupTerms
     if (existing) {
