@@ -1,0 +1,277 @@
+# The fork's own gate for `packages/marketing-automation`.
+#
+# THIS FILE IS FORK-ONLY AND MUST NOT GO INTO THE PULL REQUEST UPSTREAM. Adding a workflow to somebody's
+# repository is a change to their CI that nobody asked for; this exists so the work on this branch is checked
+# automatically instead of by hand on a laptop.
+#
+# Why upstream's own `ci.yml` cannot be reused here:
+#
+#   * 24 of its 28 jobs declare `runs-on: blacksmith-4vcpu-ubuntu-2404`. Blacksmith is a third-party runner
+#     service bound to the upstream organisation, so on a fork no runner carries that label and the jobs do not
+#     fail — they sit in `queued` for ever, which looks exactly like a slow build.
+#   * it triggers only on `main`, `develop` and `feat/wms`, so this branch would schedule nothing anyway.
+#   * it has no `workflow_call` entry point and there are no composite actions under `.github/actions/`, so
+#     there is nothing to import. This file is modelled on it instead: same Node version, same cache layout,
+#     same generate-then-rebuild order, same reason for each.
+#
+# There is deliberately no `services: postgres` block, exactly as upstream has none: `yarn test:integration`
+# provisions its own pgvector-enabled Postgres through testcontainers and then spawns the app itself. That needs
+# a Docker daemon, which GitHub-hosted `ubuntu-latest` runners already have.
+#
+# Cost: nothing, as long as the fork is PUBLIC. GitHub Actions has no minute limit for public repositories on
+# standard runners; a private fork on the Free plan gets 2 000 minutes a month, which this gate would exhaust in
+# a few days.
+name: Marketing automation (fork gate)
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - feat/marketing-automation
+  pull_request:
+  # So a run can be started by hand without an empty commit.
+  workflow_dispatch:
+
+# A new push supersedes the run in flight: the answer about an older commit is no longer the question.
+concurrency:
+  group: ma-fork-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # turbo 2.x defaults to `envMode: "strict"` and `turbo.json` declares only `globalEnv: ["NODE_ENV"]`, so in
+  # strict mode turbo strips every OM_* variable before a task starts. Upstream's CI sets this for the same
+  # reason; without it the generated registry and the built app disagree with this file's environment.
+  TURBO_ENV_MODE: loose
+  NEXT_TELEMETRY_DISABLED: '1'
+
+jobs:
+  # ── The cheap half: everything that needs no database and no browser ────────────────────────────────────────
+  #
+  # A job of its own rather than a step list in front of the integration job, so a typo in a translation key is
+  # reported in about a quarter of the time the full gate takes. It does not `needs:` anything, so both halves
+  # start at once.
+  checks:
+    name: Types, lint, unit tests, translations
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        # With nodeLinker:node-modules yarn extracts zips into node_modules even on a `.yarn/cache` hit, and the
+        # extraction alone costs well over a minute. Caching the result and skipping install on a hit removes it.
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Cache Turbo build outputs
+        uses: actions/cache@v6
+        with:
+          path: .turbo
+          key: turbo-checks-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-checks-${{ runner.os }}-${{ github.ref_name }}-
+            turbo-checks-${{ runner.os }}-
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
+
+      - name: Build packages
+        run: yarn build:packages
+
+      - name: Prepare generated modules
+        # The generator discovers modules regardless of what changed, and its output is what the app compiles.
+        run: yarn generate
+
+      - name: Fail if the generator left the tree dirty
+        # A module that names an icon, a queue or a spot the shared registries do not have makes `yarn generate`
+        # rewrite a committed file — usually in another package. That is how this branch acquired an uncommitted
+        # change to `packages/ui`, and the only reliable way to notice is to check here rather than to remember.
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::yarn generate modified tracked files — commit the output or stop using the name that caused it"
+            git status --porcelain
+            git diff
+            exit 1
+          fi
+
+      - name: Rebuild packages with generated files
+        run: yarn build:packages
+
+      - name: Typecheck
+        run: yarn typecheck
+
+      - name: Lint
+        run: yarn lint
+
+      - name: Unit tests
+        run: yarn test
+
+      - name: Design-system lint for this module
+        # The same invocation the module's AGENTS.md documents: this repo's typescript-eslint refuses the
+        # installed TypeScript under the default config, so the DS rules run through their own config.
+        run: |
+          node --require ./scripts/typescript-js-require-hook.cjs node_modules/eslint/bin/eslint.js \
+            --config eslint.ds.config.mjs packages/marketing-automation
+
+      - name: Translations are in sync across all five locales
+        run: yarn i18n:check-sync
+
+      - name: No key referenced in code is missing from en.json
+        # `check-usage` also lists UNUSED keys repo-wide and that half is advisory, so only the missing half is a
+        # failure here. A missing key renders its English fallback, which is invisible until somebody switches
+        # language — exactly the kind of defect a gate is for.
+        run: |
+          set -o pipefail
+          OUTPUT="$(yarn i18n:check-usage 2>&1 | tee /dev/stderr)"
+          if echo "$OUTPUT" | grep -qE 'MISSING KEYS \(referenced in code but not in any en\.json\): [1-9]'; then
+            echo "::error::translation keys are referenced in code and absent from en.json"
+            exit 1
+          fi
+
+      - name: No hardcoded user-facing strings in this module
+        # Advisory repo-wide; enforced for this module, which is at zero and should stay there. Genuine
+        # exceptions belong in `i18n/.hardcoded-allowlist.json` with a reason, not in a growing count.
+        run: |
+          set -o pipefail
+          OUTPUT="$(yarn i18n:check-hardcoded 2>&1 | tee /dev/stderr)"
+          if echo "$OUTPUT" | grep -qE '\[marketing-automation/marketing_automation\].*[1-9][0-9]* hardcoded'; then
+            echo "::error::this module has hardcoded user-facing strings"
+            exit 1
+          fi
+
+      - name: Agent instruction budgets
+        run: yarn agents:check-budget
+
+  # ── The expensive half: the app, a real database and a browser ──────────────────────────────────────────────
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # What the spawned app needs to boot. None of these are secrets: they are fixtures for a database that is
+      # created and destroyed inside this run. Nothing real belongs in this file.
+      JWT_SECRET: 'ci-fork-test-jwt-secret-32-chars-minimum'
+      # Without a tracking secret the specs covering the public unsubscribe, survey and open/click endpoints
+      # SKIP themselves — a green run that proved nothing about the module's only public surface.
+      OM_MARKETING_TRACKING_SECRET: 'ci-fork-marketing-tracking-secret-32-bytes'
+      APP_URL: 'http://localhost:3000'
+      # Email goes to the seeded test channel rather than a provider, so a send step records a send and nothing
+      # leaves the runner.
+      OM_ENABLE_TEST_CHANNEL_SEEDING: 'true'
+      OM_DISABLE_EMAIL_DELIVERY: '0'
+      SYSTEM_EMAIL_PROVIDER: '__test_seed__'
+      EMAIL_FROM: 'system@test-seed.local'
+      NOTIFICATIONS_EMAIL_FROM: 'notifications@test-seed.local'
+      ADMIN_EMAIL: 'admin@test-seed.local'
+      # A cold runner compiles the app on first request; the default readiness window is too short for that.
+      OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS: '180'
+      # Narrowed on purpose. A bare run compiles all ~1270 discovered spec files before the filter applies,
+      # which costs minutes to reach the same result.
+      OM_INTEGRATION_MODULES: marketing_automation
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Cache Turbo build outputs
+        uses: actions/cache@v6
+        with:
+          path: .turbo
+          key: turbo-integration-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-integration-${{ runner.os }}-${{ github.ref_name }}-
+            turbo-integration-${{ runner.os }}-
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
+
+      - name: Build packages
+        run: yarn build:packages
+
+      - name: Prepare generated modules
+        run: yarn generate
+
+      - name: Rebuild packages with generated files
+        run: yarn build:packages
+
+      - name: Build app
+        run: yarn build:app
+
+      - name: Cache Playwright browser
+        id: playwright-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Install Playwright browser
+        # Needed since this module's screens are driven in a real browser (TC-MA-042..047), not only over HTTP.
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Integration tests
+        # The harness starts its own pgvector Postgres through testcontainers and spawns the app; the Docker
+        # daemon on the runner is all it needs from us.
+        run: yarn test:integration
+
+      - name: Upload failure artefacts
+        # Traces, screenshots and the error context each failing spec writes. Without them a red run on a
+        # machine nobody can open is a line of text.
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: integration-failures
+          path: |
+            .ai/qa/test-results/
+          retention-days: 7
+          if-no-files-found: ignore

@@ -171,10 +171,12 @@ already at parity. Items A5–A7 change `sales` — ask before building them.
   helper living there becomes a subscriber for the empty-string event.
 - Never make a reorder reminder once-ever or daily. The cycle NUMBER goes in the claim key: without it a durable
   claim reminds somebody about their coffee once in their life, and without a claim they are nagged every morning.
-- Never name an icon the shared registry does not already have. `lucideRegistry.generated.tsx` is generated from
-  icon strings found across the repo, so a new name makes `yarn generate` rewrite a file in `packages/ui` — and
-  then the choice is committing to another package or leaving permanent dirt in the tree.
-  `__tests__/icon-strings.test.ts` holds every `icon:` string in this module to the registry.
+- Never name an icon the shared design system does not already export. The icon registry in `packages/ui` is
+  GENERATED from icon strings found across the repo, so a new name makes `yarn generate` rewrite a file in another
+  package — and then the choice is committing to `packages/ui` or leaving permanent dirt in the tree. `split`,
+  `smile` and `share` each did it; `git-branch`, `star` and `share-2` were already there. The fork's CI fails when
+  `yarn generate` dirties the tree, which is the guard — and it cannot be a unit test here, because `packages/ui`
+  forbids anything outside its own icons folder from so much as naming that generated file.
 - Never leave the two PUBLIC pages in English. They are the only words a customer reads outside an email, and the
   locale comes from the browser's `accept-language` (`resolveTranslations`), not from their mail-language
   preference — which language to EMAIL somebody in is a different decision they make in the preference centre.
