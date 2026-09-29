@@ -22,6 +22,7 @@
   "availability.nav.group": "Dostępność",
   "availability.policies.create.title": "Utwórz politykę dostępności",
   "availability.policies.edit.notFound": "Nie znaleziono polityki dostępności",
+  "availability.policies.edit.readOnly": "Ta polityka jest tylko do odczytu. Nie masz uprawnień do jej zmiany.",
   "availability.policies.edit.title": "Edytuj politykę dostępności",
   "availability.policies.errors.backorderRequiresLeadTime": "Czas realizacji zamówienia oczekującego (w dniach) jest wymagany, gdy dozwolone jest zamówienie oczekujące",
   "availability.policies.errors.duplicateTarget": "Polityka dla tej kombinacji sklep/produkt/wariant już istnieje.",

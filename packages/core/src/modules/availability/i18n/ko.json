@@ -22,6 +22,7 @@
   "availability.nav.group": "Availability",
   "availability.policies.create.title": "Create Availability Policy",
   "availability.policies.edit.notFound": "Availability policy not found",
+  "availability.policies.edit.readOnly": "이 정책은 보기 전용입니다. 변경할 권한이 없습니다.",
   "availability.policies.edit.title": "Edit Availability Policy",
   "availability.policies.errors.backorderRequiresLeadTime": "Backorder lead time (days) is required when backorder is allowed",
   "availability.policies.errors.duplicateTarget": "A policy already exists for this store/product/variant combination.",

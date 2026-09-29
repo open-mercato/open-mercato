@@ -45,6 +45,7 @@ export default function AvailabilityPolicyCreatePage() {
       backHref="/backend/availability/policies"
       fields={[]}
       groups={groups}
+      initialValues={{ isActive: true }}
       submitLabel={t('availability.policies.form.action.create')}
       cancelHref="/backend/availability/policies"
       contentHeader={(

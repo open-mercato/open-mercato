@@ -104,6 +104,11 @@ export default function AvailabilityPolicyEditPage({ params }: { params?: { id?:
       fields={[]}
       groups={groups}
       readOnly={!canManage}
+      readOnlyOverlay={(
+        <div className="rounded-xl border border-border/70 bg-background/95 px-4 py-3 text-sm text-muted-foreground shadow-sm">
+          {t('availability.policies.edit.readOnly')}
+        </div>
+      )}
       submitLabel={t('availability.policies.form.action.save')}
       cancelHref="/backend/availability/policies"
       optimisticLockUpdatedAt={policy.updatedAt ?? null}
