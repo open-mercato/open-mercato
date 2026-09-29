@@ -118,9 +118,19 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'translations', from: '@open-mercato/core' },
   { id: 'scheduler', from: '@open-mercato/scheduler' },
   // Marketing automation — campaigns as trigger -> audience expression -> ordered steps.
-  // Audience expressions reuse the business_rules condition evaluator; sends go through
-  // the shared email transport and the customers tag commands.
-  { id: 'marketing_automation', from: '@open-mercato/marketing-automation' },
+  // The package ships with the scaffold but stays disabled by default, for two reasons.
+  //
+  // It messages real customers. A scaffolded app is somebody's first five minutes with the
+  // platform, and a module whose steps send email is not something to switch on for them.
+  //
+  // And enabling it is not a one-line edit: a module the scaffold ENABLES must ship a
+  // generated fact sheet, and every shipped fact sheet has to be required by at least one
+  // case in the standalone agent-harness catalog
+  // (packages/create-app/src/lib/module-facts-build.test.ts). Adding that case is a
+  // maintainer call — the catalog's counts and its schema coverage are derived, so a case
+  // appended by hand fails a dozen sibling tests. Use the om-refresh-standalone-harness
+  // skill for it rather than editing cases.json.
+  // { id: 'marketing_automation', from: '@open-mercato/marketing-automation' },
   { id: 'inbox_ops', from: '@open-mercato/core' },
   { id: 'payment_gateways', from: '@open-mercato/core' },
   { id: 'checkout', from: '@open-mercato/checkout' },
