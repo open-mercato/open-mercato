@@ -59,6 +59,7 @@ import type {
   TraceContext,
 } from '../types'
 import { readTelemetryEnv } from '../env'
+import { BACKUP_TRACEPARENT_HEADER, BACKUP_TRACESTATE_HEADER } from '../trace-headers'
 import { redactAttributes, redactPii } from '../facade/redact'
 import { serializeError } from '../facade/serialize'
 import { runSpan } from './run-span'
@@ -74,8 +75,8 @@ const queuePropagator = new W3CTraceContextPropagator()
 const W3C_TRACEPARENT = 'traceparent'
 const W3C_TRACESTATE = 'tracestate'
 // Backup headers that mirror the W3C context but a proxy/LB won't rewrite.
-const BACKUP_TRACEPARENT = 'x-original-traceparent'
-const BACKUP_TRACESTATE = 'x-original-tracestate'
+const BACKUP_TRACEPARENT = BACKUP_TRACEPARENT_HEADER
+const BACKUP_TRACESTATE = BACKUP_TRACESTATE_HEADER
 
 /**
  * Global propagator: standard W3C plus a backup copy

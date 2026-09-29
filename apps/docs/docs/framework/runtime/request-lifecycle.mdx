@@ -17,21 +17,40 @@ The same lifecycle powers server actions and background jobs; in each case we cr
 
 ## Correlating an Unexpected 500
 
-When an unexpected exception escapes a [CRUD factory](../api/crud-factory) handler, the client still receives a generic `500` that leaks no internal detail — but it now carries a `requestId` so a support ticket has something citable:
+When an unexpected exception escapes a [CRUD factory](../api/crud-factory) handler, the client still receives a generic `500` that leaks no internal detail — but it now carries a `requestId` so a support ticket has something citable, and a stable `code` so a caller can bucket the failure without server log access:
 
 ```json
 {
   "error": "Internal server error",
   "message": "Something went wrong. Please try again later.",
+  "requestId": "0f9c2b0e-7c4a-4f4b-9a1e-6d2f8f0a1b23",
+  "code": "INTERNAL_ERROR"
+}
+```
+
+`code` is derived only from signals the factory already trusts enough to pick a status code from — never from the raw error message, stack, or a pg constraint/table/column name:
+
+| Code | When |
+|------|------|
+| `DATABASE_ERROR` | A Postgres SQLSTATE is present but was not already classified as transient (`503`) or a foreign-key violation (`409`). |
+| `PERSISTENCE_ERROR` | A MikroORM `ValidationError`/`NotFoundError` that no more specific branch handled. |
+| `INTERNAL_ERROR` | Everything else (default). |
+
+The `503` transient-database response carries the same `requestId`/`x-request-id` correlation contract as the generic `500`, plus its own fixed `code: 'DATABASE_UNAVAILABLE'`:
+
+```json
+{
+  "error": "Service temporarily unavailable",
+  "code": "DATABASE_UNAVAILABLE",
   "requestId": "0f9c2b0e-7c4a-4f4b-9a1e-6d2f8f0a1b23"
 }
 ```
 
-The same id is echoed on an `x-request-id` response header, added to the `Unexpected CRUD error` server log line, and forwarded to the APM error funnel as `attributes.requestId`. Grep the logs for that value to reach the full `message`/`stack` detail behind the flattened response.
+The same id is echoed on an `x-request-id` response header, added to the `Unexpected CRUD error` server log line, and forwarded to the APM error funnel as `attributes.requestId` and `attributes.code` (plus `attributes.pgCode`, the raw SQLSTATE, when the error is a Postgres error). Grep the logs for that value to reach the full `message`/`stack` detail behind the flattened response.
 
 Callers may supply their own id with an inbound `x-request-id` request header, so a correlation id already assigned upstream (by a gateway or a client SDK) survives into the logs. Because the header is caller-controlled and lands in a log line, it is honored only when it matches `^[A-Za-z0-9._-]{1,128}$`; an empty, whitespace-only, over-long, or otherwise malformed value is discarded and a fresh UUID is generated instead.
 
-This applies to the generic-500 branch only. The `400` validation, `503` transient-database, `CrudHttpError`, and command-interceptor-rejection responses are unchanged and carry no `requestId`.
+This applies to the generic-500 and `503` transient-database branches only. The `400` validation, `CrudHttpError`, and command-interceptor-rejection responses are unchanged and carry no `requestId`/`code`.
 
 ## Bootstrap Lifecycle Events
 

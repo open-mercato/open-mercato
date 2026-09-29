@@ -15,6 +15,7 @@ const STRUCTURAL_CONVENTION_FILES = [
   'di.ts',
   'acl.ts',
   'setup.ts',
+  'runtime.ts',
   'encryption.ts',
   'ce.ts',
   'search.ts',

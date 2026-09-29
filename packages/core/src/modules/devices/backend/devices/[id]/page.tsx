@@ -103,6 +103,7 @@ export default function DeviceAdminEditPage({ params }: { params?: { id?: string
       <PageBody>
         <CrudForm<FormValues>
           title={t('devices.form.editTitle')}
+          titleHeadingLevel={1}
           backHref="/backend/devices"
           contentHeader={(
             <dl className="grid grid-cols-1 gap-3 rounded-md border bg-muted p-4 text-sm sm:grid-cols-3">

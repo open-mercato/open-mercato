@@ -192,10 +192,17 @@ in both the entries registry and every injection table that places it, so you ne
 need to list both — and neither is reported as a stale override.
 
 The dispatcher must also run in the browser. `ClientBootstrap` re-registers the
-injection, dashboard and notification registries after hydration, so an app that
-forks it MUST call `applyModuleOverridesFromEnabledModules(enabledModules, { domains: ['widgets', 'notifications'] })`
+injection, dashboard and notification registries after hydration, and
+`ComponentOverridesBootstrap` re-registers the component overrides, so an app that
+forks either one MUST call `applyModuleOverridesFromEnabledModules(enabledModules, { domains: ['widgets', 'notifications'] })`
 before those registrations — otherwise the raw generated registries overwrite the
-filtered ones and a disabled widget reappears once hydration finishes.
+filtered ones and a disabled widget or component override reappears once hydration
+finishes. `ComponentOverridesBootstrap` must additionally pass the generated
+component entries through `applyComponentOverridesToEntries` before flattening
+them, exactly as the server bootstrap does — dispatching alone only fills the
+override stores, it does not filter anything. The injection, dashboard and
+notification registries already apply their own domain filters inside their
+`register*` functions, so no extra filtering call is needed for those.
 
 :::warning Keep client-side overrides off server-only env gates
 
@@ -336,6 +343,8 @@ applyNavGroupOrderOverrides(null) // clear, falling back to modules.ts
 ```
 
 Programmatic calls must happen before the affected registry registers its base entries. The standard app bootstrap already calls `applyModuleOverridesFromEnabledModules(enabledModules)` for inline `modules.ts` overrides.
+
+Both bootstrap paths do this, so `modules.ts` overrides apply everywhere: the Next.js runtime dispatches them from `bootstrap-common.ts`, and CLI, worker and scheduler processes dispatch the same overrides from `bootstrapFromAppRoot()` before `registerModules`/`registerCliModules` first read the registry. A `src/modules.ts` that is present but fails to load aborts that bootstrap rather than continuing with a partial override set (#5582).
 
 ## Notes
 

@@ -68,7 +68,7 @@ test.describe('TC-EXAMPLE-002: always-consistent index failures stay loud and si
       await page.goto('/backend/todos/create', { waitUntil: 'commit' })
 
       const titleInput = page.locator('[data-crud-field-id="title"] input').first()
-      const priorityInput = page.locator('[data-crud-field-id="cf_priority"] input[type="number"]').first()
+      const priorityInput = page.locator('[data-crud-field-id="cf_priority"] input').first()
       const severitySelect = page.locator('[data-crud-field-id="cf_severity"]').getByRole('combobox').first()
       await expect(titleInput).toBeVisible()
       await titleInput.fill(title)

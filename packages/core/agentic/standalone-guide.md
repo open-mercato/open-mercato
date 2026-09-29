@@ -287,7 +287,7 @@ export const setup: ModuleSetupConfig = {
 }
 ```
 
-Built-in customer roles: `portal_admin` (full access), `buyer` (order/quote/catalog), `viewer` (read-only). Features merge additively on `seedDefaults`.
+Built-in customer roles: `portal_admin` (full access), `buyer` (order/quote/catalog), `viewer` (read-only). Features merge additively on `seedDefaults`, which reaches **new** tenants only — for tenants that already exist, run `yarn mercato customer_accounts sync-customer-role-acls [--tenant <id>]` (the customer-role counterpart of `auth sync-role-acls`; idempotent, additive, wildcard-aware, never creates roles).
 
 ### Portal Page Auth Metadata
 

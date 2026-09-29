@@ -424,7 +424,8 @@ export default function UsersListPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('auth.users.list.title', 'Users')}
+        title={t('auth.users.list.title', 'Users')}
+        titleHeadingLevel={1}
           actions={(
             <Button asChild>
               <Link href="/backend/users/create">{t('common.create', 'Create')}</Link>

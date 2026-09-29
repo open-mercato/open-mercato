@@ -1,4 +1,5 @@
 import { quarantineDiscordChannel } from '../channel-state-store'
+import { buildGatewayChannelFilter } from '../../workers/discord-gateway'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
@@ -21,7 +22,7 @@ const { findOneWithDecryption } = require('@open-mercato/shared/lib/encryption/f
  * `is_active=t, status=connected, last_error=NULL`; at the default `--refresh 60`
  * that is ~1440 session starts per day against Discord's ~1000/day per-bot budget.
  */
-type FakeChannel = { status: string; lastError: string | null }
+type FakeChannel = { status: string; lastError: string | null; isActive: boolean }
 
 function fakeEm(channel: FakeChannel | null): { em: unknown; flush: jest.Mock } {
   const flush = jest.fn().mockResolvedValue(undefined)
@@ -38,7 +39,7 @@ describe('quarantineDiscordChannel', () => {
   })
 
   it('parks the channel as requires_reauth with the close code as the reason', async () => {
-    const channel: FakeChannel = { status: 'connected', lastError: null }
+    const channel: FakeChannel = { status: 'connected', lastError: null, isActive: true }
     const { em, flush } = fakeEm(channel)
 
     const result = await quarantineDiscordChannel({
@@ -54,11 +55,55 @@ describe('quarantineDiscordChannel', () => {
     expect(flush).toHaveBeenCalledTimes(1)
   })
 
-  it('looks the channel up inside its own tenant scope, never by id alone', async () => {
-    fakeEm({ status: 'connected', lastError: null })
+  it('flips isActive to false so the admin list stops reporting the channel as Active', async () => {
+    // Regression: the reconciler already skipped `status === 'requires_reauth'`,
+    // but the admin channels list (`backend/communication_channels/channels/page.tsx`)
+    // renders its Active/Inactive badge from `isActive`, not `status` — so a
+    // quarantined channel kept showing Active until this flipped too.
+    const channel: FakeChannel = { status: 'connected', lastError: null, isActive: true }
+    const { em } = fakeEm(channel)
 
     await quarantineDiscordChannel({
-      em: (fakeEm({ status: 'connected', lastError: null }).em) as never,
+      em: em as never,
+      channelId: 'chan-1',
+      scope: SCOPE,
+      reason: 'gateway_close_4004',
+    })
+
+    expect(channel.isActive).toBe(false)
+  })
+
+  it('makes the quarantined row drop out of the reconciler’s next-tick query filter', async () => {
+    // `buildGatewayChannelFilter` is what the reconciler runs on every refresh
+    // tick to decide which channels to (re)connect. It filters on `isActive:
+    // true`, so once quarantine flips that flag, the same channel row that
+    // caused 16 fatal closes over 10 ticks (see #4979) no longer matches on
+    // the next tick — no persisted `status` lookup is even needed to skip it.
+    const channel: FakeChannel & { providerKey: string; deletedAt: null } = {
+      status: 'connected',
+      lastError: null,
+      isActive: true,
+      providerKey: 'discord',
+      deletedAt: null,
+    }
+    const { em } = fakeEm(channel)
+
+    await quarantineDiscordChannel({
+      em: em as never,
+      channelId: 'chan-1',
+      scope: SCOPE,
+      reason: 'gateway_close_4014',
+    })
+
+    const nextTickFilter = buildGatewayChannelFilter({})
+    expect(channel.isActive).not.toBe(nextTickFilter.isActive)
+  })
+
+  it('looks the channel up inside its own tenant scope, never by id alone', async () => {
+    fakeEm({ status: 'connected', lastError: null, isActive: true })
+
+    await quarantineDiscordChannel({
+      em: (fakeEm({ status: 'connected', lastError: null, isActive: true }).em) as never,
       channelId: 'chan-1',
       scope: SCOPE,
       reason: 'gateway_close_4004',

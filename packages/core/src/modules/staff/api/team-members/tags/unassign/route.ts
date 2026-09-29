@@ -14,7 +14,6 @@ import {
   type StaffTeamMemberTagAssignmentInput,
 } from '../../../../data/validators'
 import {
-  resolveUserFeatures,
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
 } from '../../../guards'
@@ -68,7 +67,6 @@ export async function POST(req: Request) {
         requestHeaders: req.headers,
         mutationPayload: input,
       },
-      resolveUserFeatures(auth),
     )
     if (!guardResult.ok) {
       return NextResponse.json(

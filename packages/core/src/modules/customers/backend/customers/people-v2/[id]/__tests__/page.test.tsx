@@ -25,8 +25,9 @@ jest.mock('@open-mercato/ui/backend/Page', () => ({
 
 jest.mock('@open-mercato/ui/backend/detail', () => ({
   AttachmentsSection: () => <div>attachments</div>,
-  ErrorMessage: ({ label }: { label: string }) => <div>{label}</div>,
+  ErrorMessage: ({ label }: { label: string }) => <div data-testid="error-message">{label}</div>,
   LoadingMessage: ({ label }: { label: string }) => <div>{label}</div>,
+  RecordNotFoundState: ({ label }: { label: string }) => <div data-testid="record-not-found">{label}</div>,
 }))
 
 jest.mock('@open-mercato/ui/primitives/button', () => ({
@@ -226,5 +227,20 @@ describe('PersonDetailV2Page', () => {
     renderWithProviders(<PersonDetailV2Page params={{ id: 'person-123' }} />)
 
     await waitFor(() => expect(screen.getByText('addresses-section')).toBeInTheDocument())
+  })
+
+  it('shows the localized not-found state — not the raw server error text — when the id is malformed (400, #6158)', async () => {
+    readApiResultOrThrowMock.mockReset()
+    readApiResultOrThrowMock.mockRejectedValue(
+      Object.assign(new Error('Invalid person id'), { status: 400 }),
+    )
+
+    renderWithProviders(<PersonDetailV2Page params={{ id: 'not-a-valid-uuid' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('record-not-found')).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/Invalid person id/i)).not.toBeInTheDocument()
+    expect(screen.queryByTestId('error-message')).not.toBeInTheDocument()
   })
 })
