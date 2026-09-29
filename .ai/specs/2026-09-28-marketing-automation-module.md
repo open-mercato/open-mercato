@@ -887,6 +887,17 @@ rather than worked around silently:
 
 ## Changelog
 
+- **2026-09-29** — the repo-wide gate, which this module had never been held to. Running `yarn test` for the
+  whole repository rather than for this package alone, plus a real CI pipeline, surfaced nine failures no
+  module-scoped run could see: four sort sites without comparators (one of them a live bug — sorted keys feed
+  a hash, so a locale-dependent comparator would break every duplicate-delivery guard under a different
+  server locale), eleven command-lock sites moved to the DI-aware seam so the branch stays out of
+  `packages/core`, two screens given inline `optimistic-lock-exempt` reasons, a missing ACL label, one of this
+  module's own suites killing its jest worker on an 82,320-document fixture, two integration specs that
+  depended on sibling state and on a cookie host, and the scaffold shipping a module fact-sheet with no
+  agent-harness case behind it — resolved by keeping the module disabled in the template the way
+  `channel_discord` is. 1039 unit tests, 256 integration tests, all three shards green.
+
 - **2026-09-29** — housekeeping, all of it inside the module. Three step icons were renamed to names the
   shared registry already has (`git-branch`, `star`, `share-2`), so `yarn generate` no longer rewrites a
   file in `packages/ui`, with a test holding every icon string to the registry. The two PUBLIC pages —

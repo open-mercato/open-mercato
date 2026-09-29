@@ -167,6 +167,18 @@ already at parity. Items A5–A7 change `sales` — ask before building them.
 - Never promote an A/B winner automatically on the screen's own rule. Suggesting needs "not tied"; rewriting
   somebody's campaign unattended needs twice the sample and a relative margin, because 3.0% against 2.9% is a coin
   toss. It stays off until a tenant switches it on.
+- Never let an integration spec lean on state another spec created. One test asserted the setup checklist's
+  "first campaign" box was ticked "by live state from the rest of the suite" — true while the specs ran in one
+  process against a filled database, a coin toss once they are sharded across lanes on a fresh one. Create the
+  fixture, assert against it, delete it.
+- Never fetch an authenticated file through `page.request` in a browser spec. It carries the browser context's
+  cookies, so the assertion silently depends on the app being reached by the same host spelling the session cookie
+  was set for — `localhost:3000` on a laptop, something else under the ephemeral harness, and a 401 that looks like
+  an authorisation bug. Assert the LINK in the DOM and fetch its contents with the API token.
+- Never materialise a generated fixture population into an array. A cross product of seven dimensions built 82,320
+  subject documents and killed the jest worker under the repo-wide heap cap — reporting no failing test, just
+  "Jest worker ran out of memory and crashed" and 111 tests quietly absent from the run. Yield them, and cross only
+  the dimensions the code under test actually reads together.
 - Never put anything but a subscriber in `subscribers/`. The generator registers every file in that folder, so a
   helper living there becomes a subscriber for the empty-string event.
 - Never make a reorder reminder once-ever or daily. The cycle NUMBER goes in the claim key: without it a durable
