@@ -850,6 +850,16 @@ rather than worked around silently:
 
 ## Changelog
 
+- **2026-09-29** — the six review findings left below the cut, all fixed with tests that fail against the
+  old code: GDPR erasure runs in one transaction (its report is the answer to a legal request, so it must
+  describe committed state); the row sweep clears the identity map between pages like the two population
+  scans beside it; the segment list gained `page` and the screen walks it instead of showing the first
+  hundred; deferred sends snap to the top of the RECIPIENT's hour rather than of UTC, which put every
+  half-hour-offset zone at 08:30; the inbound hook applies its 16 KB ceiling while reading rather than
+  after buffering; and the hook-order guard gained five positive controls plus per-function scoping,
+  bare-hook and `return null` recognition — it had been missing exactly the crash it was written for.
+  1009 unit tests, 195 integration tests.
+
 - **2026-09-29** — an author can say "send at nine, local time" (`sendPolicy.sendHour`). It outranks the
   learned hour — a decision beats a guess about the same question, so the learned one is not consulted at
   all and the editor says so — and is still subordinate to quiet hours. An hour inside the campaign's own

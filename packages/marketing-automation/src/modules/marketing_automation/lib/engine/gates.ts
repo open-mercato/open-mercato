@@ -67,6 +67,38 @@ export function localHourIn(timeZone: string, at: Date): number {
   }
 }
 
+/**
+ * The subject's local minute-within-the-hour, with the same UTC fallback as `localHourIn`.
+ *
+ * Needed because not every zone is a whole number of hours from UTC. India is +05:30, South Australia +09:30,
+ * Nepal +05:45 — so the top of the UTC hour is :30 or :45 on their clocks.
+ */
+function localMinuteIn(timeZone: string, at: Date): number {
+  try {
+    const formatted = new Intl.DateTimeFormat('en-GB', { timeZone, minute: '2-digit', hour12: false }).format(at)
+    const minute = Number.parseInt(formatted, 10)
+    return Number.isFinite(minute) ? minute % 60 : at.getUTCMinutes()
+  } catch {
+    return at.getUTCMinutes()
+  }
+}
+
+/**
+ * The top of the subject's LOCAL hour, not of ours.
+ *
+ * Both deferrals snap so a message lands at 08:00 rather than at 08:37 because that is when the campaign
+ * happened to fire. Snapping the UTC minutes to zero does that only for whole-hour offsets: in Asia/Kolkata a
+ * "deferred to 08:00" send arrived at 08:30, every time, and the two screens that print the local hour agreed
+ * with each other while both disagreed with the clock the recipient was reading.
+ *
+ * Seconds and milliseconds come from the UTC instant deliberately: every real zone offset is a whole number of
+ * minutes, so they are the same on both clocks.
+ */
+function snapToLocalHour(timeZone: string, at: Date): Date {
+  const minute = localMinuteIn(timeZone, at)
+  return new Date(at.getTime() - (minute * 60_000 + at.getUTCSeconds() * 1_000 + at.getUTCMilliseconds()))
+}
+
 function isQuietHour(hour: number, { startHour, endHour }: QuietHoursWindow): boolean {
   if (startHour === endHour) return false
   // A window like 21 → 08 wraps past midnight, so the test has to be a union, not a range.
@@ -106,11 +138,10 @@ export function nextAllowedSendTime(
     const candidate = new Date(at.getTime() + minutes * 60_000)
     if (isWithinQuietHours(window, timeZone, candidate)) continue
 
-    // Snap to the top of the hour so deferred sends land at 08:00 rather than at whatever
-    // minute the campaign happened to be triggered on. Only if the snapped instant is still
+    // Snap to the top of the SUBJECT's hour so deferred sends land at 08:00 on their clock rather than at
+    // whatever minute the campaign happened to be triggered on. Only if the snapped instant is still
     // allowed — flooring moves backwards, which could re-enter the window we just left.
-    const snapped = new Date(candidate)
-    snapped.setUTCMinutes(0, 0, 0)
+    const snapped = snapToLocalHour(timeZone, candidate)
     return snapped >= at && !isWithinQuietHours(window, timeZone, snapped) ? snapped : candidate
   }
 
@@ -136,8 +167,7 @@ export function nextOccurrenceOfHour(hour: number, timeZone: string, at: Date): 
   for (let hours = 1; hours <= 48; hours += 1) {
     const candidate = new Date(at.getTime() + hours * 3_600_000)
     if (localHourIn(timeZone, candidate) !== target) continue
-    const snapped = new Date(candidate)
-    snapped.setUTCMinutes(0, 0, 0)
+    const snapped = snapToLocalHour(timeZone, candidate)
     // Snapping backwards must not land before the caller's instant, nor drop out of the target hour.
     if (snapped.getTime() >= at.getTime() && localHourIn(timeZone, snapped) === target) return snapped
     return candidate

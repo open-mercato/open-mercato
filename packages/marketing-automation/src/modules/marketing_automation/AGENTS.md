@@ -93,6 +93,22 @@ its own. Spec:
 - Never accept a survey score that came from `Number(value)` alone. `Number(null)`, `Number('')` and
   `Number(false)` are all 0 — a valid NPS score, and the worst one, so a missing answer would be stored as
   the strongest possible complaint.
+- Never run erasure outside a transaction. It is nine statements across seven tables and it RETURNS A REPORT
+  somebody keeps as the answer to a legal request; a failure halfway leaves the person erased from the runs and
+  still named in the survey answers, with no report to say how far it got — and the next attempt reports smaller
+  numbers than it changed, because the first statements have nothing left to do.
+- Never snap a deferred send to the top of the UTC hour. India is +05:30 and South Australia +09:30, so a
+  "deferred until 08:00" send landed at 08:30 on the recipient's clock while every screen that printed the local
+  hour agreed with itself. Snap to the top of THEIR hour.
+- Never page a sweep without clearing the identity map between pages. The row loop walks up to
+  `MAX_ROWS_PER_TICK` rows — twenty-five pages — and without the clear it held every row, every customer its
+  subject documents touched and every run it created for the whole tick.
+- Never check a public endpoint's body size after buffering the body. `await req.text()` spends the memory first,
+  so the limit limits nothing; read it with the ceiling applied WHILE reading (`readBoundedBody`), treat
+  `content-length` as an early refusal rather than the answer, and cancel rather than drain.
+- Never ship a structural guard without a positive control. The hook-order guard passed for weeks while missing
+  `useT()` after an early return, `return null` guards, and any file holding two components — a regex that has
+  stopped matching reports a clean module for ever, so the fixtures it MUST flag live beside it.
 - Never make erasure delete rows. It nulls the subject link — including inside the run context's jsonb —
   so the person is unidentifiable while last quarter's reported totals stay true. And never erase a consent
   record: forgetting an unsubscribe is how somebody gets mailed again.

@@ -11,6 +11,7 @@ import { resolveTrackingSecret, resolveTrackingSecrets } from '../../lib/trackin
 import {
   INBOUND_TOKEN_PARAM,
   MAX_INBOUND_BODY_BYTES,
+  readBoundedBody,
   readInboundPayload,
   verifyInboundTokenWithAny,
 } from '../../lib/inbound.js'
@@ -45,11 +46,16 @@ export async function POST(req: Request) {
   const claims = verifyInboundTokenWithAny(token, resolveTrackingSecrets())
   if (!claims) return NextResponse.json({ error: 'Invalid hook' }, { status: 400 })
 
-  const raw = await req.text()
-  if (Buffer.byteLength(raw, 'utf8') > MAX_INBOUND_BODY_BYTES) {
-    // Refused rather than truncated: half a payload silently becomes a campaign acting on half the facts.
-    return NextResponse.json({ error: 'Payload too large' }, { status: 413 })
-  }
+  /**
+   * Bounded WHILE reading, not after.
+   *
+   * Refused rather than truncated: half a payload silently becomes a campaign acting on half the facts — and the
+   * reading itself stops at the ceiling, because this endpoint is reachable by anybody holding a hook URL and a
+   * check that runs once the body is already in memory has not limited anything.
+   */
+  const body = await readBoundedBody(req, MAX_INBOUND_BODY_BYTES)
+  if (!body.ok) return NextResponse.json({ error: 'Payload too large' }, { status: 413 })
+  const raw = body.text
 
   let parsedBody: unknown = {}
   if (raw.trim().length > 0) {

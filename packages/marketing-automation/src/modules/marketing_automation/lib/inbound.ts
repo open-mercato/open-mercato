@@ -107,6 +107,46 @@ export function inboundHookUrl(baseUrl: string, claims: InboundClaims, secret: s
  */
 export const MAX_INBOUND_BODY_BYTES = 16 * 1024
 
+/**
+ * Reads the body with the ceiling applied WHILE reading, not after.
+ *
+ * `await req.text()` buffers the whole thing first, so the size check happened once the body was already in
+ * memory — a caller could hand the process half a gigabyte and be refused by a limit that had already been
+ * exceeded. This is a PUBLIC endpoint reachable by anybody holding a hook URL, which makes "we check afterwards"
+ * the wrong shape of check.
+ *
+ * The declared `content-length` is used as an early refusal and never trusted as the answer: it is absent on a
+ * chunked request and can simply be wrong, so the running total is what actually enforces the cap. The stream is
+ * cancelled on refusal rather than drained, so nothing keeps arriving after the decision.
+ *
+ * Typed structurally rather than as `Request` so it can be tested without a fetch environment; `Request`
+ * satisfies it.
+ */
+export async function readBoundedBody(
+  req: { headers: { get(name: string): string | null }; body: ReadableStream<Uint8Array> | null },
+  limit: number = MAX_INBOUND_BODY_BYTES,
+): Promise<{ ok: true; text: string } | { ok: false }> {
+  const declared = Number.parseInt(req.headers.get('content-length') ?? '', 10)
+  if (Number.isFinite(declared) && declared > limit) return { ok: false }
+  if (!req.body) return { ok: true, text: '' }
+
+  const reader = req.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    total += value.byteLength
+    if (total > limit) {
+      await reader.cancel().catch(() => undefined)
+      return { ok: false }
+    }
+    chunks.push(value)
+  }
+  return { ok: true, text: Buffer.concat(chunks).toString('utf8') }
+}
+
 export type InboundPayload = {
   /** Identifies the customer: a platform id, or an address to look up. Both may be present. */
   customerId?: string

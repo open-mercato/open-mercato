@@ -232,6 +232,26 @@ export async function eraseSubjectData(
   scope: SubjectScope,
   now: Date,
 ): Promise<ErasureReport> {
+  /**
+   * All of it, or none of it.
+   *
+   * Erasure is nine statements across seven tables and it RETURNS A REPORT that somebody keeps — the answer to
+   * a legal request. Without a transaction a failure halfway leaves the person erased from the runs and still
+   * named in the survey answers and the referral graph, and the caller gets an error rather than the report, so
+   * nothing records how far it got. The next attempt then reports smaller numbers than it actually changed,
+   * because the first four statements have nothing left to do.
+   *
+   * One transaction makes the report true by construction: every number in it describes committed state.
+   */
+  return em.transactional((tx) => eraseWithin(tx, subjectEntityId, scope, now))
+}
+
+async function eraseWithin(
+  em: EntityManager,
+  subjectEntityId: string,
+  scope: SubjectScope,
+  now: Date,
+): Promise<ErasureReport> {
   const scoped = { tenantId: scope.tenantId, organizationId: scope.organizationId, subjectEntityId }
 
   const runs = await em.nativeUpdate(MarketingCampaignRun, scoped, { subjectEntityId: null })

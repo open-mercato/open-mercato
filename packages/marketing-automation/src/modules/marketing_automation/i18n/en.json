@@ -471,6 +471,7 @@
   "marketing_automation.segments.size": "Members",
   "marketing_automation.segments.title": "Segments",
   "marketing_automation.segments.tools": "Compare and act",
+  "marketing_automation.segments.truncated": "This installation has more segments than this screen lists. Narrow what you are looking for from the campaign audience builder instead.",
   "marketing_automation.sendPolicy.capMax": "At most",
   "marketing_automation.sendPolicy.capWindow": "Per (hours)",
   "marketing_automation.sendPolicy.frequencyCap": "Limit how many messages one customer receives",

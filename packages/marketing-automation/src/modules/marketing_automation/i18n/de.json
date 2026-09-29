@@ -471,6 +471,7 @@
   "marketing_automation.segments.size": "Mitglieder",
   "marketing_automation.segments.title": "Segmente",
   "marketing_automation.segments.tools": "Vergleichen und handeln",
+  "marketing_automation.segments.truncated": "Diese Installation hat mehr Segmente, als dieser Bildschirm auflistet. Grenzen Sie im Zielgruppen-Builder der Kampagne ein, was Sie suchen.",
   "marketing_automation.sendPolicy.capMax": "Höchstens",
   "marketing_automation.sendPolicy.capWindow": "Pro (Stunden)",
   "marketing_automation.sendPolicy.frequencyCap": "Begrenzen, wie viele Nachrichten ein Kunde erhält",

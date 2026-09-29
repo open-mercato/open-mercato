@@ -42,6 +42,14 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url)
   const pageSize = Math.min(Math.max(Number.parseInt(url.searchParams.get('pageSize') ?? '50', 10) || 50, 1), MAX_PAGE_SIZE)
+  /**
+   * A page NUMBER, one-based, like every other list in the platform.
+   *
+   * It answered `total` and honoured `pageSize` and had no way to ask for the second page, so a tenant past the
+   * first fifty segments could see the count of what they had and never reach it — including from the audience
+   * builder, which reads this endpoint to offer saved segments.
+   */
+  const page = Math.max(Number.parseInt(url.searchParams.get('page') ?? '1', 10) || 1, 1)
 
   const container = await createRequestContainer()
   const em = container.resolve<EntityManager>('em')
@@ -50,9 +58,10 @@ export async function GET(req: Request) {
   const [items, total] = await em.findAndCount(
     MarketingSegment,
     { ...scope, deletedAt: null },
-    { orderBy: { name: 'ASC' }, limit: pageSize },
+    // Ordered by name and totally, so offset paging cannot show a row twice or skip one between requests.
+    { orderBy: { name: 'ASC', id: 'ASC' }, limit: pageSize, offset: (page - 1) * pageSize },
   )
-  return NextResponse.json({ items: items.map(present), total })
+  return NextResponse.json({ items: items.map(present), total, page, pageSize })
 }
 
 export async function POST(req: Request) {

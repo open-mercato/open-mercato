@@ -471,6 +471,7 @@
   "marketing_automation.segments.size": "대상자",
   "marketing_automation.segments.title": "세그먼트",
   "marketing_automation.segments.tools": "비교와 실행",
+  "marketing_automation.segments.truncated": "이 설치에는 이 화면이 나열하는 것보다 많은 세그먼트가 있습니다. 캠페인 대상 빌더에서 찾는 조건을 좁히세요.",
   "marketing_automation.sendPolicy.capMax": "최대",
   "marketing_automation.sendPolicy.capWindow": "기간(시간)",
   "marketing_automation.sendPolicy.frequencyCap": "한 고객이 받는 메시지 수 제한",

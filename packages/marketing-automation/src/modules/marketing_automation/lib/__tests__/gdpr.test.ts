@@ -10,6 +10,7 @@ function fakeEm(rowsByEntity: Record<string, unknown[]> = {}) {
   const updates: Array<{ entity: string; where: Record<string, unknown>; data: Record<string, unknown> }> = []
   const deletes: Array<{ entity: string; where: Record<string, unknown> }> = []
   const executed: Array<{ sql: string; params: unknown[] }> = []
+  const transactions: boolean[] = []
   const nameOf = (entity: unknown) => (entity as { name?: string }).name ?? String(entity)
 
   const em = {
@@ -36,8 +37,19 @@ function fakeEm(rowsByEntity: Record<string, unknown[]> = {}) {
         return []
       },
     }),
+    /**
+     * Erasure runs inside one transaction, so the fake has to offer one.
+     *
+     * It hands back the same object, which is what makes the counting assertions below still reach the recorded
+     * statements — and `transactions` records that it was entered at all, because "did this run atomically" is
+     * itself something the tests assert.
+     */
+    transactional: async <T>(callback: (tx: EntityManager) => Promise<T>): Promise<T> => {
+      transactions.push(true)
+      return callback(em as unknown as EntityManager)
+    },
   }
-  return { em: em as unknown as EntityManager, finds, updates, deletes, executed }
+  return { em: em as unknown as EntityManager, finds, updates, deletes, executed, transactions }
 }
 
 describe('exportSubjectData', () => {
@@ -100,7 +112,21 @@ describe('exportSubjectData', () => {
 })
 
 describe('eraseSubjectData', () => {
+  /**
+   * Nine statements across seven tables, and a report somebody keeps as the answer to a legal request.
+   *
+   * A failure halfway through leaves the person erased from the runs and still named in the survey answers and
+   * the referral graph, with no report to say how far it got — and the next attempt reports smaller numbers than
+   * it changed, because the first statements have nothing left to do. The transaction is what makes every number
+   * in the report describe committed state.
+   */
+  test('runs as one transaction, so the report cannot describe a half-erasure', async () => {
+    const { em, transactions } = fakeEm()
+    await eraseSubjectData(em, 'c1', scope, now)
+    expect(transactions).toHaveLength(1)
+  })
   test('unlinks the person from every row rather than deleting the rows', async () => {
+
     const { em, updates } = fakeEm({
       MarketingCampaignRun: [{}, {}],
       MarketingMessageSend: [{}],

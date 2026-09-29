@@ -254,6 +254,15 @@ for (let offset = 0; offset < MAX_ROWS_PER_TICK; offset += PAGE_SIZE) {
     if (await startRowCandidate(campaign, source, candidate, policy, deps, scope, projection)) started += 1
   }
   if (page.length < PAGE_SIZE) break
+  /**
+   * Release the page before fetching the next one, exactly as both population scans do.
+   *
+   * Without it this loop was the one path that could hold twenty-five pages of entities at once: a tick walking
+   * up to `MAX_ROWS_PER_TICK` rows accumulated every row, every customer its subject document touched, and every
+   * run it created in one identity map for the whole tick. Each candidate's writes go through their own flush
+   * inside `startRowCandidate`, so there is nothing pending to lose.
+   */
+  deps.em.clear()
   if (offset + PAGE_SIZE >= MAX_ROWS_PER_TICK) {
     logger.warn('marketing sweep reached its per-tick row ceiling', {
       campaignId: campaign.id,

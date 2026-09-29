@@ -471,6 +471,7 @@
   "marketing_automation.segments.size": "Osoby",
   "marketing_automation.segments.title": "Segmenty",
   "marketing_automation.segments.tools": "Porównaj i działaj",
+  "marketing_automation.segments.truncated": "Ta instalacja ma więcej segmentów, niż ten ekran wypisuje. Zawęź to, czego szukasz, w kreatorze audiencji kampanii.",
   "marketing_automation.sendPolicy.capMax": "Najwyżej",
   "marketing_automation.sendPolicy.capWindow": "Na (godzin)",
   "marketing_automation.sendPolicy.frequencyCap": "Ogranicz liczbę wiadomości do jednego klienta",

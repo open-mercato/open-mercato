@@ -26,6 +26,10 @@ import type { GroupCondition } from '@open-mercato/core/modules/business_rules/l
 
 const SEGMENTS_PATH = '/api/marketing_automation/segments'
 
+const PAGE_SIZE = 100
+/** Only a bound on a pathological installation; a tenant with a thousand segments is told rather than cut off silently. */
+const MAX_PAGES = 10
+
 type SegmentRow = {
   id: string
   slug: string
@@ -78,13 +82,33 @@ export default function SegmentsPage() {
   const [overlapWith, setOverlapWith] = React.useState('')
   const [overlap, setOverlap] = React.useState<Overlap | null>(null)
   const [acting, setActing] = React.useState(false)
+  const [truncated, setTruncated] = React.useState(false)
 
   const load = React.useCallback(async () => {
     setLoading(true)
     setLoadFailed(false)
     try {
-      const result = await apiCall<{ items?: SegmentRow[] }>(`${SEGMENTS_PATH}?pageSize=100`)
-      setRows(result.ok && Array.isArray(result.result?.items) ? result.result.items : [])
+      /**
+       * Every page, not the first hundred.
+       *
+       * This screen asked for one page and showed whatever came back, so a tenant past a hundred segments could
+       * not reach the rest — and the endpoint had no `page` parameter to reach them with. Walked here rather than
+       * given a pager because a segment list is a curated set an operator scans, not a feed; the ceiling below
+       * only exists so a pathological installation cannot make this loop the page's problem.
+       */
+      const collected: SegmentRow[] = []
+      let total = 0
+      for (let page = 1; page <= MAX_PAGES; page += 1) {
+        const result = await apiCall<{ items?: SegmentRow[]; total?: number }>(
+          `${SEGMENTS_PATH}?pageSize=${PAGE_SIZE}&page=${page}`,
+        )
+        if (!result.ok || !Array.isArray(result.result?.items)) break
+        collected.push(...result.result.items)
+        total = typeof result.result.total === 'number' ? result.result.total : collected.length
+        if (result.result.items.length < PAGE_SIZE || collected.length >= total) break
+      }
+      setRows(collected)
+      setTruncated(total > collected.length)
     } catch {
       setLoadFailed(true)
     } finally {
@@ -343,6 +367,16 @@ export default function SegmentsPage() {
                 />
               )}
             />
+
+            {/* Never a truncated list presented as the whole list — the module's rule, applied to a screen too. */}
+            {truncated ? (
+              <div className="text-xs text-muted-foreground">
+                {t(
+                  'marketing_automation.segments.truncated',
+                  'This installation has more segments than this screen lists. Narrow what you are looking for from the campaign audience builder instead.',
+                )}
+              </div>
+            ) : null}
 
             {counting ? <Spinner /> : null}
 

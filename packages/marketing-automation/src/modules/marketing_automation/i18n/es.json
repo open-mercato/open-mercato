@@ -471,6 +471,7 @@
   "marketing_automation.segments.size": "Miembros",
   "marketing_automation.segments.title": "Segmentos",
   "marketing_automation.segments.tools": "Comparar y actuar",
+  "marketing_automation.segments.truncated": "Esta instalación tiene más segmentos de los que lista esta pantalla. Acota lo que buscas desde el constructor de audiencia de la campaña.",
   "marketing_automation.sendPolicy.capMax": "Como máximo",
   "marketing_automation.sendPolicy.capWindow": "Cada (horas)",
   "marketing_automation.sendPolicy.frequencyCap": "Limitar cuántos mensajes recibe un cliente",

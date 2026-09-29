@@ -91,6 +91,32 @@ describe('isWithinQuietHours', () => {
 })
 
 describe('nextAllowedSendTime', () => {
+  /**
+   * Not every zone is a whole number of hours from UTC.
+   *
+   * India is +05:30, so the top of the UTC hour is :30 on the recipient's clock — and a "deferred until quiet
+   * hours end at 08:00" send arrived at 08:30, every time, in every such zone. The two screens that print the
+   * local hour agreed with each other while both disagreed with the clock the recipient was reading, which is
+   * why it survived a review: nothing inconsistent was visible anywhere.
+   */
+  test('snaps to the top of the RECIPIENT\'s hour in a half-hour-offset zone', () => {
+    const zone = 'Asia/Kolkata'
+    const overnight = { startHour: 21, endHour: 8 }
+    // 23:10 IST, inside the window.
+    const deferred = nextAllowedSendTime(overnight, zone, new Date('2026-06-15T17:40:00.000Z'))
+    const local = new Intl.DateTimeFormat('en-GB', { timeZone: zone, hour: '2-digit', minute: '2-digit', hour12: false })
+      .format(deferred)
+    expect(local).toBe('08:00')
+  })
+
+  test('snaps an authored hour to the top of the recipient\'s hour too', () => {
+    const zone = 'Australia/Adelaide'
+    // 13:07 in Adelaide (+09:30) on a winter date, asking for the next 19:00 local.
+    const at = new Date('2026-06-15T03:37:00.000Z')
+    const local = new Intl.DateTimeFormat('en-GB', { timeZone: zone, hour: '2-digit', minute: '2-digit', hour12: false })
+      .format(nextOccurrenceOfHour(19, zone, at))
+    expect(local).toBe('19:00')
+  })
   const overnight = { startHour: 21, endHour: 8 }
 
   test('returns the same instant when sending is already allowed', () => {
