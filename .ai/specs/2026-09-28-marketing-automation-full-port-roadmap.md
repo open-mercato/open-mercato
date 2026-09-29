@@ -188,7 +188,7 @@ built to be extended, so breadth is additive by construction.
 | B-24 | AI content generation step: LLM writes subject and body into the run context | Removes the blank-page problem that stops campaigns being written at all — ✅ 2026-09-29, **as an authoring-time draft rather than a step**: a Draft button in the message inspector returns a subject and body for the author to edit, grounded in the campaign, its triggers, the tenant brand voice and the placeholders and blocks that actually exist. Per-recipient generation was rejected — copy nobody read would reach customers (the module's rule is AI authors, humans publish), cost would scale with the audience, and a slow model at send time would block or skip messages. Personalisation per customer is already interpolation's and the recommendation block's job | M | step registry + ai-assistant | — |
 | B-25 | Operational observability: job-run log, admin audit trail of campaign changes, email template versioning with restore | What you need the morning after a campaign went wrong — ✅ 2026-09-29 — one revisions table serves BOTH the audit trail and the restorable versions (they are the same data); a restore replays the ordinary save command, so it is validated, version-checked and becomes a new version rather than rewriting history. The job log records the start before the work, so a job killed mid-flight is visible as `running` rather than as nothing | M | workers + admin screens | — |
 | B-26 | Lead routing: round-robin assignment to sales reps, weekly rep digest | B2B: a lead with no owner is a lead nobody calls — ✅ 2026-09-29 — **least-loaded wins, not round robin**: a stored cursor needs a table, has to be reset when the pool changes, and keeps feeding a rep who has been away. Counting current work is stateless, self-correcting and answers the question an operator actually has. The digest is an IN-APP notification rather than email, because emailing a rep means reading the auth module's users or copying their address into marketing config, while the notifications module delivers to a user id and respects their own channel preferences. **No new table:** the owner is the customers module's field, written through `customers.people.update` | M | new tables + admin CRUD | B-01 |
-| B-27 | Setup wizard: guided first run | The difference between an installed module and a used one | S | onboarding module | — |
+| B-27 | Setup wizard: guided first run | The difference between an installed module and a used one — ✅ 2026-09-29 — a readiness checklist answered from LIVE state rather than a "setup completed" flag, so it is also the answer to "why did nothing send" long after the first run. Blocking checks (email channel, a campaign, publishing it) are separated from recommended ones (tracking, segments, blocks) because a campaign without tracking still delivers | S | onboarding module | — |
 | B-28 | Push subscription management: admin grid, register/unregister endpoints, service worker | Operability for the push channel | M | public routes + new table | 6.2 |
 
 ### Beyond parity — what Open Mercato makes cheap that the source module never had
@@ -201,7 +201,7 @@ new home.
 |---|---|---|---|---|
 | X-01 | Geographic targeting: country, region, city, postcode, and radius predicates | The most-asked targeting dimension in the original's own feature requests, and absent from it — ✅ 2026-09-28 — per-customer only: addresses are encrypted at rest, so this can never be narrowed in SQL | M | customer addresses + audience fields |
 | X-02 | Birthday and anniversary campaigns | One date field and a sweep source; the highest open-rate message a shop sends. **Checked 2026-09-28: the platform stores no birth date** — not on `customer_entities`, not on the person profile — so this needs a custom field defined per installation and a sweep source that reads it through the query engine's `cf:` filters. Still S–M, but it depends on a field the merchant must define, which is worth saying out loud rather than discovering mid-demo | M | sweep source + custom fields |
-| X-03 | Per-campaign store, channel and language targeting | The original cannot do it at all; multi-channel is native here | M | channel/organization scoping |
+| X-03 | Per-campaign store, channel and language targeting | The original cannot do it at all; multi-channel is native here — ✅ 2026-09-29 — channel targeting is `orders.channels CONTAINS '<code>'`, pushed down to SQL, and means "has bought through this channel": the platform has no "belongs to this store" field on a customer, and inventing one would be a second source of truth for something orders already record. Language is `customer.locale`, sourced from the customer's OWN choice in the preference centre — the platform has no language field on a customer, and guessing from an address is how somebody receives marketing they cannot read. Per-language copy is then one campaign or one split lane per language, which the existing primitives already compose |
 | X-04 | Campaign authoring by an AI agent: describe a campaign in chat, get a draft graph to review | The platform ships an agent runtime with mutation approval; a campaign is a JSON definition, which is exactly what an agent can safely propose | M | `ai-assistant`, `prepareMutation`, agent tools |
 | X-05 | MCP tools for campaigns: list, inspect, estimate audience, enable, from any MCP client | Makes the module scriptable by external assistants with no new API design — ✅ 2026-09-28 — six tools; none can enable a campaign, asserted by a test | S | `registerMcpTool` |
 | X-06 | Charts on the campaign dashboard: sends, opens, clicks, revenue over time | The original has tiles and tables only; the platform ships a chart family — ✅ 2026-09-28 — daily series generated in SQL so empty days are zeroes, not gaps | S | `ui` chart components |
@@ -257,8 +257,8 @@ Value per unit of effort, given what already exists:
 4. **X-14, B-19** — journey preview and real test send. Author confidence, and the two best things to show on a demo.
 5. **B-13, X-01** — product-level and geographic targeting. The two dimensions authors reach for next.
 6. **X-04, X-05, X-06** — agent authoring, MCP tools, charts. Each one is small here and each one is impossible in the original.
-7. **B-27, X-03** — setup wizard and per-channel targeting. Both unblocked, both additive.
-   (X-08 the portal preference centre landed 2026-09-29.) (B-06 price drops and B-26 lead routing landed 2026-09-29; B-06's
+7. **Nothing unblocked remains.** X-08, X-03 and B-27 landed on 2026-09-29; everything still open is in the
+   blocked table below, waiting on a platform capability rather than on effort. (B-06 price drops and B-26 lead routing landed 2026-09-29; B-06's
    back-in-stock half is blocked on the availability contract.) (X-07 progress arrived with B-11: bulk segment actions are
    `ProgressJob`s on the shared top bar.)
    (B-07 NPS, B-15 GDPR, B-17 content blocks, B-08 recommendations, B-18 inbound hooks, B-24 AI copy
@@ -267,6 +267,22 @@ Value per unit of effort, given what already exists:
 
 Target for the current push: every unblocked item. The blocked ones are documented so nobody mistakes
 a missing dependency for a missing plan.
+
+**Core proposals recorded rather than made** (this module never edits the platform):
+
+1. `communicationChannels.hasChannel(type, scope)` — a read answering "is a tenant-wide email channel
+   configured". The readiness screen answers it with raw SQL today: the one place this module reaches across a
+   module boundary, taken knowingly because a wizard that claims readiness without checking is the failure the
+   screen exists to prevent.
+2. The availability contract (`.ai/specs/2026-08-14-availability-contract.md`) — back-in-stock alerts need it.
+   Stock lives in the optional `wms` module; the watch table, the scan pass and the screens are already here.
+3. A staff-directory read for a rep's contact address, if the weekly lead digest should ever be an email rather
+   than an in-app notification. Today it is a notification precisely to avoid needing one.
+4. A platform-wide customer language field, if the platform ever wants one. This module keeps its own, set by
+   the customer in the preference centre, because a guess from an address is worse than no answer.
+5. A STATIC segment — membership from an imported list rather than a rule — is a second membership model (a
+   member table, an import job, a different answer to "who is in it now") and belongs beside the rule-based one
+   rather than inside it.
 
 ## Phase 2 — structural decisions and shared foundations
 

@@ -1,4 +1,4 @@
-import { MAX_PER_WEEK } from '../preferences'
+import { MAX_PER_WEEK, normalizeLocale } from '../preferences'
 import { MAX_PAUSE_DAYS } from '../engine/gates'
 
 /**
@@ -15,5 +15,30 @@ describe('preference limits', () => {
 
   it('caps a pause below the point where it is an unsubscribe with extra steps', () => {
     expect(MAX_PAUSE_DAYS).toBe(365)
+  })
+})
+
+describe('normalizeLocale', () => {
+  it('accepts the tags people actually have', () => {
+    expect(normalizeLocale('en')).toBe('en')
+    expect(normalizeLocale('EN')).toBe('en')
+    expect(normalizeLocale('en-gb')).toBe('en-GB')
+    expect(normalizeLocale('pl_PL')).toBe('pl-PL')
+    expect(normalizeLocale('  de  ')).toBe('de')
+  })
+
+  it('refuses anything that is not a language tag', () => {
+    /**
+     * A stored `english` would sit in the database matching nothing for the rest of its life, and an audience
+     * comparing `customer.locale = 'en'` would quietly exclude that person forever.
+     */
+    for (const value of ['english', 'e', 'en-GBR', '', '   ', '123', 'en-G']) {
+      expect(normalizeLocale(value)).toBeNull()
+    }
+  })
+
+  it('forgives a trailing separator, which cannot produce a wrong language', () => {
+    // `en-` is unambiguously `en`; refusing it would fail a form for a stray keystroke.
+    expect(normalizeLocale('en-')).toBe('en')
   })
 })

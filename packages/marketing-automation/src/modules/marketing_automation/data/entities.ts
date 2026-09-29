@@ -1163,6 +1163,17 @@ export class MarketingContactPreference {
   pausedUntil?: Date | null
 
   /**
+   * The language they want to be written to in.
+   *
+   * Kept HERE rather than on the customer record, because the platform has no language field on a customer and
+   * adding one would be a change to the customers module for a marketing need. A locale the person chose
+   * themselves is also the only one worth trusting — a guess from an address is how people get emailed in the
+   * language of the country they happen to live in.
+   */
+  @Property({ type: 'text', nullable: true })
+  locale?: string | null
+
+  /**
    * Where the preference came from — `portal` when the customer set it themselves.
    *
    * Worth recording for the same reason consent records its source: "provably first-party" is a claim somebody

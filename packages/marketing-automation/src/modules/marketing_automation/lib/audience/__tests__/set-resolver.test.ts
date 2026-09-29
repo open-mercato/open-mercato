@@ -14,6 +14,7 @@ function fakeSource(data: {
   orders?: Record<string, string[]>
   scores?: Record<string, string[]>
   skus?: Record<string, string[]>
+  channels?: Record<string, string[]>
   nps?: Record<string, string[]>
 }): CandidateSource & { calls: string[] } {
   const calls: string[] = []
@@ -37,6 +38,10 @@ function fakeSource(data: {
     async purchasedSkuMembers(sku: string) {
       calls.push(`sku:${sku}`)
       return data.skus?.[sku] ?? []
+    },
+    async purchasedInChannelMembers(code: string) {
+      calls.push(`channel:${code}`)
+      return data.channels?.[code] ?? []
     },
     async npsMembers(op: ComparisonOp, value: number) {
       const key = `${op}${value}`
@@ -242,6 +247,15 @@ describe('createSqlCandidateSource', () => {
     expect(params).toEqual(['t1', 'o1', 6])
   })
 
+  test('a purchased channel joins orders to channels, scoped, with the code bound', async () => {
+    const { em, executed } = fakeEm([{ customer_entity_id: 'c9' }])
+    expect(await createSqlCandidateSource(em, scope, now).purchasedInChannelMembers('web')).toEqual(['c9'])
+    const { sql, params } = executed[0]
+    expect(sql).toContain('sales_channels')
+    // The CODE, not an id: an audience is authored against something a person can read and recognise.
+    expect(params).toEqual(['t1', 'o1', 'web'])
+  })
+
   test('a purchased SKU reads the catalogue snapshot, scoped, with the sku bound', async () => {
     const { em, executed } = fakeEm([{ customer_entity_id: 'c1' }])
     expect(await createSqlCandidateSource(em, scope, now).purchasedSkuMembers('ATLAS-RUNNER')).toEqual(['c1'])
@@ -289,5 +303,28 @@ describe('createSqlCandidateSource', () => {
     for (const entry of executed) {
       expect(entry.sql).toMatch(/having count\(\*\) (=|>|>=|<|<=) \?$/m)
     }
+  })
+})
+
+describe('channel membership', () => {
+  test('a channel audience narrows to the customers who bought through it', async () => {
+    const source = fakeSource({ channels: { retail: ['c1', 'c2'] } })
+    const plan = planNarrowing({
+      operator: 'AND',
+      rules: [{ field: 'orders.channels', operator: 'CONTAINS', value: 'retail' }],
+    } as never)
+    const resolution = await resolveCandidates(plan.narrowing, source)
+    expect(resolution.ids).toEqual(['c1', 'c2'])
+    expect(source.calls).toEqual(['channel:retail'])
+  })
+
+  test('a negative channel condition is not pushed down', async () => {
+    // "Has never bought in this channel" cannot be produced as a superset without listing everybody first.
+    const plan = planNarrowing({
+      operator: 'AND',
+      rules: [{ field: 'orders.channels', operator: 'NOT_CONTAINS', value: 'retail' }],
+    } as never)
+    expect(plan.narrowing.kind).toBe('all')
+    expect(plan.complete).toBe(false)
   })
 })

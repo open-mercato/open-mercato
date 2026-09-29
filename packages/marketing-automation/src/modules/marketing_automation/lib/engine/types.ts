@@ -55,6 +55,14 @@ export type SubjectDocument = {
     email: string | null
     displayName: string | null
     createdAt: string | null
+    /**
+     * The language the customer chose for themselves, or null.
+     *
+     * An audience targets it as `customer.locale`, which is how per-language campaigns are authored: one
+     * campaign (or one split lane) per language, each with copy already written in it. Null is not a
+     * language — a guess from an address is how somebody gets marketing they cannot read.
+     */
+    locale: string | null
   } | null
   /** Tag slugs, so an audience can say `tags CONTAINS 'vip'`. */
   tags: string[]
@@ -80,6 +88,13 @@ export type SubjectDocument = {
      * the snapshot is the only record of that.
      */
     skus: string[]
+    /**
+     * Sales channel CODES this customer has bought through.
+     *
+     * The platform has no "belongs to this store" field on a customer, so channel targeting means "has bought
+     * in this channel" — derivable from orders rather than a second place for the same fact to be wrong.
+     */
+    channels: string[]
   }
   /**
    * Lead score, summed from the score ledger.

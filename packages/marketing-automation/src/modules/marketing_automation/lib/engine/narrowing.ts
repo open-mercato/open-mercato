@@ -30,6 +30,7 @@ export type NarrowingPredicate =
   | { kind: 'orderMetric'; metric: OrderMetric; op: ComparisonOp; value: number }
   | { kind: 'scorePoints'; op: ComparisonOp; value: number }
   | { kind: 'purchasedSku'; sku: string }
+  | { kind: 'purchasedInChannel'; code: string }
   | { kind: 'npsScore'; op: ComparisonOp; value: number }
 
 export type Narrowing =
@@ -131,6 +132,20 @@ function translateLeaf(leaf: SimpleCondition): LeafTranslation {
     const value = numericValue(leaf.value)
     if (!op || value === null) return null
     return { predicate: { kind: 'npsScore', op, value }, exact: true }
+  }
+
+  /**
+   * Channel membership is a join on orders, exactly like a SKU, so it pushes down the same way.
+   *
+   * Only the positive form: `NOT CONTAINS` describes an absence, and a membership query cannot produce that as
+   * a superset without listing every customer first.
+   */
+  if (field === 'orders.channels') {
+    if (operator === 'CONTAINS') {
+      const code = typeof leaf.value === 'string' ? leaf.value.trim() : ''
+      return code ? { predicate: { kind: 'purchasedInChannel', code }, exact: true } : null
+    }
+    return null
   }
 
   if (field === 'orders.skus') {
@@ -288,6 +303,7 @@ export function describeNarrowing(plan: NarrowingPlan): string {
       if (predicate.kind === 'hasAnyTag') return 'tag:*'
       if (predicate.kind === 'scorePoints') return `score.points${predicate.op}${predicate.value}`
       if (predicate.kind === 'purchasedSku') return `sku:${predicate.sku}`
+      if (predicate.kind === 'purchasedInChannel') return `channel:${predicate.code}`
       if (predicate.kind === 'npsScore') return `survey.nps${predicate.op}${predicate.value}`
       return `orders.${predicate.metric}${predicate.op}${predicate.value}`
     })

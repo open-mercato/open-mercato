@@ -29,7 +29,7 @@ type Profile = {
   orders: { count: number; totalGross: number; lastPlacedAt: string | null; daysSinceLast: number | null }
   tags: string[]
   consent: { email: 'subscribed' | 'unsubscribed' | null }
-  preference?: { maxPerWeek: number | null; pausedUntil: string | null; source: string | null }
+  preference?: { maxPerWeek: number | null; pausedUntil: string | null; locale: string | null; source: string | null }
   nps: { score: number; band: 'detractor' | 'passive' | 'promoter'; answeredAt: string } | null
   messages: { sent: number; suppressed: number; opened: number; clicked: number }
   recommendations: Array<{ sku: string; name: string; source: 'affinity' | 'bestSeller' }>
@@ -361,7 +361,7 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           )}
         </div>
 
-        {profile.preference && (profile.preference.maxPerWeek !== null || profile.preference.pausedUntil) ? (
+        {profile.preference && (profile.preference.maxPerWeek !== null || profile.preference.pausedUntil || profile.preference.locale) ? (
           <div className="mb-6">
             <SectionHeader title={t('marketing_automation.profile.preference', 'What they asked for')} />
             {/* Separate from consent on purpose: "subscribed, but at most one a week and paused until March"
@@ -377,6 +377,12 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
                 <div>
                   {t('marketing_automation.profile.preferencePaused', 'Paused until {date}')
                     .replace('{date}', formatDateTime(profile.preference.pausedUntil) ?? profile.preference.pausedUntil)}
+                </div>
+              ) : null}
+              {profile.preference.locale ? (
+                <div>
+                  {t('marketing_automation.profile.preferenceLocale', 'Writes to them in {locale}')
+                    .replace('{locale}', profile.preference.locale)}
                 </div>
               ) : null}
             </div>

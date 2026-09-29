@@ -775,6 +775,25 @@ eight-way concurrent worker and is now backed by a partial unique index on the a
 
 ## Changelog
 
+- **2026-09-29** — X-03 and B-27, closing the unblocked backlog. **Channel targeting** is
+  `orders.channels CONTAINS '<code>'`, pushed down to SQL as a join on `sales_channels`, and means "has bought
+  through this channel": the platform has no "belongs to this store" field on a customer, so deriving it from
+  orders is both the only honest answer and the one an operator means. The negative form is deliberately not
+  pushed down — "never bought in this channel" cannot be produced as a superset without listing everybody.
+  **Language targeting** is `customer.locale`, sourced from the customer's own choice in the preference centre
+  rather than from their address: guessing from a country is how people receive marketing they cannot read, so
+  the absence of a choice is null rather than a default. Per-language copy is then one campaign or one split
+  lane per language, which the existing primitives already compose — no per-locale body map was added, because
+  that would be a second authoring model for the same thing. **The setup wizard** is a readiness checklist
+  computed from LIVE state rather than from a "setup completed" flag: a flag says what somebody clicked, and the
+  question is what is true now — which makes the same screen the answer to "why did nothing send" months later.
+  Blocking checks (an email channel, a campaign, publishing it) are separated from recommended ones (tracking,
+  segments, blocks), because a campaign without tracking still delivers; it just cannot report. One knowingly
+  ugly compromise is documented in the route: "is a tenant-wide email channel configured" is read with raw SQL
+  against `communication_channels`, because no service answers it and a wizard that claims readiness without
+  checking is the failure the screen exists to prevent — recorded in the roadmap as a core proposal.
+  705 unit tests, 146 integration tests.
+
 - **2026-09-29** — X-08: the customer-portal preference centre. A signed-in customer can subscribe or
   unsubscribe, cap themselves at N messages a week, or pause for 30/90/180 days — the middle ground consent
   does not have, and the reason a preference centre reduces unsubscribes rather than collecting them: somebody

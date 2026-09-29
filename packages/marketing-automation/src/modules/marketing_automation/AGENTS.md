@@ -137,6 +137,12 @@ its own. Spec:
   which lane a subject takes is decided by the engine, not by an edge somebody drew — an author who
   can draw an edge has been promised a topology it cannot run. Edges are derived; order lives in the
   definition arrays.
+- Never invent a customer field the platform does not have. Channel targeting is "has bought in this channel"
+  (`orders.channels`, derived from orders) and language is the customer's OWN choice in the preference centre —
+  a "belongs to this store" column or a language guessed from an address would each be a second source of truth
+  for something that already has one, or none.
+- Never answer a readiness check from a "setup completed" flag. A flag says what somebody clicked; the question
+  is what is true now, and an installation whose email channel was deleted last week is not set up.
 - Never take the subject of a portal route from the request. It comes from the portal session, or the preference
   centre lets anybody unsubscribe anybody.
 - Never merge the recipient's own frequency preference into the campaign's cap. Each is evaluated in its own
@@ -299,6 +305,7 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | lead routing and the weekly rep digest | `lib/engine/lead-routing.ts`, `lib/lead-digest.ts` |
 | what the recipient asked for, and the gate | `lib/preferences.ts`, `lib/engine/gates.ts` → preference |
 | the only PORTAL route in the module | `api/portal/preferences/` |
+| the first-run readiness checks | `lib/engine/readiness.ts`, `api/readiness/` |
 | a step that writes into the run context | `steps/issue-referral-code.ts` |
 | enrolment shared by events and sweeps | `lib/dispatcher.ts` → `startCampaignForSubject` |
 | trigger context hydration | `lib/trigger-catalog.ts` |

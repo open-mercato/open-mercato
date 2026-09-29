@@ -15,7 +15,7 @@ const PREFERENCES_PATH = '/api/marketing_automation/portal/preferences'
 
 type Answer = {
   consent?: 'subscribed' | 'unsubscribed' | null
-  preference?: { maxPerWeek: number | null; pausedUntil: string | null }
+  preference?: { maxPerWeek: number | null; pausedUntil: string | null; locale: string | null }
   limits?: { maxPerWeek: number; maxPauseDays: number }
 }
 
@@ -50,7 +50,12 @@ export default function MarketingPreferencesPage() {
 
   React.useEffect(() => { void load() }, [load])
 
-  const save = async (patch: { subscribed?: boolean; maxPerWeek?: number | null; pauseDays?: number | null }) => {
+  const save = async (patch: {
+    subscribed?: boolean
+    maxPerWeek?: number | null
+    pauseDays?: number | null
+    locale?: string | null
+  }) => {
     setSaving(true)
     setSaved(false)
     try {
@@ -118,6 +123,28 @@ export default function MarketingPreferencesPage() {
                 {t('marketing_automation.portal.frequencyN', 'At most {count} a week').replace('{count}', String(value))}
               </SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="preferred-locale">{t('marketing_automation.portal.language', 'Language')}</Label>
+        {/* The language the PERSON chose. A guess from their address is how somebody receives marketing in a
+            language they do not read, so the default is "not said" rather than a country's. */}
+        <Select
+          value={answer?.preference?.locale ?? 'unset'}
+          onValueChange={(value) => void save({ locale: value === 'unset' ? null : value })}
+        >
+          <SelectTrigger id="preferred-locale" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="unset">{t('marketing_automation.portal.languageUnset', 'No preference')}</SelectItem>
+            <SelectItem value="en">English</SelectItem>
+            <SelectItem value="pl">Polski</SelectItem>
+            <SelectItem value="es">Español</SelectItem>
+            <SelectItem value="de">Deutsch</SelectItem>
+            <SelectItem value="ko">한국어</SelectItem>
           </SelectContent>
         </Select>
       </div>

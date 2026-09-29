@@ -6,7 +6,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { reportError } from '@open-mercato/telemetry'
 import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { loadConsentState, recordConsent } from '../../../lib/consent.js'
-import { loadPreferenceSummary, saveContactPreference, MAX_PER_WEEK } from '../../../lib/preferences.js'
+import { loadPreferenceSummary, normalizeLocale, saveContactPreference, MAX_PER_WEEK } from '../../../lib/preferences.js'
 import { MAX_PAUSE_DAYS } from '../../../lib/engine/gates.js'
 
 /**
@@ -35,6 +35,14 @@ const bodySchema = z.object({
   maxPerWeek: z.number().int().min(1).max(MAX_PER_WEEK).nullable().optional(),
   /** Days to pause for, or null to resume now. */
   pauseDays: z.number().int().min(0).max(MAX_PAUSE_DAYS).nullable().optional(),
+  /**
+   * The language to write to them in. Refused rather than normalised away if it is not a language tag: this
+   * value ends up in audience comparisons, and a stored `english` would match nothing forever.
+   */
+  locale: z.string().trim().max(10).nullable().optional().refine(
+    (value) => value === undefined || value === null || normalizeLocale(value) !== null,
+    { message: 'must be a language tag like en or en-GB' },
+  ),
 })
 
 async function resolveSubject(req: Request) {
@@ -122,26 +130,29 @@ export async function PUT(req: Request) {
       })
     }
 
-    const preference = (parsed.data.maxPerWeek !== undefined || parsed.data.pauseDays !== undefined)
-      ? await saveContactPreference(
+    if (parsed.data.maxPerWeek !== undefined
+      || parsed.data.pauseDays !== undefined
+      || parsed.data.locale !== undefined) {
+      await saveContactPreference(
           em,
           scope,
           subjectEntityId,
-          { maxPerWeek: parsed.data.maxPerWeek, pauseDays: parsed.data.pauseDays, source: 'portal' },
-          now,
-        )
-      : null
+          {
+            maxPerWeek: parsed.data.maxPerWeek,
+            pauseDays: parsed.data.pauseDays,
+            locale: parsed.data.locale,
+            source: 'portal',
+          },
+        now,
+      )
+    }
 
     return NextResponse.json({
       ok: true,
       consent: await loadConsentState(em, subjectEntityId, scope, 'email'),
-      preference: preference
-        ? {
-            maxPerWeek: preference.maxPerWeek,
-            pausedUntil: preference.pausedUntil ? preference.pausedUntil.toISOString() : null,
-            source: 'portal',
-          }
-        : await loadPreferenceSummary(em, scope, subjectEntityId),
+      // Read back rather than assembled from the write: the stored row is what the send gate will see, and a
+      // response built from the input would hide a value that was normalised or dropped on the way in.
+      preference: await loadPreferenceSummary(em, scope, subjectEntityId),
     })
   } catch (error) {
     logger.error('[internal] marketing portal preference save failed', {

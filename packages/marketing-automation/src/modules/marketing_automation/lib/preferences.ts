@@ -34,8 +34,18 @@ export type PreferenceInput = {
   maxPerWeek?: number | null
   /** Days from now, or null to un-pause. Expressed as a duration because that is what a person chooses. */
   pauseDays?: number | null
+  /** A BCP-47-ish language tag, or null to stop expressing one. */
+  locale?: string | null
   source: string
 }
+
+/**
+ * What a language tag may look like.
+ *
+ * Deliberately narrow: this value ends up in an audience comparison and in copy selection, and a free-text
+ * field there invites `en-GB `, `EN`, and `english` to be three different languages.
+ */
+export const LOCALE_PATTERN = /^[a-z]{2}(-[A-Z]{2})?$/
 
 /**
  * Writes a preference, clamped.
@@ -64,6 +74,13 @@ export async function saveContactPreference(
       : Math.max(1, Math.min(Math.round(input.maxPerWeek), MAX_PER_WEEK))
   }
 
+  if (input.locale !== undefined) {
+    // Normalised, then checked: a tag that is not one is dropped rather than stored, because a stored
+    // `english` would silently match nothing for the rest of its life.
+    const normalized = input.locale === null ? null : normalizeLocale(input.locale)
+    row.locale = normalized
+  }
+
   if (input.pauseDays !== undefined) {
     if (input.pauseDays === null || input.pauseDays <= 0) {
       row.pausedUntil = null
@@ -77,9 +94,19 @@ export async function saveContactPreference(
   return { maxPerWeek: row.maxPerWeek ?? null, pausedUntil: row.pausedUntil ?? null }
 }
 
+/** `en`, `en-GB` — or null for anything that is not a language tag. */
+export function normalizeLocale(value: string): string | null {
+  const trimmed = value.trim()
+  if (trimmed.length === 0) return null
+  const [language, region] = trimmed.replace('_', '-').split('-')
+  const candidate = region ? `${language.toLowerCase()}-${region.toUpperCase()}` : language.toLowerCase()
+  return LOCALE_PATTERN.test(candidate) ? candidate : null
+}
+
 export type PreferenceSummary = {
   maxPerWeek: number | null
   pausedUntil: string | null
+  locale: string | null
   source: string | null
 }
 
@@ -93,6 +120,23 @@ export async function loadPreferenceSummary(
   return {
     maxPerWeek: row?.maxPerWeek ?? null,
     pausedUntil: row?.pausedUntil ? row.pausedUntil.toISOString() : null,
+    locale: row?.locale ?? null,
     source: row?.source ?? null,
   }
+}
+
+/**
+ * The language the customer chose, for the subject document.
+ *
+ * Read separately from the send gate's preference because it answers a different question — the gate asks
+ * "may I send this now", the document asks "what is true about this person" — and only one of them is on the
+ * hot path of every send.
+ */
+export async function loadPreferredLocale(
+  em: EntityManager,
+  scope: PreferenceScope,
+  subjectEntityId: string,
+): Promise<string | null> {
+  const row = await em.findOne(MarketingContactPreference, { ...scope, subjectEntityId })
+  return row?.locale ?? null
 }

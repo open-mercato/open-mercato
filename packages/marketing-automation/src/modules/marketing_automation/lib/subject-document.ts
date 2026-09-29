@@ -7,6 +7,7 @@ import { loadScorePoints } from './scores.js'
 import { loadLatestNps } from './survey.js'
 import { resolveTier } from './engine/tiers.js'
 import { computeSegmentSlugs, loadSegmentDefinitions } from './segments.js'
+import { loadPreferredLocale } from './preferences.js'
 import type { SegmentDefinition } from './segments.js'
 import type { TierThreshold } from './engine/tiers.js'
 
@@ -75,8 +76,9 @@ export async function loadOrderAggregates(
   const totalGross = Number.parseFloat(row?.total_gross ?? '0')
 
   const aggregates: SubjectDocument['orders'] = {
-    // The SKUs are loaded separately and merged by the caller; this function answers about amounts.
+    // The SKUs and channels are loaded separately and merged by the caller; this function answers about amounts.
     skus: [],
+    channels: [],
     count,
     totalGross: Number.isFinite(totalGross) ? totalGross : 0,
   }
@@ -94,6 +96,9 @@ export async function loadOrderAggregates(
 
 /** How many distinct SKUs a subject document carries. Beyond this the list stops being a filter. */
 const MAX_SUBJECT_SKUS = 200
+
+/** A shop with more than this many channels is not doing channel targeting, it is doing integrations. */
+const MAX_SUBJECT_CHANNELS = 50
 
 /**
  * The same "order that counts" rule as `PLACED_ORDER_FILTER_SQL`, written for a joined query.
@@ -118,6 +123,33 @@ export const PLACED_ORDER_FILTER_SQL_ALIASED = `
  * of what they actually bought. The variant sku is the fallback, because a shop that skus only variants
  * would otherwise return nothing.
  */
+/**
+ * The sales channels this customer has actually bought through.
+ *
+ * The only channel fact the platform holds ABOUT A CUSTOMER: there is no "this person belongs to the retail
+ * store" field anywhere, and inventing one would be a second source of truth for something orders already
+ * record. So store targeting here means "has bought in this channel", which is both derivable and the thing an
+ * operator actually means.
+ */
+export async function loadPurchasedChannels(
+  em: EntityManager,
+  subjectEntityId: string,
+  scope: SubjectScope,
+): Promise<string[]> {
+  const rows = await em.getConnection().execute<{ code: string | null }[]>(
+    `select distinct c.code as code
+       from sales_orders o
+       join sales_channels c on c.id = o.channel_id
+      where o.customer_entity_id = ?
+        and ${PLACED_ORDER_FILTER_SQL_ALIASED}
+      limit ?`,
+    [subjectEntityId, scope.tenantId, scope.organizationId, MAX_SUBJECT_CHANNELS],
+  )
+  return rows
+    .map((row) => row.code)
+    .filter((code): code is string => typeof code === 'string' && code.length > 0)
+}
+
 export async function loadPurchasedSkus(
   em: EntityManager,
   subjectEntityId: string,
@@ -251,7 +283,7 @@ export async function buildSubjectDocument(
     return {
       customer: null,
       tags: [],
-      orders: { count: 0, totalGross: 0, skus: [] },
+      orders: { count: 0, totalGross: 0, skus: [], channels: [] },
       score: { points: 0, tier: unscored.key, tierRank: unscored.rank },
       address: null,
       survey: { nps: null, answeredAt: null },
@@ -271,11 +303,13 @@ export async function buildSubjectDocument(
     scope,
   )
 
-  const [tags, orders, scorePoints, skus, address, nps] = await Promise.all([
+  const [tags, orders, scorePoints, skus, channels, locale, address, nps] = await Promise.all([
     loadTagSlugs(em, subjectEntityId, scope),
     loadOrderAggregates(em, subjectEntityId, scope, now),
     loadScorePoints(em, subjectEntityId, scope),
     loadPurchasedSkus(em, subjectEntityId, scope),
+    loadPurchasedChannels(em, subjectEntityId, scope),
+    loadPreferredLocale(em, scope, subjectEntityId),
     loadSubjectAddress(em, subjectEntityId, scope),
     loadLatestNps(em, subjectEntityId, scope),
   ])
@@ -291,10 +325,17 @@ export async function buildSubjectDocument(
           email: entity.primaryEmail ?? null,
           displayName: entity.displayName ?? null,
           createdAt: entity.createdAt ? new Date(entity.createdAt).toISOString() : null,
+          /**
+           * The language THEY chose, in the preference centre — null when they have not.
+           *
+           * Null rather than a guess: writing to somebody in the language of the country their address is in
+           * is how people receive marketing in a language they do not read.
+           */
+          locale,
         }
       : null,
     tags,
-    orders: { ...orders, skus },
+    orders: { ...orders, skus, channels },
     score: { points: scorePoints, tier: tier.key, tierRank: tier.rank },
     address,
     survey: { nps: nps?.score ?? null, answeredAt: nps?.answeredAt ?? null },

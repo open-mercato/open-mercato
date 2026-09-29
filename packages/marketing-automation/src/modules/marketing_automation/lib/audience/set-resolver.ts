@@ -21,6 +21,8 @@ export type CandidateSource = {
   scoreMembers(op: ComparisonOp, value: number): Promise<string[]>
   /** Subject ids who have bought this product SKU. */
   purchasedSkuMembers(sku: string): Promise<string[]>
+  /** Subject ids who have bought through this sales channel. */
+  purchasedInChannelMembers(code: string): Promise<string[]>
   /** Subject ids whose latest NPS answer satisfies the comparison. */
   npsMembers(op: ComparisonOp, value: number): Promise<string[]>
 }
@@ -58,6 +60,8 @@ async function resolvePredicate(
         ? await source.scoreMembers(predicate.op, predicate.value)
         : predicate.kind === 'purchasedSku'
           ? await source.purchasedSkuMembers(predicate.sku)
+          : predicate.kind === 'purchasedInChannel'
+            ? await source.purchasedInChannelMembers(predicate.code)
           : predicate.kind === 'npsScore'
             ? await source.npsMembers(predicate.op, predicate.value)
             : await source.orderMetricMembers(predicate.metric, predicate.op, predicate.value)
@@ -221,6 +225,19 @@ export function createSqlCandidateSource(
                   l.catalog_snapshot -> 'variant' ->> 'sku'
                 ) = ?`,
         [scope.tenantId, scope.organizationId, sku],
+      )
+      return rows.map((row) => row.customer_entity_id).filter(Boolean)
+    },
+
+    async purchasedInChannelMembers(code: string): Promise<string[]> {
+      const rows = await em.getConnection().execute<{ customer_entity_id: string }[]>(
+        `select distinct o.customer_entity_id
+           from sales_orders o
+           join sales_channels c on c.id = o.channel_id
+          where ${PLACED_ORDER_FILTER_SQL_ALIASED}
+            and o.customer_entity_id is not null
+            and c.code = ?`,
+        [scope.tenantId, scope.organizationId, code],
       )
       return rows.map((row) => row.customer_entity_id).filter(Boolean)
     },
