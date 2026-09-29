@@ -444,7 +444,16 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Integration tests (shard ${{ matrix.shard }} of 3)
-        run: yarn test:integration --shard=${{ matrix.shard }}/3
+        # `test:integration:ephemeral`, NOT `test:integration`. The plain script is `npx playwright test` and
+        # nothing else: it assumes an app is ALREADY listening on port 3000, which is true on a laptop with
+        # `yarn dev` in another terminal and is why this was missed. On a runner every spec failed with
+        # `ECONNREFUSED ::1:3000` — not one test failure, all of them, at the login call.
+        #
+        # The ephemeral variant is the one that provisions: `yarn mercato test:integration` starts a pgvector
+        # Postgres through testcontainers, spawns the app against it, drains the queue for specs that need a
+        # worker, and tears it all down. It takes `--shard=N/M` itself, and its own comments talk about fifteen
+        # ephemeral shards booting in parallel, so this is its designed use rather than a trick.
+        run: yarn test:integration:ephemeral --shard=${{ matrix.shard }}/3
 
       - name: Upload failure artefacts
         # Traces, screenshots and the error context each failing spec writes. Without them a red run on a machine
