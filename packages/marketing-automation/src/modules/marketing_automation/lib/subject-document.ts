@@ -8,40 +8,27 @@ import { loadLatestNps } from './survey.js'
 import { resolveTier } from './engine/tiers.js'
 import { computeSegmentSlugs, loadSegmentDefinitions } from './segments.js'
 import { loadPreferredLocale } from './preferences.js'
+import { computeRfm, grossPercentile, projectCustomerValue } from './engine/rfm.js'
+import { loadValueBoundaries } from './value-boundaries.js'
+import type { ValueBoundaries } from './engine/rfm.js'
 import type { SegmentDefinition } from './segments.js'
 import type { TierThreshold } from './engine/tiers.js'
+/**
+ * Re-exported from here because every existing caller imports it from this module, and the definition of "an
+ * order that counts" is a contract the narrowing depends on matching exactly.
+ */
+export { PLACED_ORDER_FILTER_SQL, PLACED_ORDER_FILTER_SQL_ALIASED } from './order-filter.js'
+import { PLACED_ORDER_FILTER_SQL, PLACED_ORDER_FILTER_SQL_ALIASED } from './order-filter.js'
 
 export type SubjectScope = { tenantId: string; organizationId: string }
 
-/**
- * Order aggregates, read with one statement per subject.
- *
- * Deliberately SQL rather than loading orders into memory: a long-standing customer can have
- * thousands, and three audience conditions referencing these numbers must not cost three
- * scans — the caller memoizes this per dispatch.
- *
- * Both spellings of cancelled are excluded because the codebase tolerates both
- * (`sales/commands/documents.ts` → `isCancelledOrderStatus`), and `placed_at is not null`
- * excludes drafts, which would otherwise inflate a customer's order count with carts they
- * never submitted.
- *
- * The filter is exported because the set-level candidate query aggregates the SAME orders. If the
- * two definitions of "an order that counts" ever drifted apart, the narrowing would stop being a
- * superset of what this function computes, and customers would silently fall out of campaigns.
- */
-export const PLACED_ORDER_FILTER_SQL = `
-  tenant_id = ?
-    and organization_id = ?
-    and deleted_at is null
-    and placed_at is not null
-    and (status is null or status not in ('canceled', 'cancelled'))
-`
 
 const ORDER_AGGREGATE_SQL = `
   select
     count(*)::int as order_count,
     coalesce(sum(grand_total_gross_amount), 0)::text as total_gross,
-    max(placed_at) as last_placed_at
+    max(placed_at) as last_placed_at,
+    min(placed_at) as first_placed_at
   from sales_orders
   where customer_entity_id = ?
     and ${PLACED_ORDER_FILTER_SQL}
@@ -51,6 +38,7 @@ type OrderAggregateRow = {
   order_count: number
   total_gross: string
   last_placed_at: Date | string | null
+  first_placed_at: Date | string | null
 }
 
 const MS_PER_DAY = 86_400_000
@@ -91,6 +79,15 @@ export async function loadOrderAggregates(
     aggregates.daysSinceLast = Math.max(0, wholeDaysBetween(lastPlacedAt, now))
   }
 
+  // Absent for the same reason, and for a second one: a projection measured from a missing start date would
+  // silently measure from the epoch and report a cadence of nearly zero for the shop's best customer.
+  const firstPlacedAt = row?.first_placed_at ? new Date(row.first_placed_at) : null
+  if (firstPlacedAt && !Number.isNaN(firstPlacedAt.getTime())) {
+    aggregates.firstPlacedAt = firstPlacedAt.toISOString()
+  }
+
+  if (count > 0) aggregates.averageGross = Math.round((aggregates.totalGross / count) * 100) / 100
+
   return aggregates
 }
 
@@ -99,21 +96,6 @@ const MAX_SUBJECT_SKUS = 200
 
 /** A shop with more than this many channels is not doing channel targeting, it is doing integrations. */
 const MAX_SUBJECT_CHANNELS = 50
-
-/**
- * The same "order that counts" rule as `PLACED_ORDER_FILTER_SQL`, written for a joined query.
- *
- * Spelled out with the alias rather than derived from the other constant by string surgery: two
- * readable clauses that must be kept in step are safer than one clause mangled at runtime, and the
- * unit test asserts they stay equivalent.
- */
-export const PLACED_ORDER_FILTER_SQL_ALIASED = `
-  o.tenant_id = ?
-    and o.organization_id = ?
-    and o.deleted_at is null
-    and o.placed_at is not null
-    and (o.status is null or o.status not in ('canceled', 'cancelled'))
-`
 
 /**
  * Distinct product SKUs this customer has bought.
@@ -276,7 +258,18 @@ export async function buildSubjectDocument(
    * defaulting to none. An empty segment list would make every `segments CONTAINS …` audience quietly false,
    * which is the silent-failure shape this module refuses everywhere else.
    */
-  options?: { tierThresholds?: TierThreshold[]; segments?: SegmentDefinition[] },
+  /**
+   * `valueBoundaries` follows the segments rule exactly: a sweep passes the row it already read so thousands of
+   * candidates do not each read it, and a caller that does NOT pass it gets a load rather than an empty set.
+   * Defaulting to empty would make every `rfm.*` audience quietly false on the event path — the same
+   * silent-failure shape, and the cut points are one indexed row, so there is no reason to risk it.
+   */
+  options?: {
+    tierThresholds?: TierThreshold[]
+    segments?: SegmentDefinition[]
+    valueBoundaries?: ValueBoundaries
+    valueHorizonYears?: number
+  },
 ): Promise<SubjectDocument> {
   if (!subjectEntityId) {
     const unscored = resolveTier(0, options?.tierThresholds)
@@ -285,6 +278,9 @@ export async function buildSubjectDocument(
       tags: [],
       orders: { count: 0, totalGross: 0, skus: [], channels: [] },
       score: { points: 0, tier: unscored.key, tierRank: unscored.rank },
+      // No subject, so nothing to score or project. Null, never a zero score — see the type.
+      rfm: null,
+      value: null,
       address: null,
       survey: { nps: null, answeredAt: null },
       // No subject, so no membership. A segment describes a customer, and there is none here.
@@ -318,6 +314,17 @@ export async function buildSubjectDocument(
 
   const segmentDefinitions = options?.segments ?? await loadSegmentDefinitions(em, scope)
 
+  /**
+   * Derived, in memory, from numbers already read. No further queries: RFM is the order aggregates compared
+   * against the shop's stored cut points, and the projection is arithmetic over the same aggregates.
+   */
+  const boundaries = options?.valueBoundaries ?? await loadValueBoundaries(em, scope)
+  const projection = projectCustomerValue(orders, now, options?.valueHorizonYears)
+  const percentile = grossPercentile(orders.totalGross, boundaries)
+  const projectedValue = projection
+    ? { ...projection, ...(percentile === null ? {} : { grossPercentile: percentile }) }
+    : null
+
   const document: SubjectDocument = {
     customer: entity
       ? {
@@ -337,6 +344,8 @@ export async function buildSubjectDocument(
     tags,
     orders: { ...orders, skus, channels },
     score: { points: scorePoints, tier: tier.key, tierRank: tier.rank },
+    rfm: computeRfm(orders, boundaries),
+    value: projectedValue,
     address,
     survey: { nps: nps?.score ?? null, answeredAt: nps?.answeredAt ?? null },
     // Filled below, once the rest of the document exists: membership is computed FROM it.

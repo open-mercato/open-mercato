@@ -26,8 +26,25 @@ const RUN_STATUS_VARIANTS: Record<string, StatusBadgeVariant> = {
 type Profile = {
   customer: { id: string; displayName: string | null; email: string | null; createdAt: string | null }
   score: { points: number; tier: string | null; tierRank: number; pointsToNext: number | null }
-  orders: { count: number; totalGross: number; lastPlacedAt: string | null; daysSinceLast: number | null }
+  orders: {
+    count: number
+    totalGross: number
+    lastPlacedAt: string | null
+    daysSinceLast: number | null
+    firstPlacedAt: string | null
+    averageGross: number | null
+  }
   tags: string[]
+  /** 1–5 per dimension, measured against this shop's own buyers. Null until it means something. */
+  rfm: { recency: number; frequency: number; monetary: number; cell: string; total: number } | null
+  /** A projection from the customer's observed cadence, with forward-looking keys absent until there is one. */
+  value: {
+    averageOrderGross: number
+    ordersPerYear?: number
+    projectedAnnualGross?: number
+    projectedHorizonGross?: number
+    grossPercentile?: number
+  } | null
   consent: { email: 'subscribed' | 'unsubscribed' | null }
   preference?: { maxPerWeek: number | null; pausedUntil: string | null; locale: string | null; source: string | null }
   nps: { score: number; band: 'detractor' | 'passive' | 'promoter'; answeredAt: string } | null
@@ -241,6 +258,59 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
           <KpiCard
             title={t('marketing_automation.profile.kpi.spend', 'Lifetime spend')}
             value={profile.orders.totalGross}
+            footer={
+              <span>
+                {profile.value?.grossPercentile === undefined
+                  ? (profile.orders.averageGross === null
+                      ? null
+                      : t('marketing_automation.profile.averageOrder', '{amount} per order')
+                          .replace('{amount}', String(profile.orders.averageGross)))
+                  : t('marketing_automation.profile.spendPercentile', 'Top {share}% of buyers · {amount} per order')
+                      .replace('{share}', String(100 - profile.value.grossPercentile))
+                      .replace('{amount}', String(profile.value.averageOrderGross))}
+              </span>
+            }
+          />
+          {/*
+            RFM, which is the one number on this screen that compares the customer to the SHOP.
+            Said as three digits because that is how the technique is read, with the cell spelled out below —
+            an operator who knows RFM wants `543`, and one who does not needs to be told what it means.
+          */}
+          <KpiCard
+            title={t('marketing_automation.profile.kpi.rfm', 'RFM')}
+            /* The sortable number is the total out of 15; the three digits an operator actually reads are
+               spelled out underneath, because a card cannot show both as its headline. */
+            value={profile.rfm ? profile.rfm.total : null}
+            formatValue={(value) => `${value} / 15`}
+            footer={
+              <span>
+                {profile.rfm
+                  ? `${profile.rfm.cell} · ${t('marketing_automation.profile.rfmBreakdown', 'recency {r} · frequency {f} · spend {m}, out of 5')
+                      .replace('{r}', String(profile.rfm.recency))
+                      .replace('{f}', String(profile.rfm.frequency))
+                      .replace('{m}', String(profile.rfm.monetary))}`
+                  : t(
+                      'marketing_automation.profile.noRfm',
+                      'Not scored: either this customer has not ordered, or the shop has too few buyers to rank against yet.',
+                    )}
+              </span>
+            }
+          />
+          {/*
+            A projection, and labelled as one. Absent for anybody with a single order, because one purchase
+            is not a rate — see `lib/engine/rfm.ts`.
+          */}
+          <KpiCard
+            title={t('marketing_automation.profile.kpi.projectedValue', 'Projected value')}
+            value={profile.value?.projectedHorizonGross ?? null}
+            footer={
+              <span>
+                {profile.value?.ordersPerYear === undefined
+                  ? t('marketing_automation.profile.noProjection', 'Needs a second order before a rate can be read')
+                  : t('marketing_automation.profile.projectionBasis', '{rate} orders a year at this pace')
+                      .replace('{rate}', String(profile.value.ordersPerYear))}
+              </span>
+            }
           />
           <KpiCard
             title={t('marketing_automation.profile.kpi.nps', 'Latest NPS')}

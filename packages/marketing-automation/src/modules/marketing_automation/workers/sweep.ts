@@ -17,6 +17,9 @@ import type { RowSweepSource, SweepCandidate } from '../lib/sweep-sources.js'
 import { isSweepDue } from '../lib/sweep-interval.js'
 import { pruneJobRuns, recordJobRun } from '../lib/job-runs.js'
 import { pruneSegmentSnapshots, takeSegmentSnapshots } from '../lib/segment-snapshots.js'
+import { loadValueBoundaries, refreshValueBoundaries } from '../lib/value-boundaries.js'
+import { loadValueHorizonYears } from '../lib/value-horizon.js'
+import type { ValueBoundaries } from '../lib/engine/rfm.js'
 import { scanPriceWatches } from '../lib/product-watches.js'
 import { sendWeeklyLeadDigests, DIGEST_JOB_KIND } from '../lib/lead-digest.js'
 import { announceBreaker, applyDeliverabilityGuardrails } from '../lib/deliverability.js'
@@ -59,7 +62,12 @@ const PAGE_SIZE = 200
 const MAX_ROWS_PER_TICK = 5_000
 
 /** What the subject projection needs that is tenant-wide rather than per-customer. */
-type ProjectionOptions = { tierThresholds: TierThreshold[]; segments: SegmentDefinition[] }
+type ProjectionOptions = {
+  tierThresholds: TierThreshold[]
+  segments: SegmentDefinition[]
+  valueBoundaries: ValueBoundaries
+  valueHorizonYears: number
+}
 
 function reentryPolicyFor(trigger: MarketingCampaignTrigger): ReentryPolicy {
   return trigger.reentryAfterDays == null
@@ -330,6 +338,10 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
     ? {
         tierThresholds: await loadTierThresholds(deps.container, scope),
         segments: await loadSegmentDefinitions(deps.em, scope),
+        // Refreshed below once a day; read here as one row, because a percentile over every buyer must not
+        // run per candidate.
+        valueBoundaries: await loadValueBoundaries(deps.em, scope),
+        valueHorizonYears: await loadValueHorizonYears(deps.container, scope),
       }
     : null
 
@@ -469,6 +481,23 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
    * Idempotent through a unique index on the day, so running on every tick records one point per day without
    * needing to remember whether it already did.
    */
+  /**
+   * The RFM cut points, refreshed on the same daily pass as the segment sizes.
+   *
+   * Here rather than in the per-campaign loop because they describe the SHOP, not a campaign, and one
+   * percentile sweep over the buyers serves every campaign that runs afterwards. A failure is logged and the
+   * pass continues: the previous day's boundaries are a perfectly good answer, and no boundaries at all simply
+   * means no scores — never a wrong score.
+   */
+  try {
+    const boundaries = await refreshValueBoundaries(deps.em, scope, deps.now)
+    logger.info('marketing value boundaries refreshed', { buyers: boundaries.buyerCount })
+  } catch (error) {
+    logger.warn('[internal] marketing value boundaries refresh failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
   try {
     const snapshots = await takeSegmentSnapshots(deps.em, deps.container, scope, deps.now)
     if (snapshots.taken > 0) logger.info('marketing segment sizes recorded', { taken: snapshots.taken })

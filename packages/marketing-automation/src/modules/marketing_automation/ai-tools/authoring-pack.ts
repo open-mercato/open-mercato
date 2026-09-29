@@ -75,9 +75,15 @@ const describeBuildingBlocksTool: MarketingAiToolDefinition<z.infer<typeof noInp
         })),
         audienceFields: [
           'tags', 'orders.count', 'orders.totalGross', 'orders.daysSinceLast', 'orders.skus',
+          'orders.channels', 'orders.averageGross',
           'score.points', 'score.tier', 'score.tierRank',
+          // RFM digits are 1–5 and are measured against THIS shop's buyers, so `rfm.monetary >= 4` means
+          // "in the top two fifths by spend here" rather than a threshold somebody invented.
+          'rfm.recency', 'rfm.frequency', 'rfm.monetary', 'rfm.total', 'rfm.cell',
+          'value.averageOrderGross', 'value.ordersPerYear', 'value.projectedHorizonGross', 'value.grossPercentile',
+          'survey.nps', 'segments',
           'address.country', 'address.region', 'address.city', 'address.postalCode',
-          'customer.email', 'customer.displayName', 'customer.createdAt',
+          'customer.email', 'customer.displayName', 'customer.createdAt', 'customer.locale',
         ],
       }
     },

@@ -1205,3 +1205,47 @@ export class MarketingContactPreference {
   @Property({ name: 'updated_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date(), onUpdate: () => new Date() })
   updatedAt!: Date
 }
+
+/**
+ * The quintile and percentile cut points RFM is scored against, one row per tenant and organization.
+ *
+ * **Why a table and not a computation.** RFM only means something relative to the shop — a 5 for recency is
+ * "in the most recent fifth of THIS shop's buyers" — and that requires a percentile over every buyer. Running
+ * that per dispatch would put a full-table aggregate in the hot path of every send, so the sweep computes it
+ * once a day and everything else reads this row.
+ *
+ * A single jsonb column rather than a column per dimension: the shape will grow (a shop will eventually want
+ * RFM over a window rather than over all time), and the authored campaign graph is stored the same way for the
+ * same reason. `buyer_count` is a column because it is the one value a reader checks before trusting the rest.
+ */
+@Entity({ tableName: 'marketing_value_boundaries' })
+@Unique({ name: 'mkt_value_boundaries_scope_uq', properties: ['tenantId', 'organizationId'] })
+export class MarketingValueBoundaries {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  /** Cut points per dimension — see `lib/engine/rfm.ts` for the shape and what each one means. */
+  @Property({ type: 'jsonb' })
+  boundaries!: Record<string, unknown>
+
+  /** How many buyers they were computed over. Below `MINIMUM_BUYERS_FOR_RFM` nothing is scored at all. */
+  @Property({ name: 'buyer_count', type: 'int', default: 0 })
+  buyerCount: number = 0
+
+  @Property({ name: 'computed_at', type: Date, defaultRaw: 'now()' })
+  computedAt!: Date
+
+  @Property({ name: 'created_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
+  createdAt!: Date
+
+  @Property({ name: 'updated_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt!: Date
+}

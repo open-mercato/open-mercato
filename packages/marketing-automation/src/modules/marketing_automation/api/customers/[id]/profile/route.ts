@@ -106,15 +106,15 @@ export async function GET(req: Request) {
    * this page would silently claim the customer is not in.
    */
   const segmentDefinitions = await loadSegmentDefinitions(em, scope)
+  /**
+   * Built once and used twice: for segment membership and for the RFM/value card below.
+   *
+   * It used to be built only when segments existed, and only to be thrown away. RFM needs the same document,
+   * so building it unconditionally now costs nothing extra on a screen that already reads these aggregates.
+   */
+  const document = await buildSubjectDocument(em, customerId, scope, {}, now, { tierThresholds, segments: [] })
   const segments = segmentDefinitions.length > 0
-    ? namesForSlugs(
-        segmentDefinitions,
-        computeSegmentSlugs(
-          await buildSubjectDocument(em, customerId, scope, {}, now, { tierThresholds, segments: [] }),
-          segmentDefinitions,
-          now,
-        ),
-      )
+    ? namesForSlugs(segmentDefinitions, computeSegmentSlugs(document, segmentDefinitions, now))
     : []
 
   /**
@@ -198,7 +198,18 @@ export async function GET(req: Request) {
       totalGross: orders.totalGross,
       lastPlacedAt: orders.lastPlacedAt ?? null,
       daysSinceLast: orders.daysSinceLast ?? null,
+      firstPlacedAt: orders.firstPlacedAt ?? null,
+      averageGross: orders.averageGross ?? null,
     },
+    /**
+     * RFM and the value projection, both NULL until they mean something.
+     *
+     * Null for a customer who has never ordered and for a shop with too few buyers to rank against — a 1-1-1
+     * for somebody with no orders would read as "our worst customer" rather than "not a customer yet". The
+     * screen says which of the two it is.
+     */
+    rfm: document.rfm,
+    value: document.value,
     tags,
     /**
      * Null means nothing is on record, which this module treats as permitted — so the screen says

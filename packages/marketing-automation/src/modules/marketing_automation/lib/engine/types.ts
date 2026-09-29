@@ -95,7 +95,44 @@ export type SubjectDocument = {
      * in this channel" — derivable from orders rather than a second place for the same fact to be wrong.
      */
     channels: string[]
+    /**
+     * ISO date of the FIRST order, absent for a never-buyer.
+     *
+     * Present so a value projection can measure the customer's cadence over the whole time they have been
+     * buying rather than between their last two orders.
+     */
+    firstPlacedAt?: string
+    /** Lifetime gross divided by order count, absent for a never-buyer. */
+    averageGross?: number
   }
+  /**
+   * RFM, scored against THIS shop's buyers rather than against fixed day counts — see `lib/engine/rfm.ts`.
+   *
+   * Null for anybody who has never ordered, and null on a shop with too few buyers to rank against. An
+   * audience compares the digits (`rfm.monetary >= 4`) or sorts on `rfm.total`.
+   */
+  rfm: {
+    recency: number
+    frequency: number
+    monetary: number
+    cell: string
+    total: number
+  } | null
+  /**
+   * What this customer is worth, and what they may be worth if they carry on.
+   *
+   * A PROJECTION from their own observed cadence, not a model — the arithmetic is stated in `rfm.ts` so an
+   * operator can argue with it. Every forward-looking key is ABSENT until there is a cadence to project from,
+   * because one order is not a rate.
+   */
+  value: {
+    averageOrderGross: number
+    ordersPerYear?: number
+    projectedAnnualGross?: number
+    projectedHorizonGross?: number
+    /** Position among the shop's buyers by lifetime spend, to the nearest 5th percentile. */
+    grossPercentile?: number
+  } | null
   /**
    * Lead score, summed from the score ledger.
    *
