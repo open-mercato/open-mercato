@@ -242,7 +242,7 @@ jobs:
 
   # ── The cheap half ──────────────────────────────────────────────────────────────────────────────────────────
   checks:
-    name: Types, lint, unit tests, translations
+    name: Types, lint, translations
     needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -308,9 +308,6 @@ jobs:
         # `apps/mercato` did until this module added one, so before that this step looked at none of its code.
         run: yarn lint
 
-      - name: Unit tests
-        run: yarn test
-
       - name: Design-system lint for this module
         # The invocation the module's AGENTS.md documents: this repo's typescript-eslint refuses the installed
         # TypeScript under the default config, so the DS rules run through their own config and a require hook.
@@ -345,6 +342,65 @@ jobs:
 
       - name: Agent instruction budgets
         run: yarn agents:check-budget
+
+  # ── The repo-wide unit suite, on its own ────────────────────────────────────────────────────────────────────
+  #
+  # A job of its own because it is the single longest step in the gate: 1315s — twenty-two minutes — on a
+  # four-vCPU runner, against about two minutes on a developer machine. Inside `checks` it starved everything
+  # after it and the job hit its own 30-minute ceiling with the last translation check still running, which
+  # GitHub reports as `cancelled` and reads exactly like somebody pressing stop.
+  #
+  # The root script pins `--concurrency=2` and the base jest config pins `maxWorkers: 2`, so four heavy workers
+  # at a 1 GB heap each is the deliberate ceiling — raising it is how the typecheck step killed a runner earlier,
+  # so the suite is left alone and simply given room and a lane of its own.
+  unit:
+    name: Unit tests (whole repo)
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: build-artifacts
+
+      - name: Unit tests
+        # Every workspace, not only this module — which is the point. Nine failures this branch had never seen
+        # came from exactly this command: guards in `packages/core` that scan every workspace, a fact-sheet
+        # obligation in the scaffolding package, and one of this module's own suites killing its jest worker.
+        run: yarn test
 
   # ── The expensive half, in three lanes ──────────────────────────────────────────────────────────────────────
   #
@@ -480,7 +536,7 @@ jobs:
   # job deliberately skipped it.
   gate:
     name: Gate
-    needs: [scope, prepare, checks, integration]
+    needs: [scope, prepare, checks, unit, integration]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -491,15 +547,16 @@ jobs:
           SCOPE: ${{ needs.scope.result }}
           PREPARE: ${{ needs.prepare.result }}
           CHECKS: ${{ needs.checks.result }}
+          UNIT: ${{ needs.unit.result }}
           INTEGRATION: ${{ needs.integration.result }}
         run: |
-          echo "scope=$SCOPE (code=$SCOPE_CODE) prepare=$PREPARE checks=$CHECKS integration=$INTEGRATION"
+          echo "scope=$SCOPE (code=$SCOPE_CODE) prepare=$PREPARE checks=$CHECKS unit=$UNIT integration=$INTEGRATION"
           [ "$SCOPE" = "success" ] || { echo "::error::the scope job did not succeed"; exit 1; }
           if [ "$SCOPE_CODE" != "true" ]; then
             echo "documentation-only commit — nothing to verify"
             exit 0
           fi
-          for result in "$PREPARE" "$CHECKS" "$INTEGRATION"; do
+          for result in "$PREPARE" "$CHECKS" "$UNIT" "$INTEGRATION"; do
             [ "$result" = "success" ] || { echo "::error::a required job did not succeed"; exit 1; }
           done
           echo "every job passed"
