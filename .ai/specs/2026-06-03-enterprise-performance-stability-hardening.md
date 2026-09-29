@@ -73,7 +73,7 @@ Ordered by impact ÷ (effort × risk). P0/P1 are mostly **config + small guards*
 | 0.4 | **Cap the encrypted-sort path**: sort on `*_hash` companion column where deterministic, else hard-cap rows / fall back to id-sort. Removes full-table-fetch+decrypt-all. | `query/engine.ts:507,823-883` | M · Med |
 | 0.5 | **Add `statement_timeout` + `lock_timeout`** to the ORM driver options so one runaway query can't exhaust the 20-connection pool. | `db/mikro.ts:107-122` | S · Low |
 
-> **[2026-08 status]** P0.1–P0.4 shipped (#2961, #2962, #2987, #3386 cohort); P0.5 is wired but unset by default (#2964). ⚠️ P0.4's "sort on `*_hash` companion column" prescription is **superseded and was never valid** — a hash does not preserve plaintext ordering; the shipped fix is the two-phase slim-projection bounded sort (`OM_ENCRYPTED_SORT_MAX_ROWS`).
+> **[2026-08 status]** P0.1–P0.3 shipped (#2961, #2962, #2987). P0.4 is done for the shared query engines (#3278, fixing #2969) and the first custom handlers, customer labels and interactions (#3395); the rollout to the remaining UI-sortable custom handlers is still open (#3386). P0.5 is wired but unset by default (#2964). ⚠️ P0.4's "sort on `*_hash` companion column" prescription is **superseded and was never valid** — a hash does not preserve plaintext ordering; the shipped fix is the two-phase slim-projection bounded sort (`OM_ENCRYPTED_SORT_MAX_ROWS`).
 
 ### P1 — Horizontal-scale-correct defaults
 | # | Action | Evidence | Effort · Risk |
@@ -96,8 +96,8 @@ Ordered by impact ÷ (effort × risk). P0/P1 are mostly **config + small guards*
 | 2.5 | **Events throughput**: raise `events` worker concurrency default 1→5; add DLQ + configurable retry/`removeOnFail`; job dedup keys; supervisor restart backoff. | `events.worker.ts:6`, `async.ts:134-140` | S–M · Med |
 | 2.6 | **SSE scaling**: coalesce progress emits (min-interval/min-delta, always emit terminal); index connections by `tenantId`; one shared heartbeat interval; per-user/instance connection cap (429); pin `runtime='nodejs'`. | `progressServiceImpl.ts:107`, `stream/route.ts:108,131` | M · Low |
 
-> **[2026-08 status & corrections]** P2.4a–c shipped (#2976/#3014); P2.6's progress coalescing shipped (#2972); the rest is open or partial — see the addendum table. Two prescriptions are corrected:
-> - ⚠️ **P2.1 as written is superseded.** The synchronous boundary is intentional: the projection-row write and coverage accounting stay on the request path for read-your-writes consistency (documented in `query_index/subscribers/upsert_one.ts`), and only the tokens/vector/fulltext tail belongs off-thread (partially shipped as a deferred tail in #3236). The correct design is a **durable, idempotent tail event** consumed by a worker — not flipping the whole `upsert_one` subscriber to `persistent: true`.
+> **[2026-08 status & corrections]** P2.4's AI-chat, Akeneo and Gmail ceilings shipped (#2976/#3014), and its webhooks cache followed on 2026-09-22 (#6276); P2.6's progress coalescing shipped (#2972); the rest is open or partial — see the addendum table. Two prescriptions are corrected:
+> - ⚠️ **P2.1 as written is superseded.** The synchronous boundary is intentional: the projection-row write and coverage accounting stay on the request path for read-your-writes consistency (documented in `query_index/subscribers/upsert_one.ts`), and only the tokens/vector/fulltext tail belongs off-thread (partially shipped: that tail has run as a non-durable, fire-and-forget deferral since #2549). The correct design is a **durable, idempotent tail event** consumed by a worker — not flipping the whole `upsert_one` subscriber to `persistent: true`.
 > - ⚠️ **P2.2's "fire-and-forget" needs an event-delivery contract before implementation.** Naked fire-and-forget can lose work at process termination. A focused spec must distinguish best-effort delivery (browser refresh signals) from correctness-critical coordination, and define buffering, retries, deduplication, shutdown flush, failure metrics, and backpressure.
 
 ### P3 — Deeper architecture (design-level)
@@ -174,6 +174,8 @@ Ordered by impact ÷ (effort × risk). P0/P1 are mostly **config + small guards*
 | 2.1 async indexing | Search lag after write; requires async queue | Acceptable eventual consistency; document `QUEUE_STRATEGY=async` requirement |
 | 1.4 container memo | Must preserve fresh-EM-per-request | Share only within one request (ALS scope); keep EM fork semantics |
 
+> **[2026-08 correction]** The "2.1 async indexing" row describes the superseded design. Per the P2.1 correction above, the projection write and coverage accounting stay synchronous for read-your-writes, so eventual consistency is acceptable only for the tokens/vector/fulltext tail, delivered as a durable, idempotent tail event.
+
 ## Verification
 
 The profiler infra already exists (`OM_PROFILE=*`, `packages/shared/src/lib/profiler`) with per-mark timings, and the CRUD spec defines acceptance criteria. For each item: measure before/after with `OM_PROFILE=*` + `OM_DB_POOL_DEBUG=1` (query count/request), and add a small load test (k6/autocannon) at representative concurrency to validate p50/p99 and confirm no RSS growth / no cross-instance staleness on a 2-instance + Redis setup.
@@ -202,51 +204,57 @@ Scope clarification: "Enterprise" in the title means enterprise-grade deployment
 
 ### Roadmap → tracker mapping
 
-The 2026-06-10 audit filed fifteen issues from this research. Eleven map to items in the roadmap tables above; four came out of the same audit's per-domain findings but extend beyond the P-tables. Each issue is the unit of implementation and (per its issue body) carries its own file:line evidence, flag names, and BC notes; this spec is the program-level context they defer to. States below are as of 2026-08-29.
+The 2026-06-10 audit filed fifteen issues from this research. Eleven map to items in the roadmap tables above; four came out of the same audit's per-domain findings but extend beyond the P-tables. Each issue is the unit of implementation and (per its issue body) carries its own file:line evidence, flag names, and BC notes; this spec is the program-level context they defer to. States below are as of 2026-09-30 (`develop@0c5dd630b5`). An issue can stay open after its fix merges to `develop`, because GitHub applies `Fixes #…` only when the change reaches the default branch (`main`).
 
-| Spec anchor | Issue | State (2026-08-29) |
+| Spec anchor | Issue | State (2026-09-30) |
 |---|---|---|
 | Theme D / P1.4 companion — attach dispatcher-resolved auth via the trusted-auth seam (`OM_DISPATCHER_TRUSTED_AUTH`) | #2958 | open, priority-high |
 | P3.3 — bootstrap services cross-request safe, unlock `OM_BOOTSTRAP_CACHE` (finishes #2044 Phase 5) | #2963 | open |
-| DB [HIGH] "information_schema probes per list / caches cold" — process-scope query_index metadata caches + once-guarded event wiring (`OM_QUERY_INDEX_META_CACHE_MS`) | #2967 | open, priority-high |
-| Audit cohort, beyond the P-tables — query_index coverage-snapshot thundering herd, single-flight refresh | #2968 | open |
+| DB [HIGH] "information_schema probes per list / caches cold" — process-scope query_index metadata caches + once-guarded event wiring (`OM_QUERY_INDEX_META_CACHE_MS`) | #2967 | open, priority-high. The anchor finding is partly addressed: process-scope `information_schema` memos landed for the shared `BasicQueryEngine` column probes (#5614, merged 2026-08-26, via #5605) and for the `DefaultDataEngine` and query_index `HybridQueryEngine` table probes (#6277, merged 2026-09-22, via #5619). The rest of #2967's query_index scope is still open: the per-instance query_index caches (`columnCache`, `customEntityCache`, custom-field definition caches), the per-request `SELECT DISTINCT entity_id FROM custom_field_defs`, and the once-guarded event wiring; the proposed `OM_QUERY_INDEX_META_CACHE_MS` flag does not exist |
+| Audit cohort, beyond the P-tables — query_index coverage-snapshot thundering herd, single-flight refresh | #2968 | open — the default path still refreshes the snapshot inline and dedups only per engine instance (`pendingCoverageRefreshKeys`); #5766 (2026-09-23, via #5604) made the coverage *counter adjustments* contention-safe but added no single-flight refresh |
 | P0.3 / P2.5 / Queue [MED] auto-spawn fleet — bound the worker fleet (idle reap, spawn ceiling, heap cap) | #2971 | open |
 | P2.6 — coalesce progress `job.updated` flush + broadcast (`OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS`) | #2972 | **closed / implemented** |
 | Events [MED] payload-cap inconsistency + portalBroadcast cross-process gap | #2973 | open, bug |
-| P2.4 — negative "has active webhooks" cache before the decrypting `event:'*'` query | #2974 | open |
+| P2.4 — negative "has active webhooks" cache before the decrypting `event:'*'` query | #2974 | implemented by #6276 (merged 2026-09-22: per-tenant active-subscription cache, `OM_WEBHOOKS_SUBSCRIPTION_CACHE_TTL_MS`); issue still open |
 | P1.4 — memoize the request container per HTTP request via AsyncLocalStorage (`OM_REQUEST_CONTAINER_MEMO`) | #2977 | open, priority-high |
 | P1.2 + P1.5 — short-TTL canonical staff-auth cache (`OM_STAFF_AUTH_TTL_MS`) | #2978 | open |
 | Audit cohort, beyond the P-tables — sales shipment/payment snapshot N+1 in `loadOrderSnapshot` | #2979 | open |
 | Audit cohort, beyond the P-tables — `action_logs` retention prune + drop sales' duplicated undo snapshots | #2980 | open |
 | Search [CRIT/HIGH] per-request infra — hoist stateless search services to process singletons | #2981 | open, bug, priority-high |
-| Search [CRIT] synchronous token chain — checksum-skip unchanged search-token rewrites | #2982 | open in tracker; substance largely shipped (batch path via #4681, single-record path via #5650, off-request deferral via #3236) |
+| Search [CRIT] synchronous token chain — checksum-skip unchanged search-token rewrites | #2982 | open in tracker, but substantively implemented and a candidate for closure. Unchanged-token rewrites are skipped on the batch path (#5402, merged 2026-08-20) and the single-record path (#5650, merged 2026-08-28). Both compare stored and rebuilt token multiplicities instead of the proposed checksum column. Token growth was bounded separately by #4805 (merged 2026-08-03) |
 | Audit cohort, beyond the P-tables — server-first data delivery (`initialData` seam seeding react-query) | #2983 | open, priority-high |
 
-Adjacent newer issues from the 2026-08 load-test round extend the same themes: #5604 (sequence hot-row locks), #5605 (queryEngine per-request caches), #5606 (Meilisearch per-document sync), #5607 (bulk-create endpoint gap), #5619 (information_schema probe memoization).
+Adjacent newer issues from the 2026-08 load-test round extend the same themes. States are as of 2026-09-30:
 
-### Roadmap status as of 2026-08-29 (verified against `develop@421cefe668`)
+- #5604 (sequence and coverage-counter hot-row locks): implemented by #5766 (merged 2026-09-23); issue still open.
+- #5605 (queryEngine per-request column caches): closed, fixed by #5614.
+- #5606 (Meilisearch per-document sync): closed after #5612 batched the `batch-index` worker path.
+- #5607 (bulk-create endpoint gap): open.
+- #5619 (`information_schema.tables` probe memoization): closed, fixed by #6277.
 
-The audit's candidate numbering had gaps (2–5, 7–9, 12–13, 18–19); those candidates were filed as sibling issues (e.g. #2961, #2962, #2964, #2966, #2976, #2987) and have largely shipped since June. Verified current state of the roadmap items themselves — readers should not re-implement the Done rows:
+### Roadmap status as of 2026-09-30 (verified against `develop@0c5dd630b5`)
+
+The audit's candidate numbering had gaps (2–5, 7–9, 12–13, 18–19); those candidates were filed as sibling issues (e.g. #2961, #2962, #2964, #2966, #2976, #2987) and have largely shipped since June. Verified current state of the roadmap items themselves — first verified at `develop@421cefe668` on 2026-08-29, then re-verified at `develop@0c5dd630b5` on 2026-09-30. Readers should not re-implement the Done rows:
 
 | Item | State | Evidence on `develop` |
 |---|---|---|
 | P0.1 cache singleton in `bootstrap()` | **Done** | `getCachedCacheService()` globalThis guard, default-on (`packages/core/src/bootstrap.ts`; #2961/#3031) |
 | P0.2 bounded memory cache | **Done** | LRU, `DEFAULT_MEMORY_MAX_ENTRIES=50_000`, amortized expiry sweep (#2962/#2995, #3070) |
 | P0.3 + P1.1 single-instance strategy guard | **Done** | `packages/cli/src/lib/single-instance-strategy-guard.ts` fails loud in production multi-instance for local/memory queue, cache, and rate-limit strategies (#2987/#3030) |
-| P0.4 encrypted-sort cap | **Done** | two-phase slim-projection bounded sort + `OM_ENCRYPTED_SORT_MAX_ROWS` (#3386 cohort) |
+| P0.4 encrypted-sort cap | **Done** for the shared engines | two-phase slim-projection bounded sort + `OM_ENCRYPTED_SORT_MAX_ROWS` in the shared `BasicQueryEngine` / `HybridQueryEngine` (#3278, fixing #2969) and the customer labels + interactions handlers (#3395); rollout to the remaining UI-sortable custom handlers still open (#3386) |
 | P0.5 statement/lock timeouts | Partial | `DB_STATEMENT_TIMEOUT_MS` / `DB_LOCK_TIMEOUT_MS` wired (#2964/#3033) but unset by default |
-| P1.2 staff-auth cache | Open | `sessionIntegrity.ts` still uncached (#2978) |
-| P1.3 rate-limit breadth | Open | opt-in per route, IP-keyed; ~24 of ~408 API route files declare it |
-| P1.4 request-container memo | Open | `createRequestContainer()` still unmemoized, no AsyncLocalStorage (#2977) |
+| P1.2 staff-auth cache | Open | `sessionIntegrity.ts` still uncached; the proposed `OM_STAFF_AUTH_TTL_MS` flag does not exist (#2978) |
+| P1.3 rate-limit breadth | Open | opt-in per route via `metadata.rateLimit`, IP-keyed at the dispatcher; only ~27 of ~685 module `api/**/route.ts` files reference rate limiting |
+| P1.4 request-container memo | Open | `createRequestContainer()` still unmemoized, no AsyncLocalStorage; the proposed `OM_REQUEST_CONTAINER_MEMO` flag does not exist (#2977) |
 | P1.5 super-admin probe | Open | instance-scoped `globalSuperAdminCache` on a `.scoped()` service (#2978) |
-| P2.1 indexing off the write thread | Partial | heavy tail (tokens/vector/search) deferred off-request by default (#3236); projection write still inline, subscriber still ephemeral |
-| P2.2 fire-and-forget | Partial | access-log writes async (#2044 Phase 1); `emit()` still awaits SSE fan-out + `pg_notify` |
+| P2.1 indexing off the write thread | Partial | the heavy tail (search tokens, vectorize, fulltext) has run as a fire-and-forget deferral by default since #2549 (2026-06-05); projection write still inline, subscriber still ephemeral (`persistent: false`). #3236 added the opt-in `OM_CACHE_SAFETY_ALWAYS_CONSISTENT` mode, which runs the whole chain inline instead |
+| P2.2 fire-and-forget | Partial | access-log writes async (#2044 Phase 1); `emit()` still awaits the global SSE taps + `pg_notify`. A focused spec for opt-in coalescing of that browser-facing half landed as [`2026-09-04-client-broadcast-sse-coalescing.md`](2026-09-04-client-broadcast-sse-coalescing.md) (#5895, merged 2026-09-24); its implementation PR #5896 is still open |
 | P2.3 batch embeddings / query-embedding cache | Open | no `embedMany`, no job coalescing, no query-embedding cache |
-| P2.4 per-tenant ceilings | Mostly done | AI chat rate limit + default loop budgets, Akeneo 429 bound + timeout, Gmail timeout (#2976/#3014); webhooks negative cache still open (#2974) |
-| P2.5 events throughput | Partial | async-strategy abandoned-job sweep/DLQ landed; events worker concurrency default still 1; local strategy still has no DLQ |
-| P2.6 SSE scaling | Partial | progress coalescing landed (#2972); connection indexing by tenant, shared heartbeat, and connection caps still open |
+| P2.4 per-tenant ceilings | **Done** | AI chat rate limit + default loop budgets, Akeneo 429 bound + timeout, Gmail timeout (#2976/#3014); per-tenant active-subscription cache in the webhooks outbound-dispatch subscriber (#6276, merged 2026-09-22; implements #2974, issue still open) |
+| P2.5 events throughput | Partial | async-strategy abandoned-job sweep/DLQ landed; `events` worker concurrency default still 1 (`WORKERS_EVENTS_CONCURRENCY` overrides it); local strategy still has no DLQ |
+| P2.6 SSE scaling | Partial | progress coalescing landed (#2972); connection indexing by tenant, shared heartbeat, and connection caps still open. Coalescing for other bulk broadcasters: see the P2.2 row (spec #5895, implementation #5896 open) |
 | P3.1 Redis pub/sub bridge | Open | transport still `pg_notify`/`LISTEN` |
-| P3.2 HNSW + shared Meilisearch index | Open | still ivfflat `lists=100`; still index-per-tenant |
+| P3.2 HNSW + shared Meilisearch index | Open | still ivfflat `lists = 100`; still index-per-tenant |
 | P3.3 bootstrap cross-request safety | Open | `OM_BOOTSTRAP_CACHE` still default-off (#2963) |
 | P3.4 index work | Partial | token composite index landed (#2966/#3000); GIN on `entity_indexes.doc` still open |
 | DB [HIGH] hot-path search `console.info` | **Done** | level-gated `logger.debug` |
@@ -259,14 +267,27 @@ The org-scope cross-request cache also remains opt-in (`OM_ORG_SCOPE_CACHE_TTL_M
 A local production-topology benchmark (4 vCPU / 8 GB app container, separate PostgreSQL/Redis/Meilisearch containers, k6 protocol + Chromium journeys, 2.08M-row seeded dataset) produced results consistent with this spec's diagnosis:
 
 - A sharp latency knee near 20 offered business journeys/s (~50 HTTP req/s): p95 3.2 s, p99 14.9 s, dropped work — while the app peaked at ~40% of its CPU allocation and PostgreSQL at ~25%. Repeating the same ramp on a 13× smaller dataset did not move the knee — consistent with dataset size and database CPU not being the first constraint, and pointing at Themes A, C, and D (per-request framework overhead, synchronous fan-out, dead caches).
-- Code-level verification against `develop@421cefe668` (branch tip as of 2026-08-29) located the mechanisms at current positions: dispatcher auth at `apps/mercato/src/app/api/[...slug]/route.ts:369` with a second full canonical resolution via `packages/shared/src/lib/crud/factory.ts:1397` → `packages/shared/src/lib/auth/server.ts:357`; unconditional registrar replay per container at `packages/shared/src/lib/di/container.ts:248`; the `custom_field_defs` discovery query at `packages/core/src/modules/query_index/di.ts:255-257` (observed ~4× per HTTP request under load); serial response-enricher execution at `packages/shared/src/lib/crud/enricher-runner.ts:228` (2,104 slow-enricher threshold events in one 3-minute run at 20 journeys/s, with the unthrottled warning itself adding load).
+- Code-level verification located the mechanisms first at `develop@421cefe668` (2026-08-29). A re-check at `develop@0c5dd630b5` (2026-09-30) finds them all still present, at these positions: dispatcher auth at `apps/mercato/src/app/api/[...slug]/route.ts:369` with a second full canonical resolution via `packages/shared/src/lib/crud/factory.ts:1504` → `packages/shared/src/lib/auth/server.ts:357`; unconditional registrar replay per container at `packages/shared/src/lib/di/container.ts:257`; the `custom_field_defs` discovery query at `packages/core/src/modules/query_index/di.ts:255-257` (observed ~4× per HTTP request under load); serial response-enricher execution at `packages/shared/src/lib/crud/enricher-runner.ts:341` (2,104 slow-enricher threshold events in one 3-minute run at 20 journeys/s, with the unthrottled warning itself adding load).
 - The per-request `query_index` `setup()` also re-registers event-bus listeners on the process-shared bus on every request (listener accumulation) — an aggravator of the #2967/#2963 cluster not called out in the 2026-06 audit.
 
-The 2026-08 evidence also revises two of the original assessments upward. Theme D's "2–3×" container count measures ~4 builds on a normal CRUD request. And the enricher runner — listed under *Solid* in the HTTP findings with only a [LOW] item — behaves as a first-order list-tail amplifier under load (serial execution, no per-request field opt-in, read-through cache plumbing present but unused by any shipped enricher); none of that is covered by the original fifteen issues.
+The 2026-08 evidence also revises two of the original assessments upward. Theme D's "2–3×" container count measures ~4 builds on a normal CRUD request. And the enricher runner — listed under *Solid* in the HTTP findings with only a [LOW] item — behaves as a first-order list-tail amplifier under load (serial execution, no per-request field opt-in, and read-through cache plumbing that no shipped enricher used at `421cefe668`); none of that is covered by the original fifteen issues. Since then the three WMS inventory enrichers have adopted the read-through cache (#5894, merged 2026-09-10, closing #5780), and the same PR extended the runner to cache additive enrichment deltas (`8b820948d2`). Execution is still serial at `0c5dd630b5`.
 
 Priority implication: the benchmarked build already contained the shipped P0 fixes (the cache singleton and the two-phase encrypted sort are ancestors of the benchmarked commit), so the measured knee characterizes what is **still open** — the request-container/auth duplication cluster (#2958/#2977/#2978), the query_index metadata caches (#2967), and enricher execution — not the items the June–July wave already fixed. The measurements therefore strengthen the remaining-P1 ordering rather than re-litigating P0.
 
 ## Changelog
 - **2026-06-03** — initial research + roadmap from 8 parallel domain audits; no code change.
-- **2026-08-29** — recovered from the local `refs/codex/snapshots/*` history (identical blob in all seven `startup-cleanup` snapshots) and submitted to `develop` for the first time via PR #5777, resolving #4635. Added the Recovery & status addendum: provenance, roadmap→tracker mapping for #2958–#2983 (#2972 implemented), a develop-verified roadmap status table (P0 largely shipped since June — P0.1–P0.4 and P1.1 done, P0.5 partial; P1.2–P1.5, P2.2b, P2.3, P2.4d, P3.1–P3.3 still open), pointers to the 2026-08 follow-up issues, and empirical validation from the 2026-08 production-topology benchmarks.
+- **2026-08-29** — recovered from the local `refs/codex/snapshots/*` history (identical blob in all seven `startup-cleanup` snapshots) and submitted to `develop` for the first time via PR #5777, resolving #4635. Added the Recovery & status addendum: provenance, roadmap→tracker mapping for #2958–#2983 (#2972 implemented), a develop-verified roadmap status table (P0 largely shipped since June — P0.1–P0.3 and P1.1 done, P0.4 done for the shared engines (#3278, #3395) with the custom-handler rollout still open (#3386), P0.5 partial; P1.2–P1.5, P2.2's SSE/NOTIFY half, P2.3, P2.4's webhooks negative cache, and P3.1–P3.3 still open), pointers to the 2026-08 follow-up issues, and empirical validation from the 2026-08 production-topology benchmarks.
 - **2026-08-29 (review round)** — architectural-review corrections applied inline as marked annotations: reading-guidance banner (research roadmap, not an implementation spec; architectural units P2.1/P2.2/P3.1–P3.4 require focused specs); superseded P0.4's hash-column sort (a hash does not preserve ordering; the shipped two-phase bounded sort is the fix); corrected P2.1 (projection/coverage stay synchronous for read-your-writes — durable idempotent tail event, not a wholesale persistent subscriber); required an event-delivery contract for P2.2/P3.1; flagged P3.2 as security-incomplete (shared index must enforce tenant + organization filters and ACL-feature gating, never tenant-only); constrained P3.4's GIN idea to non-encrypted projections (`entity_indexes.doc` is encrypted at rest); fixed the `2026-05-07` Related link to its `implemented/` location.
+- **2026-09-30** — status refresh to `develop@0c5dd630b5`, plus spec-review fixes:
+  - P0.4 credit corrected. It is done for the shared engines (#3278, #3395), and the custom-handler rollout is still open (#3386). This is fixed in the P0 note, the status table, and the 2026-08-29 changelog entry.
+  - #2982 row now cites the merged work: #5402 (batch path), #5650 (single-record path), and #4805 (token-growth bound). The open issue #4681 is no longer cited. The row marks #2982 as substantively implemented.
+  - P2.1 deferral credited to #2549. #3236 added the opt-in always-consistent mode and did not introduce the deferral.
+  - P2.4 marked Done after #6276, which implements #2974.
+  - #2967 row: the anchor finding is partly addressed by #5614 and #6277. The query_index instance caches, the per-request discovery query, and the once-guarded event wiring are still open.
+  - #2968 clarified: #5766 is not a single-flight fix.
+  - Adjacent issues #5604–#5619 refreshed: #5605, #5606, and #5619 are closed; #5604 is implemented by #5766.
+  - Linked the focused SSE-coalescing spec (#5895) and its open implementation PR #5896 from P2.2 and P2.6.
+  - Re-verified every status row at the new commit. P1.2, P1.4, P2.3, P2.5, P3.2, and P3.3 are still open, and the P1.3 route count was re-measured.
+  - Re-pinned the mechanism line references and noted the WMS enricher cache adoption (#5894).
+  - Added a `[2026-08 correction]` pointer under the Risks table for the superseded 2.1 row.
+  - Spelled out the sub-item ids that were undefined before (`P2.2b`, `P2.4d`).
