@@ -118,6 +118,14 @@ its own. Spec:
 - Never multiply an audience estimate by a step count to get a message volume. A subject walks ONE split lane, and
   every gate can still drop a message, so the product is a confident number that is wrong in the direction that
   matters. Report people, and the largest number of messages one person can receive, separately.
+- Never let a suppression import write `subscribed`. A CSV is not consent: nobody in that file agreed to anything
+  in this system, so an import that could mark people as subscribed would manufacture the evidence a shop may have
+  to substantiate. Taking somebody OFF a list needs no such evidence, which is why only that direction exists.
+- Never report an import as applied when addresses matched nobody. `primary_email` is encrypted, so the lookup
+  decrypts a bounded window of recent rows — on a large installation an older customer will not match, and the
+  operator has to be able to see that their list was not fully applied.
+- Never guess which column of an imported CSV is an address. A row with nothing usable is counted and reported;
+  guessing suppresses whoever the guess lands on, and there is no import that can undo it.
 - Never make erasure delete rows. It nulls the subject link — including inside the run context's jsonb —
   so the person is unidentifiable while last quarter's reported totals stay true. And never erase a consent
   record: forgetting an unsubscribe is how somebody gets mailed again.
@@ -386,6 +394,7 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | daily series behind the results chart | `lib/analytics/daily-series.ts` |
 | which links were clicked, and its overlap rule | `lib/analytics/links.ts` |
 | drop-off INSIDE a journey, and the split rule | `lib/analytics/step-funnel.ts` |
+| importing somebody else's suppression list | `lib/engine/csv-emails.ts`, `api/consent/import/` |
 | journey preview, and why it reuses the engine | `lib/preview.ts` |
 | learned send hour, and its minimum evidence | `lib/analytics/send-time.ts` |
 | A/B results, winner rules, the two metrics | `lib/analytics/split-results.ts`, `lib/winner-metric.ts` |
