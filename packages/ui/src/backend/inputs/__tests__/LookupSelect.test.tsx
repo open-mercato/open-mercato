@@ -413,6 +413,26 @@ describe('LookupSelect keeps the selection across browse fetches', () => {
     expect(screen.getByRole('option', { selected: true })).toHaveTextContent(STORED.title)
   })
 
+  it('keeps a known selection listed when the browse fetch comes back empty', async () => {
+    const fetchItems = jest.fn(async (query: string) => (query ? [STORED] : []))
+    function Harness() {
+      const [value, setValue] = React.useState<string | null>(null)
+      return <LookupSelect value={value} onChange={setValue} fetchItems={fetchItems} />
+    }
+    const { container } = render(<Harness />)
+    const input = getInput(container)
+
+    fireEvent.change(input, { target: { value: 'Stored' } })
+    fireEvent.click(await screen.findByRole('option'))
+    fireEvent.change(input, { target: { value: '' } })
+
+    await waitFor(() => expect(fetchItems).toHaveBeenLastCalledWith(''))
+    await waitFor(() => expect(screen.queryByText('Searching…')).toBeNull())
+    expect(screen.getByRole('option', { selected: true })).toHaveTextContent(STORED.title)
+    expect(screen.getAllByRole('option')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Clear selection' })).toBeInTheDocument()
+  })
+
   it('never re-adds a previous selection after the value moves on', async () => {
     const fetchItems = jest.fn(async (query: string) => (query ? [FIRST_PAGE[0]] : FIRST_PAGE))
     const view = render(
