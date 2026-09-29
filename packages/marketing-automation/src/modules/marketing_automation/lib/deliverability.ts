@@ -1,0 +1,146 @@
+import type { AwilixContainer } from 'awilix'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
+import { MarketingCampaign } from '../data/entities.js'
+import { evaluateBreaker } from './engine/deliverability.js'
+import type { BreakerDecision } from './engine/deliverability.js'
+
+/**
+ * The deliverability guardrail: reading each live campaign's recent attempts and pausing the ones being refused.
+ *
+ * Pausing is a real unpublish through the ordinary command, not a flag of our own — a campaign that looks
+ * enabled but sends nothing is the worst of both, and an operator who reopens the campaign list must see the
+ * truth there rather than on a separate screen.
+ */
+
+export type DeliverabilityScope = { tenantId: string; organizationId: string }
+
+/** How far back the breaker looks. Long enough for a rate, short enough to be about now. */
+export const WINDOW_HOURS = 24
+
+type RateRow = { campaign_id: string; sent: string; failed: string }
+
+export type BreakerOutcome = {
+  campaignId: string
+  campaignName: string
+  decision: Extract<BreakerDecision, { trip: true }>
+}
+
+/**
+ * Pauses every enabled campaign whose recent sends are mostly failing.
+ *
+ * Counted in ONE grouped query over the window rather than per campaign: this runs on the periodic pass, and a
+ * query per campaign would make the guardrail the most expensive thing in the sweep.
+ */
+export async function applyDeliverabilityGuardrails(
+  em: EntityManager,
+  container: AwilixContainer,
+  scope: DeliverabilityScope,
+  now: Date,
+): Promise<BreakerOutcome[]> {
+  const since = new Date(now.getTime() - WINDOW_HOURS * 3_600_000)
+
+  const rows = await em.getConnection().execute<RateRow[]>(
+    `select campaign_id,
+            count(*) filter (where status = 'sent')::text as sent,
+            count(*) filter (where status = 'failed')::text as failed
+       from marketing_message_sends
+      where tenant_id = ? and organization_id = ? and sent_at >= ?
+      group by campaign_id`,
+    [scope.tenantId, scope.organizationId, since],
+  )
+  if (rows.length === 0) return []
+
+  const tripped: BreakerOutcome[] = []
+
+  for (const row of rows) {
+    const decision = evaluateBreaker({
+      sent: Number.parseInt(row.sent ?? '0', 10) || 0,
+      failed: Number.parseInt(row.failed ?? '0', 10) || 0,
+    })
+    if (!decision.trip) continue
+
+    // Only a LIVE campaign can be paused, and re-reading it here is also what stops a second pass from
+    // pausing the same campaign twice and notifying twice.
+    const campaign = await em.findOne(MarketingCampaign, {
+      id: row.campaign_id,
+      ...scope,
+      deletedAt: null,
+      isEnabled: true,
+    })
+    if (!campaign) continue
+
+    const commandBus = container.resolve<CommandBus>('commandBus')
+    await commandBus.execute('marketing_automation.campaigns.set_enabled', {
+      input: { id: campaign.id, isEnabled: false, updatedAt: campaign.updatedAt.toISOString() },
+      ctx: {
+        container,
+        auth: null,
+        organizationScope: null,
+        selectedOrganizationId: scope.organizationId,
+        organizationIds: [scope.organizationId],
+      },
+    })
+
+    tripped.push({ campaignId: campaign.id, campaignName: campaign.name, decision })
+  }
+
+  return tripped
+}
+
+type NotificationServiceLike = {
+  createForFeature(
+    input: {
+      type: string
+      titleKey?: string
+      bodyKey?: string
+      titleVariables?: Record<string, string>
+      bodyVariables?: Record<string, string>
+      severity?: 'info' | 'success' | 'warning' | 'error'
+      sourceModule?: string
+      linkHref?: string
+      groupKey?: string
+      requiredFeature: string
+    },
+    ctx: { tenantId: string; organizationId?: string | null; userId?: string | null },
+  ): Promise<unknown>
+}
+
+/**
+ * Tells whoever can fix it.
+ *
+ * Addressed by FEATURE rather than to a named person: the campaign may have been published by somebody who has
+ * left, and the people who can republish it are exactly those holding the manage grant.
+ */
+export async function announceBreaker(
+  container: AwilixContainer,
+  scope: DeliverabilityScope,
+  outcome: BreakerOutcome,
+): Promise<void> {
+  let notifications: NotificationServiceLike
+  try {
+    notifications = container.resolve<NotificationServiceLike>('notificationService')
+  } catch {
+    return
+  }
+  await notifications.createForFeature(
+    {
+      type: 'marketing_automation.deliverability_paused',
+      titleKey: 'marketing_automation.notifications.deliverability.title',
+      bodyKey: 'marketing_automation.notifications.deliverability.body',
+      titleVariables: { campaign: outcome.campaignName },
+      bodyVariables: {
+        campaign: outcome.campaignName,
+        rate: String(Math.round(outcome.decision.failureRate * 100)),
+        attempts: String(outcome.decision.attempts),
+      },
+      severity: 'error',
+      sourceModule: 'marketing_automation',
+      linkHref: `/backend/marketing/campaigns/${outcome.campaignId}`,
+      // One notice per campaign: a repeat pass must not stack alerts about the same pause.
+      groupKey: `marketing_automation.deliverability.${outcome.campaignId}`,
+      requiredFeature: 'marketing_automation.campaigns.manage',
+    },
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
+}

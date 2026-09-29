@@ -67,7 +67,8 @@ export type ExecutorSideEffects<TDeps> = {
    */
   recordSend(entry: {
     channel: NonNullable<StepHandler<TDeps>['channel']>
-    status: 'sent' | 'suppressed'
+    /** `failed` is recorded too, so a campaign being refused by the transport is visible as refusal. */
+    status: 'sent' | 'suppressed' | 'failed'
     stepId: string
     suppressionReason?: string | null
   }): Promise<void>
@@ -271,6 +272,22 @@ export async function executeRun<TDeps>(
     try {
       result = await handler.execute({ ...context, actionId: step.id, runId: run.id }, step.params, deps)
     } catch (error) {
+      /**
+       * A failed SEND is recorded as one, not just as a failed run.
+       *
+       * Without this, a campaign whose every message is rejected by the transport looks quiet rather than
+       * broken: the delivery figures count what went out and nothing counts what did not, so the
+       * deliverability guardrail would have no signal and the results screen would understate the problem as
+       * "fewer sends". Recorded before the transition, and never with the transport's own text — that quotes
+       * the address it rejected.
+       */
+      if (handler.channel) {
+        try {
+          await effects.recordSend({ channel: handler.channel, status: 'failed', stepId: step.id })
+        } catch {
+          // Bookkeeping must not replace the real error with its own.
+        }
+      }
       // Progress is reported rather than thrown away — see the `failed` transition. The message is
       // redacted because it is third-party text that will be persisted to jsonb and returned by the
       // runs API: a transport rejection quotes the address it rejected, and this module keeps

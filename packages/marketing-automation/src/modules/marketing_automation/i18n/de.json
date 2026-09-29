@@ -168,6 +168,8 @@
   "marketing_automation.list.empty.title": "Noch keine Kampagnen",
   "marketing_automation.list.title": "Kampagnen",
   "marketing_automation.nav.group": "Marketing",
+  "marketing_automation.notifications.deliverability.body": "{rate}% der letzten {attempts} Versuche sind fehlgeschlagen, daher wurde die Kampagne deaktiviert, um die Sendedomain zu schützen. Ursache beheben, dann erneut veröffentlichen.",
+  "marketing_automation.notifications.deliverability.title": "{campaign} wurde angehalten",
   "marketing_automation.notifications.leadDigest.body": "Du betreust jetzt insgesamt {total} Leads. Neu diese Woche: {names}.",
   "marketing_automation.notifications.leadDigest.title": "{count} neue Leads diese Woche",
   "marketing_automation.nps.band.detractor": "Kritiker",

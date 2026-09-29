@@ -137,6 +137,13 @@ its own. Spec:
   which lane a subject takes is decided by the engine, not by an edge somebody drew — an author who
   can draw an edge has been promised a topology it cannot run. Edges are derived; order lives in the
   definition arrays.
+- Never derive the agent's tool list from the pack. It is written out by hand so a tool added to the module does
+  not arrive in the agent's hands for free — an enable tool would otherwise hand it the power to publish, which
+  is the one thing this module reserves for a person.
+- Never let the deliverability breaker trip on a small sample. A guardrail that pauses working campaigns gets
+  switched off, and then it is not a guardrail.
+- Never claim the breaker measures bounces or complaints. Those need provider feedback the platform has no
+  contract for; it watches the failure rate of attempted sends, which is the signal this module owns.
 - Never invent a customer field the platform does not have. Channel targeting is "has bought in this channel"
   (`orders.channels`, derived from orders) and language is the customer's OWN choice in the preference centre —
   a "belongs to this store" column or a language guessed from an address would each be a second source of truth
@@ -306,6 +313,8 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | what the recipient asked for, and the gate | `lib/preferences.ts`, `lib/engine/gates.ts` → preference |
 | the only PORTAL route in the module | `api/portal/preferences/` |
 | the first-run readiness checks | `lib/engine/readiness.ts`, `api/readiness/` |
+| the campaign authoring agent and its limits | `ai-agents.ts`, `ai-tools/__tests__/agent-cannot-publish.test.ts` |
+| the deliverability breaker and what it can see | `lib/engine/deliverability.ts`, `lib/deliverability.ts` |
 | a step that writes into the run context | `steps/issue-referral-code.ts` |
 | enrolment shared by events and sweeps | `lib/dispatcher.ts` → `startCampaignForSubject` |
 | trigger context hydration | `lib/trigger-catalog.ts` |

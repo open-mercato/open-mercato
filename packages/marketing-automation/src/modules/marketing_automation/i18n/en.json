@@ -168,6 +168,8 @@
   "marketing_automation.list.empty.title": "No campaigns yet",
   "marketing_automation.list.title": "Campaigns",
   "marketing_automation.nav.group": "Marketing",
+  "marketing_automation.notifications.deliverability.body": "{rate}% of the last {attempts} attempts failed, so the campaign was unpublished to protect the sending domain. Fix the cause, then publish it again.",
+  "marketing_automation.notifications.deliverability.title": "{campaign} was paused",
   "marketing_automation.notifications.leadDigest.body": "You now have {total} leads in total. New this week: {names}.",
   "marketing_automation.notifications.leadDigest.title": "{count} new leads this week",
   "marketing_automation.nps.band.detractor": "Detractor",

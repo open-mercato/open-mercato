@@ -775,6 +775,23 @@ eight-way concurrent worker and is now backed by a partial unique index on the a
 
 ## Changelog
 
+- **2026-09-29** — X-04 and X-13. **The Campaign Author agent** turns a described intention into a saved draft
+  over the tool pack that already existed. Its tool list is written out by hand rather than derived from the
+  pack: a tool added to the module must not arrive in the agent's hands for free, and the enable tool this
+  module refuses to write would otherwise hand it the power to publish. Eight tests assert that — every tool it
+  may call exists, none of them suggests enabling, publishing or sending, every write is confirm-required, the
+  loop is bounded, and the prompt says plainly that publishing is a human decision. **The deliverability
+  breaker** pauses a campaign whose recent sends are mostly failing, by unpublishing it through the ordinary
+  command rather than setting a flag of its own — a campaign that looks enabled and sends nothing is the worst
+  of both — and notifies by FEATURE rather than by person, because whoever published it may have left while the
+  people who can fix it are those holding the manage grant. It is conservative in both directions: a small
+  sample never trips it and a campaign that is merely unlucky is left alone, since a guardrail that pauses
+  working campaigns gets switched off. It watches the failure rate of attempted sends, and says so: bounce and
+  complaint rates need provider feedback webhooks the platform has no contract for, recorded as a core proposal
+  rather than faked. **A gap closed on the way:** a failed send was not recorded as a send at all, so a campaign
+  being refused by the transport looked quiet rather than broken — the results screen understated it as "fewer
+  sends" and the breaker would have had no signal. 727 unit tests, 146 integration tests.
+
 - **2026-09-29** — X-03 and B-27, closing the unblocked backlog. **Channel targeting** is
   `orders.channels CONTAINS '<code>'`, pushed down to SQL as a join on `sales_channels`, and means "has bought
   through this channel": the platform has no "belongs to this store" field on a customer, so deriving it from

@@ -19,6 +19,7 @@ import { pruneJobRuns, recordJobRun } from '../lib/job-runs.js'
 import { pruneSegmentSnapshots, takeSegmentSnapshots } from '../lib/segment-snapshots.js'
 import { scanPriceWatches } from '../lib/product-watches.js'
 import { sendWeeklyLeadDigests, DIGEST_JOB_KIND } from '../lib/lead-digest.js'
+import { announceBreaker, applyDeliverabilityGuardrails } from '../lib/deliverability.js'
 import { emitMarketingAutomationEvent } from '../events.js'
 import { MarketingCampaignTrigger as TriggerEntity } from '../data/entities.js'
 import type { MarketingCampaign, MarketingCampaignTrigger } from '../data/entities.js'
@@ -325,6 +326,28 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
         attributes: { campaignId: campaign.id },
       })
     }
+  }
+
+  /**
+   * The deliverability guardrail, before anything else on this pass.
+   *
+   * First because everything below is about sending more: a campaign being refused by the transport should stop
+   * before the sweep enrols another thousand people into it.
+   */
+  try {
+    const tripped = await applyDeliverabilityGuardrails(deps.em, deps.container, scope, deps.now)
+    for (const outcome of tripped) {
+      logger.warn('marketing campaign paused by the deliverability guardrail', {
+        campaignId: outcome.campaignId,
+        failureRate: outcome.decision.failureRate,
+        attempts: outcome.decision.attempts,
+      })
+      await announceBreaker(deps.container, scope, outcome)
+    }
+  } catch (error) {
+    logger.warn('[internal] marketing deliverability guardrail failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
   }
 
   /**

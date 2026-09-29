@@ -168,6 +168,8 @@
   "marketing_automation.list.empty.title": "Todavía no hay campañas",
   "marketing_automation.list.title": "Campañas",
   "marketing_automation.nav.group": "Marketing",
+  "marketing_automation.notifications.deliverability.body": "Falló el {rate}% de los últimos {attempts} intentos, así que la campaña se despublicó para proteger el dominio de envío. Corrige la causa y vuelve a publicarla.",
+  "marketing_automation.notifications.deliverability.title": "Se pausó {campaign}",
   "marketing_automation.notifications.leadDigest.body": "Ahora llevas {total} leads en total. Nuevos esta semana: {names}.",
   "marketing_automation.notifications.leadDigest.title": "{count} leads nuevos esta semana",
   "marketing_automation.nps.band.detractor": "Detractor",

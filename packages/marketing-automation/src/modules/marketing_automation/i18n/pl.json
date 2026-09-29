@@ -168,6 +168,8 @@
   "marketing_automation.list.empty.title": "Brak kampanii",
   "marketing_automation.list.title": "Kampanie",
   "marketing_automation.nav.group": "Marketing",
+  "marketing_automation.notifications.deliverability.body": "{rate}% z ostatnich {attempts} prób zakończyło się błędem, więc kampania została wyłączona, aby chronić domenę wysyłkową. Napraw przyczynę i opublikuj ją ponownie.",
+  "marketing_automation.notifications.deliverability.title": "Kampania {campaign} została wstrzymana",
   "marketing_automation.notifications.leadDigest.body": "Prowadzisz teraz łącznie {total} leadów. Nowe w tym tygodniu: {names}.",
   "marketing_automation.notifications.leadDigest.title": "{count} nowych leadów w tym tygodniu",
   "marketing_automation.nps.band.detractor": "Krytyk",

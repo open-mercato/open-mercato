@@ -168,6 +168,8 @@
   "marketing_automation.list.empty.title": "아직 캠페인이 없습니다",
   "marketing_automation.list.title": "캠페인",
   "marketing_automation.nav.group": "마케팅",
+  "marketing_automation.notifications.deliverability.body": "최근 {attempts}건의 시도 중 {rate}%가 실패해, 발송 도메인을 보호하기 위해 캠페인을 비공개로 전환했습니다. 원인을 해결한 뒤 다시 공개하세요.",
+  "marketing_automation.notifications.deliverability.title": "{campaign} 캠페인이 중지되었습니다",
   "marketing_automation.notifications.leadDigest.body": "이제 총 {total}건을 담당합니다. 이번 주 새 리드: {names}.",
   "marketing_automation.notifications.leadDigest.title": "이번 주 새 리드 {count}건",
   "marketing_automation.nps.band.detractor": "비추천 고객",
