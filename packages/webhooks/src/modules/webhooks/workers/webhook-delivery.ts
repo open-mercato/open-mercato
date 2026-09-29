@@ -16,7 +16,7 @@ export default async function handler(
 ) {
   const em = (ctx.resolve('em') as EntityManager).fork()
   try {
-    await processWebhookDeliveryJob(em, job.payload)
+    await processWebhookDeliveryJob(em, job.payload, { resolver: ctx.resolve })
   } catch (error) {
     logger.error('Job processing failed', {
       deliveryId: job.payload?.deliveryId,

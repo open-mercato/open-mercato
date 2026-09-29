@@ -141,6 +141,7 @@ export type StepIndicatorProps = React.HTMLAttributes<HTMLOListElement> &
   VariantProps<typeof rootVariants> & {
     steps: StepIndicatorStep[]
     size?: 'sm' | 'default'
+    showNumbers?: boolean
     /** Optional callback. When provided, every step becomes a button. */
     onStepClick?: (stepId: string) => void
     /** Optional restriction on which statuses are clickable. Defaults to
@@ -163,6 +164,7 @@ export const StepIndicator = React.forwardRef<HTMLOListElement, StepIndicatorPro
       steps,
       orientation,
       size,
+      showNumbers = false,
       onStepClick,
       clickableStatuses = DEFAULT_CLICKABLE,
       ...props
@@ -189,10 +191,10 @@ export const StepIndicator = React.forwardRef<HTMLOListElement, StepIndicatorPro
             <span
               data-slot="step-indicator-dot"
               data-status={step.status}
-              className={cn(dotVariants({ size, status: step.status }))}
+              className={cn(dotVariants({ size, status: step.status }), showNumbers && 'text-xs font-medium', showNumbers && step.status === 'pending' && 'text-muted-foreground')}
               aria-current={step.status === 'current' ? 'step' : undefined}
             >
-              {renderDotContent(step.status)}
+              {showNumbers && (step.status === 'pending' || step.status === 'current') ? index + 1 : renderDotContent(step.status)}
             </span>
           )
 
@@ -278,6 +280,54 @@ export const StepIndicator = React.forwardRef<HTMLOListElement, StepIndicatorPro
   },
 )
 StepIndicator.displayName = 'StepIndicator'
+
+export type StepperDotsProps = React.HTMLAttributes<HTMLDivElement> & {
+  count: number
+  activeStep: number
+  size?: 'sm' | 'xs'
+}
+
+export const StepperDots = React.forwardRef<HTMLDivElement, StepperDotsProps>(
+  ({ count, activeStep, size = 'sm', className, ...props }, ref) => {
+    const t = useT()
+    const stepCount = Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0
+    const currentStep = Number.isFinite(activeStep)
+      ? Math.min(Math.max(0, Math.floor(activeStep)), stepCount - 1)
+      : 0
+
+    if (stepCount === 0) return null
+
+    return (
+      <div
+        ref={ref}
+        role="progressbar"
+        aria-valuemin={1}
+        aria-valuemax={stepCount}
+        aria-valuenow={currentStep + 1}
+        aria-label={t('ui.stepIndicator.progress.ariaLabel', 'Step progress')}
+        data-slot="stepper-dots"
+        data-size={size}
+        className={cn('inline-flex items-center', size === 'xs' ? 'gap-1.5' : 'gap-2.5', className)}
+        {...props}
+      >
+        {Array.from({ length: stepCount }, (_, index) => (
+          <span
+            key={index}
+            aria-hidden="true"
+            data-slot="stepper-dot"
+            data-state={index === currentStep ? 'active' : 'inactive'}
+            className={cn(
+              'shrink-0 rounded-full',
+              size === 'xs' ? 'size-1' : 'size-2',
+              index === currentStep ? 'bg-accent-indigo' : 'bg-border',
+            )}
+          />
+        ))}
+      </div>
+    )
+  },
+)
+StepperDots.displayName = 'StepperDots'
 
 export {
   rootVariants as stepIndicatorRootVariants,

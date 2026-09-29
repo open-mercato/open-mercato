@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/shared",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -129,6 +129,7 @@
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "jest": "^30.4.2",
+    "language-subtag-registry": "^0.3.20",
     "ts-jest": "^29.4.12",
     "ts-morph": "^28.0.0",
     "typescript": "7.0.2"
