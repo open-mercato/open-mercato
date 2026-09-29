@@ -233,14 +233,113 @@ describe('createBoundedPendingOperationTracker', () => {
     tracker.tryStart(async () => undefined)
 
     expect(onDrop).toHaveBeenCalledTimes(2)
-    expect(onDrop).toHaveBeenNthCalledWith(1, { dropped: 1, totalDropped: 1 })
-    expect(onDrop).toHaveBeenNthCalledWith(2, { dropped: 2, totalDropped: 3 })
+    expect(onDrop).toHaveBeenNthCalledWith(1, { dropped: 1, totalDropped: 1, backlogDrained: false })
+    expect(onDrop).toHaveBeenNthCalledWith(2, { dropped: 2, totalDropped: 3, backlogDrained: false })
     currentTime = 120_000
     tracker.tryStart(async () => undefined)
-    expect(onDrop).toHaveBeenNthCalledWith(3, { dropped: 1, totalDropped: 4 })
+    expect(onDrop).toHaveBeenNthCalledWith(3, { dropped: 1, totalDropped: 4, backlogDrained: false })
     expect(points.filter((point) => point.name === 'om.audit_logs.dropped')).toHaveLength(4)
     active.resolve()
     await tracker.flush()
+    expect(onDrop).toHaveBeenCalledTimes(3)
+  })
+
+  it('reports drops suppressed inside the throttle window once when the backlog drains', async () => {
+    let currentTime = 0
+    const onDrop = jest.fn()
+    const firstBurst = deferred<void>()
+    const tracker = createBoundedPendingOperationTracker({
+      capacity: 1,
+      stage: 'crud_dispatch',
+      now: () => currentTime,
+      onDrop,
+    })
+    tracker.tryStart(() => firstBurst.promise)
+    for (const droppedAt of [0, 1_000, 2_000, 3_000, 4_000]) {
+      currentTime = droppedAt
+      tracker.tryStart(async () => undefined)
+    }
+    expect(onDrop).toHaveBeenCalledTimes(1)
+    expect(onDrop).toHaveBeenLastCalledWith({ dropped: 1, totalDropped: 1, backlogDrained: false })
+
+    firstBurst.resolve()
+    await tracker.flush()
+    expect(onDrop).toHaveBeenCalledTimes(2)
+    expect(onDrop).toHaveBeenLastCalledWith({ dropped: 4, totalDropped: 5, backlogDrained: true })
+
+    const secondBurst = deferred<void>()
+    currentTime = 10_000
+    tracker.tryStart(() => secondBurst.promise)
+    tracker.tryStart(async () => undefined)
+    expect(onDrop).toHaveBeenCalledTimes(2)
+
+    secondBurst.resolve()
+    await tracker.flush()
+    expect(onDrop).toHaveBeenCalledTimes(3)
+    expect(onDrop).toHaveBeenLastCalledWith({ dropped: 1, totalDropped: 6, backlogDrained: true })
+  })
+
+  it('does not repeat an already reported drop when the backlog drains', async () => {
+    const onDrop = jest.fn()
+    const active = deferred<void>()
+    const tracker = createBoundedPendingOperationTracker({ capacity: 1, stage: 'test', onDrop })
+    tracker.tryStart(() => active.promise)
+    tracker.tryStart(async () => undefined)
+
+    active.resolve()
+    await tracker.flush()
+    expect(onDrop).toHaveBeenCalledTimes(1)
+    expect(onDrop).toHaveBeenCalledWith({ dropped: 1, totalDropped: 1, backlogDrained: false })
+  })
+
+  it('isolates drain notification failures without reporting the same drops again', async () => {
+    const failure = new Error('[internal] drop sink failed')
+    const onDrop = jest.fn(() => {
+      throw failure
+    })
+    const onError = jest.fn()
+    const tracker = createBoundedPendingOperationTracker({
+      capacity: 1,
+      stage: 'test',
+      now: () => 0,
+      onDrop,
+      onError,
+    })
+    const active = deferred<void>()
+    tracker.tryStart(() => active.promise)
+    tracker.tryStart(async () => undefined)
+    tracker.tryStart(async () => undefined)
+
+    active.resolve()
+    await tracker.flush()
+    expect(tracker.pending).toBe(0)
+    expect(onDrop).toHaveBeenCalledTimes(2)
+    expect(onDrop).toHaveBeenLastCalledWith({ dropped: 1, totalDropped: 2, backlogDrained: true })
+    expect(onError).toHaveBeenCalledTimes(2)
+    expect(onError).toHaveBeenLastCalledWith(failure)
+
+    expect(tracker.tryStart(async () => undefined).accepted).toBe(true)
+    await tracker.flush()
+    expect(onDrop).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not report drained drops after disposal', async () => {
+    const onDrop = jest.fn()
+    const active = deferred<void>()
+    const tracker = createBoundedPendingOperationTracker({
+      capacity: 1,
+      stage: 'test',
+      now: () => 0,
+      onDrop,
+    })
+    tracker.tryStart(() => active.promise)
+    tracker.tryStart(async () => undefined)
+    tracker.tryStart(async () => undefined)
+    tracker.dispose()
+
+    active.resolve()
+    await tracker.flush()
+    expect(onDrop).toHaveBeenCalledTimes(1)
   })
 
   it('stops collection after disposal', async () => {

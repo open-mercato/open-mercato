@@ -199,10 +199,18 @@ describe('AccessLogService.logMany', () => {
 
       expect(rejectedSingle).toBeNull()
       expect(rejectedBatch).toBe(0)
+      expect(emit).toHaveBeenCalledTimes(1)
       expect(emit).toHaveBeenCalledWith(expect.objectContaining({
         level: 'warn',
-        message: 'Dropped access-log write because pending capacity is full',
-        fields: { component: 'access-log-service', capacity: 1, stage: 'service_write', dropped: 1, totalDropped: 1 },
+        message: 'Dropped access-log writes because pending capacity was full',
+        fields: {
+          component: 'access-log-service',
+          backlogDrained: false,
+          capacity: 1,
+          stage: 'service_write',
+          dropped: 1,
+          totalDropped: 1,
+        },
       }))
     } finally {
       releaseWrite()
@@ -211,6 +219,19 @@ describe('AccessLogService.logMany', () => {
       dispose()
     }
     expect(execute).toHaveBeenCalledTimes(1)
+    expect(emit).toHaveBeenCalledTimes(2)
+    expect(emit).toHaveBeenLastCalledWith(expect.objectContaining({
+      level: 'warn',
+      message: 'Dropped access-log writes because pending capacity was full',
+      fields: {
+        component: 'access-log-service',
+        backlogDrained: true,
+        capacity: 1,
+        stage: 'service_write',
+        dropped: 1,
+        totalDropped: 2,
+      },
+    }))
   })
 })
 

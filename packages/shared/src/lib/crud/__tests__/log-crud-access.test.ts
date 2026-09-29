@@ -182,16 +182,38 @@ describe('logCrudAccess', () => {
       await logCrudAccess(options)
       await logCrudAccess(options)
       await logCrudAccess(options)
+      await logCrudAccess(options)
+      expect(emit).toHaveBeenCalledTimes(1)
       expect(emit).toHaveBeenCalledWith(expect.objectContaining({
         level: 'warn',
-        message: 'Dropped access-log dispatch because pending capacity is full',
-        fields: { component: 'crud', capacity: 2, stage: 'crud_dispatch', dropped: 1, totalDropped: 1 },
+        message: 'Dropped access-log dispatches because pending capacity was full',
+        fields: {
+          component: 'crud',
+          backlogDrained: false,
+          capacity: 2,
+          stage: 'crud_dispatch',
+          dropped: 1,
+          totalDropped: 1,
+        },
       }))
     } finally {
       releaseWrites()
       await flushPendingCrudAccessLogs()
       dispose()
     }
+    expect(emit).toHaveBeenCalledTimes(2)
+    expect(emit).toHaveBeenLastCalledWith(expect.objectContaining({
+      level: 'warn',
+      message: 'Dropped access-log dispatches because pending capacity was full',
+      fields: {
+        component: 'crud',
+        backlogDrained: true,
+        capacity: 2,
+        stage: 'crud_dispatch',
+        dropped: 1,
+        totalDropped: 2,
+      },
+    }))
   })
 
   it('skips items without a normalized id and dedupes duplicate ids', async () => {

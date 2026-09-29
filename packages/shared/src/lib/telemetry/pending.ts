@@ -10,11 +10,17 @@ export type PendingOperationAdmission<T> =
   | { accepted: true; pending: number; promise: Promise<T> }
   | { accepted: false; pending: number }
 
+export type PendingOperationDropNotification = {
+  dropped: number
+  totalDropped: number
+  backlogDrained: boolean
+}
+
 export type BoundedPendingOperationTrackerOptions = {
   capacity: number
   stage: string
   now?: () => number
-  onDrop?: (notification: { dropped: number; totalDropped: number }) => void
+  onDrop?: (notification: PendingOperationDropNotification) => void
   onError?: (error: Error) => void
   dropNotificationIntervalMs?: number
 }
@@ -115,11 +121,14 @@ export function createBoundedPendingOperationTracker(
     disposeCollector = null
   }
 
-  const finish = (token: number) => {
-    if (!pendingOperations.delete(token)) return
-    if (pendingOperations.size === 0) {
-      if (!disposed) collect()
-      stopCollector()
+  const emitDropNotification = (notifiedAt: number, backlogDrained: boolean) => {
+    lastDropNotificationAt = notifiedAt
+    const dropped = droppedSinceLastNotification
+    droppedSinceLastNotification = 0
+    try {
+      options.onDrop?.({ dropped, totalDropped: droppedCount, backlogDrained })
+    } catch (error) {
+      reportError(error)
     }
   }
 
@@ -128,13 +137,20 @@ export function createBoundedPendingOperationTracker(
     const shouldNotify = lastDropNotificationAt === null
       || droppedAt - lastDropNotificationAt >= dropNotificationIntervalMs
     if (!shouldNotify) return
-    lastDropNotificationAt = droppedAt
-    const dropped = droppedSinceLastNotification
-    droppedSinceLastNotification = 0
-    try {
-      options.onDrop?.({ dropped, totalDropped: droppedCount })
-    } catch (error) {
-      reportError(error)
+    emitDropNotification(droppedAt, false)
+  }
+
+  const notifyBacklogDrained = () => {
+    if (droppedSinceLastNotification === 0) return
+    emitDropNotification(now(), true)
+  }
+
+  const finish = (token: number) => {
+    if (!pendingOperations.delete(token)) return
+    if (pendingOperations.size === 0) {
+      if (!disposed) collect()
+      stopCollector()
+      if (!disposed) notifyBacklogDrained()
     }
   }
 

@@ -87,8 +87,9 @@ function getAccessLogWriteTracker(): BoundedPendingOperationTracker {
   current.tracker = createBoundedPendingOperationTracker({
     capacity,
     stage: 'service_write',
-    onDrop: ({ dropped, totalDropped }) => {
-      logger.warn('Dropped access-log write because pending capacity is full', {
+    onDrop: ({ dropped, totalDropped, backlogDrained }) => {
+      logger.warn('Dropped access-log writes because pending capacity was full', {
+        backlogDrained,
         capacity,
         dropped,
         totalDropped,

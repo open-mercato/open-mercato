@@ -58,7 +58,7 @@ Create a shared utility backed by `Map<operationToken, { promise, startedAtMonot
 - `flush()` that waits until all accepted work present across settlement waves is empty;
 - current depth and oldest monotonic age;
 - a dropped counter and enabled-only 10-second sampler;
-- a rate-limited drop callback, at most once per tracker/stage per 60 seconds, carrying `dropped` since the previous notification and `totalDropped` for the tracker lifetime;
+- a drop callback carrying `dropped` since the previous notification, `totalDropped` for the tracker lifetime, and `backlogDrained`. Capacity rejections notify at most once per tracker/stage per 60 seconds; when the backlog drains to empty with un-notified drops, one trailing `backlogDrained: true` notification reports them and restarts the window. No timer is used, every drop is reported no later than the drain that ends its overload episode, and a stage must re-admit `capacity` tasks before it can drop again, so drain notifications stay bounded by admitted work;
 - an explicit disposer for tests/reloads.
 
 Telemetry must not be required for enforcement: admission, settlement cleanup, and flushing work identically when telemetry is off. A sampling interval exists only while an active metric runtime is available and is cleared when the tracker empties or is disposed.
@@ -256,6 +256,10 @@ None.
 **Fully compliant: Approved — ready for implementation.**
 
 ## Changelog
+
+### 2026-09-30
+
+- Report drops suppressed by the 60-second warning throttle in one trailing `backlogDrained: true` notification when the stage backlog drains to empty, so a burst that ends inside the throttle window is no longer under-reported. Still no warning timer; this supersedes the "next eligible rejection" behavior from 2026-09-08.
 
 ### 2026-09-08
 
