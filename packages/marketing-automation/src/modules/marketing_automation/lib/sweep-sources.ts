@@ -1,6 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { SalesOrder, SalesQuote } from '@open-mercato/core/modules/sales/data/entities'
 import { sweepClaimKey } from './occurrence.js'
+import { cycleNumber, MINIMUM_PURCHASES_FOR_CYCLE, reorderCycleFor } from './engine/reorder.js'
+import { PLACED_ORDER_FILTER_SQL_ALIASED } from './order-filter.js'
 import type { RunScope } from './runs.js'
 
 /**
@@ -264,7 +266,112 @@ const birthdays: RowSweepSource = {
   },
 }
 
-export const ROW_SWEEP_SOURCES: RowSweepSource[] = [expiringQuotes, fulfilledOrders, birthdays]
+export const REORDER_DUE_SOURCE_ID = 'reorder_due'
+export const REORDER_DUE_TRIGGER_ID = 'marketing_automation.product.reorder_due'
+
+/**
+ * Customers who are due to buy a product again, at their own observed cadence.
+ *
+ * The one backlog item with no substitute for a consumables shop: the customer WILL buy more coffee, and the only
+ * question is whether they buy it here or from whoever reminded them first.
+ *
+ * **One query for the history, and the arithmetic in `lib/engine/reorder.ts`.** The rules — the median gap rather
+ * than the mean, three purchases minimum, a plausible cadence band, the tolerance — are decisions, and decisions
+ * belong somewhere they can be argued with and tested. The SQL's only job is to hand over dates.
+ *
+ * Read from the order line's CATALOGUE SNAPSHOT, like the sku list and for the same reason: a product that was
+ * renamed or re-skued must still count as the thing this customer keeps buying.
+ */
+const reorderDue: RowSweepSource = {
+  id: REORDER_DUE_SOURCE_ID,
+  labelKey: 'marketing_automation.sweep.reorder_due.label',
+  available: true,
+  triggerEventId: REORDER_DUE_TRIGGER_ID,
+  contextKeys: [
+    'trigger.sku', 'trigger.cycleDays', 'trigger.daysSinceLast', 'trigger.progress', 'trigger.purchases',
+  ],
+  /**
+   * `withinDays` means something different here, and the label says so: it is a percentage of the cycle to
+   * remind EARLY, not a window of days. Ten means "a tenth of a cycle before they run out", which for a monthly
+   * habit is three days.
+   */
+  defaultWithinDays: 10,
+  async collect(em, scope, params, now, limit, offset = 0) {
+    const tolerancePercent = Math.max(0, Math.min(params.withinDays ?? 10, 90))
+    const tolerance = tolerancePercent / 100
+
+    /**
+     * Candidate PAIRS, not candidate customers: a shop's history of (customer, product) is far larger than its
+     * customer list, so the paging the worker does has to page over pairs. Ordered by customer and sku so the
+     * order is total, which is what makes an offset safe.
+     *
+     * The `having` clause does the cheap half of the filtering in the database — a pair with fewer than three
+     * purchases can never produce a cadence — so the arithmetic below only ever runs on plausible histories.
+     */
+    const rows = await em.getConnection().execute<Array<{
+      customer_entity_id: string
+      sku: string
+      purchased_at: Array<Date | string>
+    }>>(
+      `select o.customer_entity_id,
+              coalesce(
+                l.catalog_snapshot -> 'product' ->> 'sku',
+                l.catalog_snapshot -> 'variant' ->> 'sku'
+              ) as sku,
+              array_agg(o.placed_at order by o.placed_at desc) as purchased_at
+         from sales_order_lines l
+         join sales_orders o on o.id = l.order_id
+        where ${PLACED_ORDER_FILTER_SQL_ALIASED}
+          and o.customer_entity_id is not null
+          and coalesce(
+                l.catalog_snapshot -> 'product' ->> 'sku',
+                l.catalog_snapshot -> 'variant' ->> 'sku'
+              ) is not null
+        group by 1, 2
+       having count(distinct o.id) >= ?
+        order by o.customer_entity_id, 2
+        limit ? offset ?`,
+      [scope.tenantId, scope.organizationId, MINIMUM_PURCHASES_FOR_CYCLE, limit, offset],
+    )
+
+    return rows.flatMap((row) => {
+      if (!row.customer_entity_id || !row.sku) return []
+      const purchasedAt = (row.purchased_at ?? [])
+        .map((value) => (value instanceof Date ? value : new Date(value)))
+        .filter((value) => !Number.isNaN(value.getTime()))
+
+      const cycle = reorderCycleFor({ sku: row.sku, purchasedAt }, now, tolerance)
+      if (!cycle) return []
+
+      return [{
+        subjectEntityId: row.customer_entity_id,
+        trigger: {
+          sku: cycle.sku,
+          cycleDays: cycle.cycleDays,
+          daysSinceLast: cycle.daysSinceLast,
+          progress: cycle.progress,
+          purchases: cycle.purchases,
+        },
+        /**
+         * Once per CYCLE, which is the whole point.
+         *
+         * A durable claim with no cycle number would remind somebody about their coffee exactly once, ever; no
+         * claim at all would remind them every single day once they are overdue. The cycle number makes each
+         * repeat its own claim — and the sku is in the key because being due for coffee says nothing about
+         * being due for filters.
+         */
+        claimKey: sweepClaimKey([
+          REORDER_DUE_TRIGGER_ID,
+          row.customer_entity_id,
+          cycle.sku,
+          String(cycleNumber(cycle)),
+        ]),
+      }]
+    })
+  },
+}
+
+export const ROW_SWEEP_SOURCES: RowSweepSource[] = [expiringQuotes, fulfilledOrders, birthdays, reorderDue]
 
 export function findRowSweepSource(id: string | null | undefined): RowSweepSource | undefined {
   return ROW_SWEEP_SOURCES.find((source) => source.id === id)

@@ -79,6 +79,61 @@ test.describe('TC-MA-032 lifecycle triggers', () => {
     }
   })
 
+  /**
+   * The reorder sweep, which an author picks as a SCHEDULE rather than an event.
+   *
+   * Offered as a sweep source and present in the trigger catalog as unavailable — there is nothing to subscribe
+   * to, and the catalog entry exists so the audience builder offers `trigger.sku` and `trigger.cycleDays`, which
+   * are what make "your coffee usually lasts you about a month" writable.
+   */
+  test('the reorder source is offered as a schedule with the copy context', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const response = await apiRequest(request, 'GET', PALETTE_PATH, { token })
+    expect(response.ok(), await response.text()).toBe(true)
+    const body = await readJsonSafe<{
+      sweepSources?: Array<{ id?: string; available?: boolean; contextKeys?: string[]; defaultWithinDays?: number }>
+      triggers?: PaletteTrigger[]
+    }>(response)
+
+    const source = (body?.sweepSources ?? []).find((entry) => entry.id === 'reorder_due')
+    expect(source, 'reorder_due must be offered as a sweep source').toBeTruthy()
+    expect(source?.available).toBe(true)
+    expect(source?.contextKeys).toEqual(expect.arrayContaining(['trigger.sku', 'trigger.cycleDays']))
+    // The parameter is a PERCENTAGE of the cycle here, not a window of days, so a sensible default matters.
+    expect(source?.defaultWithinDays).toBeGreaterThan(0)
+
+    const trigger = (body?.triggers ?? []).find((entry) => entry.eventId === 'marketing_automation.product.reorder_due')
+    expect(trigger, 'the synthetic trigger must be in the catalog').toBeTruthy()
+    expect(trigger?.available).toBe(false)
+  })
+
+  test('a campaign can be scheduled against the reorder source', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const name = `Reorder reminder ${Date.now()}`
+    const campaignId = await createCampaign(request, token, name)
+    try {
+      const created = await getCampaign(request, token, campaignId)
+      const saved = await saveGraph(request, token, campaignId, {
+        updatedAt: created.updatedAt,
+        name,
+        definition: { version: 1, audience: null, steps: [] },
+        triggers: [{
+          kind: 'schedule',
+          scheduleValue: '1d',
+          sweepSource: 'reorder_due',
+          sweepParams: { withinDays: 15 },
+          reentryAfterDays: null,
+        }],
+      })
+      expect(saved.ok(), await saved.text()).toBe(true)
+
+      const readBack = await getCampaign(request, token, campaignId)
+      expect(readBack.triggers[0]).toMatchObject({ kind: 'schedule', sweepSource: 'reorder_due' })
+    } finally {
+      await deleteCampaignIfExists(request, token, campaignId)
+    }
+  })
+
   test('a made-up event id is still refused', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const name = `Bogus trigger ${Date.now()}`

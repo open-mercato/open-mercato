@@ -171,6 +171,26 @@ const fulfilledOrder: TriggerCatalogEntry = {
 }
 
 /**
+ * A product due to be bought again, synthesised by the reorder sweep.
+ *
+ * In the catalog and unavailable as an EVENT trigger, like the other sweep-synthesised ones: there is nothing to
+ * subscribe to, and the entry exists so the audience builder offers the paths a reorder campaign needs. An
+ * author writes copy against `trigger.sku` and `trigger.cycleDays` — "your coffee usually lasts you about a
+ * month" is a sentence only this context makes possible.
+ */
+const reorderDue: TriggerCatalogEntry = {
+  eventId: 'marketing_automation.product.reorder_due',
+  labelKey: 'marketing_automation.trigger.marketing_automation.product.reorder_due.label',
+  available: false,
+  contextKeys: [
+    'trigger.sku', 'trigger.cycleDays', 'trigger.daysSinceLast', 'trigger.progress', 'trigger.purchases',
+  ],
+  async build(payload) {
+    return { subjectEntityId: readString(payload.entityId), trigger: {} }
+  },
+}
+
+/**
  * Abandoned cart, recorded as deliberately unavailable.
  *
  * There is no cart entity in the platform — `sales_*` holds submitted documents and
@@ -538,6 +558,7 @@ export const TRIGGER_CATALOG: TriggerCatalogEntry[] = [
   paymentCreated,
   dealWon,
   dealLost,
+  reorderDue,
 ]
 
 export function findTrigger(eventId: string): TriggerCatalogEntry | undefined {
