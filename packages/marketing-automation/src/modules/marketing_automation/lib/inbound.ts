@@ -32,6 +32,9 @@ function base64url(input: Buffer | string): string {
   return Buffer.from(input).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
+/** See `lib/tracking/token.ts`: the lenient base64 decoder makes a non-canonical signature verify. */
+const CANONICAL_BASE64URL = /^[A-Za-z0-9_-]+$/
+
 function fromBase64url(input: string): Buffer {
   return Buffer.from(input.replace(/-/g, '+').replace(/_/g, '/'), 'base64')
 }
@@ -51,9 +54,12 @@ export function verifyInboundToken(token: string, secret: string): InboundClaims
   if (parts.length !== 2) return null
   const [body, signature] = parts
   if (!body || !signature) return null
+  if (!CANONICAL_BASE64URL.test(body) || !CANONICAL_BASE64URL.test(signature)) return null
 
   const expected = createHmac('sha256', signingKey(secret)).update(body).digest()
   const provided = fromBase64url(signature)
+  // Exactly one spelling per signature — see the note in `lib/tracking/token.ts`.
+  if (base64url(provided) !== signature) return null
   if (provided.length !== expected.length) return null
   if (!timingSafeEqual(provided, expected)) return null
 

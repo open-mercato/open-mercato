@@ -104,3 +104,19 @@ describe('readInboundPayload', () => {
     expect(MAX_INBOUND_BODY_BYTES).toBe(16 * 1024)
   })
 })
+
+describe('inbound signature malleability', () => {
+  test('a valid signature followed by padding and arbitrary text is refused', () => {
+    // The same lenient-base64 forgery slot as the tracking token; an inbound hook URL is a credential that
+    // enrols real customers, so a non-canonical signature must not verify here either.
+    const token = signInboundToken(claims, secret)
+    expect(verifyInboundToken(`${token}="><svg onload=alert(1)>`, secret)).toBeNull()
+    expect(verifyInboundToken(`${token}=`, secret)).toBeNull()
+  })
+
+  test('the canonical token still verifies and has the canonical shape', () => {
+    const token = signInboundToken(claims, secret)
+    expect(token).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/)
+    expect(verifyInboundToken(token, secret)).toEqual(claims)
+  })
+})

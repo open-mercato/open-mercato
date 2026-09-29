@@ -5,7 +5,8 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { reportError } from '@open-mercato/telemetry'
 import { isValidNpsScore, recordSurveyAnswer } from '../../lib/survey.js'
 import { resolveTrackingSecret } from '../../lib/tracking/secret.js'
-import { verifyTrackingToken } from '../../lib/tracking/token.js'
+import { signTrackingToken, verifyTrackingToken } from '../../lib/tracking/token.js'
+import type { TrackingClaims } from '../../lib/tracking/token.js'
 import { TRACKING_TOKEN_PARAM } from '../../lib/tracking/urls.js'
 
 /**
@@ -37,12 +38,21 @@ function page(title: string, body: string, status = 200): NextResponse {
   )
 }
 
-/** The comment form posts back to the same signed URL, so the token is the only thing identifying the answer. */
-function thankYou(token: string): NextResponse {
+/**
+ * The comment form posts back to the same signed URL, so the token is the only thing identifying the answer.
+ *
+ * The token is RE-MINTED from the verified claims rather than echoed from the request. Echoing request bytes into
+ * an HTML attribute was a reflected XSS: the signature is base64url, and a lenient decoder let a valid signature
+ * be followed by `=` and arbitrary characters — including `"><svg onload=…>` — while still verifying. The
+ * verifier now rejects that shape too, but this page must not depend on the verifier for its escaping: a minted
+ * token is a value we produced, which is the only kind of value safe to interpolate.
+ */
+function thankYou(claims: TrackingClaims, secret: string): NextResponse {
+  const canonicalToken = encodeURIComponent(signTrackingToken(claims, secret))
   return page(
     'Thank you',
     `<p>Your answer has been recorded.</p>`
-    + `<form method="post" action="?${TRACKING_TOKEN_PARAM}=${token}">`
+    + `<form method="post" action="?${TRACKING_TOKEN_PARAM}=${canonicalToken}">`
     + `<p><label for="c">Anything you would like to add?</label></p>`
     + `<textarea id="c" name="comment" rows="4" maxlength="${MAX_COMMENT_LENGTH}" style="width:100%;font:inherit;padding:.5rem"></textarea>`
     + `<p><button type="submit" style="font:inherit;padding:.5rem 1rem">Send</button></p>`
@@ -108,7 +118,7 @@ async function handle(req: Request, comment: string | null): Promise<NextRespons
   }
 
   return comment === null
-    ? thankYou(token)
+    ? thankYou(claims, secret)
     : page('Thank you', '<p>Your comment has been recorded.</p>')
 }
 

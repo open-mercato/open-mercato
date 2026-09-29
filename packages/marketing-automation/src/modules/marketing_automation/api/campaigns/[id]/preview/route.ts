@@ -26,7 +26,11 @@ import type { AutomationContext } from '../../../../lib/engine/types.js'
  * they would on the day — which is the only reason the answer is worth showing.
  */
 const routeMetadata = {
-  POST: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.test_dispatch'] },
+  /**
+   * `campaigns.manage`: a preview sends NOTHING, so requiring the send-level grant was both wrong and stricter
+   * than the feature it named (which was undeclared, and satisfied only by a `campaigns.*` wildcard).
+   */
+  POST: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.manage'] },
 }
 
 export const metadata = routeMetadata
@@ -119,7 +123,7 @@ export const openApi = {
   POST: {
     summary: 'Preview a campaign for one customer',
     description:
-      'Simulates the whole journey for a named customer by driving the real engine with recording side effects: every step, whether the audience admits them, which A/B lane they take, and when each step would happen once waits, quiet hours, the frequency cap and the learned send hour are applied. Sends nothing and writes nothing. Gated by `marketing_automation.campaigns.test_dispatch`.',
+      'Simulates the whole journey for a named customer by driving the real engine with recording side effects: every step, whether the audience admits them, which A/B lane they take, and when each step would happen once waits, quiet hours, the frequency cap and the learned send hour are applied. Sends nothing and writes nothing. Gated by `marketing_automation.campaigns.manage`.',
     tags: ['Marketing Automation'],
     responses: {
       200: { description: 'The simulated timeline' },

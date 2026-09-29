@@ -99,6 +99,14 @@ export async function POST(req: Request) {
       hookId: hook.id,
       hookName: hook.name,
       campaignId: hook.campaignId,
+      /**
+       * The hook names ONE campaign, and this is what makes that true at dispatch time.
+       *
+       * Without it the generic `inbound.received` event reached every enabled campaign triggered by it, so one
+       * partner's URL fired everybody's inbound campaigns — contradicting this endpoint's own contract and
+       * multiplying what a leaked URL can cause.
+       */
+      restrictToCampaignId: hook.campaignId,
       data: payload.data,
     }, { persistent: true })
 

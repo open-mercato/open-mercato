@@ -18,7 +18,15 @@ import { LEAD_ROUTING_CONFIG } from '../../lib/lead-routing.js'
  */
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.view'] },
-  PUT: { requireAuth: true, requireFeatures: ['marketing_automation.manage'] },
+  /**
+   * `campaigns.manage`, not an invented `marketing_automation.manage`.
+   *
+   * The id used here was never declared in `acl.ts`, so it could only ever be satisfied by a superadmin or by the
+   * `marketing_automation.*` wildcard the seeded admin role happens to hold — a hand-built role could not be
+   * granted it at all, because the role editor lists declared features. Fails closed, so nothing was exposed;
+   * it was simply a permission nobody could be given on purpose.
+   */
+  PUT: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.manage'] },
 }
 
 export const metadata = routeMetadata

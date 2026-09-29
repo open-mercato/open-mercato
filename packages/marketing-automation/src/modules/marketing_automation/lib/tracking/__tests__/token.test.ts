@@ -126,3 +126,48 @@ describe('resolveTrackingSecret', () => {
     expect(resolveTrackingSecret({ AUTH_SECRET: 'x', JWT_SECRET: 'y', NEXTAUTH_SECRET: 'z' })).toBeNull()
   })
 })
+
+describe('signature malleability', () => {
+  const secret = 'test-secret-value'
+  const claims = {
+    tenantId: 't1',
+    organizationId: 'o1',
+    campaignId: 'c1',
+    runId: 'r1',
+    stepId: 's1',
+    purpose: 'survey' as const,
+    target: '9',
+  }
+
+  test('a valid signature followed by padding and arbitrary text is refused', () => {
+    /**
+     * `Buffer.from(…, 'base64')` stops at `=` and discards the rest, so this token used to verify: the decoded
+     * signature was byte-identical and `timingSafeEqual` passed. That made the signature an unbounded slot for
+     * attacker-controlled characters, and the survey page echoed the token into an HTML attribute — a reflected
+     * XSS on the application's own origin.
+     */
+    const token = signTrackingToken(claims, secret)
+    const forged = `${token}="><svg onload=alert(1)>`
+    expect(verifyTrackingToken(forged, secret)).toBeNull()
+  })
+
+  test('trailing padding alone is refused, even without a payload', () => {
+    // The canonical form our encoder produces has no `=` at all, so accepting one accepts a shape we never mint.
+    expect(verifyTrackingToken(`${signTrackingToken(claims, secret)}=`, secret)).toBeNull()
+  })
+
+  test('a character outside the base64url alphabet is refused in either half', () => {
+    const [body, signature] = signTrackingToken(claims, secret).split('.')
+    expect(verifyTrackingToken(`${body}+.${signature}`, secret)).toBeNull()
+    expect(verifyTrackingToken(`${body}.${signature}+`, secret)).toBeNull()
+    expect(verifyTrackingToken(`${body}.${signature} `, secret)).toBeNull()
+  })
+
+  test('the canonical token we mint still verifies, for every purpose', () => {
+    for (const purpose of ['open', 'click', 'unsubscribe', 'survey'] as const) {
+      const minted = signTrackingToken({ ...claims, purpose }, secret)
+      expect(minted).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/)
+      expect(verifyTrackingToken(minted, secret)?.purpose).toBe(purpose)
+    }
+  })
+})

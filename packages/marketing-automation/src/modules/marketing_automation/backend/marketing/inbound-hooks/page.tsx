@@ -30,6 +30,7 @@ type HookRow = {
   campaignName: string | null
   name: string
   url: string | null
+  hasUrl: boolean
   revokedAt: string | null
   receivedCount: number
   lastReceivedAt: string | null
@@ -166,10 +167,15 @@ export default function InboundHooksPage() {
       header: '',
       cell: ({ row }) => (
         <div className="flex justify-end gap-1">
+          {/* Three distinct states, because "you may not see it" and "it does not exist" are different facts. */}
           {row.original.url ? (
             <Button variant="outline" size="sm" onClick={() => void copyUrl(row.original.url as string)}>
               {t('marketing_automation.hooks.copyUrl', 'Copy URL')}
             </Button>
+          ) : row.original.hasUrl ? (
+            <span className="text-xs text-muted-foreground">
+              {t('marketing_automation.hooks.urlHidden', 'URL hidden — needs campaign management rights')}
+            </span>
           ) : (
             <span className="text-xs text-muted-foreground">
               {t('marketing_automation.hooks.noSecret', 'No signing secret configured')}

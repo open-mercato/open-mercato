@@ -373,6 +373,18 @@ export async function dispatchEvent(
     subjectEntityId: string | null
     triggerContext: Record<string, unknown>
     dispatchDepth?: number
+    /**
+     * Narrow this dispatch to ONE campaign.
+     *
+     * Set by the inbound-hook path, where the event is generic (`inbound.received`) but the credential names a
+     * single campaign. Without it one hook's URL fired every enabled inbound-triggered campaign in the
+     * organization — which contradicted the endpoint's own contract and multiplied what a leaked URL could do.
+     *
+     * Deliberately an explicit input rather than something read out of the payload: several events legitimately
+     * carry an unrelated `campaignId` (a score change carries the campaign that awarded the points), and
+     * inferring from that would silently narrow dispatches nobody meant to narrow.
+     */
+    restrictToCampaignId?: string | null
   },
   deps: DispatchDeps,
 ): Promise<DispatchResult> {
@@ -381,7 +393,10 @@ export async function dispatchEvent(
   // Derived from the delivered payload rather than taken from the job, so a queue redelivery and a
   // repeated emission of the same fact both arrive at the same key.
   const occurrenceKey = occurrenceKeyFor(input.eventId, deps.scope, input.eventPayload)
-  const candidates = await findCampaignsForEvent(deps.em, input.eventId, deps.scope)
+  const allCandidates = await findCampaignsForEvent(deps.em, input.eventId, deps.scope)
+  const candidates = input.restrictToCampaignId
+    ? allCandidates.filter((entry) => entry.campaign.id === input.restrictToCampaignId)
+    : allCandidates
   if (!candidates.length) return result
 
   // Loaded once for the whole dispatch: every campaign reacting to this event sees the same ladder and the

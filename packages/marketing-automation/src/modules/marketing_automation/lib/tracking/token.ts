@@ -58,6 +58,16 @@ function base64url(input: Buffer | string): string {
   return Buffer.from(input).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
+/**
+ * The shape our own encoder produces, and the ONLY shape accepted back.
+ *
+ * `Buffer.from(…, 'base64')` is lenient: it stops at `=` and silently discards everything after it, so a valid
+ * signature followed by `=` and arbitrary text decodes to the same bytes and verifies. That made the signature
+ * an unbounded slot for attacker-controlled characters — which is a forgery primitive wherever a token is
+ * echoed or parsed downstream. Canonical-form checking closes it for every consumer at once.
+ */
+const CANONICAL_BASE64URL = /^[A-Za-z0-9_-]+$/
+
 function fromBase64url(input: string): Buffer {
   const padded = input.replace(/-/g, '+').replace(/_/g, '/')
   return Buffer.from(padded, 'base64')
@@ -107,9 +117,19 @@ export function verifyTrackingToken(token: string, secret: string): TrackingClai
   if (parts.length !== 2) return null
   const [body, signature] = parts
   if (!body || !signature) return null
+  // Both halves must be canonical base64url. Without this a trailing `=` plus anything at all still verifies.
+  if (!CANONICAL_BASE64URL.test(body) || !CANONICAL_BASE64URL.test(signature)) return null
 
   const expected = createHmac('sha256', signingKey(secret)).update(body).digest()
   const provided = fromBase64url(signature)
+  /**
+   * Re-encoded and compared as a STRING, which is what makes the check exact.
+   *
+   * The alphabet test above stops a trailing `=` and anything after it, but base64 of 32 bytes spends 43
+   * characters on 258 bits: the last character carries two unused bits, so four different strings decode to the
+   * same signature. Round-tripping admits exactly one spelling — the one we mint.
+   */
+  if (base64url(provided) !== signature) return null
   // Length has to match before `timingSafeEqual`, which throws on a mismatch.
   if (provided.length !== expected.length) return null
   if (!timingSafeEqual(provided, expected)) return null

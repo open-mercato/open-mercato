@@ -35,7 +35,15 @@ import type { AutomationContext } from '../../../../lib/engine/types.js'
  * counting the author's own opens as engagement would corrupt the campaign's figures.
  */
 const routeMetadata = {
-  POST: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.test_dispatch'] },
+  /**
+   * The DECLARED send-level feature, not a `campaigns.`-namespaced one.
+   *
+   * Feature matching is by prefix, so `marketing_automation.campaigns.*` — a plausible grant for somebody who
+   * authors campaigns — satisfied `campaigns.test_dispatch` while never satisfying the declared
+   * `marketing_automation.test_dispatch`. The typo therefore handed the "sends a real message" level to the
+   * authoring level, which is exactly the separation `acl.ts` states it is keeping.
+   */
+  POST: { requireAuth: true, requireFeatures: ['marketing_automation.test_dispatch'] },
 }
 
 export const metadata = routeMetadata
@@ -191,7 +199,7 @@ export const openApi = {
   POST: {
     summary: 'Send one real test message for a step',
     description:
-      'Renders the step through the same function a real send uses and delivers it to the CALLER\'s own address, taken from the session — the request cannot name a recipient. Untracked and unrecorded. Gated by `marketing_automation.campaigns.test_dispatch`.',
+      'Renders the step through the same function a real send uses and delivers it to the CALLER\'s own address, taken from the session — the request cannot name a recipient. Untracked and unrecorded. Gated by `marketing_automation.test_dispatch`.',
     tags: ['Marketing Automation'],
     responses: {
       200: { description: 'Sent' },

@@ -44,6 +44,15 @@ export default async function handle(job: QueuedJob<DispatchJob>, ctx: HandlerCo
       subjectEntityId,
       triggerContext,
       dispatchDepth: job.payload.dispatchDepth ?? 0,
+      /**
+       * Carried through from the emitted payload, and ONLY for this key.
+       *
+       * The inbound-hook endpoint sets it because its credential names one campaign; every other emitter leaves
+       * it absent and dispatches to whoever listens, as before.
+       */
+      restrictToCampaignId: typeof job.payload.payload.restrictToCampaignId === 'string'
+        ? job.payload.payload.restrictToCampaignId
+        : null,
     },
     deps,
   )

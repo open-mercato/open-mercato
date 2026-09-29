@@ -10,7 +10,7 @@ const settingsIcon = React.createElement(
 export const metadata = {
   icon: settingsIcon,
   requireAuth: true,
-  requireFeatures: ['marketing_automation.manage'],
+  requireFeatures: ['marketing_automation.campaigns.manage'],
   pageGroup: 'Marketing',
   pageGroupKey: 'marketing_automation.nav.group',
   pageTitle: 'Marketing settings',
