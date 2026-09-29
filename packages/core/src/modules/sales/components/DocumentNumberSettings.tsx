@@ -188,7 +188,7 @@ export function DocumentNumberSettings() {
   }, [formState, retryLastMutation, runMutation, translations.errors.save, translations.messages.saved])
 
   const handleReset = React.useCallback(() => {
-    setFormState(DEFAULT_STATE)
+    setFormState(loadedStateRef.current)
     void handleLoad()
   }, [handleLoad])
 

@@ -15,7 +15,7 @@ import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integrat
  * A role holding `sales.settings.manage` (as the seeded employee role does) could previously move
  * the order counter anywhere through the numbering settings, including below numbers already
  * issued, even though it is denied the narrower number-edit feature. It must still be able to
- * save the settings page when the counters it echoes back are unchanged.
+ * save the number formats without touching the counters.
  *
  * The denied attempt moves the counter forward, so a regression cannot hand later tests a number
  * that is already on a document.
@@ -61,13 +61,13 @@ test.describe('TC-SALES-6367: document-number counter gate', () => {
         return (await readJsonSafe<Settings>(response))!
       }
 
-      const save = (current: Settings, orderNextNumber: number) =>
+      const save = (current: Settings, orderNextNumber?: number) =>
         apiRequest(request, 'PUT', SETTINGS_PATH, {
           token,
           data: {
             orderNumberFormat: current.orderNumberFormat,
             quoteNumberFormat: current.quoteNumberFormat,
-            orderNextNumber,
+            ...(orderNextNumber === undefined ? {} : { orderNextNumber }),
           },
         })
 
@@ -78,9 +78,9 @@ test.describe('TC-SALES-6367: document-number counter gate', () => {
       expect((await read()).nextOrderNumber, 'a refused save must not move the counter').toBeLessThan(target)
 
       const current = await read()
-      const unchanged = await save(current, current.nextOrderNumber)
-      expect(unchanged.status(), 're-saving an unchanged counter should succeed').toBe(200)
-      expect((await read()).nextOrderNumber, 'an unchanged re-save must not rewind the counter').toBeGreaterThanOrEqual(
+      const formatsOnly = await save(current)
+      expect(formatsOnly.status(), 'saving formats without touching the counters should succeed').toBe(200)
+      expect((await read()).nextOrderNumber, 'a formats-only save must not rewind the counter').toBeGreaterThanOrEqual(
         current.nextOrderNumber,
       )
     } finally {

@@ -96,6 +96,23 @@ describe('document number settings only send counters the user changed (#6367)',
     expect(body).not.toHaveProperty('quoteNextNumber')
   })
 
+  it('compares the next save against the counters the previous save returned', async () => {
+    apiCallOrThrowMock.mockResolvedValue({ ok: true, result: { ...settingsResult, nextOrderNumber: 250 } })
+    renderWithProviders(<DocumentNumberSettings />)
+    const saveButton = await screen.findByRole('button', { name: /save settings/i })
+    await waitFor(() => expect(screen.getByDisplayValue('100')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByDisplayValue('100'), { target: { value: '250' } })
+    fireEvent.click(saveButton)
+    await waitFor(() => expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(saveButton).toBeEnabled())
+
+    fireEvent.click(saveButton)
+    await waitFor(() => expect(apiCallOrThrowMock).toHaveBeenCalledTimes(2))
+    const second = JSON.parse((apiCallOrThrowMock.mock.calls[1]?.[1] as { body: string }).body) as Record<string, unknown>
+    expect(second).not.toHaveProperty('orderNextNumber')
+  })
+
   it('surfaces the server error message when the save is refused', async () => {
     apiCallOrThrowMock.mockRejectedValue(
       Object.assign(new Error('Document number cannot be edited.'), { status: 403 }),
