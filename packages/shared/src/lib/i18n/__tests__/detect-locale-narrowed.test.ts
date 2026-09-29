@@ -17,7 +17,6 @@ jest.mock(
         name.toLowerCase() === 'accept-language' ? headerStore.acceptLanguage : null,
     }),
   }),
-  { virtual: true },
 )
 
 import { detectLocale } from '../server'
