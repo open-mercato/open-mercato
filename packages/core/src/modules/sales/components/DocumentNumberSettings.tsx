@@ -5,7 +5,8 @@ import { Loader2, RefreshCw } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Badge } from '@open-mercato/ui/primitives/badge'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -27,21 +28,21 @@ type SettingsResponse = {
   tokens?: typeof DOCUMENT_NUMBER_TOKENS
 }
 
-type FormState = {
+export type DocumentNumberSettingsFormState = {
   orderNumberFormat: string
   quoteNumberFormat: string
   orderNextNumber: string
   quoteNextNumber: string
 }
 
-const DEFAULT_STATE: FormState = {
+const DEFAULT_STATE: DocumentNumberSettingsFormState = {
   orderNumberFormat: DEFAULT_ORDER_NUMBER_FORMAT,
   quoteNumberFormat: DEFAULT_QUOTE_NUMBER_FORMAT,
   orderNextNumber: '1',
   quoteNextNumber: '1',
 }
 
-const normalizeState = (payload?: Partial<SettingsResponse> | null): FormState => ({
+const normalizeState = (payload?: Partial<SettingsResponse> | null): DocumentNumberSettingsFormState => ({
   orderNumberFormat:
     typeof payload?.orderNumberFormat === 'string' && payload.orderNumberFormat.trim().length
       ? payload.orderNumberFormat
@@ -60,12 +61,26 @@ const normalizeState = (payload?: Partial<SettingsResponse> | null): FormState =
       : '1',
 })
 
+const parseCounter = (value: string): number | undefined => Number.parseInt(value, 10) || undefined
+
+export function buildDocumentNumberSettingsPayload(formState: DocumentNumberSettingsFormState, loadedState: DocumentNumberSettingsFormState) {
+  const orderNextNumber = parseCounter(formState.orderNextNumber)
+  const quoteNextNumber = parseCounter(formState.quoteNextNumber)
+  return {
+    orderNumberFormat: formState.orderNumberFormat.trim(),
+    quoteNumberFormat: formState.quoteNumberFormat.trim(),
+    orderNextNumber: orderNextNumber !== parseCounter(loadedState.orderNextNumber) ? orderNextNumber : undefined,
+    quoteNextNumber: quoteNextNumber !== parseCounter(loadedState.quoteNextNumber) ? quoteNextNumber : undefined,
+  }
+}
+
 const SAVE_CONTEXT_ID = 'sales-document-number-settings'
 
 export function DocumentNumberSettings() {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
-  const [formState, setFormState] = React.useState<FormState>(DEFAULT_STATE)
+  const [formState, setFormState] = React.useState<DocumentNumberSettingsFormState>(DEFAULT_STATE)
+  const loadedStateRef = React.useRef<DocumentNumberSettingsFormState>(DEFAULT_STATE)
   const [loading, setLoading] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
   const [tokens, setTokens] = React.useState(DOCUMENT_NUMBER_TOKENS)
@@ -112,7 +127,9 @@ export function DocumentNumberSettings() {
     try {
       const call = await apiCall<SettingsResponse>('/api/sales/settings/document-numbers')
       if (call.ok) {
-        setFormState(normalizeState(call.result))
+        const loaded = normalizeState(call.result)
+        loadedStateRef.current = loaded
+        setFormState(loaded)
         setTokens(Array.isArray(call.result?.tokens) && call.result.tokens.length ? call.result.tokens : DOCUMENT_NUMBER_TOKENS)
       } else {
         flash(translations.errors.load, 'error')
@@ -129,7 +146,7 @@ export function DocumentNumberSettings() {
     void handleLoad()
   }, [handleLoad, scopeVersion])
 
-  const handleChange = (key: keyof FormState) => (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (key: keyof DocumentNumberSettingsFormState) => (event: React.ChangeEvent<HTMLInputElement>) => {
     setFormState((prev) => ({ ...prev, [key]: event.target.value }))
   }
 
@@ -137,25 +154,19 @@ export function DocumentNumberSettings() {
     event.preventDefault()
     setSaving(true)
     try {
-      const payload = {
-        orderNumberFormat: formState.orderNumberFormat.trim(),
-        quoteNumberFormat: formState.quoteNumberFormat.trim(),
-        orderNextNumber: Number.parseInt(formState.orderNextNumber, 10) || undefined,
-        quoteNextNumber: Number.parseInt(formState.quoteNextNumber, 10) || undefined,
-      }
+      const payload = buildDocumentNumberSettingsPayload(formState, loadedStateRef.current)
       const call = await runMutation({
         // optimistic-lock-exempt: single-row tenant numbering settings blob — no per-record version / concurrent record edit
-        operation: async () => {
-          const response = await apiCall<SettingsResponse>('/api/sales/settings/document-numbers', {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
-          })
-          if (!response.ok) {
-            throw new Error(translations.errors.save)
-          }
-          return response
-        },
+        operation: () =>
+          apiCallOrThrow<SettingsResponse>(
+            '/api/sales/settings/document-numbers',
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            },
+            { errorMessage: translations.errors.save },
+          ),
         context: {
           formId: SAVE_CONTEXT_ID,
           resourceKind: 'sales.settings',
@@ -163,16 +174,18 @@ export function DocumentNumberSettings() {
         },
         mutationPayload: payload,
       })
-      setFormState(normalizeState(call.result))
+      const saved = normalizeState(call.result)
+      loadedStateRef.current = saved
+      setFormState(saved)
       setTokens(Array.isArray(call.result?.tokens) && call.result.tokens.length ? call.result.tokens : DOCUMENT_NUMBER_TOKENS)
       flash(translations.messages.saved, 'success')
     } catch (err) {
       logger.error('sales.document-number-settings.save failed', { err })
-      flash(translations.errors.save, 'error')
+      flash(normalizeCrudServerError(err).message || translations.errors.save, 'error')
     } finally {
       setSaving(false)
     }
-  }, [formState.orderNextNumber, formState.orderNumberFormat, formState.quoteNextNumber, formState.quoteNumberFormat, retryLastMutation, runMutation, translations.errors.save, translations.messages.saved])
+  }, [formState, retryLastMutation, runMutation, translations.errors.save, translations.messages.saved])
 
   const handleReset = React.useCallback(() => {
     setFormState(DEFAULT_STATE)

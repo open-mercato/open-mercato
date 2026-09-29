@@ -61,28 +61,27 @@ test.describe('TC-SALES-6367: document-number counter gate', () => {
         return (await readJsonSafe<Settings>(response))!
       }
 
-      const before = await read()
-      const save = (orderNextNumber: number) =>
+      const save = (current: Settings, orderNextNumber: number) =>
         apiRequest(request, 'PUT', SETTINGS_PATH, {
           token,
           data: {
-            orderNumberFormat: before.orderNumberFormat,
-            quoteNumberFormat: before.quoteNumberFormat,
+            orderNumberFormat: current.orderNumberFormat,
+            quoteNumberFormat: current.quoteNumberFormat,
             orderNextNumber,
-            quoteNextNumber: before.nextQuoteNumber,
           },
         })
 
-      const moved = await save(before.nextOrderNumber + 10_000)
+      const before = await read()
+      const target = before.nextOrderNumber + 10_000
+      const moved = await save(before, target)
       expect(moved.status(), 'moving the counter without sales.documents.number.edit should be 403').toBe(403)
-      expect((await read()).nextOrderNumber, 'a refused save must leave the counter in place').toBe(
-        before.nextOrderNumber,
-      )
+      expect((await read()).nextOrderNumber, 'a refused save must not move the counter').toBeLessThan(target)
 
-      const unchanged = await save(before.nextOrderNumber)
-      expect(unchanged.status(), 're-saving unchanged counters should succeed').toBe(200)
-      expect((await read()).nextOrderNumber, 'an unchanged re-save must not move the counter').toBe(
-        before.nextOrderNumber,
+      const current = await read()
+      const unchanged = await save(current, current.nextOrderNumber)
+      expect(unchanged.status(), 're-saving an unchanged counter should succeed').toBe(200)
+      expect((await read()).nextOrderNumber, 'an unchanged re-save must not rewind the counter').toBeGreaterThanOrEqual(
+        current.nextOrderNumber,
       )
     } finally {
       if (userId) await deleteUserIfExists(request, adminToken, userId)

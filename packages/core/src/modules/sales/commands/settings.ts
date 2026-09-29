@@ -9,14 +9,14 @@ import { salesSettingsUpsertSchema, type SalesSettingsUpsertInput } from '../dat
 import { ensureOrganizationScope, ensureTenantScope } from './shared'
 import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGenerator'
 
-async function ensureNumberEditPermission(ctx: CommandRuntimeContext, organizationId: string) {
+async function ensureNumberEditPermission(
+  ctx: CommandRuntimeContext,
+  scope: { tenantId: string; organizationId: string }
+) {
   const rbac = ctx.container.resolve('rbacService') as RbacService | null
   const auth = ctx.auth
   if (!rbac || !auth?.sub) return
-  const ok = await rbac.userHasAllFeatures(auth.sub, ['sales.documents.number.edit'], {
-    tenantId: auth.tenantId ?? null,
-    organizationId,
-  })
+  const ok = await rbac.userHasAllFeatures(auth.sub, ['sales.documents.number.edit'], scope)
   if (!ok) {
     const { translate } = await resolveTranslations()
     throw new CrudHttpError(403, {
@@ -60,7 +60,7 @@ const saveSalesSettingsCommand: CommandHandler<
     const quoteNextNumber =
       input.quoteNextNumber && input.quoteNextNumber !== current.quote ? input.quoteNextNumber : undefined
     if (orderNextNumber || quoteNextNumber) {
-      await ensureNumberEditPermission(ctx, input.organizationId)
+      await ensureNumberEditPermission(ctx, { tenantId: input.tenantId, organizationId: input.organizationId })
     }
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
