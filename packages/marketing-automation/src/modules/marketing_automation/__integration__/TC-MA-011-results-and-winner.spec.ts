@@ -38,6 +38,8 @@ test.describe('TC-MA-011 results and winner promotion', () => {
       expect(body.splits).toEqual([])
       expect(body.winners).toEqual([])
       expect(body.attribution).toEqual([])
+      // The link ranking is reported EMPTY rather than absent, like every other block on this response.
+      expect(body.links).toMatchObject({ links: [], clickers: 0, truncated: false })
       expect(body.sends).toMatchObject({ sent: 0, suppressed: 0 })
       // The settings are reported so the screen can say what "not enough data" means, and what a verdict
       // would be judged on — clicks until a tenant chooses otherwise.

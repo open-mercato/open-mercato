@@ -45,6 +45,14 @@ type Winner = {
 
 type DailyPoint = { date: string; sent: number; opened: number; clicked: number }
 
+type LinkRow = {
+  url: string
+  people: number
+  clicks: number
+  shareOfClickers: number | null
+  stepIds: string[]
+}
+
 type FunnelStage = {
   key: string
   people: number
@@ -60,6 +68,7 @@ type Results = {
   uniqueRecipients: { opened: number; clicked: number }
   splits: SplitResult[]
   daily: DailyPoint[]
+  links: { links: LinkRow[]; clickers: number; truncated: boolean }
   winners: Winner[]
   attribution: Array<{ campaignId: string; currencyCode: string | null; orders: number; revenue: number }>
   settings: { windowDays: number; minimumSends: number; winnerMetric: 'clicks' | 'revenue' }
@@ -297,6 +306,57 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
                 </li>
               ))}
             </ul>
+          </div>
+        ) : null}
+
+        {/*
+          * What they clicked, which `link_url` recorded from the first tracked click and nothing read.
+          *
+          * Drawn only once there is something to rank: an empty table here would say "nobody clicked" in a
+          * campaign that simply has not been sent, which the KPI row above already answers better.
+          */}
+        {results.links.links.length > 0 ? (
+          <div className="mb-6">
+            <SectionHeader
+              title={t('marketing_automation.results.links', 'What they clicked')}
+              count={results.links.links.length}
+            />
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('marketing_automation.results.column.link', 'Link')}</TableHead>
+                  <TableHead>{t('marketing_automation.results.column.people', 'People')}</TableHead>
+                  <TableHead>{t('marketing_automation.results.column.clicks', 'Clicks')}</TableHead>
+                  <TableHead>{t('marketing_automation.results.column.shareOfClickers', 'Of everyone who clicked')}</TableHead>
+                  <TableHead>{t('marketing_automation.results.column.fromStep', 'From')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {results.links.links.map((link) => (
+                  <TableRow key={link.url}>
+                    {/* The URL as authored. Shown as text, never as a link: it is a historical record of a
+                        message, and an admin screen is not the place to follow somebody else's redirect. */}
+                    <TableCell className="max-w-md truncate font-mono text-xs" title={link.url}>{link.url}</TableCell>
+                    <TableCell className="tabular-nums">{link.people}</TableCell>
+                    {/* Clicks above people is the interesting case: a link somebody came back to. */}
+                    <TableCell className="tabular-nums text-muted-foreground">{link.clicks}</TableCell>
+                    <TableCell className="tabular-nums text-muted-foreground">{formatRate(link.shareOfClickers)}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">{link.stepIds.join(', ')}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <div className="mt-2 text-xs text-muted-foreground">
+              {/* The shares overlap, so they sum past 100% whenever anybody clicked two links. Said once here
+                  rather than left for somebody to discover while adding them up. */}
+              {t(
+                'marketing_automation.results.linksHint',
+                'Counted in people, so one recipient clicking four times is one person. The shares are of everyone who clicked anything in this campaign, and overlap: somebody who clicked two links is counted in both.',
+              )}
+              {results.links.truncated
+                ? ` ${t('marketing_automation.results.linksTruncated', 'Only the most-clicked links are listed.')}`
+                : ''}
+            </div>
           </div>
         ) : null}
 

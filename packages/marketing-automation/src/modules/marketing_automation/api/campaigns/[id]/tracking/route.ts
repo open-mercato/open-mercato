@@ -10,6 +10,7 @@ import { loadSplitResults, pickSplitWinner } from '../../../../lib/analytics/spl
 import { loadAttribution } from '../../../../lib/analytics/attribution.js'
 import { loadDailySeries } from '../../../../lib/analytics/daily-series.js'
 import { loadCampaignFunnel } from '../../../../lib/analytics/funnel.js'
+import { loadLinkReport } from '../../../../lib/analytics/links.js'
 import { loadWinnerMetric } from '../../../../lib/winner-metric.js'
 import { readPathUuid } from '../../../shared.js'
 
@@ -124,6 +125,14 @@ export async function GET(req: Request) {
   const funnel = await loadCampaignFunnel(em, campaign.id, scope, { conversionWindowDays: windowDays })
 
   /**
+   * What they clicked, not just that they clicked.
+   *
+   * No window: a click is dated by the event and this is a ranking of the campaign's whole life, which is the
+   * question an author asks about a link ("does this offer work") rather than about a period.
+   */
+  const links = await loadLinkReport(em, campaign.id, scope)
+
+  /**
    * On the metric the TENANT chose, which is the same one the unattended promotion uses.
    *
    * A variant that collects clicks and sells less is the classic A/B trap, and this screen could not see it
@@ -145,6 +154,8 @@ export async function GET(req: Request) {
     funnel,
     events: counts,
     uniqueRecipients: unique,
+    /** Ranked by PEOPLE, with the raw clicks beside them and a flag when the ranking was cut. */
+    links,
     splits,
     daily,
     winners,
@@ -158,7 +169,7 @@ export const openApi = {
   GET: {
     summary: 'Results for a campaign: delivery, engagement, A/B and attributed revenue',
     description:
-      'Sends and suppressions; the funnel from entered to converted counted in PEOPLE with the drop-off between stages; delivery events by type with unique-recipient counts alongside raw totals; per-variant A/B results read from the lane recorded on each run, each carrying what that lane earned and in which currency; any variant that has earned the right to be called a winner, judged on the clicks or the revenue the tenant chose; and linearly attributed revenue per currency. The funnel, the lane revenue and the attribution share one conversion window, so the three can be reconciled. Gated by `marketing_automation.runs.view`. Counts only — never which customer did what.',
+      'Sends and suppressions; the funnel from entered to converted counted in PEOPLE with the drop-off between stages; delivery events by type with unique-recipient counts alongside raw totals; per-variant A/B results read from the lane recorded on each run, each carrying what that lane earned and in which currency; any variant that has earned the right to be called a winner, judged on the clicks or the revenue the tenant chose; linearly attributed revenue per currency; and a ranking of which links were clicked, counted in people with the raw clicks beside them. The funnel, the lane revenue and the attribution share one conversion window, so the three can be reconciled. Gated by `marketing_automation.runs.view`. Counts only — never which customer did what.',
     tags: ['Marketing Automation'],
     responses: { 200: { description: 'The counts' }, 404: { description: 'Not found' } },
   },

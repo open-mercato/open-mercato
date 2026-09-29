@@ -850,6 +850,12 @@ rather than worked around silently:
 
 ## Changelog
 
+- **2026-09-29** — `link_url` stops being write-only: the results screen ranks which links were clicked,
+  counted in PEOPLE with the raw clicks beside them (the two diverging is how "came back to it" becomes
+  visible) and with the steps each link appeared in. Shares are of everyone who clicked anything and
+  overlap deliberately; the ranking says when it was cut rather than reading as an inventory. 977 unit
+  tests, 193 integration tests.
+
 - **2026-09-29** — An A/B test can be decided on attributed revenue per recipient rather than clicks
   (`splitWinnerMetric`, per tenant, default clicks). Lane revenue is attributed over the same window as
   the funnel and the attribution block; a verdict is withheld when the lanes earn in different currencies

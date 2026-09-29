@@ -151,6 +151,10 @@ its own. Spec:
   and a preview is trusted precisely where nobody can check it.
 - Never recompute which lane a run walked. It is recorded on the run; recomputing agrees until the
   author edits the split, and then every historical A/B result becomes fiction.
+- Never normalise the link report's shares into a pie. Each share is of everyone who clicked ANYTHING, so they
+  overlap and sum past one whenever somebody clicked two links — that is the honest answer. Normalising would
+  silently switch the question to share of CLICKS, where one person clicking twice outranks two people clicking
+  once.
 - Never count raw opens or clicks in a comparison. Count unique runs, or the variant that reached the
   more aggressive inbox previewers wins.
 - Never cache a lead score in a column, and never make a tier a stored field. The score is
@@ -339,6 +343,7 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | per-tenant settings, and the only screen that writes them | `api/settings/route.ts` |
 | agent/MCP authoring tools and their invariants | `ai-tools/authoring-pack.ts` |
 | daily series behind the results chart | `lib/analytics/daily-series.ts` |
+| which links were clicked, and its overlap rule | `lib/analytics/links.ts` |
 | journey preview, and why it reuses the engine | `lib/preview.ts` |
 | learned send hour, and its minimum evidence | `lib/analytics/send-time.ts` |
 | A/B results, winner rules, the two metrics | `lib/analytics/split-results.ts`, `lib/winner-metric.ts` |
