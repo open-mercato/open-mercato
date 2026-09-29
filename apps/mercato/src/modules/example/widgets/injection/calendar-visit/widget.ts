@@ -26,7 +26,7 @@ const visit: CalendarEventTypeDefinition = {
 }
 
 const widget: InjectionCalendarEventTypeWidget = {
-  metadata: { id: 'example.injection.calendar-visit', title: 'Visit calendar type' },
+  metadata: { id: 'example.injection.calendar-visit', title: 'Visit calendar type', requiredModules: ['customers'] },
   eventTypes: [visit],
 }
 

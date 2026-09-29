@@ -8,6 +8,7 @@ const widget: InjectionWidgetModule<InjectionContext, Record<string, unknown>> =
   metadata: {
     id: 'example.injection.visit-availability',
     title: 'Visit availability validation',
+    requiredModules: ['customers'],
     calendarEventTypeKeys: ['visit'],
     enabled: true,
   },
