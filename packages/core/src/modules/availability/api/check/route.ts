@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityName } from '@mikro-orm/core'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveActiveOrganizationId, organizationScopeRequiredResponse } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -21,6 +22,15 @@ const routeMetadata = {
 }
 
 export const metadata = routeMetadata
+
+// The `catalog` columns this route filters on through a soft-resolved entity class,
+// so `availability` never imports `catalog`.
+type CatalogRecordRow = {
+  id: string
+  organizationId: string
+  tenantId: string
+  deletedAt: Date | null
+}
 
 const checkSchema = z.object({
   productId: z.uuid(),
@@ -79,9 +89,9 @@ export async function POST(req: Request) {
 
   // Soft-resolved product/variant existence check — degrades gracefully when
   // `catalog` is ejected (Phase 1 gate: coherent behaviour without it).
-  const CatalogProduct = tryResolve<new () => unknown>(container, 'CatalogProduct')
+  const CatalogProduct = tryResolve<EntityName<CatalogRecordRow>>(container, 'CatalogProduct')
   if (CatalogProduct) {
-    const product = await em.findOne(CatalogProduct as any, { id: productId, organizationId, tenantId, deletedAt: null })
+    const product = await em.findOne(CatalogProduct, { id: productId, organizationId, tenantId, deletedAt: null })
     if (!product) {
       return NextResponse.json(
         { error: translate('availability.errors.productNotFound', 'No such product') },
@@ -89,9 +99,9 @@ export async function POST(req: Request) {
       )
     }
     if (variantId) {
-      const CatalogProductVariant = tryResolve<new () => unknown>(container, 'CatalogProductVariant')
+      const CatalogProductVariant = tryResolve<EntityName<CatalogRecordRow>>(container, 'CatalogProductVariant')
       if (CatalogProductVariant) {
-        const variant = await em.findOne(CatalogProductVariant as any, {
+        const variant = await em.findOne(CatalogProductVariant, {
           id: variantId,
           organizationId,
           tenantId,

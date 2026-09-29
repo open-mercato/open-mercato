@@ -31,18 +31,27 @@ export const AVAILABILITY_POLICY_BACKORDER_REQUIRES_LEAD_TIME_MESSAGE_KEY =
   'availability.policies.errors.backorderRequiresLeadTime'
 export const AVAILABILITY_POLICY_MAX_BELOW_MIN_MESSAGE_KEY = 'availability.policies.errors.maxBelowMin'
 
-function refinePolicyConstraints<T extends z.ZodTypeAny>(schema: T) {
+type PolicyConstraintFields = {
+  productId?: string | null
+  variantId?: string | null
+  allowBackorder?: boolean
+  backorderLeadTimeDays?: number | null
+  minOrderQuantity?: number | null
+  maxOrderQuantity?: number | null
+}
+
+function refinePolicyConstraints<T extends z.ZodType<PolicyConstraintFields>>(schema: T) {
   return schema
-    .refine((val: any) => !(val.variantId && !val.productId), {
+    .refine((val) => !(val.variantId && !val.productId), {
       message: AVAILABILITY_POLICY_VARIANT_REQUIRES_PRODUCT_MESSAGE_KEY,
       path: ['variantId'],
     })
-    .refine((val: any) => !(val.allowBackorder && val.backorderLeadTimeDays == null), {
+    .refine((val) => !(val.allowBackorder && val.backorderLeadTimeDays == null), {
       message: AVAILABILITY_POLICY_BACKORDER_REQUIRES_LEAD_TIME_MESSAGE_KEY,
       path: ['backorderLeadTimeDays'],
     })
     .refine(
-      (val: any) =>
+      (val) =>
         !(val.minOrderQuantity != null && val.maxOrderQuantity != null && val.maxOrderQuantity < val.minOrderQuantity),
       { message: AVAILABILITY_POLICY_MAX_BELOW_MIN_MESSAGE_KEY, path: ['maxOrderQuantity'] },
     )
