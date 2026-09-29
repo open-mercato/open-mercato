@@ -1139,6 +1139,7 @@
   "sales.documents.list.table.unassigned": "Sin asignar",
   "sales.documents.payments.add": "Agregar pago",
   "sales.documents.payments.amount": "Importe",
+  "sales.documents.payments.amountInvalid": "Introduce el importe como un número.",
   "sales.documents.payments.amountRequired": "Introduce un importe positivo.",
   "sales.documents.payments.created": "Pago registrado.",
   "sales.documents.payments.createdAt": "Creado",

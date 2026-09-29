@@ -1,4 +1,11 @@
-import { decryptWithAesGcm, encryptWithAesGcm, hashForLookup } from '../aes'
+import {
+  TenantDataEncryptionError,
+  TenantDataEncryptionErrorCode,
+  decryptWithAesGcm,
+  encryptWithAesGcm,
+  hashForLookup,
+  isEncryptedPayloadShape,
+} from '../aes'
 import {
   TenantDataEncryptionService,
   parseDecryptedFieldValue,
@@ -129,6 +136,34 @@ describe('TenantDataEncryptionService.decryptFields (issue #1734)', () => {
   })
 })
 
+describe('isEncryptedPayloadShape (issue #5951)', () => {
+  it('accepts a real AES-GCM envelope regardless of which key sealed it', () => {
+    const otherKey = Buffer.alloc(32, 7).toString('base64')
+    expect(isEncryptedPayloadShape(encryptWithAesGcm('x', fixedKey).value)).toBe(true)
+    expect(isEncryptedPayloadShape(encryptWithAesGcm('x', otherKey).value)).toBe(true)
+  })
+
+  it('rejects the loose four-segment shapes a length-blind check would accept', () => {
+    // The IV and tag decode to 3 and 3 bytes, not 12 and 16 — no AES-GCM payload looks like this.
+    expect(isEncryptedPayloadShape('aaaa:bbbb:cccc:v1')).toBe(false)
+    expect(isEncryptedPayloadShape('user:supplied:colon:v1')).toBe(false)
+  })
+
+  it('rejects plaintext, non-strings, and wrong-version payloads', () => {
+    expect(isEncryptedPayloadShape('mail@example.com')).toBe(false)
+    expect(isEncryptedPayloadShape('')).toBe(false)
+    expect(isEncryptedPayloadShape(null)).toBe(false)
+    expect(isEncryptedPayloadShape(42)).toBe(false)
+    expect(isEncryptedPayloadShape((encryptWithAesGcm('x', fixedKey).value as string).replace(/:v1$/, ':v2'))).toBe(false)
+  })
+
+  it('rejects an envelope whose ciphertext segment is empty', () => {
+    const real = encryptWithAesGcm('x', fixedKey).value as string
+    const [iv, , tag] = real.split(':')
+    expect(isEncryptedPayloadShape(`${iv}::${tag}:v1`)).toBe(false)
+  })
+})
+
 describe('TenantDataEncryptionService.encryptFields (issue #2720)', () => {
   function makeService() {
     type Anything = Record<string, unknown>
@@ -169,17 +204,70 @@ describe('TenantDataEncryptionService.encryptFields (issue #2720)', () => {
     expect(out.email).toBe(real)
   })
 
-  it('encrypts a structurally-valid payload that was sealed with a different key', () => {
+  // Superseded by issue #5951: this case used to assert that a payload sealed under another
+  // key gets encrypted again. That is what produced the undetectable nested envelope — the
+  // value is real ciphertext (the previous DEK mid-rotation, or the derived key the KMS falls
+  // back to during a Vault outage), not a forgery, and wrapping it destroys it. The write now
+  // fails closed. #2720 is unaffected: nothing is stored verbatim on this path either way.
+  it('refuses to re-encrypt a payload that was sealed with a different key', () => {
     const service = makeService()
     const otherKey = Buffer.alloc(32, 2).toString('base64')
     const sealedElsewhere = encryptWithAesGcm('secret', otherKey).value as string
-    const out = service.encryptFields(
-      { email: sealedElsewhere },
-      [{ field: 'email' }],
-      { key: fixedKey } as never,
-    )
-    expect(out.email).not.toBe(sealedElsewhere)
-    expect(decryptWithAesGcm(out.email as string, fixedKey)).toBe(sealedElsewhere)
+    expect(() =>
+      service.encryptFields(
+        { email: sealedElsewhere },
+        [{ field: 'email' }],
+        { key: fixedKey } as never,
+      ),
+    ).toThrow(TenantDataEncryptionError)
+  })
+
+  it('reports the wrong-key case with a distinct error code and leaves the value out of the message', () => {
+    const service = makeService()
+    const otherKey = Buffer.alloc(32, 2).toString('base64')
+    const sealedElsewhere = encryptWithAesGcm('secret@example.com', otherKey).value as string
+    try {
+      service.encryptFields(
+        { email: sealedElsewhere },
+        [{ field: 'email' }],
+        { key: fixedKey } as never,
+      )
+      throw new Error('[internal] expected encryptFields to throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(TenantDataEncryptionError)
+      expect((err as TenantDataEncryptionError).code).toBe(TenantDataEncryptionErrorCode.WRONG_KEY)
+      // The ciphertext must never be echoed back into an error surfaced to a caller.
+      expect((err as TenantDataEncryptionError).message).not.toContain(sealedElsewhere)
+      expect((err as TenantDataEncryptionError).message).toContain('email')
+    }
+  })
+
+  it('never emits a nested envelope or a hash of ciphertext when the DEK changed', () => {
+    const service = makeService()
+    const previousDek = Buffer.alloc(32, 2).toString('base64')
+    const sealedUnderPreviousDek = encryptWithAesGcm('mail@example.com', previousDek).value as string
+    const input = { email: sealedUnderPreviousDek, email_hash: hashForLookup('mail@example.com') }
+    const inputSnapshot = { ...input }
+
+    // encryptFields must reject the call outright rather than return a payload — a toBeNull()
+    // check on a try/catch result would also pass if it threw for an unrelated reason, so assert
+    // the throw directly.
+    expect(() =>
+      service.encryptFields(
+        input,
+        [{ field: 'email', hashField: 'email_hash' }],
+        { key: fixedKey } as never,
+      ),
+    ).toThrow(TenantDataEncryptionError)
+
+    // encryptFields clones before mutating, so a rejected call must leave the caller's object
+    // untouched — no nested envelope, no hash overwritten with one computed over ciphertext.
+    expect(input).toEqual(inputSnapshot)
+
+    // Illustrative only (not an assertion on the code under test): before the fix, the case
+    // above returned a writable payload containing one more AES-GCM layer whose plaintext was
+    // the previous envelope, plus a lookup hash computed over ciphertext instead of over the
+    // email — neither of which any read path could undo.
   })
 
   it('encrypts plaintext that happens to look like a v1 payload', () => {
@@ -295,5 +383,142 @@ describe('TenantDataEncryptionService.getEncryptedFieldNames', () => {
       expect.stringContaining('organization_id is not null'),
       ['test:all_org_customer_entity', 'tenant-all'],
     )
+  })
+})
+
+describe('TenantDataEncryptionService tenant-wide scope parity (issue #5949)', () => {
+  const originalToggle = process.env.TENANT_DATA_ENCRYPTION
+  const tenantId = 'tenant-5949'
+
+  beforeEach(() => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+  })
+
+  afterEach(() => {
+    if (originalToggle === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+    else process.env.TENANT_DATA_ENCRYPTION = originalToggle
+  })
+
+  // A base (organization-less) map declaring `display_name`, plus an organization-scoped map that
+  // declares the extra `description` field. `getMap` only ever resolves the base map for
+  // organizationId = null; the all-organizations aggregate is the 2-parameter query.
+  function makeService(entityId: string) {
+    const execute = jest.fn(async (_sql: string, params: unknown[]) => {
+      if (params.length === 3) {
+        return params[2] === null
+          ? [{ entity_id: entityId, fields_json: [{ field: 'display_name' }] }]
+          : []
+      }
+      return [{ fields_json: [{ field: 'description', hashField: 'description_hash' }] }]
+    })
+    const service = new TenantDataEncryptionService(
+      { getConnection: () => ({ execute }) } as never,
+      {
+        kms: {
+          getTenantDek: jest.fn(async (keyId: string) => (
+            keyId === tenantId ? { tenantId: keyId, key: fixedKey, fetchedAt: new Date() } : null
+          )),
+          createTenantDek: jest.fn(async () => null),
+          isHealthy: () => true,
+        },
+      } as never,
+    )
+    return { service, execute }
+  }
+
+  it('encrypts fields declared only on an organization-scoped map at the tenant-wide scope', async () => {
+    const entityId = 'test:parity_encrypt_entity'
+    const { service } = makeService(entityId)
+
+    const encrypted = await service.encryptEntityPayload(
+      entityId,
+      { display_name: 'Acme Corp', description: 'confidential note' },
+      tenantId,
+      null,
+    )
+
+    expect(decryptWithAesGcm(encrypted.display_name as string, fixedKey)).toBe('Acme Corp')
+    expect(encrypted.description).not.toBe('confidential note')
+    expect(decryptWithAesGcm(encrypted.description as string, fixedKey)).toBe('confidential note')
+    expect(encrypted.description_hash).toBe(hashForLookup('confidential note'))
+  })
+
+  it('decrypts fields declared only on an organization-scoped map at the tenant-wide scope', async () => {
+    const entityId = 'test:parity_decrypt_entity'
+    const { service } = makeService(entityId)
+
+    const decrypted = await service.decryptEntityPayload(
+      entityId,
+      {
+        display_name: encryptWithAesGcm('Acme Corp', fixedKey).value as string,
+        description: encryptWithAesGcm('confidential note', fixedKey).value as string,
+      },
+      tenantId,
+      null,
+    )
+
+    expect(decrypted.display_name).toBe('Acme Corp')
+    expect(decrypted.description).toBe('confidential note')
+  })
+
+  it('reports exactly the fields the payload functions act on at the tenant-wide scope', async () => {
+    const entityId = 'test:parity_reported_entity'
+    const { service } = makeService(entityId)
+
+    const reported = await service.getEncryptedFieldNames(entityId, tenantId, null)
+    const encrypted = await service.encryptEntityPayload(
+      entityId,
+      { display_name: 'Acme Corp', description: 'confidential note' },
+      tenantId,
+      null,
+    )
+
+    expect(reported).toEqual(['display_name', 'description'])
+    const actuallyEncrypted = reported.filter((field) => encrypted[field] !== undefined
+      && decryptWithAesGcm(encrypted[field] as string, fixedKey) !== null)
+    expect(actuallyEncrypted).toEqual(reported)
+  })
+
+  it('leaves an organization-scoped call on its own map without the all-organizations read', async () => {
+    const entityId = 'test:parity_org_scoped_entity'
+    const { service, execute } = makeService(entityId)
+
+    const encrypted = await service.encryptEntityPayload(
+      entityId,
+      { display_name: 'Acme Corp', description: 'confidential note' },
+      tenantId,
+      'org-1',
+    )
+
+    expect(encrypted.description).toBe('confidential note')
+    expect(execute).not.toHaveBeenCalledWith(expect.anything(), [entityId, tenantId])
+  })
+
+  it('caches the all-organizations aggregate across payload calls', async () => {
+    const entityId = 'test:parity_cached_entity'
+    const { service, execute } = makeService(entityId)
+
+    await service.encryptEntityPayload(entityId, { description: 'first' }, tenantId, null)
+    await service.encryptEntityPayload(entityId, { description: 'second' }, tenantId, null)
+
+    const aggregateReads = execute.mock.calls.filter(([, params]) => (params as unknown[]).length === 2)
+    expect(aggregateReads).toHaveLength(1)
+  })
+
+  it('re-reads the all-organizations aggregate once its memory entry passes the 300s TTL', async () => {
+    const entityId = 'test:parity_expired_cache_entity'
+    const { service, execute } = makeService(entityId)
+    const nowSpy = jest.spyOn(Date, 'now')
+
+    nowSpy.mockReturnValue(1_000_000)
+    await service.encryptEntityPayload(entityId, { description: 'first' }, tenantId, null)
+
+    nowSpy.mockReturnValue(1_000_000 + 300_000 + 1)
+    await service.encryptEntityPayload(entityId, { description: 'second' }, tenantId, null)
+
+    nowSpy.mockRestore()
+
+    const aggregateReads = execute.mock.calls.filter(([, params]) => (params as unknown[]).length === 2)
+    expect(aggregateReads).toHaveLength(2)
   })
 })

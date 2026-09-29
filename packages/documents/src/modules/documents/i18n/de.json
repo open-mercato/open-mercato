@@ -518,5 +518,6 @@
   "documents.versions.snapshot.defaultLabel": "Momentaufnahme",
   "documents.versions.snapshot.labelPlaceholder": "Bezeichnung (optional)",
   "documents.versions.snapshotTooLarge": "Diese Version ist zu groß, um sicher verarbeitet zu werden.",
-  "documents.versions.title": "Versionsverlauf"
+  "documents.versions.title": "Versionsverlauf",
+  "search.entityType.documents.document": "Dokument"
 }

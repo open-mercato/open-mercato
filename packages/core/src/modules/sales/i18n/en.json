@@ -1139,6 +1139,7 @@
   "sales.documents.list.table.unassigned": "Unassigned",
   "sales.documents.payments.add": "Add payment",
   "sales.documents.payments.amount": "Amount",
+  "sales.documents.payments.amountInvalid": "Enter the amount as a number.",
   "sales.documents.payments.amountRequired": "Enter a positive amount.",
   "sales.documents.payments.created": "Payment recorded.",
   "sales.documents.payments.createdAt": "Created",

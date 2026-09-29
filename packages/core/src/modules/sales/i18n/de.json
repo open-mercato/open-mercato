@@ -1139,6 +1139,7 @@
   "sales.documents.list.table.unassigned": "Nicht zugewiesen",
   "sales.documents.payments.add": "Zahlung hinzufügen",
   "sales.documents.payments.amount": "Betrag",
+  "sales.documents.payments.amountInvalid": "Geben Sie den Betrag als Zahl ein.",
   "sales.documents.payments.amountRequired": "Geben Sie einen positiven Betrag ein.",
   "sales.documents.payments.created": "Zahlung erfasst.",
   "sales.documents.payments.createdAt": "Erstellt",

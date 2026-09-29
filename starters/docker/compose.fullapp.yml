@@ -466,5 +466,5 @@ volumes:
 
 networks:
   mercato-network-fullapp:
-    name: mercato-network-${DEPLOY_ENV:-local}
+    name: mercato-network-${DEPLOY_ENV:-local}-v2
     driver: bridge

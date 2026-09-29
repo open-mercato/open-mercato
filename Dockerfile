@@ -407,6 +407,8 @@ COPY --from=builder /app/apps/mercato/postcss.config.mjs ./apps/mercato/
 COPY --from=builder /app/apps/mercato/.mercato/generated ./apps/mercato/.mercato/generated
 COPY --from=builder /app/apps/mercato/src ./apps/mercato/src
 COPY --from=builder /app/apps/mercato/types ./apps/mercato/types
+# The init/migration entrypoint invokes the workspace CLI through this launcher.
+COPY --from=builder /app/apps/mercato/scripts ./apps/mercato/scripts
 
 # Copy runtime configuration files
 COPY --from=builder /app/newrelic.js ./

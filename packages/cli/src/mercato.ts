@@ -825,7 +825,7 @@ async function createGenerateWatchRuntime(quiet = false) {
   const [
     { createResolver },
     { calculateGenerateWatchStructureChecksum },
-    { createGenerateWatchChangeSignal },
+    { createGenerateWatchChangeSignal, resolveGenerateWatchTargets },
     { resolveStandaloneSourceMirrorBase },
   ] = await Promise.all([
     import('./lib/resolver'),
@@ -836,10 +836,18 @@ async function createGenerateWatchRuntime(quiet = false) {
 
   const collectWatchState = () => {
     const resolver = createResolver()
-    const moduleRoots = []
+    const moduleRoots: Array<{
+      appBase: string
+      pkgBase: string
+      watchPackageBase: boolean
+    }> = []
+    const watchAppPackageFallbacks = resolver.isMonorepo()
     for (const entry of resolver.loadEnabledModules()) {
       const roots = resolver.getModulePaths(entry)
-      moduleRoots.push({ appBase: roots.appBase, pkgBase: roots.pkgBase })
+      moduleRoots.push({
+        ...roots,
+        watchPackageBase: entry.from !== '@app' || watchAppPackageFallbacks,
+      })
     }
     return {
       modulesFile: resolver.getModulesConfigPath(),
@@ -857,20 +865,11 @@ async function createGenerateWatchRuntime(quiet = false) {
         : (directory) => console.log(`[generate:watch] Skipping missing watch directory: ${directory}`),
       getWatchTargets: () => {
         const state = collectWatchState()
-        const targets: Array<{ directory: string; recursive: boolean; fileName?: string }> = [{
-          directory: path.dirname(state.modulesFile),
-          recursive: false,
-          fileName: path.basename(state.modulesFile),
-        }]
-        for (const roots of state.moduleRoots) {
-          targets.push({ directory: path.dirname(roots.appBase), recursive: true })
-          targets.push({ directory: path.dirname(roots.pkgBase), recursive: true })
-          const sourceMirror = resolveStandaloneSourceMirrorBase(roots.pkgBase)
-          if (sourceMirror) {
-            targets.push({ directory: path.dirname(sourceMirror), recursive: true })
-          }
-        }
-        return targets
+        return resolveGenerateWatchTargets({
+          modulesFile: state.modulesFile,
+          moduleRoots: state.moduleRoots,
+          resolveSourceMirrorBase: resolveStandaloneSourceMirrorBase,
+        })
       },
     }),
   }
@@ -1489,7 +1488,7 @@ export async function run(argv = process.argv) {
       const resolver = createResolver()
       const data = await bootstrapFromAppRoot(resolver.getAppDir())
       registerCliModules(data.modules)
-      const allModules = data.modules
+      const allModules = getCliModules()
 
       const modulesToSeed = moduleFilter
         ? allModules.filter((mod) => mod.id === moduleFilter)

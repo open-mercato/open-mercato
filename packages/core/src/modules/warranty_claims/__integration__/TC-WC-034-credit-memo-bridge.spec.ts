@@ -197,7 +197,7 @@ test.describe('TC-WC-034: credit-memo execution bridge', () => {
       const duplicateResponse = await postCreditMemo(request, token, claim.id!, linked.updatedAt)
       const duplicateBody = await readJsonSafe<CreditMemoResponse>(duplicateResponse)
       expect(duplicateResponse.status(), 'second call should be rejected').toBe(400)
-      expect(duplicateBody?.error ?? '').toContain('creditMemoAlreadyLinked')
+      expect(duplicateBody?.error ?? '').toContain('This claim is already linked to a credit memo.')
     } finally {
       await cancelThenDeleteClaimIfPossible(request, token, claimId)
       if (creditMemoId) await deleteSalesEntityIfExists(request, token, '/api/sales/credit-memos', creditMemoId)
@@ -261,7 +261,7 @@ test.describe('TC-WC-034: credit-memo execution bridge', () => {
       const noReceiptResponse = await postCreditMemo(request, token, notReceivedClaim.id!, notReceivedClaim.updatedAt)
       const noReceiptBody = await readJsonSafe<CreditMemoResponse>(noReceiptResponse)
       expect(noReceiptResponse.status(), `received line without qtyReceived should 400: ${JSON.stringify(noReceiptBody)}`).toBe(400)
-      expect(noReceiptBody?.error ?? '').toContain('creditMemoNoEligibleLines')
+      expect(noReceiptBody?.error ?? '').toContain('No claim lines are eligible for a credit memo.')
 
       let preReceiptClaim = await createClaimFixture(request, token, {
         claimType: 'return',
@@ -286,7 +286,7 @@ test.describe('TC-WC-034: credit-memo execution bridge', () => {
       const preReceiptResponse = await postCreditMemo(request, token, preReceiptClaim.id!, preReceiptClaim.updatedAt)
       const preReceiptBody = await readJsonSafe<CreditMemoResponse>(preReceiptResponse)
       expect(preReceiptResponse.status(), `approved (pre-receipt) claim should 400: ${JSON.stringify(preReceiptBody)}`).toBe(400)
-      expect(preReceiptBody?.error ?? '').toContain('creditMemoInvalidStatus')
+      expect(preReceiptBody?.error ?? '').toContain('A credit memo can only be created for received, inspecting, or resolved claims.')
 
       const manualLinkTarget = await readClaim(request, token, preReceiptClaim.id!) as CreditMemoClaimItem
       if (feeMemoId) {

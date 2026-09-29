@@ -303,6 +303,20 @@ After that, the admin UI only shows a masked value. Operators must copy the secr
 | `webhooks.secrets` | View and rotate webhook secrets |
 | `webhooks.test` | Send test webhook deliveries |
 
+## Subscription Cache
+
+The outbound dispatch subscriber (`webhooks:outbound-dispatch`) caches the active webhook subscriptions for each `(tenant, organization)` scope so that events for a tenant with no webhooks configured do not run a decrypting database query on every event.
+
+Only non-sensitive matching data is cached: `id`, `tenantId`, `organizationId`, and `subscribedEvents`. Secrets and target URLs are never cached. When a cache entry names candidate webhook IDs, the subscriber still re-reads those rows from the database before building any delivery, so the data actually sent to a delivery is always fresh.
+
+**Invalidation** happens two ways:
+- Inline, at the point a webhook is created, updated, deleted, or disabled.
+- Event-driven: the subscriber also listens for `webhooks.webhook.created`, `webhooks.webhook.updated`, `webhooks.webhook.deleted`, and `webhooks.webhook.disabled`, and clears the cache tag for that tenant (`webhooks:subscriptions:tenant:<tenantId>`) when one fires.
+
+`OM_WEBHOOKS_SUBSCRIPTION_CACHE_TTL_MS` sets the cache TTL in milliseconds (default `60000`). Set it to `0` to disable the cache entirely. Because invalidation is inline and event-driven, the TTL is a safety net rather than the mechanism that keeps the cache correct.
+
+**Multi-instance caveat**: this cache goes through `CACHE_STRATEGY`. With the `memory` strategy, the cache is per process, so a webhook write on one instance cannot invalidate another instance's copy inline — that instance only sees the change once its own TTL expires or it processes the invalidation event itself. Deployments running multiple instances that need webhook subscription changes to take effect everywhere promptly should use a shared strategy (`CACHE_STRATEGY=redis`) or lower `OM_WEBHOOKS_SUBSCRIPTION_CACHE_TTL_MS`.
+
 ## Related
 
 - [User Guide: Custom Webhooks](/user-guide/webhooks) — operator-facing walkthrough with screenshots

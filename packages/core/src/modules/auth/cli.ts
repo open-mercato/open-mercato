@@ -784,32 +784,36 @@ const setPassword: ModuleCli = {
   },
 }
 
+const CUSTOMER_ACCOUNTS_MODULE_ID = 'customer_accounts'
+
 /**
  * The portal half of the same sync.
  *
  * Staff roles pick up a module's newly declared features here; customer roles used
  * to pick theirs up only at tenant bootstrap, so a portal feature that shipped
  * after a tenant existed never reached that tenant's `Buyer`/`Viewer` roles and the
- * page stayed invisible to every real customer. `customer_accounts` owns those
- * entities and is optional, so it is reached through a guarded dynamic import: a
- * deployment without the module syncs its staff roles exactly as before.
+ * page stayed invisible to every real customer.
+ *
+ * `customer_accounts` owns those entities and is optional, so the merge only runs
+ * where the deployment enabled it. Whether it did is a question for the module
+ * registry, not for the module loader: every core module ships inside
+ * `@open-mercato/core` whether or not `modules.ts` lists it, so the import always
+ * resolves and an import-failure guard never fires. ORM metadata, by contrast, is
+ * built from the enabled set — which is why guarding the import let a portal-less
+ * deployment reach `em.findOne(CustomerRole)` and die there on `Metadata for
+ * entity CustomerRole not found`, taking `mercato init` down with it.
  */
 async function syncCustomerRoleAcls(
   em: EntityManager,
   tenantId: string,
   modules: Module[],
 ): Promise<{ updatedRoleSlugs: string[]; addedFeatures: string[] } | null> {
-  let ensure: typeof import('@open-mercato/core/modules/customer_accounts/lib/customerRoleAcls').ensureDefaultCustomerRoleAcls
-  try {
-    ;({ ensureDefaultCustomerRoleAcls: ensure } = await import(
-      '@open-mercato/core/modules/customer_accounts/lib/customerRoleAcls'
-    ))
-  } catch {
-    // The portal module is not part of this deployment; staff roles are still synced.
-    return null
-  }
-  // Deliberately outside the guard: a failure of the sync itself is a real error.
-  return ensure(em, tenantId, modules)
+  if (!modules.some((mod) => mod.id === CUSTOMER_ACCOUNTS_MODULE_ID)) return null
+  // Imported lazily so a portal-less deployment never loads the module's entities.
+  const { ensureDefaultCustomerRoleAcls } = await import(
+    '@open-mercato/core/modules/customer_accounts/lib/customerRoleAcls'
+  )
+  return ensureDefaultCustomerRoleAcls(em, tenantId, modules)
 }
 
 const syncRoleAcls: ModuleCli = {
