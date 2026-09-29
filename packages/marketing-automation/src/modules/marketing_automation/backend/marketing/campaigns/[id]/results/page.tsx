@@ -19,13 +19,14 @@ type SplitResult = {
   variant: string
   runs: number
   sends: number
+  reached: number
   opened: number
   clicked: number
   clickRate: number | null
   openRate: number | null
 }
 
-type Winner = { stepId: string; variant: string; clickRate: number; runnerUpClickRate: number | null; sends: number }
+type Winner = { stepId: string; variant: string; clickRate: number; runnerUpClickRate: number | null; sends: number; reached: number }
 
 type DailyPoint = { date: string; sent: number; opened: number; clicked: number }
 
@@ -240,7 +241,7 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
                       </div>
                     ) : (
                       <span className="text-xs text-muted-foreground">
-                        {t('marketing_automation.results.notEnoughData', 'Not enough data yet ({count} sends per variant needed)')
+                        {t('marketing_automation.results.notEnoughData', 'Not enough data yet ({count} recipients per variant needed)')
                           .replace('{count}', String(results.settings.minimumSends))}
                       </span>
                     )}
@@ -251,6 +252,7 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
                         <TableHead>{t('marketing_automation.results.column.variant', 'Variant')}</TableHead>
                         <TableHead>{t('marketing_automation.results.column.entered', 'Entered')}</TableHead>
                         <TableHead>{t('marketing_automation.results.column.sent', 'Sent')}</TableHead>
+                        <TableHead>{t('marketing_automation.results.column.reached', 'Reached')}</TableHead>
                         <TableHead>{t('marketing_automation.results.column.openRate', 'Open rate')}</TableHead>
                         <TableHead>{t('marketing_automation.results.column.clickRate', 'Click rate')}</TableHead>
                       </TableRow>
@@ -261,6 +263,8 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
                           <TableCell>{laneResult.variant}</TableCell>
                           <TableCell className="tabular-nums text-muted-foreground">{laneResult.runs}</TableCell>
                           <TableCell className="tabular-nums text-muted-foreground">{laneResult.sends}</TableCell>
+                          {/* The denominator of both rates: people, not messages. */}
+                          <TableCell className="tabular-nums text-muted-foreground">{laneResult.reached}</TableCell>
                           <TableCell className="tabular-nums text-muted-foreground">{formatRate(laneResult.openRate)}</TableCell>
                           <TableCell className="tabular-nums">{formatRate(laneResult.clickRate)}</TableCell>
                         </TableRow>

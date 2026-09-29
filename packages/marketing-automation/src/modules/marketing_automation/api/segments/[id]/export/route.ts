@@ -6,7 +6,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import type { ConditionExpression } from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
 import { MarketingSegment } from '../../../../data/entities.js'
-import { JOB_MAX_CHECKED, resolveSegmentMembers } from '../../../../lib/segment-members.js'
+import { REQUEST_MAX_CHECKED, resolveSegmentMembers } from '../../../../lib/segment-members.js'
 
 /**
  * A segment's members as CSV.
@@ -15,6 +15,12 @@ import { JOB_MAX_CHECKED, resolveSegmentMembers } from '../../../../lib/segment-
  * it is the most portable form customer data takes in this module. Capped rather than streamed — a cap is a
  * decision somebody can see in the response, whereas a stream that dies halfway produces a file that looks
  * complete.
+ *
+ * Two different caps, and they are not the same thing: `MAX_ROWS` bounds the FILE, and `REQUEST_MAX_CHECKED`
+ * bounds the WORK. The work cap is the request-sized one rather than the job-sized `JOB_MAX_CHECKED` this
+ * used to pass: membership is decided by building a subject document per candidate, so fifty thousand of
+ * them is tens of thousands of sequential queries with a browser and a database connection both waiting.
+ * Whether the file is everybody is reported either way, in the header below.
  */
 const routeMetadata = {
   GET: {
@@ -54,7 +60,7 @@ export async function GET(req: Request) {
     container,
     scope,
     (segment.expression ?? null) as ConditionExpression | null,
-    { maxChecked: JOB_MAX_CHECKED, maxMatches: MAX_ROWS },
+    { maxChecked: REQUEST_MAX_CHECKED, maxMatches: MAX_ROWS },
   )
 
   const rows = resolution.ids.length > 0
@@ -83,6 +89,8 @@ export async function GET(req: Request) {
       'cache-control': 'no-store',
       // Says plainly whether the file is everybody or a capped slice, without having to count the lines.
       'x-om-segment-export-complete': resolution.complete && resolution.ids.length < MAX_ROWS ? 'true' : 'false',
+      // How much was examined to produce it, so "not complete" is a number rather than a shrug.
+      'x-om-segment-export-checked': String(resolution.checked),
     },
   })
 }

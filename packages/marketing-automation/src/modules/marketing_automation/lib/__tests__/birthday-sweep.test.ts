@@ -33,8 +33,8 @@ describe('the birthday sweep source', () => {
     const { em, executed } = fakeEm([])
     await source.collect(em, scope, {}, new Date('2026-09-29T09:00:00.000Z'), 100)
     const { params } = executed[0]
-    // field key, tenant, org, one month-day, limit
-    expect(params).toEqual([BIRTH_DATE_FIELD_KEY, 't1', 'o1', '09-29', 100])
+    // field key, tenant, org, one month-day, limit, offset
+    expect(params).toEqual([BIRTH_DATE_FIELD_KEY, 't1', 'o1', '09-29', 100, 0])
   })
 
   test('asks for a window when the author wants notice, and handles the turn of the year', async () => {
@@ -107,6 +107,25 @@ describe('the birthday sweep source', () => {
     const candidates = await source.collect(em, scope, { withinDays: 5 }, new Date('2026-09-29T09:00:00.000Z'), 10)
     expect(candidates.find((entry) => entry.subjectEntityId === 'c2')?.trigger.daysUntilBirthday).toBe(0)
     expect(candidates.find((entry) => entry.subjectEntityId === 'c1')?.trigger.daysUntilBirthday).toBe(3)
+  })
+
+  /**
+   * The sweep pages through a row source, so the query has to order totally and accept an offset. Without
+   * both, an installation with more matching rows than one page kept re-reading the same page and the rows
+   * behind it never fired at all.
+   */
+  test('orders totally and takes an offset, so the worker can page past the first two hundred', async () => {
+    const { em, executed } = fakeEm([])
+    await source.collect(em, scope, {}, new Date('2026-09-29T09:00:00.000Z'), 200, 400)
+    expect(executed[0].sql).toContain('order by p.entity_id')
+    expect(executed[0].sql).toContain('limit ? offset ?')
+    expect(executed[0].params.slice(-2)).toEqual([200, 400])
+  })
+
+  test('starts at the beginning when no offset is given', async () => {
+    const { em, executed } = fakeEm([])
+    await source.collect(em, scope, {}, new Date('2026-09-29T09:00:00.000Z'), 50)
+    expect(executed[0].params.slice(-2)).toEqual([50, 0])
   })
 
   test('drops a row with no usable date rather than enrolling somebody on a guess', async () => {

@@ -6,15 +6,20 @@ import type { CampaignStep } from '../../engine/types'
 
 const scope = { tenantId: 't1', organizationId: 'o1' }
 
-const lane = (variant: string, sends: number, clicked: number, opened = clicked): SplitVariantResult => ({
+/**
+ * `reached` is the sample, and defaults to one message per person — the shape a one-email lane has. A test
+ * that cares about the two-email case passes it explicitly.
+ */
+const lane = (variant: string, reached: number, clicked: number, opened = clicked, sends = reached): SplitVariantResult => ({
   stepId: 'sp1',
   variant,
-  runs: sends,
+  runs: reached,
   sends,
+  reached,
   opened,
   clicked,
-  clickRate: sends > 0 ? clicked / sends : null,
-  openRate: sends > 0 ? opened / sends : null,
+  clickRate: reached > 0 ? clicked / reached : null,
+  openRate: reached > 0 ? opened / reached : null,
 })
 
 describe('loadSplitResults', () => {
@@ -34,10 +39,11 @@ describe('loadSplitResults', () => {
   const lane = (variant: string, stepIds: string[]) => ({ splitStepId: 'sp1', variant, stepIds })
 
   test('counts only the lane OWN steps, and reads the recorded lane off the run', async () => {
-    const { em, executed } = fakeEm([{ runs: 10, sends: 8, opened: 4, clicked: 2 }])
+    const { em, executed } = fakeEm([{ runs: 10, sends: 16, reached: 8, opened: 4, clicked: 2 }])
     const results = await loadSplitResults(em, 'camp-1', scope, [lane('a', ['a1', 'a2'])])
+    // Sixteen messages to eight people: the rates are over the eight, because the numerators are people too.
     expect(results).toEqual([{
-      stepId: 'sp1', variant: 'a', runs: 10, sends: 8, opened: 4, clicked: 2,
+      stepId: 'sp1', variant: 'a', runs: 10, sends: 16, reached: 8, opened: 4, clicked: 2,
       clickRate: 0.25, openRate: 0.5,
     }])
     const { sql, params } = executed[0]
@@ -53,6 +59,7 @@ describe('loadSplitResults', () => {
       't1', 'o1', 'a1', 'a2',
       't1', 'o1', 'a1', 'a2',
       't1', 'o1', 'a1', 'a2',
+      't1', 'o1', 'a1', 'a2',
     ])
   })
 
@@ -63,7 +70,7 @@ describe('loadSplitResults', () => {
     const results = await loadSplitResults(em, 'camp-1', scope, [lane('holdout', [])])
     expect(results).toEqual([{
       stepId: 'sp1', variant: 'holdout', runs: 5, sends: 0, opened: 0, clicked: 0,
-      clickRate: null, openRate: null,
+      reached: 0, clickRate: null, openRate: null,
     }])
     expect(executed[0].sql).not.toContain('step_id in ()')
   })
@@ -100,6 +107,28 @@ describe('pickSplitWinner', () => {
 
   // Declaring a winner before every lane has been received is how you pick whichever variant went out
   // first. The refusal is the feature.
+  /**
+   * The defect this denominator exists for.
+   *
+   * Two lanes, equally persuasive: of everybody reached, forty per cent clicked. One lane holds a single
+   * email, the other holds two, so it sends twice as many messages to the same number of people. Divided by
+   * MESSAGES the two-email lane scores 0.2 against 0.4 and loses every time, and the split ends up measuring
+   * the author's step count rather than their copy.
+   */
+  test('a lane with two emails is not penalised for sending two emails', () => {
+    const one = lane('one-email', 100, 40)
+    const two = lane('two-emails', 100, 40, 40, 200)
+    expect(one.clickRate).toBe(two.clickRate)
+    expect(pickSplitWinner([one, two], 'sp1', 50)).toBeNull()
+  })
+
+  test('waits for the minimum sample in PEOPLE, not messages', () => {
+    // Ten people, two emails each: twenty messages, and nowhere near enough people to call it.
+    const thin = lane('a', 10, 5, 5, 20)
+    const thick = lane('b', 100, 10)
+    expect(pickSplitWinner([thin, thick], 'sp1', 50)).toBeNull()
+  })
+
   test('refuses until EVERY lane has reached the minimum', () => {
     expect(pickSplitWinner([lane('a', 100, 12), lane('b', 10, 0)], 'sp1', 50)).toBeNull()
   })

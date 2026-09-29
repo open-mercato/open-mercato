@@ -13,7 +13,7 @@ import type { SegmentDefinition } from '../lib/segments.js'
 import type { TierThreshold } from '../lib/engine/tiers.js'
 import { createSqlCandidateSource, resolveCandidates } from '../lib/audience/set-resolver.js'
 import { findRowSweepSource } from '../lib/sweep-sources.js'
-import type { RowSweepSource } from '../lib/sweep-sources.js'
+import type { RowSweepSource, SweepCandidate } from '../lib/sweep-sources.js'
 import { isSweepDue } from '../lib/sweep-interval.js'
 import { pruneJobRuns, recordJobRun } from '../lib/job-runs.js'
 import { pruneSegmentSnapshots, takeSegmentSnapshots } from '../lib/segment-snapshots.js'
@@ -45,6 +45,19 @@ export const metadata: WorkerMeta = {
  */
 const PAGE_SIZE = 200
 
+/**
+ * How many ROWS one tick of a row source will walk, across as many pages as that takes.
+ *
+ * A row source used to be asked for a single page and nothing more, so an installation with more than
+ * `PAGE_SIZE` matching rows kept re-reading the same page: the rows past it never fired at all, and for a
+ * claimed source — "ask for a review of this order exactly once" — the claimed rows at the front of the
+ * order occupied the whole page forever, so the sweep did nothing while looking busy.
+ *
+ * Bounded rather than unbounded because a tick has to end. The ceiling being hit is logged, since it means
+ * the remainder waits for the next tick and somebody may want to know.
+ */
+const MAX_ROWS_PER_TICK = 5_000
+
 /** What the subject projection needs that is tenant-wide rather than per-customer. */
 type ProjectionOptions = { tierThresholds: TierThreshold[]; segments: SegmentDefinition[] }
 
@@ -70,34 +83,34 @@ async function startForCandidate(
   projection: ProjectionOptions,
 ): Promise<boolean> {
   try {
-    const subject = await buildSubjectDocument(deps.em, subjectEntityId, scope, {}, deps.now, projection)
-    const outcome = await startCampaignForSubject(
-      campaign,
-      {
-        subject,
-        subjectEntityId,
-        triggerEventId: 'marketing_automation.sweep.customers',
-        triggerContext: {},
-        dispatchDepth: 1,
-        reentryPolicy: policy,
-      },
-      deps,
-    )
-    return outcome === 'started'
-  } catch (error) {
-    // One bad candidate never aborts the sweep.
-    logger.error('[internal] marketing sweep candidate failed', {
-      campaignId: campaign.id,
+  const subject = await buildSubjectDocument(deps.em, subjectEntityId, scope, {}, deps.now, projection)
+  const outcome = await startCampaignForSubject(
+    campaign,
+    {
+      subject,
       subjectEntityId,
-      error: error instanceof Error ? error.message : String(error),
-    })
-    reportError(error, {
-      module: 'marketing_automation',
-      code: 'marketing_automation.sweep_candidate_failed',
-      attributes: { campaignId: campaign.id, subjectEntityId },
-    })
-    return false
-  }
+      triggerEventId: 'marketing_automation.sweep.customers',
+      triggerContext: {},
+      dispatchDepth: 1,
+      reentryPolicy: policy,
+    },
+    deps,
+  )
+  return outcome === 'started'
+} catch (error) {
+  // One bad candidate never aborts the sweep.
+  logger.error('[internal] marketing sweep candidate failed', {
+    campaignId: campaign.id,
+    subjectEntityId,
+    error: error instanceof Error ? error.message : String(error),
+  })
+  reportError(error, {
+    module: 'marketing_automation',
+    code: 'marketing_automation.sweep_candidate_failed',
+    attributes: { campaignId: campaign.id, subjectEntityId },
+  })
+  return false
+}
 }
 
 const LIVE_PERSON_FIELDS = { kind: 'person', deletedAt: null } as const
@@ -113,77 +126,77 @@ const LIVE_PERSON_FIELDS = { kind: 'person', deletedAt: null } as const
  * work it took to find them.
  */
 async function sweepCustomers(
-  campaign: MarketingCampaign,
-  trigger: MarketingCampaignTrigger,
-  deps: DispatchDeps,
-  scope: JobScope,
-  projection: ProjectionOptions,
+campaign: MarketingCampaign,
+trigger: MarketingCampaignTrigger,
+deps: DispatchDeps,
+scope: JobScope,
+projection: ProjectionOptions,
 ): Promise<number> {
-  const em = deps.em
-  const policy = reentryPolicyFor(trigger)
-  // Parsed through the definition schema, the same way the dispatcher reads it.
-  const plan = planNarrowing(readDefinition(campaign).audience)
-  const candidates = await resolveCandidates(plan.narrowing, createSqlCandidateSource(em, scope, deps.now))
-  logger.info('marketing sweep narrowing', {
-    campaignId: campaign.id,
-    narrowing: describeNarrowing(plan),
-    candidates: candidates.ids ? candidates.ids.length : null,
-    queries: candidates.queries,
-    abandoned: candidates.abandoned,
-  })
+const em = deps.em
+const policy = reentryPolicyFor(trigger)
+// Parsed through the definition schema, the same way the dispatcher reads it.
+const plan = planNarrowing(readDefinition(campaign).audience)
+const candidates = await resolveCandidates(plan.narrowing, createSqlCandidateSource(em, scope, deps.now))
+logger.info('marketing sweep narrowing', {
+  campaignId: campaign.id,
+  narrowing: describeNarrowing(plan),
+  candidates: candidates.ids ? candidates.ids.length : null,
+  queries: candidates.queries,
+  abandoned: candidates.abandoned,
+})
 
-  let started = 0
+let started = 0
 
-  if (candidates.ids) {
-    for (let offset = 0; offset < candidates.ids.length; offset += PAGE_SIZE) {
-      const chunk = candidates.ids.slice(offset, offset + PAGE_SIZE)
-      // A tag assignment or an order can point at a customer who has since been deleted, or at a
-      // company rather than a person, so the candidate list is still filtered to live people —
-      // the same predicate the unnarrowed scan applies.
-      const live: { id: string }[] = await em.find(
-        CustomerEntity,
-        { id: { $in: chunk }, tenantId: scope.tenantId, organizationId: scope.organizationId, ...LIVE_PERSON_FIELDS },
-        { fields: ['id'], orderBy: { id: 'ASC' } },
-      )
-      for (const candidate of live) {
-        if (await startForCandidate(campaign, candidate.id, policy, deps, scope, projection)) started += 1
-      }
-      em.clear()
-    }
-    return started
-  }
-
-  let cursor: string | null = null
-
-  for (;;) {
-    const where: FilterQuery<CustomerEntity> = {
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      ...LIVE_PERSON_FIELDS,
-      ...(cursor ? { id: { $gt: cursor } } : {}),
-    }
-    // Ids only: the subject document does its own decrypting read per candidate, so pulling
-    // whole entities here would decrypt every customer in the organization for nothing.
-    // Annotated because the keyset cursor is derived from this page, which would otherwise make
-    // the inferred type circular.
-    const page: { id: string }[] = await em.find(
+if (candidates.ids) {
+  for (let offset = 0; offset < candidates.ids.length; offset += PAGE_SIZE) {
+    const chunk = candidates.ids.slice(offset, offset + PAGE_SIZE)
+    // A tag assignment or an order can point at a customer who has since been deleted, or at a
+    // company rather than a person, so the candidate list is still filtered to live people —
+    // the same predicate the unnarrowed scan applies.
+    const live: { id: string }[] = await em.find(
       CustomerEntity,
-      where,
-      { fields: ['id'], orderBy: { id: 'ASC' }, limit: PAGE_SIZE },
+      { id: { $in: chunk }, tenantId: scope.tenantId, organizationId: scope.organizationId, ...LIVE_PERSON_FIELDS },
+      { fields: ['id'], orderBy: { id: 'ASC' } },
     )
-    if (!page.length) break
-
-    for (const candidate of page) {
+    for (const candidate of live) {
       if (await startForCandidate(campaign, candidate.id, policy, deps, scope, projection)) started += 1
     }
-
-    if (page.length < PAGE_SIZE) break
-    cursor = page[page.length - 1].id
-    // Release the page before fetching the next one; every write went through its own flush.
     em.clear()
   }
-
   return started
+}
+
+let cursor: string | null = null
+
+for (;;) {
+  const where: FilterQuery<CustomerEntity> = {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    ...LIVE_PERSON_FIELDS,
+    ...(cursor ? { id: { $gt: cursor } } : {}),
+  }
+  // Ids only: the subject document does its own decrypting read per candidate, so pulling
+  // whole entities here would decrypt every customer in the organization for nothing.
+  // Annotated because the keyset cursor is derived from this page, which would otherwise make
+  // the inferred type circular.
+  const page: { id: string }[] = await em.find(
+    CustomerEntity,
+    where,
+    { fields: ['id'], orderBy: { id: 'ASC' }, limit: PAGE_SIZE },
+  )
+  if (!page.length) break
+
+  for (const candidate of page) {
+    if (await startForCandidate(campaign, candidate.id, policy, deps, scope, projection)) started += 1
+  }
+
+  if (page.length < PAGE_SIZE) break
+  cursor = page[page.length - 1].id
+  // Release the page before fetching the next one; every write went through its own flush.
+  em.clear()
+}
+
+return started
 }
 
 /**
@@ -194,58 +207,98 @@ async function sweepCustomers(
  * once, ever" enforceable by the database rather than by a marker column of its own.
  */
 async function sweepRows(
+campaign: MarketingCampaign,
+trigger: MarketingCampaignTrigger,
+source: RowSweepSource,
+deps: DispatchDeps,
+scope: JobScope,
+projection: ProjectionOptions,
+): Promise<number> {
+const policy = reentryPolicyFor(trigger)
+const params = (trigger.sweepParams ?? {}) as { withinDays?: number }
+
+let started = 0
+let walked = 0
+
+/**
+ * Paged, because the claimed rows sit at the FRONT.
+ *
+ * A claim makes a row single-use, but it does not remove the row from the source's query — an order stays
+ * fulfilled forever. Reading one page therefore meant re-reading rows that had already been acted on,
+ * while the rows behind them were never reached. Offset paging is safe here in a way it is not for the
+ * population scan above: each source orders totally, and a row arriving or leaving mid-sweep costs at
+ * worst one row seen twice or once late, which the claim already makes harmless.
+ */
+for (let offset = 0; offset < MAX_ROWS_PER_TICK; offset += PAGE_SIZE) {
+  const page = await source.collect(deps.em, scope, params, deps.now, PAGE_SIZE, offset)
+  walked += page.length
+  for (const candidate of page) {
+    if (await startRowCandidate(campaign, source, candidate, policy, deps, scope, projection)) started += 1
+  }
+  if (page.length < PAGE_SIZE) break
+  if (offset + PAGE_SIZE >= MAX_ROWS_PER_TICK) {
+    logger.warn('marketing sweep reached its per-tick row ceiling', {
+      campaignId: campaign.id,
+      source: source.id,
+      walked,
+      ceiling: MAX_ROWS_PER_TICK,
+    })
+  }
+}
+
+return started
+}
+
+/**
+ * One row, and the promise that a bad one never aborts the sweep.
+ */
+async function startRowCandidate(
   campaign: MarketingCampaign,
-  trigger: MarketingCampaignTrigger,
   source: RowSweepSource,
+  candidate: SweepCandidate,
+  policy: ReentryPolicy,
   deps: DispatchDeps,
   scope: JobScope,
   projection: ProjectionOptions,
-): Promise<number> {
-  const policy = reentryPolicyFor(trigger)
-  const params = (trigger.sweepParams ?? {}) as { withinDays?: number }
-  const candidates = await source.collect(deps.em, scope, params, deps.now, PAGE_SIZE)
-
-  let started = 0
-  for (const candidate of candidates) {
-    try {
-      const subject = await buildSubjectDocument(
-        deps.em,
-        candidate.subjectEntityId,
-        scope,
-        candidate.trigger,
-        deps.now,
-        projection,
-      )
-      const outcome = await startCampaignForSubject(
-        campaign,
-        {
-          subject,
-          subjectEntityId: candidate.subjectEntityId,
-          triggerEventId: source.triggerEventId,
-          triggerContext: candidate.trigger,
-          dispatchDepth: 1,
-          reentryPolicy: policy,
-          occurrenceKey: candidate.claimKey ?? null,
-        },
-        deps,
-      )
-      if (outcome === 'started') started += 1
-    } catch (error) {
-      // One bad row never aborts the sweep.
-      logger.error('[internal] marketing sweep row failed', {
-        campaignId: campaign.id,
-        source: source.id,
+): Promise<boolean> {
+  try {
+    const subject = await buildSubjectDocument(
+      deps.em,
+      candidate.subjectEntityId,
+      scope,
+      candidate.trigger,
+      deps.now,
+      projection,
+    )
+    const outcome = await startCampaignForSubject(
+      campaign,
+      {
+        subject,
         subjectEntityId: candidate.subjectEntityId,
-        error: error instanceof Error ? error.message : String(error),
-      })
-      reportError(error, {
-        module: 'marketing_automation',
-        code: 'marketing_automation.sweep_candidate_failed',
-        attributes: { campaignId: campaign.id, source: source.id },
-      })
-    }
+        triggerEventId: source.triggerEventId,
+        triggerContext: candidate.trigger,
+        dispatchDepth: 1,
+        reentryPolicy: policy,
+        occurrenceKey: candidate.claimKey ?? null,
+      },
+      deps,
+    )
+    return outcome === 'started'
+  } catch (error) {
+    // One bad row never aborts the sweep.
+    logger.error('[internal] marketing sweep row failed', {
+      campaignId: campaign.id,
+      source: source.id,
+      subjectEntityId: candidate.subjectEntityId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    reportError(error, {
+      module: 'marketing_automation',
+      code: 'marketing_automation.sweep_candidate_failed',
+      attributes: { campaignId: campaign.id, source: source.id },
+    })
+    return false
   }
-  return started
 }
 
 /**

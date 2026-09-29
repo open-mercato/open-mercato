@@ -61,9 +61,27 @@ export async function resolveSegmentMembers(
    * companies, so comparing two segments produced an empty overlap where one side obviously contained the
    * other. That is how this was found.
    */
-  const candidateIds = candidates.ids
-    ? await filterToLivePeople(em, livePerson, candidates.ids.slice(0, options.maxChecked + 1))
-    : (await em.find(CustomerEntity, livePerson, { fields: ['id'], limit: options.maxChecked + 1 })).map((row) => row.id)
+  let candidateIds: string[]
+  let truncatedCandidates: boolean
+  if (candidates.ids) {
+    const window = candidates.ids.slice(0, options.maxChecked + 1)
+    candidateIds = await filterToLivePeople(em, livePerson, window)
+    truncatedCandidates = candidatesWereTruncated({
+      candidateCount: candidates.ids.length,
+      windowCount: window.length,
+      liveCount: candidateIds.length,
+      maxChecked: options.maxChecked,
+    })
+  } else {
+    const rows = await em.find(CustomerEntity, livePerson, { fields: ['id'], limit: options.maxChecked + 1 })
+    candidateIds = rows.map((row) => row.id)
+    truncatedCandidates = candidatesWereTruncated({
+      candidateCount: null,
+      windowCount: candidateIds.length,
+      liveCount: candidateIds.length,
+      maxChecked: options.maxChecked,
+    })
+  }
 
   const checkedIds = candidateIds.slice(0, options.maxChecked)
   const tierThresholds = await loadTierThresholds(container, scope)
@@ -92,9 +110,36 @@ export async function resolveSegmentMembers(
     ids: matches,
     checked: checkedIds.length,
     candidates: candidates.ids ? candidates.ids.length : null,
-    complete: !truncatedMatches && candidateIds.length <= options.maxChecked,
+    complete: !truncatedMatches && !truncatedCandidates,
     narrowing: describeNarrowing(plan),
   }
+}
+
+/**
+ * Whether the candidate list was cut short — decided BEFORE the live-person filter runs.
+ *
+ * The ceiling is detected the usual way: ask for one more than will be examined and see whether it comes
+ * back. The bug this function exists to prevent is that the sentinel used to be handed to
+ * `filterToLivePeople` along with everything else, so ONE deleted customer or company anywhere in the window
+ * removed the sentinel too — and a segment that had been cut off at two thousand reported itself complete,
+ * which is the single thing every caller of this file promises not to do. A truncated count presented as a
+ * total is worse than no count, because nobody knows to distrust it.
+ *
+ * Both conditions are needed and neither is sufficient: candidates beyond the window mean there is more to
+ * examine, and a window whose LIVE members already exceed the ceiling means the same. When the window IS the
+ * whole candidate list and the filter merely removed some dead rows, nothing was truncated.
+ */
+export function candidatesWereTruncated(input: {
+  /** Ids the narrowing produced, or null when the whole population was walked. */
+  candidateCount: number | null
+  /** How many of them entered the live-person filter — at most `maxChecked + 1`. */
+  windowCount: number
+  /** How many came out of it. */
+  liveCount: number
+  maxChecked: number
+}): boolean {
+  if (input.candidateCount !== null && input.candidateCount > input.windowCount) return true
+  return input.liveCount > input.maxChecked
 }
 
 /** Chunked, because `id IN (…)` with tens of thousands of uuids is a query nobody should write. */
@@ -118,6 +163,17 @@ async function filterToLivePeople(
 
 /** How many candidates a screen-facing request examines. A segment page shows an answer, not a mailing. */
 export const SCREEN_MAX_CHECKED = 2_000
+
+/**
+ * How many a synchronous REQUEST examines when it wants a real answer rather than a preview — the CSV export.
+ *
+ * Between the two: an export is not a screen, so 2,000 would make every file a sample, but it is also not a
+ * job, and `JOB_MAX_CHECKED` inside an HTTP request means up to fifty thousand subject documents built
+ * sequentially while a connection and a browser wait for a file. The ceiling is reached only by a segment
+ * that narrows to nothing and therefore has to walk the population; a segment with any narrowable condition
+ * examines its candidates and finishes.
+ */
+export const REQUEST_MAX_CHECKED = 10_000
 
 /** How many a background job examines. Bounded, because an unbounded job is one nobody can reason about. */
 export const JOB_MAX_CHECKED = 50_000

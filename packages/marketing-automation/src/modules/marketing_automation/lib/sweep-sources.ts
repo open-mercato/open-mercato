@@ -39,12 +39,20 @@ export type RowSweepSource = {
   contextKeys: string[]
   /** Default for `withinDays` when the author did not set one. */
   defaultWithinDays: number
+  /**
+   * One page of candidates, in a STABLE order.
+   *
+   * The order has to be total and deterministic, because the worker pages with an offset: without it the
+   * same rows can appear on two pages while others appear on none. A page shorter than `limit` means the
+   * source is exhausted, which is how the worker knows to stop.
+   */
   collect(
     em: EntityManager,
     scope: RunScope,
     params: SweepSourceParams,
     now: Date,
     limit: number,
+    offset?: number,
   ): Promise<SweepCandidate[]>
 }
 
@@ -69,7 +77,7 @@ const expiringQuotes: RowSweepSource = {
   triggerEventId: 'marketing_automation.quote.expiring',
   contextKeys: ['trigger.quoteId', 'trigger.quoteNumber', 'trigger.quoteTotal', 'trigger.daysUntilExpiry'],
   defaultWithinDays: 7,
-  async collect(em, scope, params, now, limit) {
+  async collect(em, scope, params, now, limit, offset = 0) {
     const withinDays = params.withinDays ?? this.defaultWithinDays
     const horizon = new Date(now.getTime() + withinDays * MS_PER_DAY)
     const quotes = await em.find(
@@ -83,7 +91,8 @@ const expiringQuotes: RowSweepSource = {
         // of cancelled appear in the codebase.
         status: { $nin: ['confirmed', 'canceled', 'cancelled'] },
       },
-      { orderBy: { validUntil: 'ASC' }, limit },
+      // `id` breaks ties: two quotes expiring at the same instant must not be able to swap pages.
+      { orderBy: { validUntil: 'ASC', id: 'ASC' }, limit, offset },
     )
 
     const candidates: SweepCandidate[] = []
@@ -126,7 +135,7 @@ const fulfilledOrders: RowSweepSource = {
   triggerEventId: FULFILLED_ORDER_TRIGGER_ID,
   contextKeys: ['trigger.orderId', 'trigger.orderNumber', 'trigger.orderTotal', 'trigger.daysSinceOrder'],
   defaultWithinDays: 7,
-  async collect(em, scope, params, now, limit) {
+  async collect(em, scope, params, now, limit, offset = 0) {
     const withinDays = params.withinDays ?? this.defaultWithinDays
     // A window, not "everything older than N days": the claim below makes each order single-use, but
     // the QUERY still has to stop growing or every tick would scan the whole order history.
@@ -143,7 +152,7 @@ const fulfilledOrders: RowSweepSource = {
         fulfillmentStatus: { $in: FULFILLED_STATUSES },
         status: { $nin: ['canceled', 'cancelled'] },
       },
-      { orderBy: { placedAt: 'DESC' }, limit },
+      { orderBy: { placedAt: 'DESC', id: 'ASC' }, limit, offset },
     )
 
     const candidates: SweepCandidate[] = []
@@ -193,7 +202,7 @@ const birthdays: RowSweepSource = {
   contextKeys: ['trigger.daysUntilBirthday', 'trigger.birthDate'],
   // Zero means "today"; an author who wants a few days' notice raises it.
   defaultWithinDays: 0,
-  async collect(em, scope, params, now, limit) {
+  async collect(em, scope, params, now, limit, offset = 0) {
     const withinDays = Math.max(0, Math.min(params.withinDays ?? 0, 60))
 
     /**
@@ -222,8 +231,9 @@ const birthdays: RowSweepSource = {
           and e.deleted_at is null
           and e.kind = 'person'
           and substring(v.value_text from 6 for 5) in (${placeholders})
-        limit ?`,
-      [BIRTH_DATE_FIELD_KEY, scope.tenantId, scope.organizationId, ...days, limit],
+        order by p.entity_id
+        limit ? offset ?`,
+      [BIRTH_DATE_FIELD_KEY, scope.tenantId, scope.organizationId, ...days, limit, offset],
     )
 
     return rows.flatMap((row) => {

@@ -13,6 +13,11 @@ import type { SubjectScope } from '../subject-document.js'
  * Opens and clicks are counted as UNIQUE RUNS, not raw events. A mail client re-fetching the pixel is
  * not a second person reading the message, and a winner picked on raw opens would reward whichever
  * variant happened to reach more aggressive inbox previewers.
+ *
+ * Which is also why the DENOMINATOR is a count of runs. Every rate here is "of the people this lane
+ * reached, how many acted" — never "per message", because a lane with two emails in it would then have
+ * every rate structurally halved against a lane with one, and the split would be decided by how many
+ * steps the author happened to put in each side rather than by the copy.
  */
 
 export type SplitVariantResult = {
@@ -20,9 +25,17 @@ export type SplitVariantResult = {
   variant: string
   runs: number
   sends: number
+  /**
+   * Distinct runs that received at least one of this lane's messages.
+   *
+   * The denominator for every rate, and the sample the winner rule waits on. `sends` counts MESSAGES and is
+   * reported beside it because an operator wants to know the volume, but it cannot divide a per-run
+   * numerator: a two-email lane sends twice as many messages to the same people.
+   */
+  reached: number
   opened: number
   clicked: number
-  /** Clicks per send, or null with no sends — a rate over zero is not a zero rate. */
+  /** Clicks per person reached, or null with nobody reached — a rate over zero is not a zero rate. */
   clickRate: number | null
   openRate: number | null
 }
@@ -53,6 +66,13 @@ function laneSql(stepPlaceholders: string): string {
                and s.status = 'sent'
                and s.run_id in (select id from lane_runs)
                and s.step_id in (${stepPlaceholders}))::int as sends,
+           (select count(distinct s.run_id)
+              from marketing_message_sends s
+             where s.tenant_id = ?
+               and s.organization_id = ?
+               and s.status = 'sent'
+               and s.run_id in (select id from lane_runs)
+               and s.step_id in (${stepPlaceholders}))::int as reached,
            (select count(distinct e.run_id)
               from marketing_message_send_events e
              where e.tenant_id = ?
@@ -70,7 +90,7 @@ function laneSql(stepPlaceholders: string): string {
   `
 }
 
-type ResultRow = { runs: number; sends: number; opened: number; clicked: number }
+type ResultRow = { runs: number; sends: number; reached: number; opened: number; clicked: number }
 
 function rate(numerator: number, denominator: number): number | null {
   if (denominator <= 0) return null
@@ -108,6 +128,7 @@ export async function loadSplitResults(
         variant: lane.variant,
         runs: runsOnly[0]?.runs ?? 0,
         sends: 0,
+        reached: 0,
         opened: 0,
         clicked: 0,
         clickRate: null,
@@ -123,6 +144,7 @@ export async function loadSplitResults(
       scope.tenantId, scope.organizationId, ...lane.stepIds,
       scope.tenantId, scope.organizationId, ...lane.stepIds,
       scope.tenantId, scope.organizationId, ...lane.stepIds,
+      scope.tenantId, scope.organizationId, ...lane.stepIds,
     ])
     const row = rows[0]
     results.push({
@@ -130,10 +152,11 @@ export async function loadSplitResults(
       variant: lane.variant,
       runs: row?.runs ?? 0,
       sends: row?.sends ?? 0,
+      reached: row?.reached ?? 0,
       opened: row?.opened ?? 0,
       clicked: row?.clicked ?? 0,
-      clickRate: rate(row?.clicked ?? 0, row?.sends ?? 0),
-      openRate: rate(row?.opened ?? 0, row?.sends ?? 0),
+      clickRate: rate(row?.clicked ?? 0, row?.reached ?? 0),
+      openRate: rate(row?.opened ?? 0, row?.reached ?? 0),
     })
   }
 
@@ -147,6 +170,8 @@ export type SplitWinner = {
   /** The runner-up's rate, so a caller can see how close the call was. */
   runnerUpClickRate: number | null
   sends: number
+  /** The sample the call was made on: people, not messages. */
+  reached: number
 }
 
 /**
@@ -158,15 +183,19 @@ export type SplitWinner = {
  *
  * Ties return null as well: with equal rates there is nothing to learn, and replacing the split would
  * throw away the ability to keep measuring.
+ *
+ * The minimum is counted in PEOPLE REACHED, not messages sent, for the same reason the rates are: a lane
+ * holding two emails would otherwise clear a "minimum sample" gate on half as many recipients as the lane
+ * it is being compared against.
  */
 export function pickSplitWinner(
   results: SplitVariantResult[],
   stepId: string,
-  minimumSends: number,
+  minimumReached: number,
 ): SplitWinner | null {
   const lanes = results.filter((result) => result.stepId === stepId)
   if (lanes.length < 2) return null
-  if (lanes.some((lane) => lane.sends < minimumSends)) return null
+  if (lanes.some((lane) => lane.reached < minimumReached)) return null
 
   const ranked = [...lanes].sort((left, right) => (right.clickRate ?? 0) - (left.clickRate ?? 0))
   const best = ranked[0]
@@ -180,5 +209,6 @@ export function pickSplitWinner(
     clickRate: best.clickRate,
     runnerUpClickRate: runnerUp?.clickRate ?? null,
     sends: best.sends,
+    reached: best.reached,
   }
 }
