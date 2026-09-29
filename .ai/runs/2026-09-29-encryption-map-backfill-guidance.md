@@ -64,6 +64,6 @@ Make sure agents and developers who add an encryption map entry to a module that
 
 ### Phase 4: Guidance
 
-- [ ] 4.1 Update om-data-model-design sensitive-data reference
-- [ ] 4.2 Update core and cli AGENTS.md
-- [ ] 4.3 Update the encryption user guide
+- [x] 4.1 Update om-data-model-design sensitive-data reference — 5c58b5367
+- [x] 4.2 Update core and cli AGENTS.md — b86eb66ef
+- [x] 4.3 Update the encryption user guide — dcb6e6adc
