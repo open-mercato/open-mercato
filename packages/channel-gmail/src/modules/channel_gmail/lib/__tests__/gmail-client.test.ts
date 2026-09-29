@@ -156,7 +156,9 @@ describe('FetchGmailApiClient.requestJson retry/backoff', () => {
   it('honors an HTTP-date Retry-After value, bounded by the 8s cap', async () => {
     let calls = 0
     // 3 seconds in the future → ~3000ms wait, still under the 8s ceiling.
-    const retryAt = new Date(Date.now() + 3_000).toUTCString()
+    const now = Date.now()
+    const retryAt = new Date(now + 3_000).toUTCString()
+    const dateNowSpy = jest.spyOn(Date, 'now').mockReturnValue(now)
     globalThis.fetch = (() => {
       calls += 1
       if (calls === 1) {
@@ -169,13 +171,17 @@ describe('FetchGmailApiClient.requestJson retry/backoff', () => {
       )
     }) as unknown as typeof globalThis.fetch
 
-    await getGmailApiClient().getProfile({ accessToken: 'token' })
+    try {
+      await getGmailApiClient().getProfile({ accessToken: 'token' })
 
-    expect(calls).toBe(2)
-    expect(capturedDelays).toHaveLength(1)
-    // Date.parse(retryAt) drops sub-second precision, so the delta is ~2000-3000ms.
-    expect(capturedDelays[0]).toBeGreaterThan(1000)
-    expect(capturedDelays[0]).toBeLessThanOrEqual(8000)
+      expect(calls).toBe(2)
+      expect(capturedDelays).toHaveLength(1)
+      // Date.parse(retryAt) drops sub-second precision, so the delta is ~2000-3000ms.
+      expect(capturedDelays[0]).toBeGreaterThan(1000)
+      expect(capturedDelays[0]).toBeLessThanOrEqual(8000)
+    } finally {
+      dateNowSpy.mockRestore()
+    }
   })
 
   it('throws GmailApiError carrying the upstream status after exhausting retries', async () => {
