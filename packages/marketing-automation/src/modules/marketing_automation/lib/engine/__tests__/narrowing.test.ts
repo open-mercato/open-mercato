@@ -35,6 +35,7 @@ function satisfiesNarrowing(narrowing: Narrowing, subject: SubjectDocument): boo
       if (predicate.kind === 'hasTag') return subject.tags.includes(predicate.slug)
       if (predicate.kind === 'hasAnyTag') return subject.tags.length > 0
       if (predicate.kind === 'purchasedSku') return subject.orders.skus.includes(predicate.sku)
+      if (predicate.kind === 'purchasedCategory') return subject.orders.categories.includes(predicate.slug)
       if (predicate.kind === 'npsScore') {
         // The query returns only customers who ANSWERED; a non-answerer is excluded here too, which is why
         // pushing this predicate stays a superset.
@@ -90,6 +91,7 @@ function subjectOf(input: {
   daysAgo?: number | null
   points?: number
   skus?: string[]
+  categories?: string[]
   country?: string | null
   nps?: number | null
 }): SubjectDocument {
@@ -97,6 +99,7 @@ function subjectOf(input: {
     count: input.count ?? 0,
     totalGross: input.totalGross ?? 0,
     skus: input.skus ?? [],
+    categories: input.categories ?? [],
   }
   if (input.daysAgo !== undefined && input.daysAgo !== null) {
     const placedAt = new Date(NOW.getTime() - input.daysAgo * MS_PER_DAY)
@@ -203,6 +206,27 @@ describe('planNarrowing — what can be pushed', () => {
 
   test('"has not bought" is not pushed, because absence cannot be produced as a superset', () => {
     expect(planNarrowing(leaf('orders.skus', 'NOT_CONTAINS', 'ATLAS-RUNNER')).narrowing.kind).toBe('all')
+  })
+
+  test('a purchased category becomes a membership lookup too', () => {
+    const plan = planNarrowing(leaf('orders.categories', 'CONTAINS', 'footwear'))
+    expect(plan.narrowing).toEqual({ kind: 'predicate', predicate: { kind: 'purchasedCategory', slug: 'footwear' } })
+    expect(plan.complete).toBe(true)
+  })
+
+  /**
+   * The pushdown is only sound because the category list is read from the CATALOGUE.
+   *
+   * Both sides — the SQL candidate query and `matchesAudience` over the subject document — read the same live
+   * assignment table, which is what makes this exact rather than merely a superset. Were the list read from the
+   * order snapshot instead, the two would be comparing different facts.
+   */
+  test('"has not bought from a category" is not pushed either', () => {
+    expect(planNarrowing(leaf('orders.categories', 'NOT_CONTAINS', 'footwear')).narrowing.kind).toBe('all')
+  })
+
+  test('an empty category slug is not pushed as a match-everything', () => {
+    expect(planNarrowing(leaf('orders.categories', 'CONTAINS', '   ')).narrowing.kind).toBe('all')
   })
 
   /**
@@ -375,6 +399,8 @@ describe('the narrowing never excludes a subject the audience accepts', () => {
     ])],
     ['bought a product', leaf('orders.skus', 'CONTAINS', 'ATLAS-RUNNER')],
     ['did not buy a product', leaf('orders.skus', 'NOT_CONTAINS', 'ATLAS-RUNNER')],
+    ['bought from a category', leaf('orders.categories', 'CONTAINS', 'footwear')],
+    ['did not buy from a category', leaf('orders.categories', 'NOT_CONTAINS', 'footwear')],
     ['in Poland', leaf('address.country', '=', 'PL')],
     ['bought it and is in Poland', group('AND', [
       leaf('orders.skus', 'CONTAINS', 'ATLAS-RUNNER'),
@@ -395,9 +421,23 @@ describe('the narrowing never excludes a subject the audience accepts', () => {
     for (const [count, totalGross] of [[0, 0], [1, 0], [1, 99.99], [3, 500], [12, 4200]] as const) {
       for (const daysAgo of count === 0 ? [null] : [0, 1, 7, 30, 44, 45, 46, 60, 89, 90, 91, 400]) {
         for (const points of [0, 1, 10, 99, 100, 101, -5]) {
-          for (const [skus, country] of [[[], null], [['ATLAS-RUNNER'], 'PL'], [['OTHER-SKU'], 'DE']] as const) {
+          /**
+           * Categories travel with the skus, because in a real shop they do.
+           *
+           * A product filed under `footwear` is bought by the same people who bought its sku, so pairing them
+           * here keeps the generated population realistic — and gives the category pushdown subjects it can
+           * actually match, which is what makes the property assertion mean something.
+           */
+          for (const [skus, categories, country] of [
+            [[], [], null],
+            [['ATLAS-RUNNER'], ['footwear'], 'PL'],
+            [['OTHER-SKU'], ['accessories'], 'DE'],
+          ] as const) {
             for (const nps of [null, 2, 7, 10]) {
-              subjects.push(subjectOf({ tags, count, totalGross, daysAgo, points, skus: [...skus], country, nps }))
+              subjects.push(subjectOf({
+                tags, count, totalGross, daysAgo, points,
+                skus: [...skus], categories: [...categories], country, nps,
+              }))
             }
           }
         }
@@ -486,7 +526,7 @@ describe('reaching a score threshold, expressed in an audience', () => {
   const scoredSubject = (points: number, previousPoints: number): SubjectDocument => ({
     customer: { id: 'c1', email: null, displayName: null, createdAt: null },
     tags: [],
-    orders: { count: 0, totalGross: 0, skus: [] },
+    orders: { count: 0, totalGross: 0, skus: [], categories: [] },
     score: { points, tier: null, tierRank: -1 },
     address: null,
     survey: { nps: null, answeredAt: null },

@@ -30,6 +30,7 @@ export type NarrowingPredicate =
   | { kind: 'orderMetric'; metric: OrderMetric; op: ComparisonOp; value: number }
   | { kind: 'scorePoints'; op: ComparisonOp; value: number }
   | { kind: 'purchasedSku'; sku: string }
+  | { kind: 'purchasedCategory'; slug: string }
   | { kind: 'purchasedInChannel'; code: string }
   | { kind: 'npsScore'; op: ComparisonOp; value: number }
 
@@ -154,6 +155,20 @@ function translateLeaf(leaf: SimpleCondition): LeafTranslation {
     if (operator !== 'CONTAINS') return null
     const sku = typeof leaf.value === 'string' ? leaf.value.trim() : ''
     return sku ? { predicate: { kind: 'purchasedSku', sku }, exact: true } : null
+  }
+
+  /**
+   * A category is a join on orders too, so it pushes down the same way — and only in the positive form.
+   *
+   * `exact: true` is the claim that the SQL and `matchesAudience` agree, and here they do because both read the
+   * same live assignment table. That is only true BECAUSE the category list comes from the catalogue rather than
+   * from the order snapshot: were it read from the snapshot per customer, the pushdown would be comparing a
+   * different fact and could drop somebody the audience accepts.
+   */
+  if (field === 'orders.categories') {
+    if (operator !== 'CONTAINS') return null
+    const slug = typeof leaf.value === 'string' ? leaf.value.trim() : ''
+    return slug ? { predicate: { kind: 'purchasedCategory', slug }, exact: true } : null
   }
 
   /**
@@ -303,6 +318,7 @@ export function describeNarrowing(plan: NarrowingPlan): string {
       if (predicate.kind === 'hasAnyTag') return 'tag:*'
       if (predicate.kind === 'scorePoints') return `score.points${predicate.op}${predicate.value}`
       if (predicate.kind === 'purchasedSku') return `sku:${predicate.sku}`
+      if (predicate.kind === 'purchasedCategory') return `category:${predicate.slug}`
       if (predicate.kind === 'purchasedInChannel') return `channel:${predicate.code}`
       if (predicate.kind === 'npsScore') return `survey.nps${predicate.op}${predicate.value}`
       return `orders.${predicate.metric}${predicate.op}${predicate.value}`

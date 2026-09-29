@@ -21,6 +21,7 @@ export type CandidateSource = {
   scoreMembers(op: ComparisonOp, value: number): Promise<string[]>
   /** Subject ids who have bought this product SKU. */
   purchasedSkuMembers(sku: string): Promise<string[]>
+  purchasedCategoryMembers(slug: string): Promise<string[]>
   /** Subject ids who have bought through this sales channel. */
   purchasedInChannelMembers(code: string): Promise<string[]>
   /** Subject ids whose latest NPS answer satisfies the comparison. */
@@ -60,6 +61,8 @@ async function resolvePredicate(
         ? await source.scoreMembers(predicate.op, predicate.value)
         : predicate.kind === 'purchasedSku'
           ? await source.purchasedSkuMembers(predicate.sku)
+          : predicate.kind === 'purchasedCategory'
+            ? await source.purchasedCategoryMembers(predicate.slug)
           : predicate.kind === 'purchasedInChannel'
             ? await source.purchasedInChannelMembers(predicate.code)
           : predicate.kind === 'npsScore'
@@ -225,6 +228,27 @@ export function createSqlCandidateSource(
                   l.catalog_snapshot -> 'variant' ->> 'sku'
                 ) = ?`,
         [scope.tenantId, scope.organizationId, sku],
+      )
+      return rows.map((row) => row.customer_entity_id).filter(Boolean)
+    },
+
+    /**
+     * Customers who bought a product currently filed under this category.
+     *
+     * The same live assignment table the subject document reads, which is what lets the narrowing claim to be
+     * exact rather than merely a superset.
+     */
+    async purchasedCategoryMembers(slug: string): Promise<string[]> {
+      const rows = await em.getConnection().execute<{ customer_entity_id: string }[]>(
+        `select distinct o.customer_entity_id
+           from sales_order_lines l
+           join sales_orders o on o.id = l.order_id
+           join catalog_product_category_assignments a on a.product_id = l.product_id
+           join catalog_product_categories c on c.id = a.category_id and c.deleted_at is null
+          where ${PLACED_ORDER_FILTER_SQL_ALIASED}
+            and o.customer_entity_id is not null
+            and c.slug = ?`,
+        [scope.tenantId, scope.organizationId, slug],
       )
       return rows.map((row) => row.customer_entity_id).filter(Boolean)
     },

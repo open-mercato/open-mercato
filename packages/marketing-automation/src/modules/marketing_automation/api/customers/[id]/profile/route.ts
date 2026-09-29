@@ -200,6 +200,8 @@ export async function GET(req: Request) {
       daysSinceLast: orders.daysSinceLast ?? null,
       firstPlacedAt: orders.firstPlacedAt ?? null,
       averageGross: orders.averageGross ?? null,
+      /** What they buy, as category slugs — the audience path, so the screen teaches the vocabulary. */
+      categories: document.orders.categories,
     },
     /**
      * RFM and the value projection, both NULL until they mean something.

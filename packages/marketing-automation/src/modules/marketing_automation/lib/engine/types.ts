@@ -89,6 +89,14 @@ export type SubjectDocument = {
      */
     skus: string[]
     /**
+     * Category SLUGS of the products this customer has bought, capped.
+     *
+     * Read from the catalogue rather than the order snapshot, unlike `skus` — a category is a current
+     * classification and re-filing a product should change who is targeted, while a sku is a historical fact
+     * about the purchase. `lib/subject-document.ts` states the trade-off in full.
+     */
+    categories: string[]
+    /**
      * Sales channel CODES this customer has bought through.
      *
      * The platform has no "belongs to this store" field on a customer, so channel targeting means "has bought

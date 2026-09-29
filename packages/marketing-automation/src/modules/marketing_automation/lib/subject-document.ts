@@ -64,8 +64,9 @@ export async function loadOrderAggregates(
   const totalGross = Number.parseFloat(row?.total_gross ?? '0')
 
   const aggregates: SubjectDocument['orders'] = {
-    // The SKUs and channels are loaded separately and merged by the caller; this function answers about amounts.
+    // The lists are loaded separately and merged by the caller; this function answers about amounts.
     skus: [],
+    categories: [],
     channels: [],
     count,
     totalGross: Number.isFinite(totalGross) ? totalGross : 0,
@@ -96,6 +97,9 @@ const MAX_SUBJECT_SKUS = 200
 
 /** A shop with more than this many channels is not doing channel targeting, it is doing integrations. */
 const MAX_SUBJECT_CHANNELS = 50
+
+/** Beyond this the list stops being a filter, exactly as with skus. */
+const MAX_SUBJECT_CATEGORIES = 100
 
 /**
  * Distinct product SKUs this customer has bought.
@@ -130,6 +134,44 @@ export async function loadPurchasedChannels(
   return rows
     .map((row) => row.code)
     .filter((code): code is string => typeof code === 'string' && code.length > 0)
+}
+
+/**
+ * Category slugs of the products this customer has bought.
+ *
+ * **Read from the CATALOGUE, unlike the SKU list, and the difference is deliberate.** A sku is a historical
+ * fact about a purchase, so it comes from the order line's snapshot and survives the product being renamed or
+ * deleted. A category is a current CLASSIFICATION: "people who bought footwear" means today's taxonomy, and
+ * re-categorising a product should change who a campaign targets rather than preserving a filing decision
+ * somebody has since corrected.
+ *
+ * The cost is stated rather than hidden: a purchase of a product that has since been deleted drops out of
+ * category targeting. Nothing is lost that this module could have kept — the snapshot never carried categories —
+ * and the sku list still holds that purchase.
+ *
+ * Slugs, not names or ids: the slug is unique per scope and is what a saved audience can reference without
+ * breaking when somebody renames the category.
+ */
+export async function loadPurchasedCategories(
+  em: EntityManager,
+  subjectEntityId: string,
+  scope: SubjectScope,
+): Promise<string[]> {
+  const rows = await em.getConnection().execute<{ slug: string | null }[]>(
+    `select distinct c.slug as slug
+       from sales_order_lines l
+       join sales_orders o on o.id = l.order_id
+       join catalog_product_category_assignments a on a.product_id = l.product_id
+       join catalog_product_categories c on c.id = a.category_id and c.deleted_at is null
+      where o.customer_entity_id = ?
+        and ${PLACED_ORDER_FILTER_SQL_ALIASED}
+        and c.slug is not null
+      limit ?`,
+    [subjectEntityId, scope.tenantId, scope.organizationId, MAX_SUBJECT_CATEGORIES],
+  )
+  return rows
+    .map((row) => row.slug)
+    .filter((slug): slug is string => typeof slug === 'string' && slug.length > 0)
 }
 
 export async function loadPurchasedSkus(
@@ -276,7 +318,7 @@ export async function buildSubjectDocument(
     return {
       customer: null,
       tags: [],
-      orders: { count: 0, totalGross: 0, skus: [], channels: [] },
+      orders: { count: 0, totalGross: 0, skus: [], categories: [], channels: [] },
       score: { points: 0, tier: unscored.key, tierRank: unscored.rank },
       // No subject, so nothing to score or project. Null, never a zero score — see the type.
       rfm: null,
@@ -299,11 +341,12 @@ export async function buildSubjectDocument(
     scope,
   )
 
-  const [tags, orders, scorePoints, skus, channels, locale, address, nps] = await Promise.all([
+  const [tags, orders, scorePoints, skus, categories, channels, locale, address, nps] = await Promise.all([
     loadTagSlugs(em, subjectEntityId, scope),
     loadOrderAggregates(em, subjectEntityId, scope, now),
     loadScorePoints(em, subjectEntityId, scope),
     loadPurchasedSkus(em, subjectEntityId, scope),
+    loadPurchasedCategories(em, subjectEntityId, scope),
     loadPurchasedChannels(em, subjectEntityId, scope),
     loadPreferredLocale(em, scope, subjectEntityId),
     loadSubjectAddress(em, subjectEntityId, scope),
@@ -342,7 +385,7 @@ export async function buildSubjectDocument(
         }
       : null,
     tags,
-    orders: { ...orders, skus, channels },
+    orders: { ...orders, skus, categories, channels },
     score: { points: scorePoints, tier: tier.key, tierRank: tier.rank },
     rfm: computeRfm(orders, boundaries),
     value: projectedValue,

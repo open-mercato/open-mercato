@@ -33,6 +33,7 @@ type Profile = {
     daysSinceLast: number | null
     firstPlacedAt: string | null
     averageGross: number | null
+    categories: string[]
   }
   tags: string[]
   /** 1–5 per dimension, measured against this shop's own buyers. Null until it means something. */
@@ -276,6 +277,18 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
             Said as three digits because that is how the technique is read, with the cell spelled out below —
             an operator who knows RFM wants `543`, and one who does not needs to be told what it means.
           */}
+          {/* What they buy, in the same vocabulary an audience uses — so the screen teaches the field name. */}
+          <KpiCard
+            title={t('marketing_automation.profile.kpi.categories', 'Buys from')}
+            value={profile.orders.categories.length}
+            footer={
+              <span>
+                {profile.orders.categories.length > 0
+                  ? profile.orders.categories.slice(0, 4).join(', ')
+                  : t('marketing_automation.profile.noCategories', 'No categorised purchases yet')}
+              </span>
+            }
+          />
           <KpiCard
             title={t('marketing_automation.profile.kpi.rfm', 'RFM')}
             /* The sortable number is the total out of 15; the three digits an operator actually reads are
