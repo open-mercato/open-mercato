@@ -8,7 +8,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { findApiKeyBySecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
-import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
+import { llmProviderRegistry } from '../../lib/llm-registry'
 import { joinProviderModel } from '@open-mercato/shared/lib/ai/model-id'
 import {
   OPEN_CODE_PROVIDER_IDS,

@@ -5,6 +5,7 @@ import { X } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '../../primitives/button'
 import { IconButton } from '../../primitives/icon-button'
+import { Popover, PopoverAnchor, PopoverContent } from '../../primitives/popover'
 
 export type ComboboxOption = {
   value: string
@@ -412,82 +413,114 @@ export function ComboboxInput({
     && (loading || filteredSuggestions.length > 0 || (touched && input.trim().length > 0))
 
   return (
-    <div className="relative w-full">
-      {/* Use raw <input> here instead of the DS Input primitive: ComboboxInput's
-          focus / suggestions-popup interplay relies on the trigger being a plain
-          input element. The DS wrapper introduces a <div> that desyncs autocomplete
-          on this specific surface. Keeps the rest of the form on Input primitive. */}
-      <input
-        ref={inputRef}
-        type="text"
-        className={[
-          'w-full h-9 rounded-md border border-input bg-background px-3 text-sm shadow-xs transition-colors outline-none placeholder:text-muted-foreground focus-visible:shadow-focus focus-visible:border-foreground disabled:bg-bg-disabled disabled:border-border-disabled disabled:text-muted-foreground disabled:cursor-not-allowed',
-          showClearButton ? 'pr-9' : '',
-        ]
-          .filter(Boolean)
-          .join(' ')}
-        value={input}
-        placeholder={resolvedPlaceholder}
-        autoFocus={autoFocus}
-        data-crud-focus-target=""
-        disabled={disabled}
-        role="combobox"
-        aria-expanded={listboxVisible}
-        aria-controls={listboxVisible && !loading && filteredSuggestions.length > 0 ? listboxId : undefined}
-        aria-autocomplete="list"
-        aria-activedescendant={listboxVisible && selectedIndex >= 0 ? optionDomId(selectedIndex) : undefined}
-        onFocus={() => {
-          setTouched(true)
-          if (suppressOpenOnFocusRef.current) {
-            suppressOpenOnFocusRef.current = false
-            return
-          }
-          resetBlurCloseState()
-          if (loadSuggestions && availableOptions.length === 0) {
-            setLoading(true)
-          }
-          setShowSuggestions(true)
-        }}
-        onChange={(event) => {
-          setTouched(true)
-          userTypedRef.current = true
-          setInput(event.target.value)
-          setShowSuggestions(true)
-          setSelectedIndex(-1)
-        }}
-        onKeyDown={handleKeyDown}
-        onBlur={() => {
-          // Delay closing so clicks on the popup can resolve first. If async
-          // suggestions are still loading, keep the dropdown open instead of
-          // closing before the first payload arrives.
-          userTypedRef.current = false
-          blurClosePendingRef.current = true
-          clearBlurCloseTimer()
-          if (loadingRef.current) {
-            blurCloseTimerRef.current = window.setTimeout(closeAfterBlur, blurCloseMaxDelayMs)
-            return
-          }
-          blurCloseTimerRef.current = window.setTimeout(attemptBlurClose, blurCloseDelayMs)
-        }}
-      />
+    // The suggestion list goes through the DS Popover so it is portaled out of any
+    // scrolling ancestor. Rendered in place it was clipped by a Dialog's
+    // `overflow-y-auto`, where z-index cannot help. `open` stays fully controlled
+    // (no `onOpenChange`) so the blur timer, Escape and selection keep owning
+    // dismissal exactly as before.
+    <Popover open={listboxVisible}>
+      <PopoverAnchor asChild>
+        <div className="relative w-full">
+          {/* Use raw <input> here instead of the DS Input primitive: ComboboxInput's
+              focus / suggestions-popup interplay relies on the trigger being a plain
+              input element. The DS wrapper introduces a <div> that desyncs autocomplete
+              on this specific surface. Keeps the rest of the form on Input primitive. */}
+          <input
+            ref={inputRef}
+            type="text"
+            className={[
+              'w-full h-9 rounded-md border border-input bg-background px-3 text-sm shadow-xs transition-colors outline-none placeholder:text-muted-foreground focus-visible:shadow-focus focus-visible:border-foreground disabled:bg-bg-disabled disabled:border-border-disabled disabled:text-muted-foreground disabled:cursor-not-allowed',
+              showClearButton ? 'pr-9' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            value={input}
+            placeholder={resolvedPlaceholder}
+            autoFocus={autoFocus}
+            data-crud-focus-target=""
+            disabled={disabled}
+            role="combobox"
+            aria-expanded={listboxVisible}
+            aria-controls={listboxVisible && !loading && filteredSuggestions.length > 0 ? listboxId : undefined}
+            // The listbox is portaled out of the input's subtree, so `aria-owns` is what
+            // makes it a logical descendant and keeps `aria-activedescendant` below valid.
+            aria-owns={listboxVisible && !loading && filteredSuggestions.length > 0 ? listboxId : undefined}
+            aria-autocomplete="list"
+            aria-activedescendant={listboxVisible && selectedIndex >= 0 ? optionDomId(selectedIndex) : undefined}
+            onFocus={() => {
+              setTouched(true)
+              if (suppressOpenOnFocusRef.current) {
+                suppressOpenOnFocusRef.current = false
+                return
+              }
+              resetBlurCloseState()
+              if (loadSuggestions && availableOptions.length === 0) {
+                setLoading(true)
+              }
+              setShowSuggestions(true)
+            }}
+            onChange={(event) => {
+              setTouched(true)
+              userTypedRef.current = true
+              setInput(event.target.value)
+              setShowSuggestions(true)
+              setSelectedIndex(-1)
+            }}
+            onKeyDown={handleKeyDown}
+            onBlur={() => {
+              // Delay closing so clicks on the popup can resolve first. If async
+              // suggestions are still loading, keep the dropdown open instead of
+              // closing before the first payload arrives.
+              userTypedRef.current = false
+              blurClosePendingRef.current = true
+              clearBlurCloseTimer()
+              if (loadingRef.current) {
+                blurCloseTimerRef.current = window.setTimeout(closeAfterBlur, blurCloseMaxDelayMs)
+                return
+              }
+              blurCloseTimerRef.current = window.setTimeout(attemptBlurClose, blurCloseDelayMs)
+            }}
+          />
 
-      {showClearButton ? (
-        <IconButton
-          type="button"
-          variant="ghost"
-          size="xs"
-          aria-label={resolvedClearLabel}
-          className="absolute right-1 top-1/2 -translate-y-1/2"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={handleClear}
-        >
-          <X className="size-3" />
-        </IconButton>
-      ) : null}
+          {showClearButton ? (
+            <IconButton
+              type="button"
+              variant="ghost"
+              size="xs"
+              aria-label={resolvedClearLabel}
+              className="absolute right-1 top-1/2 -translate-y-1/2"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={handleClear}
+            >
+              <X className="size-3" />
+            </IconButton>
+          ) : null}
+        </div>
+      </PopoverAnchor>
 
-      {listboxVisible && (
-        <div
-          className="absolute z-popover w-full mt-1 rounded-md border border-input bg-popover p-2 shadow-md max-h-48 sm:max-h-60 overflow-auto"
+      {/* Unmount the content outright rather than leaning on Radix's exit animation:
+          a closing-but-still-mounted layer keeps swallowing Escape, which would
+          strand the popup's host (see AdvancedFilterPanel for that failure mode). */}
+      {listboxVisible ? (
+        <PopoverContent
+          // Radix hardcodes `role="dialog"` on popover content. This popup is a
+          // positioning shell around the listbox below, and a second dialog node
+          // would both misdescribe it and break `getByRole('dialog')` for anything
+          // that queries while suggestions happen to be open.
+          role="presentation"
+          // Focus must stay in the input: the blur-close timer and
+          // aria-activedescendant model depend on it, and Radix would otherwise
+          // move focus into the list on open and back to the trigger on close.
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          onCloseAutoFocus={(event) => event.preventDefault()}
+          // A modal Dialog locks scrolling through `react-remove-scroll`, which
+          // cancels document-level `wheel` and `touchmove` outside its own content
+          // node. The portaled list is not part of that exemption, so without these
+          // a long list inside a dialog cannot be scrolled by wheel or by touch.
+          // `overscroll-contain` stops the scroll chaining to the page at the ends.
+          onWheel={(event) => event.stopPropagation()}
+          onTouchMove={(event) => event.stopPropagation()}
+          className="w-[var(--radix-popover-trigger-width)] min-w-0 max-h-48 sm:max-h-60 overflow-auto overscroll-contain border-input p-2"
         >
           {loading && touched ? (
             <div className="px-2 py-1.5 text-xs text-muted-foreground" role="status">{loadingLabel}</div>
@@ -525,8 +558,8 @@ export function ComboboxInput({
               ))}
             </div>
           )}
-        </div>
-      )}
-    </div>
+        </PopoverContent>
+      ) : null}
+    </Popover>
   )
 }

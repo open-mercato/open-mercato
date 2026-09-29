@@ -1,8 +1,11 @@
 'use client'
 
 import { Handle, Position, NodeProps } from '@xyflow/react'
+import { DEFAULT_SOURCE_HANDLE_ID } from '../../lib/route-kinds'
+import { NODE_HANDLE_CLASS } from '../../lib/node-geometry'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
-import { WorkflowStatus } from '../../lib/status-colors'
+import type { StepReason } from '../../lib/step-presentation'
+import { toWorkflowStatus } from '../../lib/status-colors'
 
 /**
  * ParallelForkNode display data.
@@ -20,46 +23,56 @@ export interface ParallelForkNodeData {
   badge?: string
   tooltip?: string
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
-}
-
-function mapStatus(status?: string): WorkflowStatus {
-  if (!status || status === 'pending') return 'not_started'
-  if (status === 'running' || status === 'in_progress') return 'in_progress'
-  if (status === 'completed') return 'completed'
-  return 'not_started'
+  /**
+   * Run presentation (spec Part 2). Set at render time by the run detail
+   * page and the Studio last-run overlay from the SAME resolver, so the two
+   * surfaces can never disagree about what the step is doing.
+   */
+  runReason?: StepReason | null
+  runStartedAt?: Date | null
+  hasError?: boolean
+  hasCompensation?: boolean
+  errorCount?: number
 }
 
 /**
  * ParallelForkNode - splits the workflow into concurrent branches.
  * One target handle (in); one source handle (out) that fans out to each branch.
  */
-export function ParallelForkNode({ data, isConnectable, selected }: NodeProps) {
+export function ParallelForkNode({ id, data, isConnectable, selected }: NodeProps) {
   const nodeData = data as unknown as ParallelForkNodeData
 
   return (
     <div className="parallel-fork-node" title={nodeData.tooltip}>
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         id="target"
         isConnectable={isConnectable}
-        className="!w-3 !h-3 !bg-primary !border-2 !border-background"
+        className={`${NODE_HANDLE_CLASS} !bg-primary`}
       />
 
       <WorkflowNodeCard
         title={nodeData.label}
         description={nodeData.description}
-        status={mapStatus(nodeData.status)}
+        status={toWorkflowStatus(nodeData.status)}
+        runReason={nodeData.runReason}
+        runStartedAt={nodeData.runStartedAt}
         nodeType="parallelFork"
         selected={selected}
+        hasError={nodeData.hasError}
+        hasCompensation={nodeData.hasCompensation}
+        errorCount={nodeData.errorCount}
+        nodeId={id}
+        editable={isConnectable}
       />
 
       <Handle
         type="source"
-        position={Position.Bottom}
-        id="source"
+        position={Position.Right}
+        id={DEFAULT_SOURCE_HANDLE_ID}
         isConnectable={isConnectable}
-        className="!w-3 !h-3 !bg-primary !border-2 !border-background"
+        className={`${NODE_HANDLE_CLASS} !bg-primary`}
       />
     </div>
   )

@@ -78,6 +78,79 @@ names, a custom-provider bootstrap must import `@open-mercato/telemetry`,
 register a provider whose `name` matches `TELEMETRY_BACKEND`, and call
 `initTelemetry()` directly. Unregistered names remain a hard no-op.
 
+## Browser RUM (client-side telemetry)
+
+Server traces can only prove where the time *isn't*: a page can render an API
+answer in 50 ms yet leave the user waiting seconds on bundle download,
+hydration, or a click handler — all invisible to server spans. The
+`@open-mercato/telemetry/browser` entry closes that gap with the OpenTelemetry
+web SDK: document-load and fetch spans from the backoffice.
+
+Interaction spans are deliberately **not** collected. The upstream
+`UserInteractionInstrumentation` patches `addEventListener` when it starts, but
+React attaches a single delegated `click` listener to the root container during
+hydration — before this SDK boots from `useEffect` — so the patch would never see
+a backoffice click. Booting earlier would put the SDK back on the critical path,
+which defeats the point; an instrumentation that silently emits nothing is worse
+than an absent one.
+
+Browser RUM is off by default and needs an explicit opt-in on top of an active
+server backend:
+
+```dotenv
+TELEMETRY_BROWSER_ENABLED=true
+# TELEMETRY_BROWSER_SAMPLING_RATIO=1.0  # 0.0-1.0 (default 1.0)
+# TELEMETRY_BROWSER_SERVICE_NAME=       # default: <OTEL_SERVICE_NAME>-browser
+```
+
+The wiring has three parts, all shipped with a fresh scaffold:
+
+- `resolveBrowserTelemetryConfig()` — from the server-only
+  `@open-mercato/telemetry/browser/server` entry — runs on the server (the
+  backend layout is `force-dynamic`) and returns `null` unless browser telemetry
+  is fully configured. Deliberately not `NEXT_PUBLIC_*`, so toggling needs no
+  rebuild.
+- `<BrowserTelemetry config={...} />` is a `'use client'` component that
+  dynamically `import()`s the web SDK only when the config is non-null; the SDK
+  never enters the critical bundle path, and every failure is swallowed.
+- The `telemetry` module (enabled in `modules.ts` via
+  `{ id: 'telemetry', from: '@open-mercato/telemetry' }`) serves the
+  same-origin proxy `POST /api/telemetry/browser-traces` — authenticated,
+  budgeted per user, size-capped — and forwards batches to the configured OTLP
+  collector, adding `OTEL_EXPORTER_OTLP_HEADERS` server-side so the credential
+  never reaches the browser.
+
+  The ingest budget is 400 batches/min **per authenticated user**, sized from the
+  export cadence: the batch processor's 3s delay means at most 20 batches/min per
+  open tab, so the budget covers roughly 20 concurrent tabs. Over it, a batch is
+  dropped with `204` — never `429`, which the OTLP exporter treats as retryable
+  and would answer with a backoff storm. The endpoint deliberately does not use
+  the dispatcher's IP-keyed rate limiter, which collapses to one deployment-wide
+  bucket whenever `RATE_LIMIT_TRUST_PROXY_DEPTH` is 0.
+
+`@open-mercato/telemetry/browser` is the ONLY part of this package a client
+bundle may import. Everything that reads the environment or the collector
+credential lives behind `@open-mercato/telemetry/browser/server`, which throws if
+it is ever loaded in a browser; the server facade stays server-only
+(`node:async_hooks`).
+
+### End-to-end traces need `TELEMETRY_TRUST_INBOUND_TRACE=true`
+
+The browser injects `traceparent` plus the `x-original-traceparent` backup header
+the server propagator understands. The server nevertheless **ignores every
+inbound trace header by default** — at an HTTP boundary they are
+caller-controlled, so accepting them would let any caller dictate trace ids.
+
+```dotenv
+TELEMETRY_TRUST_INBOUND_TRACE=true
+```
+
+Set it only when the app is reachable exclusively through trusted infrastructure;
+it applies to *all* inbound requests, not just RUM. Without it, browser RUM still
+works — each page simply produces one browser trace and one server trace instead
+of a single joined one, and the server logs
+`telemetry.browser.trace_continuity_disabled` once at startup to say so.
+
 ## Existing apps
 
 Fresh create-app scaffolds are already wired. Older apps can run:
@@ -128,7 +201,7 @@ bridge, so the package is not loaded on the disabled path.
 | `withSpan(name, fn, opts?)` | Run `fn` in a provider-owned span. `opts.root` starts a new trace; `opts.links` attaches causal links (see [Long-lived jobs](#long-lived-jobs-root-spans)) |
 | `currentSpan()` / `setAttributes(attrs)` | Active span access |
 | `counter` / `histogram` / `gauge` | Metric helpers |
-| `reportError(err, ctx?)` | Span exception + shared error log + `om.errors` |
+| `reportError(err, ctx?)` | Span exception + shared error log + `om.errors{module, error.code}` + the provider's own error sink. Pass `ctx.code` — see [Error reporting](#error-reporting) |
 | `captureTraceContext()` / `continueTrace(...)` | Dedicated cross-boundary propagation |
 | `initTelemetry()` / `shutdownTelemetry()` | Opt-in bootstrap and flush |
 | `registerProvider(provider)` | Register a custom provider for an enabled backend name |
@@ -137,6 +210,74 @@ bridge, so the package is not loaded on the disabled path.
 `registerTelemetryForNextjs()` and `recordHttpDuration()` helpers.
 `@open-mercato/telemetry/nextjs-config` separately exports only
 `telemetryServerExternalPackages` for build configuration.
+
+### Error reporting
+
+`reportError` is the error funnel, and the policy around it is one rule:
+**recording an error is not reporting it.** A `catch` that persists a row, sets a
+`failed` status or dead-letters an item MUST also report — `logger.error` alone
+gives you a log record with no span exception, no `om.errors` sample and no
+fingerprint.
+
+```ts
+reportError(error, {
+  module: 'data_sync',
+  code: 'data_sync.item_failed',   // stable, enumerated `module.reason`
+  attributes: { runId, integrationId },
+})
+```
+
+`code` is a metric label and the key backends group on, so it MUST NOT be
+interpolated (`` `failed for ${id}` `` breaks grouping and metric cardinality —
+ids go in `attributes`). Every reported error is emitted: this facade adds no
+sampling or throttling, because the collector and the backend already own volume
+and drop it where an operator can see and adjust the drop.
+
+The full policy, the framework chokepoints that report for you, and the
+verification recipe live in
+`apps/docs/docs/framework/runtime/error-reporting.mdx`.
+
+#### A provider with its own error sink (Sentry-shaped backends)
+
+`TelemetryProvider.reportError?()` is optional and called **in addition to** the
+span/log/metric path, so implementing it can never make signal disappear — the
+provider owns its own de-duplication. Nothing vendor-specific ships upstream;
+plug it in from your app's bootstrap:
+
+```ts
+import { registerProvider, initTelemetry } from '@open-mercato/telemetry'
+import type { TelemetryProvider } from '@open-mercato/telemetry'
+
+const sentryProvider: TelemetryProvider = {
+  ...tracingDelegate,            // reuse an OTLP/console provider for spans, or no-op them
+  name: 'sentry',                // must equal TELEMETRY_BACKEND
+  supports: ['errors', 'logs'],
+  reportError(error, { module, code, attributes }) {
+    Sentry.captureException(new Error(error.message), {
+      fingerprint: code ? [code] : undefined,
+      tags: { module, code },
+      extra: attributes,
+    })
+  },
+}
+
+registerProvider(sentryProvider)
+await initTelemetry()
+```
+
+`error` arrives serialized and PII-redacted (name, message, stack) and
+`attributes` already redacted — never reach for the original thrown value.
+
+**The hook MUST NOT throw.** `reportError` is called from `catch` blocks that
+still have work to do after it — rethrowing the original error, returning a 500
+with its correlation header — so a hook that throws would replace the caller's
+error with yours. The facade wraps the call and degrades a throwing hook to a
+warning, but do not rely on that: swallow your SDK's failures inside the
+implementation, where you can decide what a dropped report means.
+
+`code` reaches your hook as `context.code`. It is deliberately **not** repeated in
+`attributes`, so putting it in both `tags` and `extra`, as the snippet above does
+with `tags`, is your choice rather than an accident of the payload.
 
 ### Long-lived jobs: root spans
 
@@ -211,7 +352,9 @@ consumer.
 - Metric labels must remain low-cardinality and must never contain tenant,
   organization, or user IDs.
 
-The package is server-only because span context uses `node:async_hooks`.
+The package is server-only because span context uses `node:async_hooks` — with
+one exception: `@open-mercato/telemetry/browser` is the dedicated client-safe
+entry for browser RUM and never imports the server facade.
 
 ## Validation
 

@@ -15,6 +15,43 @@
 export type EventCategory = 'crud' | 'lifecycle' | 'system' | 'custom'
 
 /**
+ * Type vocabulary for declared event payload fields. Mirrors the flat
+ * path/type contract consumed by editor surfaces (path pickers, typed value
+ * controls, the workflows context ledger), so declarations flow into those
+ * consumers without translation.
+ */
+export type EventPayloadFieldType =
+  | 'text'
+  | 'number'
+  | 'boolean'
+  | 'select'
+  | 'date'
+  | 'object'
+  | 'unknown'
+
+/**
+ * One declared payload field: a flat dot-path into the emitted payload plus
+ * its type. `optional` marks fields whose key may be absent or whose value may
+ * be null on some emits.
+ */
+export interface EventPayloadSchemaField {
+  path: string
+  type: EventPayloadFieldType
+  label?: string
+  optional?: boolean
+}
+
+/**
+ * Optional payload typing for an event declaration. A flat field list (not a
+ * nested JSON Schema): nested payload shapes are declared as dot-paths
+ * (`customer.id`) or a single `object`-typed entry. Declare only fields the
+ * emitter verifiably sends.
+ */
+export interface EventPayloadSchema {
+  fields: ReadonlyArray<EventPayloadSchemaField>
+}
+
+/**
  * Event definition structure
  */
 export interface EventDefinition {
@@ -38,6 +75,13 @@ export interface EventDefinition {
   crossProcessBroadcast?: boolean
   /** When true, this event is bridged to the customer portal via SSE (Portal Event Bridge). Default: false */
   portalBroadcast?: boolean
+  /**
+   * Optional declared payload typing. Platform-emitted CRUD events
+   * (`*.created`/`*.updated`/`*.deleted` with category `crud`) receive a
+   * generated default at registration time; other events carry it only when
+   * the declaring module opts in.
+   */
+  payloadSchema?: EventPayloadSchema
 }
 
 // =============================================================================

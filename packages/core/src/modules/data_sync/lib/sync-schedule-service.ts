@@ -3,7 +3,11 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { enforceCommandOptimisticLockWithGuards, enforceRecordGoneIsConflict } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { SyncSchedule } from '../data/entities'
+
+const logger = createLogger('data_sync').child({ component: 'sync-schedule-service' })
 
 type SyncScope = {
   organizationId: string
@@ -40,11 +44,11 @@ export function createSyncScheduleService(em: EntityManager, schedulerService?: 
     return schedulerService
   }
 
-  function buildScheduleName(row: SyncSchedule): string {
+  function buildScheduleName(row: { integrationId: string; entityType: string; direction: 'import' | 'export' }): string {
     return `Data sync: ${row.integrationId} ${row.entityType} ${row.direction}`
   }
 
-  function buildScheduleDescription(row: SyncSchedule): string {
+  function buildScheduleDescription(row: { integrationId: string; entityType: string; direction: 'import' | 'export' }): string {
     return `Scheduled ${row.direction} for ${row.integrationId} (${row.entityType})`
   }
 
@@ -156,8 +160,36 @@ export function createSyncScheduleService(em: EntityManager, schedulerService?: 
         })
       }
 
+      const id = existing?.id ?? randomUUID()
+      const scheduledJobId = existing?.scheduledJobId ?? id
+
+      // Validate the schedule (and register it with the scheduler) before writing
+      // the SyncSchedule row — an unparseable scheduleValue must not leave a
+      // persisted row with no working schedule behind it.
+      await requireScheduler().register({
+        id: scheduledJobId,
+        name: buildScheduleName(input),
+        description: buildScheduleDescription(input),
+        scopeType: 'organization',
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        scheduleType: input.scheduleType,
+        scheduleValue: input.scheduleValue,
+        timezone: input.timezone,
+        targetType: 'queue',
+        targetQueue: 'data-sync-scheduled',
+        targetPayload: {
+          scheduleId: id,
+          scope,
+        },
+        requireFeature: 'data_sync.run',
+        sourceType: 'module',
+        sourceModule: 'data_sync',
+        isEnabled: input.isEnabled,
+      })
+
       const row = existing ?? em.create(SyncSchedule, {
-        id: randomUUID(),
+        id,
         integrationId: input.integrationId,
         entityType: input.entityType,
         direction: input.direction,
@@ -178,35 +210,13 @@ export function createSyncScheduleService(em: EntityManager, schedulerService?: 
       row.timezone = input.timezone
       row.fullSync = input.fullSync
       row.isEnabled = input.isEnabled
-      row.scheduledJobId = row.scheduledJobId ?? row.id
+      row.scheduledJobId = scheduledJobId
 
       if (!existing) {
         em.persist(row)
       }
 
       await em.flush()
-
-      await requireScheduler().register({
-        id: row.scheduledJobId,
-        name: buildScheduleName(row),
-        description: buildScheduleDescription(row),
-        scopeType: 'organization',
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        scheduleType: row.scheduleType,
-        scheduleValue: row.scheduleValue,
-        timezone: row.timezone,
-        targetType: 'queue',
-        targetQueue: 'data-sync-scheduled',
-        targetPayload: {
-          scheduleId: row.id,
-          scope,
-        },
-        requireFeature: 'data_sync.run',
-        sourceType: 'module',
-        sourceModule: 'data_sync',
-        isEnabled: row.isEnabled,
-      })
 
       return row
     },
@@ -230,11 +240,58 @@ export function createSyncScheduleService(em: EntityManager, schedulerService?: 
       }
 
       const scheduledJobId = row.scheduledJobId ?? row.id
+      const wasEnabled = row.isEnabled
       await requireScheduler().unregister(scheduledJobId)
 
-      row.deletedAt = new Date()
-      row.isEnabled = false
-      await em.flush()
+      try {
+        row.deletedAt = new Date()
+        row.isEnabled = false
+        await em.flush()
+      } catch (error) {
+        try {
+          await requireScheduler().register({
+            id: scheduledJobId,
+            name: buildScheduleName(row),
+            description: buildScheduleDescription(row),
+            scopeType: 'organization',
+            organizationId: scope.organizationId,
+            tenantId: scope.tenantId,
+            scheduleType: row.scheduleType,
+            scheduleValue: row.scheduleValue,
+            timezone: row.timezone,
+            targetType: 'queue',
+            targetQueue: 'data-sync-scheduled',
+            targetPayload: {
+              scheduleId: row.id,
+              scope,
+            },
+            requireFeature: 'data_sync.run',
+            sourceType: 'module',
+            sourceModule: 'data_sync',
+            isEnabled: wasEnabled,
+          })
+        } catch (compensationError) {
+          logger.error('Failed to restore scheduled job after a failed schedule delete', {
+            scheduledJobId,
+            scheduleId: row.id,
+            organizationId: scope.organizationId,
+            tenantId: scope.tenantId,
+            error: compensationError instanceof Error ? compensationError.message : String(compensationError),
+          })
+          getTelemetryRuntime()?.reportError(compensationError, {
+            module: 'data_sync',
+            code: 'data_sync.schedule_delete_compensation_failed',
+            attributes: {
+              scheduledJobId,
+              scheduleId: row.id,
+              organizationId: scope.organizationId,
+              tenantId: scope.tenantId,
+            },
+          })
+        }
+        throw error
+      }
+
       return true
     },
   }

@@ -409,6 +409,7 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
           ) : (
             <DataTable<TeamMemberRow>
               title={memberLabels.title}
+              titleHeadingLevel={2}
               data={memberRows}
               columns={memberColumns}
               isLoading={membersLoading}

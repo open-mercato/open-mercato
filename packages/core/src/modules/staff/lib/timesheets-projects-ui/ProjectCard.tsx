@@ -1,6 +1,11 @@
 "use client"
 
 import * as React from 'react'
+import { z } from 'zod'
+import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
+import { callbackProp, opaqueProp } from '../time-tracking/componentContracts'
 import Link from 'next/link'
 import { ProjectColorDot } from '../timesheets-ui/ProjectColorDot'
 import { resolveProjectColorHex } from '../timesheets-ui/colors'
@@ -45,7 +50,7 @@ const STATUS_BADGE_CLASSES: Record<string, string> = {
   completed: 'bg-muted text-muted-foreground',
 }
 
-export function ProjectCard({ data, labels, showTeam, href }: ProjectCardProps) {
+function DefaultProjectCard({ data, labels, showTeam, href }: ProjectCardProps) {
   const badgeClass = STATUS_BADGE_CLASSES[data.status] ?? 'bg-muted text-muted-foreground'
   const statusLabel = labels.statuses[data.status] ?? data.status
   const stripeColor = resolveProjectColorHex(data.color, data.name)
@@ -107,4 +112,54 @@ export function ProjectCard({ data, labels, showTeam, href }: ProjectCardProps) 
       </div>
     </Link>
   )
+}
+
+const projectCardDataSchema: z.ZodType<ProjectCardData> = z.object({
+  id: z.string(),
+  name: z.string(),
+  code: z.string().nullable(),
+  customerName: z.string().nullable(),
+  color: z.string().nullable(),
+  status: z.string(),
+  hoursWeek: z.number(),
+  hoursTrend: z.array(z.number()),
+  members: z.array(opaqueProp<AvatarMember>()),
+  memberCount: z.number(),
+  myRole: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+})
+
+const projectCardLabelsSchema: z.ZodType<ProjectCardLabels> = z.object({
+  hoursPanelPm: z.string(),
+  hoursPanelCollab: z.string(),
+  sparklineAria: z.string(),
+  peopleCount: callbackProp<(count: number) => string>(),
+  role: z.string(),
+  noCustomer: z.string(),
+  statuses: z.record(z.string(), z.string()),
+})
+
+const projectCardPropsSchema: z.ZodType<ProjectCardProps> = z.object({
+  data: projectCardDataSchema,
+  labels: projectCardLabelsSchema,
+  showTeam: z.boolean(),
+  href: z.string(),
+})
+
+registerComponent<ProjectCardProps>({
+  id: extensionPoints.hosts.projectCardComponent.componentId,
+  component: DefaultProjectCard,
+  metadata: {
+    module: 'staff',
+    description: 'Project card of the time-tracking projects gallery view.',
+    propsSchema: projectCardPropsSchema,
+  },
+})
+
+export function ProjectCard(props: ProjectCardProps) {
+  const Resolved = useRegisteredComponent<ProjectCardProps>(
+    extensionPoints.hosts.projectCardComponent.componentId,
+    DefaultProjectCard,
+  )
+  return <Resolved {...props} />
 }
