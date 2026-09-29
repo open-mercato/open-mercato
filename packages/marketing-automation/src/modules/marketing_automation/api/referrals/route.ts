@@ -58,16 +58,17 @@ export async function GET(req: Request) {
 
   const template = await loadReferralUrlTemplate(container, scope)
 
-  const items = codes.map((code) => {
+  const items = codes.flatMap((code) => {
+    if (!code.referrerEntityId) return []
     const row = countsById.get(code.referrerEntityId)
-    return {
+    return [{
       customerId: code.referrerEntityId,
       code: code.code,
       url: referralUrlFor(template, code.code),
       claimed: Number.parseInt(row?.claimed ?? '0', 10) || 0,
       converted: Number.parseInt(row?.converted ?? '0', 10) || 0,
       createdAt: code.createdAt.toISOString(),
-    }
+    }]
   })
   items.sort((left, right) => right.converted - left.converted || right.claimed - left.claimed)
 

@@ -33,16 +33,17 @@ export const issueReferralCodeStep: StepHandler<StepDeps> = {
     const template = await loadReferralUrlTemplate(deps.container, deps.scope)
 
     /**
-     * Written onto the CONTEXT, which the executor persists for the rest of the run.
+     * Returned as a `contextPatch`, NOT written onto `ctx`.
      *
-     * Safe to persist, unlike an email address: a referral code is not personal data in the sense the
-     * encryption rules care about, and the whole point is that the same code appears in every later step.
+     * The executor hands every step a fresh `{ ...context }` copy, so mutating `ctx` writes to a throwaway
+     * object: the patch is the only channel back into the run context. Assigning `ctx.referral` therefore
+     * mailed customers the literal text `{{referral.code}}` — `interpolate` leaves an unresolved placeholder
+     * verbatim — which is exactly the mechanism the settings screen tells authors works.
      */
     const referral: Record<string, unknown> = { code }
     const url = referralUrlFor(template, code)
     if (url) referral.url = url
-    ctx.referral = referral
 
-    return { status: 'done', detail: `referral code ${code}` }
+    return { status: 'done', detail: `referral code ${code}`, contextPatch: { referral } }
   },
 }

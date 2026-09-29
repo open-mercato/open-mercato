@@ -77,6 +77,28 @@ describe('the birthday sweep source', () => {
     expect(again[0].claimKey).toBe(first[0].claimKey)
   })
 
+  /**
+   * The window that crosses new year, claimed twice.
+   *
+   * Everything else about this source was careful about the turn of the year; the claim key was not. It used the
+   * year the SWEEP ran in, so a 1 January birthday seen on 30 December with notice was claimed under 2026 and
+   * then again, as "today", under 2027.
+   */
+  test('claims a birthday under ITS year, not the year the sweep happens to run in', async () => {
+    const { em } = fakeEm([{ entity_id: 'c1', birth_date: '1990-01-01' }])
+    const withNotice = await source.collect(em, scope, { withinDays: 3 }, new Date('2026-12-30T09:00:00.000Z'), 10)
+    const onTheDay = await source.collect(em, scope, {}, new Date('2027-01-01T09:00:00.000Z'), 10)
+    expect(withNotice[0].trigger.daysUntilBirthday).toBe(2)
+    expect(onTheDay[0].claimKey).toBe(withNotice[0].claimKey)
+  })
+
+  test('still claims the NEXT birthday separately when a window crosses the year', async () => {
+    const { em } = fakeEm([{ entity_id: 'c1', birth_date: '1990-01-01' }])
+    const first = await source.collect(em, scope, { withinDays: 3 }, new Date('2026-12-30T09:00:00.000Z'), 10)
+    const ayearlater = await source.collect(em, scope, { withinDays: 3 }, new Date('2027-12-30T09:00:00.000Z'), 10)
+    expect(ayearlater[0].claimKey).not.toBe(first[0].claimKey)
+  })
+
   test('reports how many days away the birthday is, so copy can say "today" or "in three days"', async () => {
     const { em } = fakeEm([
       { entity_id: 'c1', birth_date: '1990-10-02' },

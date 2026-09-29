@@ -24,9 +24,33 @@ const logger = createLogger('marketing_automation')
 
 type Scope = { tenantId: string; organizationId: string }
 
-function requireScope(ctx: { auth?: { tenantId?: string | null; orgId?: string | null } | null }): Scope {
-  const tenantId = ctx.auth?.tenantId ?? null
-  const organizationId = ctx.auth?.orgId ?? null
+/**
+ * The tenant and organization this write belongs to.
+ *
+ * From `ctx.auth` for a request, and from the INPUT for a system actor — which is the platform's own pattern
+ * (`warranty_claims` takes `input.tenantId` and then `ensureTenantScope`). Reading only `ctx.auth` meant every
+ * caller built with `buildCampaignCommandContext` — deliberately `auth: null`, so a campaign's writes are not
+ * attributed to whoever authored it — got a flat 400. That made the AI authoring tools' entire write path fail:
+ * the agent could describe and estimate, then every `create` and `save_graph` returned "requires a tenant".
+ *
+ * A system-actor context cannot be constructed from HTTP, so trusting its input is the same trust level the
+ * platform already extends; a request-borne caller still gets its scope from the session and nothing else.
+ */
+function requireScope(
+  ctx: { auth?: { tenantId?: string | null; orgId?: string | null } | null; systemActor?: boolean },
+  rawInput?: unknown,
+): Scope {
+  let tenantId = ctx.auth?.tenantId ?? null
+  let organizationId = ctx.auth?.orgId ?? null
+
+  if ((!tenantId || !organizationId) && ctx.systemActor === true && rawInput && typeof rawInput === 'object') {
+    const carried = rawInput as { tenantId?: unknown; organizationId?: unknown }
+    if (!tenantId && typeof carried.tenantId === 'string' && carried.tenantId.trim()) tenantId = carried.tenantId
+    if (!organizationId && typeof carried.organizationId === 'string' && carried.organizationId.trim()) {
+      organizationId = carried.organizationId
+    }
+  }
+
   if (!tenantId || !organizationId) {
     throw new CrudHttpError(400, { error: 'A campaign requires both a tenant and an organization scope' })
   }
@@ -239,7 +263,7 @@ const createCampaignCommand: CommandHandler<{ name: string; description?: string
   id: 'marketing_automation.campaigns.create',
 
   async execute(input, ctx) {
-    const scope = requireScope(ctx)
+    const scope = requireScope(ctx, input)
     ensureOrganizationScope(ctx, scope.organizationId)
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
@@ -331,7 +355,7 @@ const applySplitWinnerCommand: CommandHandler<
   id: 'marketing_automation.campaigns.apply_split_winner',
 
   async execute(rawInput, ctx) {
-    const scope = requireScope(ctx)
+    const scope = requireScope(ctx, rawInput)
     ensureOrganizationScope(ctx, scope.organizationId)
 
     const stepId = typeof rawInput.stepId === 'string' ? rawInput.stepId.trim() : ''
@@ -414,7 +438,7 @@ const saveCampaignGraphCommand: CommandHandler<
   id: 'marketing_automation.campaigns.save_graph',
 
   async execute(rawInput, ctx) {
-    const scope = requireScope(ctx)
+    const scope = requireScope(ctx, rawInput)
     ensureOrganizationScope(ctx, scope.organizationId)
 
     const { id, ...rest } = rawInput
@@ -530,7 +554,7 @@ const setCampaignEnabledCommand: CommandHandler<
   id: 'marketing_automation.campaigns.set_enabled',
 
   async execute(rawInput, ctx) {
-    const scope = requireScope(ctx)
+    const scope = requireScope(ctx, rawInput)
     ensureOrganizationScope(ctx, scope.organizationId)
 
     const { id, ...rest } = rawInput
@@ -601,7 +625,7 @@ const deleteCampaignCommand: CommandHandler<{ id: string }, { id: string }> = {
   id: 'marketing_automation.campaigns.delete',
 
   async execute(input, ctx) {
-    const scope = requireScope(ctx)
+    const scope = requireScope(ctx, input)
     ensureOrganizationScope(ctx, scope.organizationId)
 
     const em = ctx.container.resolve<EntityManager>('em').fork()

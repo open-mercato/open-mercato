@@ -528,17 +528,13 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
     }
   }
 
-  if (loading) {
-    return <Page><PageBody><div className="flex items-center justify-center py-16"><Spinner /></div></PageBody></Page>
-  }
-  if (error) {
-    return <Page><PageBody><div className="text-sm text-muted-foreground">{error}</div></PageBody></Page>
-  }
-
-  const selectedStep = selectedLocation?.step ?? null
-  const selectedStepMeta = selectedStep ? palette?.steps.find((item) => item.type === selectedStep.type) ?? null : null
-  const selectedSplit = selectedStep && selectedStep.type === SPLIT_STEP_TYPE ? selectedStep : null
-  const audienceSelected = selectedNodeId === AUDIENCE_NODE_ID
+  /**
+   * Everything below is a HOOK, so it must sit above the early returns.
+   *
+   * These were added after them, which is a hook-order violation: the first render bails at `if (loading)`
+   * having called fewer hooks, and the render right after `setLoading(false)` calls six more — React then
+   * throws "Rendered more hooks than during the previous render" and the editor never opens at all.
+   */
   /**
    * An AI draft for the selected message.
    *
@@ -549,34 +545,6 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
   const [draft, setDraft] = React.useState<{ subject: string; bodyHtml: string; bodyText: string } | null>(null)
   const [drafting, setDrafting] = React.useState(false)
   const [brief, setBrief] = React.useState('')
-
-  const requestDraft = async (stepId: string) => {
-    setDrafting(true)
-    try {
-      const response = await apiCallOrThrow<{ subject: string; bodyHtml: string; bodyText: string }>(
-        `/api/marketing_automation/campaigns/${campaignId}/draft-copy`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ brief: brief.trim() || undefined }),
-        },
-      )
-      if (response.result) setDraft(response.result)
-    } catch (error) {
-      const body = (error as { body?: { code?: unknown } } | null)?.body
-      const code = typeof body?.code === 'string' ? body.code : null
-      flash(
-        code === 'marketing_automation.errors.aiNotConfigured'
-          ? t('marketing_automation.errors.aiNotConfigured', 'No AI model is configured for this installation.')
-          : t('marketing_automation.errors.aiFailed', 'Could not draft the copy. Try again, or write it yourself.'),
-        'error',
-      )
-    } finally {
-      setDrafting(false)
-      void stepId
-    }
-  }
-
   /**
    * The campaign's saved versions, loaded on demand.
    *
@@ -608,6 +576,45 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
       setRevisions([])
     }
   }, [campaignId])
+
+  if (loading) {
+    return <Page><PageBody><div className="flex items-center justify-center py-16"><Spinner /></div></PageBody></Page>
+  }
+  if (error) {
+    return <Page><PageBody><div className="text-sm text-muted-foreground">{error}</div></PageBody></Page>
+  }
+
+  const selectedStep = selectedLocation?.step ?? null
+  const selectedStepMeta = selectedStep ? palette?.steps.find((item) => item.type === selectedStep.type) ?? null : null
+  const selectedSplit = selectedStep && selectedStep.type === SPLIT_STEP_TYPE ? selectedStep : null
+  const audienceSelected = selectedNodeId === AUDIENCE_NODE_ID
+
+  const requestDraft = async (stepId: string) => {
+    setDrafting(true)
+    try {
+      const response = await apiCallOrThrow<{ subject: string; bodyHtml: string; bodyText: string }>(
+        `/api/marketing_automation/campaigns/${campaignId}/draft-copy`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ brief: brief.trim() || undefined }),
+        },
+      )
+      if (response.result) setDraft(response.result)
+    } catch (error) {
+      const body = (error as { body?: { code?: unknown } } | null)?.body
+      const code = typeof body?.code === 'string' ? body.code : null
+      flash(
+        code === 'marketing_automation.errors.aiNotConfigured'
+          ? t('marketing_automation.errors.aiNotConfigured', 'No AI model is configured for this installation.')
+          : t('marketing_automation.errors.aiFailed', 'Could not draft the copy. Try again, or write it yourself.'),
+        'error',
+      )
+    } finally {
+      setDrafting(false)
+      void stepId
+    }
+  }
 
   const restoreRevision = async (version: number) => {
     setRestoring(true)

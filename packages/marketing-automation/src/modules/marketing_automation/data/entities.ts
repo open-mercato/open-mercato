@@ -892,9 +892,15 @@ export class MarketingReferralCode {
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 
-  /** The customer who shares it, and who the conversion event is about. */
-  @Property({ name: 'referrer_entity_id', type: 'uuid' })
-  referrerEntityId!: string
+  /**
+   * The customer who shares it, and who the conversion event is about.
+   *
+   * NULLABLE because erasure unlinks rather than deletes: the redemption counts a referrer was paid on must
+   * stay true after the referred person exercises their right to be forgotten, and vice versa. A live code
+   * always has one — erasure retires the code in the same statement that clears it.
+   */
+  @Property({ name: 'referrer_entity_id', type: 'uuid', nullable: true })
+  referrerEntityId?: string | null
 
   @Property({ type: 'text' })
   code!: string
@@ -942,12 +948,12 @@ export class MarketingReferralRedemption {
   @Property({ name: 'code_id', type: 'uuid' })
   codeId!: string
 
-  /** Denormalised from the code so a conversion needs one read, not two. */
-  @Property({ name: 'referrer_entity_id', type: 'uuid' })
-  referrerEntityId!: string
+  /** Denormalised from the code so a conversion needs one read, not two. Nullable for erasure — see the code. */
+  @Property({ name: 'referrer_entity_id', type: 'uuid', nullable: true })
+  referrerEntityId?: string | null
 
-  @Property({ name: 'referred_entity_id', type: 'uuid' })
-  referredEntityId!: string
+  @Property({ name: 'referred_entity_id', type: 'uuid', nullable: true })
+  referredEntityId?: string | null
 
   /** `pending` until the referred customer orders, then `converted`. */
   @Property({ type: 'text', default: 'pending' })

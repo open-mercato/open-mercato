@@ -3,9 +3,14 @@ import {
   MarketingCampaignRun,
   MarketingConsent,
   MarketingConsentEvent,
+  MarketingContactPreference,
   MarketingCustomerScoreEntry,
   MarketingMessageSend,
   MarketingMessageSendEvent,
+  MarketingProductWatch,
+  MarketingReferralCode,
+  MarketingReferralRedemption,
+  MarketingSurveyPrompt,
 } from '../data/entities.js'
 import type { SubjectScope } from './subject-document.js'
 
@@ -26,6 +31,19 @@ export type SubjectExport = {
   runs: Array<{ campaignId: string; triggerEventId: string; status: string; startedAt: string; completedAt: string | null }>
   messages: Array<{ campaignId: string | null; channel: string; status: string; suppressionReason: string | null; sentAt: string }>
   engagement: Array<{ campaignId: string; type: string; linkUrl: string | null; occurredAt: string }>
+  /**
+   * Added after a review found them missing from both halves.
+   *
+   * A survey answer is the person's own words — the one thing in this module they actually wrote — so an export
+   * without it was the most conspicuous possible omission. The preference, the watches and the referral graph
+   * are all things they chose, and all still carried their id after an "erasure".
+   */
+  surveyAnswers: Array<{ question: string; score: number | null; comment: string | null; askedAt: string; answeredAt: string | null }>
+  preference: { maxPerWeek: number | null; pausedUntil: string | null; locale: string | null } | null
+  productWatches: Array<{ sku: string; currencyCode: string; watchedPriceGross: string | null; notifiedAt: string | null }>
+  referralCode: string | null
+  referralsMade: Array<{ status: string; orderTotal: string | null; createdAt: string; convertedAt: string | null }>
+  referredBy: { status: string; createdAt: string } | null
 }
 
 /**
@@ -44,12 +62,43 @@ export async function exportSubjectData(
 ): Promise<SubjectExport> {
   const where = { tenantId: scope.tenantId, organizationId: scope.organizationId, subjectEntityId }
 
-  const [consent, consentHistory, scoreEntries, runs, messages] = await Promise.all([
+  const [
+    consent,
+    consentHistory,
+    scoreEntries,
+    runs,
+    messages,
+    surveyAnswers,
+    preference,
+    productWatches,
+    referralCode,
+    referralsMade,
+    referredBy,
+  ] = await Promise.all([
     em.find(MarketingConsent, where),
     em.find(MarketingConsentEvent, where, { orderBy: { occurredAt: 'DESC' } }),
     em.find(MarketingCustomerScoreEntry, where, { orderBy: { occurredAt: 'DESC' } }),
     em.find(MarketingCampaignRun, where, { orderBy: { startedAt: 'DESC' } }),
     em.find(MarketingMessageSend, where, { orderBy: { sentAt: 'DESC' } }),
+    em.find(MarketingSurveyPrompt, where, { orderBy: { askedAt: 'DESC' } }),
+    em.findOne(MarketingContactPreference, where),
+    em.find(MarketingProductWatch, { ...where, deletedAt: null }, { orderBy: { createdAt: 'DESC' } }),
+    em.findOne(MarketingReferralCode, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      referrerEntityId: subjectEntityId,
+      deletedAt: null,
+    }),
+    em.find(MarketingReferralRedemption, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      referrerEntityId: subjectEntityId,
+    }, { orderBy: { createdAt: 'DESC' } }),
+    em.findOne(MarketingReferralRedemption, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      referredEntityId: subjectEntityId,
+    }),
   ])
 
   // Engagement is keyed to the send, not the person, so it is reached through this subject's runs — the
@@ -106,6 +155,35 @@ export async function exportSubjectData(
       linkUrl: row.linkUrl ?? null,
       occurredAt: row.occurredAt.toISOString(),
     })),
+    surveyAnswers: surveyAnswers.map((row) => ({
+      question: row.question,
+      score: row.score ?? null,
+      comment: row.comment ?? null,
+      askedAt: row.askedAt.toISOString(),
+      answeredAt: row.answeredAt ? row.answeredAt.toISOString() : null,
+    })),
+    preference: preference
+      ? {
+          maxPerWeek: preference.maxPerWeek ?? null,
+          pausedUntil: preference.pausedUntil ? preference.pausedUntil.toISOString() : null,
+          locale: preference.locale ?? null,
+        }
+      : null,
+    productWatches: productWatches.map((row) => ({
+      sku: row.sku,
+      currencyCode: row.currencyCode,
+      watchedPriceGross: row.watchedPriceGross ?? null,
+      notifiedAt: row.notifiedAt ? row.notifiedAt.toISOString() : null,
+    })),
+    referralCode: referralCode?.code ?? null,
+    referralsMade: referralsMade.map((row) => ({
+      status: row.status,
+      orderTotal: row.orderTotal ?? null,
+      createdAt: row.createdAt.toISOString(),
+      convertedAt: row.convertedAt ? row.convertedAt.toISOString() : null,
+    })),
+    // Who referred THEM is a fact about them, but the other person's id is not theirs to receive.
+    referredBy: referredBy ? { status: referredBy.status, createdAt: referredBy.createdAt.toISOString() } : null,
   }
 }
 
@@ -115,6 +193,11 @@ export type ErasureReport = {
   runs: number
   messages: number
   scoreEntries: number
+  surveyAnswers: number
+  referralRows: number
+  /** Deleted rather than unlinked — see the docblock below. */
+  preferencesDeleted: number
+  productWatchesDeleted: number
   /** Kept on purpose — see the docblock below. */
   consentKept: number
 }
@@ -131,6 +214,12 @@ export type ErasureReport = {
  *  2. Deleting them would silently rewrite history. A campaign that reported 4,000 sends last quarter
  *     would start reporting 3,850, and every number an operator wrote down would quietly stop matching.
  *     Erasure is a duty to one person; falsifying an audit trail is a harm to everybody else.
+ *
+ * **Two tables are DELETED rather than unlinked**, and the same principle is why. A contact preference and a
+ * product watch are not history — they are standing instructions ("pause me until March", "tell me when this
+ * SKU gets cheaper"). Nothing aggregates over them, so unlinking would preserve no total; it would just leave
+ * an instruction with nobody behind it, which is a row that can still cause a message to be composed. An
+ * instruction from a person who has asked to be forgotten has to stop existing, not become anonymous.
  *
  * **Consent records are KEPT, with the subject id.** This looks like the opposite of erasure and is the
  * standard, expected practice: forgetting that somebody unsubscribed is how they get mailed again, which
@@ -163,6 +252,47 @@ export async function eraseSubjectData(
     [scope.tenantId, scope.organizationId, subjectEntityId],
   )
 
+  /**
+   * A survey answer keeps its score and loses its words.
+   *
+   * The score is an aggregate an operator has reported on — an NPS average that changed after an erasure would
+   * be the same falsified audit trail the runs and sends avoid. The COMMENT is different: it is free text the
+   * person wrote themselves, so it is the one field here that can contain anything at all, including their own
+   * name. It goes.
+   *
+   * This is also the row that made the omission operational rather than paperwork: `set-resolver.ts` narrows
+   * audiences on `marketing_survey_prompts.subject_entity_id`, so while the id stayed an erased person was
+   * still produced as a candidate for every `survey.nps <= 6` campaign.
+   */
+  const surveyAnswers = await em.nativeUpdate(MarketingSurveyPrompt, scoped, { subjectEntityId: null, comment: null })
+
+  const preferencesDeleted = await em.nativeDelete(MarketingContactPreference, scoped)
+  const productWatchesDeleted = await em.nativeDelete(MarketingProductWatch, scoped)
+
+  /**
+   * The referral graph is unlinked from BOTH ends, and the erased person's code is retired with it.
+   *
+   * Retiring the code is the point: a code is a thing other people type, and one whose owner has been
+   * forgotten must stop resolving rather than quietly keep accruing claims for nobody. The redemption rows
+   * stay so that the OTHER party's counts — the referrals they made, the rewards they were paid on — do not
+   * silently drop by one.
+   */
+  const referralCodes = await em.nativeUpdate(
+    MarketingReferralCode,
+    { tenantId: scope.tenantId, organizationId: scope.organizationId, referrerEntityId: subjectEntityId },
+    { referrerEntityId: null, deletedAt: now },
+  )
+  const referralsMade = await em.nativeUpdate(
+    MarketingReferralRedemption,
+    { tenantId: scope.tenantId, organizationId: scope.organizationId, referrerEntityId: subjectEntityId },
+    { referrerEntityId: null },
+  )
+  const referralsReceived = await em.nativeUpdate(
+    MarketingReferralRedemption,
+    { tenantId: scope.tenantId, organizationId: scope.organizationId, referredEntityId: subjectEntityId },
+    { referredEntityId: null },
+  )
+
   const consentKept = await em.count(MarketingConsent, scoped)
 
   return {
@@ -171,6 +301,10 @@ export async function eraseSubjectData(
     runs,
     messages,
     scoreEntries,
+    surveyAnswers,
+    referralRows: referralCodes + referralsMade + referralsReceived,
+    preferencesDeleted,
+    productWatchesDeleted,
     consentKept,
   }
 }
@@ -183,4 +317,9 @@ export const SUBJECT_DATA_TABLES = [
   'marketing_customer_score_entries',
   'marketing_consents',
   'marketing_consent_events',
+  'marketing_survey_prompts',
+  'marketing_contact_preferences',
+  'marketing_product_watches',
+  'marketing_referral_codes',
+  'marketing_referral_redemptions',
 ] as const

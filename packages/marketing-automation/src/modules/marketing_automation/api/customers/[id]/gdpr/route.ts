@@ -81,8 +81,14 @@ export async function POST(req: Request) {
     runs: report.runs,
     messages: report.messages,
     scoreEntries: report.scoreEntries,
+    surveyAnswers: report.surveyAnswers,
+    referralRows: report.referralRows,
+    preferencesDeleted: report.preferencesDeleted,
+    productWatchesDeleted: report.productWatchesDeleted,
     consentKept: report.consentKept,
-    actor: auth.userId ?? null,
+    // `sub` rather than `userId`: the latter is optional on the session context, so the one log line that
+    // has to name who did this was recording `null` for every erasure performed by a logged-in person.
+    actor: auth.sub,
   })
   return NextResponse.json(report)
 }

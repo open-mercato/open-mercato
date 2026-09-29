@@ -229,15 +229,26 @@ const birthdays: RowSweepSource = {
     return rows.flatMap((row) => {
       if (!row.entity_id || !row.birth_date) return []
       const monthDay = row.birth_date.slice(5, 10)
-      const daysUntil = days.indexOf(monthDay)
+      const offset = Math.max(days.indexOf(monthDay), 0)
+
+      /**
+       * The year in the claim is the year the BIRTHDAY falls in, not the year the sweep is running in.
+       *
+       * Those differ for exactly the window this source was careful about elsewhere: a notice period that
+       * crosses new year. Swept on 30 December with three days' notice, somebody born on 1 January is claimed
+       * under the OLD year; two days later the same birthday is swept again as "today" and claimed under the
+       * new one, so the one campaign nobody would forgive sending twice sends twice.
+       */
+      const occurrence = new Date(now.getTime() + offset * MS_PER_DAY)
+
       return [{
         subjectEntityId: row.entity_id,
         trigger: {
           birthDate: row.birth_date,
-          daysUntilBirthday: daysUntil >= 0 ? daysUntil : 0,
+          daysUntilBirthday: offset,
         },
         // The YEAR is in the claim, which is what makes this annual rather than once ever.
-        claimKey: sweepClaimKey([BIRTHDAYS_SOURCE_ID, String(now.getUTCFullYear()), row.entity_id]),
+        claimKey: sweepClaimKey([BIRTHDAYS_SOURCE_ID, String(occurrence.getUTCFullYear()), row.entity_id]),
       }]
     })
   },

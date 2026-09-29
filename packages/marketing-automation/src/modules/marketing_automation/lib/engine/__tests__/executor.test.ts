@@ -302,9 +302,16 @@ describe('executeRun — send-time optimisation', () => {
     expect(handler.execute).toHaveBeenCalledTimes(1)
   })
 
-  // Quiet hours are a promise to the customer; the preferred hour is an optimisation. The optimisation
-  // proposes and quiet hours dispose — never the reverse, or an "optimised" send lands at 3am.
-  test('quiet hours override the preferred hour, never the other way round', async () => {
+  /**
+   * Quiet hours are a promise to the customer; the preferred hour is an optimisation. The optimisation proposes
+   * and quiet hours dispose — never the reverse, or an "optimised" send lands at 3am.
+   *
+   * This test previously asserted that such a send is DEFERRED, which encoded an infinite loop: the deferral
+   * landed at 08:00, and the resume at 08:00 proposed 03:00 the next day and deferred again, daily, forever. The
+   * correct resolution of the same rule is to discard an optimisation quiet hours forbid, so the message goes at
+   * a permitted moment — here, now.
+   */
+  test('a preferred hour inside quiet hours is discarded, and the send is not deferred to 3am', async () => {
     const handler = emailHandler()
     const effects = makeEffects([handler], {
       now: morning,
@@ -317,12 +324,9 @@ describe('executeRun — send-time optimisation', () => {
       deps,
       effects,
     )
-    expect(transition.kind).toBe('waiting')
-    if (transition.kind !== 'waiting') return
-    // Deferred to a moment OUTSIDE the quiet window, not to 3am.
-    const resumeHour = transition.resumeAt.getUTCHours()
-    expect(resumeHour >= 22 || resumeHour < 8).toBe(false)
-    expect(handler.execute).not.toHaveBeenCalled()
+    // `morning` is outside the quiet window, so nothing stands between the run and the send.
+    expect(transition.kind).toBe('completed')
+    expect(handler.execute).toHaveBeenCalledTimes(1)
   })
 
   test('is not consulted at all when the policy did not ask for it', async () => {
@@ -510,5 +514,71 @@ describe('executeRun — recipient preferences', () => {
     await executeRun(run(), [step('s1', 'send_email')], noPolicy, deps, makeEffects([sender()], { countSendsSince }))
     // With no cap of either kind there is nothing to count, and a query per send nobody wanted is pure cost.
     expect(countSendsSince).not.toHaveBeenCalled()
+  })
+})
+
+describe('executeRun — send-time optimisation must terminate', () => {
+  const sender = (): StepHandler<Deps> => ({
+    ...tagHandler(),
+    type: 'send_email',
+    channel: 'email',
+    execute: jest.fn().mockResolvedValue({ status: 'done', detail: 'sent' }),
+  })
+
+  /** Quiet 22:00→08:00 with a customer who usually opens at 3am: the pair that used to deadlock. */
+  const nightOwl: SendPolicy = { frequencyCap: null, quietHours: { startHour: 22, endHour: 8 }, optimizeSendTime: true }
+
+  test('a preferred hour inside quiet hours is discarded rather than deferred forever', async () => {
+    const handler = sender()
+    const effects = makeEffects([handler], {
+      resolvePreferredSendHour: jest.fn().mockResolvedValue(3),
+      // 09:00 UTC: outside the quiet window, so the message may go now.
+      now: new Date('2026-09-29T09:00:00.000Z'),
+    })
+    const transition = await executeRun(run(), [step('s1', 'send_email')], nightOwl, deps, effects)
+    expect(transition.kind).toBe('completed')
+    expect(handler.execute).toHaveBeenCalled()
+  })
+
+  test('the run still waits for quiet hours themselves, and lands outside them', async () => {
+    const handler = sender()
+    const at = new Date('2026-09-29T23:00:00.000Z')
+    const effects = makeEffects([handler], {
+      resolvePreferredSendHour: jest.fn().mockResolvedValue(3),
+      now: at,
+    })
+    const transition = await executeRun(run(), [step('s1', 'send_email')], nightOwl, deps, effects)
+    expect(transition.kind).toBe('waiting')
+    if (transition.kind === 'waiting') {
+      expect(transition.reason).toBe('quiet_hours')
+      // 08:00, the first allowed hour — not 03:00, and not a day later.
+      expect(transition.resumeAt.getUTCHours()).toBe(8)
+      expect(transition.resumeAt.getTime() - at.getTime()).toBeLessThanOrEqual(10 * 3_600_000)
+    }
+  })
+
+  test('resuming at the allowed hour sends instead of re-deferring', async () => {
+    // The second half of the old loop: this is the render the run came back for, and it must not park again.
+    const handler = sender()
+    const effects = makeEffects([handler], {
+      resolvePreferredSendHour: jest.fn().mockResolvedValue(3),
+      now: new Date('2026-09-30T08:00:00.000Z'),
+    })
+    const transition = await executeRun(run(), [step('s1', 'send_email')], nightOwl, deps, effects)
+    expect(transition.kind).toBe('completed')
+  })
+
+  test('a preferred hour outside quiet hours is still honoured', async () => {
+    const handler = sender()
+    const effects = makeEffects([handler], {
+      resolvePreferredSendHour: jest.fn().mockResolvedValue(14),
+      now: new Date('2026-09-29T09:00:00.000Z'),
+    })
+    const transition = await executeRun(run(), [step('s1', 'send_email')], nightOwl, deps, effects)
+    expect(transition.kind).toBe('waiting')
+    if (transition.kind === 'waiting') {
+      expect(transition.reason).toBe('send_time')
+      expect(transition.resumeAt.getUTCHours()).toBe(14)
+    }
   })
 })

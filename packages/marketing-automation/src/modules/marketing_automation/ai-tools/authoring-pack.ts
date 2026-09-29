@@ -183,9 +183,19 @@ const createCampaignTool: MarketingAiToolDefinition<z.infer<typeof createInput>>
     async handler(input, context) {
       const scope = requireToolScope(context)
       const commandBus = context.container.resolve<CommandBus>('commandBus')
-      const { result } = await commandBus.execute<{ name: string }, { id: string }>(
+      /**
+       * The scope travels in the INPUT as well as the context.
+       *
+       * `buildCampaignCommandContext` is deliberately `auth: null` — a campaign's writes are the module's, not
+       * the author's — and the command reads a system actor's scope from its input, the way the platform's own
+       * system-actor commands do. Without it every create and save from an agent answered 400.
+       */
+      const { result } = await commandBus.execute<{ name: string; tenantId: string; organizationId: string }, { id: string }>(
         'marketing_automation.campaigns.create',
-        { input: { name: input.name }, ctx: buildCampaignCommandContext(context.container, scope) },
+        {
+          input: { name: input.name, tenantId: scope.tenantId, organizationId: scope.organizationId },
+          ctx: buildCampaignCommandContext(context.container, scope),
+        },
       )
       return { id: result?.id ?? null, isEnabled: false }
     },
@@ -213,6 +223,9 @@ const saveCampaignGraphTool: MarketingAiToolDefinition<z.infer<typeof saveInput>
               name: input.name,
               triggers: input.triggers,
               definition: input.definition,
+              // See `create` above: a system actor carries its scope in the input.
+              tenantId: scope.tenantId,
+              organizationId: scope.organizationId,
             },
             ctx: buildCampaignCommandContext(context.container, scope),
           },

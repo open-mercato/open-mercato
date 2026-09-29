@@ -196,7 +196,21 @@ export async function executeRun<TDeps>(
       let sendAt = now
       if (policy.optimizeSendTime) {
         const preferredHour = await effects.resolvePreferredSendHour(run.subjectEntityId)
-        if (preferredHour !== null) sendAt = nextOccurrenceOfHour(preferredHour, timeZone, sendAt)
+        if (preferredHour !== null) {
+          const proposed = nextOccurrenceOfHour(preferredHour, timeZone, sendAt)
+          /**
+           * An optimisation quiet hours would forbid is DISCARDED, not pushed.
+           *
+           * Pushing it was an infinite loop: a customer who usually opens at 3am, with quiet hours 22→08, got
+           * 03:00 proposed and 08:00 imposed, so the run parked until 08:00 — and on resume proposed 03:00
+           * tomorrow and parked again, every day, forever. `applyTransition` resets the attempt counter on every
+           * wait, so no retry budget ever caught it and a resume job was re-enqueued daily in perpetuity.
+           *
+           * Discarding keeps the stated order intact — the optimisation proposes, quiet hours dispose — and the
+           * message goes at the first hour the customer allows instead of never.
+           */
+          if (!isWithinQuietHours(policy.quietHours, timeZone, proposed)) sendAt = proposed
+        }
       }
       sendAt = nextAllowedSendTime(policy.quietHours, timeZone, sendAt)
 

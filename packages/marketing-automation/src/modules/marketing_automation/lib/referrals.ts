@@ -117,6 +117,9 @@ export async function claimReferral(
 
   const code = await em.findOne(MarketingReferralCode, { ...scope, code: normalized, deletedAt: null })
   if (!code) return { status: 'unknown_code' }
+  // An erased referrer's code is retired in the same statement that unlinks them, so this is belt and
+  // braces — but a code with nobody behind it must never be claimable: there would be nobody to reward.
+  if (!code.referrerEntityId) return { status: 'unknown_code' }
   if (code.referrerEntityId === input.referredEntityId) return { status: 'self_referral' }
 
   const existing = await em.findOne(MarketingReferralRedemption, { ...scope, referredEntityId: input.referredEntityId })
@@ -181,6 +184,9 @@ export async function convertPendingReferral(
   )
   // Lost the race: somebody else converted this claim, and exactly one of us may emit the event.
   if (claimed === 0) return null
+  // The conversion is recorded either way — it happened — but an erased referrer gets no reward event,
+  // because there is no longer a person for it to be about.
+  if (!pending.referrerEntityId || !pending.referredEntityId) return null
 
   const code = await em.findOne(MarketingReferralCode, { id: pending.codeId, ...scope })
   return {
@@ -199,8 +205,8 @@ export type ReferralSummary = {
   claimed: number
   /** Those who went on to place an order — the number a reward should be based on. */
   converted: number
-  /** Who referred THIS customer, when somebody did. */
-  referredBy: { referrerEntityId: string; status: string } | null
+  /** Who referred THIS customer, when somebody did. `referrerEntityId` is null once that person is erased. */
+  referredBy: { referrerEntityId: string | null; status: string } | null
 }
 
 /** Everything the customer profile shows about referrals, in two queries plus a lookup. */
@@ -221,6 +227,6 @@ export async function loadReferralSummary(
     url: code ? referralUrlFor(urlTemplate, code.code) : null,
     claimed: redemptions.length,
     converted: redemptions.filter((row) => row.status === 'converted').length,
-    referredBy: inbound ? { referrerEntityId: inbound.referrerEntityId, status: inbound.status } : null,
+    referredBy: inbound ? { referrerEntityId: inbound.referrerEntityId ?? null, status: inbound.status } : null,
   }
 }

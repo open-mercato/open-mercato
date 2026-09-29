@@ -8,6 +8,7 @@ const at = new Date('2026-09-20T10:00:00.000Z')
 function fakeEm(rowsByEntity: Record<string, unknown[]> = {}) {
   const finds: Array<{ entity: string; where: Record<string, unknown> }> = []
   const updates: Array<{ entity: string; where: Record<string, unknown>; data: Record<string, unknown> }> = []
+  const deletes: Array<{ entity: string; where: Record<string, unknown> }> = []
   const executed: Array<{ sql: string; params: unknown[] }> = []
   const nameOf = (entity: unknown) => (entity as { name?: string }).name ?? String(entity)
 
@@ -16,9 +17,17 @@ function fakeEm(rowsByEntity: Record<string, unknown[]> = {}) {
       finds.push({ entity: nameOf(entity), where })
       return rowsByEntity[nameOf(entity)] ?? []
     },
+    findOne: async (entity: unknown, where: Record<string, unknown>) => {
+      finds.push({ entity: nameOf(entity), where })
+      return (rowsByEntity[nameOf(entity)] ?? [])[0] ?? null
+    },
     count: async (entity: unknown) => (rowsByEntity[nameOf(entity)] ?? []).length,
     nativeUpdate: async (entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
       updates.push({ entity: nameOf(entity), where, data })
+      return (rowsByEntity[nameOf(entity)] ?? []).length
+    },
+    nativeDelete: async (entity: unknown, where: Record<string, unknown>) => {
+      deletes.push({ entity: nameOf(entity), where })
       return (rowsByEntity[nameOf(entity)] ?? []).length
     },
     getConnection: () => ({
@@ -28,7 +37,7 @@ function fakeEm(rowsByEntity: Record<string, unknown[]> = {}) {
       },
     }),
   }
-  return { em: em as unknown as EntityManager, finds, updates, executed }
+  return { em: em as unknown as EntityManager, finds, updates, deletes, executed }
 }
 
 describe('exportSubjectData', () => {
@@ -38,7 +47,13 @@ describe('exportSubjectData', () => {
     })
     await exportSubjectData(em, 'c1', scope, now)
     const queried = new Set(finds.map((entry) => entry.entity))
-    for (const entity of ['MarketingConsent', 'MarketingConsentEvent', 'MarketingCustomerScoreEntry', 'MarketingCampaignRun', 'MarketingMessageSend']) {
+    for (const entity of [
+      'MarketingConsent', 'MarketingConsentEvent', 'MarketingCustomerScoreEntry', 'MarketingCampaignRun',
+      'MarketingMessageSend',
+      // Added after a review found all four missing from the export: the survey answer is the person's own
+      // words, and the other three are choices they made.
+      'MarketingSurveyPrompt', 'MarketingContactPreference', 'MarketingProductWatch', 'MarketingReferralRedemption',
+    ]) {
       expect(queried.has(entity)).toBe(true)
     }
     // Engagement is reached through the runs, because the event table holds no identity of its own.
@@ -50,7 +65,14 @@ describe('exportSubjectData', () => {
     await exportSubjectData(em, 'c1', scope, now)
     for (const entry of finds) {
       if (entry.entity === 'MarketingMessageSendEvent') continue
-      expect(entry.where).toMatchObject({ tenantId: 't1', organizationId: 'o1', subjectEntityId: 'c1' })
+      expect(entry.where).toMatchObject({ tenantId: 't1', organizationId: 'o1' })
+      // The referral graph keys on the two roles rather than on a subject column, so it is scoped by
+      // whichever end this person is.
+      if (entry.entity.startsWith('MarketingReferral')) {
+        expect(entry.where.referrerEntityId ?? entry.where.referredEntityId).toBe('c1')
+        continue
+      }
+      expect(entry.where).toMatchObject({ subjectEntityId: 'c1' })
     }
   })
 
@@ -88,9 +110,12 @@ describe('eraseSubjectData', () => {
 
     expect(updates.map((entry) => entry.entity).sort()).toEqual([
       'MarketingCampaignRun', 'MarketingCustomerScoreEntry', 'MarketingMessageSend',
+      'MarketingReferralCode', 'MarketingReferralRedemption', 'MarketingReferralRedemption',
+      'MarketingSurveyPrompt',
     ])
     for (const entry of updates) {
-      expect(entry.data).toEqual({ subjectEntityId: null })
+      if (entry.entity.startsWith('MarketingReferral')) continue
+      expect(entry.data).toMatchObject({ subjectEntityId: null })
       expect(entry.where).toMatchObject({ tenantId: 't1', organizationId: 'o1', subjectEntityId: 'c1' })
     }
     expect(report).toMatchObject({ runs: 2, messages: 1, scoreEntries: 3, erasedAt: now.toISOString() })
@@ -123,6 +148,56 @@ describe('eraseSubjectData', () => {
     expect(report.consentKept).toBe(1)
   })
 
+  /**
+   * The score is an aggregate somebody has reported on; the comment is free text the person wrote, and is
+   * the one field in this module that could contain anything, including their own name.
+   */
+  test('keeps a survey score and destroys the words', async () => {
+    const { em, updates } = fakeEm({ MarketingSurveyPrompt: [{}, {}] })
+    const report = await eraseSubjectData(em, 'c1', scope, now)
+    const survey = updates.find((entry) => entry.entity === 'MarketingSurveyPrompt')
+    expect(survey?.data).toEqual({ subjectEntityId: null, comment: null })
+    expect(report.surveyAnswers).toBe(2)
+  })
+
+  /**
+   * The exception to "never delete", and the reason for it.
+   *
+   * A preference and a watch are standing instructions, not history. Nothing aggregates over them, so
+   * unlinking would preserve no total — it would leave an instruction with nobody behind it that can still
+   * cause a message to be composed.
+   */
+  test('deletes the standing instructions rather than anonymising them', async () => {
+    const { em, deletes, updates } = fakeEm({
+      MarketingContactPreference: [{}],
+      MarketingProductWatch: [{}, {}, {}],
+    })
+    const report = await eraseSubjectData(em, 'c1', scope, now)
+    expect(deletes.map((entry) => entry.entity).sort()).toEqual(['MarketingContactPreference', 'MarketingProductWatch'])
+    for (const entry of deletes) {
+      expect(entry.where).toMatchObject({ tenantId: 't1', organizationId: 'o1', subjectEntityId: 'c1' })
+    }
+    expect(updates.some((entry) => entry.entity === 'MarketingContactPreference')).toBe(false)
+    expect(report).toMatchObject({ preferencesDeleted: 1, productWatchesDeleted: 3 })
+  })
+
+  /**
+   * A code is a thing OTHER people type, so it has to stop resolving — while the redemption rows stay, or the
+   * other party's referral counts silently drop by one.
+   */
+  test('retires the code and unlinks both ends of the referral graph', async () => {
+    const { em, updates } = fakeEm({ MarketingReferralCode: [{}], MarketingReferralRedemption: [{}] })
+    const report = await eraseSubjectData(em, 'c1', scope, now)
+
+    const code = updates.find((entry) => entry.entity === 'MarketingReferralCode')
+    expect(code?.data).toEqual({ referrerEntityId: null, deletedAt: now })
+    expect(code?.where).toMatchObject({ referrerEntityId: 'c1' })
+
+    const redemptions = updates.filter((entry) => entry.entity === 'MarketingReferralRedemption')
+    expect(redemptions.map((entry) => entry.data)).toEqual([{ referrerEntityId: null }, { referredEntityId: null }])
+    expect(report.referralRows).toBe(3)
+  })
+
   test('the two halves agree about which tables hold subject data', () => {
     // A table in one and not the other is either an export that lies to the person or an erasure that
     // lies to the regulator.
@@ -133,6 +208,11 @@ describe('eraseSubjectData', () => {
       'marketing_customer_score_entries',
       'marketing_consents',
       'marketing_consent_events',
+      'marketing_survey_prompts',
+      'marketing_contact_preferences',
+      'marketing_product_watches',
+      'marketing_referral_codes',
+      'marketing_referral_redemptions',
     ])
   })
 })
