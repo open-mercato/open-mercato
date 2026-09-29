@@ -32,7 +32,7 @@ import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
 import { getMessageType } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
 import { attachOperationMetadataHeader } from '../lib/operationMetadata'
-import { canUseMessageEmailFeature, resolveMessageContext } from '../lib/routeHelpers'
+import { canUseChannelThreadFallback, canUseMessageEmailFeature, resolveMessageContext } from '../lib/routeHelpers'
 import { applyMessageParticipantScope } from '../lib/participantScope'
 import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from './guards'
 import { findMessageIdsBySearchTokens } from '../lib/searchLookup'
@@ -538,7 +538,7 @@ export async function POST(req: Request) {
         { status: 409 },
       )
     }
-    if (!channelThread.canAccess) {
+    if (!channelThread.canAccess || !(await canUseChannelThreadFallback(ctx, scope))) {
       return Response.json({ error: 'Access denied' }, { status: 403 })
     }
     composeParentMessageId = channelThread.messageThreadId
@@ -553,6 +553,8 @@ export async function POST(req: Request) {
   // message id was enough. Apply the same check to the thread the command will
   // actually derive. An internal thread, a thread outside the caller's scope,
   // and an absent hub all resolve to `null` and keep the pre-existing rule.
+  // Both channel branches also require `messages.view`, like reply and forward:
+  // the hub grants every shared channel regardless of features (#6432).
   if (isPublicVisibility && !input.isDraft && input.parentMessageId) {
     const em = ctx.container.resolve('em') as EntityManager
     const parentMessage = await findOneWithDecryption(
@@ -574,7 +576,7 @@ export async function POST(req: Request) {
       { messageThreadId: parentThreadId },
       { userId: scope.userId, features: resolveUserFeatures(ctx.auth) },
     )
-    if (channelThread && !channelThread.canAccess) {
+    if (channelThread && (!channelThread.canAccess || !(await canUseChannelThreadFallback(ctx, scope)))) {
       return Response.json({ error: 'Access denied' }, { status: 403 })
     }
   }

@@ -8,6 +8,7 @@ const em = { fork: jest.fn(), find: jest.fn(), findOne: jest.fn() }
 const commandBusExecuteMock = jest.fn()
 const resolveChannelTypeMock = jest.fn()
 const resolveChannelThreadAccessMock = jest.fn()
+const userHasAllFeaturesMock = jest.fn()
 
 const container = {
   resolve: jest.fn((name: string) => {
@@ -15,6 +16,7 @@ const container = {
     if (name === 'commandBus') return { execute: (...args: unknown[]) => commandBusExecuteMock(...args) }
     if (name === 'communicationChannelsResolveChannelType') return resolveChannelTypeMock
     if (name === 'communicationChannelsResolveChannelThreadAccess') return resolveChannelThreadAccessMock
+    if (name === 'rbacService') return { userHasAllFeatures: userHasAllFeaturesMock }
     throw new Error(`Unexpected container resolve: ${name}`)
   }),
 }
@@ -92,6 +94,7 @@ beforeEach(() => {
   em.fork.mockReturnValue(em)
   em.find.mockResolvedValue([])
   em.findOne.mockResolvedValue(null)
+  userHasAllFeaturesMock.mockResolvedValue(true)
   // #5535: a public compose naming a channel conversation is attached to that
   // conversation's existing thread, so the default fixture resolves one.
   resolveChannelThreadAccessMock.mockResolvedValue({
@@ -377,6 +380,48 @@ describe('POST /api/messages — channel conversation deliverability (#5535)', (
       { messageThreadId: CHANNEL_THREAD_ID },
       expect.objectContaining({ userId }),
     )
+  })
+
+  // #6432: the hub grants every shared channel regardless of features, so
+  // `canAccess` alone refused no one there. Both channel branches now apply the
+  // same `messages.view` gate as reply and forward.
+  describe('without messages.view on a shared channel the hub grants', () => {
+    beforeEach(() => {
+      resolveChannelTypeMock.mockResolvedValue('discord')
+      userHasAllFeaturesMock.mockResolvedValue(false)
+    })
+
+    it('refuses the rethread compose naming the conversation', async () => {
+      const response = await composeMessage(composeRequest(publicComposeBody()))
+
+      expect(response.status).toBe(403)
+      expect(commandBusExecuteMock).not.toHaveBeenCalled()
+      expect(userHasAllFeaturesMock).toHaveBeenCalledWith(userId, ['messages.view'], {
+        tenantId,
+        organizationId,
+      })
+    })
+
+    it('refuses the compose naming a parent on the channel thread', async () => {
+      em.findOne.mockResolvedValue({ id: messageId, threadId: CHANNEL_THREAD_ID, organizationId, tenantId })
+
+      const response = await composeMessage(
+        composeRequest(publicComposeBody({ parentMessageId: messageId })),
+      )
+
+      expect(response.status).toBe(403)
+      expect(commandBusExecuteMock).not.toHaveBeenCalled()
+    })
+
+    it('still lets a compose onto an internal thread through', async () => {
+      resolveChannelThreadAccessMock.mockResolvedValue(null)
+
+      const response = await composeMessage(
+        composeRequest(publicComposeBody({ parentMessageId: messageId })),
+      )
+
+      expect(response.status).toBe(201)
+    })
   })
 
   it('leaves a caller-supplied parent on an internal thread alone', async () => {
