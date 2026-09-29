@@ -718,9 +718,10 @@ async function handleError(err: unknown, request?: Request): Promise<Response> {
       module: 'crud',
       attributes: { requestId, errorName: 'UniqueViolation', constraint: constraint ?? undefined },
     })
+    const { translate } = await resolveTranslations()
     return json(
       {
-        error: 'A record with the same unique values already exists',
+        error: translate('errors.unique_violation', 'A record with the same unique values already exists'),
         code: 'UNIQUE_VIOLATION',
         requestId,
       },
