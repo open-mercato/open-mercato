@@ -12,6 +12,15 @@ export const PopoverAnchor = PopoverPrimitive.Anchor
 
 export const PopoverClose = PopoverPrimitive.Close
 
+/** Source Popover [1.1] tail; follows Radix side/align and collision handling. */
+export const PopoverArrow = React.forwardRef<
+  React.ElementRef<typeof PopoverPrimitive.Arrow>,
+  React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Arrow>
+>(({ className, width = 12, height = 6, ...props }, ref) => (
+  <PopoverPrimitive.Arrow ref={ref} width={width} height={height} data-slot="popover-arrow" className={cn('fill-popover stroke-border', className)} {...props} />
+))
+PopoverArrow.displayName = 'PopoverArrow'
+
 export const PopoverContent = React.forwardRef<
   React.ElementRef<typeof PopoverPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
@@ -19,6 +28,7 @@ export const PopoverContent = React.forwardRef<
   <PopoverPrimitive.Portal>
     <PopoverPrimitive.Content
       ref={ref}
+      data-slot="popover-content"
       align={align}
       sideOffset={sideOffset}
       className={cn(

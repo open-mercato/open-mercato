@@ -80,7 +80,6 @@ export const RadioField = React.forwardRef<
       className={cn(
         'flex gap-2',
         hasMultiLine ? 'items-start' : 'items-center',
-        flip && 'flex-row-reverse',
         containerClassName
       )}
     >

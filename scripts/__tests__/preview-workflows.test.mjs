@@ -89,6 +89,19 @@ test('published standalone lanes verify the disabled baseline before activating 
   }
 })
 
+test('develop snapshot standalone initialization replaces the scaffold database URL', () => {
+  const workflow = readText(snapshotWorkflowPath)
+  const configureStart = stepIndex(workflow, 'Configure standalone app environment')
+  const installStart = stepIndex(workflow, 'Install standalone app dependencies')
+  const configureStep = workflow.slice(configureStart, installStart)
+  const appendedEnvironment = configureStep.slice(configureStep.indexOf("cat >> .env"))
+
+  assert.ok(configureStep.includes(
+    "sed -i 's|^DATABASE_URL=.*$|DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test|' .env",
+  ))
+  assert.equal(countOccurrences(appendedEnvironment, 'DATABASE_URL='), 0)
+})
+
 test('standalone example activation helper is executable through the workflow CJS entrypoint', () => {
   const activationScript = readText(standaloneExampleActivationScriptPath)
   const result = spawnSync(process.execPath, [tsxCliPath, standaloneExampleActivationScriptPath], {

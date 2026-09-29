@@ -29,7 +29,7 @@ jest.mock('../injection/useInjectionDataWidgets', () => ({
 }))
 
 import * as React from 'react'
-import { act, fireEvent, screen } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CrudForm, type CrudField } from '../CrudForm'
 
@@ -103,11 +103,11 @@ describe('CrudForm transform pipeline behavior', () => {
 
     await act(async () => {
       fireEvent.submit(form)
-      await Promise.resolve()
-      await Promise.resolve()
     })
 
-    expect(screen.getByTestId('submitted')).toHaveTextContent('"title":"spaces around"')
+    await waitFor(() =>
+      expect(screen.getByTestId('submitted')).toHaveTextContent('"title":"spaces around"'),
+    )
     expect(input).toHaveValue('  spaces around  ')
   })
 
@@ -162,11 +162,11 @@ describe('CrudForm transform pipeline behavior', () => {
 
     await act(async () => {
       fireEvent.submit(form)
-      await Promise.resolve()
-      await Promise.resolve()
     })
 
-    expect(screen.getByTestId('submitted')).toHaveTextContent('"note":"MAKE ME UPPERCASE"')
+    await waitFor(() =>
+      expect(screen.getByTestId('submitted')).toHaveTextContent('"note":"MAKE ME UPPERCASE"'),
+    )
     expect(input).toHaveValue('MAKE ME UPPERCASE')
   })
 

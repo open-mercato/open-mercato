@@ -53,6 +53,7 @@ import {
   type PersonOverview,
 } from '../../../../components/formConfig'
 import { coerceDisplayName, coerceDisplayNameOrNull } from '../../../../lib/displayName'
+import { isDetailNotFoundStatus } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -168,7 +169,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
         : payload
       setData(next as PersonOverview)
     } catch (err) {
-      if ((err as { status?: number }).status === 404) {
+      if (isDetailNotFoundStatus((err as { status?: number }).status)) {
         setIsNotFound(true)
       } else {
         const message = err instanceof Error ? err.message : t('customers.people.detail.error.load', 'Failed to load person.')
@@ -276,6 +277,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
       scheduledAt: typeof activity.scheduledAt === 'string' ? activity.scheduledAt : null,
       occurredAt: typeof activity.occurredAt === 'string' ? activity.occurredAt : null,
       durationMinutes: durationValue,
+      priority: typeof raw.priority === 'number' ? raw.priority as number : null,
       location: typeof raw.location === 'string' ? raw.location as string : null,
       allDay: typeof raw.allDay === 'boolean' ? raw.allDay as boolean : null,
       recurrenceRule: typeof raw.recurrenceRule === 'string' ? raw.recurrenceRule as string : null,

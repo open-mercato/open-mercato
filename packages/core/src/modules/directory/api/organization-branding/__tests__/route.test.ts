@@ -52,6 +52,7 @@ jest.mock('@open-mercato/cache', () => ({
   runWithCacheTenant: (...args: unknown[]) => runWithCacheTenantMock(...args as [string | null, () => unknown]),
 }))
 
+import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { GET, PUT } from '../route'
 
 function makeAuth(overrides: Record<string, unknown> = {}) {
@@ -361,5 +362,39 @@ describe('/api/directory/organization-branding', () => {
         metadata: { reason: 'test' },
       }),
     )
+  })
+
+  it('surfaces the status and body of an interceptor rejection that carries one', async () => {
+    commandBusExecute.mockRejectedValueOnce(
+      new CommandInterceptorError('Branding locked by policy', {
+        status: 422,
+        body: { error: 'Branding locked by policy', policy: 'brand-freeze' },
+      }),
+    )
+
+    const response = await PUT(new Request('http://localhost/api/directory/organization-branding', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ logoUrl: 'https://example.com/logo.svg' }),
+    }))
+
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Branding locked by policy',
+      policy: 'brand-freeze',
+    })
+  })
+
+  it('keeps the generic 400 when an interceptor rejection carries no status', async () => {
+    commandBusExecute.mockRejectedValueOnce(new CommandInterceptorError('Blocked without a status'))
+
+    const response = await PUT(new Request('http://localhost/api/directory/organization-branding', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ logoUrl: 'https://example.com/logo.svg' }),
+    }))
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: 'Failed to update organization branding.' })
   })
 })

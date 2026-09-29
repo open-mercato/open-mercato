@@ -1,4 +1,8 @@
 {
+  "search.entityType.wms.inventory_lot": "Lagerbestand",
+  "search.entityType.wms.product_inventory_profile": "Bestandsprofil",
+  "search.entityType.wms.warehouse": "Lager",
+  "search.entityType.wms.warehouse_location": "Lagerort",
   "wms.audit.inventory.receive": "Wareneingang buchen",
   "wms.audit.salesOrder.assignWarehouse": "Lager dem Auftrag zuweisen",
   "wms.audit.salesOrder.reRunReservation": "Reservierung für Auftrag erneut ausführen",

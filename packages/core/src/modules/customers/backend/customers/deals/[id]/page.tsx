@@ -198,7 +198,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     data,
     setData,
     runMutationWithContext,
-    onRefresh: () => { void loadData() },
+    onRefresh: () => loadData(),
   })
 
   const { isStageSaving, handleStageChange } = useDealPipeline({
@@ -264,6 +264,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
       scheduledAt: activity.scheduledAt ?? null,
       occurredAt: activity.occurredAt ?? null,
       durationMinutes: activity.duration ?? null,
+      priority: activity.priority ?? null,
       location: activity.location ?? null,
       allDay: activity.allDay ?? null,
       recurrenceRule: activity.recurrenceRule ?? null,

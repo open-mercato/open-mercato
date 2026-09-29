@@ -13,6 +13,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('auth').child({ component: 'profile' })
 
@@ -201,6 +202,10 @@ export async function PUT(req: Request) {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     logger.error('Profile update failed', { err })
     return NextResponse.json({ error: translate('auth.profile.form.errors.save', 'Failed to update profile.') }, { status: 400 })
