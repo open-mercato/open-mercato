@@ -1,8 +1,8 @@
-import { registerCliModules, getCliModules } from '@open-mercato/shared/modules/registry'
-import type { Module } from '@open-mercato/shared/modules/registry'
 import type { QueuedJob, JobContext } from '@open-mercato/queue'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import handle, { metadata, EVENTS_QUEUE_NAME, clearListenerCache } from '../events.worker'
+import { createEventBus } from '../../../../bus'
+import type { EventBus, SubscriberDescriptor } from '../../../../types'
+import handle, { metadata, EVENTS_QUEUE_NAME } from '../events.worker'
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
   const mocked = {
@@ -17,23 +17,76 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
 })
 
 const workerLoggerError = createLogger('events').error as jest.Mock
+const workerLoggerWarn = createLogger('events').warn as jest.Mock
+const workerLoggerDebug = createLogger('events').debug as jest.Mock
 
-// Clear modules and listener cache before each test
-function clearModules() {
-  // Re-register with empty array to clear
-  registerCliModules([])
-  // Clear the listener cache so tests don't affect each other
-  clearListenerCache()
+type WorkerJobPayload = {
+  event: string
+  payload: unknown
+  options?: { tenantId?: string | null; organizationId?: string | null }
+  persistentDeliveredInline?: boolean
+}
+
+type WorkerContext = JobContext & { resolve: <T = unknown>(name: string) => T }
+
+const createMockJob = (
+  event: string,
+  payload: unknown,
+  options?: { tenantId?: string | null; organizationId?: string | null },
+  extra?: { persistentDeliveredInline?: boolean },
+): QueuedJob<WorkerJobPayload> => ({
+  id: 'test-job-id',
+  payload: { event, payload, options, ...extra },
+  createdAt: new Date().toISOString(),
+})
+
+/**
+ * The worker resolves its subscribers from the DI event bus, so the fixture is a
+ * real bus with subscribers registered on it - exactly what
+ * `createRequestContainer` hands a worker job. The CLI module registry is never
+ * touched here; that it is not needed IS the regression this suite pins.
+ */
+function createBusWith(subs: SubscriberDescriptor[]): EventBus {
+  const bus = createEventBus({ resolve: <T = unknown>(name: string): T => {
+    throw new Error(`No mock for ${name}`)
+  } })
+  bus.registerModuleSubscribers(subs)
+  return bus
+}
+
+function createMockContext(bus?: EventBus): WorkerContext {
+  return {
+    jobId: 'test-job-id',
+    attemptNumber: 1,
+    queueName: 'events',
+    resolve: <T = unknown>(name: string): T => {
+      if (name === 'eventBus' && bus) {
+        return bus as unknown as T
+      }
+      throw new Error(`No mock for ${name}`)
+    },
+  }
 }
 
 describe('Events Worker', () => {
+  const ORIG_SINGLE_DELIVERY = process.env.OM_EVENTS_SINGLE_DELIVERY
+
   beforeEach(() => {
-    clearModules()
     workerLoggerError.mockClear()
+    workerLoggerWarn.mockClear()
+    workerLoggerDebug.mockClear()
   })
 
+  function restoreEnv(name: string, original: string | undefined): void {
+    if (original === undefined) {
+      delete process.env[name]
+      return
+    }
+    process.env[name] = original
+  }
+
   afterEach(() => {
-    clearModules()
+    restoreEnv('OM_EVENTS_SINGLE_DELIVERY', ORIG_SINGLE_DELIVERY)
   })
 
   describe('metadata', () => {
@@ -43,277 +96,258 @@ describe('Events Worker', () => {
     })
 
     it('should have default concurrency of 1', () => {
-      // When no env var is set, should default to 1
       expect(metadata.concurrency).toBe(1)
     })
   })
 
-  describe('handle', () => {
-    // These tests exercise the legacy exact-match dispatch (the worker runs every
-    // matching subscriber, persistent or not). Single-delivery (now default-on)
-    // dispatches only persistent subscribers in the worker, so pin the legacy
-    // path here; single-delivery semantics are covered in the sibling describe.
-    const ORIG_SINGLE_DELIVERY = process.env.OM_EVENTS_SINGLE_DELIVERY
-    beforeEach(() => {
-      process.env.OM_EVENTS_SINGLE_DELIVERY = 'false'
-    })
-    afterEach(() => {
-      if (ORIG_SINGLE_DELIVERY === undefined) delete process.env.OM_EVENTS_SINGLE_DELIVERY
-      else process.env.OM_EVENTS_SINGLE_DELIVERY = ORIG_SINGLE_DELIVERY
+  describe('subscriber registry resolution', () => {
+    it('dispatches subscribers registered only on the bus, with no CLI module registry', async () => {
+      process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
+      const calls: unknown[] = []
+      const bus = createBusWith([
+        {
+          id: 'webhooks:outbound-dispatch',
+          event: '*',
+          persistent: true,
+          handler: (payload) => { calls.push(payload) },
+        },
+      ])
+
+      await handle(createMockJob('customers.deal.won', { id: 'deal-1' }), createMockContext(bus))
+
+      expect(calls).toEqual([{ id: 'deal-1' }])
     })
 
-    const createMockJob = (
-      event: string,
-      payload: unknown,
-      options?: { tenantId?: string | null; organizationId?: string | null },
-    ): QueuedJob<{ event: string; payload: unknown; options?: { tenantId?: string | null; organizationId?: string | null } }> => ({
-      id: 'test-job-id',
-      payload: { event, payload, options },
-      createdAt: new Date().toISOString(),
+    it('throws an actionable error when the job container has no event bus', async () => {
+      const job = createMockJob('user.created', {})
+
+      await expect(handle(job, createMockContext())).rejects.toThrow(
+        /no "eventBus" in the job container/,
+      )
+      await expect(handle(job, createMockContext())).rejects.toThrow(
+        /mercato queue worker events/,
+      )
     })
 
-    const createMockContext = (): JobContext & { resolve: <T = unknown>(name: string) => T } => ({
-      jobId: 'test-job-id',
-      attemptNumber: 1,
-      queueName: 'events',
-      resolve: <T = unknown>(name: string): T => {
-        throw new Error(`No mock for ${name}`)
+    it('throws when the resolved bus predates dispatchQueued', async () => {
+      const staleBus = { emit: jest.fn(), on: jest.fn() } as unknown as EventBus
+
+      await expect(handle(createMockJob('user.created', {}), createMockContext(staleBus))).rejects.toThrow(
+        /has no dispatchQueued/,
+      )
+    })
+
+    it('picks up subscribers registered after an earlier job was dispatched', async () => {
+      process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
+      const calls: string[] = []
+      const bus = createBusWith([])
+
+      await handle(createMockJob('user.created', {}), createMockContext(bus))
+      expect(calls).toEqual([])
+
+      bus.registerModuleSubscribers([
+        { id: 'late', event: 'user.created', persistent: true, handler: () => { calls.push('late') } },
+      ])
+
+      await handle(createMockJob('user.created', {}), createMockContext(bus))
+      expect(calls).toEqual(['late'])
+    })
+  })
+
+  describe('producer stamp (persistentDeliveredInline)', () => {
+    it.each(['true', 'false'])(
+      'dispatches nothing when the producer already delivered inline (flag=%s)',
+      async (flag) => {
+        process.env.OM_EVENTS_SINGLE_DELIVERY = flag
+        const calls: string[] = []
+        const bus = createBusWith([
+          { id: 'p', event: 'user.created', persistent: true, handler: () => { calls.push('p') } },
+          { id: 'e', event: 'user.created', persistent: false, handler: () => { calls.push('e') } },
+        ])
+
+        await handle(
+          createMockJob('user.created', {}, undefined, { persistentDeliveredInline: true }),
+          createMockContext(bus),
+        )
+
+        expect(calls).toEqual([])
       },
+    )
+
+    it('dispatches normally when the stamp is absent', async () => {
+      process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
+      const calls: string[] = []
+      const bus = createBusWith([
+        { id: 'p', event: 'user.created', persistent: true, handler: () => { calls.push('p') } },
+      ])
+
+      await handle(createMockJob('user.created', {}), createMockContext(bus))
+
+      expect(calls).toEqual(['p'])
     })
+  })
+
+  describe('handle', () => {
+    // The worker only ever dispatches `persistent` subscribers, by pattern, and
+    // that selection does not depend on OM_EVENTS_SINGLE_DELIVERY - the job's
+    // stamp carries the producer's decision instead. These fixtures are therefore
+    // all persistent.
 
     it('should do nothing when no subscribers are registered', async () => {
       const job = createMockJob('test.event', { data: 'test' })
-      const ctx = createMockContext()
 
-      // Should not throw
-      await expect(handle(job, ctx)).resolves.toBeUndefined()
+      await expect(handle(job, createMockContext(createBusWith([])))).resolves.toBeUndefined()
     })
 
     it('should dispatch event to matching subscribers', async () => {
       const receivedPayloads: unknown[] = []
+      const bus = createBusWith([
+        {
+          id: 'test:subscriber1',
+          event: 'user.created',
+          persistent: true,
+          handler: (payload) => { receivedPayloads.push(payload) },
+        },
+      ])
 
-      const mockModule: Module = {
-        id: 'test-module',
-        subscribers: [
-          {
-            id: 'test:subscriber1',
-            event: 'user.created',
-            handler: async (payload: unknown) => {
-              receivedPayloads.push(payload)
-            },
-          },
-        ],
-      }
+      await handle(
+        createMockJob('user.created', { userId: '123', name: 'Test User' }),
+        createMockContext(bus),
+      )
 
-      registerCliModules([mockModule])
-
-      const job = createMockJob('user.created', { userId: '123', name: 'Test User' })
-      const ctx = createMockContext()
-
-      await handle(job, ctx)
-
-      expect(receivedPayloads.length).toBe(1)
-      expect(receivedPayloads[0]).toEqual({ userId: '123', name: 'Test User' })
+      expect(receivedPayloads).toEqual([{ userId: '123', name: 'Test User' }])
     })
 
     it('should dispatch to multiple subscribers for same event', async () => {
       const subscriber1Calls: unknown[] = []
       const subscriber2Calls: unknown[] = []
+      const bus = createBusWith([
+        { id: 'a:subscriber', event: 'order.placed', persistent: true, handler: (p) => { subscriber1Calls.push(p) } },
+        { id: 'b:subscriber', event: 'order.placed', persistent: true, handler: (p) => { subscriber2Calls.push(p) } },
+      ])
 
-      const mockModules: Module[] = [
-        {
-          id: 'module-a',
-          subscribers: [
-            {
-              id: 'a:subscriber',
-              event: 'order.placed',
-              handler: async (payload: unknown) => {
-                subscriber1Calls.push(payload)
-              },
-            },
-          ],
-        },
-        {
-          id: 'module-b',
-          subscribers: [
-            {
-              id: 'b:subscriber',
-              event: 'order.placed',
-              handler: async (payload: unknown) => {
-                subscriber2Calls.push(payload)
-              },
-            },
-          ],
-        },
-      ]
+      await handle(createMockJob('order.placed', { orderId: '456' }), createMockContext(bus))
 
-      registerCliModules(mockModules)
-
-      const job = createMockJob('order.placed', { orderId: '456' })
-      const ctx = createMockContext()
-
-      await handle(job, ctx)
-
-      expect(subscriber1Calls.length).toBe(1)
-      expect(subscriber2Calls.length).toBe(1)
-      expect(subscriber1Calls[0]).toEqual({ orderId: '456' })
-      expect(subscriber2Calls[0]).toEqual({ orderId: '456' })
+      expect(subscriber1Calls).toEqual([{ orderId: '456' }])
+      expect(subscriber2Calls).toEqual([{ orderId: '456' }])
     })
 
     it('should not dispatch to non-matching event subscribers', async () => {
       const receivedPayloads: unknown[] = []
+      const bus = createBusWith([
+        { id: 'test:subscriber', event: 'user.created', persistent: true, handler: (p) => { receivedPayloads.push(p) } },
+      ])
 
-      const mockModule: Module = {
-        id: 'test-module',
-        subscribers: [
-          {
-            id: 'test:subscriber',
-            event: 'user.created',
-            handler: async (payload: unknown) => {
-              receivedPayloads.push(payload)
-            },
-          },
-        ],
-      }
+      await handle(createMockJob('user.deleted', { userId: '123' }), createMockContext(bus))
 
-      registerCliModules([mockModule])
-
-      const job = createMockJob('user.deleted', { userId: '123' })
-      const ctx = createMockContext()
-
-      await handle(job, ctx)
-
-      expect(receivedPayloads.length).toBe(0)
+      expect(receivedPayloads).toEqual([])
     })
 
     it('should pass resolve function to subscriber context', async () => {
       let capturedContext: unknown = null
+      const bus = createBusWith([
+        { id: 'test:subscriber', event: 'test.event', persistent: true, handler: (_p, ctx) => { capturedContext = ctx } },
+      ])
 
-      const mockModule: Module = {
-        id: 'test-module',
-        subscribers: [
-          {
-            id: 'test:subscriber',
-            event: 'test.event',
-            handler: async (_payload: unknown, ctx: unknown) => {
-              capturedContext = ctx
-            },
-          },
-        ],
-      }
-
-      registerCliModules([mockModule])
-
-      const mockResolve = jest.fn().mockReturnValue('resolved-service')
-      const job = createMockJob('test.event', {})
-      const ctx = {
-        ...createMockContext(),
-        resolve: mockResolve,
-      }
-
-      await handle(job, ctx)
+      await handle(createMockJob('test.event', {}), createMockContext(bus))
 
       expect(capturedContext).toBeDefined()
       expect((capturedContext as { resolve: unknown }).resolve).toBeDefined()
     })
 
-    it('should pass trusted tenant and organization scope to subscriber context', async () => {
-      let capturedContext: { tenantId?: string | null; organizationId?: string | null } | null = null
+    it('should hand subscribers the JOB container resolver, not the bus creation one', async () => {
+      // `toBeDefined()` above passes whichever resolver is threaded, so it cannot
+      // catch the two being swapped. Pin the identity with sentinels that differ:
+      // the worker must pass its own ctx.resolve, which is the container
+      // createPerJobWorkerHandler built for this job. Under OM_BOOTSTRAP_CACHE the
+      // bus is replayed across jobs while its captured resolver stays bound to the
+      // first container, so resolving `em` from it would share one EntityManager
+      // across concurrent jobs - the interleaving of issue #2970.
+      const busEm = { id: 'em-from-the-container-that-built-the-bus' }
+      const perJobEm = { id: 'em-for-this-job' }
+      let resolvedEm: unknown = null
 
-      const mockModule: Module = {
-        id: 'test-module',
-        subscribers: [
-          {
-            id: 'test:subscriber',
-            event: 'test.event',
-            handler: async (_payload: unknown, ctx: unknown) => {
-              const typed = ctx as { tenantId?: string | null; organizationId?: string | null }
-              capturedContext = {
-                tenantId: typed.tenantId,
-                organizationId: typed.organizationId,
-              }
-            },
-          },
-        ],
+      const bus = createEventBus({
+        resolve: (<T = unknown>(name: string): T => {
+          if (name === 'em') {
+            return busEm as unknown as T
+          }
+          throw new Error(`No mock for ${name}`)
+        }),
+      })
+      bus.registerModuleSubscribers([
+        { id: 'test:subscriber', event: 'test.event', persistent: true, handler: (_p, ctx) => { resolvedEm = ctx.resolve('em') } },
+      ])
+
+      const ctx: WorkerContext = {
+        jobId: 'test-job-id',
+        attemptNumber: 1,
+        queueName: 'events',
+        resolve: <T = unknown>(name: string): T => {
+          if (name === 'eventBus') {
+            return bus as unknown as T
+          }
+          if (name === 'em') {
+            return perJobEm as unknown as T
+          }
+          throw new Error(`No mock for ${name}`)
+        },
       }
 
-      registerCliModules([mockModule])
+      await handle(createMockJob('test.event', {}), ctx)
 
-      const job = createMockJob('test.event', {}, { tenantId: 'tenant-1', organizationId: 'org-1' })
-      const ctx = createMockContext()
+      expect(resolvedEm).toBe(perJobEm)
+    })
 
-      await handle(job, ctx)
+    it('should pass trusted tenant and organization scope to subscriber context', async () => {
+      let capturedContext: { tenantId?: string | null; organizationId?: string | null } | null = null
+      const bus = createBusWith([
+        {
+          id: 'test:subscriber',
+          event: 'test.event',
+          persistent: true,
+          handler: (_p, ctx) => {
+            capturedContext = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
+          },
+        },
+      ])
+
+      await handle(
+        createMockJob('test.event', {}, { tenantId: 'tenant-1', organizationId: 'org-1' }),
+        createMockContext(bus),
+      )
 
       expect(capturedContext).toEqual({ tenantId: 'tenant-1', organizationId: 'org-1' })
     })
 
     it('should not trust payload scope when trusted scope is omitted', async () => {
       let capturedContext: { tenantId?: string | null; organizationId?: string | null } | null = null
-
-      const mockModule: Module = {
-        id: 'test-module',
-        subscribers: [
-          {
-            id: 'test:subscriber',
-            event: 'test.event',
-            handler: async (_payload: unknown, ctx: unknown) => {
-              const typed = ctx as { tenantId?: string | null; organizationId?: string | null }
-              capturedContext = {
-                tenantId: typed.tenantId,
-                organizationId: typed.organizationId,
-              }
-            },
+      const bus = createBusWith([
+        {
+          id: 'test:subscriber',
+          event: 'test.event',
+          persistent: true,
+          handler: (_p, ctx) => {
+            capturedContext = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
           },
-        ],
-      }
+        },
+      ])
 
-      registerCliModules([mockModule])
-
-      const job = createMockJob('test.event', { tenantId: 'payload-tenant', organizationId: 'payload-org' })
-      const ctx = createMockContext()
-
-      await handle(job, ctx)
+      await handle(
+        createMockJob('test.event', { tenantId: 'payload-tenant', organizationId: 'payload-org' }),
+        createMockContext(bus),
+      )
 
       expect(capturedContext).toEqual({ tenantId: null, organizationId: null })
     })
 
-    it('should handle modules without subscribers', async () => {
-      const mockModule: Module = {
-        id: 'module-without-subscribers',
-        // No subscribers property
-      }
-
-      registerCliModules([mockModule])
-
-      const job = createMockJob('any.event', {})
-      const ctx = createMockContext()
-
-      // Should not throw
-      await expect(handle(job, ctx)).resolves.toBeUndefined()
-    })
-
     it('should handle synchronous handlers', async () => {
       let called = false
+      const bus = createBusWith([
+        { id: 'test:sync-subscriber', event: 'sync.event', persistent: true, handler: () => { called = true } },
+      ])
 
-      const mockModule: Module = {
-        id: 'test-module',
-        subscribers: [
-          {
-            id: 'test:sync-subscriber',
-            event: 'sync.event',
-            handler: () => {
-              called = true
-            },
-          },
-        ],
-      }
-
-      registerCliModules([mockModule])
-
-      const job = createMockJob('sync.event', {})
-      const ctx = createMockContext()
-
-      await handle(job, ctx)
+      await handle(createMockJob('sync.event', {}), createMockContext(bus))
 
       expect(called).toBe(true)
     })
@@ -321,47 +355,30 @@ describe('Events Worker', () => {
     it('should run all subscribers even when one fails, then throw to trigger retry', async () => {
       const subscriber1Calls: unknown[] = []
       const subscriber2Calls: unknown[] = []
-
-      const mockModules: Module[] = [
+      const bus = createBusWith([
         {
-          id: 'module-a',
-          subscribers: [
-            {
-              id: 'a:failing-subscriber',
-              event: 'test.event',
-              handler: async () => {
-                subscriber1Calls.push('called')
-                throw new Error('Subscriber A failed')
-              },
-            },
-          ],
+          id: 'a:failing-subscriber',
+          event: 'test.event',
+          persistent: true,
+          handler: async () => {
+            subscriber1Calls.push('called')
+            throw new Error('Subscriber A failed')
+          },
         },
         {
-          id: 'module-b',
-          subscribers: [
-            {
-              id: 'b:working-subscriber',
-              event: 'test.event',
-              handler: async (payload: unknown) => {
-                subscriber2Calls.push(payload)
-              },
-            },
-          ],
+          id: 'b:working-subscriber',
+          event: 'test.event',
+          persistent: true,
+          handler: async (payload) => { subscriber2Calls.push(payload) },
         },
-      ]
+      ])
 
-      registerCliModules(mockModules)
-
-      const job = createMockJob('test.event', { data: 'test' })
-      const ctx = createMockContext()
-
-      await expect(handle(job, ctx)).rejects.toThrow(
-        '1/2 subscriber(s) failed for event "test.event": a:failing-subscriber'
+      await expect(handle(createMockJob('test.event', { data: 'test' }), createMockContext(bus))).rejects.toThrow(
+        '[internal] 1/2 subscriber(s) failed for event "test.event": a:failing-subscriber'
       )
 
       expect(subscriber1Calls.length).toBe(1)
-      expect(subscriber2Calls.length).toBe(1)
-      expect(subscriber2Calls[0]).toEqual({ data: 'test' })
+      expect(subscriber2Calls).toEqual([{ data: 'test' }])
 
       expect(workerLoggerError).toHaveBeenCalledTimes(1)
       expect(workerLoggerError).toHaveBeenCalledWith('Subscriber failed for event', {
@@ -380,33 +397,13 @@ describe('Events Worker', () => {
         executionLog.push({ id, phase: 'end', time: Date.now() })
       }
 
-      const mockModules: Module[] = [
-        {
-          id: 'module-a',
-          subscribers: [
-            { id: 'a:slow', event: 'test.parallel', handler: createDelayedHandler('a:slow', 100) },
-          ],
-        },
-        {
-          id: 'module-b',
-          subscribers: [
-            { id: 'b:slow', event: 'test.parallel', handler: createDelayedHandler('b:slow', 100) },
-          ],
-        },
-        {
-          id: 'module-c',
-          subscribers: [
-            { id: 'c:slow', event: 'test.parallel', handler: createDelayedHandler('c:slow', 100) },
-          ],
-        },
-      ]
+      const bus = createBusWith([
+        { id: 'a:slow', event: 'test.parallel', persistent: true, handler: createDelayedHandler('a:slow', 100) },
+        { id: 'b:slow', event: 'test.parallel', persistent: true, handler: createDelayedHandler('b:slow', 100) },
+        { id: 'c:slow', event: 'test.parallel', persistent: true, handler: createDelayedHandler('c:slow', 100) },
+      ])
 
-      registerCliModules(mockModules)
-
-      const job = createMockJob('test.parallel', {})
-      const ctx = createMockContext()
-
-      await handle(job, ctx)
+      await handle(createMockJob('test.parallel', {}), createMockContext(bus))
 
       const starts = executionLog.filter((e) => e.phase === 'start')
       const ends = executionLog.filter((e) => e.phase === 'end')
@@ -422,40 +419,23 @@ describe('Events Worker', () => {
     })
 
     it('should throw when all subscribers fail', async () => {
-      const mockModules: Module[] = [
+      const bus = createBusWith([
         {
-          id: 'module-a',
-          subscribers: [
-            {
-              id: 'a:failing-subscriber',
-              event: 'test.event',
-              handler: async () => {
-                throw new Error('Subscriber A failed')
-              },
-            },
-          ],
+          id: 'a:failing-subscriber',
+          event: 'test.event',
+          persistent: true,
+          handler: async () => { throw new Error('Subscriber A failed') },
         },
         {
-          id: 'module-b',
-          subscribers: [
-            {
-              id: 'b:failing-subscriber',
-              event: 'test.event',
-              handler: async () => {
-                throw new Error('Subscriber B failed')
-              },
-            },
-          ],
+          id: 'b:failing-subscriber',
+          event: 'test.event',
+          persistent: true,
+          handler: async () => { throw new Error('Subscriber B failed') },
         },
-      ]
+      ])
 
-      registerCliModules(mockModules)
-
-      const job = createMockJob('test.event', { data: 'test' })
-      const ctx = createMockContext()
-
-      await expect(handle(job, ctx)).rejects.toThrow(
-        '2/2 subscriber(s) failed for event "test.event": a:failing-subscriber, b:failing-subscriber'
+      await expect(handle(createMockJob('test.event', { data: 'test' }), createMockContext(bus))).rejects.toThrow(
+        '[internal] 2/2 subscriber(s) failed for event "test.event": a:failing-subscriber, b:failing-subscriber'
       )
 
       expect(workerLoggerError).toHaveBeenCalledTimes(2)
@@ -463,111 +443,67 @@ describe('Events Worker', () => {
   })
 
   describe('single-delivery dispatch (OM_EVENTS_SINGLE_DELIVERY) — issue #2960', () => {
-    const origFlag = process.env.OM_EVENTS_SINGLE_DELIVERY
-
-    afterEach(() => {
-      if (origFlag === undefined) delete process.env.OM_EVENTS_SINGLE_DELIVERY
-      else process.env.OM_EVENTS_SINGLE_DELIVERY = origFlag
-    })
-
-    const createMockJob = (
-      event: string,
-      payload: unknown,
-      options?: { tenantId?: string | null; organizationId?: string | null },
-    ): QueuedJob<{
-      event: string
-      payload: unknown
-      options?: { tenantId?: string | null; organizationId?: string | null }
-    }> => ({
-      id: 'test-job-id',
-      payload: { event, payload, options },
-      createdAt: new Date().toISOString(),
-    })
-
-    const createMockContext = (): JobContext & { resolve: <T = unknown>(name: string) => T } => ({
-      jobId: 'test-job-id',
-      attemptNumber: 1,
-      queueName: 'events',
-      resolve: <T = unknown>(name: string): T => { throw new Error(`No mock for ${name}`) },
-    })
-
     it('flag ON: dispatches wildcard persistent subscribers that exact-match never reached', async () => {
       process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
-      clearListenerCache()
       const calls: string[] = []
-      registerCliModules([{
-        id: 'm',
-        subscribers: [
-          { id: 'wildcard:persistent', event: '*', persistent: true, handler: () => { calls.push('wild') } },
-        ],
-      }])
+      const bus = createBusWith([
+        { id: 'wildcard:persistent', event: '*', persistent: true, handler: () => { calls.push('wild') } },
+      ])
 
-      await handle(createMockJob('any.event', {}), createMockContext())
+      await handle(createMockJob('any.event', {}), createMockContext(bus))
 
       expect(calls).toEqual(['wild'])
     })
 
     it('flag ON: excludes non-persistent subscribers from worker dispatch', async () => {
       process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
-      clearListenerCache()
       const calls: string[] = []
-      registerCliModules([{
-        id: 'm',
-        subscribers: [
-          { id: 'p', event: 'user.created', persistent: true, handler: () => { calls.push('p') } },
-          { id: 'e', event: 'user.created', persistent: false, handler: () => { calls.push('e') } },
-        ],
-      }])
+      const bus = createBusWith([
+        { id: 'p', event: 'user.created', persistent: true, handler: () => { calls.push('p') } },
+        { id: 'e', event: 'user.created', persistent: false, handler: () => { calls.push('e') } },
+      ])
 
-      await handle(createMockJob('user.created', {}), createMockContext())
+      await handle(createMockJob('user.created', {}), createMockContext(bus))
 
       expect(calls).toEqual(['p'])
     })
 
-    it('default (unset): dispatches wildcard persistent subscribers (single-delivery is default-on)', async () => {
+    it('worker selection ignores the flag: wildcard persistent subscribers are always reached', async () => {
       delete process.env.OM_EVENTS_SINGLE_DELIVERY
-      clearListenerCache()
       const calls: string[] = []
-      registerCliModules([{
-        id: 'm',
-        subscribers: [
-          { id: 'p', event: 'user.created', persistent: true, handler: () => { calls.push('p') } },
-          { id: 'w', event: '*', persistent: true, handler: () => { calls.push('w') } },
-        ],
-      }])
+      const bus = createBusWith([
+        { id: 'p', event: 'user.created', persistent: true, handler: () => { calls.push('p') } },
+        { id: 'w', event: '*', persistent: true, handler: () => { calls.push('w') } },
+      ])
 
-      await handle(createMockJob('user.created', {}), createMockContext())
+      await handle(createMockJob('user.created', {}), createMockContext(bus))
 
       // Default-on: pattern dispatch reaches both the exact-match and the wildcard
       // persistent subscriber.
       expect(calls.sort()).toEqual(['p', 'w'])
     })
 
-    it('default (unset): forwards eventName and trusted scope to persistent wildcard subscribers', async () => {
+    it('forwards eventName and trusted scope to persistent wildcard subscribers', async () => {
       delete process.env.OM_EVENTS_SINGLE_DELIVERY
-      clearListenerCache()
       const contexts: Array<{
         eventName?: string
         tenantId?: string | null
         organizationId?: string | null
       }> = []
-      registerCliModules([{
-        id: 'm',
-        subscribers: [
-          {
-            id: 'workflow:event-trigger',
-            event: '*',
-            persistent: true,
-            handler: (_payload, ctx) => {
-              contexts.push({
-                eventName: ctx.eventName,
-                tenantId: ctx.tenantId,
-                organizationId: ctx.organizationId,
-              })
-            },
+      const bus = createBusWith([
+        {
+          id: 'workflow:event-trigger',
+          event: '*',
+          persistent: true,
+          handler: (_payload, ctx) => {
+            contexts.push({
+              eventName: ctx.eventName,
+              tenantId: ctx.tenantId,
+              organizationId: ctx.organizationId,
+            })
           },
-        ],
-      }])
+        },
+      ])
 
       await handle(
         createMockJob(
@@ -575,7 +511,7 @@ describe('Events Worker', () => {
           { id: 'deal-1', tenantId: 'payload-tenant', organizationId: 'payload-org' },
           { tenantId: 'trusted-tenant', organizationId: 'trusted-org' },
         ),
-        createMockContext(),
+        createMockContext(bus),
       )
 
       expect(contexts).toEqual([{
@@ -585,22 +521,55 @@ describe('Events Worker', () => {
       }])
     })
 
-    it('flag explicitly OFF (legacy opt-out): preserves exact-match dispatch and never reaches wildcards', async () => {
+    // Producer/worker env skew: the worker's own flag must not change selection.
+    // A stamp-less job reaching a worker with the flag OFF used to fall back to
+    // exact-match, re-running ephemerals and missing wildcards.
+    it('flag explicitly OFF on the worker still selects persistent subscribers by pattern', async () => {
       process.env.OM_EVENTS_SINGLE_DELIVERY = 'false'
-      clearListenerCache()
       const calls: string[] = []
-      registerCliModules([{
-        id: 'm',
-        subscribers: [
-          { id: 'p', event: 'user.created', persistent: true, handler: () => { calls.push('p') } },
-          { id: 'w', event: '*', persistent: true, handler: () => { calls.push('w') } },
-        ],
-      }])
+      const bus = createBusWith([
+        { id: 'p', event: 'user.created', persistent: true, handler: () => { calls.push('p') } },
+        { id: 'w', event: '*', persistent: true, handler: () => { calls.push('w') } },
+      ])
 
-      await handle(createMockJob('user.created', {}), createMockContext())
+      await handle(createMockJob('user.created', {}), createMockContext(bus))
 
-      // Legacy behavior: exact-match only, so the wildcard subscriber is not reached here.
-      expect(calls).toEqual(['p'])
+      expect(calls.sort()).toEqual(['p', 'w'])
+    })
+  })
+
+  describe('zero-subscriber reporting', () => {
+    it('warns once per event name, then drops to debug', async () => {
+      // This line is the last remaining visibility into the silent-loss path the
+      // whole change exists to close, so it has to stay findable - but an install
+      // carrying none of the wildcard persistent subscribers would otherwise get
+      // one `warn` per queued event forever, and a warning that fires in steady
+      // state is one operators learn to skip past.
+      //
+      // The event name is unique to this test on purpose: the suppression set is
+      // module state shared across the whole file, so a name another test already
+      // dispatched would have consumed the first-call `warn`.
+      const bus = createBusWith([
+        { id: 'unrelated', event: 'other.event', persistent: true, handler: () => {} },
+      ])
+
+      await handle(createMockJob('nobody.listens.here', {}), createMockContext(bus))
+
+      expect(workerLoggerWarn).toHaveBeenCalledTimes(1)
+      expect(workerLoggerWarn).toHaveBeenCalledWith('Queued event dispatched to zero subscribers', {
+        event: 'nobody.listens.here',
+        jobId: 'test-job-id',
+      })
+      expect(workerLoggerDebug).not.toHaveBeenCalled()
+
+      await handle(createMockJob('nobody.listens.here', {}), createMockContext(bus))
+
+      expect(workerLoggerWarn).toHaveBeenCalledTimes(1)
+      expect(workerLoggerDebug).toHaveBeenCalledTimes(1)
+      expect(workerLoggerDebug).toHaveBeenCalledWith('Queued event dispatched to zero subscribers', {
+        event: 'nobody.listens.here',
+        jobId: 'test-job-id',
+      })
     })
   })
 })

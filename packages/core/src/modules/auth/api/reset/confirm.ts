@@ -11,6 +11,8 @@ import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
+import { withTenantHintPath } from '@open-mercato/core/modules/auth/lib/tenantHint'
 
 const logger = createLogger('auth').child({ component: 'reset-confirm' })
 
@@ -33,6 +35,12 @@ export async function POST(req: Request) {
   const auth = c.resolve<AuthService>('authService')
   const user = await auth.confirmPasswordReset(parsed.data.token, parsed.data.password)
   if (!user) return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
+  void emitAuthEvent('auth.password.reset.completed', {
+    id: String(user.id),
+    tenantId: user.tenantId ? String(user.tenantId) : null,
+    organizationId: user.organizationId ? String(user.organizationId) : null,
+    at: new Date().toISOString(),
+  }, { persistent: true }).catch(() => undefined)
   try {
     const tenantId = user.tenantId ? String(user.tenantId) : null
     if (tenantId) {
@@ -53,7 +61,7 @@ export async function POST(req: Request) {
   } catch (err) {
     logger.error('Failed to create notification', { err })
   }
-  return NextResponse.json({ ok: true, redirect: '/login' })
+  return NextResponse.json({ ok: true, redirect: withTenantHintPath('/login', user.tenantId) })
 }
 
 export const metadata = { requireAuth: false }
@@ -74,7 +82,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     POST: {
       summary: 'Complete password reset',
-      description: 'Validates the reset token and updates the user password.',
+      description: 'Validates the reset token and updates the user password. The returned `redirect` carries the resolved user\'s tenant as a navigation hint (`/login?tenant=...`) so a tenant-bound user lands on the tenant login entry; tenantless users get `/login`.',
       requestBody: {
         contentType: 'application/x-www-form-urlencoded',
         schema: confirmPasswordResetSchema,

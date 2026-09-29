@@ -7,6 +7,7 @@ import { WmsLowStockRenderer } from '../WmsLowStockRenderer'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback: string) => fallback ?? _key,
+  useLocale: () => 'en',
 }))
 
 jest.mock('next/navigation', () => ({

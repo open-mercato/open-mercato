@@ -90,4 +90,34 @@ describe('McpClient stdio transport', () => {
     expect(transportArgs.args).not.toContain('omk_secret.value')
     expect(JSON.stringify(transportArgs.args)).not.toContain('omk_secret.value')
   })
+
+  it('preserves all MCP tool annotations returned by a remote server', async () => {
+    mockClientListTools.mockResolvedValueOnce({
+      tools: [{
+        name: 'customers.update_company',
+        description: 'Update a company.',
+        inputSchema: {},
+        annotations: {
+          title: 'Update company',
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      }],
+    })
+    const client = await McpClient.connect({ transport: 'stdio', apiKeySecret: 'test-secret' })
+
+    await expect(client.listTools()).resolves.toEqual([
+      expect.objectContaining({
+        annotations: {
+          title: 'Update company',
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      }),
+    ])
+  })
 })

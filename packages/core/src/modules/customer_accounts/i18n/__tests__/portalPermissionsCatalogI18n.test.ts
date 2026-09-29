@@ -11,7 +11,7 @@ import path from 'node:path'
 
 const I18N_DIR = path.join(__dirname, '..')
 const REFERENCE_LOCALE = 'en'
-const TARGET_LOCALES = ['pl', 'es', 'de'] as const
+const TARGET_LOCALES = ['pl', 'es', 'de', 'ko'] as const
 
 const GROUP_SCOPES = ['profile', 'orders', 'invoices', 'quotes', 'addresses', 'users']
 const PORTAL_FEATURE_IDS = [

@@ -11,6 +11,7 @@ import type {
   FullTextSearchDocument,
   FullTextSearchHit,
   DocumentLookupKey,
+  ListDocumentIdsOptions,
   IndexStats,
 } from '../fulltext/types'
 
@@ -129,6 +130,17 @@ export class FullTextSearchStrategy implements SearchStrategy {
       return null
     }
     return this.driver.getEntityCounts(tenantId)
+  }
+
+  async listDocumentIds(
+    entityId: EntityId,
+    tenantId: string,
+    options?: ListDocumentIdsOptions
+  ): Promise<string[] | null> {
+    if (!this.driver.listDocumentIds) {
+      return null
+    }
+    return this.driver.listDocumentIds(entityId, tenantId, options)
   }
 
   get driverId(): string {

@@ -36,17 +36,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Account not active' }, { status: 401 })
   }
 
-  const acl = await customerRbacService.loadAcl(user.id, {
+  const resolvedFeatures = await customerRbacService.getEffectiveFeatures(user.id, {
     tenantId: user.tenantId,
     organizationId: user.organizationId,
   })
 
-  const result = await customerSessionService.refreshSession(decodedToken, acl.features)
+  const result = await customerSessionService.refreshSession(decodedToken, resolvedFeatures)
   if (!result) {
     return NextResponse.json({ ok: false, error: 'Session refresh failed' }, { status: 401 })
   }
 
-  const res = NextResponse.json({ ok: true, resolvedFeatures: acl.features })
+  const res = NextResponse.json({ ok: true, resolvedFeatures })
 
   res.cookies.set('customer_auth_token', result.jwt, {
     httpOnly: true,

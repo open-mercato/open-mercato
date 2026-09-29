@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/messages/extension-points'
 import { MessageComposer } from '@open-mercato/ui/backend/messages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -94,7 +95,7 @@ function MessageConversationDetailItem({
 
           {/* UMES — channel payload renderer mounts here (channel-linked emails, Slack blocks, etc.). */}
           <InjectionSpot
-            spotId="detail:messages:message:body:after"
+            spotId={extensionPoints.hosts.detailBodyAfter.spotId}
             context={{ messageId }}
             data={state.detail}
           />
@@ -105,7 +106,7 @@ function MessageConversationDetailItem({
               `userFeatures` lets feature-gated widgets (e.g. the channel reassignment editor,
               gated on `communication_channels.assign`) render their controls for permitted users. */}
           <InjectionSpot
-            spotId="detail:messages:message:sidebar"
+            spotId={extensionPoints.hosts.detailSidebar.spotId}
             context={{ messageId, userFeatures }}
             data={state.detail}
           />

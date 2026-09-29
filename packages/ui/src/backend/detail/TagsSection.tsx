@@ -387,7 +387,7 @@ function TagsSectionImpl({
                 loadSuggestions={loadSuggestions}
                 autoFocus={!autoSave}
               />
-              {error ? <p className="text-xs text-red-600">{error}</p> : null}
+              {error ? <p className="text-xs text-status-error-text">{error}</p> : null}
               {autoSave ? null : (
                 <div className="flex items-center gap-2 mt-3 mb-2">
                   <Button type="button" size="sm" onClick={handleSave} disabled={saving || isSubmitting}>

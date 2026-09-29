@@ -19,7 +19,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 import '@open-mercato/core/modules/auth/commands/roles'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { RoleAcl } from '@open-mercato/core/modules/auth/data/entities'
+import { RoleAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import type { Role } from '@open-mercato/core/modules/auth/data/entities'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -247,6 +247,33 @@ describe('auth.roles.delete tenant scoping', () => {
     await getHandler().execute({ body: { id: roleId }, query: {} }, ctx)
 
     expect(deleteOrmEntity).toHaveBeenCalled()
+  })
+
+  it('rejects deleting a protected role while it has an assigned holder', async () => {
+    const existingRole = {
+      id: roleId,
+      name: 'admin',
+      tenantId: tenantA,
+      minActiveHolders: 1,
+      deletedAt: null,
+    } as unknown as Role
+    const deleteOrmEntity = jest.fn()
+    const dataEngine = { deleteOrmEntity, markOrmEntityChange: jest.fn() }
+    const em = {
+      findOne: jest.fn(async () => existingRole),
+      count: jest.fn(async () => 1),
+      nativeDelete: jest.fn(async () => 0),
+    }
+    const ctx = makeCtx(dataEngine, em, { isSuperAdmin: false })
+
+    await expect(getHandler().execute({ body: { id: roleId }, query: {} }, ctx))
+      .rejects.toMatchObject<Partial<CrudHttpError>>({
+        status: 400,
+        body: { error: 'Role has assigned users' },
+      })
+
+    expect(em.count).toHaveBeenCalledWith(UserRole, { role: existingRole, deletedAt: null })
+    expect(deleteOrmEntity).not.toHaveBeenCalled()
   })
 })
 

@@ -1,6 +1,6 @@
 /** @jest-environment node */
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { DomainMappingService } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
+import { DomainMappingService, DomainMappingOrgScopeError } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
 import {
   DomainMapping,
   type DomainStatus,
@@ -43,7 +43,7 @@ type Row = {
   updatedAt: Date | null
 }
 
-type OrgRow = { id: string; slug: string | null }
+type OrgRow = { id: string; slug: string | null; tenantId: string }
 
 let nextId = 1
 function makeId(): string {
@@ -91,7 +91,7 @@ function rowMatches(row: Row, where: WhereClause): boolean {
 }
 
 type FakeEm = jest.Mocked<
-  Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'remove' | 'flush'>
+  Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'remove' | 'flush' | 'getConnection'>
 > & {
   __store: Map<string, Row>
   __orgs: Map<string, OrgRow>
@@ -104,6 +104,15 @@ function createFakeEm(seed: { domains?: Row[]; orgs?: OrgRow[] } = {}): FakeEm {
   const removed = new Set<string>()
   for (const row of seed.domains ?? []) store.set(row.id, row)
   for (const org of seed.orgs ?? []) orgs.set(org.id, org)
+
+  const getConnection = jest.fn(() => ({
+    execute: async <T>(_: string, params: unknown[]): Promise<T> => {
+      const [organizationId, tenantId] = params as [string, string]
+      const org = orgs.get(organizationId)
+      if (org && org.tenantId === tenantId) return [{ slug: org.slug ?? null }] as T
+      return [] as T
+    },
+  }))
 
   const findOne = jest.fn(async (entity: unknown, where: WhereClause) => {
     if (entity === DomainMapping) {
@@ -187,6 +196,7 @@ function createFakeEm(seed: { domains?: Row[]; orgs?: OrgRow[] } = {}): FakeEm {
     persist,
     remove,
     flush,
+    getConnection,
     __store: store,
     __orgs: orgs,
     __removed: removed,
@@ -225,7 +235,7 @@ beforeEach(() => {
 
 describe('DomainMappingService.register', () => {
   it('creates a pending mapping for a valid hostname (happy path)', async () => {
-    const em = createFakeEm()
+    const em = createFakeEm({ orgs: [{ id: ORG_A, slug: null, tenantId: TENANT_A }] })
     const service = new DomainMappingService(em as unknown as EntityManager)
 
     const result = await service.register({
@@ -244,7 +254,7 @@ describe('DomainMappingService.register', () => {
   })
 
   it('normalizes mixed-case + trailing dot hostnames before persisting', async () => {
-    const em = createFakeEm()
+    const em = createFakeEm({ orgs: [{ id: ORG_A, slug: null, tenantId: TENANT_A }] })
     const service = new DomainMappingService(em as unknown as EntityManager)
 
     const result = await service.register({
@@ -275,7 +285,7 @@ describe('DomainMappingService.register', () => {
       organizationId: ORG_A,
       status: 'active',
     })
-    const em = createFakeEm({ domains: [replacedRow] })
+    const em = createFakeEm({ domains: [replacedRow], orgs: [{ id: ORG_A, slug: null, tenantId: TENANT_A }] })
     const service = new DomainMappingService(em as unknown as EntityManager)
 
     const created = await service.register({
@@ -298,7 +308,7 @@ describe('DomainMappingService.register', () => {
       organizationId: ORG_B,
       status: 'active',
     })
-    const em = createFakeEm({ domains: [replacedRow] })
+    const em = createFakeEm({ domains: [replacedRow], orgs: [{ id: ORG_A, slug: null, tenantId: TENANT_A }] })
     const service = new DomainMappingService(em as unknown as EntityManager)
 
     const created = await service.register({
@@ -311,6 +321,39 @@ describe('DomainMappingService.register', () => {
     // service.findOne is filtered by tenantId in register(), so the foreign
     // record is invisible — replacement pointer must remain null.
     expect((created as unknown as Row).replacesDomain).toBeNull()
+  })
+
+  it('rejects registration when organizationId belongs to another tenant (org-scope regression #3839)', async () => {
+    const foreignOrg = { id: ORG_B, slug: 'foreign' as const, tenantId: TENANT_B }
+    const em = createFakeEm({ orgs: [foreignOrg] })
+    const service = new DomainMappingService(em as unknown as EntityManager)
+
+    await expect(
+      service.register({ hostname: 'shop.example.com', tenantId: TENANT_A, organizationId: ORG_B }),
+    ).rejects.toBeInstanceOf(DomainMappingOrgScopeError)
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(em.__store.size).toBe(0)
+  })
+
+  it('rejects registration when organizationId does not exist', async () => {
+    const em = createFakeEm({ orgs: [{ id: ORG_A, slug: null, tenantId: TENANT_A }] })
+    const service = new DomainMappingService(em as unknown as EntityManager)
+
+    await expect(
+      service.register({
+        hostname: 'shop.example.com',
+        tenantId: TENANT_A,
+        organizationId: ORG_A2,
+      }),
+    ).rejects.toBeInstanceOf(DomainMappingOrgScopeError)
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(em.__store.size).toBe(0)
+  })
+
+  it('resolves the supplied organization through findOrganizationInTenant (org-scope wiring guard)', async () => {
+    const src = DomainMappingService.prototype.register.toString()
+    expect(src).toContain('findOrganizationInTenant')
+    expect(src).toContain('DomainMappingOrgScopeError')
   })
 })
 

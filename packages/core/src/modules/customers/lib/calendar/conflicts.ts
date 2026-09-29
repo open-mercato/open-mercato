@@ -1,4 +1,5 @@
 import type { CalendarItem, CalendarItemStatus, CalendarParticipant } from '../../components/calendar/types'
+import { participantActorKey } from './participantIdentity'
 import type { ConflictScope } from './preferences'
 
 export const EDITOR_DRAFT_CONFLICT_ID = '__draft__'
@@ -14,8 +15,15 @@ export type FindConflictsOptions = {
 function sharesActor(first: CalendarItem, second: CalendarItem): boolean {
   if (first.ownerUserId && second.ownerUserId && first.ownerUserId === second.ownerUserId) return true
   if (first.participants.length === 0 || second.participants.length === 0) return false
-  const firstParticipantIds = new Set(first.participants.map((participant) => participant.userId))
-  return second.participants.some((participant) => firstParticipantIds.has(participant.userId))
+  const firstActorKeys = new Set(
+    first.participants
+      .map(participantActorKey)
+      .filter((actorKey): actorKey is string => actorKey !== null),
+  )
+  return second.participants.some((participant) => {
+    const actorKey = participantActorKey(participant)
+    return actorKey !== null && firstActorKeys.has(actorKey)
+  })
 }
 
 function isActor(item: CalendarItem, userId: string): boolean {

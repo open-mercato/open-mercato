@@ -33,6 +33,10 @@ The server runs in one of two modes depending on how you intend to use it:
 You do **not** need `MCP_SERVER_API_KEY` for `mcp:dev`. The `MCP_SERVER_API_KEY not set` message on the in-app AI Assistant **Settings page** is only a status badge for the production/web-chat path — it does **not** block Claude Code connecting via `mcp:dev`.
 :::
 
+:::info Route modules outside Next.js
+Both servers run in plain Node, and a tool call imports the API route module behind it. Route modules say `from 'next/server'`, a bare subpath only a bundler resolves (`next` ships no `exports` map). The `mercato ai_assistant` commands therefore install a small resolve hook at startup that retries `next/<subpath>.js` when Node cannot resolve `next/<subpath>`. If you embed the operation runner in your own Node process instead of these commands, call `installNextSubpathResolveHook()` from `@open-mercato/ai-assistant/modules/ai_assistant/lib/next-subpath-resolve-hook` before the first tool call, or tools backed by such routes fail with `Failed to load route module: Cannot find module '…/next/server'`.
+:::
+
 ### How ACL gates which tools appear
 
 The dev server filters the available tools by the API key's ACL **at startup**. The key's roles and features decide which tools are visible:
@@ -239,6 +243,7 @@ registerMcpTool(
     description: 'Do the thing.',
     inputSchema: z.object({ id: z.string().uuid() }),
     requiredFeatures: ['mymodule.manage'],
+    isMutation: true,
     handler: async (input) => ({ ok: true }),
   },
   { moduleId: 'mymodule' },
@@ -250,6 +255,7 @@ registerMcpTool(
 - Set `requiredFeatures` for anything that reads or writes tenant data — never leave it empty for data tools.
 - Use Zod for `inputSchema` — never raw JSON Schema.
 - Return a serializable object from the handler.
+- Set `isMutation: true` on every write tool. `tools/list` derives `readOnlyHint` from this flag, and MCP clients use that hint to decide whether a call needs human approval; an unflagged write is advertised as read-only.
 - Route every mutation through the mutation-approval path (`prepareMutation`).
 - Add the feature ids to the module's `acl.ts` and grant them in `setup.ts` `defaultRoleFeatures`.
 

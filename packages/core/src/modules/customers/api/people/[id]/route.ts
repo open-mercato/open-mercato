@@ -38,13 +38,15 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown, parseBooleanToken } from '@open-mercato/shared/lib/boolean'
-import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
+import { denyCustomerDetailReadAsNotFound } from '../../../lib/detailReadAccess'
 import { loadPersonCompanyLinks, summarizePersonCompanies } from '../../../lib/personCompanies'
 import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
 import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
+import { listGrantsForViewerOnPerson, listSharedChannelIds } from '../../../lib/conversationShares'
 import { resolveCustomerDetailTenantScope } from '../../../lib/detailTenantScope'
 import { runWithCacheTenant } from '@open-mercato/cache'
-import { buildCollectionTags, canonicalizeResourceTag, isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { buildPersonDetailCacheTags } from '../../../lib/personDetailCacheTags'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -70,15 +72,6 @@ const paramsSchema = z.object({
 // personCompanyLink) produce the SAME tag the command bus deletes on
 // write/undo/redo — otherwise the cache would never be invalidated for them.
 const PERSON_DETAIL_TTL_MS = 60_000
-const PERSON_DETAIL_TAG_RESOURCES = [
-  'customers.person',
-  'customers.address',
-  'customers.tagAssignment',
-  'customers.labelAssignment',
-  'customers.personCompanyLink',
-  'customers.interaction',
-  'customers.activity',
-] as const
 
 function buildPersonDetailCacheKey(params: {
   personId: string
@@ -105,14 +98,6 @@ function buildPersonDetailCacheKey(params: {
   ].join(':')
 }
 
-function buildPersonDetailCacheTags(tenantId: string | null, organizationId: string | null): string[] {
-  const tags: string[] = []
-  for (const resource of PERSON_DETAIL_TAG_RESOURCES) {
-    const canonical = canonicalizeResourceTag(resource) ?? resource
-    tags.push(...buildCollectionTags(canonical, tenantId, [organizationId]))
-  }
-  return tags
-}
 
 function parseIncludeParams(request: Request): Set<string> {
   const url = new URL(request.url)
@@ -127,10 +112,6 @@ function parseIncludeParams(request: Request): Set<string> {
       .forEach((part) => tokens.add(part))
   })
   return tokens
-}
-
-function forbidden(message: string) {
-  return NextResponse.json({ error: message }, { status: 403 })
 }
 
 function notFound(message: string) {
@@ -542,10 +523,19 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       return notFound('Person not found')
     }
 
-    if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: person.organizationId })) {
-      statusCode = 403
-      profileMeta = { reason: 'organization_forbidden' }
-      return forbidden('Access denied')
+    // Existence oracle (issue #5504): a caller who holds customers.people.view
+    // but whose scope excludes the record's organization must get the SAME
+    // response as for a non-existent id, so 403-when-present / 404-when-absent
+    // collapses to a uniform 404 not-found. The dispatcher already returns a
+    // uniform 403 for callers who lack the feature entirely.
+    const organizationReadDenied = denyCustomerDetailReadAsNotFound(
+      { scope, auth, organizationId: person.organizationId },
+      'Person not found',
+    )
+    if (organizationReadDenied) {
+      statusCode = 404
+      profileMeta = { reason: 'organization_not_in_scope' }
+      return organizationReadDenied
     }
 
     // Gated get-then-set cache. Key on the resolved person plus the effective
@@ -595,9 +585,21 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     // legacy null-visibility rows pass through. v1 is strict owner-only: there is
     // NO admin bypass — the filter ignores caller features, and
     // `customers.email.view_private` is reserved (inert) for v2 oversight.
+    // Conversation shares that widen this viewer's access to THIS person's email.
+    const emailShareScope = {
+      tenantId: person.tenantId ?? auth.tenantId ?? null,
+      organizationId: person.organizationId ?? auth.orgId ?? null,
+    } as never
+    const [sharedConversations, sharedChannelIds] = await Promise.all([
+      listGrantsForViewerOnPerson(em, emailShareScope, viewerUserId, person.id),
+      listSharedChannelIds(em, emailShareScope, viewerUserId),
+    ])
+
     const emailVisibilityFilter = buildEmailVisibilityMikroFilter({
       currentUserId: viewerUserId,
       userFeatures: undefined,
+      sharedConversations,
+      sharedChannelIds,
     })
 
     const personScope = { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null }
@@ -1337,8 +1339,8 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid identifier', schema: personDetailErrorSchema },
         { status: 401, description: 'Unauthorized', schema: personDetailErrorSchema },
-        { status: 403, description: 'Forbidden for tenant/organization scope', schema: personDetailErrorSchema },
-        { status: 404, description: 'Person not found', schema: personDetailErrorSchema },
+        { status: 403, description: 'Forbidden — caller lacks the required feature', schema: personDetailErrorSchema },
+        { status: 404, description: 'Person not found, or its organization is not in the caller’s scope', schema: personDetailErrorSchema },
       ],
     },
   },

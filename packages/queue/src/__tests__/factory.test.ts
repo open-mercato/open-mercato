@@ -1,8 +1,9 @@
 import { resolveQueueStrategy, createModuleQueue } from '../factory'
-import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
+import { getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 
 jest.mock('@open-mercato/shared/lib/redis/connection', () => ({
   getRedisUrlOrThrow: jest.fn(),
+  parseRedisUrl: jest.fn(),
 }))
 
 jest.mock('bullmq', () => {
@@ -58,10 +59,12 @@ describe('resolveQueueStrategy', () => {
 describe('createModuleQueue', () => {
   const originalEnv = process.env.QUEUE_STRATEGY
   const getRedisUrlOrThrowMock = getRedisUrlOrThrow as jest.MockedFunction<typeof getRedisUrlOrThrow>
+  const parseRedisUrlMock = parseRedisUrl as jest.MockedFunction<typeof parseRedisUrl>
 
   beforeEach(() => {
     jest.clearAllMocks()
     getRedisUrlOrThrowMock.mockReturnValue('redis://localhost:6379')
+    parseRedisUrlMock.mockReturnValue({ host: 'localhost', port: 6379 })
   })
 
   afterEach(() => {
@@ -85,6 +88,7 @@ describe('createModuleQueue', () => {
     expect(queue.strategy).toBe('async')
     expect(queue.name).toBe('test-queue')
     expect(getRedisUrlOrThrowMock).toHaveBeenCalledWith('QUEUE')
+    expect(parseRedisUrlMock).toHaveBeenCalledWith('redis://localhost:6379')
   })
 
   it('passes concurrency to local strategy', () => {

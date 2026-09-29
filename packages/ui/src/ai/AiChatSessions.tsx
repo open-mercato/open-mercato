@@ -25,12 +25,16 @@ import {
   subscribeOrganizationScopeChanged,
 } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { readVersionedPreference, writeVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   createAiServerConversation,
   listAiServerConversations,
   updateAiServerConversation,
   type AiServerConversation,
 } from './conversation-store'
+import { useAiAssistantAvailable } from './useAiAssistantAvailable'
+
+const logger = createLogger('ui').child({ component: 'AiChatSessions' })
 
 /**
  * Legacy app-global storage key used before tenant/org scoping.
@@ -211,6 +215,7 @@ function mergeServerConversations(
 }
 
 export function AiChatSessionsProvider({ children }: { children: React.ReactNode }) {
+  const aiAvailable = useAiAssistantAvailable()
   // Hydrate synchronously via a lazy initializer. The previous "empty
   // state + post-mount load effect" pattern had a window where the
   // persistence effect ran with the empty closure value (because the
@@ -251,16 +256,31 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
     writePersisted(storageKey, state)
   }, [storageKey, state])
 
+  // The provider wraps the whole backend shell, so it also mounts on
+  // installations without the `ai_assistant` module and for users without
+  // `ai_assistant.view`. Syncing there only produces a 404 / 403 and a warning
+  // on every page load, so skip it — `aiAvailable` is in the dependency list
+  // so the sync still runs once the backend chrome payload arrives.
   React.useEffect(() => {
+    if (!aiAvailable) return
     let cancelled = false
-    void listAiServerConversations({ limit: 100 }).then((conversations) => {
-      if (cancelled || !conversations) return
-      setState((prev) => mergeServerConversations(prev, conversations))
-    })
+    listAiServerConversations({ limit: 100 })
+      .then((conversations) => {
+        if (cancelled) return
+        if (!conversations) {
+          logger.warn('Could not load server conversations; keeping the locally persisted sessions')
+          return
+        }
+        setState((prev) => mergeServerConversations(prev, conversations))
+      })
+      .catch((err) => {
+        if (cancelled) return
+        logger.error('Failed to load server conversations', { err })
+      })
     return () => {
       cancelled = true
     }
-  }, [storageKey])
+  }, [aiAvailable, storageKey])
 
   const update = React.useCallback(
     (mutator: (prev: AiChatSessionsState) => AiChatSessionsState) => {

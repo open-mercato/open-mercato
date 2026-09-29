@@ -20,7 +20,7 @@ When any module emits a domain event (e.g., `customers.person.created`, `sales.o
 2. Matches each event against registered webhook subscriptions (supports wildcards like `customers.*`)
 3. Enqueues delivery jobs to a dedicated `webhook-deliveries` queue
 4. A delivery worker signs the payload per Standard Webhooks spec and delivers it
-5. On failure, retries with exponential backoff (up to 10 attempts over ~24 hours)
+5. On failure, retries with exponential backoff (up to 10 attempts over ~8.5 minutes by default)
 
 ```
   Module emits event → Event Bus → Webhook Dispatcher → Delivery Queue → HTTP POST
@@ -86,6 +86,12 @@ POST /api/webhooks
 
 The response includes a `whsec_`-prefixed signing secret. **This is the only time the secret is returned in plaintext** — store it securely.
 
+:::caution
+The `rateLimitPerMinute` field is accepted and stored for outbound endpoints, but the delivery worker
+does not enforce it yet. Configure throttling on the receiving service until outbound rate limiting
+is implemented.
+:::
+
 ### Event Subscriptions
 
 Webhooks support pattern-based event subscriptions:
@@ -110,6 +116,12 @@ Webhooks support pattern-based event subscriptions:
 | `GET` | `/api/webhooks/deliveries` | List delivery logs |
 | `POST` | `/api/webhooks/deliveries/:id/retry` | Retry failed delivery |
 | `GET` | `/api/webhooks/events` | List available event types |
+
+## Inbound Replay Protection
+
+Inbound webhook sources and legacy adapters must verify provider-specific signatures and any provider-specific timestamp rules before returning a verified event. The shared inbound route adds a provider-neutral backstop for Standard Webhooks and Svix-style timestamp headers: when `webhook-timestamp` or `svix-timestamp` is present, requests outside the replay window are rejected before either the source-first or legacy adapter flow persists or emits the inbound receipt.
+
+The default replay window is 5 minutes. Set `OM_WEBHOOKS_INBOUND_TIMESTAMP_TOLERANCE_SECONDS` when a deployment needs to accept a wider delay.
 
 ## Verifying Webhooks (Consumer Guide)
 
@@ -146,18 +158,35 @@ Use the official [Standard Webhooks libraries](https://github.com/standard-webho
 
 ## Retry Behavior
 
-Failed deliveries are retried with exponential backoff:
+Failed deliveries are retried with exponential backoff. The delay before attempt *n* is
+`1s × 2^(n-2)` plus up to 1s of jitter (`calculateNextRetry` in `lib/delivery.ts`):
 
-| Attempt | Delay |
-|---------|-------|
-| 1 | Immediate |
-| 2 | ~5 seconds |
-| 3 | ~5 minutes |
-| 4 | ~30 minutes |
-| 5 | ~2 hours |
-| 6 | ~5 hours |
-| 7 | ~10 hours |
-| 8-10 | ~14-24 hours |
+| Attempt | Delay before it |
+|---------|-----------------|
+| 1 | immediate |
+| 2 | ~1 second |
+| 3 | ~2 seconds |
+| 4 | ~4 seconds |
+| 5 | ~8 seconds |
+| 6 | ~16 seconds |
+| 7 | ~32 seconds |
+| 8 | ~1 minute |
+| 9 | ~2 minutes |
+| 10 | ~4 minutes |
+
+**Total window**: with the default `maxRetries` of 10, a delivery exhausts its attempts about
+**8.5 minutes** after the first one — not hours. Retries stop once `attemptNumber` reaches
+`maxRetries`, so the last delay is the one before the final attempt. In general the window is
+`2^(maxRetries - 1) - 1` seconds, so raising `maxRetries` grows it geometrically: 15 gives ~4.5 hours,
+17 gives ~18 hours.
+
+:::warning
+Size your alerting against this window, not against a multi-hour assumption. A receiver that is down
+for more than ~9 minutes will exhaust every attempt for events emitted during the outage. If you need
+longer durability, raise `maxRetries` on the webhook and monitor the delivery log. After the receiver
+recovers, use the delivery's **Retry** action or `POST /api/webhooks/deliveries/:id/retry` to re-enqueue
+an expired delivery.
+:::
 
 **Non-retryable responses**: HTTP 4xx (except 408 and 429) are not retried.
 
@@ -212,9 +241,12 @@ interface WebhookEndpointAdapter {
 ```
 
 Inbound webhooks are:
-- **Rate limited** per endpoint
+- **Rate limited** to 60 requests per minute per endpoint and client IP when the rate-limiter service is available
+- **Body limited** before signature verification (1 MiB by default)
 - **Deduplicated** by message ID
 - Processed via **fire-and-forget** (return 200 immediately, emit event for async processing)
+
+Set `OM_WEBHOOK_MAX_BODY_BYTES` to a positive byte count when globally bounded webhook receivers legitimately need a different default. InboxOps inherits that value when it is set; `INBOX_OPS_WEBHOOK_MAX_BODY_BYTES` can override only the email-ingress source, whose legacy fallback remains 2 MiB when neither variable is configured. Payment gateway handlers preserve legacy reads unless their registration opts into `maxBodyBytes`. The bounded reader checks a valid declared `Content-Length` before reading and also counts streamed bytes, so missing, invalid, or understated lengths cannot bypass the cap. Requests over the applicable limit return `413` without invoking provider verification. Keep the ingress or reverse-proxy limit scoped to the webhook paths and aligned with the effective application values.
 
 ## Shared Primitives
 
@@ -270,6 +302,20 @@ After that, the admin UI only shows a masked value. Operators must copy the secr
 | `webhooks.manage` | Create, edit, and delete webhooks |
 | `webhooks.secrets` | View and rotate webhook secrets |
 | `webhooks.test` | Send test webhook deliveries |
+
+## Subscription Cache
+
+The outbound dispatch subscriber (`webhooks:outbound-dispatch`) caches the active webhook subscriptions for each `(tenant, organization)` scope so that events for a tenant with no webhooks configured do not run a decrypting database query on every event.
+
+Only non-sensitive matching data is cached: `id`, `tenantId`, `organizationId`, and `subscribedEvents`. Secrets and target URLs are never cached. When a cache entry names candidate webhook IDs, the subscriber still re-reads those rows from the database before building any delivery, so the data actually sent to a delivery is always fresh.
+
+**Invalidation** happens two ways:
+- Inline, at the point a webhook is created, updated, deleted, or disabled.
+- Event-driven: the subscriber also listens for `webhooks.webhook.created`, `webhooks.webhook.updated`, `webhooks.webhook.deleted`, and `webhooks.webhook.disabled`, and clears the cache tag for that tenant (`webhooks:subscriptions:tenant:<tenantId>`) when one fires.
+
+`OM_WEBHOOKS_SUBSCRIPTION_CACHE_TTL_MS` sets the cache TTL in milliseconds (default `60000`). Set it to `0` to disable the cache entirely. Because invalidation is inline and event-driven, the TTL is a safety net rather than the mechanism that keeps the cache correct.
+
+**Multi-instance caveat**: this cache goes through `CACHE_STRATEGY`. With the `memory` strategy, the cache is per process, so a webhook write on one instance cannot invalidate another instance's copy inline — that instance only sees the change once its own TTL expires or it processes the invalidation event itself. Deployments running multiple instances that need webhook subscription changes to take effect everywhere promptly should use a shared strategy (`CACHE_STRATEGY=redis`) or lower `OM_WEBHOOKS_SUBSCRIPTION_CACHE_TTL_MS`.
 
 ## Related
 

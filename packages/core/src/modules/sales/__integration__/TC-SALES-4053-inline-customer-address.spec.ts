@@ -58,8 +58,14 @@ test.describe('TC-SALES-4053: inline customer address persistence', () => {
 
     try {
       await page.goto('/backend/sales/documents/create', { waitUntil: 'domcontentloaded' })
-      await page.getByRole('button', { name: 'Create customer' }).click()
-      await page.getByRole('button', { name: /(?:New|Create) person/ }).click()
+      const createCustomerTrigger = page.getByRole('button', { name: 'Create customer' })
+      const createPersonItem = page.getByRole('button', { name: /(?:New|Create) person/ })
+      await expect(createCustomerTrigger).toBeVisible()
+      await expect(async () => {
+        await createCustomerTrigger.click()
+        await expect(createPersonItem).toBeVisible({ timeout: 1_500 })
+      }).toPass({ timeout: 15_000 })
+      await createPersonItem.click()
 
       const dialog = page.getByRole('dialog', { name: /(?:New|Create) person/ })
       await expect(dialog).toBeVisible()

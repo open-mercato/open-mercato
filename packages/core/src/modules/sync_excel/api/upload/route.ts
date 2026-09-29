@@ -10,7 +10,12 @@ import { buildSuggestedMapping } from '../../lib/mapping'
 import { parseCsvPreview } from '../../lib/parser'
 import { createSyncExcelUploadAttachment } from '../../lib/upload-storage'
 import { resolveSyncExcelConcreteScope } from '../../lib/scope'
-import { isMultipartRequestWithinUploadLimit, resolveDefaultAttachmentMaxUploadBytes } from '../../../attachments/lib/upload-limits'
+import {
+  isMultipartRequestWithinUploadLimit,
+  isMultipartUploadLimitError,
+  parseMultipartFormDataWithinUploadLimit,
+  resolveDefaultAttachmentMaxUploadBytes,
+} from '../../../attachments/lib/upload-limits'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['sync_excel.run'] },
@@ -67,7 +72,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'CSV upload exceeds the maximum upload size.' }, { status: 413 })
   }
 
-  const formData = await request.formData()
+  let formData: FormData
+  try {
+    formData = await parseMultipartFormDataWithinUploadLimit(request)
+  } catch (error) {
+    if (isMultipartUploadLimitError(error)) {
+      return NextResponse.json({ error: 'CSV upload exceeds the maximum upload size.' }, { status: 413 })
+    }
+    throw error
+  }
   const parsedPayload = multipartSchema.safeParse({
     entityType: typeof formData.get('entityType') === 'string' ? formData.get('entityType') : undefined,
   })

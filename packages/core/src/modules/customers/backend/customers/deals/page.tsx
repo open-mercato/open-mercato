@@ -1,16 +1,18 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import { createEmptyTree, makeRuleTree, makeMultiRuleTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import { deserializeTree, deserializeAdvancedFilter, flatToTree, mapDictionaryColorToTone, serializeTree, type FilterFieldDef, type FilterOption as AdvancedFilterOption } from '@open-mercato/shared/lib/query/advanced-filter'
 import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
+import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
@@ -27,12 +29,18 @@ import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { Briefcase, AlertTriangle, X } from 'lucide-react'
+import { isLostDealStatus, isWonDealStatus } from '../../../lib/dealStatus'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
-import { ViewTabsRow } from './pipeline/components/ViewTabsRow'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import {
+  ViewTabsRow,
+  VIEW_TABS_ROW_COMPONENT_ID,
+  type ViewTabsRowProps,
+} from './pipeline/components/ViewTabsRow'
 import { DealsKpiStrip } from '../../../components/DealsKpiStrip'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   type CustomerDictionaryKind,
@@ -85,7 +93,7 @@ function makeDealsPresets(): FilterPreset[] {
       },
     },
     // The Deal entity has no dedicated "at risk" or health-score field — `customer_deals`
-    // exposes only `status` (open/win/loose/closed/in_progress, dictionary-driven) and
+    // exposes only `status` (open/win/lost/closed/in_progress, dictionary-driven) and
     // `closure_outcome`. Rather than fabricate a mapping, the "At risk" preset is omitted
     // until the data model exposes a first-class signal.
     {
@@ -124,6 +132,7 @@ type DealsResponse = {
   items?: Array<Record<string, unknown>>
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 type FilterOption = { value: string; label: string }
@@ -192,6 +201,13 @@ function formatGroupedAmount(amount: number | null | undefined): string | null {
 
 export default function CustomersDealsPage() {
   const t = useT()
+  // Resolved through the component registry so downstream apps can hide a view
+  // (or replace the whole switcher) without forking this page.
+  const DealsViewTabsRow = useRegisteredComponent<ViewTabsRowProps>(
+    VIEW_TABS_ROW_COMPONENT_ID,
+    ViewTabsRow,
+  )
+  const locale = useLocale()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const router = useRouter()
   const pathname = usePathname()
@@ -208,6 +224,7 @@ export default function CustomersDealsPage() {
   const [sorting, setSorting] = React.useState<import('@tanstack/react-table').SortingState>([])
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState(() => searchParams?.get('search')?.trim() ?? '')
   const [isLoading, setIsLoading] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
@@ -395,6 +412,7 @@ export default function CustomersDealsPage() {
         setRows(mapped)
         setTotal(typeof payload.total === 'number' ? payload.total : mapped.length)
         setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
+        setTotalIsCapped(payload.totalIsCapped === true)
       } catch (err) {
         if (!cancelled) {
           setCacheStatus(null)
@@ -410,10 +428,12 @@ export default function CustomersDealsPage() {
   }, [queryParams, reloadToken, scopeVersion, t])
 
   React.useEffect(() => {
-    if (totalPages > 0 && page > totalPages) {
+    // A capped totalPages is a floor — pages past it hold reachable rows, so
+    // clamping would bounce a deep-linked user off data that exists.
+    if (!totalIsCapped && totalPages > 0 && page > totalPages) {
       setPage(totalPages)
     }
-  }, [page, totalPages])
+  }, [page, totalPages, totalIsCapped])
 
   const queryRef = React.useRef(searchParams?.toString() ?? '')
   React.useEffect(() => {
@@ -618,6 +638,7 @@ export default function CustomersDealsPage() {
     keyExtras: [scopeVersion, reloadToken],
   })
   const currentUserId = useCurrentUserId()
+  const activeOrgId = useCurrentOrganization()?.id ?? null
   const [ownerFilterOptions, setOwnerFilterOptions] = React.useState<AdvancedFilterOption[]>([])
   // Single staff load drives both the owner FILTER options and the owner-name
   // map shared with the OWNER cell + the KPI strip (userId → display name).
@@ -626,7 +647,7 @@ export default function CustomersDealsPage() {
   React.useEffect(() => {
     const controller = new AbortController()
     let cancelled = false
-    void fetchAssignableStaffMembers('', { pageSize: 100, signal: controller.signal })
+    void fetchAssignableStaffMembers('', { pageSize: 100, activeOrgId, signal: controller.signal })
       .then((items) => {
         if (cancelled) return
         setOwnerFilterOptions(mapAssignableStaffToFilterOptions(items))
@@ -645,7 +666,7 @@ export default function CustomersDealsPage() {
       cancelled = true
       controller.abort()
     }
-  }, [scopeVersion])
+  }, [activeOrgId, scopeVersion])
   const resolvedOwnerFilterOptions = React.useMemo(
     () => ensureCurrentUserFilterOption(
       ownerFilterOptions,
@@ -655,9 +676,9 @@ export default function CustomersDealsPage() {
     [currentUserId, ownerFilterOptions, t],
   )
   const loadOwnerFilterOptions = React.useCallback(async (query?: string): Promise<AdvancedFilterOption[]> => {
-    const items = await fetchAssignableStaffMembers(query ?? '', { pageSize: 100 })
+    const items = await fetchAssignableStaffMembers(query ?? '', { pageSize: 100, activeOrgId })
     return mapAssignableStaffToFilterOptions(items)
-  }, [])
+  }, [activeOrgId])
 
   const startOfToday = React.useMemo(() => {
     const today = new Date()
@@ -680,8 +701,8 @@ export default function CustomersDealsPage() {
         accessorKey: `cf_${def.key}`,
         header: def.label || def.key,
         meta: {
-          columnChooserGroup: def.group?.title ?? 'Custom Fields',
-          filterGroup: def.group?.title ?? 'Custom Fields',
+          columnChooserGroup: def.group?.title ?? t('ui.columnChooser.customFieldsGroup', 'Custom Fields'),
+          filterGroup: def.group?.title ?? t('ui.columnChooser.customFieldsGroup', 'Custom Fields'),
           filterType: mapCustomFieldKindToFilterType(def.kind),
           filterOptions: normalizeCustomFieldFilterOptions(def.options),
           hidden: def.listVisible === false,
@@ -848,16 +869,16 @@ export default function CustomersDealsPage() {
             subtitle = (
               <span className="text-xs text-status-error-text">{t('customers.deals.list.close.overdue')}</span>
             )
-          } else if (row.original.status === 'win') {
+          } else if (isWonDealStatus(row.original.status)) {
             subtitle = (
               <span className="text-xs text-muted-foreground">{t('customers.deals.list.close.won')}</span>
             )
-          } else if (row.original.status === 'loose') {
+          } else if (isLostDealStatus(row.original.status)) {
             subtitle = (
               <span className="text-xs text-muted-foreground">{t('customers.deals.list.close.lost')}</span>
             )
           } else {
-            const relative = formatRelativeTime(expectedCloseAt, { translate: t })
+            const relative = formatRelativeTime(expectedCloseAt, { locale, translate: t })
             if (relative) {
               subtitle = <span className="text-xs text-muted-foreground">{relative}</span>
             }
@@ -983,7 +1004,7 @@ export default function CustomersDealsPage() {
       },
       ...customColumns,
     ]
-  }, [customFieldDefs, dictionaryMaps, dictionaryOptions, isDealOverdue, loadOwnerFilterOptions, ownerNames, pipelineNames, resolvedOwnerFilterOptions, t])
+  }, [customFieldDefs, dictionaryMaps, dictionaryOptions, isDealOverdue, loadOwnerFilterOptions, locale, ownerNames, pipelineNames, resolvedOwnerFilterOptions, t])
 
   const { advancedFilterFields } = useAutoDiscoveredFields({ columns, customFieldDefs })
 
@@ -1056,7 +1077,7 @@ export default function CustomersDealsPage() {
   return (
     <Page>
       <PageBody>
-        <ViewTabsRow active="list" className="mb-4" />
+        <DealsViewTabsRow active="list" className="mb-4" />
         <DealsKpiStrip
           ownerNames={ownerNames}
           stageDictionary={dictionaryMaps['pipeline-stages'] ?? {}}
@@ -1071,6 +1092,7 @@ export default function CustomersDealsPage() {
           stickyActionsColumn
           actionsColumnAlign="center"
           title={t('customers.deals.list.title')}
+          titleHeadingLevel={1}
           actions={(
             <Button asChild>
               <Link href="/backend/customers/deals/create">
@@ -1134,6 +1156,7 @@ export default function CustomersDealsPage() {
             pageSize,
             total,
             totalPages,
+            totalIsCapped,
             onPageChange: (nextPage) => setPage(nextPage),
             pageSizeOptions: [10, 25, 50, 100],
             onPageSizeChange: handlePageSizeChange,
@@ -1146,7 +1169,7 @@ export default function CustomersDealsPage() {
           }}
           exporter={exportConfig}
           entityId={E.customers.customer_deal}
-          perspective={{ tableId: 'customers.deals.list' }}
+          perspective={{ tableId: extensionPoints.hosts.dealsTable.tableId }}
           advancedFilter={{
             auto: true,
             value: filterPanel.tree,

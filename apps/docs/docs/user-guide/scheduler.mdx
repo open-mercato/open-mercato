@@ -105,7 +105,7 @@ The scheduler supports two execution strategies:
 **Environment:** `QUEUE_STRATEGY=local` (default)
 
 - Polls the database every 30 seconds for due schedules
-- Uses PostgreSQL advisory locks for safety
+- Prevents duplicate execution within the process only — run exactly one scheduler process, or a second one will execute the same due schedule
 - No Redis required
 - Best for development and single-instance deployments
 

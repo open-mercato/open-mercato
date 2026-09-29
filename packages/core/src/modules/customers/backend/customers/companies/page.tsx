@@ -1,11 +1,13 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -24,6 +26,7 @@ import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced
 import { createEmptyTree, makeRuleTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import { deserializeAdvancedFilter, deserializeTree, flatToTree, mapDictionaryColorToTone, serializeTree } from '@open-mercato/shared/lib/query/advanced-filter'
 import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
+import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import {
   DictionaryValue,
   createEmptyCustomerDictionaryMaps,
@@ -116,6 +119,7 @@ type CompaniesResponse = {
   total?: number
   page?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 type DictionaryKindKey = CustomerDictionaryKind
@@ -196,9 +200,10 @@ export default function CustomersCompaniesPage() {
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
-  const [search, setSearch] = React.useState('')
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const [search, setSearch] = React.useState(() => searchParams?.get('search')?.trim() ?? '')
   // One-shot URL hydration used as the hook's initial value. The hook is the
   // single source of truth from this point on — the page MUST NOT keep a
   // parallel `useState<AdvancedFilterTree>` (see spec "Migration & Backward
@@ -323,11 +328,12 @@ export default function CustomersCompaniesPage() {
     { keyExtras: [scopeVersion, reloadToken] },
   )
   const currentUserId = useCurrentUserId()
+  const activeOrgId = useCurrentOrganization()?.id ?? null
   const [ownerFilterOptions, setOwnerFilterOptions] = React.useState<AdvancedFilterOption[]>([])
   React.useEffect(() => {
     const controller = new AbortController()
     let cancelled = false
-    void fetchAssignableStaffMembers('', { pageSize: 100, signal: controller.signal })
+    void fetchAssignableStaffMembers('', { pageSize: 100, activeOrgId, signal: controller.signal })
       .then((items) => {
         if (!cancelled) setOwnerFilterOptions(mapAssignableStaffToFilterOptions(items))
       })
@@ -338,7 +344,7 @@ export default function CustomersCompaniesPage() {
       cancelled = true
       controller.abort()
     }
-  }, [scopeVersion])
+  }, [activeOrgId, scopeVersion])
   const resolvedOwnerFilterOptions = React.useMemo(
     () => ensureCurrentUserFilterOption(
       ownerFilterOptions,
@@ -348,9 +354,9 @@ export default function CustomersCompaniesPage() {
     [currentUserId, ownerFilterOptions, t],
   )
   const loadOwnerFilterOptions = React.useCallback(async (query?: string): Promise<AdvancedFilterOption[]> => {
-    const items = await fetchAssignableStaffMembers(query ?? '', { pageSize: 100 })
+    const items = await fetchAssignableStaffMembers(query ?? '', { pageSize: 100, activeOrgId })
     return mapAssignableStaffToFilterOptions(items)
-  }, [])
+  }, [activeOrgId])
 
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams()
@@ -420,6 +426,7 @@ export default function CustomersCompaniesPage() {
         setRows(items.map((item) => mapApiItem(item as Record<string, unknown>)).filter((row): row is CompanyRow => !!row))
         setTotal(typeof payload.total === 'number' ? payload.total : items.length)
         setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
+        setTotalIsCapped(payload?.totalIsCapped === true)
       } catch (err) {
         if (!cancelled) {
           setCacheStatus(null)
@@ -824,8 +831,8 @@ export default function CustomersCompaniesPage() {
         header: def.label || def.key,
         enableSorting: true,
         meta: {
-          columnChooserGroup: def.group?.title ?? 'Custom Fields',
-          filterGroup: def.group?.title ?? 'Custom Fields',
+          columnChooserGroup: def.group?.title ?? t('ui.columnChooser.customFieldsGroup', 'Custom Fields'),
+          filterGroup: def.group?.title ?? t('ui.columnChooser.customFieldsGroup', 'Custom Fields'),
           filterType: mapCustomFieldKindToFilterType(def.kind),
           filterOptions: normalizeCustomFieldFilterOptions(def.options),
           hidden: def.listVisible === false,
@@ -868,6 +875,7 @@ export default function CustomersCompaniesPage() {
           stickyFirstColumn
           stickyActionsColumn
           title={t('customers.companies.list.title')}
+          titleHeadingLevel={1}
           refreshButton={{
             label: t('customers.companies.list.actions.refresh'),
             onRefresh: () => { setSearch(''); setPage(1); handleRefresh() },
@@ -888,7 +896,7 @@ export default function CustomersCompaniesPage() {
           searchPlaceholder={t('customers.companies.list.searchPlaceholder')}
           entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
           onRowClick={(row) => router.push(`/backend/customers/companies-v2/${row.id}`)}
-          perspective={{ tableId: 'customers.companies.list' }}
+          perspective={{ tableId: extensionPoints.hosts.companiesTable.tableId }}
           sortable
           manualSorting
           sorting={sorting}
@@ -961,7 +969,7 @@ export default function CustomersCompaniesPage() {
             />
           )}
           virtualized
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage, pageSizeOptions: [10, 25, 50, 100], onPageSizeChange: handlePageSizeChange, cacheStatus }}
+          pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage, pageSizeOptions: [10, 25, 50, 100], onPageSizeChange: handlePageSizeChange, cacheStatus }}
           isLoading={isLoading}
         />
         <AdvancedFilterPanel

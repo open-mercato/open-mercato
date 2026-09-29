@@ -140,6 +140,7 @@ await progressService.completeJob(job.id, {
 | `failJob(jobId, input, ctx)` | Mark as `failed` with error message and optional stack trace |
 | `cancelJob(jobId, ctx)` | Request cancellation (pending jobs cancel immediately) |
 | `isCancellationRequested(jobId)` | Check if cancellation was requested (for cooperative cancellation) |
+| `touchJobHeartbeat(jobId, ctx)` | Optional. Bump `heartbeatAt` only, on a forked EntityManager — keeps a job alive across a single unit of work longer than the stale timeout. Always optional-chain it |
 | `getActiveJobs(ctx)` | List pending/running top-level jobs |
 | `getRecentlyCompletedJobs(ctx, sinceSeconds?)` | List completed/failed jobs finished within `sinceSeconds` (default 30) |
 | `getJob(jobId, ctx)` | Fetch a single job by ID |
@@ -348,6 +349,25 @@ await progressService.markStaleJobsFailed(tenantId, 60) // 60 second timeout
 ```
 
 This finds all `running` jobs for the given tenant where `heartbeatAt` is older than the timeout, marks them as `failed` with the message `"Job stale: no heartbeat for 60 seconds"`, and emits a `progress.job.failed` event with `stale: true` for each.
+
+:::caution One unit of work longer than the timeout
+The sweep cannot tell "slow" from "dead" — a producer that only heartbeats between batches gets failed whenever a single batch runs past the timeout. If one unit of work can exceed 60s (a slow upstream API page, a large reindex step), keep the job alive **while you await it**:
+
+```typescript
+const timer = setInterval(() => {
+  void progressService.touchJobHeartbeat?.(jobId, ctx)
+}, 15_000)
+try {
+  await slowUpstreamCall()
+} finally {
+  clearInterval(timer)
+}
+```
+
+Bind the timer to the pending await, never to the operation as a whole — a heartbeat that outlives its producer keeps a dead job green forever. `withHeartbeat` in `data_sync/lib/sync-engine.ts` is the reference wrapper for async iterators.
+
+Should a job still be swept while alive, the next progress write revives it: the write paths retry once through the start transition, restricted to rows the sweep marked so a genuine failure keeps its error message. `completed` and `cancelled` are never revived.
+:::
 
 :::tip Integrate with the Scheduler
 Register a scheduled job to call `markStaleJobsFailed` periodically:

@@ -9,6 +9,7 @@
 // the cache until the 60s TTL backstop expires.
 
 import handler, { metadata } from '@open-mercato/core/modules/directory/subscribers/invalidateOrgScopeCache'
+import { getCurrentCacheTenant } from '@open-mercato/cache'
 
 function makeCtx(cache: { deleteByTags: jest.Mock } | null) {
   return {
@@ -27,10 +28,15 @@ describe('directory/invalidateOrgScopeCache subscriber', () => {
   })
 
   it('invokes cache.deleteByTags with the tenant-scoped org-scope tag when tenantId is present', async () => {
-    const deleteByTags = jest.fn(async () => 3)
+    const cacheTenants: Array<string | null> = []
+    const deleteByTags = jest.fn(async () => {
+      cacheTenants.push(getCurrentCacheTenant())
+      return 3
+    })
     await handler({ tenantId: 'tenant-123', id: 'org-xyz' }, makeCtx({ deleteByTags }))
     expect(deleteByTags).toHaveBeenCalledTimes(1)
     expect(deleteByTags).toHaveBeenCalledWith(['org-scope:tenant:tenant-123'])
+    expect(cacheTenants).toEqual(['tenant-123'])
   })
 
   it('is a no-op when tenantId is missing on the payload', async () => {

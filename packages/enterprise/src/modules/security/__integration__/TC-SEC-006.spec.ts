@@ -32,7 +32,10 @@ test.describe('TC-SEC-006: Sudo challenge and admin override', () => {
     await deleteUserFixture(request, adminToken ?? null, targetUserId)
   })
 
-  test('requires sudo, issues a token through MFA, and honors disable/re-enable overrides', async ({ request }) => {
+  // This test stops at the unconditional `test.skip` mid-body: the sudo-config assertions after it
+  // need a genuine WebAuthn assertion and are unreachable until #5307 lands a virtual authenticator.
+  // They stay in place as the blueprint for that work. Everything above the skip runs and can fail.
+  test('requires sudo and refuses a passkey step-up without a WebAuthn assertion', async ({ request }) => {
     const adminMethods = await fetchJson<{
       methods: Array<{ type: string; providerMetadata?: Record<string, unknown> | null }>
     }>(
@@ -44,7 +47,7 @@ test.describe('TC-SEC-006: Sudo challenge and admin override', () => {
     expect(adminMethods.status).toBe(200)
 
     const passkeyMethod = adminMethods.body.methods.find((method) => method.type === 'passkey')
-    test.skip(!passkeyMethod, 'This environment needs an admin passkey method to verify sudo without knowing a seeded TOTP secret.')
+    test.skip(!passkeyMethod, 'This environment needs an admin passkey method to exercise passkey sudo step-up.')
 
     const credentialId = passkeyMethod?.providerMetadata?.credentialId
     expect(typeof credentialId).toBe('string')
@@ -127,9 +130,13 @@ test.describe('TC-SEC-006: Sudo challenge and admin override', () => {
         },
       },
     )
-    expect(manageVerify.status).toBe(200)
-    expect(manageVerify.body.sudoToken).toBeTruthy()
-    expect(manageVerify.body.expiresAt).toBeTruthy()
+    expect(manageVerify.status).toBe(401)
+    expect(manageVerify.body.sudoToken).toBeFalsy()
+
+    test.skip(
+      true,
+      'Passkey sudo step-up requires a genuine WebAuthn assertion (#3852), which no API-level fixture can produce; the remaining sudo-config coverage needs a Playwright virtual authenticator.',
+    )
 
     const disableReset = await fetchJson<{ ok?: boolean }>(
       request,

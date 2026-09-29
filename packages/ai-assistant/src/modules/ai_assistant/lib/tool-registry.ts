@@ -19,7 +19,7 @@ class ToolRegistryImpl implements McpToolRegistry {
       throw new Error('MCP tool must define a name')
     }
 
-    if (this.tools.has(tool.name)) {
+    if (this.tools.has(tool.name) && options?.moduleId !== 'ai_overrides') {
       logger.warn('Tool already registered, overwriting', { toolName: tool.name })
     }
 

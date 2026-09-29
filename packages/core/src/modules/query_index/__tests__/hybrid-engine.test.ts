@@ -1,5 +1,16 @@
-import { HybridQueryEngine, coerceSortDirection } from '../../query_index/lib/engine'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { HybridQueryEngine, coerceSortDirection, clearBaseTableExistsCache } from '../../query_index/lib/engine'
+import { BasicQueryEngine, clearEncryptedLikeFieldsCache } from '@open-mercato/shared/lib/query/engine'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
+import { clearSearchTokenPresenceCache } from '@open-mercato/shared/lib/search/availability'
+import { encryptCustomFieldValue } from '@open-mercato/shared/lib/encryption/customFieldValues'
+
+// The token-presence and base-table-existence answers are cached process-wide (TTL); without
+// clearing them, probe-count assertions would observe hits from earlier tests in this file.
+beforeEach(() => {
+  clearSearchTokenPresenceCache()
+  clearBaseTableExistsCache()
+})
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
   const mocked = {
@@ -28,6 +39,14 @@ type KyselyMockConfig = {
   indexCount: number
   coverageRefreshedAt?: Date | string | null
   customFieldKeys?: Record<string, string[]>
+  /** Declared `kind` per custom-field key, for kind-aware sort tests (#5674). */
+  customFieldKinds?: Record<string, string>
+  /**
+   * Overrides `customFieldKeys` when a test needs full `custom_field_defs` rows —
+   * `kind`, `organization_id`, `tenant_id` — rather than just key names, e.g. to
+   * exercise the per-row scope-precedence kind resolution (issue #5968).
+   */
+  customFieldDefs?: Array<Record<string, unknown>>
   rows?: Record<string, Array<Record<string, unknown>>>
   /** If provided, returned for information_schema.columns lookups. */
   columns?: Array<{ table_name: string; column_name: string }>
@@ -83,6 +102,10 @@ function createFakeKysely(config: KyselyMockConfig) {
       distinct: () => chain,
       where: (...args: any[]) => {
         // Capture just the raw args (Kysely expression callbacks are opaque).
+        log.wheres.push(args)
+        return chain
+      },
+      whereRef: (...args: unknown[]) => {
         log.wheres.push(args)
         return chain
       },
@@ -218,8 +241,17 @@ function resolveRows(
     const requestedEntities: string[] = inIdx >= 0 && Array.isArray(args[inIdx + 2])
       ? (args[inIdx + 2] as string[])
       : Object.keys(customFieldKeys)
+    if (config.customFieldDefs) {
+      return config.customFieldDefs.filter((row) => requestedEntities.includes(row.entity_id as string))
+    }
     return requestedEntities.flatMap((entityId) =>
-      (customFieldKeys[entityId] ?? []).map((key) => ({ entity_id: entityId, key, is_active: true })),
+      (customFieldKeys[entityId] ?? []).map((key) => ({
+        entity_id: entityId,
+        key,
+        is_active: true,
+        kind: config.customFieldKinds?.[key] ?? null,
+        tenant_id: null,
+      })),
     )
   }
   if (table === 'information_schema.columns') {
@@ -361,6 +393,176 @@ describe('HybridQueryEngine', () => {
     await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1' })
     expect(fallback.query).toHaveBeenCalled()
     expect(emitEvent).not.toHaveBeenCalled()
+  })
+
+  test('falls back when a cf sort is the only custom-field signal and no index rows exist', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 5, indexCount: 0 })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn().mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 }) }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+
+    const opts = {
+      fields: ['id'],
+      sort: [{ field: 'cf:priority', dir: SortDir.Asc }],
+      organizationId: 'org1',
+      tenantId: 't1',
+    }
+    await engine.query('example:todo', opts)
+
+    expect(fallback.query).toHaveBeenCalledWith('example:todo', opts)
+  })
+
+  test('falls back and warns on partial coverage when a cf sort is the only custom-field signal', async () => {
+    process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES = 'false'
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 1 })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn().mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 }) }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+    mockLogger.warn.mockClear()
+
+    // The auto-reindex debounce is process-global; opting out keeps this test
+    // from consuming the slot a later test asserts on.
+    const result = await engine.query('example:todo', {
+      fields: ['id'],
+      sort: [{ field: 'cf:priority', dir: SortDir.Asc }],
+      organizationId: 'org1',
+      tenantId: 't1',
+      skipAutoReindex: true,
+    })
+
+    expect(fallback.query).toHaveBeenCalled()
+    expect(result.meta?.partialIndexWarning).toEqual(expect.objectContaining({
+      entity: 'example:todo', baseCount: 10, indexedCount: 1,
+    }))
+    expect((mockLogger.warn.mock.calls[0] || [])[0]).toContain('Partial index coverage')
+  })
+
+  test('casts a numeric-kind cf sort to numeric instead of ordering it as jsonb text (#5674)', async () => {
+    const db = createFakeKysely({
+      baseTable: 'todos', hasIndexAny: true, baseCount: 3, indexCount: 3,
+      customFieldKinds: { priority: 'float' },
+    })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+
+    await engine.query('example:todo', {
+      fields: ['id'],
+      sort: [{ field: 'cf:priority', dir: SortDir.Asc }],
+      organizationId: 'org1',
+      tenantId: 't1',
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    const dataChain = (db._chains as ChainLog[]).find((c) => c.table === 'todos' && c.orderBys.length > 0)
+    expect(dataChain).toBeTruthy()
+    const serialized = JSON.stringify(dataChain!.orderBys.flat().map((arg: any) =>
+      typeof arg?.toOperationNode === 'function' ? arg.toOperationNode() : arg,
+    ))
+    expect(serialized).toContain('::numeric')
+    expect(serialized).toContain('NULLS LAST')
+    // A cf sort with no explicit `id` key still gets the stable tiebreak.
+    expect(dataChain!.orderBys[dataChain!.orderBys.length - 1]).toEqual(['b.id', SortDir.Asc])
+  })
+
+  test('guards a numeric-kind cf sort cast with jsonb_typeof so a non-numeric doc value (ciphertext, a multi-value array) sorts as NULL instead of raising 22P02 (#5674)', async () => {
+    const db = createFakeKysely({
+      baseTable: 'todos', hasIndexAny: true, baseCount: 3, indexCount: 3,
+      customFieldKinds: { priority: 'float' },
+    })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+
+    await engine.query('example:todo', {
+      fields: ['id'],
+      sort: [{ field: 'cf:priority', dir: SortDir.Asc }],
+      organizationId: 'org1',
+      tenantId: 't1',
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    const dataChain = (db._chains as ChainLog[]).find((c) => c.table === 'todos' && c.orderBys.length > 0)
+    expect(dataChain).toBeTruthy()
+    const serialized = JSON.stringify(dataChain!.orderBys.flat().map((arg: any) =>
+      typeof arg?.toOperationNode === 'function' ? arg.toOperationNode() : arg,
+    ))
+    // Not an unconditional `(...)::numeric` — a guarded CASE that only casts
+    // when the doc value's jsonb type is actually a number. An encrypted
+    // numeric field's ciphertext (`jsonb_typeof` = 'string') or a multi-value
+    // source's JSON array (`jsonb_typeof` = 'array') falls through to NULL
+    // instead of raising Postgres 22P02 for the whole list request.
+    expect(serialized).toContain('jsonb_typeof')
+    expect(serialized).toContain("'number'")
+    expect(serialized).toContain('::numeric')
+  })
+
+  test('keeps ordering a text-kind cf sort as text, still with a trailing id tiebreak', async () => {
+    const db = createFakeKysely({
+      baseTable: 'todos', hasIndexAny: true, baseCount: 3, indexCount: 3,
+      customFieldKinds: { priority: 'text' },
+    })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+
+    await engine.query('example:todo', {
+      fields: ['id'],
+      sort: [{ field: 'cf:priority', dir: SortDir.Asc }],
+      organizationId: 'org1',
+      tenantId: 't1',
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    const dataChain = (db._chains as ChainLog[]).find((c) => c.table === 'todos' && c.orderBys.length > 0)
+    expect(dataChain).toBeTruthy()
+    const serialized = JSON.stringify(dataChain!.orderBys.flat().map((arg: any) =>
+      typeof arg?.toOperationNode === 'function' ? arg.toOperationNode() : arg,
+    ))
+    expect(serialized).not.toContain('::numeric')
+    expect(dataChain!.orderBys[dataChain!.orderBys.length - 1]).toEqual(['b.id', SortDir.Asc])
+  })
+
+  test('keeps l10n-only sorts off the custom-field branch', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 5, indexCount: 0 })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+
+    // Neither engine ever applies an `l10n:` ordering — both drop it while
+    // resolving sorts — so it must not pay the coverage probes or divert the
+    // query to the ORM engine for an ordering that is thrown away.
+    await engine.query('example:todo', {
+      fields: ['id'],
+      sort: [{ field: 'l10n:title', dir: SortDir.Asc }],
+      organizationId: 'org1',
+      tenantId: 't1',
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+  })
+
+  test('keeps base-column-only sorts off the custom-field branch', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 5, indexCount: 0 })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+
+    await engine.query('example:todo', {
+      fields: ['id'],
+      sort: [{ field: 'id', dir: SortDir.Desc }],
+      organizationId: 'org1',
+      tenantId: 't1',
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
   })
 
   test('falls back and warns on partial coverage', async () => {
@@ -651,6 +853,60 @@ describe('HybridQueryEngine', () => {
     expect(phase2Chain.wheres.some((args: any[]) => args.includes('in'))).toBe(true)
   })
 
+  // Mirrors the BasicQueryEngine multi-sort test: `list.tiebreakSortField` sends a
+  // second sort element, and both engines serve the sales line routes depending on
+  // configuration, so both have to emit every element into ORDER BY. Unencrypted
+  // path — the encrypted path sorts in memory and is covered above.
+  test('emits every sort element as an ORDER BY column, in order', async () => {
+    const db = createFakeKysely({
+      baseTable: 'sales_order_lines',
+      hasIndexAny: true,
+      baseCount: 2,
+      indexCount: 2,
+      columns: [
+        { table_name: 'sales_order_lines', column_name: 'id' },
+        { table_name: 'sales_order_lines', column_name: 'tenant_id' },
+        { table_name: 'sales_order_lines', column_name: 'organization_id' },
+        { table_name: 'sales_order_lines', column_name: 'deleted_at' },
+        { table_name: 'sales_order_lines', column_name: 'line_number' },
+      ],
+      rows: {
+        sales_order_lines: [
+          { id: 'b', tenant_id: 't1', organization_id: 'org1', line_number: 0 },
+          { id: 'a', tenant_id: 't1', organization_id: 'org1', line_number: 0 },
+        ],
+      },
+    })
+    const engine = new HybridQueryEngine(
+      buildEm(db),
+      { query: jest.fn() } as any,
+      () => ({ emitEvent: jest.fn().mockResolvedValue(undefined) }),
+      undefined,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => [],
+      }),
+    )
+
+    await engine.query('sales:sales_order_line', {
+      fields: ['id', 'line_number'],
+      organizationId: 'org1',
+      tenantId: 't1',
+      sort: [
+        { field: 'line_number', dir: SortDir.Asc },
+        { field: 'id', dir: SortDir.Asc },
+      ],
+      page: { page: 1, pageSize: 10 },
+    })
+
+    const lineChains = db._chains.filter((chain: ChainLog) => chain.table === 'sales_order_lines')
+    const orderedChain = lineChains.find((chain: ChainLog) => chain.orderBys.length > 0)
+    expect(orderedChain?.orderBys).toEqual([
+      ['b.line_number', 'asc'],
+      ['b.id', 'asc'],
+    ])
+  })
+
   test('paginates encrypted-sorted results correctly on page 1 and the tail page', async () => {
     const db = createFakeKysely({
       baseTable: 'customer_entities',
@@ -894,8 +1150,121 @@ describe('HybridQueryEngine', () => {
       const [phase1Chain] = db._chains
         .filter((chain: ChainLog) => chain.table === 'customer_entities')
         .slice(-2)
-      expect(phase1Chain.limit).toBe(3)
+      // cap + 1 probe: truncation is detected from the candidate scan itself,
+      // not by comparing against a (possibly capped) total.
+      expect(phase1Chain.limit).toBe(4)
       expect(phase1Chain.orderBys).toEqual([['b.id', 'asc']])
+    })
+  })
+
+  // #4552 Phase 2: the count query is rebuilt (scope + filters only) and bounded
+  // by a LIMIT cap+1 probe on a row-producing inner query. No GROUP BY or
+  // DISTINCT may sit between the probe LIMIT and the base table, and the index
+  // joins the display query carries must not reach the count shape.
+  describe('OM_LIST_COUNT_CAP — rebuilt count shape', () => {
+    const originalCap = process.env.OM_LIST_COUNT_CAP
+    afterEach(() => {
+      if (originalCap === undefined) delete process.env.OM_LIST_COUNT_CAP
+      else process.env.OM_LIST_COUNT_CAP = originalCap
+    })
+
+    function buildFixture(baseCount: number) {
+      const db = createFakeKysely({
+        baseTable: 'todos',
+        hasIndexAny: true,
+        baseCount,
+        indexCount: baseCount,
+        rows: { todos: [{ id: '1', tenant_id: 't1', organization_id: 'org1' }] },
+      })
+      const em = buildEm(db)
+      const fallback = { query: jest.fn() }
+      const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent: jest.fn().mockResolvedValue(undefined) }))
+      return { db, engine }
+    }
+
+    test('optimized path: probe LIMIT cap+1, no GROUP BY, no index joins on the count chain', async () => {
+      process.env.OM_LIST_COUNT_CAP = '100'
+      const { db, engine } = buildFixture(5)
+      await engine.query('example:todo', {
+        tenantId: 't1',
+        organizationId: 'org1',
+        fields: ['id'],
+        page: { page: 1, pageSize: 20 },
+      })
+      const countChain = db._chains.find((chain: ChainLog) => chain.table === 'todos' && chain.limit === 101)
+      expect(countChain).toBeTruthy()
+      expect(countChain.groupBys).toEqual([])
+      expect(countChain.joins).toEqual([])
+    })
+
+    test('cf-filtered path: count chain carries no entity_indexes join and no count(distinct)', async () => {
+      process.env.OM_LIST_COUNT_CAP = '100'
+      const { db, engine } = buildFixture(5)
+      await engine.query('example:todo', {
+        tenantId: 't1',
+        organizationId: 'org1',
+        fields: ['id'],
+        filters: { cf_priority: { $eq: 'high' } },
+        page: { page: 1, pageSize: 20 },
+      })
+      const countChain = db._chains.find((chain: ChainLog) => chain.table === 'todos' && chain.limit === 101)
+      expect(countChain).toBeTruthy()
+      expect(countChain.groupBys).toEqual([])
+      // The display query joins entity_indexes; the count confines the same
+      // rowset inside a correlated EXISTS instead of joining it.
+      expect(countChain.joins).toEqual([])
+      // The cf predicate reached the count as a WHERE (the EXISTS expression).
+      expect(countChain.wheres.length).toBeGreaterThan(0)
+    })
+
+    test('cap disabled: count(*) directly on the count shape, no probe subquery, no GROUP BY', async () => {
+      process.env.OM_LIST_COUNT_CAP = '0'
+      const { db, engine } = buildFixture(5)
+      const result = await engine.query('example:todo', {
+        tenantId: 't1',
+        organizationId: 'org1',
+        fields: ['id'],
+        page: { page: 1, pageSize: 20 },
+      })
+      expect(result.total).toBe(5)
+      expect(result.meta?.listCountCapWarning).toBeUndefined()
+      const countChain = db._chains.find((chain: ChainLog) =>
+        chain.table === 'todos' &&
+        chain.selects.some((s: any) => { try { return String(s?.alias ?? s) === 'count' } catch { return false } }))
+      expect(countChain).toBeTruthy()
+      expect(countChain.groupBys).toEqual([])
+      expect(countChain.limit).toBeNull()
+    })
+
+    test('capped total reports cap with meta.listCountCapWarning on the doc-storage path', async () => {
+      process.env.OM_LIST_COUNT_CAP = '2'
+      const db = createFakeKysely({
+        baseTable: 'custom_entities_storage',
+        hasIndexAny: false,
+        baseCount: 9,
+        indexCount: 0,
+        rows: {
+          custom_entities: [{ id: 'reg1' }],
+          custom_entities_storage: [
+            { entity_id: 'a', doc: {} },
+            { entity_id: 'b', doc: {} },
+            { entity_id: 'c', doc: {} },
+          ],
+        },
+      })
+      const em = buildEm(db)
+      const fallback = { query: jest.fn() }
+      const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent: jest.fn().mockResolvedValue(undefined) }))
+      const result = await engine.query('custom:thing', {
+        tenantId: 't1',
+        page: { page: 1, pageSize: 20 },
+      })
+      // The fake returns baseCount (9) for any count select; the probe caps it.
+      expect(result.total).toBe(2)
+      expect(result.meta?.listCountCapWarning).toEqual({ entity: 'custom:thing', cap: 2 })
+      const probeChain = db._chains.find((chain: ChainLog) => chain.table === 'custom_entities_storage' && chain.limit === 3)
+      expect(probeChain).toBeTruthy()
+      expect(probeChain.groupBys).toEqual([])
     })
   })
 
@@ -953,6 +1322,151 @@ describe('HybridQueryEngine', () => {
     const reindexCalls = emitEvent.mock.calls.filter(([name]) => name === 'query_index.reindex')
     expect(reindexCalls).toHaveLength(0)
     warnSpy.mockRestore()
+  })
+})
+
+// Regression coverage for issue #5968's query-index read path: `resolveCustomFieldKindIndex`
+// and the `decryptRow` wiring that feeds its result into `decryptIndexDocCustomFields`. The
+// underlying scope-precedence algorithm is unit-tested in `@open-mercato/shared`'s
+// `custom-fields/kinds` and `encryption/indexDoc` suites; this exercises the engine's own
+// glue — the `custom_field_defs` round trip, the per-query memoization, and each row being
+// resolved against its OWN `organization_id` — through the public `query()` entrypoint, with
+// the real (unmocked) encrypt/decrypt helpers so a wiring regression can't hide behind a mock.
+describe('HybridQueryEngine custom-field kind resolution (#5968)', () => {
+  const fixedKey = Buffer.alloc(32, 9).toString('base64')
+  const kindService = {
+    isEnabled: () => true,
+    getDek: async () => ({ key: fixedKey }),
+  } as any
+
+  test("resolves each row's cf value by its own organization's definition, not a shared last-row-wins map", async () => {
+    const encryptedForOrgA = await encryptCustomFieldValue('123', 'tenant-1', kindService, new Map())
+    const encryptedForOrgB = await encryptCustomFieldValue('123', 'tenant-1', kindService, new Map())
+
+    const db = createFakeKysely({
+      baseTable: 'customer_entities',
+      hasIndexAny: true,
+      baseCount: 2,
+      indexCount: 2,
+      // Both organizations override the SAME key with different `kind`s — the exact
+      // collision `custom_field_defs` allows with no unique constraint on (entity_id, key).
+      customFieldDefs: [
+        { entity_id: 'customers:customer_entity', key: 'code', kind: 'integer', organization_id: 'org-a', tenant_id: 'tenant-1' },
+        { entity_id: 'customers:customer_entity', key: 'code', kind: 'text', organization_id: 'org-b', tenant_id: 'tenant-1' },
+      ],
+      rows: {
+        customer_entities: [
+          { id: 'row-a', tenant_id: 'tenant-1', organization_id: 'org-a', cf_code: encryptedForOrgA },
+          { id: 'row-b', tenant_id: 'tenant-1', organization_id: 'org-b', cf_code: encryptedForOrgB },
+        ],
+      },
+    })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }), undefined, () => kindService)
+
+    const result = await engine.query('customers:customer_entity', {
+      fields: ['id', 'cf:code'],
+      includeCustomFields: true,
+      tenantId: 'tenant-1',
+      page: { page: 1, pageSize: 50 },
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    const byId = Object.fromEntries((result.items as any[]).map((item) => [item.id, item]))
+    // org-a's field is `integer`: the stored string round-trips through JSON.parse.
+    expect(byId['row-a'].cf_code).toBe(123)
+    // org-b's field is `text` on the SAME key: it must stay the verbatim string rather than
+    // borrowing org-a's `integer` kind from an order-dependent shared map.
+    expect(byId['row-b'].cf_code).toBe('123')
+  })
+
+  test("falls back to the query's own organizationId when a row carries no organization_id column (re-review M1)", async () => {
+    const encryptedForOrgA = await encryptCustomFieldValue('123', 'tenant-1', kindService, new Map())
+
+    const db = createFakeKysely({
+      baseTable: 'customer_entities',
+      hasIndexAny: true,
+      baseCount: 1,
+      indexCount: 1,
+      // Two organizations override the same key with colliding kinds — the ordering
+      // ensures the lowest-priority/most-recently-updated definition would win if the
+      // row's scope collapsed to "no organization" instead of falling back to the
+      // query's own organizationId.
+      customFieldDefs: [
+        { entity_id: 'customers:customer_entity', key: 'code', kind: 'integer', organization_id: 'org-a', tenant_id: 'tenant-1', updated_at: '2026-01-01T00:00:00.000Z' },
+        { entity_id: 'customers:customer_entity', key: 'code', kind: 'text', organization_id: 'org-b', tenant_id: 'tenant-1', updated_at: '2026-02-01T00:00:00.000Z' },
+      ],
+      rows: {
+        customer_entities: [
+          { id: 'row-a', tenant_id: 'tenant-1', cf_code: encryptedForOrgA },
+        ],
+      },
+    })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }), undefined, () => kindService)
+
+    // `fields` deliberately omits `organization_id`, so the fetched row carries no
+    // organization scope of its own — only `opts.organizationId` (`fallbackOrgId`)
+    // disambiguates which organization's `kind` definition applies.
+    const result = await engine.query('customers:customer_entity', {
+      fields: ['id', 'cf:code'],
+      includeCustomFields: true,
+      tenantId: 'tenant-1',
+      organizationId: 'org-a',
+      page: { page: 1, pageSize: 50 },
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    // org-a's field is `integer`: the stored string round-trips through JSON.parse.
+    // Before the fallback fix this decrypted as the verbatim string "123", borrowing
+    // org-b's `text` kind (or whichever definition sorted last) instead.
+    expect((result.items[0] as any).cf_code).toBe(123)
+  })
+
+  test('a failing custom_field_defs lookup fails open and keeps the legacy no-kind decrypt behavior', async () => {
+    const encrypted = await encryptCustomFieldValue('123', 'tenant-1', kindService, new Map())
+    const db = createFakeKysely({
+      baseTable: 'customer_entities',
+      hasIndexAny: true,
+      baseCount: 1,
+      indexCount: 1,
+      customFieldDefs: [
+        { entity_id: 'customers:customer_entity', key: 'code', kind: 'text', organization_id: 'org-a', tenant_id: 'tenant-1' },
+      ],
+      rows: {
+        customer_entities: [{ id: 'row-a', tenant_id: 'tenant-1', organization_id: 'org-a', cf_code: encrypted }],
+      },
+    })
+    // Simulate the definitions lookup failing (e.g. a transient DB error) after the engine's
+    // normal `custom_field_defs` handling would have run — `resolveCustomFieldKindIndex`
+    // wraps that query in a try/catch and must degrade to the pre-fix, no-kind behavior.
+    const originalSelectFrom = db.selectFrom.bind(db)
+    ;(db as any).selectFrom = (table: string) => {
+      if (String(table).split(/\s+as\s+/i)[0].trim() === 'custom_field_defs') {
+        throw new Error('lookup failed')
+      }
+      return originalSelectFrom(table)
+    }
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }), undefined, () => kindService)
+
+    const result = await engine.query('customers:customer_entity', {
+      fields: ['id', 'cf:code'],
+      includeCustomFields: true,
+      tenantId: 'tenant-1',
+      page: { page: 1, pageSize: 50 },
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    // No kind resolved -> legacy JSON.parse fallback -> the stored "123" comes back as 123,
+    // same as before this PR, rather than the request failing outright.
+    expect((result.items[0] as any).cf_code).toBe(123)
   })
 })
 
@@ -1145,5 +1659,671 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
     const chains = db._chains as ChainLog[]
     expect(chains.some((chain) => chain.table === 'custom_entities_storage' && chain.selects.length > 0)).toBe(true)
     expect(chains.some((chain) => chain.table === 'todos')).toBe(false)
+  })
+
+  describe('search_tokens coverage probe (#4723)', () => {
+    type ChainRecordingDb = { _chains: ChainLog[] }
+
+    const countProbes = (db: ChainRecordingDb): number =>
+      db._chains.filter((chain) => chain.table === 'search_tokens').length
+
+    const buildDb = (): ChainRecordingDb => createFakeKysely({
+      baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 10, customFieldKeys: {},
+    })
+
+    const buildCustomEntityDb = (): ChainRecordingDb => createFakeKysely({
+      baseTable: 'unused',
+      hasIndexAny: false,
+      baseCount: 0,
+      indexCount: 0,
+      customFieldKeys: {},
+      rows: { custom_entities_storage: [{ entity_id: 'record-1' }] },
+    })
+
+    const buildHybridEngine = (em: EntityManager): HybridQueryEngine =>
+      new HybridQueryEngine(em, new BasicQueryEngine(em))
+
+    test('is skipped when the query carries no like/ilike filter', async () => {
+      const db = buildDb()
+      const engine = buildHybridEngine(buildEm(db))
+
+      await engine.query('example:todo', {
+        fields: ['id'],
+        organizationId: 'org1',
+        tenantId: 't1',
+        filters: [{ field: 'is_done', op: 'eq', value: false }],
+      })
+
+      expect(countProbes(db)).toBe(0)
+    })
+
+    test('still runs when the query actually searches', async () => {
+      const db = buildDb()
+      const engine = buildHybridEngine(buildEm(db))
+
+      await engine.query('example:todo', {
+        fields: ['id'],
+        organizationId: 'org1',
+        tenantId: 't1',
+        filters: [{ field: 'title', op: 'ilike', value: '%abc%' }],
+      })
+
+      expect(countProbes(db)).toBeGreaterThan(0)
+    })
+
+    test('is skipped on the custom-entity storage path without a like/ilike filter', async () => {
+      const db = buildCustomEntityDb()
+      const engine = buildHybridEngine(buildEmWithOrmMetadata(db, {}))
+
+      await engine.query('example:calendar_entity', {
+        fields: ['id'],
+        organizationIds: ['org1'],
+        tenantId: 't1',
+        filters: [{ field: 'is_active', op: 'eq', value: true }],
+      })
+
+      expect(countProbes(db)).toBe(0)
+    })
+
+    test('still runs on the custom-entity storage path when the query searches', async () => {
+      const db = buildCustomEntityDb()
+      const engine = buildHybridEngine(buildEmWithOrmMetadata(db, {}))
+
+      await engine.query('example:calendar_entity', {
+        fields: ['id'],
+        organizationIds: ['org1'],
+        tenantId: 't1',
+        filters: [{ field: 'title', op: 'ilike', value: '%abc%' }],
+      })
+
+      expect(countProbes(db)).toBeGreaterThan(0)
+    })
+
+    test('probes each joined-source entity once even when several filters hit the same source', async () => {
+      const db = buildDb()
+      const engine = buildHybridEngine(buildEm(db))
+
+      await engine.query('example:todo', {
+        fields: ['id'],
+        organizationId: 'org1',
+        tenantId: 't1',
+        filters: [
+          { field: 'title', op: 'ilike', value: '%abc%' },
+          { field: 'description', op: 'ilike', value: '%def%' },
+        ],
+      })
+
+      expect(countProbes(db)).toBe(1)
+    })
+
+    test('a join-only search probes the joined entity without probing the base source', async () => {
+      const db = createFakeKysely({
+        baseTable: 'todos',
+        hasIndexAny: true,
+        baseCount: 10,
+        indexCount: 10,
+        customFieldKeys: {},
+        columns: [{ table_name: 'users', column_name: 'display_name' }],
+      })
+      const engine = buildHybridEngine(buildEm(db))
+
+      await engine.query('example:todo', {
+        fields: ['id'],
+        organizationId: 'org1',
+        tenantId: 't1',
+        joins: [{
+          alias: 'assignee',
+          entityId: 'auth:user',
+          from: { field: 'assignee_id' },
+          to: { field: 'id' },
+        }],
+        filters: [{ field: 'assignee.display_name', op: 'ilike', value: '%abc%' }],
+      })
+
+      expect(countProbes(db)).toBe(1)
+      const tokenProbe = (db._chains as ChainLog[]).find((chain) => chain.table === 'search_tokens')
+      expect(tokenProbe?.wheres).toContainEqual(['entity_type', '=', 'auth:user'])
+    })
+  })
+})
+
+describe('doc-field null equality (issue #4841)', () => {
+  const serializeWheres = (db: any, table: string): string[] =>
+    (db._chains as ChainLog[])
+      .filter((chain) => chain.table === table)
+      .flatMap((chain) => chain.wheres as any[])
+      .map((entry: any) =>
+        JSON.stringify(entry, (_key, inner) =>
+          inner && typeof inner.toOperationNode === 'function' ? inner.toOperationNode() : inner,
+        ),
+      )
+      .filter((serialized: string) => serialized.includes('->>'))
+
+  // The synthetic base table declares neither `started_at` nor `ended_at`, so both
+  // filters resolve against entity_indexes.doc instead of a real column — this
+  // covers the doc path only; entities with physical timestamp columns take the
+  // already-null-safe base-column path.
+  const runFilters = async (filters: Record<string, unknown>) => {
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: true,
+      baseCount: 5,
+      indexCount: 5,
+      columns: [
+        { table_name: 'todos', column_name: 'id' },
+        { table_name: 'todos', column_name: 'tenant_id' },
+        { table_name: 'todos', column_name: 'organization_id' },
+        { table_name: 'todos', column_name: 'deleted_at' },
+      ],
+    })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as any, () => null)
+
+    await engine.query('example:todo', {
+      fields: ['id'],
+      organizationId: 'org1',
+      tenantId: 't1',
+      filters,
+    })
+
+    return serializeWheres(db, 'todos')
+  }
+
+  test('doc-backed null filters compile to null-safe doc predicates', async () => {
+    const predicates = await runFilters({ started_at: { $ne: null }, ended_at: null })
+
+    expect(predicates.length).toBeGreaterThan(0)
+    const combined = predicates.join('\n')
+    // `(doc ->> 'ended_at') = NULL` and `<> NULL` are never TRUE, which silently
+    // emptied the active-timer lookup instead of narrowing it.
+    expect(combined).toContain('is null')
+    expect(combined).toContain('is not null')
+    expect(combined).not.toContain('<>')
+    expect(predicates.some((sql: string) => / = /.test(sql))).toBe(false)
+  })
+
+  test('non-null doc comparisons keep using the equality operators', async () => {
+    const predicates = await runFilters({ ended_at: '2026-01-01' })
+
+    expect(predicates.some((sql: string) => / = /.test(sql))).toBe(true)
+    expect(predicates.join('\n')).not.toContain('is null')
+  })
+
+  // Boundary pin: entities whose filtered fields ARE physical columns (like
+  // staff_time_entries.started_at/ended_at) never reach the doc builders — the
+  // base-column path emits the null-safe predicates on its own.
+  test('physical-column null filters take the base-column path, not the doc path', async () => {
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: true,
+      baseCount: 5,
+      indexCount: 5,
+      columns: [
+        { table_name: 'todos', column_name: 'id' },
+        { table_name: 'todos', column_name: 'tenant_id' },
+        { table_name: 'todos', column_name: 'organization_id' },
+        { table_name: 'todos', column_name: 'deleted_at' },
+        { table_name: 'todos', column_name: 'started_at' },
+        { table_name: 'todos', column_name: 'ended_at' },
+      ],
+    })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as any, () => null)
+
+    await engine.query('example:todo', {
+      fields: ['id'],
+      organizationId: 'org1',
+      tenantId: 't1',
+      filters: { started_at: { $ne: null }, ended_at: null },
+    })
+
+    expect(serializeWheres(db, 'todos')).toHaveLength(0)
+    const columnWheres = (db._chains as ChainLog[])
+      .filter((chain) => chain.table === 'todos')
+      .flatMap((chain) => chain.wheres as any[])
+    expect(columnWheres).toContainEqual(['b.started_at', 'is not', null])
+    expect(columnWheres).toContainEqual(['b.ended_at', 'is', null])
+  })
+
+  // Custom-field values are doc-backed too, so the cf: filter builders need the
+  // same null handling — an unset cf must be findable with `$eq: null`.
+  const runCfFilters = async (filters: Record<string, unknown>) => {
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: true,
+      baseCount: 5,
+      indexCount: 5,
+    })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as any, () => null)
+
+    await engine.query('example:todo', {
+      fields: ['id', 'cf:priority'],
+      includeCustomFields: true,
+      organizationId: 'org1',
+      tenantId: 't1',
+      filters,
+    })
+
+    // Since #5039 every cf leaf is applied as an expression callback so that OR groups
+    // can combine it with base-column leaves; replaying the callback against a recording
+    // ExpressionBuilder recovers the same predicate this assertion always read.
+    const eb: any = (column: any, op: any, value: any) => ({ kind: 'cmp', column, op, value })
+    eb.and = (parts: any[]) => ({ kind: 'and', parts })
+    eb.or = (parts: any[]) => ({ kind: 'or', parts })
+    eb.exists = (sub: any) => ({ kind: 'exists', sub })
+    eb.ref = (name: string) => ({ kind: 'ref', name })
+    eb.val = (value: any) => ({ kind: 'val', value })
+
+    return (db._chains as ChainLog[])
+      .flatMap((chain) => chain.wheres as any[])
+      .map((entry: any) => (Array.isArray(entry) && entry.length === 1 && typeof entry[0] === 'function' ? entry[0](eb) : entry))
+      .map((entry: any) =>
+        JSON.stringify(entry, (_key, inner) =>
+          inner && typeof inner.toOperationNode === 'function' ? inner.toOperationNode() : inner,
+        ),
+      )
+      .filter((serialized: string) => typeof serialized === 'string' && serialized.includes('->>'))
+  }
+
+  test('an unset custom field is matched with is null rather than = null', async () => {
+    const predicates = await runCfFilters({ 'cf:priority': null })
+
+    expect(predicates.length).toBeGreaterThan(0)
+    const combined = predicates.join('\n')
+    expect(combined).toContain('is null')
+    // `@> '[null]'::jsonb` cannot match an absent value, so the eq-null branch
+    // must not fall back to the array-contains form.
+    expect(combined).not.toContain('@>')
+  })
+
+  test('a set custom field is matched with is not null rather than <> null', async () => {
+    const predicates = await runCfFilters({ 'cf:priority': { $ne: null } })
+
+    expect(predicates.join('\n')).toContain('is not null')
+    expect(predicates.join('\n')).not.toContain('<>')
+  })
+})
+
+describe('HybridQueryEngine custom-field leaves inside an $or group (#5039)', () => {
+  // The fake builder stores `.where()` arguments verbatim, so an expression-callback
+  // stays opaque. Replaying it against a recording ExpressionBuilder is what makes the
+  // OR structure assertable — the same trick the shared engine's tests use.
+  const replayWhereCallbacks = (db: any, table: string): any[] => {
+    const eb: any = (column: any, op: any, value: any) => ({ kind: 'cmp', column, op, value })
+    eb.and = (parts: any[]) => ({ kind: 'and', parts })
+    eb.or = (parts: any[]) => ({ kind: 'or', parts })
+    eb.not = (part: any) => ({ kind: 'not', part })
+    eb.exists = (sub: any) => ({ kind: 'exists', sub })
+    eb.val = (value: any) => ({ kind: 'val', value })
+    eb.ref = (name: string) => ({ kind: 'ref', name })
+    return (db._chains as ChainLog[])
+      .filter((chain) => chain.table === table)
+      .flatMap((chain) => chain.wheres as any[])
+      .filter((entry: any) => Array.isArray(entry) && entry.length === 1 && typeof entry[0] === 'function')
+      .map((entry: any) => entry[0](eb))
+  }
+
+  const serialize = (node: unknown): string =>
+    JSON.stringify(node, (_key, inner) =>
+      inner && typeof inner.toOperationNode === 'function' ? inner.toOperationNode() : inner,
+    )
+
+  const runQuery = async (filters: Record<string, unknown>) => {
+    const db = createFakeKysely({
+      baseTable: 'todos',
+      hasIndexAny: true,
+      baseCount: 5,
+      indexCount: 5,
+      columns: [
+        { table_name: 'todos', column_name: 'id' },
+        { table_name: 'todos', column_name: 'tenant_id' },
+        { table_name: 'todos', column_name: 'organization_id' },
+        { table_name: 'todos', column_name: 'deleted_at' },
+        { table_name: 'todos', column_name: 'status' },
+      ],
+    })
+    const engine = new HybridQueryEngine(buildEm(db), { query: jest.fn() } as any)
+
+    await engine.query('example:todo', {
+      fields: ['id', 'cf:priority'],
+      includeCustomFields: true,
+      organizationId: 'org1',
+      tenantId: 't1',
+      filters,
+    })
+    return db
+  }
+
+  test('two cf values joined by $or compile to a single OR of two disjuncts', async () => {
+    const db = await runQuery({
+      $or: [{ 'cf:priority': 'high' }, { 'cf:priority': 'low' }],
+    })
+
+    // Before the fix both leaves were applied as separate `.where()` calls, so the SQL
+    // asked for priority = 'high' AND priority = 'low' and matched nothing.
+    const orNodes = replayWhereCallbacks(db, 'todos').filter((node) => node?.kind === 'or')
+    const grouped = orNodes.find((node) => node.parts.length === 2 && serialize(node).includes('high') && serialize(node).includes('low'))
+    expect(grouped).toBeTruthy()
+  })
+
+  test('a base column OR a cf value unites both legs in one disjunction', async () => {
+    const db = await runQuery({
+      $or: [{ status: 'open' }, { 'cf:priority': 'high' }],
+    })
+
+    const orNodes = replayWhereCallbacks(db, 'todos').filter((node) => node?.kind === 'or')
+    const grouped = orNodes.find((node) => node.parts.length === 2)
+    expect(grouped).toBeTruthy()
+    const serialized = serialize(grouped)
+    expect(serialized).toContain('open')
+    expect(serialized).toContain('high')
+  })
+
+  test('an ungrouped cf filter is still applied on its own, outside any OR', async () => {
+    const db = await runQuery({ 'cf:priority': 'high' })
+
+    const nodes = replayWhereCallbacks(db, 'todos')
+    // The eq branch itself is an OR (text match OR array containment); what must not
+    // appear is a two-disjunct group, because there is only one condition.
+    const groupedDisjunction = nodes.find((node) => node?.kind === 'or' && node.parts.length === 2 && node.parts.every((part: any) => part?.kind === 'or'))
+    expect(groupedDisjunction).toBeFalsy()
+    expect(nodes.some((node) => serialize(node).includes('high'))).toBe(true)
+  })
+})
+
+describe('HybridQueryEngine cf filter operator coverage (#5039)', () => {
+  // `cfFilterHasPredicate` decides, without an ExpressionBuilder, whether
+  // `buildCfFilterExpression` will produce anything. The two must agree: if the switch
+  // grows an operator and the operator set does not, OR-grouped leaves using it get
+  // silently dropped. This pins them together.
+  const SUPPORTED_OPS = ['eq', 'ne', 'in', 'nin', 'like', 'ilike', 'exists', 'gt', 'gte', 'lt', 'lte'] as const
+
+  // A cf predicate always reads the doc as text, so `->>` in the serialized WHERE is a
+  // reliable marker that one was emitted. Callback-form wheres are replayed against a
+  // recording ExpressionBuilder so the eq/in branches (which wrap themselves in an OR)
+  // are visible too.
+  const cfPredicatesFor = async (op: string, value: unknown): Promise<string[]> => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: true, baseCount: 5, indexCount: 5 })
+    const engine = new HybridQueryEngine(buildEm(db), { query: jest.fn() } as any)
+    await engine.query('example:todo', {
+      fields: ['id', 'cf:priority'],
+      includeCustomFields: true,
+      organizationId: 'org1',
+      tenantId: 't1',
+      filters: [{ field: 'cf:priority', op: op as any, value }],
+    })
+    const eb: any = (column: any, cmpOp: any, cmpValue: any) => ({ kind: 'cmp', column, op: cmpOp, value: cmpValue })
+    eb.and = (parts: any[]) => ({ kind: 'and', parts })
+    eb.or = (parts: any[]) => ({ kind: 'or', parts })
+    eb.exists = (sub: any) => ({ kind: 'exists', sub })
+    eb.ref = (name: string) => ({ kind: 'ref', name })
+    eb.val = (value_: any) => ({ kind: 'val', value: value_ })
+    return (db._chains as ChainLog[])
+      .flatMap((chain) => chain.wheres as any[])
+      .map((entry: any) => (Array.isArray(entry) && entry.length === 1 && typeof entry[0] === 'function' ? entry[0](eb) : entry))
+      .map((node: unknown) => JSON.stringify(node, (_key, inner) =>
+        inner && typeof inner.toOperationNode === 'function' ? inner.toOperationNode() : inner,
+      ))
+      .filter((serialized: string) => typeof serialized === 'string' && serialized.includes('->>'))
+  }
+
+  test.each(SUPPORTED_OPS)('operator %s compiles to a custom-field predicate', async (op) => {
+    const value = op === 'in' || op === 'nin' ? ['high'] : op === 'exists' ? true : 'high'
+    const predicates = await cfPredicatesFor(op, value)
+    expect(predicates.length).toBeGreaterThan(0)
+  })
+
+  test('an operator the builder does not compile emits no custom-field predicate at all', async () => {
+    // `cfFilterHasPredicate` must agree with the switch: an unsupported operator has to
+    // drop out entirely rather than reach SQL as a half-built or always-true clause.
+    const predicates = await cfPredicatesFor('regex', 'high')
+    expect(predicates).toHaveLength(0)
+  })
+})
+
+describe('HybridQueryEngine like/ilike routing by column encryption (applyColumnFilter)', () => {
+  // Unit-level: applyColumnFilter is called directly with a recording builder, and
+  // buildSearchTokensSub is spied, so these cases pin the routing decision itself without
+  // standing up the full query() scaffolding.
+  const { sql } = require('kysely')
+
+  function makeEngine() {
+    const engine = new HybridQueryEngine({} as any, { query: jest.fn() } as any)
+    const tokensSpy = jest
+      .spyOn(engine as any, 'buildSearchTokensSub')
+      .mockReturnValue({ __sub: true } as any)
+    return { engine, tokensSpy }
+  }
+
+  function makeBuilder() {
+    const wheres: any[] = []
+    const eb: any = {
+      or: (parts: any[]) => ({ __or: parts }),
+      exists: (sub: any) => ({ __exists: sub }),
+    }
+    const q: any = {
+      where: (...args: any[]) => {
+        if (args.length === 1 && typeof args[0] === 'function') {
+          wheres.push({ callback: args[0](eb) })
+        } else {
+          wheres.push({ args })
+        }
+        return q
+      },
+    }
+    return { q, wheres }
+  }
+
+  const runtime = (encryptedFields: Set<string> | null | undefined) => ({
+    enabled: true,
+    config: { enabled: true, minTokenLength: 3, enablePartials: true, hashAlgorithm: 'sha256' as const, storeRawTokens: false, blocklistedFields: [] },
+    tenantId: 't1',
+    organizationScope: null,
+    searchSources: [{ entity: 'customers:customer_entity', recordIdColumn: 'b.id' }],
+    mintAlias: () => 'st_0',
+    encryptedFields,
+    entity: 'customers:customer_entity',
+    field: 'display_name',
+    recordIdColumn: 'b.id',
+  })
+
+  test('a plaintext column keeps exact ILIKE when the gate has resolved a set', () => {
+    const { engine, tokensSpy } = makeEngine()
+    const { q, wheres } = makeBuilder()
+    ;(engine as any).applyColumnFilter(q, 'b.display_name', { field: 'display_name', op: 'ilike', value: '%avision%' }, runtime(new Set(['other_column'])))
+    expect(tokensSpy).not.toHaveBeenCalled()
+    expect(wheres).toEqual([{ args: ['b.display_name', 'ilike', '%avision%'] }])
+  })
+
+  test('an encrypted column still routes through tokens, matching across name shapes', () => {
+    // The map declares camelCase; the filter carries the snake_case column name.
+    const { engine, tokensSpy } = makeEngine()
+    const { q } = makeBuilder()
+    ;(engine as any).applyColumnFilter(q, 'b.display_name', { field: 'display_name', op: 'ilike', value: '%avision%' }, runtime(new Set(['displayName'])))
+    expect(tokensSpy).toHaveBeenCalled()
+  })
+
+  test('an untokenizable term on a KNOWN-encrypted column matches nothing, not everything', () => {
+    const { engine, tokensSpy } = makeEngine()
+    const { q, wheres } = makeBuilder()
+    ;(engine as any).applyColumnFilter(q, 'b.display_name', { field: 'display_name', op: 'ilike', value: 'ZK' }, runtime(new Set(['display_name'])))
+    expect(tokensSpy).not.toHaveBeenCalled()
+    expect(wheres).toHaveLength(1)
+    expect(JSON.stringify(wheres[0].args[0].toOperationNode())).toEqual(JSON.stringify(sql`false`.toOperationNode()))
+  })
+
+  test('with a nullish encrypted set (gate off / custom-entity / resolution failure) legacy semantics hold', () => {
+    const { engine, tokensSpy } = makeEngine()
+    const { q, wheres } = makeBuilder()
+    // Tokenizable term: the rewrite still fires.
+    ;(engine as any).applyColumnFilter(q, 'b.display_name', { field: 'display_name', op: 'ilike', value: '%avision%' }, runtime(undefined))
+    expect(tokensSpy).toHaveBeenCalled()
+    // Untokenizable term: the predicate is dropped, NOT failed closed.
+    const before = wheres.length
+    ;(engine as any).applyColumnFilter(q, 'b.display_name', { field: 'display_name', op: 'ilike', value: 'ZK' }, runtime(undefined))
+    expect(wheres).toHaveLength(before)
+  })
+
+  test('buildBaseFilterExpression: untokenizable OR-leaf is false only for KNOWN-encrypted columns', () => {
+    const { engine } = makeEngine()
+    const eb: any = { or: (parts: any[]) => ({ __or: parts }), exists: (sub: any) => ({ __exists: sub }) }
+    const resolveBase = (f: string) => f
+    const qualify = (c: string) => `b.${c}`
+    const known = (engine as any).buildBaseFilterExpression(eb, { field: 'display_name', op: 'ilike', value: 'ZK' }, resolveBase, qualify, 'customers:customer_entity', { ...runtime(new Set(['display_name'])) })
+    const legacy = (engine as any).buildBaseFilterExpression(eb, { field: 'display_name', op: 'ilike', value: 'ZK' }, resolveBase, qualify, 'customers:customer_entity', { ...runtime(undefined) })
+    expect(JSON.stringify(known.toOperationNode())).toEqual(JSON.stringify(sql`false`.toOperationNode()))
+    expect(JSON.stringify(legacy.toOperationNode())).toEqual(JSON.stringify(sql`true`.toOperationNode()))
+  })
+
+  // #5803 regression guard. The token subquery required every token to be present in any order,
+  // so `?search=Warehouse <stamp>` matched `Warehouse A <stamp>` -- behavior TC-RESO-009 pins.
+  // A single verbatim `ILIKE '%Warehouse <stamp>%'` cannot match across the `A `, so a plaintext
+  // column taken off the token path has to AND one containment predicate per word instead.
+  test('a multi-word term on a plaintext column ANDs one containment predicate per word', () => {
+    const { engine, tokensSpy } = makeEngine()
+    const { q, wheres } = makeBuilder()
+    ;(engine as any).applyColumnFilter(q, 'b.display_name', { field: 'display_name', op: 'ilike', value: '%Warehouse 1757%' }, runtime(new Set(['other_column'])))
+    expect(tokensSpy).not.toHaveBeenCalled()
+    expect(wheres).toEqual([
+      { args: ['b.display_name', 'ilike', '%Warehouse%'] },
+      { args: ['b.display_name', 'ilike', '%1757%'] },
+    ])
+  })
+
+  test('buildBaseFilterExpression: a multi-word OR-leaf on a plaintext column ANDs its words too', () => {
+    // `?search=` reaches the engine as an OR group across searchable columns, so the expression
+    // path -- not just the builder path above -- is what the reported grid actually hits.
+    const { engine } = makeEngine()
+    const eb: any = Object.assign(
+      (column: string, op: string, value: string) => ({ __cmp: [column, op, value] }),
+      {
+        or: (parts: any[]) => ({ __or: parts }),
+        and: (parts: any[]) => ({ __and: parts }),
+        exists: (sub: any) => ({ __exists: sub }),
+      },
+    )
+    const expression = (engine as any).buildBaseFilterExpression(
+      eb,
+      { field: 'display_name', op: 'ilike', value: '%Warehouse 1757%' },
+      (field: string) => field,
+      (column: string) => `b.${column}`,
+      'customers:customer_entity',
+      { ...runtime(new Set(['other_column'])) },
+    )
+    expect(expression).toEqual({
+      __and: [
+        { __cmp: ['b.display_name', 'ilike', '%Warehouse%'] },
+        { __cmp: ['b.display_name', 'ilike', '%1757%'] },
+      ],
+    })
+  })
+
+  test('buildBaseFilterExpression: a single-word OR-leaf reaches SQL exactly as declared', () => {
+    // The #5803 reproduction itself: `%2026-08%` must not be reinterpreted, or the exact period
+    // cannot come back at all.
+    const { engine } = makeEngine()
+    const eb: any = Object.assign(
+      (column: string, op: string, value: string) => ({ __cmp: [column, op, value] }),
+      {
+        or: (parts: any[]) => ({ __or: parts }),
+        and: (parts: any[]) => ({ __and: parts }),
+        exists: (sub: any) => ({ __exists: sub }),
+      },
+    )
+    const expression = (engine as any).buildBaseFilterExpression(
+      eb,
+      { field: 'period_code', op: 'ilike', value: '%2026-08%' },
+      (field: string) => field,
+      (column: string) => `b.${column}`,
+      'accounting:accounting_period',
+      { ...runtime(new Set(['other_column'])), field: 'period_code' },
+    )
+    expect(expression).toEqual({ __cmp: ['b.period_code', 'ilike', '%2026-08%'] })
+  })
+})
+
+describe('HybridQueryEngine like/ilike routing default (#5383, #5803)', () => {
+  // The unit-level suite above injects `encryptedFields` directly, so it pins how the runtime is
+  // USED but not whether the runtime gets a resolved set in the first place. That decision lives
+  // behind `searchConfig.useIlikeForNonEncryptedFields` in `query()`, and the hybrid engine is the
+  // one the app actually resolves (`query_index/di.ts`) -- the engine #5803 was reported against.
+  // Without a query()-level case the default could regress here while the shared-engine and
+  // config suites both stayed green. The switch itself stays off by default per #5383, so the
+  // "unset" case pins the legacy rewrite-everything behavior and the "true" case pins what a
+  // deployment gets by opting in ahead of that follow-up.
+  const originalFlag = process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
+
+  beforeEach(() => {
+    clearEncryptedLikeFieldsCache()
+    delete process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
+  })
+
+  afterEach(() => {
+    if (originalFlag === undefined) delete process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
+    else process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS = originalFlag
+  })
+
+  const buildEngine = () => {
+    const db = createFakeKysely({
+      baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 10, customFieldKeys: {},
+    })
+    const em = buildEm(db)
+    const readEncryptedFieldNames = jest.fn().mockResolvedValue([])
+    const engine = new HybridQueryEngine(
+      em,
+      new BasicQueryEngine(em),
+      undefined,
+      undefined,
+      () => ({ getEncryptedFieldNames: readEncryptedFieldNames }) as any,
+    )
+    jest.spyOn(engine as any, 'searchAvailability').mockReturnValue({
+      staticEnabled: async () => true,
+      hasTokens: async () => true,
+      anySourceHasTokens: async () => true,
+    })
+    return { engine, readEncryptedFieldNames }
+  }
+
+  // `2026-08` tokenizes to {202, 2026} -- exactly the set `2026-01` produces -- so reaching the
+  // token path at all is what made the reported list search answer with the wrong period.
+  const search = (engine: HybridQueryEngine) => engine.query('example:todo', {
+    fields: ['id'],
+    organizationId: 'org1',
+    tenantId: 't1',
+    filters: [{ field: 'title', op: 'ilike', value: '%2026-08%' }],
+  } as any)
+
+  // The gate reads the map with `ignoreRuntimeHealth` -- a column holds ciphertext even while the
+  // KMS is down -- and no other caller of `getEncryptedFieldNames` passes that option, so it is the
+  // signature that tells the gate's read apart from the decoration path's.
+  // Reading the encryption map is what SWITCHES the gate on: `searchRuntime.encryptedFields` is
+  // only populated from that read, and `buildBaseFilterExpression` sends everything through tokens
+  // while it stays nullish. Whether the read happens is therefore the query()-level signal that the
+  // per-column carve-out is active -- the routing it then drives is pinned by the
+  // `applyColumnFilter` suite above, which the fake builder cannot exercise because it never
+  // invokes Kysely's expression callbacks.
+  test('with the env var unset, query() never consults the map and every column stays on tokens', async () => {
+    const { engine, readEncryptedFieldNames } = buildEngine()
+
+    await search(engine)
+
+    expect(readEncryptedFieldNames).not.toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), expect.anything(), { ignoreRuntimeHealth: true },
+    )
+  })
+
+  test('with the env var set to true, query() resolves the encryption map so plaintext columns keep ILIKE', async () => {
+    process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS = 'true'
+    const { engine, readEncryptedFieldNames } = buildEngine()
+
+    await search(engine)
+
+    expect(readEncryptedFieldNames).toHaveBeenCalledWith(
+      'example:todo', 't1', null, { ignoreRuntimeHealth: true },
+    )
   })
 })

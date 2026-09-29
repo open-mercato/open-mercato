@@ -27,9 +27,15 @@ test.describe('TC-MSG-015: Sender-Owned Message Archive Action Visibility', () =
 
       const actionsButton = page.getByRole('button', { name: /^Actions$|ui\.actions\.actions/i }).first();
       await expect(actionsButton).toBeVisible();
-      await actionsButton.click();
 
-      await expect(page.getByRole('menuitem', { name: /^Delete$|messages\.actions\.delete/i })).toBeVisible();
+      // The FormHeader trigger is server-rendered, so a click can land before React
+      // hydrates and be swallowed. Retry until the dropdown actually opens.
+      const deleteItem = page.getByRole('menuitem', { name: /^Delete$|messages\.actions\.delete/i });
+      await expect(async () => {
+        await actionsButton.click();
+        await expect(deleteItem).toBeVisible({ timeout: 1_500 });
+      }).toPass({ timeout: 15_000 });
+
       await expect(page.getByRole('menuitem', { name: /^Archive$|messages\.actions\.archive/i })).toHaveCount(0);
     } finally {
       await deleteMessageIfExists(request, senderToken, messageId);

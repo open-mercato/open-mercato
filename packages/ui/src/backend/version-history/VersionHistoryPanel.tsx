@@ -192,7 +192,7 @@ export function VersionHistoryPanel({
             ) : (
               <div className="space-y-3">
                 {shouldAutoCheck && !permissions.isLoading && !permissions.canViewTenant && permissions.currentUserId ? (
-                  <Alert variant="info">
+                  <Alert status="information">
                     <AlertDescription>
                       {t('audit_logs.hint.view_self_only', 'Showing only your own changes. Contact an administrator for broader access.')}
                     </AlertDescription>

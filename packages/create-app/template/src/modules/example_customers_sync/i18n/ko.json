@@ -1,0 +1,11 @@
+{
+  "exampleCustomersSync.errors.invalidCursor": "잘못된 커서입니다.",
+  "exampleCustomersSync.errors.invalidJson": "잘못된 JSON 본문입니다.",
+  "exampleCustomersSync.errors.mappingsLoadFailed": "예제 고객 동기화 매핑을 불러오지 못했습니다.",
+  "exampleCustomersSync.errors.organizationContextRequired": "조직 컨텍스트가 필요합니다.",
+  "exampleCustomersSync.errors.organizationScopeMismatch": "조직 범위가 일치하지 않습니다.",
+  "exampleCustomersSync.errors.reconcileEnqueueFailed": "예제 고객 동기화 조정 작업을 대기열에 추가하지 못했습니다.",
+  "exampleCustomersSync.errors.tenantScopeMismatch": "테넌트 범위가 일치하지 않습니다.",
+  "exampleCustomersSync.errors.unauthorized": "권한이 없습니다",
+  "exampleCustomersSync.errors.validationFailed": "유효성 검사에 실패했습니다"
+}

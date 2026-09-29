@@ -33,16 +33,17 @@ yarn workspace @open-mercato/onboarding build
 - Steps are ordered — a step MUST NOT be accessible until its predecessor is complete
 - Step validation logic lives in `lib/` — keep API handlers thin
 - Frontend components in `frontend/` render each step's UI
+- Existing `api/get/**` and `api/post/**` files are legacy compatibility routes. Treat `api/<step>/get|post/route.ts` as legacy too; never copy either HTTP-method-directory layout into new work.
 
 ## Adding a New Onboarding Step
 
 1. Create step logic in `lib/<step-name>.ts` with validation and save functions
-2. Add GET endpoint in `api/<step-name>/get/route.ts` to fetch current state
-3. Add POST endpoint in `api/<step-name>/post/route.ts` to save and advance
-4. Create frontend component in `frontend/<step-name>/page.tsx`
+2. Create `api/<step-name>/route.ts` and export sibling `GET` and `POST` handlers from that file
+3. Declare per-method route metadata beside those handlers; use the exact public/authenticated access contract required by the step
+4. Create the frontend page under `frontend/<step-name>/page.tsx`
 5. Add translations to `i18n/<locale>.json`
 6. Register the step in the wizard step ordering configuration
-7. Run `yarn generate`
+7. Run `yarn generate` and verify both methods resolve at the intended route
 
 ## Module Setup Integration
 
@@ -60,7 +61,9 @@ See `packages/core/AGENTS.md` → Module Setup for the full `setup.ts` contract.
 
 ```
 packages/onboarding/src/modules/onboarding/
-├── api/          # Wizard step endpoints (GET/POST per step)
+├── api/          # New work: <step>/route.ts with sibling GET/POST handlers
+│   ├── get/      # Legacy compatibility routes; do not copy
+│   └── post/     # Legacy compatibility routes; do not copy
 ├── data/         # ORM entities for onboarding state
 ├── emails/       # Email templates (welcome, invitations)
 ├── frontend/     # Wizard UI components

@@ -9,8 +9,16 @@ import {
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { normalizeHostname, tryNormalizeHostname } from '@open-mercato/core/modules/customer_accounts/lib/hostname'
+import { findOrganizationInTenant } from '@open-mercato/core/modules/customer_accounts/lib/organizationLookup'
 import { platformDomains } from '@open-mercato/core/modules/customer_accounts/lib/platformDomains'
 import { detectProxy, isInKnownProxyRange } from '@open-mercato/core/modules/customer_accounts/lib/proxyRanges'
+
+export class DomainMappingOrgScopeError extends Error {
+  constructor(organizationId: string) {
+    super(`[internal] organizationId ${organizationId} does not belong to the caller's tenant`)
+    this.name = 'DomainMappingOrgScopeError'
+  }
+}
 
 const DOMAIN_ROUTING_TAG = 'domain_routing'
 const RESOLVE_KEY_PREFIX = 'domain_routing:resolve'
@@ -269,6 +277,8 @@ export class DomainMappingService {
 
   async register(input: RegisterInput): Promise<DomainMapping> {
     const hostname = normalizeHostname(input.hostname)
+    const organization = await findOrganizationInTenant(this.em, input.organizationId, input.tenantId)
+    if (!organization) throw new DomainMappingOrgScopeError(input.organizationId)
 
     let replacesDomain: DomainMapping | null = null
     if (input.replacesDomainId) {

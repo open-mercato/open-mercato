@@ -3,38 +3,30 @@
 import * as React from 'react'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { useWidgetData, type WidgetDataFetcher } from '@open-mercato/ui/backend/dashboard/widgetData'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { BarChart, type BarChartDataItem } from '@open-mercato/ui/backend/charts'
 import {
   DateRangeSelect,
   InlineDateRangeSelect,
   type DateRangePreset,
 } from '@open-mercato/ui/backend/date-range'
-import { DEFAULT_SETTINGS, hydrateSettings, type PipelineSummarySettings } from './config'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
+import {
+  DEFAULT_SETTINGS,
+  buildPipelineDataRequest,
+  hydrateSettings,
+  type PipelineStatusScope,
+  type PipelineSummarySettings,
+} from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
-import { formatCurrencyCompact } from '../../../lib/formatters'
+import { createCurrencyFormatters } from '../../../lib/formatters'
+import { UnlabelledAmountNotice } from '../../../components/UnlabelledAmountNotice'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('dashboards').child({ component: 'pipeline-summary' })
 
 async function fetchPipelineData(settings: PipelineSummarySettings, fetchWidgetData: WidgetDataFetcher): Promise<WidgetDataResponse> {
-  const body = {
-    entityType: 'customers:deals',
-    metric: {
-      field: 'valueAmount',
-      aggregate: 'sum',
-    },
-    groupBy: {
-      field: 'pipelineStage',
-      resolveLabels: true,
-    },
-    dateRange: {
-      field: 'createdAt',
-      preset: settings.dateRange,
-    },
-  }
-
-  return fetchWidgetData<WidgetDataResponse>(body)
+  return fetchWidgetData<WidgetDataResponse>(buildPipelineDataRequest(settings))
 }
 
 function formatStageLabel(stage: unknown, t: (key: string, fallback: string) => string): string {
@@ -56,10 +48,13 @@ const PipelineSummaryWidget: React.FC<DashboardWidgetComponentProps<PipelineSumm
   onRefreshStateChange,
 }) => {
   const t = useT()
+  const locale = useLocale()
   const hydrated = React.useMemo(() => hydrateSettings(settings), [settings])
   const [data, setData] = React.useState<BarChartDataItem[]>([])
+  const [currency, setCurrency] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const money = React.useMemo(() => createCurrencyFormatters(currency, '--', locale), [currency, locale])
 
   const fetchWidgetData = useWidgetData()
   const refresh = React.useCallback(async () => {
@@ -75,6 +70,7 @@ const PipelineSummaryWidget: React.FC<DashboardWidgetComponentProps<PipelineSumm
           Value: item.value ?? 0,
         }))
       setData(chartData)
+      setCurrency(result.metadata?.currency ?? null)
     } catch (err) {
       logger.error('Failed to load pipeline data', { err })
       setError(t('dashboards.analytics.widgets.pipelineSummary.error', 'Failed to load data'))
@@ -97,6 +93,30 @@ const PipelineSummaryWidget: React.FC<DashboardWidgetComponentProps<PipelineSumm
           value={hydrated.dateRange}
           onChange={(dateRange: DateRangePreset) => onSettingsChange({ ...hydrated, dateRange })}
         />
+        <div className="space-y-1.5">
+          <label
+            htmlFor="pipeline-summary-status-scope"
+            className="text-xs font-semibold uppercase text-muted-foreground"
+          >
+            {t('dashboards.analytics.settings.dealStatusScope', 'Deals included')}
+          </label>
+          <Select
+            value={hydrated.statusScope}
+            onValueChange={(value) => onSettingsChange({ ...hydrated, statusScope: value as PipelineStatusScope })}
+          >
+            <SelectTrigger id="pipeline-summary-status-scope" size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="open">
+                {t('dashboards.analytics.settings.dealStatusScopeOpen', 'Open deals only')}
+              </SelectItem>
+              <SelectItem value="all">
+                {t('dashboards.analytics.settings.dealStatusScopeAll', 'All deals, including won and lost')}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
     )
   }
@@ -117,12 +137,13 @@ const PipelineSummaryWidget: React.FC<DashboardWidgetComponentProps<PipelineSumm
           categoryLabels={{ Value: t('dashboards.analytics.labels.value', 'Value') }}
           loading={loading}
           error={error}
-          valueFormatter={formatCurrencyCompact}
+          valueFormatter={money.formatCompact}
           colors={['violet']}
           showLegend={false}
           emptyMessage={t('dashboards.analytics.widgets.pipelineSummary.empty', 'No deal data for this period')}
         />
       </div>
+      <UnlabelledAmountNotice currency={currency} loading={loading} error={error} />
     </div>
   )
 }

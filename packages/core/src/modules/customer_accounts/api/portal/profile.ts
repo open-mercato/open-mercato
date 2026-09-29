@@ -27,6 +27,10 @@ export async function GET(req: Request) {
   }
 
   const acl = await customerRbacService.loadAcl(user.id, { tenantId: user.tenantId, organizationId: user.organizationId })
+  const resolvedFeatures = await customerRbacService.getEffectiveFeatures(user.id, {
+    tenantId: user.tenantId,
+    organizationId: user.organizationId,
+  })
 
   const userRoles = await em.find(CustomerUserRole, {
     user: user.id as any,
@@ -52,7 +56,7 @@ export async function GET(req: Request) {
       createdAt: user.createdAt,
     },
     roles,
-    resolvedFeatures: acl.features,
+    resolvedFeatures,
     isPortalAdmin: acl.isPortalAdmin,
   })
 }

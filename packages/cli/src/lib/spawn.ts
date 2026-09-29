@@ -28,21 +28,22 @@ function assertWindowsCmdSafeValue(value: string, label: string): string {
 export function resolveSpawnCommand(
   command: string,
   commandArgs: string[] = [],
-  options: { platform?: NodeJS.Platform } = {},
+  options: { platform?: NodeJS.Platform; detached?: boolean } = {},
 ): {
   command: string
   args: string[]
-  spawnOptions: { shell?: boolean; windowsVerbatimArguments?: boolean }
+  spawnOptions: { shell?: boolean; windowsVerbatimArguments?: boolean; detached?: boolean }
 } {
   const platform = options.platform ?? process.platform
   const safeCommand = assertProcessSafeValue(command, 'Process command')
   const safeArgs = commandArgs.map((arg, index) => assertProcessSafeValue(arg, `Process argument #${index + 1}`))
+  const detachedSpawnOptions = options.detached ? { detached: true } : {}
 
   if (!isWindowsCmdScript(safeCommand, platform)) {
     return {
       command: safeCommand,
       args: safeArgs,
-      spawnOptions: {},
+      spawnOptions: { ...detachedSpawnOptions },
     }
   }
 
@@ -51,6 +52,6 @@ export function resolveSpawnCommand(
     args: safeArgs.map((arg, index) =>
       assertWindowsCmdSafeValue(arg, `Windows command argument #${index + 1}`),
     ),
-    spawnOptions: {},
+    spawnOptions: { ...detachedSpawnOptions },
   }
 }

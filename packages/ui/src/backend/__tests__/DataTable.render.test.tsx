@@ -2,7 +2,7 @@
 import * as React from 'react'
 import { renderToString } from 'react-dom/server'
 import { DataTable } from '../DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { fireEvent, render, screen } from '@testing-library/react'
@@ -19,6 +19,36 @@ jest.mock('../injection/useInjectionDataWidgets', () => ({
 type Row = { id: string; name: string }
 
 describe('DataTable SSR render', () => {
+  it('keeps section-level title semantics by default and supports an explicit page heading', () => {
+    const columns: ColumnDef<Row>[] = [
+      { accessorKey: 'name', header: 'Name' },
+    ]
+    const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
+    try {
+      const { rerender } = render(
+        <QueryClientProvider client={queryClient}>
+          <I18nProvider locale="en" dict={{}}>
+            <DataTable columns={columns} data={[]} title="People" />
+          </I18nProvider>
+        </QueryClientProvider>,
+      )
+
+      expect(screen.getByRole('heading', { level: 2, name: 'People' })).toBeInTheDocument()
+
+      rerender(
+        <QueryClientProvider client={queryClient}>
+          <I18nProvider locale="en" dict={{}}>
+            <DataTable columns={columns} data={[]} title="People" titleHeadingLevel={1} embedded />
+          </I18nProvider>
+        </QueryClientProvider>,
+      )
+
+      expect(screen.getByRole('heading', { level: 1, name: 'People' })).toBeInTheDocument()
+    } finally {
+      queryClient.clear()
+    }
+  })
+
   it('renders built-in FilterBar when search/filters provided', () => {
     const columns: ColumnDef<Row>[] = [
       { accessorKey: 'name', header: 'Name' },
@@ -88,6 +118,82 @@ describe('DataTable SSR render', () => {
     }
   })
 
+  it('renders no expand toggle when expansion props are absent (back-compat)', () => {
+    const columns: ColumnDef<Row>[] = [{ accessorKey: 'name', header: 'Name' }]
+    const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
+    try {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <I18nProvider locale="en" dict={{}}>
+            <DataTable columns={columns} data={[{ id: '1', name: 'Ada' }]} />
+          </I18nProvider>
+        </QueryClientProvider>,
+      )
+      expect(screen.queryByRole('button', { name: /expand row/i })).toBeNull()
+      expect(screen.queryByRole('button', { name: /collapse row/i })).toBeNull()
+    } finally {
+      queryClient.clear()
+    }
+  })
+
+  it('shows an expand toggle and reveals sub-rows when expansion is enabled', () => {
+    type TreeRow = { id: string; name: string; children?: TreeRow[] }
+    const columns: ColumnDef<TreeRow>[] = [{ accessorKey: 'name', header: 'Name' }]
+    const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
+    try {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <I18nProvider locale="en" dict={{}}>
+            <DataTable<TreeRow>
+              columns={columns}
+              data={[{ id: 'parent', name: 'Parent', children: [{ id: 'child', name: 'Child' }] }]}
+              getSubRows={(row) => row.children}
+              expandable={(row) => Boolean(row.children?.length)}
+            />
+          </I18nProvider>
+        </QueryClientProvider>,
+      )
+
+      // Child hidden until expanded.
+      expect(screen.queryByText('Child')).toBeNull()
+      const toggle = screen.getByRole('button', { name: /expand row/i })
+      fireEvent.click(toggle)
+      expect(screen.getByText('Child')).toBeInTheDocument()
+      // Toggle flips to collapse affordance.
+      expect(screen.getByRole('button', { name: /collapse row/i })).toBeInTheDocument()
+    } finally {
+      queryClient.clear()
+    }
+  })
+
+  it('uses controlled expanded state and reports changes for lazy loading', () => {
+    type TreeRow = { id: string; name: string; children?: TreeRow[] }
+    const columns: ColumnDef<TreeRow>[] = [{ accessorKey: 'name', header: 'Name' }]
+    const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
+    const onExpandedChange = jest.fn()
+    try {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <I18nProvider locale="en" dict={{}}>
+            <DataTable<TreeRow>
+              columns={columns}
+              data={[{ id: 'parent', name: 'Parent' }]}
+              getSubRows={(row) => row.children}
+              expandable={() => true}
+              expanded={{}}
+              onExpandedChange={onExpandedChange}
+            />
+          </I18nProvider>
+        </QueryClientProvider>,
+      )
+      // A row with no loaded children still shows a toggle (lazy-load affordance).
+      fireEvent.click(screen.getByRole('button', { name: /expand row/i }))
+      expect(onExpandedChange).toHaveBeenCalled()
+    } finally {
+      queryClient.clear()
+    }
+  })
+
   it('keeps provided row order in manual sorting mode and reports sorting changes', () => {
     const columns: ColumnDef<Row>[] = [
       { accessorKey: 'name', header: 'Name' },
@@ -124,6 +230,43 @@ describe('DataTable SSR render', () => {
       )
       const afterText = container.textContent ?? ''
       expect(afterText.indexOf('Zed')).toBeLessThan(afterText.indexOf('Ada'))
+    } finally {
+      queryClient.clear()
+    }
+  })
+
+  it('forwards the click event to onRowClick, and skips it when clicking the actions cell', () => {
+    const columns: ColumnDef<Row>[] = [
+      { accessorKey: 'name', header: 'Name' },
+    ]
+    const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
+    let capturedRowTagName: string | null = null
+    const onRowClick = jest.fn((_row: Row, event: React.MouseEvent<HTMLTableRowElement>) => {
+      capturedRowTagName = event.currentTarget.tagName
+    })
+    try {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <I18nProvider locale="en" dict={{}}>
+            <DataTable
+              columns={columns}
+              data={[{ id: '1', name: 'Ada' }]}
+              onRowClick={onRowClick}
+              rowActions={() => <button type="button">Edit</button>}
+            />
+          </I18nProvider>
+        </QueryClientProvider>,
+      )
+
+      fireEvent.click(screen.getByText('Ada'))
+      expect(onRowClick).toHaveBeenCalledTimes(1)
+      const [row, event] = onRowClick.mock.calls[0]
+      expect(row).toEqual({ id: '1', name: 'Ada' })
+      expect(event.type).toBe('click')
+      expect(capturedRowTagName).toBe('TR')
+
+      fireEvent.click(screen.getByText('Edit'))
+      expect(onRowClick).toHaveBeenCalledTimes(1)
     } finally {
       queryClient.clear()
     }

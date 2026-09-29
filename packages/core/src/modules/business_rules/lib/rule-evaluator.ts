@@ -1,6 +1,6 @@
 import type { BusinessRule } from '../data/entities'
 import { evaluateExpression, type EvaluationContext, type ConditionExpression } from './expression-evaluator'
-import { createLogger } from '@open-mercato/shared/lib/logger'
+import { createLogger, isLevelEnabled } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('business_rules').child({ component: 'rule-evaluator' })
 
@@ -105,14 +105,15 @@ export async function evaluateSingleRule(
 ): Promise<SingleRuleResult> {
   const startTime = Date.now()
 
-  logger.debug('Evaluating rule', {
-    ruleId: rule.ruleId,
-    ruleName: rule.ruleName,
-    ruleType: rule.ruleType,
-    entityType: rule.entityType,
-    eventType: rule.eventType,
-    conditions: rule.conditionExpression,
-  })
+  if (isLevelEnabled('debug')) {
+    logger.debug('Evaluating rule', {
+      ruleId: rule.ruleId,
+      ruleName: rule.ruleName,
+      ruleType: rule.ruleType,
+      entityType: rule.entityType,
+      eventType: rule.eventType,
+    })
+  }
 
   try {
     // Check if rule is enabled

@@ -14,7 +14,7 @@ function setMtime(filePath: string, when: Date): void {
 describe('touchGeneratedBarrels', () => {
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000)
 
-  it('rewrites every .generated.ts and .generated.checksum file with identical bytes and a fresh mtime', () => {
+  it('advances the mtime of every .generated.ts and .generated.checksum file without rewriting its bytes', () => {
     const root = makeTmp('touch-barrels-')
     try {
       const generatedDir = path.join(root, '.mercato', 'generated')
@@ -35,7 +35,17 @@ describe('touchGeneratedBarrels', () => {
       setMtime(checksumFile, oneHourAgo)
       setMtime(unrelatedFile, oneHourAgo)
 
-      const result = touchGeneratedBarrels({ cwd: root, quiet: true })
+      // Rewriting a multi-megabyte registry truncates it for as long as the write
+      // takes, and a concurrent Turbopack compile reading it then sees a partial
+      // file — the invariant `packages/cli/AGENTS.md` states as a MUST NOT.
+      const writeSpy = jest.spyOn(fs, 'writeFileSync')
+      let result: ReturnType<typeof touchGeneratedBarrels>
+      try {
+        result = touchGeneratedBarrels({ cwd: root, quiet: true })
+        expect(writeSpy).not.toHaveBeenCalled()
+      } finally {
+        writeSpy.mockRestore()
+      }
 
       expect(result.generatedDir).toBe(generatedDir)
       expect(result.files.sort()).toEqual([checksumFile, tsFile].sort())

@@ -10,7 +10,9 @@
 // Behavior parity with `packages/<pkg>/watch.mjs` (which delegates to
 // `scripts/watch.mjs`'s `low-memory` mode):
 //   - one-shot `esbuild.build` per change, no persistent context held idle;
-//   - re-globs entry points before every rebuild so brand-new files emit;
+//   - compiles changed TypeScript entries for ordinary edits and re-globs on
+//     add/remove/rename events so brand-new files still emit;
+//   - byte-identical outputs keep their mtimes and avoid graph invalidation;
 //   - 100 ms per-package debounce coalesces editor save flurries;
 //   - emits the same `[watch] <pkg>: rebuilding...` / `rebuild complete`
 //     lines so `scripts/dev.mjs` log filters keep working.
@@ -55,7 +57,7 @@ export function isWatchedSourceFile(filename) {
 // source) so existing importers and tests keep the same entry point.
 export const discoverWorkspacePackages = discoverWatchTargets
 
-function createBuildOptions(packageDir, entryPoints) {
+function createBuildOptions(packageDir, entryPoints, { onWrite } = {}) {
   return {
     absWorkingDir: packageDir,
     entryPoints,
@@ -67,7 +69,7 @@ function createBuildOptions(packageDir, entryPoints) {
     sourcemap: true,
     jsx: 'automatic',
     write: false,
-    plugins: [createAtomicWritePlugin()],
+    plugins: [createAtomicWritePlugin({ onWrite })],
     logLevel: 'warning',
   }
 }
@@ -109,7 +111,10 @@ export function discoverAppGeneratedDirs(root) {
   })
 }
 
-export function touchGeneratedBarrels(generatedDirs, { log = defaultLog } = {}) {
+export function touchGeneratedBarrels(
+  generatedDirs,
+  { log = defaultLog, packageName = null } = {},
+) {
   let touchedCount = 0
   for (const generatedDir of generatedDirs) {
     let entries = []
@@ -124,7 +129,9 @@ export function touchGeneratedBarrels(generatedDirs, { log = defaultLog } = {}) 
       if (!TOUCHABLE_GENERATED_PATTERN.test(entry.name)) continue
       const filePath = join(generatedDir, entry.name)
       try {
-        writeFileSync(filePath, readFileSync(filePath))
+        const contents = readFileSync(filePath)
+        if (packageName && !contents.includes(packageName)) continue
+        writeFileSync(filePath, contents)
         touchedCount += 1
       } catch (error) {
         log(
@@ -143,6 +150,8 @@ function makePackageState(pkg) {
     rebuildTimeout: null,
     isRebuilding: false,
     rebuildQueued: false,
+    pendingChangedFiles: new Set(),
+    requiresFullRebuild: false,
     watcher: null,
     watchError: null,
   }
@@ -158,14 +167,29 @@ async function rebuildPackage(state, { log, build = esbuild.build, generatedDirs
     state.rebuildQueued = false
     state.isRebuilding = true
     try {
-      const points = await globEntryPoints(state.packageDir)
+      const pendingChangedFiles = state.pendingChangedFiles
+      const requiresFullRebuild = state.requiresFullRebuild || pendingChangedFiles.size === 0
+      state.pendingChangedFiles = new Set()
+      state.requiresFullRebuild = false
+
+      const points = requiresFullRebuild
+        ? await globEntryPoints(state.packageDir)
+        : [...pendingChangedFiles].filter((filePath) => existsSync(filePath))
       if (points.length === 0) {
         log(`[watch] ${state.shortLabel}: no source files found, skipping rebuild`)
         continue
       }
       log(`[watch] ${state.shortLabel}: rebuilding...`)
-      await build(createBuildOptions(state.packageDir, points))
-      touchGeneratedBarrels(generatedDirs, { log })
+      const changedOutputPaths = new Set()
+      const result = await build(createBuildOptions(state.packageDir, points, {
+        onWrite(filePath, changed) {
+          if (changed) changedOutputPaths.add(filePath)
+        },
+      }))
+      for (const filePath of result?.changedOutputPaths ?? []) changedOutputPaths.add(filePath)
+      if (changedOutputPaths.size > 0) {
+        touchGeneratedBarrels(generatedDirs, { log, packageName: state.name })
+      }
       log(`[watch] ${state.shortLabel}: rebuild complete`)
     } catch (error) {
       log(`[watch] ${state.shortLabel}: rebuild failed: ${error?.message ?? error}`, 'error')
@@ -176,8 +200,14 @@ async function rebuildPackage(state, { log, build = esbuild.build, generatedDirs
 }
 
 function startPackageWatcher(state, { log, build, generatedDirs, watch = fsWatch }) {
-  const onChange = (_eventType, filename) => {
+  const onChange = (eventType, filename) => {
     if (!isWatchedSourceFile(filename)) return
+    const filePath = join(state.srcDir, filename)
+    if (eventType === 'change' && /\.tsx?$/.test(filename) && existsSync(filePath)) {
+      state.pendingChangedFiles.add(filePath)
+    } else {
+      state.requiresFullRebuild = true
+    }
     if (state.rebuildTimeout) clearTimeout(state.rebuildTimeout)
     state.rebuildTimeout = setTimeout(() => {
       state.rebuildTimeout = null
@@ -187,6 +217,13 @@ function startPackageWatcher(state, { log, build, generatedDirs, watch = fsWatch
 
   try {
     state.watcher = watch(state.srcDir, { recursive: true }, onChange)
+    state.watcher?.on?.('error', (error) => {
+      state.watchError = error
+      log(
+        `[watch] ${state.shortLabel}: watcher error: ${error?.message ?? error}`,
+        'error',
+      )
+    })
     return true
   } catch (error) {
     state.watchError = error

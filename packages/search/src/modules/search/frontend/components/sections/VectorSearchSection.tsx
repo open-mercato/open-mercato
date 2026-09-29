@@ -79,6 +79,8 @@ type VectorDriverStatus = {
   name: string
   configured: boolean
   implemented: boolean
+  available?: boolean | null
+  unavailableReason?: string | null
   envVars: VectorDriverEnvVar[]
 }
 
@@ -447,6 +449,31 @@ export function VectorSearchSection({
   const isEmbeddingConfigured = embeddingSettings?.configuredProviders?.includes(savedProvider)
   const providerOptions: EmbeddingProviderId[] = ['openai', 'google', 'mistral', 'cohere', 'bedrock', 'ollama']
 
+  const activeDriver = vectorStoreConfig?.drivers.find((driver) => driver.id === vectorStoreConfig.currentDriver)
+  const isStoreUnavailable = activeDriver?.available === false
+  const storeUnavailableReason = activeDriver?.unavailableReason ?? null
+
+  const storeUnavailableBanner = isStoreUnavailable ? (
+    <div className="p-4 rounded-md bg-status-warning-bg border border-status-warning-border">
+      <div className="flex items-start gap-3">
+        <svg className="h-5 w-5 text-status-warning-icon flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+        <div>
+          <p className="text-sm font-medium text-status-warning-text">
+            {t('search.settings.vector.storeUnavailable', 'Vector store is not available')}
+          </p>
+          <p className="text-xs text-status-warning-text mt-1">
+            {t('search.settings.vector.storeUnavailableHint', 'Vector indexing and semantic search are skipped until the store is reachable. Install the pgvector extension on your PostgreSQL server; the status is rechecked about once a minute.')}
+          </p>
+          {storeUnavailableReason ? (
+            <p className="text-xs text-status-warning-text mt-1 font-mono">{storeUnavailableReason}</p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  ) : null
+
   const autoIndexingChecked = embeddingSettings ? embeddingSettings.autoIndexingEnabled : true
   const autoIndexingDisabled = embeddingLoading || embeddingSaving || Boolean(embeddingSettings?.autoIndexingLocked)
 
@@ -481,13 +508,14 @@ export function VectorSearchSection({
             </div>
           ) : (
             <div className="space-y-4">
+              {storeUnavailableBanner}
               {/* Vector Store Driver Status */}
               <div>
                 <h3 className="text-sm font-semibold mb-2">{t('search.settings.vector.store', 'Vector Store')}</h3>
                 <div className="grid gap-2 sm:grid-cols-3">
                   {vectorStoreConfig?.drivers.map((driver) => {
                     const isCurrent = driver.id === vectorStoreConfig.currentDriver
-                    const isReady = driver.configured && driver.implemented
+                    const isReady = driver.configured && driver.implemented && driver.available !== false
                     return (
                       <div
                         key={driver.id}
@@ -746,6 +774,8 @@ export function VectorSearchSection({
               <Spinner size="sm" />
               <span>{t('search.settings.loadingLabel', 'Loading settings...')}</span>
             </div>
+          ) : isStoreUnavailable ? (
+            storeUnavailableBanner
           ) : !isEmbeddingConfigured ? (
             <div className="p-4 rounded-md bg-status-warning-bg border border-status-warning-border">
               <div className="flex items-start gap-3">
@@ -979,7 +1009,7 @@ export function VectorSearchSection({
               <Button type="button" variant="outline" onClick={handleEmbeddingCancelChange} disabled={embeddingSaving}>
                 {t('search.settings.actions.cancel', 'Cancel')}
               </Button>
-              <Button type="button" variant="destructive" onClick={handleEmbeddingConfirmChange} disabled={embeddingSaving}>
+              <Button type="button" variant="destructive-solid" onClick={handleEmbeddingConfirmChange} disabled={embeddingSaving}>
                 {embeddingSaving ? <Spinner size="sm" className="mr-2" /> : null}
                 {t('search.settings.actions.confirm', 'Confirm')}
               </Button>

@@ -491,4 +491,64 @@ describe('PersonCompaniesSection', () => {
     expect(apiCallOrThrowMock).not.toHaveBeenCalled()
     expect(screen.getByText('Alpha Corp')).toBeInTheDocument()
   })
+
+  // Mirror of the company-side live refresh. A legacy profile-only detach has no link row, so
+  // it broadcasts `customers.person.company_assignment.detached` rather than the link event
+  // this tab already listened to (#5114); both must reload the person's companies.
+  describe.each([
+    ['customers.person_company_link.deleted'],
+    ['customers.person.company_assignment.detached'],
+  ])('%s', (eventId) => {
+    function renderSection() {
+      readApiResultOrThrowMock.mockImplementation(async () => ({ items: [], totalPages: 1 }))
+      renderWithProviders(
+        <PersonCompaniesSection
+          personId="person-1"
+          personName="Lena Ortiz"
+          initialLinkedCompanies={[]}
+        />,
+      )
+    }
+
+    async function dispatchDetach(personEntityId: string) {
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent('om:event', {
+            detail: {
+              id: eventId,
+              payload: { linkId: null, personEntityId, companyEntityId: 'company-1' },
+              timestamp: 1,
+              organizationId: 'org-1',
+            },
+          }),
+        )
+      })
+    }
+
+    it('reloads the linked companies when the detach targets this person', async () => {
+      renderSection()
+      await waitFor(() => {
+        expect(readApiResultOrThrowMock).toHaveBeenCalled()
+      })
+      const before = readApiResultOrThrowMock.mock.calls.length
+
+      await dispatchDetach('person-1')
+
+      await waitFor(() => {
+        expect(readApiResultOrThrowMock.mock.calls.length).toBeGreaterThan(before)
+      })
+    })
+
+    it('ignores a detach that targets a different person', async () => {
+      renderSection()
+      await waitFor(() => {
+        expect(readApiResultOrThrowMock).toHaveBeenCalled()
+      })
+      const before = readApiResultOrThrowMock.mock.calls.length
+
+      await dispatchDetach('person-999')
+
+      expect(readApiResultOrThrowMock.mock.calls.length).toBe(before)
+    })
+  })
 })

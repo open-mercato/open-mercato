@@ -26,6 +26,7 @@ import {
 import { loadPersonContext } from './context'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -209,6 +210,10 @@ export async function POST(req: Request, ctx: { params?: { id?: string } }) {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     return NextResponse.json({ error: translate('customers.errors.internal', 'Internal server error') }, { status: 500 })
   }

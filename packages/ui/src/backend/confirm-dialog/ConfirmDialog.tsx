@@ -136,6 +136,21 @@ export function ConfirmDialog({
     return () => dialog.removeEventListener("cancel", handleCancel);
   }, [loading, requestClose]);
 
+  React.useEffect(() => {
+    if (!open) return;
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (!(event.target instanceof Node) || !dialogRef.current?.contains(event.target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!loading) requestClose();
+    };
+
+    window.addEventListener("keydown", handleEscape, true);
+    return () => window.removeEventListener("keydown", handleEscape, true);
+  }, [loading, open, requestClose]);
+
   // Handle backdrop click
   const handleBackdropClick = (e: React.MouseEvent<HTMLDialogElement>) => {
     // Only close if clicking directly on the dialog (backdrop), not its children
@@ -262,7 +277,7 @@ export function ConfirmDialog({
           {resolvedConfirmText !== false && (
             <Button
               ref={confirmButtonRef}
-              variant={variant === "destructive" ? "destructive" : "default"}
+              variant={variant === "destructive" ? "destructive-solid" : "default"}
               onClick={handleConfirm}
               disabled={loading}
               className="w-full sm:w-auto"

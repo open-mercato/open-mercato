@@ -2,7 +2,21 @@ import { timingSafeEqual, createHmac } from 'node:crypto'
 import { parseWebhookSecret } from './secrets'
 import type { WebhookVerificationResult } from './types'
 
-const TOLERANCE_SECONDS = 5 * 60 // 5 minutes
+export const WEBHOOK_SIGNATURE_TOLERANCE_SECONDS = 5 * 60 // 5 minutes
+
+export function isWebhookTimestampWithinTolerance(
+  timestamp: string,
+  toleranceSeconds: number = WEBHOOK_SIGNATURE_TOLERANCE_SECONDS,
+  nowSeconds: number = Math.floor(Date.now() / 1000),
+): boolean {
+  const normalizedTimestamp = timestamp.trim()
+  if (!/^\d+$/.test(normalizedTimestamp)) {
+    return false
+  }
+
+  const timestampNum = Number.parseInt(normalizedTimestamp, 10)
+  return Math.abs(nowSeconds - timestampNum) <= toleranceSeconds
+}
 
 /**
  * Verify a Standard Webhooks signature against one or more secrets.
@@ -14,15 +28,9 @@ export function verifyWebhookSignature(
   body: string,
   signatureHeader: string,
   secrets: string[],
-  toleranceSeconds: number = TOLERANCE_SECONDS,
+  toleranceSeconds: number = WEBHOOK_SIGNATURE_TOLERANCE_SECONDS,
 ): WebhookVerificationResult {
-  const timestampNum = parseInt(timestamp, 10)
-  if (isNaN(timestampNum)) {
-    return { valid: false }
-  }
-
-  const now = Math.floor(Date.now() / 1000)
-  if (Math.abs(now - timestampNum) > toleranceSeconds) {
+  if (!isWebhookTimestampWithinTolerance(timestamp, toleranceSeconds)) {
     return { valid: false }
   }
 

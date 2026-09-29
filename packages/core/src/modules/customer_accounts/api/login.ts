@@ -116,8 +116,10 @@ export async function POST(req: Request) {
     await resetAuthRateLimit(compoundKey, customerLoginRateLimitConfig)
   }
 
-  const acl = await customerRbacService.loadAcl(user.id, { tenantId, organizationId: user.organizationId })
-  const resolvedFeatures = acl.features
+  const resolvedFeatures = await customerRbacService.getEffectiveFeatures(user.id, {
+    tenantId,
+    organizationId: user.organizationId,
+  })
 
   const ip = getClientIp(req, 0)
   const userAgent = req.headers.get('user-agent') || null

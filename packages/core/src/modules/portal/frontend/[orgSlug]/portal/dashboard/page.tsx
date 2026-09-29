@@ -1,6 +1,7 @@
 "use client"
 import React, { useEffect, useMemo, useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { extensionPoints } from '@open-mercato/core/modules/portal/extension-points'
+import { replaceWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -10,7 +11,6 @@ import { PortalCard, PortalCardHeader } from '@open-mercato/ui/portal/components
 import { PortalEmptyState } from '@open-mercato/ui/portal/components/PortalEmptyState'
 import { usePortalDashboardWidgets } from '@open-mercato/ui/portal/hooks/usePortalDashboardWidgets'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
-import { PortalInjectionSpots } from '@open-mercato/ui/backend/injection/spotIds'
 import {
   loadHiddenWidgets,
   saveHiddenWidgets,
@@ -29,7 +29,6 @@ function WidgetIcon({ className }: { className?: string }) {
 
 export default function PortalDashboardPage({ params }: Props) {
   const t = useT()
-  const router = useRouter()
   const { auth } = usePortalContext()
   const { user, loading } = auth
 
@@ -47,11 +46,13 @@ export default function PortalDashboardPage({ params }: Props) {
     setHiddenWidgets(user ? loadHiddenWidgets(params.orgSlug, user.id) : new Set())
   }
 
+  // Leaving an authenticated page for the login page crosses the public/authenticated
+  // boundary, so it must be a full page load — see `replaceWithPageReload`.
   useEffect(() => {
     if (!loading && !user) {
-      router.replace(`/${params.orgSlug}/portal/login`)
+      replaceWithPageReload(`/${params.orgSlug}/portal/login`)
     }
-  }, [loading, user, router, params.orgSlug])
+  }, [loading, user, params.orgSlug])
 
   useEffect(() => {
     clearLegacyHiddenWidgetsKey()
@@ -107,7 +108,7 @@ export default function PortalDashboardPage({ params }: Props) {
         }
       />
 
-      <InjectionSpot spotId={PortalInjectionSpots.pageBefore('dashboard')} context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.dashboardBefore.spotId} context={injectionContext} />
 
       {editing && dashboardWidgets.length > 0 ? (
         <PortalCard>
@@ -151,7 +152,7 @@ export default function PortalDashboardPage({ params }: Props) {
         />
       ) : null}
 
-      <InjectionSpot spotId={PortalInjectionSpots.pageAfter('dashboard')} context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.dashboardAfter.spotId} context={injectionContext} />
     </div>
   )
 }

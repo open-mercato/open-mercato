@@ -52,6 +52,7 @@ jest.mock('@open-mercato/cache', () => ({
   runWithCacheTenant: (...args: unknown[]) => runWithCacheTenantMock(...args as [string | null, () => unknown]),
 }))
 
+import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { GET, PUT } from '../route'
 
 function makeAuth(overrides: Record<string, unknown> = {}) {
@@ -69,6 +70,7 @@ function makeOrganization(overrides: Record<string, unknown> = {}) {
     id: organizationId,
     name: 'Acme',
     logoUrl: '/api/attachments/image/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/acme.png?width=320&height=320',
+    logoPreserveAspectRatio: false,
     updatedAt: new Date(currentUpdatedAt),
     ...overrides,
   }
@@ -99,6 +101,7 @@ describe('/api/directory/organization-branding', () => {
       organizationName: 'Acme',
       tenantId,
       logoUrl: '/api/attachments/image/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/acme.png?width=320&height=320',
+      logoPreserveAspectRatio: false,
       updatedAt: currentUpdatedAt,
     })
     expect(findOneWithDecryptionMock).toHaveBeenCalledWith(
@@ -154,6 +157,45 @@ describe('/api/directory/organization-branding', () => {
       organizationName: 'Acme',
       tenantId,
       logoUrl: 'https://example.com/logo.svg',
+      logoPreserveAspectRatio: false,
+      updatedAt: currentUpdatedAt,
+    })
+  })
+
+  it('updates the aspect-ratio preference through the organization command', async () => {
+    commandBusExecute.mockResolvedValue({
+      result: makeOrganization({
+        logoUrl: 'https://example.com/logo.svg',
+        logoPreserveAspectRatio: true,
+      }),
+    })
+
+    const response = await PUT(new Request('http://localhost/api/directory/organization-branding', {
+      method: 'PUT',
+      body: JSON.stringify({
+        logoUrl: 'https://example.com/logo.svg',
+        logoPreserveAspectRatio: true,
+      }),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(commandBusExecute).toHaveBeenCalledWith(
+      'directory.organizations.update',
+      expect.objectContaining({
+        input: {
+          id: organizationId,
+          tenantId,
+          logoUrl: 'https://example.com/logo.svg',
+          logoPreserveAspectRatio: true,
+        },
+      }),
+    )
+    await expect(response.json()).resolves.toEqual({
+      organizationId,
+      organizationName: 'Acme',
+      tenantId,
+      logoUrl: 'https://example.com/logo.svg',
+      logoPreserveAspectRatio: true,
       updatedAt: currentUpdatedAt,
     })
   })
@@ -183,6 +225,7 @@ describe('/api/directory/organization-branding', () => {
       organizationName: 'Acme',
       tenantId,
       logoUrl,
+      logoPreserveAspectRatio: false,
       updatedAt: currentUpdatedAt,
     })
   })
@@ -211,6 +254,7 @@ describe('/api/directory/organization-branding', () => {
       organizationName: 'Acme',
       tenantId,
       logoUrl: null,
+      logoPreserveAspectRatio: false,
       updatedAt: currentUpdatedAt,
     })
   })
@@ -318,5 +362,39 @@ describe('/api/directory/organization-branding', () => {
         metadata: { reason: 'test' },
       }),
     )
+  })
+
+  it('surfaces the status and body of an interceptor rejection that carries one', async () => {
+    commandBusExecute.mockRejectedValueOnce(
+      new CommandInterceptorError('Branding locked by policy', {
+        status: 422,
+        body: { error: 'Branding locked by policy', policy: 'brand-freeze' },
+      }),
+    )
+
+    const response = await PUT(new Request('http://localhost/api/directory/organization-branding', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ logoUrl: 'https://example.com/logo.svg' }),
+    }))
+
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Branding locked by policy',
+      policy: 'brand-freeze',
+    })
+  })
+
+  it('keeps the generic 400 when an interceptor rejection carries no status', async () => {
+    commandBusExecute.mockRejectedValueOnce(new CommandInterceptorError('Blocked without a status'))
+
+    const response = await PUT(new Request('http://localhost/api/directory/organization-branding', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ logoUrl: 'https://example.com/logo.svg' }),
+    }))
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: 'Failed to update organization branding.' })
   })
 })

@@ -1,3 +1,20 @@
+const mockLoggerWarn = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: () => ({
+    warn: mockLoggerWarn,
+    error: jest.fn(),
+    info: jest.fn(),
+    debug: jest.fn(),
+    child: () => ({
+      warn: mockLoggerWarn,
+      error: jest.fn(),
+      info: jest.fn(),
+      debug: jest.fn(),
+    }),
+  }),
+}))
+
 import { signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import type { InterceptorContext } from '@open-mercato/shared/lib/crud/api-interceptor'
 import { interceptors } from '../interceptors'
@@ -33,6 +50,7 @@ describe('security auth/login api interceptor', () => {
     process.env.JWT_SECRET = 'test-secret'
     delete process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS
     jest.clearAllMocks()
+    mockLoggerWarn.mockClear()
   })
 
   test('returns no-op when response is not a successful auth payload', async () => {
@@ -127,5 +145,80 @@ describe('security auth/login api interceptor', () => {
 
     expect(result).toEqual({})
     expect(createChallenge).not.toHaveBeenCalled()
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      'MFA emergency bypass is active',
+      expect.objectContaining({
+        emergencyBypass: true,
+        context: 'login MFA challenge bypassed',
+        userId: 'user-1',
+      }),
+    )
+  })
+
+  test('does not emit warning when bypass is enabled but token is invalid', async () => {
+    if (!interceptor?.after) throw new Error('Expected security auth/login interceptor')
+
+    process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS = 'true'
+    const createChallenge = jest.fn(async () => ({
+      challengeId: 'challenge-1',
+      availableMethods: [{ type: 'totp', label: 'Authenticator App', icon: 'Smartphone' }],
+    })) as CreateChallengeMock
+
+    const result = await interceptor.after(
+      { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },
+      { statusCode: 200, body: { ok: true, token: 'invalid-token' }, headers: {} },
+      buildContext(createChallenge),
+    )
+
+    expect(result).toEqual({})
+    expect(createChallenge).not.toHaveBeenCalled()
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
+  })
+
+  test('does not emit warning when bypass is enabled but verification service is unavailable', async () => {
+    if (!interceptor?.after) throw new Error('Expected security auth/login interceptor')
+
+    process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS = 'true'
+    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1' })
+    const context = {
+      userId: '',
+      organizationId: '',
+      tenantId: '',
+      em: {} as InterceptorContext['em'],
+      container: {
+        resolve: () => {
+          throw new Error('no service')
+        },
+      },
+    } as unknown as InterceptorContext
+
+    const result = await interceptor.after(
+      { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },
+      { statusCode: 200, body: { ok: true, token: fullToken }, headers: {} },
+      context,
+    )
+
+    expect(result).toEqual({})
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
+  })
+
+  test('does not emit warning when bypass is disabled', async () => {
+    if (!interceptor?.after) throw new Error('Expected security auth/login interceptor')
+
+    delete process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS
+    const createChallenge = jest.fn(async () => ({
+      challengeId: 'challenge-1',
+      availableMethods: [{ type: 'totp', label: 'Authenticator App', icon: 'Smartphone' }],
+    })) as CreateChallengeMock
+    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1' })
+
+    const result = await interceptor.after(
+      { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },
+      { statusCode: 200, body: { ok: true, token: fullToken }, headers: {} },
+      buildContext(createChallenge),
+    )
+
+    expect(result.replace).toBeDefined()
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
 })

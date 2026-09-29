@@ -1,10 +1,11 @@
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/data_sync/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -29,7 +30,10 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { isValidScheduleInterval } from '@open-mercato/shared/lib/schedule/interval'
+import { hasScheduleValueFieldError } from '@open-mercato/core/modules/data_sync/lib/schedule-value'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { cn } from '@open-mercato/shared/lib/utils'
 import {
   ArrowRightLeft,
   Boxes,
@@ -43,6 +47,23 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import { getSyncRunStatusVariant, getSyncSummaryVariant } from '../../lib/syncRunStatus'
+import type { RunParameter } from '../../lib/adapter'
+import { getApplicableRunParameters } from '../../lib/run-parameters'
+import {
+  applicableStartControls,
+  type StartControlApplicability,
+  type StartControlMap,
+} from '../../lib/start-controls'
+import {
+  RunParameterFields,
+  buildDefaultRunParameterValues,
+  buildRetryFailureMessage,
+  buildRunFailureMessage,
+  buildRunParametersPayload,
+  type RetryFailureBody,
+  type RunFailureBody,
+  type RunParameterFormValue,
+} from '../../components/RunParameterFields'
 
 type SyncRunRow = {
   id: string
@@ -61,6 +82,7 @@ type ResponsePayload = {
   total: number
   page: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 type SyncOption = {
@@ -72,6 +94,8 @@ type SyncOption = {
   runMode?: 'generic' | 'provider'
   canStartRun?: boolean
   supportedEntities: string[]
+  runParameters?: RunParameter[]
+  startControls?: StartControlMap
   hasCredentials: boolean
   isEnabled: boolean
   settingsPath: string
@@ -112,6 +136,33 @@ type SyncScheduleEditorState = {
 
 const DEFAULT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 
+const SCHEDULE_VALUE_ERROR_ID = 'data-sync-dashboard-schedule-value-error'
+
+type ScheduleValueError = 'empty' | 'format' | null
+
+function detectScheduleValueError(
+  scheduleType: 'cron' | 'interval',
+  scheduleValue: string,
+): ScheduleValueError {
+  if (scheduleValue.length === 0) return 'empty'
+  if (scheduleType === 'interval' && !isValidScheduleInterval(scheduleValue)) return 'format'
+  return null
+}
+
+/** Matches `runSyncSchema`'s own default, so omitting the field submits this value. */
+const DEFAULT_BATCH_SIZE = '100'
+
+/**
+ * Keeps the batch size input at its own narrow width without leaving a phantom
+ * track: the second column exists only when the full sync card fills it. With
+ * only that card the row falls back to one full-width column.
+ */
+function startControlsGridClass(controls: StartControlApplicability): string | undefined {
+  if (controls.batchSize && controls.fullSync) return 'sm:grid-cols-[minmax(0,180px)_1fr]'
+  if (controls.batchSize) return 'sm:grid-cols-[minmax(0,180px)]'
+  return undefined
+}
+
 function formatEntityTypeLabel(entityType: string): string {
   return entityType
     .replace(/[_-]+/g, ' ')
@@ -139,6 +190,7 @@ export default function SyncRunsDashboardPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
@@ -146,12 +198,14 @@ export default function SyncRunsDashboardPage() {
   const [selectedIntegrationId, setSelectedIntegrationId] = React.useState('')
   const [selectedEntityType, setSelectedEntityType] = React.useState('')
   const [selectedDirection, setSelectedDirection] = React.useState<'import' | 'export'>('import')
-  const [batchSize, setBatchSize] = React.useState('100')
+  const [batchSize, setBatchSize] = React.useState(DEFAULT_BATCH_SIZE)
   const [fullSync, setFullSync] = React.useState(false)
+  const [paramValues, setParamValues] = React.useState<Record<string, RunParameterFormValue>>({})
   const [scheduleEditor, setScheduleEditor] = React.useState<SyncScheduleEditorState>(() => buildDefaultScheduleState(''))
   const [isLoadingSchedule, setIsLoadingSchedule] = React.useState(false)
   const [isSavingSchedule, setIsSavingSchedule] = React.useState(false)
   const [isDeletingSchedule, setIsDeletingSchedule] = React.useState(false)
+  const [scheduleValueError, setScheduleValueError] = React.useState<ScheduleValueError>(null)
   const [reloadToken, setReloadToken] = React.useState(0)
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
@@ -185,6 +239,7 @@ export default function SyncRunsDashboardPage() {
         setRows(Array.isArray(payload.items) ? payload.items : [])
         setTotal(payload.total || 0)
         setTotalPages(payload.totalPages || 1)
+        setTotalIsCapped(payload?.totalIsCapped === true)
         setIsLoading(false)
       }
     }
@@ -230,6 +285,44 @@ export default function SyncRunsDashboardPage() {
     [selectedIntegration],
   )
 
+  const runParameters = React.useMemo(
+    () => getApplicableRunParameters(
+      selectedIntegration?.runParameters,
+      selectedDirection,
+      // Pass the state through as-is. Before an entity is chosen it is '',
+      // which matches no `entityType` and so hides scoped parameters — the
+      // wanted outcome. Mapping '' to `undefined` would mean "skip entity
+      // scoping" and show every scoped parameter instead.
+      selectedEntityType,
+    ),
+    [selectedIntegration, selectedDirection, selectedEntityType],
+  )
+
+  // Before an entity is chosen the state is '', which matches no declaration and
+  // so renders both controls — the unselected form as it is today.
+  const startControls = React.useMemo(
+    () => applicableStartControls(selectedIntegration?.startControls, selectedEntityType),
+    [selectedIntegration, selectedEntityType],
+  )
+
+  React.useEffect(() => {
+    setParamValues(buildDefaultRunParameterValues(runParameters))
+  }, [runParameters])
+
+  // A control the form stopped showing must not keep submitting the value the
+  // operator last set for another entity type.
+  React.useEffect(() => {
+    if (!startControls.fullSync) setFullSync(false)
+  }, [startControls.fullSync])
+
+  React.useEffect(() => {
+    if (!startControls.batchSize) setBatchSize(DEFAULT_BATCH_SIZE)
+  }, [startControls.batchSize])
+
+  const updateParamValue = React.useCallback((key: string, value: RunParameterFormValue) => {
+    setParamValues((current) => ({ ...current, [key]: value }))
+  }, [])
+
   React.useEffect(() => {
     if (!selectedIntegration) {
       setSelectedEntityType('')
@@ -273,6 +366,7 @@ export default function SyncRunsDashboardPage() {
       }
 
       const record = Array.isArray(call.result?.items) ? call.result?.items[0] : undefined
+      setScheduleValueError(null)
       if (!record) {
         setScheduleEditor(buildDefaultScheduleState(selectedEntityType))
         setIsLoadingSchedule(false)
@@ -298,7 +392,16 @@ export default function SyncRunsDashboardPage() {
 
   const updateScheduleEditor = React.useCallback((changes: Partial<SyncScheduleEditorState>) => {
     setScheduleEditor((current) => ({ ...current, ...changes }))
+    if (changes.scheduleValue !== undefined || changes.scheduleType !== undefined) {
+      setScheduleValueError(null)
+    }
   }, [])
+
+  const scheduleValueErrorMessage = scheduleValueError === 'empty'
+    ? t('data_sync.dashboard.schedule.invalidValue', 'Provide a schedule value before saving.')
+    : scheduleEditor.scheduleType === 'cron'
+      ? t('data_sync.dashboard.schedule.invalidCron', 'Enter a cron expression the scheduler can parse, for example `0 * * * *`.')
+      : t('data_sync.dashboard.schedule.invalidInterval', 'Enter a whole number followed by s, m, h or d (for example `15m`, `1h` or `24h`), at least one minute long.')
 
   const handleCancel = React.useCallback(async (row: SyncRunRow) => {
     // optimistic-lock-exempt: run lifecycle action endpoint (cancel), not a concurrent record edit
@@ -324,7 +427,7 @@ export default function SyncRunsDashboardPage() {
       flash(t('data_sync.runs.detail.retrySuccess'), 'success')
       setReloadToken((token) => token + 1)
     } else {
-      flash(t('data_sync.runs.detail.retryError'), 'error')
+      flash(buildRetryFailureMessage(call.result as RetryFailureBody | null, t), 'error')
     }
   }, [t])
 
@@ -345,11 +448,24 @@ export default function SyncRunsDashboardPage() {
   const handleStartSync = React.useCallback(async () => {
     if (!selectedIntegration || !selectedEntityType) return
 
-    const parsedBatchSize = Number.parseInt(batchSize, 10)
-    if (!Number.isFinite(parsedBatchSize) || parsedBatchSize < 1 || parsedBatchSize > 1000) {
-      flash(t('data_sync.dashboard.start.invalidBatchSize', 'Batch size must be between 1 and 1000.'), 'error')
-      return
+    const parameters = buildRunParametersPayload(runParameters, paramValues)
+    // A control the adapter declared inapplicable is left out entirely, so
+    // `runSyncSchema`'s defaults supply exactly what the rendered form sends.
+    const requestBody: Record<string, unknown> = {
+      integrationId: selectedIntegration.integrationId,
+      entityType: selectedEntityType,
+      direction: selectedDirection,
     }
+    if (startControls.batchSize) {
+      const parsedBatchSize = Number.parseInt(batchSize, 10)
+      if (!Number.isFinite(parsedBatchSize) || parsedBatchSize < 1 || parsedBatchSize > 1000) {
+        flash(t('data_sync.dashboard.start.invalidBatchSize', 'Batch size must be between 1 and 1000.'), 'error')
+        return
+      }
+      requestBody.batchSize = parsedBatchSize
+    }
+    if (startControls.fullSync) requestBody.fullSync = fullSync
+    if (runParameters.length > 0) requestBody.parameters = parameters
 
     try {
       const call = await runMutation({
@@ -357,21 +473,9 @@ export default function SyncRunsDashboardPage() {
         operation: () => apiCall<{ id: string }>('/api/data_sync/run', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            integrationId: selectedIntegration.integrationId,
-            entityType: selectedEntityType,
-            direction: selectedDirection,
-            batchSize: parsedBatchSize,
-            fullSync,
-          }),
+          body: JSON.stringify(requestBody),
         }, { fallback: null }),
-        mutationPayload: {
-          integrationId: selectedIntegration.integrationId,
-          entityType: selectedEntityType,
-          direction: selectedDirection,
-          batchSize: parsedBatchSize,
-          fullSync,
-        },
+        mutationPayload: requestBody,
         context: {
           operation: 'create',
           actionId: 'start-sync-run',
@@ -380,7 +484,11 @@ export default function SyncRunsDashboardPage() {
       })
 
       if (!call.ok || !call.result?.id) {
-        flash((call.result as { error?: string } | null)?.error ?? t('data_sync.dashboard.start.error', 'Failed to start sync run'), 'error')
+        flash(buildRunFailureMessage(
+          call.result as RunFailureBody | null,
+          t('data_sync.dashboard.start.error', 'Failed to start sync run'),
+          t,
+        ), 'error')
         return
       }
 
@@ -391,15 +499,22 @@ export default function SyncRunsDashboardPage() {
       const message = error instanceof Error ? error.message : t('data_sync.dashboard.start.error', 'Failed to start sync run')
       flash(message, 'error')
     }
-  }, [batchSize, fullSync, router, runMutation, selectedDirection, selectedEntityType, selectedIntegration, t])
+  }, [batchSize, fullSync, paramValues, router, runMutation, runParameters, selectedDirection, selectedEntityType, selectedIntegration, startControls, t])
 
   const handleSaveSchedule = React.useCallback(async () => {
     if (!selectedIntegration || !selectedEntityType) return
-    if (scheduleEditor.scheduleValue.trim().length === 0) {
-      flash(t('data_sync.dashboard.schedule.invalidValue', 'Provide a schedule value before saving.'), 'error')
+    const scheduleValue = scheduleEditor.scheduleValue.trim()
+
+    // The documented interval format is checked here so a value the scheduler
+    // can never run never reaches the API; cron stays server-validated and
+    // comes back through the same inline field error.
+    const valueError = detectScheduleValueError(scheduleEditor.scheduleType, scheduleValue)
+    if (valueError) {
+      setScheduleValueError(valueError)
       return
     }
 
+    setScheduleValueError(null)
     setIsSavingSchedule(true)
     try {
       const call = await runMutation({
@@ -417,7 +532,7 @@ export default function SyncRunsDashboardPage() {
               entityType: selectedEntityType,
               direction: selectedDirection,
               scheduleType: scheduleEditor.scheduleType,
-              scheduleValue: scheduleEditor.scheduleValue.trim(),
+              scheduleValue,
               timezone: scheduleEditor.timezone.trim() || DEFAULT_TIMEZONE,
               fullSync: scheduleEditor.fullSync,
               isEnabled: scheduleEditor.isEnabled,
@@ -429,7 +544,7 @@ export default function SyncRunsDashboardPage() {
           entityType: selectedEntityType,
           direction: selectedDirection,
           scheduleType: scheduleEditor.scheduleType,
-          scheduleValue: scheduleEditor.scheduleValue.trim(),
+          scheduleValue,
           timezone: scheduleEditor.timezone.trim() || DEFAULT_TIMEZONE,
           fullSync: scheduleEditor.fullSync,
           isEnabled: scheduleEditor.isEnabled,
@@ -442,6 +557,10 @@ export default function SyncRunsDashboardPage() {
       })
 
       if (!call.ok || !call.result) {
+        if (hasScheduleValueFieldError(call.result)) {
+          setScheduleValueError('format')
+          return
+        }
         const conflictError = Object.assign(
           new Error((call.result as { error?: string } | null)?.error ?? t('data_sync.dashboard.schedule.error', 'Failed to save recurring schedule')),
           {
@@ -750,7 +869,9 @@ export default function SyncRunsDashboardPage() {
                       <h3 className="text-sm font-semibold">{t('data_sync.dashboard.start.runNowTitle', 'Run once now')}</h3>
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      {t('data_sync.dashboard.start.runNowDescription', 'Use this for the next immediate sync. Batch size and full-sync mode apply only to this manual run.')}
+                      {startControls.batchSize && startControls.fullSync
+                        ? t('data_sync.dashboard.start.runNowDescription', 'Use this for the next immediate sync. Batch size and full-sync mode apply only to this manual run.')
+                        : t('data_sync.dashboard.start.runNowDescriptionScoped', 'Use this for the next immediate sync. Anything set here applies only to this manual run.')}
                     </p>
                   </div>
                   <Badge variant="outline">{selectedEntityLabel}</Badge>
@@ -758,30 +879,55 @@ export default function SyncRunsDashboardPage() {
 
                 <Separator className="my-4" />
 
-                <div className="grid gap-4 sm:grid-cols-[minmax(0,180px)_1fr]">
-                  <div className="space-y-2">
-                    <Label className="flex items-center gap-2 text-sm font-medium">
-                      <Gauge className="size-4 text-muted-foreground" />
-                      <span>{t('data_sync.dashboard.start.batchSize', 'Batch size')}</span>
-                    </Label>
-                    <Input
-                      value={batchSize}
-                      onChange={(event) => setBatchSize(event.target.value)}
-                      inputMode="numeric"
+                {startControls.batchSize || startControls.fullSync ? (
+                  <div className={cn('grid gap-4', startControlsGridClass(startControls))}>
+                    {startControls.batchSize ? (
+                      <div className="space-y-2">
+                        <Label className="flex items-center gap-2 text-sm font-medium">
+                          <Gauge className="size-4 text-muted-foreground" />
+                          <span>{t('data_sync.dashboard.start.batchSize', 'Batch size')}</span>
+                        </Label>
+                        <Input
+                          value={batchSize}
+                          onChange={(event) => setBatchSize(event.target.value)}
+                          inputMode="numeric"
+                        />
+                      </div>
+                    ) : null}
+                    {startControls.fullSync ? (
+                      <div className="rounded-lg border bg-background p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-sm font-medium">{t('data_sync.dashboard.start.fullSync', 'Run as full sync')}</Label>
+                            <p className="text-xs text-muted-foreground">
+                              {t('data_sync.dashboard.start.fullSyncHelp', 'Ignore the saved cursor and process the entire source again for this run.')}
+                            </p>
+                          </div>
+                          <Switch checked={fullSync} onCheckedChange={setFullSync} />
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {runParameters.length > 0 ? (
+                  <div className="mt-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Settings2 className="size-4 text-muted-foreground" />
+                      <h4 className="text-sm font-semibold">
+                        {t('data_sync.dashboard.start.parameters', 'Run parameters')}
+                      </h4>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {t('data_sync.dashboard.start.parametersHelp', 'Optional values this integration accepts for the manual run.')}
+                    </p>
+                    <RunParameterFields
+                      params={runParameters}
+                      values={paramValues}
+                      onChange={updateParamValue}
                     />
                   </div>
-                  <div className="rounded-lg border bg-background p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="space-y-1">
-                        <Label className="text-sm font-medium">{t('data_sync.dashboard.start.fullSync', 'Run as full sync')}</Label>
-                        <p className="text-xs text-muted-foreground">
-                          {t('data_sync.dashboard.start.fullSyncHelp', 'Ignore the saved cursor and process the entire source again for this run.')}
-                        </p>
-                      </div>
-                      <Switch checked={fullSync} onCheckedChange={setFullSync} />
-                    </div>
-                  </div>
-                </div>
+                ) : null}
 
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                   <p className="text-xs text-muted-foreground">
@@ -856,7 +1002,14 @@ export default function SyncRunsDashboardPage() {
                       onChange={(event) => updateScheduleEditor({ scheduleValue: event.target.value })}
                       disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
                       placeholder={scheduleEditor.scheduleType === 'cron' ? '0 * * * *' : '1h'}
+                      aria-invalid={scheduleValueError ? true : undefined}
+                      aria-describedby={scheduleValueError ? SCHEDULE_VALUE_ERROR_ID : undefined}
                     />
+                    {scheduleValueError ? (
+                      <p id={SCHEDULE_VALUE_ERROR_ID} className="text-xs text-status-error-text">
+                        {scheduleValueErrorMessage}
+                      </p>
+                    ) : null}
                     <p className="text-xs text-muted-foreground">
                       {scheduleEditor.scheduleType === 'cron'
                         ? t('data_sync.dashboard.schedule.cronHelp', 'Example: `0 * * * *` runs at the start of every hour.')
@@ -949,21 +1102,21 @@ export default function SyncRunsDashboardPage() {
             </div>
 
             {selectedIntegration && !selectedIntegration.isEnabled ? (
-              <Alert variant="warning">
+              <Alert status="warning">
                 <AlertDescription>
                   {t('integrations.detail.state.disabled', 'This integration is disabled. Enable it on the integration settings page before starting a sync.')}
                 </AlertDescription>
               </Alert>
             ) : null}
             {selectedIntegration && !selectedIntegration.hasCredentials ? (
-              <Alert variant="warning">
+              <Alert status="warning">
                 <AlertDescription>
                   {t('integrations.detail.credentials.notConfigured', 'Credentials are not configured yet. Save the integration credentials before starting a sync.')}
                 </AlertDescription>
               </Alert>
             ) : null}
             {selectedIntegration && selectedIntegration.canStartRun === false ? (
-              <Alert variant="info">
+              <Alert status="information">
                 <AlertDescription>
                   {t('data_sync.dashboard.start.providerManaged', 'This integration starts sync runs from its own setup flow. Open the integration settings page to continue.')}
                 </AlertDescription>
@@ -975,6 +1128,7 @@ export default function SyncRunsDashboardPage() {
         <DataTable
           stickyActionsColumn
           title={t('data_sync.dashboard.title')}
+          titleHeadingLevel={1}
           columns={columns}
           data={rows}
           filters={filters}
@@ -984,7 +1138,7 @@ export default function SyncRunsDashboardPage() {
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           searchPlaceholder={t('data_sync.dashboard.searchPlaceholder')}
-          perspective={{ tableId: 'data_sync.runs' }}
+          perspective={{ tableId: extensionPoints.hosts.runsTable.tableId }}
           onRowClick={(row) => {
             router.push(`/backend/data-sync/runs/${encodeURIComponent(row.id)}`)
           }}
@@ -1008,7 +1162,7 @@ export default function SyncRunsDashboardPage() {
               }] : []),
             ]} />
           )}
-          pagination={{ page, pageSize: 20, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: 20, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
         />
       </PageBody>

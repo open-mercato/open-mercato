@@ -148,13 +148,24 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
 
   const persistTenant = React.useCallback((next: string | null, options?: { refresh?: boolean }) => {
     if (typeof document === 'undefined') return
-    const resolved = next ?? ''
-    setTenantCookieState({ value: resolved, hasCookie: true, raw: resolved })
-    const maxAge = 60 * 60 * 24 * 30
-    try {
-      document.cookie = `om_selected_tenant=${encodeURIComponent(resolved)}; path=/; max-age=${maxAge}; samesite=lax`
-    } catch {
-      // ignore failures
+    if (next) {
+      setTenantCookieState({ value: next, hasCookie: true, raw: next })
+      const maxAge = 60 * 60 * 24 * 30
+      try {
+        document.cookie = `om_selected_tenant=${encodeURIComponent(next)}; path=/; max-age=${maxAge}; samesite=lax`
+      } catch {
+        // ignore failures
+      }
+    } else {
+      // A blank `om_selected_tenant` has no meaning: there is no all-tenants sentinel for this
+      // cookie, and the server treats blank as "no selection". Expire it rather than writing one,
+      // so the session falls back to the tenant carried in the token.
+      setTenantCookieState({ value: '', hasCookie: false, raw: null })
+      try {
+        document.cookie = 'om_selected_tenant=; path=/; max-age=0; samesite=lax'
+      } catch {
+        // ignore failures
+      }
     }
     if (options?.refresh !== false) {
       try { router.refresh() } catch {}
@@ -255,12 +266,19 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
         if (!currentTenantCookie.hasCookie || currentTenantCookie.value !== resolvedTenantId) {
           persistTenant(resolvedTenantId, { refresh: false })
         }
-      } else if (currentTenantCookie.hasCookie && currentTenantCookie.value !== '') {
-        setTenantCookieState({ value: '', hasCookie: true, raw: '' })
+      } else if (currentTenantCookie.hasCookie && currentTenantCookie.value === '') {
+        // Covers a cookie left blank by an earlier build. The old condition was `value !== ''`,
+        // which excluded exactly the blank cookie it needed to clear; scoping to `value === ''`
+        // clears it without discarding an explicit tenant selection.
+        persistTenant(null, { refresh: false })
       }
       const currentCookie = cookieStateRef.current
       if (fallbackSelected) {
-        const tenantMatches = currentTenantCookie.hasCookie ? currentTenantCookie.value === (resolvedTenantId ?? '') : false
+        // With no tenant to match, an absent cookie is the correct state — the blank cookie this
+        // used to compare against is exactly what is no longer written.
+        const tenantMatches = resolvedTenantId === null
+          ? true
+          : currentTenantCookie.hasCookie && currentTenantCookie.value === resolvedTenantId
         if (
           !currentCookie.hasCookie ||
           currentCookie.value !== fallbackSelected ||

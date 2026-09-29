@@ -12,6 +12,7 @@ import {
   parseCheckoutInput,
   toMoneyString,
 } from '../lib/utils'
+import { assertValidCheckoutStatusTransition } from '../lib/transaction-status-machine'
 
 function resolveTransactionScope(input: { tenantId?: string | null; organizationId?: string | null }) {
   if (!input.organizationId || !input.tenantId) {
@@ -168,11 +169,63 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
       const previousTerminal = isTerminalCheckoutStatus(previousStatus)
       const nextTerminal = isTerminalCheckoutStatus(nextStatus)
 
-      transaction.status = nextStatus
-      transaction.paymentStatus = parsed.paymentStatus ?? transaction.paymentStatus ?? null
-      transaction.gatewayTransactionId = parsed.gatewayTransactionId ?? transaction.gatewayTransactionId ?? null
-      await tx.flush()
+      // State-machine guard: reject any transition not permitted by the
+      // VALID_CHECKOUT_TRANSITIONS map (e.g. completed → processing).
+      // This runs inside the DB transaction so the check and the write share
+      // the same serialisable snapshot.
+      assertValidCheckoutStatusTransition(previousStatus, nextStatus)
 
+      // Resolve the new field values before the write.
+      const newPaymentStatus = parsed.paymentStatus ?? transaction.paymentStatus ?? null
+      const newGatewayTransactionId = parsed.gatewayTransactionId ?? transaction.gatewayTransactionId ?? null
+
+      // Atomic compare-and-swap: the WHERE clause pins the current status so
+      // a concurrent writer that already advanced the status to a terminal
+      // state will cause this update to match 0 rows — eliminating the TOCTOU
+      // window between the findOne above and this write.
+      const affected = await tx.nativeUpdate(
+        CheckoutTransaction,
+        {
+          id: parsed.id,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          status: previousStatus,
+        },
+        {
+          status: nextStatus,
+          paymentStatus: newPaymentStatus,
+          gatewayTransactionId: newGatewayTransactionId,
+          updatedAt: new Date(),
+        },
+      )
+
+      if (affected === 0) {
+        // A concurrent writer already advanced the status. Force a DB round-trip
+        // (refresh: true bypasses the MikroORM identity map) so the reported
+        // currentStatus reflects the winning writer's value, not the stale snapshot.
+        const actualTx = await tx.findOne(
+          CheckoutTransaction,
+          { id: parsed.id, organizationId: scope.organizationId, tenantId: scope.tenantId },
+          { fields: ['status'], refresh: true },
+        )
+        throw new CrudHttpError(409, {
+          error: `[internal] Transaction status was already updated by a concurrent process (expected "${previousStatus}", actual "${actualTx?.status ?? 'unknown'}")`,
+          code: 'concurrent_status_update',
+          expectedStatus: previousStatus,
+          currentStatus: actualTx?.status ?? 'unknown',
+          requestedStatus: nextStatus,
+        })
+      }
+
+      // Sync the entity state in the unit of work by refreshing it.
+      // This loads the updated values (status, paymentStatus, gatewayTransactionId)
+      // from the DB and marks the entity as clean, avoiding a redundant second write
+      // during the subsequent tx.flush().
+      await tx.refresh(transaction)
+
+      // Only apply terminal link state and emit the terminal event when the
+      // status actually changes — prevents double-notification on idempotent
+      // redeliveries (e.g. authorized → captured, both mapping to 'completed').
       if (!previousTerminal && nextTerminal) {
         const { usageLimitReached } = applyTerminalTransactionState(link, nextStatus)
         await tx.flush()
@@ -182,7 +235,7 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
           usageLimitReachedLinkSlug = link.slug
         }
       }
-      if (nextTerminal) {
+      if (nextTerminal && previousStatus !== nextStatus) {
         terminalEventPayload = {
           transactionId: transaction.id,
           linkId: transaction.linkId,
@@ -200,14 +253,16 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
         }
       }
     })
-    if (parsed.status === 'completed') {
-      await emitCheckoutEvent('checkout.transaction.completed', terminalEventPayload ?? {}).catch(() => undefined)
-    } else if (parsed.status === 'failed') {
-      await emitCheckoutEvent('checkout.transaction.failed', terminalEventPayload ?? {}).catch(() => undefined)
-    } else if (parsed.status === 'cancelled') {
-      await emitCheckoutEvent('checkout.transaction.cancelled', terminalEventPayload ?? {}).catch(() => undefined)
-    } else if (parsed.status === 'expired') {
-      await emitCheckoutEvent('checkout.transaction.expired', terminalEventPayload ?? {}).catch(() => undefined)
+    if (terminalEventPayload !== null) {
+      if (parsed.status === 'completed') {
+        await emitCheckoutEvent('checkout.transaction.completed', terminalEventPayload).catch(() => undefined)
+      } else if (parsed.status === 'failed') {
+        await emitCheckoutEvent('checkout.transaction.failed', terminalEventPayload).catch(() => undefined)
+      } else if (parsed.status === 'cancelled') {
+        await emitCheckoutEvent('checkout.transaction.cancelled', terminalEventPayload).catch(() => undefined)
+      } else if (parsed.status === 'expired') {
+        await emitCheckoutEvent('checkout.transaction.expired', terminalEventPayload).catch(() => undefined)
+      }
     }
     if (emitUsageLimitReached && usageLimitReachedLinkId && usageLimitReachedLinkSlug) {
       await emitCheckoutEvent('checkout.link.usageLimitReached', {

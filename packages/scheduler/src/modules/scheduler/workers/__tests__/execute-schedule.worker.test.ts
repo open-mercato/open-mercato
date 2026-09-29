@@ -2,7 +2,25 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { createQueue } from '@open-mercato/queue'
 import { ScheduledJob } from '../../data/entities'
+import { registerSchedulerSafeCommands } from '../../lib/scheduler-safe-commands'
+import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 import executeScheduleWorker from '../execute-schedule.worker'
+
+// Queue-target dispatch verifies module provenance against the live registry
+// (#5213 B1): register the module that owns the fixture queue.
+registerModules([
+  {
+    id: 'worker_test_module',
+    workers: [
+      {
+        id: 'worker_test_module:workers:example',
+        queue: 'example',
+        concurrency: 1,
+        handler: async () => {},
+      },
+    ],
+  },
+] as never)
 
 const mockCommandExecute = jest.fn()
 
@@ -20,8 +38,10 @@ jest.mock('@open-mercato/shared/lib/redis/connection', () => ({
   getRedisUrlOrThrow: jest.fn(() => 'redis://localhost:6379'),
 }))
 
+const emitSchedulerEvent = jest.fn(async () => undefined)
+
 jest.mock('../../events', () => ({
-  emitSchedulerEvent: jest.fn(async () => undefined),
+  emitSchedulerEvent: (...args: unknown[]) => emitSchedulerEvent(...(args as [])),
 }))
 
 const scheduleId = '11111111-1111-4111-8111-111111111111'
@@ -41,6 +61,7 @@ function buildCommandSchedule(overrides: Partial<ScheduledJob> = {}): ScheduledJ
   schedule.scheduleValue = '* * * * *'
   schedule.timezone = 'UTC'
   schedule.sourceType = 'user'
+  schedule.createdByUserId = 'user-a'
   schedule.createdAt = new Date('2026-01-01T00:00:00.000Z')
   schedule.updatedAt = new Date('2026-01-01T00:00:00.000Z')
   Object.assign(schedule, overrides)
@@ -54,6 +75,7 @@ function buildWorkerContext(schedule: ScheduledJob) {
   }
   const rbacService = {
     tenantHasFeature: jest.fn(async () => true),
+    userHasAllFeatures: jest.fn(async () => true),
   }
   return {
     context: {
@@ -71,6 +93,15 @@ function buildWorkerContext(schedule: ScheduledJob) {
 }
 
 describe('executeScheduleWorker command scope', () => {
+  beforeAll(() => {
+    registerSchedulerSafeCommands([
+      {
+        commandId: 'scheduler.test.assert-tenant-scope',
+        requiredFeatures: ['scheduler.jobs.manage'],
+      },
+    ])
+  })
+
   afterEach(() => {
     mockCommandExecute.mockReset()
   })
@@ -106,6 +137,135 @@ describe('executeScheduleWorker command scope', () => {
   })
 })
 
+describe('executeScheduleWorker command actor attribution', () => {
+  function runWorker(
+    schedule: ScheduledJob,
+    payloadOverrides: Record<string, unknown> = {},
+    context = buildWorkerContext(schedule),
+  ) {
+    return {
+      context,
+      promise: executeScheduleWorker(
+        {
+          id: 'queued-job-1',
+          queue: 'scheduler-execution',
+          payload: {
+            scheduleId,
+            tenantId: schedule.tenantId,
+            organizationId: schedule.organizationId,
+            scopeType: schedule.scopeType,
+            ...payloadOverrides,
+          },
+          attempts: 0,
+          createdAt: Date.now(),
+        },
+        context.context,
+      ),
+    }
+  }
+
+  beforeEach(() => {
+    mockCommandExecute.mockReset()
+    emitSchedulerEvent.mockClear()
+    mockCommandExecute.mockResolvedValue({ result: { ok: true }, logEntry: null })
+  })
+
+  it('runs a manual trigger as the user who triggered it, not the creator', async () => {
+    const schedule = buildCommandSchedule({ createdByUserId: 'user-a' })
+    const { context, promise } = runWorker(schedule, {
+      triggerType: 'manual',
+      triggeredByUserId: 'user-b',
+    })
+    await promise
+
+    // The gate authorizes the identity that will execute...
+    expect(context.rbacService.userHasAllFeatures).toHaveBeenCalledWith(
+      'user-b',
+      ['scheduler.jobs.manage'],
+      { tenantId: 'tenant-a', organizationId: 'org-a' },
+    )
+    // ...and the command context carries that same identity.
+    const [, { ctx }] = mockCommandExecute.mock.calls[0]
+    expect(ctx.auth).toMatchObject({ sub: 'user-b', userId: 'user-b' })
+  })
+
+  it('keeps running an unattended run as the schedule creator', async () => {
+    const schedule = buildCommandSchedule({ createdByUserId: 'user-a' })
+    const { context, promise } = runWorker(schedule)
+    await promise
+
+    expect(context.rbacService.userHasAllFeatures).toHaveBeenCalledWith(
+      'user-a',
+      ['scheduler.jobs.manage'],
+      { tenantId: 'tenant-a', organizationId: 'org-a' },
+    )
+    const [, { ctx }] = mockCommandExecute.mock.calls[0]
+    expect(ctx.auth).toMatchObject({ sub: 'user-a', userId: 'user-a' })
+  })
+
+  it('ignores a triggering user carried on a scheduled (non-manual) run', async () => {
+    const schedule = buildCommandSchedule({ createdByUserId: 'user-a' })
+    const { context, promise } = runWorker(schedule, {
+      triggerType: 'scheduled',
+      triggeredByUserId: 'user-b',
+    })
+    await promise
+
+    expect(context.rbacService.userHasAllFeatures).toHaveBeenCalledWith(
+      'user-a',
+      expect.anything(),
+      expect.anything(),
+    )
+  })
+
+  it('refuses a manual trigger whose triggering user lacks the target features, even when the creator holds them', async () => {
+    const schedule = buildCommandSchedule({ createdByUserId: 'user-a' })
+    const context = buildWorkerContext(schedule)
+    context.rbacService.userHasAllFeatures.mockImplementation(async (userId: string) => userId === 'user-a')
+
+    const { promise } = runWorker(schedule, { triggerType: 'manual', triggeredByUserId: 'user-b' }, context)
+
+    // The refusal is permanent, so it ends the job rather than throwing: a throw
+    // is indistinguishable from an outage and BullMQ would retry a decision no
+    // attempt can change, leaving no trace but a log line.
+    await expect(promise).resolves.toBeUndefined()
+    expect(mockCommandExecute).not.toHaveBeenCalled()
+    expect(schedule.lastRunAt).toBeUndefined()
+    expect(emitSchedulerEvent).toHaveBeenCalledWith(
+      'scheduler.job.failed',
+      expect.objectContaining({ id: scheduleId, error: 'Scheduled command actor is not authorized' }),
+    )
+  })
+
+  it('still throws when the authorization lookup itself fails, so a genuine outage is retried', async () => {
+    const schedule = buildCommandSchedule({ createdByUserId: 'user-a' })
+    const context = buildWorkerContext(schedule)
+    context.rbacService.userHasAllFeatures.mockRejectedValue(new Error('rbac store unavailable'))
+
+    const { promise } = runWorker(schedule, {}, context)
+
+    await expect(promise).rejects.toThrow('rbac store unavailable')
+    expect(emitSchedulerEvent).not.toHaveBeenCalledWith('scheduler.job.failed', expect.anything())
+  })
+
+  it('falls back to the creator when a manual trigger carries no user (API-key caller)', async () => {
+    const schedule = buildCommandSchedule({ createdByUserId: 'user-a' })
+    const { context, promise } = runWorker(schedule, {
+      triggerType: 'manual',
+      triggeredByUserId: null,
+    })
+    await promise
+
+    expect(context.rbacService.userHasAllFeatures).toHaveBeenCalledWith(
+      'user-a',
+      expect.anything(),
+      expect.anything(),
+    )
+    const [, { ctx }] = mockCommandExecute.mock.calls[0]
+    expect(ctx.auth).toMatchObject({ sub: 'user-a' })
+  })
+})
+
 describe('executeScheduleWorker queue target payload contract', () => {
   const enqueue = jest.fn(async () => 'target-job-1')
   const close = jest.fn(async () => undefined)
@@ -115,7 +275,11 @@ describe('executeScheduleWorker queue target payload contract', () => {
       targetType: 'queue',
       targetQueue: 'example',
       targetCommand: null,
-      targetPayload: { connectionId: 'connection-id', scope: 'organization' },
+      sourceType: 'module',
+      // module registration never stamps an acting user (#5213 B1)
+      createdByUserId: null,
+      sourceModule: 'worker_test_module',
+      targetPayload: { connectionId: 'connection-id' },
       ...overrides,
     })
   }
@@ -145,7 +309,7 @@ describe('executeScheduleWorker queue target payload contract', () => {
     ;(createQueue as jest.Mock).mockReturnValue({ enqueue, close })
   })
 
-  it('delivers the flat targetPayload contract with scheduler-owned fields applied last', async () => {
+  it('delivers the flat targetPayload contract with scheduler-owned fields applied last (#5213)', async () => {
     const schedule = buildQueueSchedule({
       targetPayload: {
         connectionId: 'connection-id',
@@ -159,11 +323,12 @@ describe('executeScheduleWorker queue target payload contract', () => {
 
     expect(enqueue).toHaveBeenCalledWith({
       connectionId: 'connection-id',
-      scope: 'organization',
+      scope: { tenantId: 'tenant-a', organizationId: 'org-a' },
       payload: { nested: true },
       tenantId: 'tenant-a',
       organizationId: 'org-a',
       _idempotencyKey: `scheduler-${scheduleId}-worker-job-1`,
+      _jobOrigin: 'scheduler',
     })
     expect(close).toHaveBeenCalledTimes(1)
   })

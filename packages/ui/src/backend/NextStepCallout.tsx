@@ -42,16 +42,16 @@ type NextStepCalloutProps = {
 const STEP_STYLES: Record<NonNullable<NextStepCalloutStep['state']>, string> = {
   pending: '',
   active: 'border-primary/40 bg-primary/10 text-primary',
-  completed: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
+  completed: 'border-status-success-border bg-status-success-bg text-status-success-text',
 }
 
 const STATUS_STYLES: Record<NextStepCalloutStatusTone, string> = {
   default: 'border-border bg-background/80 text-foreground',
   info: 'border-primary/20 bg-primary/5 text-primary',
-  success: 'border-emerald-500/20 bg-emerald-500/5 text-emerald-200',
-  warning: 'border-amber-500/20 bg-amber-500/5 text-amber-200',
+  success: 'border-status-success-border bg-status-success-bg text-status-success-text',
+  warning: 'border-status-warning-border bg-status-warning-bg text-status-warning-text',
   danger: 'border-destructive/20 bg-destructive/5 text-destructive',
-  muted: 'border-zinc-500/20 bg-zinc-500/5 text-zinc-200',
+  muted: 'border-status-neutral-border bg-status-neutral-bg text-status-neutral-text',
 }
 
 export function NextStepCallout({

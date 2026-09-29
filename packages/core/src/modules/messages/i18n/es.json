@@ -213,6 +213,8 @@
   "messages.replyBody": "Respuesta",
   "messages.saveDraft": "Guardar borrador",
   "messages.savingDraft": "Guardando borrador...",
+  "messages.search.badge.message": "Mensaje",
+  "messages.search.fallback.title": "Mensaje",
   "messages.searchPlaceholder": "Buscar mensajes",
   "messages.send": "Enviar",
   "messages.sendViaEmail": "Enviar también por correo",
@@ -257,5 +259,6 @@
   "messages.visibilityInternal": "Interna",
   "messages.visibilityInternalHint": "Los mensajes internos se envían a los usuarios del sistema seleccionados.",
   "messages.visibilityPublic": "Pública",
-  "messages.visibilityPublicHint": "Los mensajes públicos se envían solo al correo externo."
+  "messages.visibilityPublicHint": "Los mensajes públicos se envían solo al correo externo.",
+  "notifications.categories.messages": "Mensajes"
 }

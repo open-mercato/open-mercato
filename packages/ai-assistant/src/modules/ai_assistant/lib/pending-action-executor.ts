@@ -291,6 +291,7 @@ function mergeFailedRecords(
 function toToolHandlerContext(
   ctx: PendingActionExecuteContext,
   tool: AiToolDefinition,
+  approvedPendingActionId: string,
 ): McpToolContext {
   return {
     tenantId: ctx.tenantId,
@@ -300,6 +301,7 @@ function toToolHandlerContext(
     userFeatures: ctx.userFeatures,
     isSuperAdmin: ctx.isSuperAdmin,
     tool,
+    approvedPendingActionId,
   }
 }
 
@@ -361,7 +363,7 @@ export async function executePendingActionConfirm(
 
   let handlerOutput: unknown
   try {
-    handlerOutput = await tool.handler(action.normalizedInput as never, toToolHandlerContext(ctx, tool))
+    handlerOutput = await tool.handler(action.normalizedInput as never, toToolHandlerContext(ctx, tool, action.id))
   } catch (error) {
     const failureResult: AiPendingActionExecutionResult = {
       error: buildHandlerErrorFromThrown(error, action.normalizedInput),

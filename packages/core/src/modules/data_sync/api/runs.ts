@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { listSyncRunsQuerySchema } from '../data/validators'
 import type { SyncRunService } from '../lib/sync-run-service'
@@ -15,8 +16,12 @@ export const openApi = {
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const url = new URL(req.url)
@@ -38,7 +43,7 @@ export async function GET(req: Request) {
   const syncRunService = container.resolve('dataSyncRunService') as SyncRunService
 
   const { items, total } = await syncRunService.listRuns(parsed.data, {
-    organizationId: auth.orgId as string,
+    organizationId,
     tenantId: auth.tenantId,
   })
 

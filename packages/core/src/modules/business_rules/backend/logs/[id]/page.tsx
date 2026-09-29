@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useParams, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -36,17 +36,9 @@ type RuleExecutionLog = {
   organizationId: string | null
 }
 
-export default function ExecutionLogDetailPage() {
+export default function ExecutionLogDetailPage({ params }: { params?: { id?: string } }) {
   const router = useRouter()
-  const params = useParams()
-
-  // Handle catch-all route: params.slug = ['logs', 'id']
-  let logId: string | undefined
-  if (params?.slug && Array.isArray(params.slug)) {
-    logId = params.slug[1] // Second element is the ID
-  } else if (params?.id) {
-    logId = Array.isArray(params.id) ? params.id[0] : params.id
-  }
+  const logId = params?.id
 
   const t = useT()
 

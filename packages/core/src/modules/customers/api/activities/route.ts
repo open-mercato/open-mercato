@@ -30,7 +30,9 @@ import { resolveCustomersRequestContext } from '../../lib/interactionRequestCont
 import { hydrateCanonicalInteractions } from '../../lib/interactionReadModel'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
 import { buildEmailVisibilityMikroFilter } from '../../lib/visibilityFilter'
+import { listGrantsForViewer, listSharedChannelIds } from '../../lib/conversationShares'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('customers')
 
@@ -284,7 +286,22 @@ async function listCanonicalActivities(
   organizationIds: string[] | null,
   query: z.infer<typeof listSchema>,
   options?: { includeDeleted?: boolean; source?: string | string[] | null; paginate?: boolean },
+  isUnrestricted?: boolean,
 ): Promise<CanonicalActivityListResult> {
+  if (organizationIds && organizationIds.length === 0 && !isUnrestricted) {
+    return {
+      items: [],
+      total: 0,
+      bridgeIds: new Set(),
+    }
+  }
+  if (organizationIds === null && !isUnrestricted) {
+    return {
+      items: [],
+      total: 0,
+      bridgeIds: new Set(),
+    }
+  }
   const where: Record<string, unknown> = {
     tenantId,
     interactionType: { $ne: 'task' },
@@ -306,11 +323,20 @@ async function listCanonicalActivities(
   // the deprecated /activities surface (mirrors the /interactions Layer-1 filter).
   // v1 strict owner-only — no admin bypass (the filter ignores caller features).
   const activitiesViewerUserId = auth.keyId ? null : (auth.sub ?? auth.userId ?? null)
+  // Conversation shares widen this surface identically to /interactions, so the
+  // deprecated timeline cannot disagree with the canonical one.
+  const activitiesEmailScope = { tenantId, organizationId: selectedOrganizationId }
+  const [activitiesShareGrants, activitiesSharedChannelIds] = await Promise.all([
+    listGrantsForViewer(em, activitiesEmailScope, activitiesViewerUserId),
+    listSharedChannelIds(em, activitiesEmailScope, activitiesViewerUserId),
+  ])
   Object.assign(
     where,
     buildEmailVisibilityMikroFilter({
       currentUserId: activitiesViewerUserId,
       userFeatures: undefined,
+      sharedConversations: activitiesShareGrants,
+      sharedChannelIds: activitiesSharedChannelIds,
     }),
   )
 
@@ -361,7 +387,14 @@ async function listLegacyActivities(
   query: z.infer<typeof listSchema>,
   options?: { paginate?: boolean },
   selectedOrganizationId?: string | null,
+  isUnrestricted?: boolean,
 ): Promise<{ items: ActivityItem[]; total: number }> {
+  if (organizationIds && organizationIds.length === 0 && !isUnrestricted) {
+    return { items: [], total: 0 }
+  }
+  if (organizationIds === null && !isUnrestricted) {
+    return { items: [], total: 0 }
+  }
   const where: Record<string, unknown> = { tenantId }
   if (organizationIds && organizationIds.length > 0) {
     where.organizationId = { $in: organizationIds }
@@ -410,10 +443,29 @@ export async function GET(request: Request): Promise<Response> {
       organizationIds,
       container,
       selectedOrganizationId,
+      scope,
     } = await resolveCustomersRequestContext(request)
     const flags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
     if (!flags.legacyAdapters) {
       return await legacyAdaptersDisabledResponse()
+    }
+
+    const isUnrestricted = auth.isSuperAdmin === true || scope?.allowedIds === null
+    if (!isUnrestricted && (!organizationIds || organizationIds.length === 0)) {
+      logger.warn('activities.list collapsed organization scope — returning empty page', {
+        tenantId: auth.tenantId,
+        organizationIds,
+        scope,
+      })
+      return withAdapterHeaders(
+        NextResponse.json({
+          items: [],
+          total: 0,
+          page: query.page,
+          pageSize: query.pageSize,
+          totalPages: 1,
+        }),
+      )
     }
 
     const sortDir = query.sortDir ?? 'desc'
@@ -427,6 +479,8 @@ export async function GET(request: Request): Promise<Response> {
           auth.tenantId,
           organizationIds,
           query,
+          undefined,
+          isUnrestricted,
         )
       : await (async () => {
         const windowSize = Math.min(
@@ -442,6 +496,7 @@ export async function GET(request: Request): Promise<Response> {
             windowedQuery,
             { paginate: true },
             selectedOrganizationId,
+            isUnrestricted,
           ),
           listCanonicalActivities(
             em,
@@ -456,6 +511,7 @@ export async function GET(request: Request): Promise<Response> {
               paginate: true,
               source: CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
             },
+            isUnrestricted,
           ),
         ])
         const merged = sortActivityItems(
@@ -575,6 +631,10 @@ export async function POST(request: Request): Promise<Response> {
     if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
     }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return withAdapterHeaders(NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status }))
+    }
     if (err instanceof z.ZodError) {
       return withAdapterHeaders(
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
@@ -658,6 +718,10 @@ export async function PUT(request: Request): Promise<Response> {
     if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
     }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return withAdapterHeaders(NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status }))
+    }
     if (err instanceof z.ZodError) {
       return withAdapterHeaders(
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
@@ -725,6 +789,10 @@ export async function DELETE(request: Request): Promise<Response> {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return withAdapterHeaders(NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status }))
     }
     if (err instanceof z.ZodError) {
       return withAdapterHeaders(

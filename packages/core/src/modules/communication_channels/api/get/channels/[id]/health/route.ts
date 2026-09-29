@@ -5,8 +5,14 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { CommunicationChannel, ExternalConversation, MessageChannelLink } from '../../../../../data/entities'
-import { ChannelAccessDeniedError, assertCanAccessChannel } from '../../../../../lib/access-control'
+import {
+  ChannelAccessDeniedError,
+  assertCanAccessChannel,
+  channelOrgScopeWhereFromFilter,
+} from '../../../../../lib/access-control'
 
 type RbacServiceLike = {
   loadAcl: (
@@ -54,14 +60,18 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
   const container = await createRequestContainer()
   const em = (container.resolve('em') as EntityManager).fork()
 
+  // Same selected-organization scoping as the list and detail routes (#5012).
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const orgFilter = resolveOrganizationScopeFilter(scope, auth)
+
   const dscope = {
     tenantId: auth.tenantId as string,
-    organizationId: (auth as { orgId?: string | null }).orgId ?? null,
+    organizationId: orgFilter.rbacOrganizationId,
   }
   const channel = await findOneWithDecryption(
     em,
     CommunicationChannel,
-    { id, tenantId: auth.tenantId, organizationId: dscope.organizationId, deletedAt: null },
+    { id, tenantId: auth.tenantId, ...channelOrgScopeWhereFromFilter(orgFilter), deletedAt: null },
     undefined,
     dscope,
   )

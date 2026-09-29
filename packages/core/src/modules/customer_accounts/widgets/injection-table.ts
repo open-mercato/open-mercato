@@ -8,10 +8,13 @@ const accountStatusWidget = {
   priority: 200,
 } as const
 
+// Column 1 on purpose (#4400): any column-2 group makes CrudForm switch the
+// company detail page to the narrow 7fr/3fr two-column layout, compressing the
+// left-side groups. Portal users belongs in the left stack as a full-width row.
 const companyUsersWidget = {
   widgetId: 'customer_accounts.injection.company-users',
   kind: 'group',
-  column: 2,
+  column: 1,
   groupLabel: 'customer_accounts.widgets.portalUsers',
   priority: 200,
 } as const

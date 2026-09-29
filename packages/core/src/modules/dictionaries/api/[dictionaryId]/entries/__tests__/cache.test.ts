@@ -10,6 +10,7 @@ const em = {
   fork: jest.fn(),
   findOne: jest.fn(),
   find: jest.fn(),
+  count: jest.fn(),
 }
 
 const cache = {
@@ -101,6 +102,7 @@ describe('GET /api/dictionaries/[dictionaryId]/entries caching', () => {
       makeEntry('a', 'Alpha', 0),
       makeEntry('b', 'Beta', 1),
     ])
+    em.count.mockResolvedValue(2)
   })
 
   afterAll(() => {
@@ -121,7 +123,7 @@ describe('GET /api/dictionaries/[dictionaryId]/entries caching', () => {
     expect(cache.get).toHaveBeenCalledTimes(1)
     expect(cache.set).toHaveBeenCalledTimes(1)
     const [key, value, opts] = cache.set.mock.calls[0]
-    expect(key).toBe(`dictionaries:entries:${dictionaryId}:org=${organizationId}:sort=label_asc`)
+    expect(key).toBe(`dictionaries:entries:${dictionaryId}:org=${organizationId}:sort=label_asc:limit=500:offset=0`)
     expect((value as { items: unknown[] }).items).toHaveLength(2)
     expect(opts.ttl).toBe(5 * 60_000)
     expect(opts.tags).toEqual([
@@ -173,6 +175,6 @@ describe('GET /api/dictionaries/[dictionaryId]/entries caching', () => {
 
     expect(cache.set).toHaveBeenCalledTimes(1)
     const [key] = cache.set.mock.calls[0]
-    expect(key).toBe(`dictionaries:entries:${dictionaryId}:org=${organizationId}:sort=value_asc`)
+    expect(key).toBe(`dictionaries:entries:${dictionaryId}:org=${organizationId}:sort=value_asc:limit=500:offset=0`)
   })
 })

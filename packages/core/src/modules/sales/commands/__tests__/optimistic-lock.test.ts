@@ -19,7 +19,7 @@ import {
   enforceSalesDocumentOptimisticLock,
   SALES_RESOURCE_KIND_ORDER,
 } from '../shared'
-import { SalesOrder, SalesPayment, SalesShipment } from '../../data/entities'
+import { SalesOrder, SalesOrderLine, SalesPayment, SalesShipment } from '../../data/entities'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -167,6 +167,34 @@ describe('sales.orders.lines.delete — document-aggregate optimistic lock', () 
     expect((caught as CrudHttpError).body).toMatchObject({ code: 'optimistic_lock_conflict' })
     // Proves the check fires before mutation: the shipment-count guard query never ran.
     expect(em.count).not.toHaveBeenCalled()
+  })
+
+  it('rejects deleting the last remaining line with a 409', async () => {
+    const order = makeOrder(CURRENT)
+    const line = { id: LINE_ID }
+    const em: any = {
+      findOne: jest.fn(async (entityClass: unknown) => (entityClass === SalesOrder ? order : null)),
+      find: jest.fn(async (entityClass: unknown) => (entityClass === SalesOrderLine ? [line] : [])),
+      count: jest.fn(async () => 0),
+      flush: jest.fn(async () => {}),
+      fork: function () { return this },
+    }
+    const ctx = makeCtx(em, makeRequest(null))
+    const handler = commandRegistry.get('sales.orders.lines.delete')
+    expect(handler).toBeTruthy()
+
+    let caught: unknown
+    try {
+      await handler!.execute({ body: { id: LINE_ID, orderId: ORDER_ID } }, ctx as never)
+    } catch (err) {
+      caught = err
+    }
+    expect(isCrudHttpError(caught)).toBe(true)
+    expect((caught as CrudHttpError).status).toBe(409)
+    expect((caught as CrudHttpError).body).toMatchObject({
+      error: 'sales.documents.items.errorDeleteLast',
+    })
+    expect(em.flush).not.toHaveBeenCalled()
   })
 })
 

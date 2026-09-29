@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { Spinner } from "@open-mercato/ui/primitives/spinner"
-import { useT } from "@open-mercato/shared/lib/i18n/context"
+import { useT, type TranslateFn } from "@open-mercato/shared/lib/i18n/context"
 import { apiCall } from "@open-mercato/ui/backend/utils/apiCall"
 import { formatRelativeTime, formatDateTime } from "@open-mercato/shared/lib/time"
 import { cn } from "@open-mercato/shared/lib/utils"
@@ -21,6 +21,7 @@ export type TimelineEntry = {
     statusTo?: string | null
     documentKind?: "order" | "quote"
     commandId?: string
+    changedFields?: string[]
   }
 }
 
@@ -63,6 +64,89 @@ const KIND_BG_COLORS = {
   status: 'bg-muted',
   action: 'bg-muted',
   comment: 'bg-muted',
+}
+
+export const CHANGED_FIELD_LABELS: Record<string, { key: string; fallback: string }> = {
+  productId: { key: 'sales.documents.history.fields.product', fallback: 'Product' },
+  productVariantId: { key: 'sales.documents.history.fields.variant', fallback: 'Variant' },
+  name: { key: 'sales.documents.history.fields.name', fallback: 'Name' },
+  description: { key: 'sales.documents.history.fields.description', fallback: 'Description' },
+  comment: { key: 'sales.documents.history.fields.comment', fallback: 'Comment' },
+  quantity: { key: 'sales.documents.history.fields.quantity', fallback: 'Quantity' },
+  quantityUnit: { key: 'sales.documents.history.fields.quantityUnit', fallback: 'Quantity unit' },
+  currencyCode: { key: 'sales.documents.history.fields.currency', fallback: 'Currency' },
+  unitPriceNet: { key: 'sales.documents.history.fields.unitPriceNet', fallback: 'Net unit price' },
+  unitPriceGross: { key: 'sales.documents.history.fields.unitPriceGross', fallback: 'Gross unit price' },
+  discountAmount: { key: 'sales.documents.history.fields.discountAmount', fallback: 'Discount amount' },
+  discountPercent: { key: 'sales.documents.history.fields.discountPercent', fallback: 'Discount percent' },
+  taxRate: { key: 'sales.documents.history.fields.taxRate', fallback: 'Tax class' },
+  configuration: { key: 'sales.documents.history.fields.configuration', fallback: 'Configuration' },
+  promotionCode: { key: 'sales.documents.history.fields.promotionCode', fallback: 'Promotion code' },
+  customFields: { key: 'sales.documents.history.fields.customFields', fallback: 'Custom fields' },
+  statusEntryId: { key: 'sales.documents.history.fields.status', fallback: 'Status' },
+  status: { key: 'sales.documents.history.fields.status', fallback: 'Status' },
+  fulfillmentStatus: { key: 'sales.documents.history.fields.fulfillmentStatus', fallback: 'Fulfillment status' },
+  paymentStatus: { key: 'sales.documents.history.fields.paymentStatus', fallback: 'Payment status' },
+  customerEntityId: { key: 'sales.documents.history.fields.customer', fallback: 'Customer' },
+  customerContactId: { key: 'sales.documents.history.fields.customerContact', fallback: 'Customer contact' },
+  customerSnapshot: { key: 'sales.documents.history.fields.customerSnapshot', fallback: 'Customer details' },
+  customerReference: { key: 'sales.documents.history.fields.customerReference', fallback: 'Customer reference' },
+  externalReference: { key: 'sales.documents.history.fields.externalReference', fallback: 'External reference' },
+  billingAddressId: { key: 'sales.documents.history.fields.billingAddress', fallback: 'Billing address' },
+  billingAddressSnapshot: { key: 'sales.documents.history.fields.billingAddress', fallback: 'Billing address' },
+  shippingAddressId: { key: 'sales.documents.history.fields.shippingAddress', fallback: 'Shipping address' },
+  shippingAddressSnapshot: { key: 'sales.documents.history.fields.shippingAddress', fallback: 'Shipping address' },
+  shippingMethodSnapshot: { key: 'sales.documents.history.fields.shippingMethod', fallback: 'Shipping method' },
+  paymentMethodSnapshot: { key: 'sales.documents.history.fields.paymentMethod', fallback: 'Payment method' },
+  deliveryWindowSnapshot: { key: 'sales.documents.history.fields.deliveryWindow', fallback: 'Delivery window' },
+  channelId: { key: 'sales.documents.history.fields.channel', fallback: 'Channel' },
+  exchangeRate: { key: 'sales.documents.history.fields.exchangeRate', fallback: 'Exchange rate' },
+  comments: { key: 'sales.documents.history.fields.comments', fallback: 'Comments' },
+  internalNotes: { key: 'sales.documents.history.fields.internalNotes', fallback: 'Internal notes' },
+  metadata: { key: 'sales.documents.history.fields.metadata', fallback: 'Metadata' },
+  adjustments: { key: 'sales.documents.history.fields.adjustments', fallback: 'Adjustments' },
+  taxInfo: { key: 'sales.documents.history.fields.taxInfo', fallback: 'Tax details' },
+  placedAt: { key: 'sales.documents.history.fields.placedAt', fallback: 'Placed at' },
+  dueAt: { key: 'sales.documents.history.fields.dueAt', fallback: 'Due at' },
+  expectedDeliveryAt: { key: 'sales.documents.history.fields.expectedDeliveryAt', fallback: 'Expected delivery' },
+  validUntil: { key: 'sales.documents.history.fields.validUntil', fallback: 'Valid until' },
+  lineItemCount: { key: 'sales.documents.history.fields.lineItemCount', fallback: 'Line item count' },
+  subtotalNetAmount: { key: 'sales.documents.history.fields.subtotalNet', fallback: 'Net subtotal' },
+  subtotalGrossAmount: { key: 'sales.documents.history.fields.subtotalGross', fallback: 'Gross subtotal' },
+  discountTotalAmount: { key: 'sales.documents.history.fields.discountTotal', fallback: 'Discount total' },
+  taxTotalAmount: { key: 'sales.documents.history.fields.taxTotal', fallback: 'Tax total' },
+  surchargeTotalAmount: { key: 'sales.documents.history.fields.surchargeTotal', fallback: 'Surcharge total' },
+  shippingNetAmount: { key: 'sales.documents.history.fields.shippingNet', fallback: 'Net shipping' },
+  shippingGrossAmount: { key: 'sales.documents.history.fields.shippingGross', fallback: 'Gross shipping' },
+  grandTotalNetAmount: { key: 'sales.documents.history.fields.grandTotalNet', fallback: 'Net grand total' },
+  grandTotalGrossAmount: { key: 'sales.documents.history.fields.grandTotalGross', fallback: 'Gross grand total' },
+  totalsSnapshot: { key: 'sales.documents.history.fields.totals', fallback: 'Totals' },
+  paidTotalAmount: { key: 'sales.documents.history.fields.paidTotal', fallback: 'Paid total' },
+  refundedTotalAmount: { key: 'sales.documents.history.fields.refundedTotal', fallback: 'Refunded total' },
+  outstandingAmount: { key: 'sales.documents.history.fields.outstanding', fallback: 'Outstanding amount' },
+}
+
+function normalizeChangedField(field: string): string {
+  const segment = field.split('.').pop() ?? field
+  return segment.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())
+}
+
+function humanizeChangedField(field: string): string {
+  const normalized = normalizeChangedField(field)
+  const spaced = normalized.replace(/([a-z0-9])([A-Z])/g, '$1 $2').trim()
+  return spaced.length > 0 ? `${spaced[0].toUpperCase()}${spaced.slice(1)}` : field
+}
+
+export function translateChangedField(t: TranslateFn, field: string): string {
+  const normalized = normalizeChangedField(field)
+  const translation = CHANGED_FIELD_LABELS[normalized]
+  return translation ? t(translation.key, translation.fallback) : humanizeChangedField(field)
+}
+
+function translateAction(t: TranslateFn, entry: TimelineEntry): string {
+  const commandId = entry.metadata?.commandId
+  if (!commandId?.startsWith('sales.')) return entry.action
+  return t(`sales.audit.${commandId.slice('sales.'.length)}`, entry.action)
 }
 
 function StatusDot({ color, className }: { color: string | null | undefined; className?: string }) {
@@ -118,11 +202,19 @@ function TimelineItem({
   statusMap: Record<string, StatusOption>
   isLast: boolean
 }) {
+  const t = useT()
   const KindIcon = KIND_ICONS[entry.kind]
   const relativeTime = formatRelativeTime(entry.occurredAt)
   const absoluteTime = formatDateTime(entry.occurredAt)
 
   const isStatusChange = entry.kind === 'status' && entry.metadata?.statusTo
+  const action = translateAction(t, entry)
+  const actorLabel = entry.actor.id
+    ? entry.actor.label
+    : t('sales.documents.history.actor.system', 'System')
+  const changedFieldLabels = Array.from(
+    new Set((entry.metadata?.changedFields ?? []).map((field) => translateChangedField(t, field))),
+  )
 
   return (
     <div data-testid="timeline-entry" className="relative flex gap-3">
@@ -148,7 +240,7 @@ function TimelineItem({
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <span className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground">
               <User className="h-3 w-3 text-muted-foreground" aria-hidden />
-              {entry.actor.label}
+              {actorLabel}
             </span>
             <span
               className="text-xs text-muted-foreground"
@@ -166,7 +258,16 @@ function TimelineItem({
               statusMap={statusMap}
             />
           ) : (
-            <div className="text-sm text-foreground">{entry.action}</div>
+            <div className="space-y-0.5">
+              <div className="text-sm text-foreground">{action}</div>
+              {entry.kind === 'action' && changedFieldLabels.length > 0 ? (
+                <div className="text-xs text-muted-foreground">
+                  {t('sales.documents.history.changedFields', 'Changed fields: {fields}', {
+                    fields: changedFieldLabels.join(', '),
+                  })}
+                </div>
+              ) : null}
+            </div>
           )}
         </div>
       </div>

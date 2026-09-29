@@ -27,6 +27,21 @@ beforeEach(() => {
 })
 
 describe('createStorageService', () => {
+  it('preserves the configured path prefix for programmatic uploads', async () => {
+    mockSend.mockResolvedValueOnce({})
+    const service = createStorageService({ ...BASE_CONFIG, pathPrefix: 'backups/' })
+
+    const result = await service.upload({
+      namespace: 'docs',
+      fileName: 'report.pdf',
+      buffer: Buffer.from('pdf'),
+      scope: TENANT_SCOPE,
+    })
+
+    expect(result.key).toMatch(/^backups\/docs\/org_org-owned\/tenant_tenant-owned\//)
+    expect(mockSend.mock.calls[0]?.[0]?.Key).toBe(result.key)
+  })
+
   it('rejects cross-tenant downloads before calling S3', async () => {
     const service = createStorageService(BASE_CONFIG)
 
@@ -35,7 +50,7 @@ describe('createStorageService', () => {
         key: 'docs/org_org-victim/tenant_tenant-owned/file.txt',
         scope: TENANT_SCOPE,
       }),
-    ).rejects.toThrow('S3 key is not scoped to the active tenant')
+    ).rejects.toThrow('[internal] S3 key is not scoped to the active tenant')
 
     expect(mockSend).not.toHaveBeenCalled()
   })
@@ -70,7 +85,7 @@ describe('createStorageService', () => {
         key: 'docs/org_org-victim/tenant_tenant-owned/file.txt',
         scope: TENANT_SCOPE,
       }),
-    ).rejects.toThrow('S3 key is not scoped to the active tenant')
+    ).rejects.toThrow('[internal] S3 key is not scoped to the active tenant')
 
     expect(mockSend).not.toHaveBeenCalled()
   })
@@ -83,7 +98,7 @@ describe('createStorageService', () => {
         key: 'docs/org_org-owned/tenant_tenant-victim/file.txt',
         scope: TENANT_SCOPE,
       }),
-    ).rejects.toThrow('S3 key is not scoped to the active tenant')
+    ).rejects.toThrow('[internal] S3 key is not scoped to the active tenant')
 
     expect(mockSend).not.toHaveBeenCalled()
   })
@@ -97,7 +112,7 @@ describe('createStorageService', () => {
         operation: 'download',
         scope: TENANT_SCOPE,
       }),
-    ).rejects.toThrow('S3 key is not scoped to the active tenant')
+    ).rejects.toThrow('[internal] S3 key is not scoped to the active tenant')
 
     expect(mockGetSignedUrl).not.toHaveBeenCalled()
   })
@@ -111,7 +126,7 @@ describe('createStorageService', () => {
         operation: 'upload',
         scope: TENANT_SCOPE,
       }),
-    ).rejects.toThrow('S3 key is not scoped to the active tenant')
+    ).rejects.toThrow('[internal] S3 key is not scoped to the active tenant')
 
     expect(mockGetSignedUrl).not.toHaveBeenCalled()
   })

@@ -2,6 +2,11 @@ import { LocalSchedulerService } from '../localSchedulerService'
 import type { EntityManager } from '@mikro-orm/core'
 import type { Queue } from '@open-mercato/queue'
 import { ScheduledJob } from '../../data/entities.js'
+import {
+  clearSchedulerSafeCommandsForTests,
+  registerSchedulerSafeCommands,
+} from '../../lib/scheduler-safe-commands'
+import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
@@ -54,12 +59,53 @@ describe('LocalSchedulerService', () => {
   let mockForkedEm: jest.Mocked<EntityManager>
   let mockQueue: jest.Mocked<Queue>
   let mockQueueFactory: jest.Mock
-  let mockRbacService: { tenantHasFeature: jest.Mock }
+  let mockRbacService: { tenantHasFeature: jest.Mock; userHasAllFeatures: jest.Mock }
   let mockLockStrategy: { runWithLock: jest.Mock }
+
+  beforeAll(() => {
+    // Queue-target dispatch reauthorizes against scheduler-safe queues (#5213);
+    // seed one safe queue and one module-owned internal queue for the guards.
+    registerModules([
+      {
+        id: 'test_module',
+        workers: [
+          {
+            id: 'test_module:workers:test-queue',
+            queue: 'test-queue',
+            concurrency: 1,
+            schedulerSafe: true,
+            handler: async () => {},
+          },
+        ],
+      },
+      {
+        id: 'legacy_module',
+        workers: [
+          {
+            id: 'legacy_module:workers:internal',
+            queue: 'legacy-internal',
+            concurrency: 1,
+            handler: async () => {},
+          },
+        ],
+      },
+    ] as never)
+  })
+
+  afterAll(() => {
+    ;(globalThis as Record<string, unknown>).__openMercatoModulesRegistry__ = null
+  })
 
   beforeEach(() => {
     jest.clearAllMocks()
     jest.useFakeTimers()
+    clearSchedulerSafeCommandsForTests()
+    registerSchedulerSafeCommands([
+      {
+        commandId: 'test:command',
+        requiredFeatures: ['scheduler.jobs.manage'],
+      },
+    ])
 
     // Create mock queue
     mockQueue = {
@@ -84,6 +130,7 @@ describe('LocalSchedulerService', () => {
     // Create mock RBAC service
     mockRbacService = {
       tenantHasFeature: jest.fn(),
+      userHasAllFeatures: jest.fn().mockResolvedValue(true),
     }
 
     // Create service
@@ -111,6 +158,16 @@ describe('LocalSchedulerService', () => {
 
       expect(loggerInfo).toHaveBeenCalledWith('Starting polling engine', { pollIntervalMs: 1000 })
       expect(loggerInfo).toHaveBeenCalledWith('Polling engine started')
+    })
+
+    it('should warn that the local strategy has no cross-process protection', async () => {
+      mockForkedEm.find.mockResolvedValue([])
+
+      await service.start()
+
+      expect(loggerWarn).toHaveBeenCalledWith(
+        expect.stringContaining('no cross-process protection'),
+      )
     })
 
     it('should run initial poll immediately', async () => {
@@ -274,8 +331,151 @@ describe('LocalSchedulerService', () => {
           tenantId: null,
           organizationId: null,
           _idempotencyKey: expect.stringMatching(/^scheduler-test-1-/),
+          _jobOrigin: 'scheduler',
         })
       )
+    })
+
+    it('should sanitize author-supplied scope and envelope keys from the target payload', async () => {
+      const schedule = createSchedule({
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        sourceType: 'module',
+        sourceModule: 'test_module',
+        targetQueue: 'test-queue',
+        targetPayload: {
+          scope: { tenantId: 'forged-tenant', organizationId: 'forged-org' },
+          tenantId: 'forged-tenant',
+          _jobOrigin: 'inbound-webhook',
+          payload: { nested: 'data', _idempotencyKey: 'forged' },
+          legit: 'kept',
+        },
+      })
+
+      mockForkedEm.find.mockResolvedValue([schedule])
+      mockForkedEm.findOne.mockResolvedValue({ ...schedule })
+      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
+        await fn()
+        return { acquired: true }
+      })
+      mockQueue.enqueue.mockResolvedValue(undefined as any)
+
+      await service.start()
+
+      expect(mockQueue.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          payload: { nested: 'data' },
+          legit: 'kept',
+          scope: { tenantId: 'tenant-1', organizationId: 'org-1' },
+          _jobOrigin: 'scheduler',
+        })
+      )
+      const enqueued = mockQueue.enqueue.mock.calls[0][0] as Record<string, unknown>
+      expect(enqueued.payload).toEqual({ nested: 'data' })
+    })
+
+    it('should refuse user-authored schedules targeting non-safe internal queues', async () => {
+      const schedule = createSchedule({
+        targetQueue: 'stripe-webhook',
+        sourceType: 'user',
+      })
+
+      mockForkedEm.find.mockResolvedValue([schedule])
+      mockForkedEm.findOne.mockResolvedValue({ ...schedule })
+      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
+        await fn()
+        return { acquired: true }
+      })
+
+      await service.start()
+
+      expect(mockQueueFactory).not.toHaveBeenCalled()
+      expect(loggerError).toHaveBeenCalled()
+      expect(mockEmitSchedulerEvent).toHaveBeenCalledWith(
+        'scheduler.job.failed',
+        expect.objectContaining({
+          id: 'test-1',
+          error: expect.stringContaining('not an approved scheduler target'),
+        })
+      )
+    })
+
+    it('should refuse a pre-upgrade module row whose sourceModule MATCHES the owner but carries an actor stamp (#5213 B1)', async () => {
+      // forged pre-upgrade row: attacker set sourceType/sourceModule to the real
+      // owning module, but API writes always stamp createdByUserId — which
+      // schedulerService.register() never does. The row must fail closed.
+      const schedule = createSchedule({
+        targetQueue: 'legacy-internal',
+        sourceType: 'module',
+        sourceModule: 'legacy_module',
+        createdByUserId: 'attacker-user',
+      })
+
+      mockForkedEm.find.mockResolvedValue([schedule])
+      mockForkedEm.findOne.mockResolvedValue({ ...schedule })
+      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
+        await fn()
+        return { acquired: true }
+      })
+
+      await service.start()
+
+      expect(mockQueueFactory).not.toHaveBeenCalled()
+      expect(mockEmitSchedulerEvent).toHaveBeenCalledWith(
+        'scheduler.job.failed',
+        expect.objectContaining({
+          id: 'test-1',
+          error: expect.stringContaining('not an approved scheduler target'),
+        })
+      )
+    })
+
+    it('should refuse a pre-upgrade module row whose sourceModule does not own its internal queue (#5213 B1)', async () => {
+      const schedule = createSchedule({
+        targetQueue: 'stripe-webhook',
+        sourceType: 'module',
+        sourceModule: 'legacy_module',
+      })
+
+      mockForkedEm.find.mockResolvedValue([schedule])
+      mockForkedEm.findOne.mockResolvedValue({ ...schedule })
+      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
+        await fn()
+        return { acquired: true }
+      })
+
+      await service.start()
+
+      expect(mockQueueFactory).not.toHaveBeenCalled()
+      expect(mockEmitSchedulerEvent).toHaveBeenCalledWith(
+        'scheduler.job.failed',
+        expect.objectContaining({
+          id: 'test-1',
+          error: expect.stringContaining('not an approved scheduler target'),
+        })
+      )
+    })
+
+    it('should allow module-authored schedules to keep targeting queues their own module owns (#5213 B1)', async () => {
+      const schedule = createSchedule({
+        targetQueue: 'legacy-internal',
+        sourceType: 'module',
+        sourceModule: 'legacy_module',
+      })
+
+      mockForkedEm.find.mockResolvedValue([schedule])
+      mockForkedEm.findOne.mockResolvedValue({ ...schedule })
+      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
+        await fn()
+        return { acquired: true }
+      })
+      mockQueue.enqueue.mockResolvedValue(undefined as any)
+
+      await service.start()
+
+      expect(mockQueue.enqueue).toHaveBeenCalled()
     })
 
     it('should execute command target', async () => {
@@ -283,6 +483,7 @@ describe('LocalSchedulerService', () => {
         targetType: 'command',
         targetCommand: 'test:command',
         targetQueue: null,
+        createdByUserId: 'user-1',
       })
 
       mockForkedEm.find.mockResolvedValue([schedule])
@@ -302,8 +503,85 @@ describe('LocalSchedulerService', () => {
             tenantId: null,
             organizationId: null,
           }),
+          ctx: expect.objectContaining({
+            auth: expect.objectContaining({
+              sub: 'user-1',
+              userId: 'user-1',
+              tenantId: null,
+              orgId: null,
+            }),
+          }),
         })
       )
+      expect(mockRbacService.userHasAllFeatures).toHaveBeenCalledWith(
+        'user-1',
+        ['scheduler.jobs.manage'],
+        { tenantId: null, organizationId: null }
+      )
+    })
+
+    it('should reject command target that is not scheduler safe', async () => {
+      const schedule = createSchedule({
+        targetType: 'command',
+        targetCommand: 'unsafe.command',
+        targetQueue: null,
+        createdByUserId: 'user-1',
+      })
+
+      mockForkedEm.find.mockResolvedValue([schedule])
+      mockForkedEm.findOne.mockResolvedValue({ ...schedule })
+      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
+        await fn()
+        return { acquired: true }
+      })
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+
+      await service.start()
+
+      expect(mockCommandBusInstance.execute).not.toHaveBeenCalled()
+      expect(mockEmitSchedulerEvent).toHaveBeenCalledWith(
+        'scheduler.job.failed',
+        expect.objectContaining({
+          id: 'test-1',
+          error: 'Scheduled command is not allowed',
+        })
+      )
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('should reject command target when the schedule creator lacks required features', async () => {
+      const schedule = createSchedule({
+        targetType: 'command',
+        targetCommand: 'test:command',
+        targetQueue: null,
+        createdByUserId: 'user-1',
+      })
+
+      mockRbacService.userHasAllFeatures.mockResolvedValueOnce(false)
+      mockForkedEm.find.mockResolvedValue([schedule])
+      mockForkedEm.findOne.mockResolvedValue({ ...schedule })
+      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
+        await fn()
+        return { acquired: true }
+      })
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+
+      await service.start()
+
+      expect(mockCommandBusInstance.execute).not.toHaveBeenCalled()
+      expect(mockRbacService.userHasAllFeatures).toHaveBeenCalledWith(
+        'user-1',
+        ['scheduler.jobs.manage'],
+        { tenantId: null, organizationId: null }
+      )
+      expect(mockEmitSchedulerEvent).toHaveBeenCalledWith(
+        'scheduler.job.failed',
+        expect.objectContaining({
+          id: 'test-1',
+          error: 'Scheduled command actor is not authorized',
+        })
+      )
+      consoleErrorSpy.mockRestore()
     })
 
     it('should emit started event', async () => {
@@ -570,6 +848,7 @@ describe('LocalSchedulerService', () => {
           tenantId: schedule.tenantId,
           organizationId: schedule.organizationId,
           _idempotencyKey: expect.stringMatching(new RegExp(`^scheduler-${schedule.id}-`)),
+          _jobOrigin: 'scheduler',
         })
       )
       const enqueued = mockQueue.enqueue.mock.calls[0][0] as Record<string, unknown>
@@ -587,6 +866,7 @@ describe('LocalSchedulerService', () => {
         scopeType: 'organization',
         tenantId: 'tenant-1',
         organizationId: 'org-1',
+        createdByUserId: 'user-1',
       })
 
       mockForkedEm.find.mockResolvedValue([schedule])
@@ -608,6 +888,11 @@ describe('LocalSchedulerService', () => {
             organizationId: 'org-1',
           }),
           ctx: expect.objectContaining({
+            auth: expect.objectContaining({
+              sub: 'user-1',
+              tenantId: 'tenant-1',
+              orgId: 'org-1',
+            }),
             selectedOrganizationId: 'org-1',
             organizationIds: ['org-1'],
           }),

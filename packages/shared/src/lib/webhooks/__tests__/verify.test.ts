@@ -1,6 +1,25 @@
 import { signWebhookPayload } from '../sign'
-import { verifyWebhookSignature } from '../verify'
+import { isWebhookTimestampWithinTolerance, verifyWebhookSignature } from '../verify'
 import { generateWebhookSecret } from '../secrets'
+
+describe('isWebhookTimestampWithinTolerance', () => {
+  it('accepts timestamps inside the configured tolerance', () => {
+    expect(isWebhookTimestampWithinTolerance('1700000000', 300, 1700000299)).toBe(true)
+  })
+
+  it('rejects stale timestamps outside the configured tolerance', () => {
+    expect(isWebhookTimestampWithinTolerance('1700000000', 300, 1700000301)).toBe(false)
+  })
+
+  it('rejects timestamps too far in the future', () => {
+    expect(isWebhookTimestampWithinTolerance('1700000601', 300, 1700000000)).toBe(false)
+  })
+
+  it('rejects malformed timestamps', () => {
+    expect(isWebhookTimestampWithinTolerance('not-a-timestamp', 300, 1700000000)).toBe(false)
+    expect(isWebhookTimestampWithinTolerance('1700000000abc', 300, 1700000000)).toBe(false)
+  })
+})
 
 describe('verifyWebhookSignature', () => {
   const msgId = 'msg_test123'

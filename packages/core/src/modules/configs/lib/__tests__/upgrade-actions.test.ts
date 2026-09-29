@@ -143,3 +143,30 @@ describe('interaction-statuses seed upgrade action', () => {
     expect(typeof action?.run).toBe('function')
   })
 })
+
+describe('payment-session initialization prune upgrade action', () => {
+  it('registers the retention schedule for an existing tenant organization', async () => {
+    const action = upgradeActions.find(
+      (candidate) => candidate.id === 'payment_gateways.register-session-initialization-prune',
+    )
+    const register = jest.fn().mockResolvedValue(undefined)
+    const container = {
+      hasRegistration: (name: string) => name === 'schedulerService',
+      resolve: jest.fn(() => ({ register })),
+    }
+
+    expect(action?.version).toBe('0.6.6')
+    await action?.run({
+      container: container as never,
+      em: {} as never,
+      tenantId: '10000000-0000-4000-8000-000000000001',
+      organizationId: '20000000-0000-4000-8000-000000000001',
+    })
+
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: '10000000-0000-4000-8000-000000000001',
+      organizationId: '20000000-0000-4000-8000-000000000001',
+      targetQueue: 'payment-gateway-session-initialization-prune',
+    }))
+  })
+})

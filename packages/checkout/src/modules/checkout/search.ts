@@ -1,4 +1,5 @@
 import type { SearchModuleConfig } from '@open-mercato/shared/modules/search'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CHECKOUT_ENTITY_IDS } from './lib/constants'
 
 function asSearchText(value: unknown): string {
@@ -9,6 +10,7 @@ export const searchConfig: SearchModuleConfig = {
   entities: [
     {
       entityId: CHECKOUT_ENTITY_IDS.link,
+      aclFeatures: ['checkout.view'],
       enabled: true,
       priority: 10,
       fieldPolicy: {
@@ -28,21 +30,60 @@ export const searchConfig: SearchModuleConfig = {
     },
     {
       entityId: CHECKOUT_ENTITY_IDS.template,
+      aclFeatures: ['checkout.view'],
       enabled: true,
       priority: 8,
       fieldPolicy: {
         searchable: ['name', 'title'],
         excluded: ['passwordHash', 'gatewaySettings', 'customerFieldsSchema'],
       },
+      buildSource: async (ctx) => {
+        const { t } = await resolveTranslations()
+        const linkTemplate = t('checkout.search.subtitle.linkTemplate', 'Link Template')
+        return {
+          text: [`${asSearchText(ctx.record.name)}: ${asSearchText(ctx.record.title)}`],
+          presenter: { title: asSearchText(ctx.record.name), subtitle: linkTemplate },
+          checksumSource: { record: ctx.record, customFields: ctx.customFields },
+        }
+      },
+      formatResult: async (ctx) => {
+        const { t } = await resolveTranslations()
+        return {
+          title: asSearchText(ctx.record.name),
+          subtitle: t('checkout.search.subtitle.linkTemplate', 'Link Template'),
+          icon: 'lucide:file-text',
+        }
+      },
+    },
+    {
+      entityId: CHECKOUT_ENTITY_IDS.transaction,
+      aclFeatures: ['checkout.view'],
+      enabled: true,
+      priority: 6,
+      fieldPolicy: {
+        searchable: ['email', 'firstName', 'lastName'],
+      },
       buildSource: async (ctx) => ({
-        text: [`${asSearchText(ctx.record.name)}: ${asSearchText(ctx.record.title)}`],
-        presenter: { title: asSearchText(ctx.record.name), subtitle: 'Link Template' },
-        checksumSource: { record: ctx.record, customFields: ctx.customFields },
+        text: [
+          asSearchText(ctx.record.email),
+          asSearchText(ctx.record.firstName),
+          asSearchText(ctx.record.lastName),
+        ],
+        fields: {
+          email: ctx.record.email,
+          first_name: ctx.record.firstName,
+          last_name: ctx.record.lastName,
+        },
+        presenter: {
+          title: asSearchText(ctx.record.email),
+          subtitle: `${asSearchText(ctx.record.firstName)} ${asSearchText(ctx.record.lastName)}`.trim(),
+        },
+        checksumSource: { record: ctx.record },
       }),
       formatResult: async (ctx) => ({
-        title: asSearchText(ctx.record.name),
-        subtitle: 'Link Template',
-        icon: 'lucide:file-text',
+        title: asSearchText(ctx.record.email),
+        subtitle: `${asSearchText(ctx.record.firstName)} ${asSearchText(ctx.record.lastName)}`.trim(),
+        icon: 'lucide:receipt',
       }),
     },
   ],

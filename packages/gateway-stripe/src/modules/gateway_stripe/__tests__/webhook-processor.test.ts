@@ -57,7 +57,7 @@ function makeJob(payload: {
   return {
     id: 'job_1',
     createdAt: '2026-01-01T00:00:00.000Z',
-    payload: { providerKey: 'stripe', ...payload },
+    payload: { providerKey: 'stripe', _jobOrigin: 'inbound-webhook', ...payload },
   } as unknown as WorkerJob
 }
 

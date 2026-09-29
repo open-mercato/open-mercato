@@ -4,6 +4,7 @@ import os from 'node:os'
 import {
   extractNamedObjectLiteralExport,
   hasNamedExport,
+  namedObjectLiteralDeclaresProperty,
   resolveNamedObjectExport,
 } from '../module-registry'
 
@@ -216,5 +217,48 @@ describe('hasNamedExport', () => {
       export async function GET() {}
     `)
     expect(hasNamedExport(file, 'metadata')).toBe(false)
+  })
+})
+
+describe('namedObjectLiteralDeclaresProperty', () => {
+  // A worker declaring `onJobAbandoned: someImportedFn` is the case that broke: the value resolvers
+  // cannot evaluate an imported identifier, so "is it declared" has to be answered from the syntax.
+  // Getting this wrong is silent — the generator simply never emits the hook.
+  it('sees a property whose value is an unresolvable identifier', () => {
+    const file = writeSource('worker.ts', `
+      import { failAbandonedRun } from '../lib/abandoned-run'
+      export const metadata = {
+        queue: 'data-sync-import',
+        concurrency: 5,
+        onJobAbandoned: failAbandonedRun,
+      }
+    `)
+    expect(namedObjectLiteralDeclaresProperty(file, 'metadata', 'onJobAbandoned')).toBe(true)
+    expect(extractNamedObjectLiteralExport(file, 'metadata')?.onJobAbandoned).toBeUndefined()
+  })
+
+  it('sees a property declared as an inline function', () => {
+    const file = writeSource('worker.ts', `
+      export const metadata = {
+        queue: 'q',
+        onJobAbandoned: async () => {},
+      }
+    `)
+    expect(namedObjectLiteralDeclaresProperty(file, 'metadata', 'onJobAbandoned')).toBe(true)
+  })
+
+  it('reports absence for a worker that declares no hook', () => {
+    const file = writeSource('worker.ts', `
+      export const metadata = { queue: 'q', concurrency: 1 }
+    `)
+    expect(namedObjectLiteralDeclaresProperty(file, 'metadata', 'onJobAbandoned')).toBe(false)
+  })
+
+  it('reports absence for a metadata export that is not an object literal', () => {
+    const file = writeSource('worker.ts', `
+      const base = buildMetadata()
+      export const metadata = base
+    `)
+    expect(namedObjectLiteralDeclaresProperty(file, 'metadata', 'onJobAbandoned')).toBe(false)
   })
 })

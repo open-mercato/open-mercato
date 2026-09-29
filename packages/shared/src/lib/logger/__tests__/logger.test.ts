@@ -3,7 +3,9 @@ import {
   createLogger,
   getLogLevel,
   isLevelEnabled,
+  registerLoggerExtension,
   resetLogLevelCache,
+  resetLoggerExtension,
   resetLoggerRegistry,
 } from '../index'
 import { resolveLevel, type LogLevel } from '../level'
@@ -65,6 +67,7 @@ function resetLoggerState(): void {
   resetLoggerRegistry()
   resetServerLoggerCache()
   resetLogPrettyCache()
+  resetLoggerExtension()
 }
 
 function forcePinoTransport(): void {
@@ -238,6 +241,80 @@ describe('structured logging facade', () => {
 
     it('reuses the same logger instance per namespace', () => {
       expect(createLogger('reuse-ns')).toBe(createLogger('reuse-ns'))
+    })
+  })
+
+  describe('process-wide logger extension', () => {
+    beforeEach(() => {
+      forcePinoTransport()
+    })
+
+    it('keeps one local line and observes one correlated record with child bindings', () => {
+      const fake = createFakePinoHarness()
+      mockPinoLoader(fake.factory)
+      const records: unknown[] = []
+      registerLoggerExtension({
+        enrich: () => ({ trace_id: 'trace-1', span_id: 'span-1' }),
+        emit: (record) => records.push(record),
+      })
+
+      createLogger('orders')
+        .child({ module: 'sales' })
+        .info('Order placed', { orderId: 'o-1' })
+
+      expect(fake.calls).toEqual([{
+        level: 'info',
+        args: [{
+          orderId: 'o-1',
+          trace_id: 'trace-1',
+          span_id: 'span-1',
+        }, 'Order placed'],
+      }])
+      expect(records).toHaveLength(1)
+      expect(records[0]).toMatchObject({
+        level: 'info',
+        namespace: 'orders',
+        message: 'Order placed',
+        fields: {
+          module: 'sales',
+          orderId: 'o-1',
+          trace_id: 'trace-1',
+          span_id: 'span-1',
+        },
+      })
+    })
+
+    it('applies the shared level gate to local and remote output', () => {
+      process.env.OM_LOG_LEVEL = 'warn'
+      resetLogLevelCache()
+      const fake = createFakePinoHarness()
+      mockPinoLoader(fake.factory)
+      const emit = jest.fn()
+      registerLoggerExtension({ emit })
+      const logger = createLogger('gated-extension')
+
+      logger.info('quiet')
+      logger.warn('visible')
+
+      expect(fake.calls.map((call) => call.level)).toEqual(['warn'])
+      expect(emit).toHaveBeenCalledTimes(1)
+      expect(emit.mock.calls[0][0]).toMatchObject({ level: 'warn', message: 'visible' })
+    })
+
+    it('isolates extension failures from application logging', () => {
+      const fake = createFakePinoHarness()
+      mockPinoLoader(fake.factory)
+      registerLoggerExtension({
+        enrich: () => {
+          throw new Error('context failed')
+        },
+        emit: () => {
+          throw new Error('sink failed')
+        },
+      })
+
+      expect(() => createLogger('resilient-extension').error('Still local')).not.toThrow()
+      expect(fake.calls).toEqual([{ level: 'error', args: [{}, 'Still local'] }])
     })
   })
 

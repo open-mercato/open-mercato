@@ -16,6 +16,8 @@ export interface McpToolContext {
   apiKeySecret?: string
   /** Session token for memory layer (deduplication of search/GET calls) */
   sessionId?: string
+  /** Pending action that the operator explicitly confirmed before this handler invocation. */
+  approvedPendingActionId?: string
   /**
    * Back-reference to the tool definition the handler is executing. Populated
    * by the runtime (`tool-executor`, `pending-action-executor`, the agent-tools
@@ -247,6 +249,17 @@ export type ToolInfo = {
   name: string
   description: string
   inputSchema: Record<string, unknown>
+  /** MCP capability hints advertised for the tool (see `buildMcpToolAnnotations`). */
+  annotations?: McpToolAnnotations
+}
+
+/** MCP `ToolAnnotations` values carried through remote and in-process clients. */
+export type McpToolAnnotations = {
+  title?: string
+  readOnlyHint?: boolean
+  destructiveHint?: boolean
+  idempotentHint?: boolean
+  openWorldHint?: boolean
 }
 
 /**

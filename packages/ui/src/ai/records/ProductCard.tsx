@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { Package, Tag as TagIcon } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { KeyValueList, RecordCardShell, TagRow, statusToTagVariant } from './RecordCardShell'
 import type { ProductRecordPayload } from './types'
 import { formatCurrency } from '../../utils/format'
@@ -11,10 +11,11 @@ export interface ProductCardProps extends ProductRecordPayload {}
 
 export function ProductCard(props: ProductCardProps) {
   const t = useT()
+  const locale = useLocale()
   const status = props.status
     ? { label: props.status, variant: statusToTagVariant(props.status) }
     : null
-  const price = formatCurrency(props.price, props.currency)
+  const price = formatCurrency(props.price, props.currency, locale)
 
   const leading = props.imageUrl ? (
     <div className="relative size-12 overflow-hidden rounded-md border border-border bg-muted">

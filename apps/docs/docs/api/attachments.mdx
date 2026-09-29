@@ -101,6 +101,8 @@ curl -X GET "$BASE_URL/attachments?entityId=catalog:catalog_product&recordId=$RE
 
 The payload includes `id`, `fileName`, `fileSize`, `createdAt`, `partitionCode`, `url`, `thumbnailUrl`, `tags`, and `assignments`.
 
+Pagination is optional and opt-in: pass **both** `page` (minimum `1`) and `pageSize` (minimum `1`, maximum `100`) to page the result. When you do, the response adds `total`, `page`, `pageSize`, and `totalPages` alongside `items`; when you omit either one, every attachment for the record is returned without those fields. Paging is unclamped, exactly like the other list endpoints — a page past the end returns an empty `items` array and echoes back the page you asked for, so a loop that keeps requesting the next page while the current one is full terminates on its own. Use `totalPages` if you need to know where the list ends before you get there.
+
 ### Upload attachment — `POST /attachments` (multipart)
 
 **Feature:** `attachments.manage`

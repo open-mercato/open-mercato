@@ -105,6 +105,20 @@ describe('mockWebhookEndpointAdapter.verifyWebhook', () => {
     ).resolves.toMatchObject({ eventType: 'mock.inbound.received' })
   })
 
+  it('verifies the production secret wired by the ephemeral integration harness', async () => {
+    process.env.NODE_ENV = 'production'
+    process.env.MOCK_INBOUND_WEBHOOK_SECRET = 'open-mercato-mock-dev-inbound-webhook-secret'
+    const body = JSON.stringify({ type: 'mock.inbound.received', data: { externalId: 'ext-1' } })
+    const signature = computeMockInboundWebhookSignature(body, 'open-mercato-mock-dev-inbound-webhook-secret')
+    await expect(
+      mockWebhookEndpointAdapter.verifyWebhook({
+        headers: { [MOCK_INBOUND_SIGNATURE_HEADER]: signature },
+        body,
+        method: 'POST',
+      }),
+    ).resolves.toMatchObject({ eventType: 'mock.inbound.received' })
+  })
+
   it('accepts a request authenticated with the static token header', async () => {
     const body = JSON.stringify({ type: 'mock.inbound.received', data: { externalId: 'ext-token' } })
     await expect(

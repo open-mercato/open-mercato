@@ -1,5 +1,9 @@
 import { matchesEntity, runMutationGuards } from '../mutation-guard-registry'
 import type { MutationGuard, MutationGuardInput } from '../mutation-guard-registry'
+import {
+  applyAclFeatureOverrides,
+  resetModuleContractOverridesForTests,
+} from '../../../modules/overrides'
 
 describe('matchesEntity', () => {
   it('matches wildcard "*" against any entity', () => {
@@ -24,6 +28,10 @@ describe('matchesEntity', () => {
 })
 
 describe('runMutationGuards', () => {
+  afterEach(() => {
+    resetModuleContractOverridesForTests()
+  })
+
   const baseInput: MutationGuardInput = {
     tenantId: 'tenant-1',
     organizationId: 'org-1',
@@ -157,6 +165,24 @@ describe('runMutationGuards', () => {
 
     expect(resultWithWildcard.ok).toBe(false)
     expect(resultWithWildcard.errorBody).toEqual({ error: 'Blocked by wildcard', guardId: 'g1' })
+  })
+
+  it('does not run a guard gated by a nulled ACL feature', async () => {
+    applyAclFeatureOverrides({ 'premium.locks': null })
+    const guard = makeGuard({
+      id: 'g1',
+      features: ['premium.locks'],
+      validate: jest.fn().mockResolvedValue({ ok: false }),
+    })
+
+    const result = await runMutationGuards(
+      [guard],
+      baseInput,
+      { userFeatures: ['*', 'premium.locks'] },
+    )
+
+    expect(result.ok).toBe(true)
+    expect(guard.validate).not.toHaveBeenCalled()
   })
 
   it('uses custom error body when provided', async () => {

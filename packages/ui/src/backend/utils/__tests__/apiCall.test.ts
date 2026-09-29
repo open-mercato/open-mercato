@@ -107,3 +107,64 @@ describe('readApiResultOrThrow', () => {
     expect(result).toBeNull()
   })
 })
+
+describe('aborted requests', () => {
+  beforeEach(() => {
+    jest.resetAllMocks()
+  })
+
+  function createAbortedBodyResponse(): Response {
+    const abortError = new Error('The operation was aborted.')
+    abortError.name = 'AbortError'
+    const response = {
+      ok: true,
+      status: 200,
+      headers: new Map<string, string>(),
+      text: jest.fn(async () => { throw abortError }),
+      clone: () => response,
+    } as unknown as Response
+    return response
+  }
+
+  it('rejects with AbortError instead of reporting an empty payload', async () => {
+    ;(apiFetch as jest.Mock).mockResolvedValue(createAbortedBodyResponse())
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      readApiResultOrThrow('/api/interactions', { signal: controller.signal }),
+    ).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
+  it('does not mask a genuinely empty payload when the request was not aborted', async () => {
+    ;(apiFetch as jest.Mock).mockResolvedValue(createMockResponse('', { status: 200 }))
+    const controller = new AbortController()
+
+    await expect(
+      readApiResultOrThrow('/api/interactions', { signal: controller.signal }),
+    ).rejects.toThrow('Missing response payload (200)')
+  })
+
+  it('keeps the caller-provided fallback when one is configured', async () => {
+    ;(apiFetch as jest.Mock).mockResolvedValue(createAbortedBodyResponse())
+    const controller = new AbortController()
+    controller.abort()
+
+    const call = await apiCall<{ items: string[] }>(
+      '/api/interactions',
+      { signal: controller.signal },
+      { fallback: { items: [] } },
+    )
+    expect(call.result).toEqual({ items: [] })
+  })
+
+  it('propagates AbortError raised by a custom parser', async () => {
+    ;(apiFetch as jest.Mock).mockResolvedValue(createMockResponse('{}', { status: 200 }))
+    const abortError = new Error('The operation was aborted.')
+    abortError.name = 'AbortError'
+
+    await expect(
+      apiCall('/api/interactions', undefined, { parse: async () => { throw abortError } }),
+    ).rejects.toMatchObject({ name: 'AbortError' })
+  })
+})

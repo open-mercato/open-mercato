@@ -106,10 +106,16 @@ Read more on the [Open Mercato Architecture](https://docs.openmercato.com/archit
 
 ### ⚡ Quick start
 
-**You need:** [Node.js 24](https://nodejs.org/en/download) · [Git](https://git-scm.com/) · PostgreSQL + Redis (easiest via [Docker Desktop](https://www.docker.com/products/docker-desktop/))
+**One command.** With [Node.js](https://nodejs.org/en/download) (any recent version) installed:
+
+```bash
+npx @open-mercato/starter
+```
+
+It clones the repo if needed, audits your machine (`doctor`), handles corporate proxies/TLS interception, generates `.env` + secrets, starts the infra containers, initializes the database, and boots the supervised dev runtime — idempotently, so re-running always resumes where it stopped. Inside a clone use `yarn om`. No Node at all? Use the no-admin bootstraps in [`packages/starter/platform/`](packages/starter/platform/) (`start.cmd` double-click on Windows, `start.sh` on macOS/Linux). A container runtime ([Docker Desktop](https://www.docker.com/products/docker-desktop/) or [Rancher Desktop](https://rancherdesktop.io)) is detected and guided, never installed for you. See [`packages/starter/README.md`](packages/starter/README.md).
 
 <details>
-<summary><strong>🔧 Monorepo</strong> — core development / full demo</summary>
+<summary><strong>🔧 Monorepo, manual steps</strong> — if you prefer to run each stage yourself</summary>
 
 ```bash
 # macOS / Linux
@@ -118,21 +124,21 @@ corepack enable && corepack prepare yarn@4.12.0 --activate
 
 git clone https://github.com/open-mercato/open-mercato.git
 cd open-mercato && git checkout develop
-docker compose up -d                  # starts PostgreSQL, Redis, Meilisearch
+yarn infra:up                         # starts PostgreSQL, Redis, Meilisearch (see starters/README.md)
 cp apps/mercato/.env.example apps/mercato/.env
 # set DATABASE_URL / JWT_SECRET / REDIS_URL in apps/mercato/.env
 yarn dev:greenfield                   # installs, builds, seeds, starts the app
 ```
 
 ```powershell
-# Windows (PowerShell as Administrator — or use Git Bash / cmd)
+# Windows (PowerShell — or use Git Bash / cmd)
 # 1. Install Node.js 24 MSI from https://nodejs.org/en/download, then open a new terminal
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 corepack enable; corepack prepare yarn@4.12.0 --activate
 
 git clone https://github.com/open-mercato/open-mercato.git
 cd open-mercato; git checkout develop
-docker compose up -d                  # or use native PostgreSQL + pgAdmin: https://www.postgresql.org/download/windows/
+yarn infra:up                         # or use native PostgreSQL + pgAdmin: https://www.postgresql.org/download/windows/
 Copy-Item apps\mercato\.env.example apps\mercato\.env
 # set DATABASE_URL / JWT_SECRET / REDIS_URL in apps\mercato\.env
 yarn dev:greenfield
@@ -256,6 +262,14 @@ Stack-agnostic — install them all with one command:
 ```bash
 npx skills add open-mercato/skills --skill '*'
 ```
+
+If you're working inside this monorepo, use the repo-specific command instead — it installs this repo's committed local-tier skills together with the full shared collection into the gitignored `.agents/skills/` directory:
+
+```bash
+yarn install-skills
+```
+
+See [`.ai/skills/README.md`](.ai/skills/README.md) for the tier system, and the [local setup guide](https://docs.openmercato.com/installation/setup) for when to run it.
 
 [![Open Mercato Skills](https://img.shields.io/badge/GitHub-open--mercato%2Fskills-181717?logo=github)](https://github.com/open-mercato/skills)
 
@@ -424,13 +438,27 @@ We welcome contributions of all sizes—from fixes and docs updates to new modul
 
 Refer to [AGENTS.md](AGENTS.md) for deeper guidance on architecture and conventions when extending modules.
 
-Open Mercato is proudly supported by [Catch The Tornado](https://catchthetornado.com/).
+## Sponsors
 
-<div align="center">
-  <a href="https://catchthetornado.com/">
-    <img src="./apps/mercato//public/catch-the-tornado-logo.png" alt="Catch The Tornado logo" width="96" />
-  </a>
-</div>
+### Blacksmith
+
+<a href="https://www.blacksmith.sh/">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/useblacksmith/stickydisk/main/Blacksmith_Logo-White-Large.png" />
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/useblacksmith/stickydisk/main/Blacksmith_Logo-Black-Large.png" />
+    <img src="https://raw.githubusercontent.com/useblacksmith/stickydisk/main/Blacksmith_Logo-Black-Large.png" alt="Blacksmith logo" width="240" />
+  </picture>
+</a>
+
+Open Mercato's continuous integration is powered by [Blacksmith](https://www.blacksmith.sh/), providing fast and reliable GitHub Actions runners for the project.
+
+### Catch The Tornado
+
+<a href="https://catchthetornado.com/">
+  <img src="./apps/mercato/public/catch-the-tornado-logo.png" alt="Catch The Tornado logo" width="96" />
+</a>
+
+Open Mercato is proudly supported by [Catch The Tornado](https://catchthetornado.com/).
 
 ## CLI Commands
 

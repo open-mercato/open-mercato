@@ -133,4 +133,74 @@ describe('GET /api/audit_logs/audit-logs/access', () => {
     const data = await res.json()
     expect(data.error).toBe('Validation failed')
   })
+
+  // Regression for issue #3818 — the access-log route accepted a caller-supplied
+  // `actorUserId` override without confirming it belongs to the caller's tenant. Requiring
+  // a resolved tenant (or an explicit superadmin) before listing closes that override
+  // together with the unscoped read described in #3817.
+  //
+  // Null, omitted and empty-string tenant are all exercised: `.ai/lessons.md` (2026-07-11)
+  // records that covering only explicit null misses the omitted-scope path.
+  const tenantlessAuthContexts: Array<[string, Record<string, unknown>]> = [
+    ['explicit null tenantId', { sub: 'user-1', tenantId: null, orgId: null }],
+    ['omitted tenantId', { sub: 'user-1', orgId: null }],
+    ['empty-string tenantId', { sub: 'user-1', tenantId: '', orgId: null }],
+  ]
+
+  describe.each(tenantlessAuthContexts)('tenant-less non-superadmin caller (%s)', (_label, authContext) => {
+    it('is rejected with 403 before the access-log service is reached', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue(authContext)
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/access'))
+
+      expect(res.status).toBe(403)
+      expect(mockAccess.list).not.toHaveBeenCalled()
+    })
+
+    it('rejects a foreign actorUserId override instead of serving it', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue(authContext)
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+
+      const res = await GET(
+        makeRequest('http://localhost/api/audit_logs/audit-logs/access?actorUserId=11111111-1111-4111-8111-111111111111'),
+      )
+
+      expect(res.status).toBe(403)
+      expect(mockAccess.list).not.toHaveBeenCalled()
+    })
+  })
+
+  it('preserves the intentional cross-tenant read for a tenant-less superadmin', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: null,
+      orgId: null,
+      isSuperAdmin: true,
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/access'))
+
+    expect(res.status).toBe(200)
+    expect(mockAccess.list).toHaveBeenCalledWith(expect.objectContaining({ tenantId: undefined }))
+  })
+
+  it('leaves a tenant-scoped caller tenant-filtered as before', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/access'))
+
+    expect(res.status).toBe(200)
+    expect(mockAccess.list).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-1' }))
+  })
 })

@@ -87,11 +87,32 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
     ...mappedRow,
     ...Object.fromEntries(Object.entries(sourceItem).filter(([key]) => key.startsWith('_'))),
   }),
-  DataTable: ({ title, data = [], children }: any) => {
+  DataTable: ({
+    title,
+    titleHeadingLevel,
+    data = [],
+    children,
+  }: {
+    title?: React.ReactNode
+    titleHeadingLevel?: 1 | 2
+    data?: Array<{
+      title?: React.ReactNode
+      label?: React.ReactNode
+      name?: React.ReactNode
+      code?: React.ReactNode
+      value?: React.ReactNode
+      id?: React.ReactNode
+    }>
+    children?: React.ReactNode
+  }) => {
     const key = typeof title === 'string' ? title.replace(/\\s+/g, '-').toLowerCase() : 'table'
+    const TitleHeading = titleHeadingLevel === 1 ? 'h1' : 'h2'
+    const titleContent = typeof title === 'string' || titleHeadingLevel
+      ? <TitleHeading>{title}</TitleHeading>
+      : title
     return (
       <div>
-        {title ? <h2>{title}</h2> : null}
+        {titleContent}
         <div data-testid={`data-table-count-${key}`}>{Array.isArray(data) ? data.length : 0}</div>
         <div>{children}</div>
         {Array.isArray(data)
@@ -302,6 +323,11 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => {
   }
   return {
     useT: () => translate,
+    useLocale: () => 'en-US',
+    // `PriceWithCurrency` reads the optional variant so it stays mountable outside `I18nProvider`;
+    // the mock has to answer it too, or the rendered price silently falls back to the runner's
+    // default locale and the assertion below becomes machine-dependent again (#5105).
+    useOptionalLocale: () => 'en-US',
   }
 })
 
@@ -325,11 +351,22 @@ describe('sales components', () => {
   })
 
   it('formats prices with currency helper and component', () => {
-    // Intl.NumberFormat output is locale-dependent, accept either symbol or code
-    expect(formatPriceWithCurrency(10, 'USD')).toMatch(/\$|USD/)
+    expect(formatPriceWithCurrency(10, 'USD', '—', 'en-US')).toBe('$10.00')
     expect(formatPriceWithCurrency(null, 'USD')).toBe('—')
     render(<PriceWithCurrency amount={15} currency="EUR" />)
-    expect(screen.getByText(/€|EUR/)).toBeInTheDocument()
+    expect(screen.getByText('€15.00')).toBeInTheDocument()
+  })
+
+  it('formats prices in the requested locale rather than the runtime default', () => {
+    // Guards the summary panel against regressing to Intl.NumberFormat(undefined, …):
+    // the sales document page renders these totals next to item money that already
+    // follows the application locale, so a runtime-default format mixes conventions
+    // on one screen. Non-breaking spaces are normalized before comparing.
+    const normalize = (value: string) => value.replace(/ | /g, ' ')
+
+    expect(normalize(formatPriceWithCurrency(1234.5, 'USD', '—', 'pl-PL'))).toBe('1234,50 USD')
+    expect(normalize(formatPriceWithCurrency('698.76', 'USD', '—', 'pl-PL'))).toBe('698,76 USD')
+    expect(normalize(formatPriceWithCurrency(1234.5, null, '—', 'pl-PL'))).toBe('1234,50')
   })
 
   it('renders DocumentCustomerCard and triggers selection', () => {
@@ -449,6 +486,10 @@ describe('sales components', () => {
     })
     render(<SalesChannelOffersPanel channelId="channel-1" channelName="Online" />)
     await waitFor(() => expect(screen.getAllByTestId('data-row').length).toBeGreaterThan(0))
+    const heading = screen.getByRole('heading', { level: 2, name: 'Offers for Online' })
+    expect(heading).toBeVisible()
+    expect(heading).not.toHaveTextContent('Override product presentation and pricing per channel.')
+    expect(screen.getByText('Override product presentation and pricing per channel.')).toBeVisible()
   })
 
   it('renders channel offer form in create mode', async () => {

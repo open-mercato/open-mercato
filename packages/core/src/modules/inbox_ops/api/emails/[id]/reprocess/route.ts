@@ -75,6 +75,10 @@ export async function POST(req: Request) {
         organizationId: email.organizationId,
         forwardedByAddress: email.forwardedByAddress,
         subject: email.subject,
+      }, {
+        persistent: true,
+        tenantId: email.tenantId,
+        organizationId: email.organizationId,
       })
     } catch (eventError) {
       logger.error('Failed to emit events', { err: eventError })

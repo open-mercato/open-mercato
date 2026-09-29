@@ -1,0 +1,1062 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Workflows UX Redesign — mockups</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+</head>
+<body>
+
+<!-- ═══ Icon sprite (lucide-style, 24×24, stroke 2) ═══════════════ -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="ic-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+<symbol id="ic-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+<symbol id="ic-undo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></symbol>
+<symbol id="ic-redo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
+<symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="ic-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="ic-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+<symbol id="ic-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></symbol>
+<symbol id="ic-bot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></symbol>
+<symbol id="ic-zap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></symbol>
+<symbol id="ic-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+<symbol id="ic-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+<symbol id="ic-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></symbol>
+<symbol id="ic-cog" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="ic-branch" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+<symbol id="ic-db" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></symbol>
+<symbol id="ic-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+<symbol id="ic-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="ic-code" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></symbol>
+<symbol id="ic-sparkles" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3z"/></symbol>
+<symbol id="ic-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+<symbol id="ic-signal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.2 19.1 19.1"/></symbol>
+<symbol id="ic-flag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></symbol>
+<symbol id="ic-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></symbol>
+<symbol id="ic-arrow-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+<symbol id="ic-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="ic-panel" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/></symbol>
+<symbol id="ic-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></symbol>
+<symbol id="ic-fork" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v2a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"/><path d="M12 12v3"/></symbol>
+<symbol id="ic-square" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+<symbol id="ic-grip" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="15" cy="18" r="1.5"/></symbol>
+</defs></svg>
+
+<!-- ═══ Toolbar ═══════════════════════════════════════════════════ -->
+<div class="doc-toolbar">
+  <strong>Workflows UX Redesign — mockups</strong>
+  <nav class="screen-nav" aria-label="Screens">
+    <a href="#s1">1 Studio canvas</a>
+    <a href="#s2">2 Activity inspector</a>
+    <a href="#s3">3 User Task</a>
+    <a href="#s4">4 Invoke Agent</a>
+    <a href="#s5">5 Test &amp; dry-run</a>
+    <a href="#s6">6 Run timeline</a>
+    <a href="#s7">7 Work Inbox</a>
+    <a href="#s8">8 Code + Copilot</a>
+  </nav>
+  <button id="theme-toggle" class="btn btn-outline btn-sm btn-icon" aria-pressed="false" title="Toggle light/dark"><svg><use href="#ic-sun"/></svg></button>
+</div>
+
+<div class="doc-intro">
+  <h1 class="t-page-title">What the workflow refactor delivers</h1>
+  <p>Static mockups of the redesigned workflow authoring and runtime surfaces, per
+  <span class="t-mono">.ai/specs/2026-07-26-workflows-ux-redesign.md</span> and the #4251 backlog.
+  Numbered dots mark what changes versus today; the list under each screen maps every change to its
+  spec section and issue. Toggle the theme — both are in scope.</p>
+</div>
+
+<!-- ═══ S1 — Studio: canvas overview ═════════════════════════════ -->
+<section class="screen" id="s1">
+  <div class="screen-head">
+    <span class="t-overline">Screen 1</span>
+    <h2>Studio — auto-layout canvas, routes with chips, inline validation</h2>
+    <div class="refs">
+      <span class="chip">spec §4</span><span class="chip">#4248</span><span class="chip">#4244</span><span class="chip">#4232</span><span class="chip">#4233</span><span class="chip">§7.2</span>
+    </div>
+  </div>
+
+  <div class="frame-wrap">
+  <div class="frame">
+    <div class="shell-top">
+      <div class="crumb"><span>Workflows</span><svg><use href="#ic-chevron-right"/></svg><b>Lead to Install</b><svg><use href="#ic-chevron-right"/></svg><span>v4</span><span class="badge badge-neutral">Draft</span></div>
+      <span class="t-hint">Draft saved 12s ago</span>
+      <div class="grow"></div>
+      <button class="btn btn-ghost btn-sm btn-icon" title="Undo"><svg><use href="#ic-undo"/></svg></button>
+      <button class="btn btn-ghost btn-sm btn-icon" title="Redo"><svg><use href="#ic-redo"/></svg></button>
+      <button class="btn btn-outline btn-sm"><svg><use href="#ic-code"/></svg> Code</button>
+      <button class="btn btn-outline btn-sm"><svg><use href="#ic-play"/></svg> Test</button>
+      <button class="btn btn-outline btn-sm">Save</button>
+      <button class="btn btn-primary btn-sm">Publish</button>
+    </div>
+    <div class="shell-body" style="height:566px">
+      <div class="rail">
+        <button title="Automated step"><svg><use href="#ic-zap"/></svg></button>
+        <button title="User task"><svg><use href="#ic-user"/></svg></button>
+        <button title="Invoke agent"><svg><use href="#ic-bot"/></svg></button>
+        <button title="Wait for signal"><svg><use href="#ic-signal"/></svg></button>
+        <button title="Wait / timer"><svg><use href="#ic-clock"/></svg></button>
+        <button title="Parallel"><svg><use href="#ic-fork"/></svg></button>
+        <button title="Sub-workflow"><svg><use href="#ic-branch"/></svg></button>
+        <div class="rail-sep"></div>
+        <button title="Note"><svg><use href="#ic-list"/></svg></button>
+      </div>
+      <div class="canvas">
+        <svg class="wires" aria-hidden="true">
+          <path class="wire" d="M118,222 C155,222 165,222 200,222"/>
+          <path class="wire" d="M405,240 C432,240 424,94 452,94"/>
+          <path class="wire" d="M405,258 C432,258 424,344 452,344"/>
+          <path class="wire" d="M642,94 C700,94 740,94 800,94"/>
+          <path class="wire wire-error" d="M547,128 C547,260 680,374 800,374"/>
+          <path class="wire" d="M642,344 C730,344 730,112 800,112"/>
+          <path class="wire" d="M990,94 C1005,94 1015,94 1032,94"/>
+          <path class="wire" d="M1127,128 C1127,165 1120,185 1120,210"/>
+          <polygon class="arrow" points="200,222 193,218 193,226"/>
+          <polygon class="arrow" points="452,94 445,90 445,98"/>
+          <polygon class="arrow" points="452,344 445,340 445,348"/>
+          <polygon class="arrow" points="800,94 793,90 793,98"/>
+          <polygon class="arrow arrow-error" points="800,374 793,370 793,378"/>
+          <polygon class="arrow" points="800,112 793,108 793,116"/>
+          <polygon class="arrow" points="1032,94 1025,90 1025,98"/>
+          <polygon class="arrow" points="1120,210 1116,203 1124,203"/>
+        </svg>
+
+        <div class="node node-terminal" style="left:28px;top:205px"><svg><use href="#ic-play"/></svg> Deal created</div>
+        <div class="trigger-tag" style="left:16px;top:248px"><svg><use href="#ic-zap"/></svg> customers.deal.created</div>
+
+        <div class="node node-accent node-agent" style="left:200px;top:168px">
+          <div class="node-head"><svg><use href="#ic-bot"/></svg> Enrich lead</div>
+          <div class="node-sub"><span class="t-mono">deal_enricher</span> · opencode · auto ≥ 0.8</div>
+          <div class="handles">
+            <div class="handle-row h-ok">approved <i></i></div>
+            <div class="handle-row h-review">needs review <i></i></div>
+            <div class="handle-row h-add"><button>+ outcome</button></div>
+          </div>
+        </div>
+
+        <div class="node node-accent node-automated" style="left:452px;top:60px">
+          <span class="nbadge">2</span>
+          <div class="node-head"><svg><use href="#ic-db"/></svg> Update deal stage</div>
+          <div class="node-sub"><span class="t-mono">customers.deals.update</span> · retries 3×</div>
+        </div>
+
+        <div class="node node-accent node-task" style="left:452px;top:310px">
+          <div class="node-head"><svg><use href="#ic-user"/></svg> Review enrichment</div>
+          <div class="node-sub pb">Role: Sales Rep · form: 2 fields</div>
+          <div class="ntag"><span class="chip"><svg><use href="#ic-clock"/></svg> 1d</span></div>
+        </div>
+
+        <div class="node node-accent node-task" style="left:800px;top:60px">
+          <div class="node-head"><svg><use href="#ic-user"/></svg> First call</div>
+          <div class="node-sub pb">Role: Sales Rep · bound: Deal · 2 decisions</div>
+          <div class="ntag"><span class="chip"><svg><use href="#ic-clock"/></svg> 2d</span></div>
+        </div>
+
+        <div class="node node-accent node-automated" style="left:800px;top:340px">
+          <div class="node-head"><svg><use href="#ic-alert"/></svg> Notify ops</div>
+          <div class="node-sub"><span class="t-mono">notifications.create</span> · severity: error</div>
+        </div>
+
+        <div class="node node-accent node-wait" style="left:1032px;top:60px">
+          <div class="node-head"><svg><use href="#ic-signal"/></svg> Contract signed</div>
+          <div class="node-sub"><span class="t-mono">sales.contract.signed</span> · timeout 30d</div>
+        </div>
+
+        <div class="node node-terminal" style="left:1080px;top:212px"><svg><use href="#ic-flag"/></svg> End</div>
+
+        <span class="echip echip-cond" style="left:652px;top:60px"><svg><use href="#ic-branch"/></svg> value &gt; 50 000 zł</span>
+        <span class="echip echip-acts" style="left:664px;top:112px"><svg><use href="#ic-mail"/></svg><svg><use href="#ic-cog"/></svg> 2 actions</span>
+        <span class="echip echip-error" style="left:576px;top:246px"><svg><use href="#ic-alert"/></svg> on error → escalate</span>
+
+        <div class="canvas-tools">
+          <button title="Zoom in"><svg><use href="#ic-plus"/></svg></button>
+          <button title="Fit view"><svg><use href="#ic-square"/></svg></button>
+          <button title="Tidy layout"><svg><use href="#ic-panel"/></svg></button>
+        </div>
+        <div class="minimap" aria-hidden="true">
+          <i style="left:6px;top:38px;width:8px;height:4px"></i>
+          <i style="left:20px;top:33px;width:14px;height:10px"></i>
+          <i style="left:44px;top:16px;width:14px;height:7px"></i>
+          <i style="left:44px;top:52px;width:14px;height:7px"></i>
+          <i style="left:70px;top:16px;width:14px;height:7px"></i>
+          <i style="left:70px;top:56px;width:14px;height:7px"></i>
+          <i style="left:96px;top:16px;width:14px;height:7px"></i>
+          <i style="left:100px;top:40px;width:8px;height:4px"></i>
+          <div class="vp" style="left:4px;top:8px;width:112px;height:62px"></div>
+        </div>
+
+        <span class="co" style="left:150px;top:12px">1</span>
+        <span class="co" style="left:372px;top:236px">2</span>
+        <span class="co" style="left:712px;top:146px">3</span>
+        <span class="co" style="left:540px;top:252px">4</span>
+        <span class="co" style="left:432px;top:44px">5</span>
+        <span class="co" style="left:952px;top:158px">6</span>
+      </div>
+    </div>
+    <div class="problems">
+      <div class="problems-head"><svg width="14" height="14"><use href="#ic-list"/></svg> Problems <span class="badge badge-error">1</span> <span class="badge badge-warning">1</span> <span class="badge badge-info">1</span><span class="co" style="position:static;margin-left:auto">7</span></div>
+      <div class="problems-rows">
+        <div class="problem p-error"><svg><use href="#ic-alert"/></svg><span><b>Update deal stage</b> — required field <span class="t-mono">stageId</span> is not mapped</span><span class="loc">Go to node</span></div>
+        <div class="problem p-warn"><svg><use href="#ic-warn"/></svg><span><b>First call</b> — decision “Unreachable” has no route wired</span><span class="loc">Go to node</span></div>
+        <div class="problem p-info"><svg><use href="#ic-info"/></svg><span>Route <b>approved</b> — <span class="t-mono">enrich.data.stageId</span> is optional on this path (may be absent)</span><span class="loc">Go to route</span></div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <div class="delta">
+    <span class="t-overline">What changes here</span>
+    <ol>
+      <li><span class="co">1</span><span>Auto-layout left→right with persisted arrangement — the flow reopens exactly as arranged; “Tidy” re-runs layout on demand.</span><span class="ref">#4248 · §4.1</span></li>
+      <li><span class="co">2</span><span>Agent nodes expose labeled outcome handles (approved / needs review / + outcome) — branching on disposition is wiring, not context string-matching. Unwired outcomes follow the node’s error directive.</span><span class="ref">§7.2</span></li>
+      <li><span class="co">3</span><span>Routes carry their logic visibly: condition chips and activity chips sit on the edge. Drag an action onto a route to attach it; drag an endpoint to reattach the route.</span><span class="ref">#4244 · #4233 · §4.4</span></li>
+      <li><span class="co">4</span><span>Errors are routes too — the red dashed edge is a first-class error route with a directive (escalate), never a silent fail-stop.</span><span class="ref">§5.9 · §8</span></li>
+      <li><span class="co">5</span><span>Eager validation: the node wears its error count; nothing saves silently broken. Draft autosave is separate from Publish.</span><span class="ref">#4232 · §4.3/§4.7</span></li>
+      <li><span class="co">6</span><span>Config at a glance: every node shows its registry icon and a one-line summary (command id, role, signal, deadline) — no more opening modals to know what a step does.</span><span class="ref">§4.2</span></li>
+      <li><span class="co">7</span><span>The Problems panel lists every issue with a jump link — replacing the single-error flash toast.</span><span class="ref">#4232 · §4.3</span></li>
+    </ol>
+  </div>
+</section>
+
+<!-- ═══ S2 — Activity inspector ══════════════════════════════════ -->
+<section class="screen" id="s2">
+  <div class="screen-head">
+    <span class="t-overline">Screen 2</span>
+    <h2>Activity inspector — registry-generated form, typed variable picker, per-node test</h2>
+    <div class="refs">
+      <span class="chip">spec §3 · §5</span><span class="chip">#4245</span><span class="chip">#4235</span><span class="chip">#4230</span><span class="chip">§8.2</span>
+    </div>
+  </div>
+
+  <div class="frame-wrap">
+  <div class="frame">
+    <div class="shell-top">
+      <div class="crumb"><span>Workflows</span><svg><use href="#ic-chevron-right"/></svg><b>Lead to Install</b><svg><use href="#ic-chevron-right"/></svg><span>Update deal stage</span></div>
+      <div class="grow"></div>
+      <button class="btn btn-outline btn-sm"><svg><use href="#ic-play"/></svg> Test</button>
+      <button class="btn btn-primary btn-sm">Publish</button>
+    </div>
+    <div class="shell-body" style="height:680px">
+      <div class="rail">
+        <button title="Automated step"><svg><use href="#ic-zap"/></svg></button>
+        <button title="User task"><svg><use href="#ic-user"/></svg></button>
+        <button title="Invoke agent"><svg><use href="#ic-bot"/></svg></button>
+        <button title="Wait for signal"><svg><use href="#ic-signal"/></svg></button>
+      </div>
+      <div class="canvas">
+        <svg class="wires" aria-hidden="true">
+          <path class="wire" d="M118,200 C160,200 170,120 210,120"/>
+          <polygon class="arrow" points="210,120 203,116 203,124"/>
+        </svg>
+        <div class="node node-terminal" style="left:30px;top:184px"><svg><use href="#ic-play"/></svg> Deal created</div>
+        <div class="node node-accent node-agent node-dim" style="left:30px;top:300px">
+          <div class="node-head"><svg><use href="#ic-bot"/></svg> Enrich lead</div>
+          <div class="node-sub"><span class="t-mono">deal_enricher</span></div>
+        </div>
+        <div class="node node-accent node-automated node-selected" style="left:210px;top:86px">
+          <div class="node-head"><svg><use href="#ic-db"/></svg> Update deal stage</div>
+          <div class="node-sub"><span class="t-mono">customers.deals.update</span> · retries 3×</div>
+        </div>
+
+        <!-- Variable picker popover -->
+        <div class="popover vpicker" style="position:absolute;left:212px;top:196px;width:400px;z-index:25">
+          <div class="vpicker-head"><div class="vpicker-search"><svg><use href="#ic-search"/></svg> Search available context…</div></div>
+          <div class="vgroup">
+            <div class="vgroup-head"><svg><use href="#ic-zap"/></svg> Trigger — customers.deal.created</div>
+            <div class="vrow"><svg width="10" height="10"><use href="#ic-grip"/></svg><span class="vname">deal.id</span><span class="vtype">uuid</span><span class="vsample">d3f1…9c</span></div>
+            <div class="vrow"><svg width="10" height="10"><use href="#ic-grip"/></svg><span class="vname">deal.value</span><span class="vtype">money</span><span class="vsample num">61 500 zł</span></div>
+            <div class="vrow"><svg width="10" height="10"><use href="#ic-grip"/></svg><span class="vname">customer.name</span><span class="vtype">string</span><span class="vsample">Solartech Kraków</span></div>
+          </div>
+          <div class="vgroup">
+            <div class="vgroup-head"><svg><use href="#ic-bot"/></svg> Step: Enrich lead (deal_enricher)</div>
+            <div class="vrow"><svg width="10" height="10"><use href="#ic-grip"/></svg><span class="vname">data.stageId</span><span class="vtype">string</span><span class="vsample">stage_qualified</span></div>
+            <div class="vrow"><svg width="10" height="10"><use href="#ic-grip"/></svg><span class="vname">data.score</span><span class="vtype">number</span><span class="vsample num">0.92</span></div>
+            <div class="vrow vrow-maybe"><svg width="10" height="10"><use href="#ic-grip"/></svg><span class="vname">data.notes</span><span class="vtype">string</span><span class="vsample">only on “needs review” path</span></div>
+          </div>
+          <div class="vpicker-foot"><svg><use href="#ic-grip"/></svg> Drag into a field or click to insert · samples from pinned test data</div>
+        </div>
+
+        <span class="co" style="left:184px;top:240px">3</span>
+      </div>
+
+      <div class="inspector">
+        <div class="inspector-head"><svg style="color:var(--chart-blue)"><use href="#ic-db"/></svg><b>Update deal stage</b><span class="badge badge-neutral">UPDATE_ENTITY</span><span class="co" style="position:static;margin-left:auto">1</span></div>
+        <div class="inspector-body">
+          <div class="isec">
+            <div class="field">
+              <label>Command <span class="req">*</span></label>
+              <div class="mfield-value"><svg width="12" height="12" style="color:var(--muted-foreground)"><use href="#ic-search"/></svg><span class="t-mono" style="font-size:0.75rem">customers.deals.update</span><span class="grow"></span><span class="t-hint">Update deal</span></div>
+            </div>
+          </div>
+          <div class="isec">
+            <div class="isec-head"><span class="t-overline">Input — from command schema</span><span class="co" style="position:static">2</span></div>
+            <div class="mfield">
+              <div class="mfield-label">dealId <span class="req">*</span> <span class="type">uuid</span></div>
+              <div class="mfield-value"><span class="pill"><svg><use href="#ic-branch"/></svg>{{ context.deal.id }}</span><button class="fx" title="Switch to expression">ƒx</button></div>
+            </div>
+            <div class="mfield">
+              <div class="mfield-label">stageId <span class="req">*</span> <span class="type">string</span></div>
+              <div class="mfield-value"><span class="pill"><svg><use href="#ic-bot"/></svg>{{ steps.enrich.data.stageId }}</span><button class="fx" title="Switch to expression">ƒx</button></div>
+            </div>
+            <div class="mfield">
+              <div class="mfield-label">note <span class="type">string</span></div>
+              <div class="mfield-value"><span class="t-mono" style="font-size:0.6875rem">"Auto-qualified (" + steps.enrich.data.score + ")"</span><button class="fx on" title="Expression mode on">ƒx</button></div>
+            </div>
+          </div>
+          <div class="isec">
+            <div class="isec-head"><span class="t-overline">Outputs — contract</span><span class="co" style="position:static">4</span></div>
+            <div class="schema">
+              <div class="schema-row"><span class="vname">updatedDeal</span><span class="vtype">Deal</span><span class="desc">the saved record</span></div>
+              <div class="schema-row"><span class="vname">updatedDeal.stageId</span><span class="vtype">string</span></div>
+              <div class="schema-row"><span class="vname">updatedDeal.updatedAt</span><span class="vtype">datetime</span></div>
+            </div>
+          </div>
+          <div class="isec">
+            <div class="between"><span class="t-overline">Reliability</span><button class="btn btn-ghost btn-xs">Edit</button></div>
+            <div class="row"><span class="chip"><svg><use href="#ic-refresh"/></svg> 3 attempts · backoff ×2</span><span class="chip"><svg><use href="#ic-clock"/></svg> timeout 30 s</span><span class="chip"><svg><use href="#ic-alert"/></svg> on error → route</span></div>
+          </div>
+          <div class="isec">
+            <div class="between">
+              <button class="btn btn-outline btn-sm"><svg><use href="#ic-play"/></svg> Test step</button>
+              <span class="t-hint">runs with pinned samples · no writes</span>
+              <span class="co" style="position:static">5</span>
+            </div>
+            <div class="code"><span class="c">// Output preview — dry test, 128 ms</span>
+{ <span class="k">"updatedDeal"</span>: { <span class="k">"stageId"</span>: <span class="s">"stage_qualified"</span>,
+    <span class="k">"updatedAt"</span>: <span class="s">"2026-07-26T14:02:11Z"</span> } }</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <div class="delta">
+    <span class="t-overline">What changes here</span>
+    <ol>
+      <li><span class="co">1</span><span>The modal dies: a docked inspector edits the selected activity in place. The form is generated from the Activity Registry’s config schema — the raw JSON textarea is gone for every activity type.</span><span class="ref">#4245 · §5 · §2.2</span></li>
+      <li><span class="co">2</span><span>Command picker + fields derived from the command’s input schema, required/optional and typed. Values are mapping pills; every field flips to expression mode with ƒx (structured by default, code when needed).</span><span class="ref">§5.1 · §3.5</span></li>
+      <li><span class="co">3</span><span>The variable picker shows the per-step context ledger: upstream steps, types, and live sample values; drag or click to insert. Path-dependent fields carry the “?” maybe-marker.</span><span class="ref">#4245 · #4230→#4235 · §3.1/§3.5</span></li>
+      <li><span class="co">4</span><span>Every activity declares its output contract — downstream steps see typed outputs before anything has ever run.</span><span class="ref">§3.2</span></li>
+      <li><span class="co">5</span><span>“Test step” executes this node against pinned samples with mocked effectors — output preview feeds the ledger downstream.</span><span class="ref">§8.2</span></li>
+    </ol>
+  </div>
+</section>
+
+<!-- ═══ S3 — User Task inspector ═════════════════════════════════ -->
+<section class="screen" id="s3">
+  <div class="screen-head">
+    <span class="t-overline">Screen 3</span>
+    <h2>User Task — instructions with context, entity binding, deadline as a route, decisions as branches</h2>
+    <div class="refs">
+      <span class="chip">spec §6.1</span><span class="chip">#4239</span><span class="chip">#4240</span><span class="chip">#4241</span><span class="chip">#4242</span><span class="chip">#4229</span>
+    </div>
+  </div>
+
+  <div class="frame-wrap">
+  <div class="frame">
+    <div class="shell-top">
+      <div class="crumb"><span>Workflows</span><svg><use href="#ic-chevron-right"/></svg><b>Lead to Install</b><svg><use href="#ic-chevron-right"/></svg><span>First call</span></div>
+      <div class="grow"></div>
+      <button class="btn btn-primary btn-sm">Publish</button>
+    </div>
+    <div class="shell-body" style="height:760px">
+      <div class="rail">
+        <button title="Automated step"><svg><use href="#ic-zap"/></svg></button>
+        <button title="User task"><svg><use href="#ic-user"/></svg></button>
+        <button title="Invoke agent"><svg><use href="#ic-bot"/></svg></button>
+      </div>
+      <div class="canvas">
+        <svg class="wires" aria-hidden="true">
+          <path class="wire" d="M310,150 C360,150 380,150 420,150"/>
+          <path class="wire" d="M310,178 C370,178 380,300 420,300"/>
+          <path class="wire wire-sla" d="M215,214 C215,330 300,420 420,420"/>
+          <polygon class="arrow" points="420,150 413,146 413,154"/>
+          <polygon class="arrow" points="420,300 413,296 413,304"/>
+          <polygon class="arrow arrow-sla" points="420,420 413,416 413,424"/>
+        </svg>
+        <div class="node node-accent node-task node-selected" style="left:120px;top:110px">
+          <div class="node-head"><svg><use href="#ic-user"/></svg> First call</div>
+          <div class="node-sub">Role: Sales Rep · bound: Deal</div>
+          <div class="handles">
+            <div class="handle-row h-ok">call done <i></i></div>
+            <div class="handle-row h-review">unreachable <i></i></div>
+          </div>
+          <div class="ntag"><span class="chip"><svg><use href="#ic-clock"/></svg> 2d</span></div>
+        </div>
+        <div class="node node-accent node-wait node-dim" style="left:420px;top:116px">
+          <div class="node-head"><svg><use href="#ic-signal"/></svg> Contract signed</div>
+          <div class="node-sub"><span class="t-mono">sales.contract.signed</span></div>
+        </div>
+        <div class="node node-accent node-automated node-dim" style="left:420px;top:266px">
+          <div class="node-head"><svg><use href="#ic-clock"/></svg> Schedule retry</div>
+          <div class="node-sub">wait 1d → back to First call</div>
+        </div>
+        <div class="node node-accent node-task node-dim" style="left:420px;top:386px">
+          <div class="node-head"><svg><use href="#ic-user"/></svg> Escalate to manager</div>
+          <div class="node-sub">Role: Sales Manager</div>
+        </div>
+        <span class="echip echip-sla" style="left:250px;top:330px"><svg><use href="#ic-clock"/></svg> deadline missed</span>
+        <span class="co" style="left:340px;top:360px">4</span>
+      </div>
+
+      <div class="inspector">
+        <div class="inspector-head"><svg style="color:var(--chart-amber)"><use href="#ic-user"/></svg><b>First call</b><span class="badge badge-neutral">USER_TASK</span></div>
+        <div class="inspector-body">
+          <div class="field"><label>Title <span class="req">*</span></label><input class="input input-sm" value="First call to customer" /></div>
+
+          <div class="isec">
+            <div class="isec-head"><span class="t-overline">Instructions — assignee sees this</span><span class="co" style="position:static">1</span></div>
+            <div class="rich">Call <span class="pill"><svg><use href="#ic-branch"/></svg>customer.name</span> about <span class="pill"><svg><use href="#ic-branch"/></svg>deal.title</span> and confirm the installation window. Log the outcome below.</div>
+          </div>
+
+          <div class="isec">
+            <div class="isec-head"><span class="t-overline">Bound entity</span><span class="co" style="position:static">2</span></div>
+            <div class="row">
+              <select class="select select-sm" style="width:7rem"><option>Deal</option></select>
+              <span class="pill"><svg><use href="#ic-branch"/></svg>{{ context.deal.id }}</span>
+            </div>
+            <div class="entity-chip"><svg><use href="#ic-eye"/></svg> Solartech Kraków — PV 8 kW · <span class="num">61 500 zł</span></div>
+          </div>
+
+          <div class="isec">
+            <div class="isec-head"><span class="t-overline">Assignment</span><span class="co" style="position:static">3</span></div>
+            <div class="seg-tabs" role="tablist">
+              <button aria-selected="true">Role</button><button aria-selected="false">User</button><button aria-selected="false">Dynamic</button><button aria-selected="false">Rule</button>
+            </div>
+            <select class="select select-sm"><option>Sales Rep</option></select>
+            <span class="t-hint">Dynamic resolves at runtime, e.g. “owner of {{ context.deal.id }}”.</span>
+          </div>
+
+          <div class="isec">
+            <div class="isec-head"><span class="t-overline">Deadline</span></div>
+            <div class="row">
+              <input class="input input-sm num" style="width:4rem" value="2" />
+              <select class="select select-sm" style="width:6.5rem"><option>days</option><option>hours</option><option>minutes</option></select>
+              <span class="grow"></span>
+              <span class="t-hint">Remind 12 h before</span>
+              <button class="switch" role="switch" aria-checked="true" aria-label="Reminder"></button>
+            </div>
+            <div class="alert alert-warning"><svg><use href="#ic-clock"/></svg><span>On breach the instance routes the <b>deadline missed</b> edge — escalation is part of the flow, not inbox config.</span></div>
+          </div>
+
+          <div class="isec">
+            <div class="isec-head"><span class="t-overline">Form</span></div>
+            <div class="row" style="align-items:stretch">
+              <div class="col grow stack-2">
+                <div class="chip"><svg><use href="#ic-grip"/></svg> Call summary · textarea · required</div>
+                <div class="chip"><svg><use href="#ic-grip"/></svg> Next step · select</div>
+                <button class="btn btn-ghost btn-xs" style="justify-content:flex-start"><svg><use href="#ic-plus"/></svg> Add field</button>
+              </div>
+              <div class="card grow" style="max-width:11.5rem">
+                <div class="card-head"><span class="t-hint">Live preview</span></div>
+                <div class="card-body stack-2" style="padding:0.625rem">
+                  <div class="field"><label style="font-size:0.6875rem">Call summary *</label><textarea class="textarea" style="min-height:2.25rem" placeholder="…"></textarea></div>
+                  <div class="field"><label style="font-size:0.6875rem">Next step</label><select class="select select-sm"><option>Send offer</option></select></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="isec">
+            <div class="isec-head"><span class="t-overline">Decisions — each maps to a route</span><span class="co" style="position:static">5</span></div>
+            <div class="decision-row"><span class="badge badge-success"><span class="dot"></span> Call done</span><span class="route">→ route <svg><use href="#ic-arrow-right"/></svg> Contract signed</span></div>
+            <div class="decision-row"><span class="badge badge-warning"><span class="dot"></span> Unreachable</span><span class="route">→ route <svg><use href="#ic-arrow-right"/></svg> Schedule retry</span></div>
+            <button class="btn btn-ghost btn-xs" style="justify-content:flex-start"><svg><use href="#ic-plus"/></svg> Add decision</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <div class="delta">
+    <span class="t-overline">What changes here</span>
+    <ol>
+      <li><span class="co">1</span><span>Tasks carry instructions with interpolated context — the assignee finally knows <i>what to do with which record</i>.</span><span class="ref">#4242 · §6.1</span></li>
+      <li><span class="co">2</span><span>Entity binding: the task points at a business record; the inbox and notifications render it, and access derives from rights to that record.</span><span class="ref">#4242 · #4238/#4247 · §6.4</span></li>
+      <li><span class="co">3</span><span>Assignment is a picker, not free text: Role dropdown, User dropdown, or Dynamic (resolved from context at runtime, e.g. “owner of this deal”).</span><span class="ref">#4239 · #4240</span></li>
+      <li><span class="co">4</span><span>Deadline replaces developer “timeout”: friendly duration input, reminders, and breach modeled as a visible route (retry loop, escalation task).</span><span class="ref">#4241 · #4229 · §6.1</span></li>
+      <li><span class="co">5</span><span>Decision buttons are branches — every button the assignee sees maps 1:1 to an outgoing route.</span><span class="ref">§6.1 (Dify pattern)</span></li>
+    </ol>
+  </div>
+</section>
+
+<!-- ═══ S4 — Invoke Agent inspector ══════════════════════════════ -->
+<section class="screen" id="s4">
+  <div class="screen-head">
+    <span class="t-overline">Screen 4</span>
+    <h2>Invoke Agent — typed I/O against the OUTCOME schema, review policy, disposition routes</h2>
+    <div class="refs">
+      <span class="chip">spec §7</span><span class="chip">§7.1</span><span class="chip">§7.2</span><span class="chip">§7.3</span><span class="chip">§7.5</span>
+    </div>
+  </div>
+
+  <div class="frame-wrap">
+  <div class="frame">
+    <div class="shell-top">
+      <div class="crumb"><span>Workflows</span><svg><use href="#ic-chevron-right"/></svg><b>Order intake</b><svg><use href="#ic-chevron-right"/></svg><span>Assess order risk</span></div>
+      <div class="grow"></div>
+      <button class="btn btn-primary btn-sm">Publish</button>
+    </div>
+    <div class="shell-body" style="height:740px">
+      <div class="rail">
+        <button title="Automated step"><svg><use href="#ic-zap"/></svg></button>
+        <button title="User task"><svg><use href="#ic-user"/></svg></button>
+        <button title="Invoke agent"><svg><use href="#ic-bot"/></svg></button>
+      </div>
+      <div class="canvas">
+        <svg class="wires" aria-hidden="true">
+          <path class="wire wire-taken" d="M320,140 C370,140 380,110 424,110"/>
+          <path class="wire" d="M320,158 C374,158 380,220 424,220"/>
+          <path class="wire" d="M320,176 C378,176 380,330 424,330"/>
+          <path class="wire wire-error" d="M320,194 C382,194 380,440 424,440"/>
+          <polygon class="arrow arrow-taken" points="424,110 417,106 417,114"/>
+          <polygon class="arrow" points="424,220 417,216 417,224"/>
+          <polygon class="arrow" points="424,330 417,326 417,334"/>
+          <polygon class="arrow arrow-error" points="424,440 417,436 417,444"/>
+        </svg>
+        <div class="node node-accent node-agent node-selected" style="left:130px;top:80px">
+          <div class="node-head"><svg><use href="#ic-bot"/></svg> Assess order risk</div>
+          <div class="node-sub"><span class="t-mono">order_risk_assessor</span> · opencode</div>
+          <div class="handles">
+            <div class="handle-row h-ok">approved <i></i></div>
+            <div class="handle-row h-review">needs review <i></i></div>
+            <div class="handle-row h-reject">rejected <i></i></div>
+            <div class="handle-row h-guard">guardrail blocked <i></i></div>
+          </div>
+        </div>
+        <div class="node node-accent node-automated node-dim" style="left:424px;top:76px">
+          <div class="node-head"><svg><use href="#ic-db"/></svg> Release order</div>
+          <div class="node-sub"><span class="t-mono">sales.orders.release</span></div>
+        </div>
+        <div class="node node-accent node-task node-dim" style="left:424px;top:186px">
+          <div class="node-head"><svg><use href="#ic-user"/></svg> Review proposal</div>
+          <div class="node-sub">implicit disposition task</div>
+        </div>
+        <div class="node node-accent node-automated node-dim" style="left:424px;top:296px">
+          <div class="node-head"><svg><use href="#ic-mail"/></svg> Hold + notify buyer</div>
+          <div class="node-sub"><span class="t-mono">SEND_EMAIL</span> · simulated</div>
+        </div>
+        <div class="node node-accent node-task node-dim" style="left:424px;top:406px">
+          <div class="node-head"><svg><use href="#ic-shield"/></svg> Security review</div>
+          <div class="node-sub">Role: Ops Manager · 4 h</div>
+        </div>
+        <span class="co" style="left:346px;top:236px">3</span>
+        <span class="co" style="left:352px;top:462px">4</span>
+      </div>
+
+      <div class="inspector">
+        <div class="inspector-head"><svg style="color:var(--chart-violet)"><use href="#ic-bot"/></svg><b>Assess order risk</b><span class="badge badge-neutral">INVOKE_AGENT</span></div>
+        <div class="inspector-body">
+          <div class="field">
+            <label>Agent <span class="req">*</span></label>
+            <div class="mfield-value"><svg width="12" height="12" style="color:var(--muted-foreground)"><use href="#ic-search"/></svg><span class="t-mono" style="font-size:0.75rem">order_risk_assessor</span><span class="grow"></span><span class="badge badge-info">opencode</span></div>
+          </div>
+
+          <div class="isec">
+            <div class="isec-head"><span class="t-overline">Input — agent contract</span><span class="co" style="position:static">1</span></div>
+            <div class="mfield">
+              <div class="mfield-label">order <span class="req">*</span> <span class="type">Order</span></div>
+              <div class="mfield-value"><span class="pill"><svg><use href="#ic-branch"/></svg>{{ context.order }}</span><button class="fx">ƒx</button></div>
+            </div>
+            <div class="mfield">
+              <div class="mfield-label">customerHistory <span class="type">Interaction[]</span></div>
+              <div class="mfield-value"><span class="pill"><svg><use href="#ic-branch"/></svg>{{ steps.history.items }}</span><button class="fx">ƒx</button></div>
+            </div>
+          </div>
+
+          <div class="isec">
+            <div class="isec-head"><span class="t-overline">Outcome — from OUTCOME.md schema</span></div>
+            <div class="schema">
+              <div class="schema-row"><span class="vname">riskScore</span><span class="vtype">number 0–1</span></div>
+              <div class="schema-row"><span class="vname">recommendation</span><span class="vtype">enum</span><span class="desc">approve · hold · reject</span></div>
+              <div class="schema-row"><span class="vname">reasons</span><span class="vtype">string[]</span></div>
+            </div>
+          </div>
+
+          <div class="isec">
+            <div class="isec-head"><span class="t-overline">Disposition</span></div>
+            <label class="radio on"><i></i> Auto-approve when confidence ≥ <input class="input input-sm num" style="width:3.5rem;display:inline-block" value="0.80" /></label>
+            <label class="radio"><i></i> Always ask a human</label>
+          </div>
+
+          <div class="isec">
+            <div class="isec-head"><span class="t-overline">Review — who &amp; when</span><span class="co" style="position:static">2</span></div>
+            <div class="row">
+              <select class="select select-sm" style="width:9.5rem"><option>Ops Manager</option></select>
+              <input class="input input-sm num" style="width:3.5rem" value="4" />
+              <select class="select select-sm" style="width:6rem"><option>hours</option></select>
+            </div>
+            <span class="t-hint">Below-threshold proposals become a Work Inbox review task for this role. On breach → routes <b>review overdue</b>.</span>
+          </div>
+
+          <div class="isec">
+            <div class="isec-head"><span class="t-overline">Outcome routes</span></div>
+            <div class="stack-2">
+              <div class="decision-row"><span class="badge badge-success"><span class="dot"></span> approved</span><span class="route">→ Release order</span></div>
+              <div class="decision-row"><span class="badge badge-warning"><span class="dot"></span> needs review</span><span class="route">→ Review proposal (parked)</span></div>
+              <div class="decision-row"><span class="badge badge-error"><span class="dot"></span> rejected</span><span class="route">→ Hold + notify buyer</span></div>
+              <div class="decision-row"><span class="badge badge-error"><svg><use href="#ic-shield"/></svg> guardrail blocked</span><span class="route">→ Security review</span></div>
+            </div>
+            <span class="t-hint">A rejected proposal is a business outcome, not an infrastructure error — it gets its own route.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <div class="delta">
+    <span class="t-overline">What changes here</span>
+    <ol>
+      <li><span class="co">1</span><span>Typed I/O: inputs validate against the agent’s declared input contract; the OUTCOME.md schema renders as the node’s typed outputs, so downstream mapping can’t silently no-op.</span><span class="ref">§7.1 · #4245</span></li>
+      <li><span class="co">2</span><span>The Review section configures who disposes below-threshold proposals and how long they have — the implicit disposition task is no longer hard-coded and unassignable.</span><span class="ref">§7.5</span></li>
+      <li><span class="co">3</span><span>Disposition results are labeled routes (approved / needs review / rejected / guardrail blocked) replacing string-matching on merged context keys.</span><span class="ref">§7.2</span></li>
+      <li><span class="co">4</span><span>A guardrail block routes to a human review branch instead of fail-stopping the instance.</span><span class="ref">§7.3</span></li>
+    </ol>
+  </div>
+</section>
+
+<!-- ═══ S5 — Test & dry run ══════════════════════════════════════ -->
+<section class="screen" id="s5">
+  <div class="screen-head">
+    <span class="t-overline">Screen 5</span>
+    <h2>Test &amp; dry-run — fixtures, mocked effectors, execution overlay, “would do” report</h2>
+    <div class="refs">
+      <span class="chip">spec §8.2 · §8.3</span><span class="chip">#4249</span>
+    </div>
+  </div>
+
+  <div class="frame-wrap">
+  <div class="frame">
+    <div class="shell-top">
+      <div class="crumb"><span>Workflows</span><svg><use href="#ic-chevron-right"/></svg><b>Lead to Install</b><span class="badge badge-info">Dry run</span></div>
+      <div class="grow"></div>
+      <button class="btn btn-outline btn-sm"><svg><use href="#ic-square"/></svg> Stop</button>
+    </div>
+    <div class="shell-body" style="height:520px">
+      <div class="rail">
+        <button title="Automated step"><svg><use href="#ic-zap"/></svg></button>
+        <button title="User task"><svg><use href="#ic-user"/></svg></button>
+        <button title="Invoke agent"><svg><use href="#ic-bot"/></svg></button>
+      </div>
+      <div class="canvas">
+        <svg class="wires" aria-hidden="true">
+          <path class="wire wire-taken" d="M104,222 C135,222 148,222 178,222"/>
+          <path class="wire wire-taken" d="M383,240 C410,240 402,94 428,94"/>
+          <path class="wire wire-dim" d="M383,258 C410,258 402,334 428,334"/>
+          <path class="wire wire-taken" d="M618,94 C638,94 648,94 670,94"/>
+          <polygon class="arrow arrow-taken" points="178,222 171,218 171,226"/>
+          <polygon class="arrow arrow-taken" points="428,94 421,90 421,98"/>
+          <polygon class="arrow arrow-taken" points="670,94 663,90 663,98"/>
+        </svg>
+        <div class="node node-terminal" style="left:14px;top:205px"><svg><use href="#ic-play"/></svg> Deal created</div>
+        <div class="node node-accent node-agent" style="left:178px;top:168px">
+          <span class="node-status st-done"><svg><use href="#ic-check"/></svg></span>
+          <div class="node-head"><svg><use href="#ic-bot"/></svg> Enrich lead</div>
+          <div class="node-sub">sample outcome · confidence <span class="num">0.92</span></div>
+          <div class="handles">
+            <div class="handle-row h-ok">approved <i></i></div>
+            <div class="handle-row h-review">needs review <i></i></div>
+          </div>
+        </div>
+        <div class="node node-accent node-automated" style="left:428px;top:60px">
+          <span class="node-status st-done"><svg><use href="#ic-check"/></svg></span>
+          <div class="node-head"><svg><use href="#ic-db"/></svg> Update deal stage</div>
+          <div class="node-sub">would set stage = Qualified</div>
+        </div>
+        <div class="node node-accent node-task node-dim" style="left:428px;top:300px">
+          <div class="node-head"><svg><use href="#ic-user"/></svg> Review enrichment</div>
+          <div class="node-sub">skipped on this path</div>
+        </div>
+        <div class="node node-accent node-task node-active" style="left:670px;top:60px">
+          <span class="node-status st-active"><svg><use href="#ic-play"/></svg></span>
+          <div class="node-head"><svg><use href="#ic-user"/></svg> First call</div>
+          <div class="node-sub">simulated decision required ⏸</div>
+        </div>
+        <span class="co" style="left:628px;top:26px">3</span>
+      </div>
+
+      <div class="drawer">
+        <div class="inspector-head"><svg><use href="#ic-play"/></svg><b>Test run</b><span class="co" style="position:static;margin-left:auto">1</span></div>
+        <div class="inspector-body">
+          <div class="field">
+            <label>Start context</label>
+            <select class="select select-sm"><option>High-value lead (fixture)</option><option>Cold lead (fixture)</option><option>Blank…</option></select>
+          </div>
+          <div class="seg-tabs" role="tablist"><button aria-selected="true">Form</button><button aria-selected="false">JSON</button></div>
+          <div class="mfield">
+            <div class="mfield-label">deal.value <span class="type">money</span></div>
+            <div class="mfield-value"><input class="input input-sm num" style="border:0;box-shadow:none;padding:0" value="61 500 zł" /></div>
+          </div>
+          <div class="mfield">
+            <div class="mfield-label">customer.name <span class="type">string</span></div>
+            <div class="mfield-value"><input class="input input-sm" style="border:0;box-shadow:none;padding:0" value="Solartech Kraków" /></div>
+          </div>
+          <hr class="separator" />
+          <div class="between">
+            <span class="t-hint" style="font-size:0.8125rem;color:var(--foreground)">Dry run — mocked effectors</span>
+            <button class="switch" role="switch" aria-checked="true" aria-label="Dry run"></button>
+          </div>
+          <div class="alert alert-info"><svg><use href="#ic-info"/></svg><span>No entities modified, no emails sent, agents return sample outcomes. Nothing reaches the Work Inbox.</span></div>
+          <div class="row">
+            <button class="btn btn-primary btn-sm grow"><svg><use href="#ic-play"/></svg> Run</button>
+            <button class="btn btn-outline btn-sm" title="Step through">⏭ Step</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="problems">
+      <div class="problems-head"><svg width="14" height="14"><use href="#ic-eye"/></svg> Would do — dry-run effect report<span class="co" style="position:static;margin-left:auto">2</span></div>
+      <table class="table">
+        <thead><tr><th>Step</th><th>Effector</th><th>Effect (not executed)</th></tr></thead>
+        <tbody>
+          <tr><td>Enrich lead</td><td><span class="t-mono">INVOKE_AGENT deal_enricher</span></td><td>sample outcome · confidence <span class="num">0.92</span> · would auto-approve (≥ 0.80)</td></tr>
+          <tr><td>Update deal stage</td><td><span class="t-mono">UPDATE_ENTITY customers.deals.update</span></td><td>would set <span class="t-mono">stage = "Qualified"</span> on deal <span class="t-mono">d3f1…9c</span></td></tr>
+          <tr><td>Route: approved</td><td><span class="t-mono">SEND_EMAIL</span></td><td><span class="badge badge-warning">simulated</span> no email service configured — would send “Offer intro” to <span class="t-mono">biuro@solartech.pl</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  </div>
+
+  <div class="delta">
+    <span class="t-overline">What changes here</span>
+    <ol>
+      <li><span class="co">1</span><span>Start a test instance from a fixture or a schema-generated form (JSON toggle for power users) — no more manufacturing a fake deal in the CRM to trigger a flow.</span><span class="ref">#4249 · §8.1</span></li>
+      <li><span class="co">2</span><span>Dry-run is side-effect-free by construction: registry mocks replace effectors and the “Would do” report shows exactly what production would have done. SEND_EMAIL reports itself honestly as simulated.</span><span class="ref">§8.2</span></li>
+      <li><span class="co">3</span><span>The run paints onto the authoring canvas: taken path, completed checks, active pulse, skipped branch dimmed; step-through pauses at each node — user tasks prompt for a simulated decision instead of creating real inbox rows.</span><span class="ref">§8.3</span></li>
+    </ol>
+  </div>
+</section>
+
+<!-- ═══ S6 — Run detail: timeline ════════════════════════════════ -->
+<section class="screen" id="s6">
+  <div class="screen-head">
+    <span class="t-overline">Screen 6</span>
+    <h2>Run detail — three altitudes, Gantt timeline, rerun from step</h2>
+    <div class="refs">
+      <span class="chip">spec §8.3 · §8.4</span><span class="chip">Temporal pattern</span>
+    </div>
+  </div>
+
+  <div class="frame-wrap">
+  <div class="frame">
+    <div class="shell-top">
+      <div class="crumb"><span>Workflows</span><svg><use href="#ic-chevron-right"/></svg><span>Runs</span><svg><use href="#ic-chevron-right"/></svg><b>Lead to Install · #01J9KX</b></div>
+      <span class="badge badge-success"><svg><use href="#ic-check"/></svg> Completed</span>
+      <span class="chip t-mono">deal d3f1…9c</span>
+      <span class="chip num">2d 4h 12m</span>
+      <div class="grow"></div>
+      <span class="row t-hint"><span class="live-dot"></span> Live</span>
+      <span class="co" style="position:static">3</span>
+    </div>
+    <div class="shell-body" style="height:460px">
+      <div class="grow col" style="min-width:0">
+        <div style="padding:0.5rem 0.875rem 0"><div class="tabs">
+          <button aria-selected="false">Compact</button>
+          <button aria-selected="true">Timeline</button>
+          <button aria-selected="false">Events</button>
+        </div></div>
+        <div class="gantt grow" style="overflow-y:auto">
+          <div class="gantt-label gantt-head">Step</div>
+          <div class="gantt-track gantt-head"><div class="gantt-ticks"><i></i><i></i><i></i><i></i><i></i><i></i></div><span class="bar-time" style="left:4px">0</span><span class="bar-time" style="left:32%">+34 s</span><span class="bar-time" style="left:56%">⋯ +1.8 d</span><span class="bar-time" style="right:6px">+2d 4h</span></div>
+
+          <div class="gantt-label"><svg><use href="#ic-play"/></svg> Deal created</div>
+          <div class="gantt-track"><span class="bar" style="left:1%;width:0.6%;background:var(--chart-emerald)"></span><span class="bar-time" style="left:2.4%">3 ms</span></div>
+
+          <div class="gantt-label"><svg><use href="#ic-bot"/></svg> Enrich lead</div>
+          <div class="gantt-track">
+            <span class="bar bar-agent" style="left:2%;width:26%"></span>
+            <span class="bar-time" style="left:29.5%">34 s · 5 tool calls</span>
+          </div>
+          <div class="gantt-label muted" style="padding-left:2rem">└ tool: crm.search</div>
+          <div class="gantt-track"><span class="bar bar-sub" style="left:3%;width:6%"></span></div>
+          <div class="gantt-label muted" style="padding-left:2rem">└ tool: web.fetch</div>
+          <div class="gantt-track"><span class="bar bar-sub" style="left:10%;width:11%"></span></div>
+
+          <div class="gantt-label"><svg><use href="#ic-db"/></svg> Update deal stage</div>
+          <div class="gantt-track">
+            <span class="bar bar-retry" style="left:29%;width:3%"></span>
+            <span class="bar" style="left:33%;width:2.4%"></span>
+            <span class="bar-time" style="left:37%">1.2 s · attempt 2/3</span>
+            <span class="co" style="position:absolute;right:8rem;top:50%;transform:translateY(-50%)">2</span>
+            <button class="btn btn-outline btn-xs" style="position:absolute;right:0.5rem;top:50%;transform:translateY(-50%)"><svg><use href="#ic-refresh"/></svg> Re-run from here</button>
+          </div>
+
+          <div class="gantt-label"><svg><use href="#ic-user"/></svg> First call — Kasia N.</div>
+          <div class="gantt-track">
+            <span class="bar bar-task" style="left:37%;width:14%"></span>
+            <span class="bar-break" style="left:51.5%">✂ 1.7 d collapsed</span>
+            <span class="bar bar-task" style="left:62%;width:6%"></span>
+            <span class="bar-time" style="left:69%">1.8 d wait · decision: Call done</span>
+          </div>
+
+          <div class="gantt-label"><svg><use href="#ic-signal"/></svg> Contract signed</div>
+          <div class="gantt-track"><span class="bar bar-wait" style="left:69%;width:22%"></span><span class="bar-time" style="left:92%">6 h</span></div>
+
+          <div class="gantt-label"><svg><use href="#ic-flag"/></svg> End</div>
+          <div class="gantt-track"><span class="bar" style="left:96%;width:0.6%;background:var(--chart-emerald)"></span></div>
+        </div>
+      </div>
+      <div class="inspector" style="width:330px">
+        <div class="inspector-head"><svg style="color:var(--chart-blue)"><use href="#ic-db"/></svg><b>Update deal stage</b><span class="badge badge-success">ok</span></div>
+        <div class="inspector-body">
+          <div class="isec">
+            <span class="t-overline">Input</span>
+            <div class="code">{ <span class="k">"dealId"</span>: <span class="s">"d3f1…9c"</span>,
+  <span class="k">"stageId"</span>: <span class="s">"stage_qualified"</span> }</div>
+          </div>
+          <div class="isec">
+            <span class="t-overline">Output</span>
+            <div class="code">{ <span class="k">"updatedDeal"</span>: {
+    <span class="k">"stageId"</span>: <span class="s">"stage_qualified"</span>,
+    <span class="k">"updatedAt"</span>: <span class="s">"2026-07-24T09:14:03Z"</span> } }</div>
+          </div>
+          <div class="isec">
+            <span class="t-overline">Attempts</span>
+            <div class="stack-2">
+              <div class="row"><span class="badge badge-error">1 · failed</span><span class="t-hint">409 conflict — retried in 2 s</span></div>
+              <div class="row"><span class="badge badge-success">2 · ok</span><span class="t-hint num">1.2 s</span></div>
+            </div>
+          </div>
+          <button class="btn btn-outline btn-sm"><svg><use href="#ic-refresh"/></svg> Use as sample in editor</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <div class="delta">
+    <span class="t-overline">What changes here</span>
+    <ol>
+      <li><span class="co">1</span><span>Three altitudes of the same run — Compact (logical sequence), Timeline (clock-scaled Gantt with collapsed waits so a 1.8-day task doesn’t flatten the 34-second agent step), Events (full audit log). Agent steps expand into their tool calls.</span><span class="ref">§8.3</span></li>
+      <li><span class="co">2</span><span>Retries render as dashed segments with per-attempt detail; a failed or suspect step offers “Re-run from here” with edited context (ACL-gated).</span><span class="ref">§8.4</span></li>
+      <li><span class="co">3</span><span>Runs update live over the existing DOM Event Bridge — no refresh-hammering; a step’s real output can be pinned back into the editor as sample data.</span><span class="ref">§8.3 · §3.6</span></li>
+    </ol>
+  </div>
+</section>
+
+<!-- ═══ S7 — Work Inbox ══════════════════════════════════════════ -->
+<section class="screen" id="s7">
+  <div class="screen-head">
+    <span class="t-overline">Screen 7</span>
+    <h2>Work Inbox — one queue for human tasks and agent reviews</h2>
+    <div class="refs">
+      <span class="chip">spec §2.3 · §6.2 · §6.3</span><span class="chip">#4246</span><span class="chip">#4238</span><span class="chip">#4247</span>
+    </div>
+  </div>
+
+  <div class="frame-wrap">
+  <div class="frame">
+    <div class="shell-top">
+      <div class="crumb"><b>Work Inbox</b></div>
+      <div class="seg-tabs" role="tablist">
+        <button aria-selected="true">My tasks <span class="tab-count">4</span></button>
+        <button aria-selected="false">Claimable <span class="tab-count">7</span></button>
+        <button aria-selected="false">Agent reviews <span class="tab-count">3</span></button>
+        <button aria-selected="false">All</button>
+      </div>
+      <span class="co" style="position:static">1</span>
+      <div class="grow"></div>
+      <span class="row t-hint"><span class="live-dot"></span> Live</span>
+    </div>
+    <div class="inbox" style="height:640px">
+      <div class="inbox-list" style="overflow-y:auto">
+        <div class="inbox-row sel">
+          <span class="inbox-ico ico-agent"><svg><use href="#ic-bot"/></svg></span>
+          <div class="grow col">
+            <div class="between"><b style="font-size:0.8125rem">Approve discount proposal</b><span class="badge badge-error"><svg><use href="#ic-clock"/></svg> 2h left</span></div>
+            <span class="t-hint">Quote Q-2026-0714 · Solartech Kraków</span>
+            <div class="row" style="margin-top:0.25rem"><span class="chip">quote_discounter</span><span class="chip num">conf 0.74</span></div>
+          </div>
+        </div>
+        <div class="inbox-row">
+          <span class="inbox-ico ico-task"><svg><use href="#ic-user"/></svg></span>
+          <div class="grow col">
+            <div class="between"><b style="font-size:0.8125rem">First call to customer</b><span class="chip"><svg><use href="#ic-clock"/></svg> 1d 4h</span></div>
+            <span class="t-hint">Deal — GreenVolt Poznań · PV 12 kW</span>
+          </div>
+        </div>
+        <div class="inbox-row">
+          <span class="inbox-ico ico-agent"><svg><use href="#ic-bot"/></svg></span>
+          <div class="grow col">
+            <div class="between"><b style="font-size:0.8125rem">Review return classification</b><span class="chip"><svg><use href="#ic-clock"/></svg> 6h</span></div>
+            <span class="t-hint">Return R-1182 · order S-9War-4471</span>
+            <div class="row" style="margin-top:0.25rem"><span class="chip">returns_classifier</span><span class="chip num">conf 0.61</span></div>
+          </div>
+        </div>
+        <div class="inbox-row">
+          <span class="inbox-ico ico-task"><svg><use href="#ic-user"/></svg></span>
+          <div class="grow col">
+            <div class="between"><b style="font-size:0.8125rem">Confirm installation window</b><span class="chip"><svg><use href="#ic-clock"/></svg> 3d</span></div>
+            <span class="t-hint">Deal — Solartech Kraków · PV 8 kW</span>
+          </div>
+        </div>
+        <div class="inbox-row">
+          <span class="inbox-ico ico-task"><svg><use href="#ic-user"/></svg></span>
+          <div class="grow col">
+            <div class="between"><b style="font-size:0.8125rem">Fill product description</b><span class="chip muted">no deadline</span></div>
+            <span class="t-hint">Product — Inverter HX-5000</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="inbox-main">
+        <div class="between">
+          <div class="col">
+            <h3 class="t-section">Approve discount proposal</h3>
+            <span class="t-hint">Workflow “Quote follow-up” · proposed by <span class="t-mono">quote_discounter</span> · 26 Jul 2026, 12:41</span>
+          </div>
+          <div class="row"><span class="badge badge-error"><svg><use href="#ic-clock"/></svg> due in 2 h</span><button class="btn btn-outline btn-sm">Unclaim</button></div>
+        </div>
+
+        <div class="entity-chip" style="align-self:flex-start"><svg><use href="#ic-eye"/></svg> Quote <b>Q-2026-0714</b> · Solartech Kraków · <span class="num">148 000 zł</span> · <span class="muted">open 12 days</span><span class="co" style="position:static;margin-left:0.375rem">2</span></div>
+
+        <div class="isec">
+          <span class="t-overline">Decision facts</span>
+          <div class="facts">
+            <div class="fact"><span class="t-hint">Margin after discount</span><div class="fval">18.4%</div><span class="fsrc">source: pricing engine</span></div>
+            <div class="fact"><span class="t-hint">Customer lifetime value</span><div class="fval">512 000 zł</div><span class="fsrc">source: CRM</span></div>
+            <div class="fact"><span class="t-hint">Similar approved deals</span><div class="fval">7 of 9</div><span class="fsrc">source: last 90 days</span></div>
+          </div>
+        </div>
+
+        <div class="isec">
+          <div class="isec-head"><span class="t-overline">Proposal — editable before approving</span><span class="co" style="position:static">3</span></div>
+          <div class="row" style="align-items:flex-start;gap:0.875rem">
+            <div class="field" style="width:9rem"><label>Discount %</label><input class="input input-sm num" value="12" /></div>
+            <div class="field" style="width:11rem"><label>Valid until</label><input class="input input-sm" value="2026-08-09" /></div>
+            <div class="field grow"><label>Message to customer</label><textarea class="textarea" style="min-height:3.5rem">Dziękujemy za cierpliwość — proponujemy 12% rabatu na ofertę PV 8 kW, ważne do 9 sierpnia.</textarea></div>
+          </div>
+        </div>
+
+        <div class="isec">
+          <div class="between"><span class="t-overline">Confidence</span><span class="t-hint num">0.74 · auto-approve at 0.80</span></div>
+          <div class="meter"><span style="width:74%"></span><span class="tick" style="left:80%"></span></div>
+        </div>
+
+        <div class="between" style="border-top:1px solid var(--border);padding-top:0.875rem">
+          <div class="row">
+            <button class="btn btn-primary"><svg><use href="#ic-check"/></svg> Approve</button>
+            <button class="btn btn-outline">Approve with edits</button>
+            <button class="btn btn-ghost" style="color:var(--destructive)"><svg><use href="#ic-x"/></svg> Reject…</button>
+            <span class="t-hint">reject requires a reason — it feeds the agent’s eval set</span>
+          </div>
+          <button class="btn btn-outline btn-sm">Complete &amp; next <svg><use href="#ic-arrow-right"/></svg><span class="co" style="position:static;margin-left:0.25rem">4</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <div class="delta">
+    <span class="t-overline">What changes here</span>
+    <ol>
+      <li><span class="co">1</span><span>One inbox: workflow user tasks, agent proposal reviews, and record-scoped todos in a single claim-aware queue (projection over existing rows first; the generic Task entity follows next cycle). Deadlines, priority, and confidence are first-class columns.</span><span class="ref">#4246 · §2.3/§6.3</span></li>
+      <li><span class="co">2</span><span>Every task shows its bound business record; visibility derives from rights to that record + assignment — a portal customer can complete their own task with zero workflow-module grants.</span><span class="ref">#4238 · #4247 · §6.4</span></li>
+      <li><span class="co">3</span><span>Agent proposals arrive as editable prefilled fields with decision facts and sources — the reviewer corrects in place instead of rejecting and round-tripping. Each button maps to a disposition route; rejections capture a reason for the eval flywheel.</span><span class="ref">§6.2 · §7.2</span></li>
+      <li><span class="co">4</span><span>“Complete &amp; next” keeps frontline throughput — the inbox immediately opens the next claimable item.</span><span class="ref">§6.2</span></li>
+    </ol>
+  </div>
+</section>
+
+<!-- ═══ S8 — Code view + Copilot ═════════════════════════════════ -->
+<section class="screen" id="s8">
+  <div class="screen-head">
+    <span class="t-overline">Screen 8</span>
+    <h2>Code view &amp; Copilot — canvas ⇄ code, checkpoint diffs</h2>
+    <div class="refs">
+      <span class="chip">spec §2.2 · §9</span><span class="chip">#4237</span>
+    </div>
+  </div>
+
+  <div class="frame-wrap">
+  <div class="frame">
+    <div class="shell-top">
+      <div class="crumb"><span>Workflows</span><svg><use href="#ic-chevron-right"/></svg><b>Lead to Install</b><svg><use href="#ic-chevron-right"/></svg><span>Code</span></div>
+      <div class="seg-tabs" role="tablist"><button aria-selected="false">Canvas</button><button aria-selected="true">Code</button><button aria-selected="false">Split</button></div>
+      <span class="co" style="position:static">1</span>
+      <div class="grow"></div>
+      <button class="btn btn-outline btn-sm">Copy JSON</button>
+      <button class="btn btn-primary btn-sm">Publish</button>
+    </div>
+    <div class="shell-body" style="height:560px">
+      <div class="grow" style="min-width:0;padding:0.875rem;overflow:auto;background:color-mix(in oklab, var(--muted) 24%, var(--background))">
+        <div class="code" style="font-size:0.75rem;line-height:1.65">{
+  <span class="k">"workflowId"</span>: <span class="s">"lead_to_install"</span>,
+  <span class="k">"version"</span>: <span class="n">4</span>,
+  <span class="k">"contextSchema"</span>: {
+    <span class="k">"input"</span>: { <span class="k">"deal"</span>: { <span class="k">"type"</span>: <span class="s">"entity:customers.deal"</span>, <span class="k">"required"</span>: <span class="n">true</span> } }
+  },
+  <span class="k">"steps"</span>: [
+    { <span class="k">"id"</span>: <span class="s">"enrich"</span>, <span class="k">"type"</span>: <span class="s">"AUTOMATED"</span>,
+      <span class="k">"activities"</span>: [{ <span class="k">"type"</span>: <span class="s">"INVOKE_AGENT"</span>, <span class="k">"agentId"</span>: <span class="s">"deal_enricher"</span>,
+        <span class="k">"onResult"</span>: { <span class="k">"autoApproveThreshold"</span>: <span class="n">0.8</span> },
+        <span class="k">"review"</span>: { <span class="k">"role"</span>: <span class="s">"ops_manager"</span>, <span class="k">"deadline"</span>: <span class="s">"PT4H"</span> } }] },
+    { <span class="k">"id"</span>: <span class="s">"update_stage"</span>, <span class="k">"type"</span>: <span class="s">"AUTOMATED"</span>,
+      <span class="k">"activities"</span>: [{ <span class="k">"type"</span>: <span class="s">"UPDATE_ENTITY"</span>, <span class="k">"commandId"</span>: <span class="s">"customers.deals.update"</span>,
+        <span class="k">"input"</span>: { <span class="k">"dealId"</span>: <span class="s">"{{ context.deal.id }}"</span><span class="code-squiggle">, <span class="k">"stageId"</span>: <span class="s">""</span></span> } }] },
+    { <span class="k">"id"</span>: <span class="s">"first_call"</span>, <span class="k">"type"</span>: <span class="s">"USER_TASK"</span>,
+      <span class="k">"deadline"</span>: { <span class="k">"duration"</span>: <span class="s">"P2D"</span>, <span class="k">"onBreach"</span>: <span class="s">"route:deadline_missed"</span> },
+      <span class="k">"entityRef"</span>: { <span class="k">"type"</span>: <span class="s">"customers.deal"</span>, <span class="k">"id"</span>: <span class="s">"{{ context.deal.id }}"</span> } }
+  ],
+  <span class="k">"routes"</span>: [
+    { <span class="k">"from"</span>: <span class="s">"enrich"</span>, <span class="k">"outcome"</span>: <span class="s">"approved"</span>, <span class="k">"to"</span>: <span class="s">"update_stage"</span> },
+    { <span class="k">"from"</span>: <span class="s">"enrich"</span>, <span class="k">"outcome"</span>: <span class="s">"needs_review"</span>, <span class="k">"to"</span>: <span class="s">"review_enrichment"</span> },
+    <span class="diff-add">{ "from": "first_call", "outcome": "deadline_missed", "to": "escalate_manager" }</span>
+  ]
+}</div>
+      </div>
+      <div class="inspector" style="width:340px">
+        <div class="inspector-head"><svg style="color:var(--chart-violet)"><use href="#ic-sparkles"/></svg><b>Copilot</b><span class="co" style="position:static;margin-left:auto">3</span></div>
+        <div class="inspector-body">
+          <div class="copilot-card">
+            <div class="card-head"><span class="t-hint">Checkpoint · just now</span><button class="btn btn-ghost btn-xs"><svg><use href="#ic-undo"/></svg> Undo</button></div>
+            <div class="card-body" style="font-size:0.8125rem">
+              Added <b>“Deadline missed”</b> route on <b>First call</b> → new <b>Escalate to manager</b> task.<br />
+              <span class="t-hint t-mono">+2 nodes · +1 route · 0 removed</span>
+            </div>
+          </div>
+          <div class="alert alert-warning"><svg><use href="#ic-warn"/></svg><span>1 problem remains: <span class="t-mono">stageId</span> is empty — same issue as in the canvas Problems panel.</span></div>
+          <div class="field">
+            <label class="t-hint" for="copilot-input">Describe a change</label>
+            <input id="copilot-input" class="input input-sm" placeholder="e.g. add a 3-day reminder before the deadline…" />
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="problems">
+      <div class="problems-head"><svg width="14" height="14"><use href="#ic-list"/></svg> Problems <span class="badge badge-error">1</span><span class="co" style="position:static;margin-left:auto">2</span></div>
+      <div class="problems-rows">
+        <div class="problem p-error"><svg><use href="#ic-alert"/></svg><span><b>update_stage</b> — required field <span class="t-mono">stageId</span> is not mapped</span><span class="loc">Go to line 14</span></div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <div class="delta">
+    <span class="t-overline">What changes here</span>
+    <ol>
+      <li><span class="co">1</span><span>The form editor is retired; its replacement is the synced Code view — the same definition JSON, canvas ⇄ code, copy/paste portable. The definition format gains additive fields only (contextSchema, review, deadline, entityRef, outcome routes).</span><span class="ref">#4237 · §2.2 · §10.2</span></li>
+      <li><span class="co">2</span><span>One validation engine, two renderings: the code view squiggles the exact span the canvas Problems panel flags.</span><span class="ref">#4232 · §4.3</span></li>
+      <li><span class="co">3</span><span>AI edits land as checkpoint diffs — what was added/removed, one-click undo. The typed registry doubles as the agent-authoring API, so generated flows validate like hand-built ones.</span><span class="ref">§9</span></li>
+    </ol>
+  </div>
+</section>
+
+<div class="doc-footer">
+  <p><b>Source of truth:</b> <span class="t-mono">.ai/specs/2026-07-26-workflows-ux-redesign.md</span> (+ companion user-story catalog).
+  These mockups illustrate target UX for the phased rollout; visual details defer to the DS and the spec where they disagree.
+  Tokens are copied from <span class="t-mono">apps/mercato/src/app/globals.css</span> — regenerate when the design system changes.</p>
+</div>
+
+<script src="mockup.js"></script>
+</body>
+</html>

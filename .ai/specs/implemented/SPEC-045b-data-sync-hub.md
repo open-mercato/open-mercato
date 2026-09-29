@@ -2541,6 +2541,133 @@ export function createRateLimiter(requestsPerSecond: number) {
 
 ---
 
+## 11b. Run Parameters (operator-supplied, adapter-declared)
+
+Adapters may declare optional, operator-facing **run parameters** that are
+collected when a run is started. The mechanism is provider-agnostic — no
+provider is special-cased in `data_sync`.
+
+**Contract** (`lib/adapter.ts`):
+
+```ts
+type RunParameterType = 'boolean' | 'string' | 'number' | 'select'
+
+interface RunParameter {
+  key: string
+  label: string
+  type: RunParameterType
+  description?: string
+  required?: boolean
+  defaultValue?: boolean | string | number
+  placeholder?: string
+  options?: { value: string; label?: string }[]   // select
+  min?: number; max?: number                        // number
+  direction?: 'import' | 'export'                   // omit = both
+  entityType?: string | string[]                    // omit = every entity
+}
+
+interface DataSyncAdapter {
+  // …
+  readonly runParameters?: RunParameter[]
+}
+```
+
+**Flow**:
+
+1. `GET /api/data_sync/options` exposes each integration's `runParameters`.
+2. The dashboard renders a generic input per declared parameter (boolean →
+   switch, select → dropdown, number/string → text input).
+3. `POST /api/data_sync/run` validates and coerces the submitted values against
+   the adapter's declaration via `normalizeRunParameters` (`lib/run-parameters.ts`):
+   - undeclared keys are dropped (never passed through),
+   - blank values fall back to `defaultValue`; a blank **required** value → `422`,
+   - values are coerced to the declared type, with `min`/`max` and `select`
+     option enforcement,
+   - parameters not matching the run `direction` are ignored,
+   - parameters scoped to a different `entityType` are dropped and never
+     enforced, even when declared `required`.
+4. Normalized values are persisted on `SyncRun.parameters` (JSONB, nullable) and
+   handed to the adapter on `StreamImportInput.parameters` /
+   `StreamExportInput.parameters` for the whole duration of the run.
+5. The run detail page surfaces the parameters read-only, resolving declared
+   labels from `/api/data_sync/options` so a past run reads as "Start id" rather
+   than `startId` (keys the adapter no longer declares keep their raw form).
+6. **Retry re-normalizes** the stored values against the *current* declaration
+   rather than replaying them blind. Parameters since removed or re-scoped are
+   dropped; a value that no longer satisfies its declaration fails the retry
+   with a `422` naming the offending keys, because the operator has no form on
+   the retry path to correct them. This keeps the `StreamImportInput.parameters`
+   guarantee — "only declared keys, already coerced" — true across a deploy that
+   changes a declaration.
+
+**Localization.** `label` / `description` / `placeholder` are literals; the
+optional `labelKey` / `descriptionKey` / `placeholderKey` are i18n keys the
+dashboard prefers when present, so one adapter can serve several locales.
+Validation failures are returned as `{ key, code, params, message }` with `code`
+∈ `required | type | min | max | select`; the client renders
+`data_sync.runParameters.errors.<code>` and keeps the English `message` as a
+fallback for non-UI callers and logs.
+
+**Scope / limits (v1)**: scalar values only; parameters reach the streaming
+methods (and the persisted record), not `getMapping` / `getInitialCursor` /
+`validateConnection`; values are set once at run start and are immutable for the
+duration of the run. These are additive extension points if richer needs arise.
+
+**Recurring runs — defaults yes, operator values no.** A schedule has no
+parameter form, and `sync_schedules` carries `full_sync` but no `parameters`
+column, so an operator cannot yet pin a *chosen* value to a recurring run — that
+stays a declared follow-up. The adapter's **declared defaults do** apply: the
+`data-sync-scheduled` worker normalizes an empty input against the current
+declaration, which materializes exactly those defaults, so a scheduled run hands
+the adapter the same set a manual run with an untouched form would. Without
+this, an adapter declaring `dryRun` with `defaultValue: true` would read
+`undefined` on the nightly job and write for real, while the dashboard run did
+not — a divergence invisible on both the schedule and the run detail page. An
+adapter whose own default violates its declaration (a `select` default outside
+its `options`, a number below its `min`) skips the scheduled run with a logged
+error rather than starting it with a half-applied set.
+
+The integration detail page's schedule table starts one-off runs from a table
+row with no space for a parameter form; it submits the adapter's declared
+defaults and refuses the run when an applicable parameter is `required` with no
+`defaultValue`, directing the operator to the Data Sync dashboard. `required` is
+inert on `boolean` parameters (a switch always submits a value), so those never
+trigger that refusal.
+
+**Secrets**: parameter values are operator-visible — persisted in clear text on
+`sync_runs.parameters` and rendered on the run detail page. Adapters MUST NOT
+declare a parameter that carries a secret; credentials belong in
+`integrationCredentialsService`.
+
+### 11b.1 Migration & Backward Compatibility
+
+Additive only — no existing type, signature, route, schema, column, or default
+behaviour changes.
+
+| Surface | Change | Classification |
+|---|---|---|
+| `DataSyncAdapter` | new optional `runParameters?: RunParameter[]` | additive optional field |
+| `StreamImportInput` / `StreamExportInput` | new optional `parameters?` | additive optional field |
+| `lib/adapter.ts` | new exported `RunParameter`, `RunParameterType`, `RunParameterValue`, `RunParameterOption` | new exports |
+| `lib/run-parameters.ts` | new module (`normalizeRunParameters`, `getApplicableRunParameters`) | new file |
+| `RunParameter` | new optional `labelKey` / `descriptionKey` / `placeholderKey` | additive optional fields |
+| `RunParameterError` | new `code` + `params`; `message` retained | additive fields on a new type |
+| `runSyncSchema` | new optional `parameters` record | widened, not narrowed |
+| `POST /api/data_sync/runs/[id]/retry` | new `422` when stored values no longer satisfy the declaration | only reachable once an adapter declares parameters *and* changes them |
+| `POST /api/data_sync/run` | new `422` for invalid parameters | only reachable once an adapter declares parameters |
+| `GET /api/data_sync/options` | new `runParameters` array per item | additive response field |
+| `GET /api/data_sync/runs/[id]` | new `parameters` field | additive response field |
+| `sync_runs` | new nullable `parameters` jsonb column | additive, nullable, no default |
+
+An adapter that declares no `runParameters` is unaffected: the normalized object
+is empty, `parameters` stays `null` on the run, and the dashboard renders exactly
+as before. Existing rows need no backfill — `NULL` is the correct value for every
+run started before this change. Deployment order is unconstrained: the column is
+nullable and every read path uses `?? null`, so the migration may be applied
+before or after the code rolls out.
+
+---
+
 ## 12. Changelog
 
 | Date | Change |
@@ -2550,6 +2677,7 @@ export function createRateLimiter(requestsPerSecond: number) {
 | 2026-02-24 | Added `sync_excel` reference implementation |
 | 2026-03-04 | Clarified canonical ownership of `sync_external_id_mappings` and added migration/BC + compliance sections |
 | 2026-04-15 | Updated code snippets for MikroORM v7 (persist().flush(), getKysely(), class-based entity refs). |
+| 2026-08-10 | Added generic adapter-declared run parameters: `RunParameter` contract (direction- and entity-scoped), `normalizeRunParameters` validation/coercion, `SyncRun.parameters` (JSONB) persistence, pass-through to import/export streams, dashboard inputs + read-only run-detail surfacing, retry carry-forward, and the additive-only BC analysis (see §11b). |
 
 ## Implementation Status
 

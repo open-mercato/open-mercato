@@ -3,7 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { hasFeature } from '@open-mercato/shared/security/features'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { InboxProposal, InboxProposalAction, InboxDiscrepancy } from './data/entities'
 import { inboxProposalCategoryEnum } from './data/validators'
 import { executeAction } from './lib/executionEngine'
@@ -311,8 +311,10 @@ Returns on error: error message with appropriate detail.`,
 
     // Check target module permission
     if (action.requiredFeature) {
-      const featureGranted =
-        ctx.isSuperAdmin || hasFeature(ctx.userFeatures, action.requiredFeature)
+      const featureGranted = authorizeFeatures([action.requiredFeature], {
+        grantedFeatures: ctx.userFeatures,
+        unrestricted: ctx.isSuperAdmin,
+      })
       if (!featureGranted) {
         return {
           error: 'Insufficient permissions',

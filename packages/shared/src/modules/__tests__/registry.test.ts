@@ -94,7 +94,11 @@ describe('CLI Modules Registry', () => {
         {
           id: 'auth',
           defaultEncryptionMaps: [
-            { entityId: 'auth:user', fields: [{ field: 'email', hashField: 'email_hash' }] },
+            {
+              entityId: 'auth:user',
+              keyScope: 'system',
+              fields: [{ field: 'email', hashField: 'email_hash' }],
+            },
           ],
         },
         {
@@ -106,7 +110,11 @@ describe('CLI Modules Registry', () => {
       ])
 
       expect(maps).toEqual([
-        { entityId: 'auth:user', fields: [{ field: 'email', hashField: 'email_hash' }] },
+        {
+          entityId: 'auth:user',
+          keyScope: 'system',
+          fields: [{ field: 'email', hashField: 'email_hash' }],
+        },
         { entityId: 'customers:customer_comment', fields: [{ field: 'body', hashField: null }] },
       ])
     })

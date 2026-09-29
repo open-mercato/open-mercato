@@ -6,9 +6,9 @@ import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-// Both install-skills.sh copies (monorepo + the one shipped into scaffolded apps)
-// implement the same layout contract, so the same harness drives both and they
-// cannot drift apart:
+// The repository installer retains its own monorepo-only validation contract.
+// The standalone Node installer has a dedicated cross-platform test below; this
+// legacy harness remains focused on the repository shell entry point.
 //
 //   - local tier skills live ONCE, in the canonical .agents/skills/
 //   - per-agent symlinks exist only for agents that cannot read that directory
@@ -17,9 +17,13 @@ import { fileURLToPath } from 'node:url'
 //   - agents.ignore / --ignore-agents suppress an agent's directory entirely
 //   - a repo-local override of an external skill is never symlinked anywhere
 //   - external skills reach every agent that cannot read the canonical directory
+// Both repo scripts are `sh` wrappers over a cross-platform Node port, so the
+// fixture has to stage the implementation next to the entry point it runs.
 const monorepoScript = fileURLToPath(new URL('../../../../scripts/install-skills.sh', import.meta.url))
+const monorepoScriptImpl = fileURLToPath(new URL('../../../../scripts/install-skills.mjs', import.meta.url))
 const monorepoValidator = fileURLToPath(new URL('../../../../scripts/validate-skills-tiers.sh', import.meta.url))
-const standaloneScript = fileURLToPath(new URL('../../agentic/shared/scripts/install-skills.sh', import.meta.url))
+const monorepoValidatorImpl = fileURLToPath(new URL('../../../../scripts/validate-skills-tiers.mjs', import.meta.url))
+const monorepoSpawnCli = fileURLToPath(new URL('../../../../scripts/lib/spawn-cli.mjs', import.meta.url))
 
 const LOCAL_SKILLS = ['om-alpha', 'om-beta']
 const EXTERNAL_SKILL = 'om-code-review'
@@ -30,7 +34,7 @@ const INSTALLED_EXTERNAL_SKILL = 'om-auto-review-pr'
 const jqMissing = spawnSync('jq', ['--version']).status !== 0
 const skip = jqMissing ? 'jq is required by install-skills.sh but is not installed' : false
 
-type Variant = 'monorepo' | 'standalone'
+type Variant = 'monorepo'
 
 function createFixture(variant: Variant, manifestExtras: Record<string, unknown> = {}): string {
   // realpath so macOS /tmp -> /private/tmp does not break path comparisons.
@@ -60,12 +64,15 @@ function createFixture(variant: Variant, manifestExtras: Record<string, unknown>
   )
 
   fs.mkdirSync(path.join(appDir, 'scripts'), { recursive: true })
-  const source = variant === 'monorepo' ? monorepoScript : standaloneScript
-  fs.copyFileSync(source, path.join(appDir, 'scripts', 'install-skills.sh'))
+  fs.copyFileSync(monorepoScript, path.join(appDir, 'scripts', 'install-skills.sh'))
+  fs.copyFileSync(monorepoScriptImpl, path.join(appDir, 'scripts', 'install-skills.mjs'))
+  fs.mkdirSync(path.join(appDir, 'scripts', 'lib'), { recursive: true })
+  fs.copyFileSync(monorepoSpawnCli, path.join(appDir, 'scripts', 'lib', 'spawn-cli.mjs'))
 
   if (variant === 'monorepo') {
     // The monorepo script resolves its root via git and runs the tier validator.
     fs.copyFileSync(monorepoValidator, path.join(appDir, 'scripts', 'validate-skills-tiers.sh'))
+    fs.copyFileSync(monorepoValidatorImpl, path.join(appDir, 'scripts', 'validate-skills-tiers.mjs'))
     const init = spawnSync('git', ['init', '-q'], { cwd: appDir })
     assert.equal(init.status, 0, 'git init failed for the monorepo fixture')
   }
@@ -97,7 +104,7 @@ function exists(appDir: string, ...segments: string[]): boolean {
   return fs.existsSync(path.join(appDir, ...segments))
 }
 
-for (const variant of ['monorepo', 'standalone'] as const) {
+for (const variant of ['monorepo'] as const) {
   test(`[${variant}] default layout installs local skills once, into .agents/skills/`, { skip }, () => {
     const appDir = createFixture(variant)
     try {

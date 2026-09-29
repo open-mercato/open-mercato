@@ -77,7 +77,7 @@ type AttachmentMetadataFormValues = {
   assignments?: AssignmentDraft[]
 } & Record<string, unknown>
 
-type AssignmentEditorLabels = {
+export type AssignmentEditorLabels = {
   title: string
   description: string
   type: string

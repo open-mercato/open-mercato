@@ -5,7 +5,8 @@ import { Organization } from '@open-mercato/core/modules/directory/data/entities
 import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
-import type { CacheStrategy } from '@open-mercato/cache'
+import type { OrganizationScope } from '@open-mercato/shared/lib/auth/principal-service'
+import { getCurrentCacheTenant, runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import { parseSelectedOrganizationCookie, parseSelectedTenantCookie } from './scopeCookies'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -13,19 +14,7 @@ const logger = createLogger('directory').child({ component: 'org-scope-cache' })
 
 export { parseSelectedOrganizationCookie, parseSelectedTenantCookie }
 
-export type OrganizationScope = {
-  selectedId: string | null
-  filterIds: string[] | null
-  allowedIds: string[] | null
-  tenantId: string | null
-  // True when the caller explicitly selected a concrete organization (cookie /
-  // selectedId param) that could not be honored — it does not exist for the
-  // tenant or is not accessible. Reads degrade gracefully (filterIds/selectedId
-  // fall back to the caller's accessible orgs), but writes MUST fail loudly on
-  // this so a record never lands under an org the caller did not intend. Absent
-  // (undefined) means the selection — if any — was honored.
-  selectionRejected?: boolean
-}
+export type { OrganizationScope }
 
 // Phase 4 — short-TTL cache for resolveOrganizationScopeForRequest.
 // OrganizationScope is a pure function of (userId, tenantId, selectedOrgId,
@@ -104,11 +93,15 @@ function resolveCacheFromContainer(container: AwilixContainer | null | undefined
 export async function invalidateOrganizationScopeCacheForUser(
   container: AwilixContainer,
   userId: string,
+  tenantId?: string | null,
 ): Promise<void> {
   const cache = resolveCacheFromContainer(container)
   if (!cache?.deleteByTags) return
   try {
-    await cache.deleteByTags([buildOrgScopeUserCacheTag(userId)])
+    const cacheTenantId = tenantId === undefined ? getCurrentCacheTenant() : tenantId
+    await runWithCacheTenant(cacheTenantId, () =>
+      cache.deleteByTags([buildOrgScopeUserCacheTag(userId)]),
+    )
   } catch (err) {
     logger.warn('Cache invalidate user failed', { err })
   }
@@ -121,7 +114,9 @@ export async function invalidateOrganizationScopeCacheForTenant(
   const cache = resolveCacheFromContainer(container)
   if (!cache?.deleteByTags) return
   try {
-    await cache.deleteByTags([buildOrgScopeTenantCacheTag(tenantId)])
+    await runWithCacheTenant(tenantId, () =>
+      cache.deleteByTags([buildOrgScopeTenantCacheTag(tenantId)]),
+    )
   } catch (err) {
     logger.warn('Cache invalidate tenant failed', { err })
   }
@@ -243,8 +238,8 @@ export async function resolveOrganizationScope({
   tenantId: tenantIdOverride,
 }: {
   em: EntityManager
-  rbac: RbacService
-  auth: AuthContext
+  rbac: Pick<RbacService, 'loadAcl'>
+  auth: AuthContext | null | undefined
   selectedId?: string | null
   tenantId?: string | null
 }): Promise<OrganizationScope> {

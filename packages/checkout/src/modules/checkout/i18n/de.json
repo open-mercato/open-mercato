@@ -380,6 +380,7 @@
   "checkout.payPage.validation.priceSelectionRequired": "Bitte eine Zahlungsoption auswaehlen, um fortzufahren.",
   "checkout.payPage.validation.requiredField": "Bitte {field} ausfuellen.",
   "checkout.payPage.validation.thisField": "dieses Feld",
+  "checkout.search.subtitle.linkTemplate": "Link-Vorlage",
   "checkout.statusPage.backToPayment": "Zuruck zur Zahlungsseite",
   "checkout.statusPage.cancel.cancelled": "Zahlung abgebrochen",
   "checkout.statusPage.cancel.failed": "Zahlung fehlgeschlagen",
@@ -458,5 +459,6 @@
   "checkout.widgets.gatewayTransactionLink.labels.link": "Link",
   "checkout.widgets.gatewayTransactionLink.labels.transactionId": "Transaction ID",
   "checkout.widgets.gatewayTransactionLink.title": "Checkout transaction",
-  "checkout.widgets.paymentGatewayToolbarLink.action": "Create Payment Link"
+  "checkout.widgets.paymentGatewayToolbarLink.action": "Create Payment Link",
+  "notifications.categories.checkout": "Kasse"
 }

@@ -1,5 +1,4 @@
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
-import { hasFeature } from '@open-mercato/shared/security/features'
 
 export function hasOrganizationAccess(
   scopeOrganizationId: string | null,
@@ -33,10 +32,11 @@ export async function resolveMessageContext(req: Request): Promise<{
 }
 
 type RbacService = {
-  loadAcl: (
+  userHasAllFeatures: (
     userId: string,
+    required: string[],
     scope: { tenantId: string | null; organizationId: string | null }
-  ) => Promise<{ features?: string[]; isSuperAdmin?: boolean }>
+  ) => Promise<boolean>
 }
 
 export async function parseRequestBodySafe(req: Request): Promise<unknown> {
@@ -56,10 +56,8 @@ export async function canUseMessageEmailFeature(
   if (!scope.userId || !scope.tenantId) return false
 
   const rbac = ctx.container.resolve('rbacService') as RbacService
-  const acl = await rbac.loadAcl(scope.userId, {
+  return rbac.userHasAllFeatures(scope.userId, ['messages.email'], {
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
   })
-
-  return Boolean(acl.isSuperAdmin) || hasFeature(acl.features, 'messages.email')
 }

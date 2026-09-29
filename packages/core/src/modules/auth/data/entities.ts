@@ -1,4 +1,15 @@
+import { OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+
+/**
+ * The principal kind a `User` row represents. `human` (the default) is an
+ * interactively-authenticating person; `agent` is a non-interactive AI principal
+ * provisioned by the agent_orchestrator module (it owns no interactive credential
+ * and is barred from the password/SSO login flow); `service` is reserved for
+ * machine/system principals. Added additively (NOT NULL, default `'human'`) so
+ * every existing row backfills to `human` and no existing reader breaks.
+ */
+export type UserKind = 'human' | 'agent' | 'service'
 
 @Entity({ tableName: 'users' })
 // Email uniqueness is per-tenant, enforced by a partial unique index
@@ -12,6 +23,11 @@ import { Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-o
 // login flow and leaks cross-tenant account existence (#2934). Mirrors
 // `customer_users_tenant_email_hash_uniq`.
 export class User {
+  // `kind` carries a default ('human'); marking it optional keeps every existing
+  // `em.create(User, …)` caller (which never passed `kind`) compiling unchanged —
+  // the additive column is backfilled by the default at the DB + entity level.
+  [OptionalProps]?: 'kind'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -36,6 +52,11 @@ export class User {
 
   @Property({ name: 'is_confirmed', type: 'boolean', default: true })
   isConfirmed: boolean = true
+
+  // Principal kind. Default 'human' keeps every existing row + external reader
+  // unaffected; 'agent' marks a non-interactive AI principal (see UserKind).
+  @Property({ name: 'kind', type: 'varchar', length: 20, default: 'human' })
+  kind: UserKind = 'human'
 
   @Property({ name: 'last_login_at', type: Date, nullable: true })
   lastLoginAt?: Date
@@ -62,6 +83,9 @@ export class Role {
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 
+  @Property({ name: 'min_active_holders', type: 'integer', default: 0 })
+  minActiveHolders: number = 0
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
@@ -81,7 +105,7 @@ export class UserSidebarPreference {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
-  @ManyToOne(() => User)
+  @ManyToOne(() => User, { deleteRule: 'cascade' })
   user!: User
 
   @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
@@ -146,7 +170,7 @@ export class SidebarVariant {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
-  @ManyToOne(() => User)
+  @ManyToOne(() => User, { deleteRule: 'cascade' })
   user!: User
 
   @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
@@ -266,7 +290,10 @@ export class RoleAcl {
   @Property({ name: 'is_super_admin', type: 'boolean', default: false })
   isSuperAdmin: boolean = false
 
-  // Visible organizations within the tenant; null/empty means all organizations
+  // Visible organizations within the tenant. `null` or the `__all__` sentinel means every
+  // organization. An EMPTY array is a deny-all scope for human principals — it projects to an
+  // empty accessible set so scoped reads and deletes fail closed (#4033). API-key principals
+  // read an empty list as "inherit the key's own organization binding" instead.
   @Property({ name: 'organizations_json', type: 'json', nullable: true })
   organizationsJson?: string[] | null
 

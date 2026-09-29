@@ -20,6 +20,7 @@ function readRowId(row: unknown): string | null {
 const widget: InjectionBulkActionWidget = {
   metadata: {
     id: 'example.injection.customer-priority-bulk-actions',
+    requiredModules: ['customers'],
     priority: 30,
   },
   bulkActions: [

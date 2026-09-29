@@ -1367,6 +1367,18 @@
         },
         {
           "columnNames": [
+            "entity_type",
+            "tenant_id",
+            "organization_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "search_tokens_presence_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
             "id"
           ],
           "composite": false,

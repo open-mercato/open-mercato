@@ -6,10 +6,18 @@ import { dictionaryEntrySortModeSchema } from '@open-mercato/core/modules/dictio
 const uuid = () => z.string().uuid()
 
 export const CUSTOMER_PHONE_INVALID_MESSAGE_KEY = 'customers.people.form.primaryPhone.invalid'
+export const CUSTOMER_EMAIL_INVALID_MESSAGE_KEY = 'customers.people.form.primaryEmail.invalid'
+export const CUSTOMER_URL_INVALID_MESSAGE_KEY = 'customers.people.form.websiteUrl.invalid'
 export const ACTIVITY_DATE_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.dateRequired'
 export const ACTIVITY_TIME_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.timeRequired'
 export const ACTIVITY_PHONE_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.phoneRequired'
 export const ACTIVITY_PHONE_INVALID_MESSAGE_KEY = 'customers.activities.errors.phoneInvalid'
+export const INTERACTION_PARTICIPANT_IDENTITY_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.participantIdentityRequired'
+export const INTERACTION_PARTICIPANT_EMAIL_INVALID_MESSAGE_KEY = 'customers.activities.errors.participantEmailInvalid'
+
+// customer_deals.description is an unbounded `text` column; this cap only exists to keep
+// request bodies, fulltext search documents and query-index documents from growing without limit.
+export const DEAL_DESCRIPTION_MAX_LENGTH = 50_000
 
 const emptyStringToNull = (value: unknown): unknown => {
   if (typeof value !== 'string') return value
@@ -30,12 +38,12 @@ const phoneSchema = z.preprocess(
 
 const clearableEmailSchema = z.preprocess(
   emptyStringToNull,
-  z.string().email().max(320).nullable().optional(),
+  z.string().email(CUSTOMER_EMAIL_INVALID_MESSAGE_KEY).max(320).nullable().optional(),
 )
 
 const clearableUrlSchema = z.preprocess(
   emptyStringToNull,
-  z.string().url().max(300).nullable().optional(),
+  z.string().url(CUSTOMER_URL_INVALID_MESSAGE_KEY).max(300).nullable().optional(),
 )
 
 // Domain is a plain (non-URL) string that maps to a nullable column, so blanking
@@ -161,7 +169,7 @@ export const companyUpdateSchema = z
 
 export const dealCreateSchema = scopedSchema.extend({
   title: z.string().min(1).max(200),
-  description: z.string().max(4000).optional(),
+  description: z.string().max(DEAL_DESCRIPTION_MAX_LENGTH).optional(),
   status: z.string().max(50).optional(),
   pipelineStage: z.string().max(100).optional(),
   pipelineId: uuid().optional(),
@@ -180,6 +188,7 @@ export const dealCreateSchema = scopedSchema.extend({
   lossNotes: z.string().max(4000).optional(),
   companyIds: z.array(uuid()).optional(),
   personIds: z.array(uuid()).optional(),
+  primaryPersonEntityId: uuid().nullable().optional(),
 })
 
 export const dealUpdateSchema = z
@@ -211,8 +220,8 @@ export const activityCreateSchema = scopedSchema.extend({
   activityType: z.string().min(1).max(100),
   subject: z.string().max(200).optional(),
   body: z.string().max(8000).optional(),
-  date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional(),
-  time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional(),
+  date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional().nullable(),
+  time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional().nullable(),
   phoneNumber: interactionPhoneNumberSchema,
   occurredAt: z.coerce.date().optional(),
   dealId: uuid().optional(),
@@ -419,18 +428,44 @@ export const interactionStatusValues = ['planned', 'done', 'canceled'] as const
 /** @deprecated See {@link interactionStatusValues}. */
 export type InteractionStatus = typeof interactionStatusValues[number]
 
-const interactionParticipantSchema = z.object({
-  userId: z.string().uuid(),
-  name: z.string().trim().max(200).optional(),
-  email: z.string().trim().max(320).optional(),
-  status: z.string().trim().max(50).optional(),
-})
+// A participant is either a real record (`userId`) or an external guest carrying
+// no id at all. A guest is only addressable through its email, so that email is
+// required and must actually be routable — an unparseable string would persist
+// and only fail later, at invitation or calendar-sync time. Participants that DO
+// have a userId keep an unvalidated auxiliary email, as before.
+const interactionParticipantSchema = z
+  .object({
+    userId: z.string().uuid().optional(),
+    name: z.string().trim().max(200).optional(),
+    email: z.string().trim().max(320).optional(),
+    status: z.string().trim().max(50).optional(),
+  })
+  .superRefine((participant, ctx) => {
+    if (participant.userId) return
+    if (!participant.email) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['email'],
+        message: INTERACTION_PARTICIPANT_IDENTITY_REQUIRED_MESSAGE_KEY,
+      })
+      return
+    }
+    if (!z.string().email().safeParse(participant.email).success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['email'],
+        message: INTERACTION_PARTICIPANT_EMAIL_INVALID_MESSAGE_KEY,
+      })
+    }
+  })
 
 const interactionLinkedEntitySchema = z.object({
   id: z.string().uuid(),
   // 'resource' links calendar events to bookable resources (rooms, cars,
   // equipment) from the optional resources module (#3552).
-  type: z.enum(['company', 'deal', 'offer', 'resource']),
+  // 'person' links an interaction to a `customer_entities` row with kind='person',
+  // a first-class CRM record like a company (#5934).
+  type: z.enum(['company', 'deal', 'offer', 'resource', 'person']),
   label: z.string().trim().max(500),
 })
 
@@ -466,8 +501,10 @@ const interactionCreateBaseSchema = scopedSchema.extend({
   // rows, external writers, and the dispatch-crm MCP keep working. Open/terminal semantics
   // live in lib/interactionStatus.ts, not in this validator.
   status: z.string().max(50).optional().default('planned'),
-  date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional(),
-  time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional(),
+  // Nullable like the sibling `scheduledAt` below: an undated activity (a
+  // backlog task) says "no date" with an explicit null, not by omission (#5941).
+  date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional().nullable(),
+  time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional().nullable(),
   phoneNumber: interactionPhoneNumberSchema,
   scheduledAt: z.coerce.date().optional().nullable(),
   occurredAt: z.coerce.date().optional().nullable(),
@@ -481,7 +518,7 @@ const interactionCreateBaseSchema = scopedSchema.extend({
   ...interactionExtendedFields,
 })
 
-function deriveScheduledAtFromDateTime(date?: string, time?: string): Date | null {
+function deriveScheduledAtFromDateTime(date?: string | null, time?: string | null): Date | null {
   if (!date || typeof date !== 'string') return null
   const trimmedDate = date.trim()
   if (!trimmedDate) return null
@@ -533,8 +570,8 @@ const interactionUpdateBaseSchema = z
         title: z.string().trim().max(500).optional().nullable(),
         body: z.string().trim().max(10000).optional().nullable(),
         status: z.string().max(50).optional(),
-        date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional(),
-        time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional(),
+        date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional().nullable(),
+        time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional().nullable(),
         phoneNumber: interactionPhoneNumberSchema,
         scheduledAt: z.coerce.date().optional().nullable(),
         occurredAt: z.coerce.date().optional().nullable(),
@@ -574,6 +611,9 @@ export const interactionUpdateSchema = interactionUpdateBaseSchema
   // the update doesn't silently leave `scheduled_at` stale.
   .transform((value) => {
     if (value.scheduledAt !== undefined) return value
+    // An explicit `date: null` is how a caller drops the due date; mirror it
+    // onto `scheduledAt` rather than leaving the old timestamp behind (#5941).
+    if (value.date === null) return { ...value, scheduledAt: null }
     if (!value.date && !value.time) return value
     const derived = deriveScheduledAtFromDateTime(value.date, value.time)
     return derived ? { ...value, scheduledAt: derived } : value
@@ -758,6 +798,23 @@ export const labelUnassignCommandSchema = scopedSchema.extend({
 export type LabelAssignCommandInput = z.infer<typeof labelAssignCommandSchema>
 export type LabelUnassignCommandInput = z.infer<typeof labelUnassignCommandSchema>
 
+/**
+ * Set (or clear) the caller's own email-conversation share for one Person.
+ *
+ * Deliberately carries NO owner field: the command derives the owner from the
+ * authenticated actor, so there is no request shape that could share another
+ * user's mailbox.
+ */
+export const emailConversationShareSetCommandSchema = scopedSchema.extend({
+  personEntityId: uuid(),
+  shared: z.boolean(),
+  expectedUpdatedAt: z.string().min(1).nullable().optional(),
+})
+
+export type EmailConversationShareSetCommandInput = z.infer<
+  typeof emailConversationShareSetCommandSchema
+>
+
 export const personCompanyLinkCreateSchema = scopedSchema.extend({
   personEntityId: uuid(),
   companyEntityId: uuid(),
@@ -769,9 +826,24 @@ export const personCompanyLinkUpdateSchema = scopedSchema.extend({
   isPrimary: z.boolean(),
 })
 
-export const personCompanyLinkDeleteSchema = scopedSchema.extend({
-  linkId: uuid(),
-})
+// Two shapes are accepted, because a person can belong to a company in two ways:
+// through a `customer_person_company_links` row (`linkId`), or through a legacy
+// profile-only assignment where `customer_person_profiles.company_id` is set and no
+// link row was ever created (migrated CRM data, #5114). Both detaches go through the
+// same command so audit, undo and cache invalidation stay consistent.
+export const personCompanyLinkDeleteSchema = scopedSchema
+  .extend({
+    linkId: uuid().optional(),
+    personEntityId: uuid().optional(),
+    companyEntityId: uuid().optional(),
+  })
+  .refine(
+    (payload) => Boolean(payload.linkId) || Boolean(payload.personEntityId && payload.companyEntityId),
+    {
+      message: 'Provide either linkId or both personEntityId and companyEntityId.',
+      path: ['linkId'],
+    }
+  )
 
 export type PersonCompanyLinkCreateInput = z.infer<typeof personCompanyLinkCreateSchema>
 export type PersonCompanyLinkUpdateInput = z.infer<typeof personCompanyLinkUpdateSchema>

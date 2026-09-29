@@ -195,6 +195,7 @@ describe('POST /api/inbox_ops/emails/[id]/reprocess', () => {
       2,
       'inbox_ops.email.received',
       expect.objectContaining({ emailId: 'email-1' }),
+      { persistent: true, tenantId: 'tenant-1', organizationId: 'org-1' },
     )
 
     expect(mockEm.begin).toHaveBeenCalledTimes(1)

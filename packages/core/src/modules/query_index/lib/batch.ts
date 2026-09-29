@@ -1,9 +1,10 @@
 import { type Kysely, sql } from 'kysely'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { isUniqueViolation } from '@open-mercato/shared/lib/db/pg-errors'
-import { buildIndexDocument, type IndexCustomFieldValue } from './document'
+import { buildIndexDocument, rebuildAggregateSearchField, type IndexCustomFieldValue } from './document'
 import { replaceSearchTokensForBatch, isSearchDebugEnabled } from './search-tokens'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 
 const logger = createLogger('query_index').child({ component: 'reindex-batch' })
 
@@ -228,6 +229,7 @@ export async function upsertIndexBatch(
   const basePayloads: IndexRowPayload[] = []
 
   const debugEnabled = isSearchDebugEnabled()
+  const searchConfig = resolveSearchConfig()
 
   for (const row of rows) {
     const recordId = normalizeId(row.id)
@@ -264,10 +266,15 @@ export async function upsertIndexBatch(
       if (!entityRow) return row
       return { ...entityRow, ...row }
     })()
-    let doc = buildIndexDocument(mergedRow, values, {
-      organizationId: scopeOrg ?? null,
-      tenantId: scopeTenant ?? null,
-    })
+    let doc = buildIndexDocument(
+      mergedRow,
+      values,
+      {
+        organizationId: scopeOrg ?? null,
+        tenantId: scopeTenant ?? null,
+      },
+      { entityType, config: searchConfig },
+    )
     let tokenDoc: Record<string, unknown> = doc
     if (typeof options.encryptDoc === 'function') {
       try {
@@ -297,7 +304,13 @@ export async function upsertIndexBatch(
           tenantId: scopeTenant ?? null,
         })
         if (decrypted && typeof decrypted === 'object') {
-          tokenDoc = decrypted
+          // Rebuilt on the decrypted copy: `search_text` is on no encryption map, so the
+          // aggregate composed at document-build time still concatenates the ciphertext
+          // values the row carries at rest and tokenizes into rows nothing matches (#5625).
+          // The copy keeps `doc` — the encrypted row written to `entity_indexes` — untouched.
+          // A caller that passes no `decryptDoc` keeps the build-time aggregate by design:
+          // without a decryption step there is no plaintext to recompose it from.
+          tokenDoc = rebuildAggregateSearchField(decrypted, { entityType, config: searchConfig })
         }
       } catch (decryptError) {
         // Only affects the search tokens built below; the indexed document itself is

@@ -17,6 +17,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { salesOrderWarehouseAssignBodySchema } from '../../../../data/validators'
 import { loadSalesOrderWarehouseAssignmentView } from '../../../../lib/salesOrderWarehouseAssignment'
 import { executeWmsCustomPostRoute } from '../../../inventory/helpers'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('wms')
 
@@ -241,6 +242,10 @@ export async function DELETE(
     }
     return NextResponse.json(intercepted.body, { status: intercepted.statusCode })
   } catch (error) {
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     if (error instanceof CrudHttpError) {
       return NextResponse.json(error.body, { status: error.status })
     }

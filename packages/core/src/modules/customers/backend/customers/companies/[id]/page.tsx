@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -38,6 +39,7 @@ import { normalizeCustomFieldSubmitValue } from '../../../../components/detail/c
 import { InlineDictionaryEditor, renderMultilineMarkdownDisplay } from '../../../../components/detail/InlineEditors'
 import { formatTemplate } from '../../../../components/detail/utils'
 import { coerceDisplayName } from '../../../../lib/displayName'
+import { isDetailNotFoundStatus } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import {
   CompanyPeopleSection,
@@ -305,7 +307,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
         setData(payload as CompanyOverview)
       } catch (err) {
         if (cancelled) return
-        if ((err as { status?: number }).status === 404) {
+        if (isDetailNotFoundStatus((err as { status?: number }).status)) {
           setIsNotFound(true)
         } else {
           const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
@@ -967,7 +969,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
               <h2 className="text-sm font-semibold">{t('customers.companies.detail.sections.details', 'Company details')}</h2>
               <DetailFieldsSection fields={detailFields} />
               <InjectionSpot
-                spotId="customers.company.detail:details"
+                spotId={extensionPoints.hosts.companyLegacyDetails.spotId}
                 context={injectionContext}
                 data={data}
                 onDataChange={(next) => setData(next as CompanyOverview)}

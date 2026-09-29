@@ -574,8 +574,10 @@ existing clients while making every page that opts into the header
 protected automatically.
 
 **Q: Does the guard run on `create`?**
-A: No. Only `update` and `delete`. There is no "expected previous
-version" for a create.
+A: The optimistic-lock guard does not — only `update` and `delete`; there
+is no "expected previous version" for a create. Registry mutation guards
+declaring `operations: ['create']` do run on creates, on both the direct
+and the command branch of `makeCrudRoute`.
 
 **Q: Can the enterprise module override the resolved token source?**
 A: Yes — `createOptimisticLockGuardService({ resolveExpected: … })` is

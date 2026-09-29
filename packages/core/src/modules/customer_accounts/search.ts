@@ -56,6 +56,7 @@ export const searchConfig: SearchModuleConfig = {
   entities: [
     {
       entityId: 'customer_accounts:customer_user',
+      aclFeatures: ['customer_accounts.view'],
       enabled: true,
       priority: 6,
       buildSource: async (ctx) => {
@@ -93,6 +94,7 @@ export const searchConfig: SearchModuleConfig = {
     },
     {
       entityId: 'customer_accounts:customer_role',
+      aclFeatures: ['customer_accounts.view'],
       enabled: true,
       priority: 6,
       buildSource: async (ctx) => {

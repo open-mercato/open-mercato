@@ -7,10 +7,10 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { Notification } from '../notification'
 
 describe('Notification primitive', () => {
-  it('renders the underlying Alert at size="default" (rounded-xl)', () => {
+  it('uses the underlying default Alert radius token', () => {
     const { container } = render(<Notification title="Test" />)
     const alert = container.querySelector('[data-slot="notification"]')
-    expect(alert).toHaveClass('rounded-xl')
+    expect(alert).toHaveClass('rounded-alert')
   })
 
   it('marks the root with data-slot="notification" (overrides Alert data-slot via spread)', () => {
@@ -26,7 +26,7 @@ describe('Notification primitive', () => {
   it('renders title as AlertTitle and description below', () => {
     render(<Notification title="John commented" description="On the latest deal" />)
     expect(screen.getByText('John commented').tagName).toBe('H5')
-    expect(screen.getByText('On the latest deal').tagName).toBe('P')
+    expect(screen.getByText('On the latest deal').tagName).toBe('DIV')
   })
 
   it('description gets opacity-70 (DS opacity scale; was opacity-72 in early v5, snapped to scale per .ai/ds-rules.md)', () => {

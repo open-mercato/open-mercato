@@ -9,6 +9,7 @@ module.exports = {
   rootDir: '.',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
+    '\\.(png|svg)$': '<rootDir>/jest.mocks/image.js',
     '^#generated/entities\\.ids\\.generated$': '<rootDir>/jest.mocks/entities.ids.generated.js',
     '^#generated/(.*)$': '<rootDir>/generated/$1',
     '^@open-mercato/core/generated/entities\\.ids\\.generated$': '<rootDir>/jest.mocks/entities.ids.generated.js',
@@ -40,7 +41,7 @@ module.exports = {
   },
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
   transformIgnorePatterns: [
-    'node_modules/(?!(@mikro-orm|kysely|ai|@ai-sdk|ai-sdk-ollama|@workflow|@standard-schema)/)',
+    'node_modules/(?!(@mikro-orm|kysely|ai|@ai-sdk|ai-sdk-ollama|@workflow|@standard-schema|@tanstack/react-table|@tanstack/table-core|@tanstack/react-store|@tanstack/store)/)',
   ],
   testMatch: ['<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)'],
   passWithNoTests: true,

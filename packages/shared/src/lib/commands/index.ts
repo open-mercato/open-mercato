@@ -4,7 +4,13 @@ export { CommandBus } from './command-bus'
 export * from './customFieldSnapshots'
 export * from './undo'
 export * from './redo'
-export { CommandInterceptorError } from './errors'
+export {
+  CommandInterceptorError,
+  isCommandInterceptorError,
+  getCommandInterceptorHttpRejection,
+  type CommandInterceptorErrorOptions,
+  type CommandInterceptorHttpRejection,
+} from './errors'
 export {
   runCrudCommandWrite,
   type RunCrudCommandWriteOptions,

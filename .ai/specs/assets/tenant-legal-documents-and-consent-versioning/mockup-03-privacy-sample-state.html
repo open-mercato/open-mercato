@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mockup — Public privacy page (sample state)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #ffffff; color: #0f172a; width: 1440px; font-size: 15px;
+  }
+  .site-header { border-bottom: 1px solid #e2e8f0; }
+  .site-header-inner { max-width: 760px; margin: 0 auto; height: 64px; display: flex; align-items: center; gap: 12px; }
+  .logo-mark { width: 28px; height: 28px; border-radius: 8px; background: #cbd5e1; }
+  .wordmark { font-weight: 700; font-size: 16px; color: #64748b; }
+  .header-nav { margin-left: auto; display: flex; gap: 22px; font-size: 13.5px; color: #64748b; }
+  .content { max-width: 760px; margin: 0 auto; padding: 40px 0 64px; }
+  .banner { display: flex; gap: 12px; align-items: flex-start; background: #fffbeb; border: 1px solid #fcd34d;
+    border-radius: 12px; padding: 16px 18px; margin-bottom: 36px; }
+  .warn-icon { width: 34px; height: 34px; flex: none; border-radius: 9px; background: #f59e0b; color: #ffffff;
+    display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 18px; }
+  .banner h2 { font-size: 14.5px; font-weight: 700; color: #92400e; margin-bottom: 3px; }
+  .banner p { font-size: 13.5px; color: #a16207; line-height: 1.55; }
+  h1 { font-size: 32px; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 8px; }
+  .doc-meta { font-size: 13px; color: #94a3b8; margin-bottom: 34px; }
+  .doc-meta .sep { margin: 0 8px; color: #e2e8f0; }
+  h2 { font-size: 19px; font-weight: 700; margin: 30px 0 10px; letter-spacing: -0.01em; }
+  p { line-height: 1.7; color: #334155; margin-bottom: 12px; }
+  ul { margin: 0 0 12px 22px; }
+  li { line-height: 1.7; color: #334155; margin-bottom: 4px; }
+  .placeholder { background: #f1f5f9; border: 1px dashed #cbd5e1; border-radius: 5px; padding: 0 5px;
+    color: #64748b; font-size: 13.5px; white-space: nowrap; }
+  .site-footer { border-top: 1px solid #e2e8f0; }
+  .site-footer-inner { max-width: 760px; margin: 0 auto; padding: 22px 0; display: flex; align-items: center;
+    justify-content: space-between; font-size: 13px; color: #94a3b8; }
+  .footer-links { display: flex; gap: 18px; }
+</style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <div class="logo-mark"></div>
+      <div class="wordmark">Your Company</div>
+      <nav class="header-nav"><span>Home</span><span>Privacy</span><span>Terms</span></nav>
+    </div>
+  </header>
+  <main class="content">
+    <div class="banner">
+      <div class="warn-icon">!</div>
+      <div>
+        <h2>Sample document &mdash; replace before production</h2>
+        <p>This is the built-in sample privacy policy. No published privacy document exists for this tenant yet. Publish your own version under Content &rsaquo; Legal documents and configure the legal-entity identity in Settings before going live.</p>
+      </div>
+    </div>
+    <h1>Privacy Policy</h1>
+    <div class="doc-meta">Sample document<span class="sep">|</span>Version 0<span class="sep">|</span>Locale: EN</div>
+    <h2>1. Data controller</h2>
+    <p>The controller of your personal data is <span class="placeholder">[data controller not configured]</span>. Contact details will appear here once the legal-entity identity is configured for this deployment.</p>
+    <h2>2. What data we collect</h2>
+    <p>When you create an account or use this service, the following categories of data may be processed:</p>
+    <ul>
+      <li>Account data: name, e-mail address, and authentication details you provide during sign-up.</li>
+      <li>Operational data: records your organization creates while using the service.</li>
+      <li>Technical data: log and device information required to operate the service securely.</li>
+    </ul>
+    <h2>3. Purpose and legal basis</h2>
+    <p>Data is processed to provide and secure the service, to fulfil the contract with your organization, and, where applicable law requires it, on the basis of your consent.</p>
+    <h2>4. Retention</h2>
+    <p>Personal data is retained for the duration of the service relationship and thereafter only as long as applicable law requires.</p>
+    <h2>5. Your rights</h2>
+    <p>Subject to applicable law, you may request access to, rectification of, erasure of, or restriction of processing of your personal data, and you may object to processing or request data portability. Requests can be addressed to the data controller identified in section 1.</p>
+    <h2>6. Changes to this policy</h2>
+    <p>When a new version of this policy is published, the effective date shown on this page changes and, where required, you will be asked to review it again.</p>
+  </main>
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <span>&copy; 2026</span>
+      <div class="footer-links"><span>Privacy</span><span>Terms</span></div>
+    </div>
+  </footer>
+</body>
+</html>

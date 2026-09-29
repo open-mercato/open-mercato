@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
+import { getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { getModules } from '@open-mercato/shared/lib/modules/registry'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -72,7 +72,9 @@ export async function GET(
 
     // Fetch job from BullMQ
     const { Queue } = await import('bullmq')
-    const queue = new Queue(queueName, { connection: { url: getRedisUrlOrThrow('QUEUE') } })
+    const queue = new Queue(queueName, {
+      connection: parseRedisUrl(getRedisUrlOrThrow('QUEUE')),
+    })
 
     const job = await queue.getJob(jobId)
 

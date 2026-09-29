@@ -34,7 +34,7 @@ const __filename_ = typeof __filename !== 'undefined' ? __filename : fileURLToPa
 const ROOT = path.resolve(path.dirname(__filename_), '..')
 
 const REFERENCE_LOCALE = 'en'
-const TARGET_LOCALES = ['pl', 'es', 'de']
+const TARGET_LOCALES = ['pl', 'es', 'de', 'ko']
 const ALLOWLIST_PATH = path.join(ROOT, 'scripts', 'i18n-values-allowlist.json')
 
 const red = (s) => `\x1b[31m${s}\x1b[0m`

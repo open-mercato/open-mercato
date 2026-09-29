@@ -2,13 +2,13 @@ import { NextRequest } from 'next/server'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { forbidden } from '@open-mercato/shared/lib/crud/errors'
 
-jest.mock('@/bootstrap', () => ({
+jest.mock('@/bootstrap-api', () => ({
   bootstrap: jest.fn(),
   isBootstrapped: jest.fn(() => true),
 }))
 
-jest.mock('@/.mercato/generated/api-routes.generated', () => ({
-  apiRoutes: [],
+jest.mock('@/.mercato/generated/api-route-shards.generated', () => ({
+  apiRouteFacades: [],
 }))
 
 jest.mock('@/.mercato/generated/backend-routes.generated', () => ({

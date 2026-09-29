@@ -9,8 +9,10 @@ Open Mercato enforces access control through a two-layer RBAC system: role assig
 
 - **Roles** bundle feature strings. Users inherit role features per organization/tenant.
 - **User overrides** (per-tenant) add or revoke individual feature strings without changing roles.
-- **Super admin flag** grants all features globally.
+- **Super admin flag** bypasses stored-grant matching for active features.
 - **Organization visibility list** optionally narrows which organizations a user can act on, even if the feature check passes.
+
+All server-side decisions use one shared feature policy. It rejects invalid scope, features removed with `entry.overrides.acl.features[id] = null`, and features owned by disabled modules before applying staff/portal admin bypasses or wildcard grants.
 
 ## Declaring Features in Modules
 
@@ -59,7 +61,9 @@ const canEdit = await rbacService.userHasAllFeatures(userId, ['auth.users.edit']
 ```
 
 - Always pass `tenantId` and `organizationId` to respect multi-tenant boundaries.
-- Use `userHasAllFeatures` for strict gates. Prefer `userHasAnyFeature` (if exposed) for "at least one" checks.
+- Use `userHasAllFeatures` for strict gates.
+- If only an already-loaded ACL snapshot exists, use `authorizeFeatures` from `@open-mercato/shared/security/featurePolicy`; do not match the raw grants directly.
+- Use the realm service's `getEffectiveFeatures` for browser capability payloads. Effective arrays contain concrete active IDs and never `*` or `module.*`.
 - Combine RBAC checks with domain validation; denying access early avoids unnecessary database work.
 
 ## Designing Features for Modules
@@ -78,7 +82,7 @@ Include feature-aware tests alongside APIs or pages:
 
 - Seed or mock users with explicit features/roles.
 - Verify that protected handlers return the expected authorization errors when features are missing.
-- Confirm that super admin and feature overrides behave as intended.
+- Confirm that explicit grants, wildcards, super admin, disabled modules, and nulled feature overrides behave as intended.
 
 Because RBAC relies on generated module metadata, run `yarn generate` whenever you add or remove features before executing tests or type checks.
 

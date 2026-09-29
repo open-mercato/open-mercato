@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { LoadingMessage, ErrorMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
@@ -11,10 +11,12 @@ import { handleSectionMutationError, readRowUpdatedAt } from './optimisticLock'
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { formatDisplayDate, formatDisplayDateTime, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
+import { extensionPoints } from '@open-mercato/core/modules/sales/extension-points'
 import { PaymentDialog, type PaymentFormData, type PaymentTotals } from './PaymentDialog'
 import { extractCustomFieldValues } from './customFieldHelpers'
 import { Plus } from 'lucide-react'
@@ -59,10 +61,10 @@ function normalizeNumber(value: unknown): number {
   return 0
 }
 
-function formatMoney(value: number, currency: string | null | undefined): string {
+function formatMoney(value: number, currency: string | null | undefined, locale?: string): string {
   if (!currency || currency.trim().length !== 3) return value.toFixed(2)
   try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(value)
+    return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
   } catch {
     return `${currency.toUpperCase()} ${value.toFixed(2)}`
   }
@@ -79,6 +81,7 @@ export function SalesDocumentPaymentsSection({
   onPaymentsChange,
 }: SalesDocumentPaymentsSectionProps) {
   const t = useT()
+  const locale = useLocale()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
   const resolvedOrganizationId = orgFromProps ?? organizationId ?? null
   const resolvedTenantId = tenantFromProps ?? tenantId ?? null
@@ -275,6 +278,10 @@ export function SalesDocumentPaymentsSection({
         cell: ({ row }) => row.original.paymentMethodName ?? '—',
       },
       {
+        // Injected columns are placed against `ColumnDef.id` before the table is
+        // built, so an accessor-derived id is not yet available: the gateway
+        // status widget anchors on this explicit id.
+        id: 'status',
         accessorKey: 'status',
         header: t('sales.documents.payments.status', 'Status'),
         cell: ({ row }) => row.original.statusLabel ?? row.original.status ?? '—',
@@ -282,24 +289,23 @@ export function SalesDocumentPaymentsSection({
       {
         accessorKey: 'amount',
         header: t('sales.documents.payments.amount', 'Amount'),
-        cell: ({ row }) => formatMoney(row.original.amount, row.original.currencyCode ?? currencyCode),
+        cell: ({ row }) => formatMoney(row.original.amount, row.original.currencyCode ?? currencyCode, locale),
       },
       {
         accessorKey: 'receivedAt',
         header: t('sales.documents.payments.receivedAt', 'Received'),
-        cell: ({ row }) =>
-          row.original.receivedAt
-            ? new Date(row.original.receivedAt).toLocaleDateString()
-            : '—',
+        // `receivedAt` is written from a date input (`PaymentDialog`), coerced with
+        // `z.coerce.date()` and stored as UTC midnight, so its day must be read in UTC.
+        // Reading it locally names the previous day west of UTC — and disagrees with the
+        // Edit dialog, which seeds from `receivedAt.slice(0, 10)`, i.e. the UTC day.
+        cell: ({ row }) => formatDisplayDate(toUtcDateInputValue(row.original.receivedAt), locale) ?? '—',
       },
       {
         accessorKey: 'createdAt',
         header: t('sales.documents.payments.createdAt', 'Created'),
-        cell: ({ row }) =>
-          row.original.createdAt ? new Date(row.original.createdAt).toLocaleString() : '—',
+        cell: ({ row }) => formatDisplayDateTime(row.original.createdAt, locale) ?? '—',
         meta: {
-          tooltipContent: (row: PaymentRow) =>
-            row.createdAt ? new Date(row.createdAt).toLocaleString() : undefined,
+          tooltipContent: (row: PaymentRow) => formatDisplayDateTime(row.createdAt, locale) ?? undefined,
         },
       },
       {
@@ -322,7 +328,7 @@ export function SalesDocumentPaymentsSection({
         },
       },
     ],
-    [currencyCode, deleteActionLabel, editActionLabel, handleDelete, openEditPayment, t]
+    [currencyCode, deleteActionLabel, editActionLabel, handleDelete, locale, openEditPayment, t]
   )
 
   if (loading) {
@@ -350,7 +356,12 @@ export function SalesDocumentPaymentsSection({
   return (
     <div className="space-y-4">
       {payments.length ? (
-        <DataTable<PaymentRow> columns={columns} data={payments} onRowClick={openEditPayment} />
+        <DataTable<PaymentRow>
+          columns={columns}
+          data={payments}
+          onRowClick={openEditPayment}
+          extensionTableId={extensionPoints.hosts.paymentsTable.tableId}
+        />
       ) : (
         <TabEmptyState
           title={t('sales.documents.payments.emptyTitle', 'No payments yet.')}

@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
+import { extensionPoints } from "@open-mercato/core/modules/catalog/extension-points";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { ZodType } from "zod";
 import { Page, PageBody } from "@open-mercato/ui/backend/Page";
 import {
   CrudForm,
@@ -40,7 +40,7 @@ import {
   apiCall,
   readApiResultOrThrow,
 } from "@open-mercato/ui/backend/utils/apiCall";
-import { useT } from "@open-mercato/shared/lib/i18n/context";
+import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
 import { E } from "#generated/entities.ids.generated";
 import {
   ProductMediaManager,
@@ -59,7 +59,7 @@ import {
   type ProductUnitConversionDraft,
   type ProductUnitPriceReferenceUnit,
   type ProductUnitRoundingMode,
-  productFormSchema,
+  buildLocaleAwareProductFormSchema,
   createInitialProductFormValues,
   createVariantDraft,
   buildOptionValuesKey,
@@ -99,9 +99,6 @@ import {
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('catalog')
-
-const productFormTypedSchema =
-  productFormSchema as unknown as ZodType<ProductFormValues>;
 
 type VariantPriceRequest = {
   variantDraftId: string;
@@ -232,6 +229,11 @@ function readInboxProductDraft(): InboxProductDraft | null {
 
 export default function CreateCatalogProductPage() {
   const t = useT();
+  const locale = useLocale();
+  const productFormTypedSchema = React.useMemo(
+    () => buildLocaleAwareProductFormSchema(locale),
+    [locale],
+  );
   const router = useRouter();
   const searchParams = useSearchParams();
   const fromInboxAction = searchParams.get("fromInboxAction");
@@ -378,10 +380,11 @@ export default function CreateCatalogProductPage() {
       <PageBody>
         <CrudForm<ProductFormValues>
           title={t("catalog.products.create.title", "Create product")}
+          titleHeadingLevel={1}
           backHref="/backend/catalog/products"
           fields={[]}
           groups={groups}
-          injectionSpotId="crud-form:catalog.product"
+          injectionSpotId={extensionPoints.hosts.productForm.spotId}
           initialValues={
             initialValuesRef.current ?? createInitialProductFormValues()
           }
@@ -1941,7 +1944,7 @@ function ProductMetaSection({
           )}
         />
         {errors.subtitle ? (
-          <p className="text-xs text-red-600">{errors.subtitle}</p>
+          <p className="text-xs text-status-error-text">{errors.subtitle}</p>
         ) : null}
       </div>
 
@@ -1972,7 +1975,7 @@ function ProductMetaSection({
           )}
         </p>
         {errors.handle ? (
-          <p className="text-xs text-red-600">{errors.handle}</p>
+          <p className="text-xs text-status-error-text">{errors.handle}</p>
         ) : null}
       </div>
 
@@ -1994,7 +1997,7 @@ function ProductMetaSection({
           )}
         </p>
         {errors.sku ? (
-          <p className="text-xs text-red-600">{errors.sku}</p>
+          <p className="text-xs text-status-error-text">{errors.sku}</p>
         ) : null}
       </div>
 
@@ -2031,7 +2034,7 @@ function ProductMetaSection({
           </SelectContent>
         </Select>
         {errors.productType ? (
-          <p className="text-xs text-red-600">
+          <p className="text-xs text-status-error-text">
             {errors.productType}
           </p>
         ) : null}
@@ -2104,7 +2107,7 @@ function ProductMetaSection({
               )}
         </p>
         {errors.taxRateId ? (
-          <p className="text-xs text-red-600">{errors.taxRateId}</p>
+          <p className="text-xs text-status-error-text">{errors.taxRateId}</p>
         ) : null}
       </div>
     </div>

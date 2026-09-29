@@ -101,6 +101,36 @@ import { FeatureGuard } from '@open-mercato/core/modules/feature_toggles/compone
 const { enabled, isLoading } = useFeatureFlagBoolean({ id: 'checkout_flow_v2' });
 ```
 
+**Unresolved checks and `defaultValue`**
+
+A check can fail to resolve: the toggle may not be defined for the tenant, its
+type may not match, or the request may fail. Every frontend hook accepts a
+`defaultValue` that is used in those cases *and* while the request is in flight.
+
+`useFeatureFlagBoolean` defaults to `false`, which is right for toggles that
+switch a feature **on** — an unresolved toggle leaves it off. It is wrong for
+toggles that **hide** existing UI, because an unrelated failure would make that
+UI disappear. Those toggles should fail open:
+
+```tsx
+// Channels stay visible unless the toggle explicitly resolves to false.
+const { enabled } = useFeatureFlagBoolean({ id: 'sales_channels_enabled', defaultValue: true });
+```
+
+`FeatureGuard` takes the same option. Note that `defaultValue` and `fallback`
+are different things: `defaultValue` is the toggle value assumed when the check
+cannot be resolved, while `fallback` is the node rendered once the feature is
+known to be disabled.
+
+```tsx
+<FeatureGuard id="sales_channels_enabled" defaultValue>
+  <ChannelsSection />
+</FeatureGuard>
+```
+
+The string, number, and JSON hooks accept `defaultValue` too; theirs defaults to
+`null`.
+
 **Backend Service**
 
 ```ts

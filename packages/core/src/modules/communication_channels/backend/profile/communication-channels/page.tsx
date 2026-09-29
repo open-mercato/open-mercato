@@ -1,7 +1,9 @@
 'use client'
 
 import * as React from 'react'
-import type { ColumnDef } from '@tanstack/react-table'
+import { extensionPoints } from '@open-mercato/core/modules/communication_channels/extension-points'
+import { getImportHistoryLimits } from '@open-mercato/core/modules/communication_channels/lib/import-history-limits'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -20,11 +22,14 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
-import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { ConnectChannelMenu } from './ConnectChannelMenu'
 
 type ChannelRow = {
   id: string
@@ -33,6 +38,10 @@ type ChannelRow = {
   displayName: string
   externalIdentifier: string | null
   isPrimary: boolean
+  /** `shared` = a team mailbox: teammates can read the CRM email it ingests. */
+  visibility: 'private' | 'shared'
+  /** Version token for the share toggle's optimistic-lock header. */
+  updatedAt: string | null
   isActive: boolean
   status: 'connected' | 'requires_reauth' | 'error' | 'disconnected'
   lastError: string | null
@@ -41,6 +50,13 @@ type ChannelRow = {
   /** Spec C — push delivery state (null when provider doesn't support push). */
   pushStatus: 'active' | 'inactive' | 'failed' | null
   lastPushError: { code: string | null; message: string | null; at: string | null } | null
+  /**
+   * `true` when the adapter declares real-time push, so the hub's poll worker
+   * skips this channel entirely — inbound arrives over the provider connection.
+   */
+  supportsRealtimePush: boolean
+  /** `true` when the adapter implements `registerPush` (Gmail-style subscriptions). */
+  supportsPushRegistration: boolean
   createdAt: string | null
 }
 
@@ -73,6 +89,9 @@ export default function ProfileCommunicationChannelsPage() {
     contextId: PROFILE_CHANNELS_MUTATION_CONTEXT_ID,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
+  // Sharing a mailbox is privacy-consequential, so the widening direction is
+  // confirmed. Escape cancels and Cmd/Ctrl+Enter submits (ConfirmDialog owns both).
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   React.useEffect(() => {
     if (flashType === 'connected') {
@@ -137,6 +156,79 @@ export default function ProfileCommunicationChannelsPage() {
   }, [reloadKey, t])
 
   const reauthRows = rows.filter((r) => r.status === 'requires_reauth')
+
+  const reloadChannels = React.useCallback(() => setReloadKey((k) => k + 1), [])
+
+  const onSetVisibility = React.useCallback(
+    async (channel: ChannelRow, nextShared: boolean) => {
+      // Only the widening direction needs a confirmation; making a mailbox
+      // private again is the safe direction and stays one click.
+      if (nextShared) {
+        const confirmed = await confirm({
+          title: t(
+            'communication_channels.profile.share.confirm.title',
+            'Share this mailbox with your team?',
+          ),
+          text: t(
+            'communication_channels.profile.share.confirm.text',
+            'Colleagues will be able to read the CRM email this mailbox handles, including messages already received. You stay the only person who can manage the connection, and you can stop sharing at any time.',
+          ),
+          confirmText: t('communication_channels.profile.share.confirm.cta', 'Share with team'),
+        })
+        if (!confirmed) return
+      }
+
+      const nextVisibility = nextShared ? 'shared' : 'private'
+      let response
+      try {
+        response = await runMutation({
+          operation: () => withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(channel.updatedAt),
+            () => apiCall(
+              `/api/communication_channels/channels/${encodeURIComponent(channel.id)}/visibility`,
+              {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ visibility: nextVisibility }),
+              },
+            ),
+          ),
+          context: {
+            formId: PROFILE_CHANNELS_MUTATION_CONTEXT_ID,
+            resourceKind: 'communication_channels.channel',
+            resourceId: channel.id,
+            retryLastMutation,
+          },
+          mutationPayload: { visibility: nextVisibility },
+        })
+      } catch (err) {
+        if (surfaceRecordConflict(err, t)) return
+        flash(
+          err instanceof Error
+            ? err.message
+            : t('communication_channels.profile.share.failed', 'Failed to update sharing'),
+          'error',
+        )
+        return
+      }
+      if (!response.ok) {
+        const body = response.result as { error?: string } | undefined
+        flash(
+          body?.error ?? t('communication_channels.profile.share.failed', 'Failed to update sharing'),
+          'error',
+        )
+        return
+      }
+      flash(
+        nextShared
+          ? t('communication_channels.profile.share.sharedSuccess', 'Mailbox shared with your team.')
+          : t('communication_channels.profile.share.privateSuccess', 'Mailbox is private again.'),
+        'success',
+      )
+      setReloadKey((k) => k + 1)
+    },
+    [runMutation, retryLastMutation, confirm, t],
+  )
 
   const onSetPrimary = React.useCallback(
     async (channelId: string) => {
@@ -307,23 +399,83 @@ export default function ProfileCommunicationChannelsPage() {
           ),
       },
       {
+        header: t('communication_channels.profile.columns.sharing', 'Team access'),
+        accessorKey: 'visibility',
+        // Only email ingestion writes customer_interactions, so on an SMS or push
+        // channel a share would flip the flag and flash success while changing
+        // nothing anyone can observe. Offer it for email channels only.
+        cell: ({ row }) =>
+          row.original.channelType !== 'email' ? (
+            <span className="text-xs text-muted-foreground">—</span>
+          ) : row.original.visibility === 'shared' ? (
+            <div className="flex items-center gap-2">
+              <Tag variant="info" dot>
+                {t('communication_channels.profile.share.shared', 'Shared')}
+              </Tag>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void onSetVisibility(row.original, false)}
+              >
+                {t('communication_channels.profile.share.makePrivate', 'Make private')}
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">
+                {t('communication_channels.profile.share.private', 'Only you')}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void onSetVisibility(row.original, true)}
+              >
+                {t('communication_channels.profile.share.shareCta', 'Share with team')}
+              </Button>
+            </div>
+          ),
+      },
+      {
         header: t('communication_channels.columns.status', 'Status'),
         accessorKey: 'status',
         cell: ({ row }) => statusTag(row.original.status, t),
       },
       {
         id: 'pushStatus',
-        header: t('communication_channels.push.status.active', 'Push'),
+        // Its own key: sharing `push.status.active` made the header render
+        // "Push active" over a column whose rows say "Polling only" (#4980).
+        header: t('communication_channels.profile.columns.push', 'Push'),
         cell: ({ row }) => {
-          const supportsPush = row.original.providerKey === 'gmail'
-          if (!supportsPush) {
+          const ps = row.original.pushStatus
+          const errorTitle = row.original.lastPushError?.message ?? undefined
+          // Derived from the adapter's declared capabilities, never from the
+          // provider name: `supportsPushRegistration` means push subscriptions
+          // can be (re-)registered from here, `supportsRealtimePush` means the
+          // hub's poll worker skips the channel because the provider connection
+          // delivers inbound itself (#4980).
+          if (!row.original.supportsPushRegistration) {
+            if (!row.original.supportsRealtimePush) {
+              return (
+                <span className="text-xs text-muted-foreground">
+                  {t('communication_channels.push.status.inactive', 'Polling only')}
+                </span>
+              )
+            }
+            if (ps === 'failed') {
+              return (
+                <Tag variant="error" dot title={errorTitle}>
+                  {t('communication_channels.push.status.pushDrivenFailed', 'Push connection failed')}
+                </Tag>
+              )
+            }
             return (
-              <span className="text-xs text-muted-foreground">
-                {t('communication_channels.push.status.inactive', 'Polling only')}
-              </span>
+              <Tag variant="success" dot>
+                {t('communication_channels.push.status.pushDriven', 'Push-driven')}
+              </Tag>
             )
           }
-          const ps = row.original.pushStatus
           if (ps === 'active') {
             return (
               <Tag variant="success" dot>
@@ -332,7 +484,6 @@ export default function ProfileCommunicationChannelsPage() {
             )
           }
           if (ps === 'failed') {
-            const errorMsg = row.original.lastPushError?.message ?? null
             return (
               <div className="flex items-center gap-2">
                 <Tag variant="error" dot>
@@ -344,18 +495,23 @@ export default function ProfileCommunicationChannelsPage() {
                   size="sm"
                   onClick={() => void onRegisterPush(row.original.id)}
                   aria-label={t('communication_channels.push.button.reregister', 'Re-register push')}
-                  title={errorMsg ?? undefined}
+                  title={errorTitle}
                 >
                   {t('communication_channels.push.button.reregister', 'Re-register push')}
                 </Button>
               </div>
             )
           }
-          // null or 'inactive' — provider supports push but not registered yet.
+          // null or 'inactive' — the provider can register push but has not yet.
+          // Only a hub-polled channel falls back to polling meanwhile; for a
+          // push-driven one nothing is delivering inbound at all, so claiming
+          // "Polling only" would repeat the defect this issue is about (#4980).
           return (
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">
-                {t('communication_channels.push.status.inactive', 'Polling only')}
+                {row.original.supportsRealtimePush
+                  ? t('communication_channels.push.status.notRegistered', 'Push not registered')
+                  : t('communication_channels.push.status.inactive', 'Polling only')}
               </span>
               <Button
                 type="button"
@@ -408,25 +564,38 @@ export default function ProfileCommunicationChannelsPage() {
           // Allowed from 'connected' AND 'error' — the latter lets the user
           // recover a stuck channel without disconnecting + reconnecting.
           // 'requires_reauth' and 'disconnected' are owned by other flows.
+          // A push-driven channel is never polled by the worker, so offering the
+          // action at all would promise a sync that cannot happen (#4980).
+          const pushDriven = row.original.supportsRealtimePush
           const pollable =
             row.original.isActive &&
+            !pushDriven &&
             (row.original.status === 'connected' || row.original.status === 'error')
           const label =
             row.original.status === 'error'
               ? t('communication_channels.profile.actions.retryPoll', 'Retry')
               : t('communication_channels.profile.actions.pollNow', 'Poll now')
-          return (
+          const disabledReason = pushDriven
+            ? t(
+                'communication_channels.profile.actions.pollNowPushDriven',
+                'This channel is push-driven — inbound messages arrive over the provider connection, so polling does not apply.',
+              )
+            : undefined
+          const button = (
             <Button
               type="button"
               variant={row.original.status === 'error' ? 'default' : 'outline'}
               size="sm"
               onClick={() => void onPollNow(row.original.id)}
               disabled={!pollable}
-              aria-label={label}
+              aria-label={disabledReason ? `${label} — ${disabledReason}` : label}
             >
               {label}
             </Button>
           )
+          // A disabled button does not receive hover events in every browser, so
+          // the explanation lives on a wrapper the pointer can still reach.
+          return disabledReason ? <span title={disabledReason}>{button}</span> : button
         },
       },
       {
@@ -448,35 +617,32 @@ export default function ProfileCommunicationChannelsPage() {
         },
       },
     ],
-    [onSetPrimary, onPollNow, onRegisterPush, t],
+    [onSetPrimary, onSetVisibility, onPollNow, onRegisterPush, t],
   )
 
   return (
     <Page>
       <PageBody>
-        <header className="mb-4 flex items-baseline justify-between">
-          <div>
-            <h2 className="text-2xl font-semibold">
+        <header className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold">
               {t('communication_channels.profile.title', 'My communication channels')}
-            </h2>
+            </h1>
             <p className="text-sm text-muted-foreground">
               {t(
                 'communication_channels.profile.subtitle',
-                'Connect your personal mailbox so outbound messages come from your address and inbound emails land in your unified inbox.',
+                'Connect your communication channels so outbound messages come from your own account and inbound messages land in your unified inbox.',
               )}
             </p>
           </div>
           {/* Provider connect entry points injected by each channel-* package
-              (channel-gmail, channel-imap) via UMES. */}
-          <InjectionSpot
-            spotId="profile:communication-channels:connect"
-            context={{ reload: () => setReloadKey((k) => k + 1) }}
-            data={{}}
-          />
+              (channel-gmail, channel-imap) via UMES. They stack inside one
+              dropdown so the header does not widen per installed provider. */}
+          <ConnectChannelMenu onConnected={reloadChannels} />
         </header>
 
         {reauthRows.length > 0 ? (
-          <Alert variant="warning" className="mb-4">
+          <Alert status="warning" className="mb-4">
             <AlertDescription>
               {t(
                 'communication_channels.profile.alerts.requiresReauth',
@@ -489,14 +655,15 @@ export default function ProfileCommunicationChannelsPage() {
 
         <DataTable<ChannelRow>
           title={t('communication_channels.profile.tableTitle', 'Your channels')}
-          extensionTableId="communication_channels.profile.channels"
+          titleHeadingLevel={2}
+          extensionTableId={extensionPoints.hosts.profileChannelsTable.tableId}
           columns={columns}
           data={rows}
           isLoading={isLoading}
           error={errorMessage}
           emptyState={t(
             'communication_channels.profile.empty',
-            'You have no connected channels yet. Use the "Connect channel" entry above to add Gmail or IMAP.',
+            'You have no connected channels yet. Add one using the menu at the top of this page.',
           )}
         />
         <ImportHistoryDialog
@@ -515,6 +682,7 @@ export default function ProfileCommunicationChannelsPage() {
             setReloadKey((k) => k + 1)
           }}
         />
+        {ConfirmDialogElement}
       </PageBody>
     </Page>
   )
@@ -528,6 +696,7 @@ type ImportHistoryDialogProps = {
 
 function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialogProps): React.JSX.Element {
   const t = useT()
+  const importLimits = React.useMemo(() => getImportHistoryLimits(channel?.providerKey), [channel?.providerKey])
   const [sinceDays, setSinceDays] = React.useState('30')
   const [contactEmails, setContactEmails] = React.useState('')
   const [maxMessages, setMaxMessages] = React.useState('500')
@@ -553,16 +722,18 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
     const sinceNum = Number.parseInt(sinceDays, 10)
     const maxNum = Number.parseInt(maxMessages, 10)
     const errors: Record<string, string> = {}
-    if (!Number.isFinite(sinceNum) || sinceNum < 1 || sinceNum > 365) {
+    if (!Number.isFinite(sinceNum) || sinceNum < 1 || sinceNum > importLimits.maxSinceDays) {
       errors.sinceDays = t(
         'communication_channels.profile.importHistory.errors.sinceDays',
-        'Choose a number between 1 and 365 days.',
+        'Choose a number between 1 and {max} days.',
+        { max: importLimits.maxSinceDays },
       )
     }
-    if (!Number.isFinite(maxNum) || maxNum < 1 || maxNum > 5000) {
+    if (!Number.isFinite(maxNum) || maxNum < 1 || maxNum > importLimits.maxMessages) {
       errors.maxMessages = t(
         'communication_channels.profile.importHistory.errors.maxMessages',
-        'Choose a number between 1 and 5000 messages.',
+        'Choose a number between 1 and {max} messages.',
+        { max: importLimits.maxMessages },
       )
     }
     const parsedEmails = contactEmails
@@ -640,7 +811,7 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
       'success',
     )
     onQueued()
-  }, [channel, sinceDays, maxMessages, contactEmails, submitting, t, onQueued, retryLastMutation, runMutation])
+  }, [channel, sinceDays, maxMessages, contactEmails, submitting, t, onQueued, retryLastMutation, runMutation, importLimits])
 
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent) => {
@@ -676,7 +847,7 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
               id="import-history-since"
               type="number"
               min={1}
-              max={365}
+              max={importLimits.maxSinceDays}
               value={sinceDays}
               onChange={(e) => setSinceDays(e.target.value)}
               aria-invalid={Boolean(fieldErrors.sinceDays)}
@@ -724,7 +895,7 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
               id="import-history-max"
               type="number"
               min={1}
-              max={5000}
+              max={importLimits.maxMessages}
               value={maxMessages}
               onChange={(e) => setMaxMessages(e.target.value)}
               aria-invalid={Boolean(fieldErrors.maxMessages)}
@@ -735,7 +906,7 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
           </div>
 
           {fieldErrors.channelId ? (
-            <Alert variant="warning">
+            <Alert status="warning">
               <AlertDescription>{fieldErrors.channelId}</AlertDescription>
             </Alert>
           ) : null}
@@ -870,7 +1041,7 @@ function DisconnectChannelDialog({
           <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
             {t('communication_channels.profile.disconnect.cancel', 'Cancel')}
           </Button>
-          <Button type="button" variant="destructive" onClick={() => void handleConfirm()} disabled={submitting}>
+          <Button type="button" variant="destructive-solid" onClick={() => void handleConfirm()} disabled={submitting}>
             {submitting
               ? t('communication_channels.profile.disconnect.submitting', 'Disconnecting…')
               : t('communication_channels.profile.disconnect.confirm', 'Disconnect')}

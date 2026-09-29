@@ -59,6 +59,13 @@ export type OpenApiDocumentOptions = {
   servers?: Array<{ url: string; description?: string }>
   baseUrlForExamples?: string
   defaultSecurity?: OpenApiSecurityScheme[]
+  /**
+   * Emit the ACL metadata of every operation — the `Requires features/roles`
+   * description lines and the `x-require-features` / `x-require-roles`
+   * extensions. Defaults to `true`; documentation endpoints serving anonymous
+   * callers set it to `false` so internal feature identifiers stay private.
+   */
+  includeAccessControlMetadata?: boolean
 }
 
 export type OpenApiDocument = {

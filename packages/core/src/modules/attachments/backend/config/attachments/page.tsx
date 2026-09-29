@@ -23,7 +23,7 @@ export default async function AttachmentsConfigurationPage() {
     <Page>
       <PageBody className="space-y-6">
         {partitionsLocked ? (
-          <Alert variant="warning">
+          <Alert status="warning">
             <AlertTitle>{lockedTitle}</AlertTitle>
             <AlertDescription>
               {lockedDescription}{' '}

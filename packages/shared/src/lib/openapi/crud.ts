@@ -17,6 +17,9 @@ export function createPagedListResponseSchema(itemSchema: ZodTypeAny, options: P
     page: paginationMetaOptional ? z.number().optional() : z.number(),
     pageSize: paginationMetaOptional ? z.number().optional() : z.number(),
     totalPages: z.number(),
+    // Present (true) only when the list count was bounded at OM_LIST_COUNT_CAP:
+    // `total` is then a floor, not an exact value.
+    totalIsCapped: z.boolean().optional(),
   })
 }
 

@@ -183,9 +183,52 @@ function resolveScannedWidgetPath(roots: ModuleRoots, fromApp: boolean, relPath:
   return path.join(base, 'widgets', 'injection', ...relPath.split('/'))
 }
 
+/**
+ * A widget's `metadata.id` and the injection-table entry that mounts it are two hand-typed string
+ * literals in two different files, and nothing links them. A typo in either fails silently: the spot
+ * resolves to no widget and nothing is logged, so it only surfaces as "why isn't my widget
+ * rendering" during manual QA.
+ *
+ * Reports table entries whose `widgetId` no scanned widget declares. Diagnostics only — generated
+ * output is unchanged and the build is not failed, since a table entry may legitimately point at a
+ * widget supplied by a module that is not enabled in this app.
+ *
+ * Deliberately one-directional. The mirror check ("a widget nothing references is never mounted")
+ * cannot be done reliably yet: `extractInjectionTableWidgetIds` only reads statically-analyzable
+ * object literals, so a table assembled by composition or computation contributes **no** visible
+ * ids — `example` exports `cond ? { ...a, ...b } : a` and `translations` exports
+ * `buildInjectionTable()`, and both would have every one of their widgets reported as unreferenced.
+ * Under-reporting is harmless in the direction implemented here (a reference the extractor never saw
+ * cannot produce a warning) but fatal in the other. Teaching the extractor to resolve spreads,
+ * conditionals and call expressions is the prerequisite for adding it.
+ */
+function reportUnresolvableWidgetReferences(
+  widgetEntries: Map<string, InjectionWidgetEntry>,
+  tableWidgetRefs: Map<string, Set<string>>,
+): void {
+  const declaredIds = new Set<string>()
+  for (const entry of widgetEntries.values()) {
+    if (entry.widgetId) declaredIds.add(entry.widgetId)
+  }
+
+  for (const [widgetId, modules] of Array.from(tableWidgetRefs.entries()).sort(([a], [b]) => a.localeCompare(b))) {
+    if (declaredIds.has(widgetId)) continue
+    const owners = Array.from(modules).sort((left, right) => left.localeCompare(right)).join(', ')
+    console.warn(
+      `[generate] ⚠ Injection table in "${owners}" references widget id "${widgetId}", but no scanned ` +
+        'widget declares it — that spot will render nothing. Check the id against the widget\'s ' +
+        'metadata.id, and that the widget lives in a file the scanner reads ' +
+        '(widgets/injection/**/widget.ts|tsx — note that widget.client.tsx alone is not scanned).',
+    )
+  }
+}
+
 export function createInjectionWidgetsExtension(): GeneratorExtension {
   const widgetEntries = new Map<string, InjectionWidgetEntry>()
   const tableEntries: InjectionTableEntry[] = []
+  // widgetId -> module ids whose injection table references it. Collected across every module so a
+  // table may legitimately reference a widget another module owns.
+  const tableWidgetRefs = new Map<string, Set<string>>()
 
   return {
     id: 'registry.injection-widgets',
@@ -217,6 +260,12 @@ export function createInjectionWidgetsExtension(): GeneratorExtension {
         moduleWidgetEntries[0].widgetId = tableWidgetIds[0]
       }
 
+      for (const widgetId of tableWidgetIds) {
+        const modules = tableWidgetRefs.get(widgetId) ?? new Set<string>()
+        modules.add(ctx.moduleId)
+        tableWidgetRefs.set(widgetId, modules)
+      }
+
       for (const entry of moduleWidgetEntries) {
         const existing = widgetEntries.get(entry.key)
         if (!existing || (existing.source !== 'app' && entry.source === 'app')) {
@@ -233,6 +282,8 @@ export function createInjectionWidgetsExtension(): GeneratorExtension {
       }
     },
     generateOutput() {
+      reportUnresolvableWidgetReferences(widgetEntries, tableWidgetRefs)
+
       const widgetDecls = Array.from(widgetEntries.entries())
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([, entry]) =>

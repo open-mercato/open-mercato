@@ -149,4 +149,14 @@ describe('Integrations marketplace — guarded mutation wiring', () => {
     await waitFor(() => expect(flashMock).toHaveBeenCalledWith('integrations.detail.stateError', 'error'))
     expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'false')
   })
+
+  it('flashes the load error and stops the spinner instead of hanging when the initial load rejects (GH #5186)', async () => {
+    apiCallMock.mockReset()
+    apiCallMock.mockRejectedValue(new Error('Unauthorized'))
+
+    renderWithProviders(<IntegrationsMarketplacePage />)
+
+    await waitFor(() => expect(flashMock).toHaveBeenCalledWith('integrations.marketplace.loadError', 'error'))
+    await waitFor(() => expect(screen.getByText('integrations.marketplace.noResults')).toBeInTheDocument())
+  })
 })

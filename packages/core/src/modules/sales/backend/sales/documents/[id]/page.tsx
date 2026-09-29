@@ -3,6 +3,8 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/sales/extension-points'
+import { resolveExtensionPointPattern } from '@open-mercato/shared/modules/widgets/extension-points'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import {
@@ -22,6 +24,7 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { EmailInput } from '@open-mercato/ui/primitives/email-input'
+import { formatDisplayDate, formatDisplayDateTime, toDateInputValue, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { ArrowRightLeft, Building2, CreditCard, Mail, Pencil, Plus, Send, Store, Truck, UserRound, Wand2, X } from 'lucide-react'
 import { FormHeader, type ActionItem } from '@open-mercato/ui/backend/forms'
@@ -36,7 +39,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { ContactEmailDisplay } from '@open-mercato/core/modules/sales/components/ContactEmailDisplay'
@@ -77,13 +80,17 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
 
-function formatMessageAmount(amount: number | null | undefined, currency: string | null | undefined): string | null {
+function formatMessageAmount(
+  amount: number | null | undefined,
+  currency: string | null | undefined,
+  locale?: string
+): string | null {
   if (typeof amount !== 'number' || !Number.isFinite(amount)) return null
-  if (!currency) return amount.toLocaleString()
+  if (!currency) return amount.toLocaleString(locale)
   try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount)
+    return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(amount)
   } catch {
-    return `${amount.toLocaleString()} ${currency}`
+    return `${amount.toLocaleString(locale)} ${currency}`
   }
 }
 
@@ -1898,6 +1905,7 @@ export default function SalesDocumentDetailPage({
   includeAmountInMessageMetadata?: boolean
 }) {
   const t = useT()
+  const locale = useLocale()
   const { enabled: channelsEnabled } = useSalesChannelsEnabled()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -1949,7 +1957,10 @@ export default function SalesDocumentDetailPage({
     () => (record?.id ? `sales-document:${kind}:${record.id}` : `sales-document:${kind}:pending`),
     [kind, record?.id],
   )
-  const detailsInjectionSpotId = React.useMemo(() => `sales.document.detail.${kind}:details`, [kind])
+  const detailsInjectionSpotId = React.useMemo(
+    () => resolveExtensionPointPattern(extensionPoints.hosts.documentDetail.pattern, { kind, surface: 'details' }),
+    [kind],
+  )
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     kind: SalesDocumentKind
     record: DocumentRecord | null
@@ -2802,7 +2813,7 @@ export default function SalesDocumentDetailPage({
       : null
   const contactEmail = resolveCustomerEmail(customerSnapshot) ?? metadataEmail ?? record?.contactEmail ?? null
   const statusDisplay = record?.status ? statusDictionaryMap[record.status] ?? null : null
-  const previewAmount = formatMessageAmount(record?.grandTotalGrossAmount ?? null, record?.currencyCode ?? null)
+  const previewAmount = formatMessageAmount(record?.grandTotalGrossAmount ?? null, record?.currencyCode ?? null, locale)
   const messagePreviewMetadata: Record<string, string> = {}
   if (includeAmountInMessageMetadata && previewAmount) {
     messagePreviewMetadata[t('sales.documents.detail.totals.grandTotalGross')] = previewAmount
@@ -3854,17 +3865,16 @@ export default function SalesDocumentDetailPage({
         label: t('sales.documents.detail.expectedDeliveryAt.label', 'Expected delivery'),
         emptyLabel: t('sales.documents.detail.empty', 'Not set'),
         placeholder: t('sales.documents.detail.expectedDeliveryAt.placeholder', 'Add expected delivery date'),
-        value: record?.expectedDeliveryAt
-          ? new Date(record.expectedDeliveryAt).toISOString().slice(0, 10)
-          : null,
+        // UTC, not local: this editor submits a bare `yyyy-MM-dd`, which `z.coerce.date()`
+        // stores as UTC midnight. Reading it back locally names the previous day west of UTC.
+        value: toUtcDateInputValue(record?.expectedDeliveryAt),
         onSave: handleUpdateExpectedDeliveryAt,
         inputType: 'date',
         renderDisplay: (params) => {
           const { value, emptyLabel } = params
-          if (value && value.length) {
-            return <span className="text-sm text-muted-foreground">{new Date(value).toLocaleDateString()}</span>
-          }
-          return <span className="text-sm text-muted-foreground">{emptyLabel}</span>
+          return (
+            <span className="text-sm text-muted-foreground">{formatDisplayDate(value, locale) ?? emptyLabel}</span>
+          )
         },
       })
     }
@@ -3905,10 +3915,10 @@ export default function SalesDocumentDetailPage({
         render: () => (
           <SectionCard title={t('sales.documents.detail.timestamps', 'Timestamps')} muted>
             <p className="text-sm text-muted-foreground">
-              {t('sales.documents.detail.created', 'Created')}: {record?.createdAt ?? '—'}
+              {t('sales.documents.detail.created', 'Created')}: {formatDisplayDateTime(record?.createdAt, locale) ?? '—'}
             </p>
             <p className="text-sm text-muted-foreground">
-              {t('sales.documents.detail.updated', 'Updated')}: {record?.updatedAt ?? '—'}
+              {t('sales.documents.detail.updated', 'Updated')}: {formatDisplayDateTime(record?.updatedAt, locale) ?? '—'}
             </p>
           </SectionCard>
         ),
@@ -3939,6 +3949,7 @@ export default function SalesDocumentDetailPage({
     shippingMethodLoading,
     shippingMethodOptions,
     t,
+    locale,
     kind,
     saveShortcutLabel,
   ])
@@ -3988,7 +3999,10 @@ export default function SalesDocumentDetailPage({
   const { payload: backendChromePayload, isReady: backendChromeReady } = useBackendChrome()
   const canComposeMessages = backendChromeReady && hasFeature(backendChromePayload?.grantedFeatures, 'messages.compose')
 
-  const tabInjectionSpotId = React.useMemo(() => `sales.document.detail.${kind}:tabs`, [kind])
+  const tabInjectionSpotId = React.useMemo(
+    () => resolveExtensionPointPattern(extensionPoints.hosts.documentDetail.pattern, { kind, surface: 'tabs' }),
+    [kind],
+  )
   const { widgets: injectedTabWidgets } = useInjectionWidgets(tabInjectionSpotId, {
     context: detailInjectionContext,
     triggerOnLoad: true,
@@ -4263,7 +4277,7 @@ export default function SalesDocumentDetailPage({
             onAddComment={appendShipmentComment}
           />
           <InjectionSpot
-            spotId="detail:sales.order:shipping"
+            spotId={extensionPoints.hosts.orderShipping.spotId}
             context={detailInjectionContext}
             data={record}
             onDataChange={(next) => setRecord(next as unknown as DocumentRecord)}
@@ -4693,28 +4707,22 @@ export default function SalesDocumentDetailPage({
           <InlineTextEditor
             key="date"
             label={t('sales.documents.detail.date', 'Date')}
-            value={
-              record?.placedAt
-                ? new Date(record.placedAt).toISOString().slice(0, 10)
-                : record?.createdAt
-                  ? new Date(record.createdAt).toISOString().slice(0, 10)
-                  : null
-            }
+            // Two readings on purpose. `placedAt` is settable from this date input, so it is
+            // stored as UTC midnight and must be read back in UTC or the field flips a day west
+            // of UTC. `createdAt` is only ever stamped from a clock — a real instant, whose local
+            // day is the one to show.
+            value={toUtcDateInputValue(record?.placedAt) ?? toDateInputValue(record?.createdAt)}
             emptyLabel={t('sales.documents.detail.empty', 'Not set')}
             onSave={handleUpdatePlacedAt}
             inputType="date"
             activateOnClick
             containerClassName="h-full"
             saveLabel={t('customers.people.detail.inline.saveShortcut')}
-            renderDisplay={({ value, emptyLabel }) =>
-              value && value.length ? (
-                <span className="text-sm text-muted-foreground">
-                  {new Date(value).toLocaleDateString()}
-                </span>
-              ) : (
-                <span className="text-sm text-muted-foreground">{emptyLabel}</span>
-              )
-            }
+            renderDisplay={({ value, emptyLabel }) => (
+              <span className="text-sm text-muted-foreground">
+                {formatDisplayDate(value, locale) ?? emptyLabel}
+              </span>
+            )}
           />
         </div>
 

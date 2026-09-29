@@ -57,6 +57,9 @@ function buildContext() {
     persist: jest.fn(function persist(this: any) { return this }),
     nativeDelete: jest.fn(async () => 0),
     fork: jest.fn(() => em),
+    begin: jest.fn(async () => undefined),
+    commit: jest.fn(async () => undefined),
+    rollback: jest.fn(async () => undefined),
   }
 
   const dataEngine = {
@@ -155,7 +158,8 @@ describe('auth.users.update — email uniqueness is scoped to the user tenant (#
   it('scopes the duplicate-email check to the user existing tenant when the organization is unchanged', async () => {
     const { ctx } = buildContext()
     mockFindOneWithDecryption
-      .mockResolvedValueOnce({ id: targetUserId, tenantId, organizationId: orgId, deletedAt: null }) // resolveUserTenantId
+      .mockResolvedValueOnce({ id: targetUserId, tenantId, organizationId: orgId, deletedAt: null }) // existing user lookup
+      .mockResolvedValueOnce({ id: targetUserId, tenantId }) // resolveUserTenantId
       .mockResolvedValueOnce({ id: 'someone-else', tenantId }) // same-tenant duplicate → throws
 
     await expect(handler.execute({

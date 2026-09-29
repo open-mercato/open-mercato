@@ -1,4 +1,5 @@
 import { S3Client, HeadBucketCommand } from '@aws-sdk/client-s3'
+import { assertSafeS3Endpoint, createSafeS3RequestHandler } from './endpoint-safety'
 import type { S3DriverConfig } from './s3-driver'
 
 export const s3HealthCheck = {
@@ -67,11 +68,28 @@ export const s3HealthCheck = {
       }
     }
 
+    try {
+      await assertSafeS3Endpoint(cfg.endpoint)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unsafe S3 endpoint'
+      const reason = err && typeof err === 'object' && 'reason' in err ? (err as { reason?: unknown }).reason : undefined
+      return {
+        status: 'unhealthy',
+        message,
+        details: {
+          ...(typeof reason === 'string' ? { reason } : {}),
+        },
+        checkedAt,
+      }
+    }
+
+    const requestHandler = createSafeS3RequestHandler(cfg.endpoint)
     const client = new S3Client({
       region: cfg.region ?? 'us-east-1',
       endpoint: cfg.endpoint,
       forcePathStyle: cfg.forcePathStyle ?? false,
       credentials: credentialConfig,
+      ...(requestHandler ? { requestHandler } : {}),
     })
 
     try {

@@ -73,6 +73,8 @@ export interface MerchandisingPageContext {
   extra: {
     filter: MerchandisingPageContextFilter
     totalMatching: number
+    /** `totalMatching` is a floor, not an exact count (server-capped list count). */
+    totalMatchingIsCapped?: boolean
     selectedCount: number
   }
 }
@@ -181,7 +183,7 @@ function useContextItems(pageContext: MerchandisingPageContext): AiChatContextIt
   const t = useT()
   return React.useMemo(() => {
     const items: AiChatContextItem[] = []
-    const { selectedCount, totalMatching, filter } = pageContext.extra
+    const { selectedCount, totalMatching, totalMatchingIsCapped, filter } = pageContext.extra
     if (selectedCount > 0) {
       items.push({
         label: t(
@@ -191,10 +193,15 @@ function useContextItems(pageContext: MerchandisingPageContext): AiChatContextIt
       })
     } else if (totalMatching > 0) {
       items.push({
-        label: t(
-          'catalog.merchandising_assistant.context.matchingProducts',
-          '{count} products in view',
-        ).replace('{count}', String(totalMatching)),
+        label: totalMatchingIsCapped
+          ? t(
+              'catalog.merchandising_assistant.context.matchingProductsCapped',
+              '{count}+ products in view',
+            ).replace('{count}', String(totalMatching))
+          : t(
+              'catalog.merchandising_assistant.context.matchingProducts',
+              '{count} products in view',
+            ).replace('{count}', String(totalMatching)),
       })
     }
     if (filter.categoryId) {

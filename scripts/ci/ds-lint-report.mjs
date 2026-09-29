@@ -1,0 +1,257 @@
+#!/usr/bin/env node
+// DS lint delta report for the advisory `ds-lint` CI job.
+// See .ai/specs/2026-07-05-ds-lint-ci-escalation-and-alert-migration.md (WS1).
+//
+// Usage:
+//   node scripts/ci/ds-lint-report.mjs <head.json> [base.json] [options]
+//   node scripts/ci/ds-lint-report.mjs --check <head.json>
+//
+// Report mode options:
+//   --base-dir <dir>      Root of the base-branch worktree (for relative paths
+//                         and the base opt-out count). Default: none.
+//   --head-dir <dir>      Root of the head checkout. Default: process.cwd().
+//   --comment-file <file> Also write the sticky-PR-comment body (with the
+//                         `<!-- ds-lint-report -->` marker) to this path.
+//   --base-label <label>  Label for the base column (default: $GITHUB_BASE_REF
+//                         or "base").
+//
+// Report mode always exits 0 (publishing must never be blocked by findings);
+// enforcement is the separate `--check` mode, which exits 1 when any
+// error-level finding exists. When base data is missing or unreadable the
+// report says "delta n/a (no base data)" — it never fabricates a zero
+// baseline.
+//
+// Outputs (report mode): markdown on stdout, appended to $GITHUB_STEP_SUMMARY
+// when set; `should_comment=true|false` appended to $GITHUB_OUTPUT when set
+// (true when the delta is non-zero, base data is missing on a PR, or
+// error-level findings exist).
+
+import fs from 'node:fs'
+import path from 'node:path'
+
+const OPTOUT_ROW_LABEL = 'DS lint opt-outs'
+const COMMENT_MARKER = '<!-- ds-lint-report -->'
+const NEW_FINDINGS_CAP = 30
+const OPTOUT_RE = /eslint-disable[^\n]*om-ds\//
+const SCAN_ROOTS = ['packages', 'apps']
+const SKIP_DIRS = new Set(['node_modules', 'dist', '.next', '.turbo', '.mercato'])
+
+function fail(msg) {
+  console.error(`ds-lint-report: ${msg}`)
+  process.exit(2)
+}
+
+function readResults(file) {
+  const raw = fs.readFileSync(file, 'utf8')
+  const parsed = JSON.parse(raw)
+  if (!Array.isArray(parsed)) throw new Error(`${file} is not an ESLint JSON results array`)
+  return parsed
+}
+
+function relativize(filePath, roots) {
+  for (const root of roots) {
+    if (root && filePath.startsWith(root + path.sep)) return filePath.slice(root.length + 1)
+  }
+  return filePath
+}
+
+// Per-rule counts plus per-(file,rule) message lists for the new-findings diff.
+function aggregate(results, roots) {
+  const byRule = new Map()
+  const byFileRule = new Map()
+  let errorCount = 0
+  for (const entry of results) {
+    const rel = relativize(entry.filePath, roots)
+    for (const msg of entry.messages ?? []) {
+      const rule = msg.ruleId ?? '(parse error)'
+      byRule.set(rule, (byRule.get(rule) ?? 0) + 1)
+      const key = `${rel}\u0000${rule}`
+      if (!byFileRule.has(key)) byFileRule.set(key, [])
+      byFileRule.get(key).push({ file: rel, rule, line: msg.line ?? 0 })
+      if (msg.severity === 2) errorCount++
+    }
+  }
+  return { byRule, byFileRule, errorCount }
+}
+
+function countOptOuts(rootDir) {
+  let count = 0
+  const walk = (dir) => {
+    let entries
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (!SKIP_DIRS.has(entry.name)) walk(full)
+      } else if (/\.(ts|tsx)$/.test(entry.name) && !entry.name.includes('.generated.')) {
+        try {
+          const lines = fs.readFileSync(full, 'utf8').split('\n')
+          for (const line of lines) if (OPTOUT_RE.test(line)) count++
+        } catch {
+          /* unreadable file — skip */
+        }
+      }
+    }
+  }
+  for (const root of SCAN_ROOTS) walk(path.join(rootDir, root))
+  return count
+}
+
+function formatDelta(delta) {
+  if (delta > 0) return `+${delta}`
+  return String(delta)
+}
+
+function buildReport({ head, base, headOptOuts, baseOptOuts, baseLabel, baseAttempted }) {
+  const hasBase = base !== null
+  const rules = new Set([...head.byRule.keys(), ...(hasBase ? base.byRule.keys() : [])])
+  const sortedRules = [...rules].sort((a, b) => (head.byRule.get(b) ?? 0) - (head.byRule.get(a) ?? 0))
+
+  const headTotal = [...head.byRule.values()].reduce((a, b) => a + b, 0)
+  const baseTotal = hasBase ? [...base.byRule.values()].reduce((a, b) => a + b, 0) : null
+
+  const lines = []
+  if (hasBase) {
+    const delta = headTotal - baseTotal
+    lines.push(`### DS lint — ${headTotal} findings (${formatDelta(delta)} vs ${baseLabel})`)
+  } else if (baseAttempted) {
+    lines.push(`### DS lint — ${headTotal} findings (delta n/a — no base data)`)
+  } else {
+    lines.push(`### DS lint — ${headTotal} findings`)
+  }
+  lines.push('')
+  lines.push(`| Rule | ${hasBase ? baseLabel : 'baseline n/a'} | this PR | Δ |`)
+  lines.push('|---|---|---|---|')
+  for (const rule of sortedRules) {
+    const headCount = head.byRule.get(rule) ?? 0
+    const baseCount = hasBase ? (base.byRule.get(rule) ?? 0) : null
+    const delta = hasBase ? formatDelta(headCount - baseCount) : 'n/a'
+    lines.push(`| ${rule} | ${hasBase ? baseCount : 'n/a'} | ${headCount} | ${delta} |`)
+  }
+  const optOutDelta = baseOptOuts === null ? 'n/a' : formatDelta(headOptOuts - baseOptOuts)
+  lines.push(`| ${OPTOUT_ROW_LABEL} | ${baseOptOuts ?? 'n/a'} | ${headOptOuts} | ${optOutDelta} |`)
+
+  // New findings: per (file, rule) pair, head occurrences beyond the base count.
+  const newFindings = []
+  if (hasBase) {
+    for (const [key, msgs] of head.byFileRule) {
+      const baseCount = base.byFileRule.get(key)?.length ?? 0
+      if (msgs.length > baseCount) {
+        const extra = [...msgs].sort((a, b) => a.line - b.line).slice(baseCount)
+        newFindings.push(...extra)
+      }
+    }
+    newFindings.sort((a, b) => (a.file === b.file ? a.line - b.line : a.file.localeCompare(b.file)))
+  }
+  if (newFindings.length > 0) {
+    lines.push('')
+    lines.push('**New findings**')
+    for (const f of newFindings.slice(0, NEW_FINDINGS_CAP)) {
+      lines.push(`- ${f.file}:${f.line} — ${f.rule}`)
+    }
+    if (newFindings.length > NEW_FINDINGS_CAP) {
+      lines.push(`- …and ${newFindings.length - NEW_FINDINGS_CAP} more`)
+    }
+  }
+  if (head.errorCount > 0) {
+    lines.push('')
+    lines.push(`**${head.errorCount} error-level finding(s)** — the \`--check\` step will fail.`)
+  }
+
+  const delta = hasBase ? headTotal - baseTotal : null
+  const optDelta = baseOptOuts === null ? null : headOptOuts - baseOptOuts
+  const shouldComment =
+    head.errorCount > 0 ||
+    (hasBase ? delta !== 0 || optDelta !== 0 : baseAttempted)
+  return { markdown: lines.join('\n'), shouldComment }
+}
+
+function runCheck(headFile) {
+  let results
+  try {
+    results = readResults(headFile)
+  } catch (err) {
+    fail(`cannot read ${headFile}: ${err.message}`)
+  }
+  const errors = []
+  for (const entry of results) {
+    for (const msg of entry.messages ?? []) {
+      if (msg.severity === 2) {
+        errors.push(`${relativize(entry.filePath, [process.cwd()])}:${msg.line ?? 0} — ${msg.ruleId ?? '(parse error)'}: ${msg.message}`)
+      }
+    }
+  }
+  if (errors.length > 0) {
+    console.error(`DS lint: ${errors.length} error-level finding(s):`)
+    for (const line of errors) console.error(`  ${line}`)
+    process.exit(1)
+  }
+  console.log('DS lint: no error-level findings.')
+}
+
+// --- argument parsing ---------------------------------------------------------
+
+const argv = process.argv.slice(2)
+if (argv[0] === '--check') {
+  if (!argv[1]) fail('usage: ds-lint-report.mjs --check <head.json>')
+  runCheck(argv[1])
+} else {
+  const positional = []
+  const opts = { baseDir: null, headDir: process.cwd(), commentFile: null, baseLabel: null }
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]
+    if (arg === '--base-dir') opts.baseDir = argv[++i]
+    else if (arg === '--head-dir') opts.headDir = argv[++i]
+    else if (arg === '--comment-file') opts.commentFile = argv[++i]
+    else if (arg === '--base-label') opts.baseLabel = argv[++i]
+    else positional.push(arg)
+  }
+  const [headFile, baseFile] = positional
+  if (!headFile) fail('usage: ds-lint-report.mjs <head.json> [base.json] [--base-dir <dir>]')
+
+  let head
+  try {
+    head = aggregate(readResults(headFile), [opts.headDir])
+  } catch (err) {
+    fail(`cannot read ${headFile}: ${err.message}`)
+  }
+
+  const baseAttempted = Boolean(baseFile)
+  let base = null
+  if (baseFile) {
+    try {
+      base = aggregate(readResults(baseFile), [opts.baseDir, opts.headDir].filter(Boolean))
+    } catch {
+      base = null // "delta n/a (no base data)" — never fabricate a zero baseline
+    }
+  }
+
+  const headOptOuts = countOptOuts(opts.headDir)
+  const baseOptOuts = base !== null && opts.baseDir ? countOptOuts(opts.baseDir) : null
+
+  const baseLabel = opts.baseLabel || process.env.GITHUB_BASE_REF || 'base'
+  const { markdown, shouldComment } = buildReport({
+    head,
+    base,
+    headOptOuts,
+    baseOptOuts,
+    baseLabel,
+    baseAttempted,
+  })
+
+  console.log(markdown)
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, markdown + '\n')
+  }
+  if (opts.commentFile) {
+    fs.writeFileSync(opts.commentFile, `${COMMENT_MARKER}\n${markdown}\n`)
+  }
+  if (process.env.GITHUB_OUTPUT) {
+    fs.appendFileSync(process.env.GITHUB_OUTPUT, `should_comment=${shouldComment}\n`)
+  }
+}

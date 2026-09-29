@@ -81,6 +81,7 @@ export const updateRoleAclSchema = z.object({
 export const inviteUserSchema = z.object({
   email: emailField,
   customerEntityId: z.string().uuid().optional(),
+  personEntityId: z.string().uuid().optional(),
   roleIds: z.array(z.string().uuid()).min(1),
   displayName: displayNameField.optional(),
 })

@@ -8,6 +8,39 @@ export function stripStructuredLogPrefix(line) {
   return line.replace(STRUCTURED_PRETTY_LOG_PREFIX, '')
 }
 
+// Client console output forwarded by the browser log bridge. It describes the
+// page, not the dev runtime, so a handled client-side warning must never latch
+// the runtime failure state or force the compact view open.
+const BROWSER_FORWARDED_LOG_PREFIX = '[browser]'
+const STACK_FRAME_PATTERN = /^at\s+\S/
+const STRUCTURED_PRETTY_NON_ERROR_PREFIX = /^\d{2}:\d{2}:\d{2}\.\d{3}\s+(?:DEBUG|INFO|WARN)\s+/
+
+export function isBrowserForwardedLogLine(line) {
+  if (typeof line !== 'string') return false
+  return stripStructuredLogPrefix(line.trim()).startsWith(BROWSER_FORWARDED_LOG_PREFIX)
+}
+
+// Stack frames only ever follow a header line, and that header is what decides
+// whether the block is a failure. Frames matched on their own text produce false
+// positives, because module paths and function names routinely contain "failed".
+export function isStackFrameLine(line) {
+  if (typeof line !== 'string') return false
+  return STACK_FRAME_PATTERN.test(line.trim())
+}
+
+// The structured logger already encodes severity; trust the level over a
+// substring match on the message.
+export function isStructuredNonErrorLogLine(line) {
+  if (typeof line !== 'string') return false
+  return STRUCTURED_PRETTY_NON_ERROR_PREFIX.test(line.trim())
+}
+
+export function isNonRuntimeFailureLine(line) {
+  return isBrowserForwardedLogLine(line)
+    || isStackFrameLine(line)
+    || isStructuredNonErrorLogLine(line)
+}
+
 const KMS_VAULT_FALLBACK_MESSAGE_PATTERN = /^\[shared:kms\] (?:Vault (?:read|write) (?:error|failed)\b|Vault write CAS conflict\b|No tenant DEK found in Vault\b|Failed to store tenant DEK in Vault\b)/
 
 export function isIgnorableDerivedKeyWarningLine(line) {

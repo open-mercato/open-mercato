@@ -49,6 +49,7 @@ import type { LucideIcon } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { SearchResult, SearchResultLink } from '@open-mercato/shared/modules/search'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { resolveEntityTypeLabel } from '../lib/entityTypeLabel'
 import {
   getCurrentOrganizationScope,
   subscribeOrganizationScopeChanged,
@@ -82,14 +83,6 @@ function hasActiveOrganizationSelection(): boolean {
   const cookieValue = parseSelectedOrganizationCookie(cookieHeader)
   if (!cookieValue) return false
   return !isAllOrganizationsSelection(cookieValue)
-}
-
-function humanizeSegment(segment: string): string {
-  return segment
-    .split(/[_-]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
 }
 
 const ICON_MAP: Record<string, LucideIcon> = {
@@ -135,12 +128,6 @@ const ICON_MAP: Record<string, LucideIcon> = {
 function resolveIcon(name?: string): LucideIcon | null {
   if (!name) return null
   return ICON_MAP[name.toLowerCase()] ?? null
-}
-
-function formatEntityId(entityId: string): string {
-  if (!entityId.includes(':')) return humanizeSegment(entityId)
-  const [module, entity] = entityId.split(':')
-  return `${humanizeSegment(module)} · ${humanizeSegment(entity)}`
 }
 
 export type TopbarSearchInlineProps = {
@@ -521,7 +508,7 @@ export function TopbarSearchInline({
                         </span>
                       </span>
                       <span className="flex items-center gap-2 text-overline text-muted-foreground">
-                        <span className="truncate">{formatEntityId(result.entityId)}</span>
+                        <span className="truncate">{resolveEntityTypeLabel(t, result.entityId)}</span>
                         {presenter?.subtitle ? (
                           <>
                             <span aria-hidden="true">·</span>

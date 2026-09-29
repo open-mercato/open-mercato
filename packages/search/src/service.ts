@@ -10,7 +10,6 @@ import type {
 } from './types'
 import { mergeAndRankResults } from './lib/merger'
 import { searchError } from './lib/debug'
-import { needsSearchResultEnrichment } from './lib/search-result-enrichment'
 
 /**
  * Default merge configuration.
@@ -25,6 +24,38 @@ const DEFAULT_MERGE_CONFIG: ResultMergeConfig = {
  * long enough to skip per-request RTT to remote backends on hot paths.
  */
 const STRATEGY_AVAILABILITY_CACHE_TTL_MS = 2_000
+
+/**
+ * Maximum records indexed at once when bulkIndex falls back to per-record writes
+ * for a strategy that has no bulkIndex implementation (currently the vector
+ * strategy, whose index() performs an embedding-provider round trip per record).
+ * A whole reindex page arrives in one bulkIndex call, so an unbounded fan-out
+ * would burst hundreds of concurrent provider requests from a single job.
+ */
+const BULK_INDEX_FALLBACK_CONCURRENCY = 4
+
+/**
+ * Map items through an async worker with a fixed number of in-flight calls.
+ * Rejects with the first error, matching Promise.all semantics.
+ */
+async function mapWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  if (items.length === 0) return
+
+  let nextIndex = 0
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const currentIndex = nextIndex++
+      if (currentIndex >= items.length) return
+      await worker(items[currentIndex])
+    }
+  })
+
+  await Promise.all(runners)
+}
 
 function normalizeOrganizationFilter(options: SearchOptions): string[] | null {
   const single = typeof options.organizationId === 'string' ? options.organizationId.trim() : ''
@@ -163,8 +194,8 @@ export class SearchService {
   }
 
   /**
-   * Enrich results that are missing presenter data using the configured enricher.
-   * This ensures token-only results get proper titles/subtitles for display.
+   * Recompute configured presenters at request time and fill missing presenter
+   * or navigation data for unconfigured results.
    */
   private async enrichResultsWithPresenter(
     results: SearchResult[],
@@ -174,10 +205,6 @@ export class SearchService {
     // If no enricher configured, return as-is
     if (!this.presenterEnricher) return results
 
-    const hasMissing = results.some(needsSearchResultEnrichment)
-    if (!hasMissing) return results
-
-    // Use the configured presenter enricher
     try {
       return await this.presenterEnricher(results, tenantId, organizationId)
     } catch {
@@ -240,8 +267,11 @@ export class SearchService {
         if (strategy.bulkIndex) {
           return strategy.bulkIndex(records)
         }
-        // Fallback to individual indexing
-        return Promise.all(records.map((record) => this.executeStrategyIndex(strategy, record)))
+        // Fallback to individual indexing, bounded so a strategy without a batch
+        // implementation cannot turn one batch job into hundreds of concurrent writes.
+        return mapWithConcurrency(records, BULK_INDEX_FALLBACK_CONCURRENCY, (record) =>
+          this.executeStrategyIndex(strategy, record),
+        )
       }),
     )
 

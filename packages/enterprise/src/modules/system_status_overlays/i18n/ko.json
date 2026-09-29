@@ -1,0 +1,8 @@
+{
+  "system_status_overlays.enterpriseInfo.description": "이 환경은 엔터프라이즈 에디션으로 실행되고 있습니다.",
+  "system_status_overlays.enterpriseInfo.editionBadge": "엔터프라이즈",
+  "system_status_overlays.enterpriseInfo.editionLabel": "에디션",
+  "system_status_overlays.enterpriseInfo.editionValue": "엔터프라이즈",
+  "system_status_overlays.enterpriseInfo.title": "에디션 및 버전",
+  "system_status_overlays.enterpriseInfo.versionLabel": "버전"
+}

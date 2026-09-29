@@ -24,7 +24,9 @@ export interface NormalizeInboundOptions {
   uid?: number
   /** External identifier of the receiving channel (typically the account's email). */
   accountIdentifier: string
-  /** Fallback timestamp if the parsed message has no Date header. */
+  /** IMAP `INTERNALDATE`: when the server received the message. Wins over the MIME Date header. */
+  receivedAt?: Date
+  /** Used only when neither `receivedAt` nor a usable Date header is available. */
   fallbackDate?: Date
 }
 
@@ -41,6 +43,7 @@ export async function normalizeInboundImapMessage(
     accountIdentifier: options.accountIdentifier,
     fallbackMessageId: `imap:${options.uid ?? 'unknown'}@${options.accountIdentifier}`,
     resolveConversationId: ({ messageId, references }) => references[0] ?? messageId,
+    receivedAt: options.receivedAt,
     fallbackDate: options.fallbackDate,
     channelMetadata: () => ({ uid: options.uid }),
   })

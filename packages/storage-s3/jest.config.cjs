@@ -9,6 +9,7 @@ module.exports = {
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
     '^@open-mercato/core/(.*)$': '<rootDir>/../core/src/$1',
+    '^@open-mercato/queue$': '<rootDir>/../queue/src/index.ts',
     '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
   },
   transform: {

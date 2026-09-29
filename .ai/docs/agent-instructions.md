@@ -17,7 +17,7 @@ Two consequences:
 `yarn agents:check-budget` enforces both, and runs in the CI quality job:
 
 - **Root hard limit** — `AGENTS.md` must stay under `rootMaxBytes` in
-  `scripts/agents-md-budget.baseline.json` (30,720 bytes: the 32 KiB budget minus a 2 KiB reserve
+  `scripts/agents-md-budget.baseline.json` (31,232 bytes: the 32 KiB budget minus a 1.5 KiB reserve
   so nested files still get some of it).
 - **Chain ratchet** — the representative root-to-module chains listed in that baseline are
   measured root-first. A chain still inside the budget may grow freely; once a chain exceeds the
@@ -37,16 +37,19 @@ file; long-form procedure, tables of options and worked examples move into a ref
 ## Where to run validation commands
 
 Decide once per gate sequence, then record the chosen runner in your output (e.g.
-`Runner: docker (docker-compose.fullapp.dev.yml)` or `Runner: local`):
+`Runner: docker (starters/docker/compose.fullapp.dev.yml)` or `Runner: local`):
 
 - If `DOCKER_COMPOSE_FILE` is set, use Docker mode with that file.
-- Otherwise probe, in order, `docker-compose.*dev*.local.yml` (sorted),
-  `docker-compose.fullapp.dev.yml`, `docker-compose.fullapp.yml` with
-  `docker compose -f <file> ps --status running -q app`; the first file with a running `app`
-  container wins → Docker mode.
+- Otherwise probe, in order, `starters/docker/compose.*dev*.local.yml` (sorted), legacy root
+  `docker-compose.*dev*.local.yml` (sorted), `starters/docker/compose.fullapp.dev.yml`,
+  `starters/docker/compose.fullapp.yml` with
+  `docker compose --project-directory . -f <file> ps --status running -q app`; the first file
+  with a running `app` container wins → Docker mode.
 - None running → local mode (`yarn …` on the host).
 
-In Docker mode replace each `yarn X` with `node scripts/docker-exec.mjs X`.
+In Docker mode replace each `yarn X` with `node scripts/docker-exec.mjs X`. Always pass
+`--project-directory .` (repo root) with any `-f starters/docker/...` compose command — it
+anchors `.env` interpolation and relative paths at the repo root.
 
 ## Boundary labels
 
@@ -58,3 +61,16 @@ reorganizing agent rules:
   dependencies, branch/deploy flow, or contract surfaces.
 - `Never` — prohibited actions and unsafe shortcuts.
 - `Validation Commands` — short, real commands agents can run to prove the relevant path.
+
+## Lesson knowledge structure
+
+`.ai/lessons.md` is a retrieval index, not a session-start document. Route the task first, scan its
+catalog rows by exact module plus every matched standalone-harness area and important topic, then
+open only the linked `.ai/lessons/*.md` records that apply. Never bulk-read the lesson directory.
+
+After a correction produces reusable knowledge, update one existing focused record or add one
+kebab-case record with JSON-valued `title`, `modules`, `areas`, and `topics` front matter. Areas use
+the exact standalone router vocabulary; module tags use snake_case; topic tags use kebab-case. Add
+the matching index row, keep cited titles stable, and run `yarn lessons:check`. Hard safety and
+workflow boundaries still belong in the closest `AGENTS.md`; a lesson carries the evidence,
+recurring failure mode, durable rule, and affected surfaces.

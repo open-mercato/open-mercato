@@ -9,6 +9,7 @@ export const analyticsConfig: AnalyticsModuleConfig = {
         tableName: 'sales_orders',
         dateField: 'placed_at',
         defaultScopeFields: ['tenant_id', 'organization_id'],
+        currencyField: 'currencyCode',
       },
       fieldMappings: {
         id: { dbColumn: 'id', type: 'uuid' },
@@ -40,9 +41,11 @@ export const analyticsConfig: AnalyticsModuleConfig = {
         tableName: 'sales_order_lines',
         dateField: 'created_at',
         defaultScopeFields: ['tenant_id', 'organization_id'],
+        currencyField: 'currencyCode',
       },
       fieldMappings: {
         id: { dbColumn: 'id', type: 'uuid' },
+        currencyCode: { dbColumn: 'currency_code', type: 'text' },
         totalGrossAmount: { dbColumn: 'total_gross_amount', type: 'numeric' },
         totalNetAmount: { dbColumn: 'total_net_amount', type: 'numeric' },
         unitGrossPrice: { dbColumn: 'unit_gross_price', type: 'numeric' },
@@ -64,6 +67,7 @@ export const analyticsConfig: AnalyticsModuleConfig = {
         tableName: 'sales_quotes',
         dateField: 'created_at',
         defaultScopeFields: ['tenant_id', 'organization_id'],
+        currencyField: 'currencyCode',
       },
       fieldMappings: {
         id: { dbColumn: 'id', type: 'uuid' },

@@ -69,12 +69,19 @@ export async function POST(req: Request) {
     )
   }
 
+  // Unlike the other write routes this one does not go through `resolveNotificationContext`, so it
+  // never sees the organization scope's `actorTenantId` fallback. A super-admin scoped away from
+  // their own tenant has `auth.tenantId === null` with the real tenant preserved in `actorTenantId`,
+  // and delivery settings are instance-global anyway — reading it here keeps that caller working
+  // while a genuinely tenant-less principal still fails the guard below.
+  const actorTenantId = (auth as { actorTenantId?: string | null }).actorTenantId ?? null
+
   const container = await createRequestContainer()
   try {
     const guarded = await runGuardedNotificationWrite(
       container,
       {
-        tenantId: auth.tenantId ?? '',
+        tenantId: auth.tenantId ?? actorTenantId ?? '',
         organizationId: auth.orgId ?? null,
         userId: auth.sub ?? null,
       },

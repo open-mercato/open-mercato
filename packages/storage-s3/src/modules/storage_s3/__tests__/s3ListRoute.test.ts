@@ -9,6 +9,12 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: async () => ({ tenantId, orgId, sub: null }),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    t: (key: string) => `translated:${key}`,
+  }),
+}))
+
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: (token: string) => {
@@ -69,7 +75,7 @@ describe('storage_s3 list route tenant scoping', () => {
 
     expect(response.status).toBe(403)
     await expect(response.json()).resolves.toEqual({
-      error: 'Access denied: prefix is not scoped to this tenant.',
+      error: 'translated:storage_s3.errors.prefixAccessDenied',
     })
     expect(listObjectsMock).not.toHaveBeenCalled()
   })

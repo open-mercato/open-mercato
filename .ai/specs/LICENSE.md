@@ -8,7 +8,7 @@ Specifications located in `.ai/specs/enterprise/` describe commercial Open Merca
 
 You may evaluate and use these Enterprise Edition features optionally for non-production developer purposes only.
 
-Without a valid commercial license from Catch The Tornado, you may not:
+Without a valid commercial license from Open Mercato sp. z o.o., you may not:
 - use Enterprise Edition features in production,
 - use Enterprise Edition features for commercial purposes,
 - reproduce, redistribute, or sublicense Enterprise Edition code or specifications,

@@ -923,6 +923,22 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "person_entity_id": {
+          "name": "person_entity_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
         "role_ids_json": {
           "name": "role_ids_json",
           "type": "jsonb",
@@ -1805,15 +1821,13 @@
           "unique": true
         },
         {
-          "columnNames": [
-            "tenant_id",
-            "email_hash"
-          ],
-          "composite": true,
-          "constraint": true,
           "keyName": "customer_users_tenant_email_hash_uniq",
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
           "primary": false,
-          "unique": true
+          "unique": false,
+          "expression": "create unique index \"customer_users_tenant_email_hash_uniq\" on \"customer_users\" (\"tenant_id\", \"email_hash\") where \"deleted_at\" is null"
         }
       ],
       "checks": [],

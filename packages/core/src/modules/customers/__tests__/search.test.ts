@@ -1,3 +1,16 @@
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    locale: 'en',
+    t: (key: string, fallbackOrParams?: string | Record<string, unknown>, params?: Record<string, unknown>) => {
+      const fallback = typeof fallbackOrParams === 'string' ? fallbackOrParams : key
+      const values = typeof fallbackOrParams === 'object' && fallbackOrParams ? fallbackOrParams : params
+      let out = fallback
+      if (values) for (const [name, value] of Object.entries(values)) out = out.replace(new RegExp(`{{${name}}}`, 'g'), String(value))
+      return out
+    },
+  }),
+}))
+
 import { searchConfig } from '../search'
 
 describe('customers search config', () => {

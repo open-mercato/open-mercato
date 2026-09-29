@@ -51,6 +51,22 @@ describe('POST /api/communication_channels/webhook/[provider]', () => {
     mockEnqueue.mockResolvedValue(undefined)
   })
 
+  it('rejects an oversized declared body before adapter verification', async () => {
+    const verifyWebhook = jest.fn()
+    mockRegistryGet.mockReturnValue({ verifyWebhook })
+    const request = new Request('http://localhost/api/communication_channels/webhook/test', {
+      method: 'POST',
+      headers: { 'content-length': String(1024 * 1024 + 1) },
+      body: '{}',
+    })
+
+    const response = await POST(request, { params: Promise.resolve({ provider: 'test' }) })
+
+    expect(response.status).toBe(413)
+    expect(verifyWebhook).not.toHaveBeenCalled()
+    expect(mockCreateRequestContainer).not.toHaveBeenCalled()
+  })
+
   it('does not cap provider webhook verification to the newest 50 channels', async () => {
     const candidates = Array.from({ length: 60 }, (_, index) => {
       const n = String(index + 1).padStart(3, '0')

@@ -13,7 +13,7 @@
 import * as React from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { AttachmentLibrary } from '../AttachmentLibrary'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({

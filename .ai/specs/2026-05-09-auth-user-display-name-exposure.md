@@ -88,6 +88,19 @@ The user list payload should include `name` alongside the existing fields so UIs
 Expected shape additions:
 - `name: string | null`
 
+### Profile Self-Read (`GET /api/auth/profile`)
+The admin surfaces above let an operator *set* a display name. The signed-in user's own profile endpoint must also *return* it, or any UI rendering the current user — backend chrome, account blocks, profile menus — is forced back to the email address even when a name is stored.
+
+Response shape addition:
+- `name: string | null`
+
+Expected semantics:
+- return the stored value for the authenticated user
+- normalise blank or whitespace-only values to `null`, so "set but empty" never surfaces as a label
+- unauthenticated requests are unaffected and still return `401`
+
+This is read-only. Whether a user may edit their *own* display name is a separate product decision: the admin route can already set it and the self-service profile form deliberately does not, so that question is left open rather than answered by implication.
+
 ### Internal Serialization
 Any existing serialization helper that already maps `user.name` should remain aligned with the route response shape. The spec does not introduce a second serialization path; it requires the API response to match the established internal representation.
 
@@ -156,6 +169,7 @@ Add or update tests:
 - `POST /api/auth/users`
 - `PUT /api/auth/users`
 - `GET /api/auth/users`
+- `GET /api/auth/profile` — covered by `modules/auth/__integration__/TC-AUTH-PROFILE-NAME-001.spec.ts`
 
 ### UI Paths
 - `/backend/users/create`
@@ -167,6 +181,14 @@ Add or update tests:
 - list users and verify `name` is returned in the payload
 - open create form and confirm `name` is visible
 - open edit form and confirm `name` is visible and prefilled
+
+Profile self-read (`TC-AUTH-PROFILE-NAME-001`, executable):
+- create a user with a display name through the admin API, authenticate **as that user**, and verify
+  the name comes back from `GET /api/auth/profile` — closing the write/read loop that unit tests
+  cannot, since they mock the container, ORM and decryption helper
+- a user with no display name reads back `null`
+- a whitespace-only display name normalises to `null` rather than an empty label
+- an unauthenticated read is rejected with `401`
 
 ## Risks & Impact Review
 
@@ -216,5 +238,26 @@ Add or update tests:
 - [x] UI visibility coverage required
 - [x] Regression coverage for create/edit flows required
 
+## Migration & Backward Compatibility
+
+No migration is required, for applications or for data.
+
+- **`GET /api/auth/profile`** gains `name` as a new response field. `BACKWARD_COMPATIBILITY.md` §7 permits
+  adding optional fields to a response schema; no existing field is removed, renamed, or retyped, and the
+  route URL and method are unchanged.
+- **Consumers**: `auth/backend/auth/profile/page.tsx` and `auth/backend/profile/change-password/page.tsx`
+  widen their local `ProfileResponse` type. Both tolerate the field being absent, so an older client
+  reading a newer server, or the reverse, keeps working.
+- **`__integration__/TC-AUTH-017.spec.ts`** asserts only `profile.email`, so it is unaffected.
+- **No backfill needed.** Users with no stored name receive `null`; blank and whitespace-only values
+  normalise to `null` rather than surfacing an empty label. The column already exists, so there is no
+  schema change.
+- **The admin create/update contract is untouched** by this addition — it already accepted and returned
+  `name`.
+- **Deliberately not changed**: self-service editing of one's own display name. The profile form still
+  does not submit `name`, so no new write path or permission question is introduced here.
+
 ## Changelog
 - 2026-05-09: Drafted spec to expose `User.name` in auth admin UI and user API payloads.
+- 2026-07-31: Review follow-up. `name` is declared `.nullable().optional()` on the response schema so the contract is additive for clients generated against an older schema; the endpoint's OpenAPI description now mentions the display name and roles; and `TC-AUTH-PROFILE-NAME-001` adds executable route-level coverage, listed above.
+- 2026-07-30: Added the Profile Self-Read section and implemented it — `GET /api/auth/profile` now returns `name` (blank normalised to `null`). Reported from a downstream app whose backend chrome could only show an email address. Note for a maintainer: the admin-surface phases of this spec appear already implemented on `develop` (`/api/auth/users` accepts `name` on create/update, returns it in list responses, and supports search by display name), so this file may be a candidate for `.ai/specs/implemented/` — not moved here, since confirming that is a maintainer call.

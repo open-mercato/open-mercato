@@ -37,13 +37,25 @@ export const queryIndexJobSchema = z.object({
 
 export const queryIndexStatusItemSchema = z.object({
   entityId: z.string(),
+  /** Human label. Code-defined entities have no label registry, so this mirrors `entityId`. */
   label: z.string(),
   baseCount: z.number().int().nonnegative().nullable(),
   indexCount: z.number().int().nonnegative().nullable(),
   vectorCount: z.number().int().nonnegative().nullable().optional(),
+  /** The entity declares `buildSource`, i.e. it is configured for vector search. */
   vectorEnabled: z.boolean().optional(),
+  /** Additive: vector indexing can actually run (auto-indexing on, provider reachable, tenant opted in). */
+  vectorIndexingActive: z.boolean().optional(),
+  fulltextCount: z.number().int().nonnegative().nullable().optional(),
+  fulltextEnabled: z.boolean().optional(),
+  /** Additive: the entity has active custom field definitions in the current scope. */
+  hasCustomFields: z.boolean().optional(),
+  /** Aggregate health: query index in sync AND, when vector-configured, vector coverage complete. */
   ok: z.boolean(),
+  /** Additive: query index alone is in sync with the base table, independent of vector/fulltext. */
+  queryIndexOk: z.boolean().optional(),
   job: queryIndexJobSchema,
+  refreshedAt: z.string().datetime().nullable().optional(),
 })
 
 export const queryIndexErrorLogSchema = z.object({

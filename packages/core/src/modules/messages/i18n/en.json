@@ -213,6 +213,8 @@
   "messages.replyBody": "Reply",
   "messages.saveDraft": "Save draft",
   "messages.savingDraft": "Saving draft...",
+  "messages.search.badge.message": "Message",
+  "messages.search.fallback.title": "Message",
   "messages.searchPlaceholder": "Search messages",
   "messages.send": "Send",
   "messages.sendViaEmail": "Also send via email",
@@ -257,5 +259,6 @@
   "messages.visibilityInternal": "Internal",
   "messages.visibilityInternalHint": "Internal messages are sent to selected system users.",
   "messages.visibilityPublic": "Public",
-  "messages.visibilityPublicHint": "Public messages are sent to external email only."
+  "messages.visibilityPublicHint": "Public messages are sent to external email only.",
+  "notifications.categories.messages": "Messages"
 }

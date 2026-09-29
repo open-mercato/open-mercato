@@ -19,6 +19,27 @@ export type ApiCallResult<TReturn> = {
 
 const scopedRequestHeaders = createScopedHeaderStack()
 
+function isAbortError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && (error as { name?: unknown }).name === 'AbortError'
+}
+
+function createAbortError(): Error {
+  if (typeof DOMException === 'function') {
+    return new DOMException('[internal] The operation was aborted.', 'AbortError')
+  }
+  const error = new Error('[internal] The operation was aborted.')
+  error.name = 'AbortError'
+  return error
+}
+
+function resolveAbortSignal(input: RequestInfo | URL, init?: RequestInit): AbortSignal | null {
+  if (init?.signal) return init.signal
+  if (typeof Request !== 'undefined' && input instanceof Request) return input.signal ?? null
+  return null
+}
+
 function mergeHeaders(base: HeadersInit | undefined, extra: Record<string, string>): HeadersInit {
   if (!base) return extra
   if (typeof Headers !== 'undefined' && base instanceof Headers) {
@@ -63,8 +84,15 @@ export async function apiCall<TReturn = Record<string, unknown>>(
       : response
     if (parser) result = await parser(source)
     else result = await readJsonSafe<TReturn>(source, fallback)
-  } catch {
+  } catch (err) {
+    if (isAbortError(err)) throw err
     result = fallback
+  }
+  // `readJsonSafe` swallows the abort that cancels an in-flight body read, so a
+  // request aborted after its response headers arrived would otherwise look like
+  // a successful call that returned an empty payload.
+  if (result == null && resolveAbortSignal(input, init)?.aborted) {
+    throw createAbortError()
   }
   return {
     ok: response.ok,

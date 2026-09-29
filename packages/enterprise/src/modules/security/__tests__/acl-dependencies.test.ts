@@ -67,7 +67,8 @@ describe('security ACL dependency declarations', () => {
     expect(hasFeature(adminFeatures, 'security.sudo.view')).toBe(true)
 
     // employee is an explicit allowlist; it grants profile.view so the
-    // password/manage dependencies stay satisfied for the self-service page
+    // password/manage/MFA dependencies stay satisfied for the self-service page
     expect(hasFeature(employeeFeatures, 'security.profile.view')).toBe(true)
+    expect(hasFeature(employeeFeatures, 'security.mfa.manage')).toBe(true)
   })
 })

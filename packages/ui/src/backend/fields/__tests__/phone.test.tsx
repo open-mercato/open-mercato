@@ -54,6 +54,7 @@ describe('phone custom field', () => {
   it('registers an input and a definition editor under the "phone" kind', () => {
     expect(FieldRegistry.getInput('phone')).toBeDefined()
     expect(FieldRegistry.getDefEditor('phone')).toBeDefined()
+    expect(FieldRegistry.inputRendersOwnError('phone')).toBe(true)
   })
 
   it('wraps PhoneNumberField and forwards the configured default country', () => {
