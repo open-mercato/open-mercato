@@ -34,9 +34,20 @@ describe('calendar editor scoped type catalog', () => {
 
   it('orders selectable types and keeps an unavailable historical selection out of later choices', () => {
     const items = [scopedType('late', 20), scopedType('early', 10), scopedType('hidden', 0, false)]
-    expect(eventTypeOptions(items, 'hidden').map((option) => option.value)).toEqual(['hidden', 'early', 'late'])
-    expect(eventTypeOptions(items, 'early').map((option) => option.value)).toEqual(['early', 'late'])
+    const translate = (key: string, fallback: string) => fallback
+    expect(eventTypeOptions(items, 'hidden', translate).map((option) => option.value)).toEqual(['hidden', 'early', 'late'])
+    expect(eventTypeOptions(items, 'early', translate).map((option) => option.value)).toEqual(['early', 'late'])
     expect(selectedEventType(items, 'removed').historical).toBe(true)
+  })
+
+  it('uses a patched label key for the visible type and preserved historical selection', () => {
+    const meeting = { ...scopedType('meeting', 0), label: 'Meeting', labelKey: 'example.calendar.customerMeeting' }
+    const hidden = { ...scopedType('hidden', 1, false), label: 'Old label', labelKey: 'example.calendar.oldLabel' }
+    const translate = (key: string, fallback: string) => key === 'example.calendar.customerMeeting'
+      ? 'Customer meeting'
+      : key === 'example.calendar.oldLabel' ? 'Previous label' : fallback
+    expect(eventTypeOptions([meeting], 'meeting', translate)[0]?.label).toBe('Customer meeting')
+    expect(eventTypeOptions([meeting, hidden], 'hidden', translate)[0]?.label).toBe('Previous label')
   })
 
   it('uses the effective field behavior for the selected type', () => {

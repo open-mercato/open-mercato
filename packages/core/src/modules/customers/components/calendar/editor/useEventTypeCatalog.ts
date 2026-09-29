@@ -55,14 +55,18 @@ export function selectedEventType(
 export function eventTypeOptions(
   items: readonly ScopedCalendarEventType[],
   selectedKey: string,
+  translate: (key: string, fallback: string) => string,
 ): EditorTypeOption[] {
+  const displayLabel = (item: ScopedCalendarEventType) => item.labelKey
+    ? translate(item.labelKey, item.label)
+    : item.label
   const options = items
     .filter((item) => item.selectable && !item.historical)
     .sort((left, right) => left.behavior.order - right.behavior.order)
-    .map((item) => ({ value: item.key, label: item.label, icon: item.icon ?? null }))
+    .map((item) => ({ value: item.key, label: displayLabel(item), icon: item.icon ?? null }))
   if (!options.some((option) => option.value === selectedKey)) {
     const current = items.find((item) => item.key === selectedKey)
-    options.unshift({ value: selectedKey, label: current?.label ?? selectedKey, icon: current?.icon ?? null })
+    options.unshift({ value: selectedKey, label: current ? displayLabel(current) : selectedKey, icon: current?.icon ?? null })
   }
   return options
 }

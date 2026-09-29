@@ -142,8 +142,8 @@ function EditorBody({
   const conflict = useConflictProbe(open, form, config, isEdit && item ? item.raw.id : null, draftOwnerUserId, conflictScope, currentUserId)
 
   const typeOptions = React.useMemo(
-    () => eventTypeOptions(catalogItems, selectedType),
-    [catalogItems, selectedType],
+    () => eventTypeOptions(catalogItems, selectedType, t),
+    [catalogItems, selectedType, t],
   )
   React.useEffect(() => {
     if (isEdit || !catalogReady) return

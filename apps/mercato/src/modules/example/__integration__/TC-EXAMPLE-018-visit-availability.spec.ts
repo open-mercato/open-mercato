@@ -46,7 +46,7 @@ test.describe('TC-EXAMPLE-018: Visit availability API and direct write guard', (
       expect(catalogResponse.status(), await catalogResponse.text()).toBe(200)
       const catalog = await catalogResponse.json() as { items: Array<{ key: string; label: string; selectable: boolean; panelKey?: string; labelKey?: string }> }
       expect(catalog.items.find((item) => item.key === 'visit')).toMatchObject({ selectable: true, panelKey: 'example.visit' })
-      expect(catalog.items.find((item) => item.key === 'meeting')).toMatchObject({ label: 'Customer meeting', labelKey: 'example.calendar.customerMeeting' })
+      expect(catalog.items.find((item) => item.key === 'meeting')).toMatchObject({ labelKey: 'example.calendar.customerMeeting' })
       expect(catalog.items.find((item) => item.key === 'note')).toBeUndefined()
 
       const query = new URLSearchParams({ startAt: START, endAt: END, resourceIds: resourceId! })
