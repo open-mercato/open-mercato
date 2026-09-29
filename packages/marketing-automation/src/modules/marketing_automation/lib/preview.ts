@@ -44,7 +44,7 @@ export type PreviewEntry =
       at: string
       /** When the journey would carry on. */
       until: string
-      reason: 'wait' | 'quiet_hours' | 'send_time'
+      reason: 'wait' | 'quiet_hours' | 'send_time' | 'paused'
     }
 
 export type PreviewResult = {

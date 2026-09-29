@@ -127,3 +127,47 @@ export function nextOccurrenceOfHour(hour: number, timeZone: string, at: Date): 
   // A timezone we cannot reason about should not park a send forever.
   return at
 }
+
+/**
+ * What the recipient themselves asked for.
+ *
+ * Distinct from the tenant's frequency cap on purpose: one is the shop being careful, the other is a person
+ * being explicit, and the two are not the same promise. Both apply, and the customer's can only ever make
+ * things quieter — a preference centre that let somebody opt INTO more mail than the shop's own cap allows
+ * would be a way to bypass the cap.
+ */
+export type ContactPreference = {
+  /** The customer's own ceiling, messages per week. Null when they have expressed none. */
+  maxPerWeek: number | null
+  /** "Not until then", chosen by the customer. Null when they are not paused. */
+  pausedUntil: Date | null
+}
+
+/** A week, as the window the customer's own cap is expressed in. */
+export const PREFERENCE_WINDOW_HOURS = 168
+
+/**
+ * The customer's cap as a window, or null.
+ *
+ * Evaluated as a SECOND cap rather than merged with the tenant's: merging would mean normalising two windows
+ * into one, and "three a week" plus "two a day" have an exact answer only if both are checked as written.
+ */
+export function preferenceCap(preference: ContactPreference | null | undefined): FrequencyCap | null {
+  if (!preference || preference.maxPerWeek === null) return null
+  if (!Number.isFinite(preference.maxPerWeek) || preference.maxPerWeek <= 0) return null
+  return { maxMessages: preference.maxPerWeek, windowHours: PREFERENCE_WINDOW_HOURS }
+}
+
+/**
+ * Whether the recipient has asked not to be messaged yet.
+ *
+ * A pause DEFERS rather than drops: unlike an unsubscribe, which is "no", this is "not now" — and the engine
+ * already parks a run for as long as an author's wait says, so honouring it needs no new machinery.
+ */
+export function isPaused(preference: ContactPreference | null | undefined, at: Date): boolean {
+  if (!preference?.pausedUntil) return false
+  return preference.pausedUntil.getTime() > at.getTime()
+}
+
+/** The largest pause a customer may choose. Beyond a year, "pause" is an unsubscribe with extra steps. */
+export const MAX_PAUSE_DAYS = 365

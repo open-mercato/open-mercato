@@ -1,6 +1,14 @@
 import { planSteps } from './chain-planner.js'
 import { flattenSteps } from './split.js'
-import { isFrequencyCapped, isWithinQuietHours, nextAllowedSendTime, nextOccurrenceOfHour } from './gates.js'
+import {
+  isFrequencyCapped,
+  isPaused,
+  isWithinQuietHours,
+  nextAllowedSendTime,
+  nextOccurrenceOfHour,
+  preferenceCap,
+} from './gates.js'
+import type { ContactPreference } from './gates.js'
 import type { FrequencyCap, QuietHoursWindow } from './gates.js'
 import type { StepHandler } from './registry.js'
 import type { AutomationContext, CampaignStep, EngineLogger, StepOutcome } from './types.js'
@@ -37,7 +45,7 @@ export type RunState = {
  */
 export type RunTransition =
   | { kind: 'completed'; stepLog: StepOutcome[]; context: AutomationContext }
-  | { kind: 'waiting'; resumeAt: Date; nextStepIndex: number; stepLog: StepOutcome[]; context: AutomationContext; reason: 'wait' | 'quiet_hours' | 'send_time' }
+  | { kind: 'waiting'; resumeAt: Date; nextStepIndex: number; stepLog: StepOutcome[]; context: AutomationContext; reason: 'wait' | 'quiet_hours' | 'send_time' | 'paused' }
   /**
    * A step threw.
    *
@@ -70,6 +78,13 @@ export type ExecutorSideEffects<TDeps> = {
    * permission: deferring a message the customer asked not to receive would only send it later.
    */
   isChannelSuppressed(subjectEntityId: string | null | undefined, channel: string): Promise<boolean>
+  /**
+   * What the recipient asked for themselves: their own cap and any pause.
+   *
+   * A separate effect from the policy because it is the CUSTOMER's instruction rather than the campaign's
+   * configuration, and the two are read from different places for different reasons.
+   */
+  loadContactPreference(subjectEntityId: string | null | undefined): Promise<ContactPreference | null>
   /** The subject's own timezone; quiet hours are meaningless in server time. */
   resolveTimeZone(subjectEntityId: string | null | undefined): Promise<string>
   /**
@@ -159,6 +174,14 @@ export async function executeRun<TDeps>(
         continue
       }
 
+      /**
+       * The recipient's own instructions, read once for both checks below.
+       *
+       * Their pause defers and their cap drops, which mirrors the campaign's own gates: a timing instruction
+       * moves the message, a volume limit means this particular message does not go.
+       */
+      const preference = await effects.loadContactPreference(run.subjectEntityId)
+
       const timeZone = await effects.resolveTimeZone(run.subjectEntityId)
 
       /**
@@ -176,15 +199,52 @@ export async function executeRun<TDeps>(
       }
       sendAt = nextAllowedSendTime(policy.quietHours, timeZone, sendAt)
 
+      /**
+       * A customer pause outranks both, because it is the only one of the three the CUSTOMER set.
+       *
+       * Applied after the other two rather than before: if their pause ends inside quiet hours, the message
+       * still must not arrive at 3am, and taking the later of the two instants is the only reading that keeps
+       * both promises.
+       */
+      if (isPaused(preference, sendAt) && preference?.pausedUntil) {
+        sendAt = new Date(Math.max(sendAt.getTime(), preference.pausedUntil.getTime()))
+        sendAt = nextAllowedSendTime(policy.quietHours, timeZone, sendAt)
+      }
+
       if (sendAt.getTime() > now.getTime()) {
         // Deferred, not dropped — and the run resumes at THIS step so the message still goes.
         return {
           kind: 'waiting',
-          reason: isWithinQuietHours(policy.quietHours, timeZone, now) ? 'quiet_hours' : 'send_time',
+          reason: isPaused(preference, now)
+            ? 'paused'
+            : isWithinQuietHours(policy.quietHours, timeZone, now) ? 'quiet_hours' : 'send_time',
           resumeAt: sendAt,
           nextStepIndex: index,
           stepLog,
           context,
+        }
+      }
+
+      /**
+       * The recipient's own cap, checked as a second cap rather than merged with the campaign's.
+       *
+       * "Three a week" and the shop's "two a day" both have exact answers only when each is evaluated in its
+       * own window; merging them would mean normalising two windows into one and getting a different number
+       * from either.
+       */
+      const ownCap = preferenceCap(preference)
+      if (ownCap && run.subjectEntityId) {
+        const since = new Date(now.getTime() - ownCap.windowHours * 3_600_000)
+        const alreadySent = await effects.countSendsSince(run.subjectEntityId, since)
+        if (isFrequencyCapped(alreadySent, ownCap)) {
+          await effects.recordSend({
+            channel: handler.channel,
+            status: 'suppressed',
+            stepId: step.id,
+            suppressionReason: 'preference_cap',
+          })
+          stepLog.push(outcome(step, 'skipped', now, 'recipient frequency preference'))
+          continue
         }
       }
 

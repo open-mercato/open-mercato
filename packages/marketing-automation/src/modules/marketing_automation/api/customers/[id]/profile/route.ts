@@ -15,6 +15,7 @@ import { recommendForSubject } from '../../../../lib/recommendations.js'
 import { loadReferralSummary, loadReferralUrlTemplate } from '../../../../lib/referrals.js'
 import { computeSegmentSlugs, loadSegmentDefinitions, namesForSlugs } from '../../../../lib/segments.js'
 import { loadWatchSummaries } from '../../../../lib/product-watches.js'
+import { loadPreferenceSummary } from '../../../../lib/preferences.js'
 import { buildSubjectDocument } from '../../../../lib/subject-document.js'
 import { loadConsentState } from '../../../../lib/consent.js'
 import { loadLatestNps, npsBand } from '../../../../lib/survey.js'
@@ -124,6 +125,14 @@ export async function GET(req: Request) {
    */
   const watches = await loadWatchSummaries(em, scope, customerId)
 
+  /**
+   * What the customer asked for themselves, beside the consent they gave.
+   *
+   * The two are different facts and the screen shows both: "subscribed, but at most one a week and paused
+   * until March" is a customer nobody should be surprised by.
+   */
+  const preference = await loadPreferenceSummary(em, scope, customerId)
+
   const referral = await loadReferralSummary(
     em,
     scope,
@@ -196,6 +205,8 @@ export async function GET(req: Request) {
      * "not recorded" rather than implying a decision the customer never made.
      */
     consent: { email: emailConsent },
+    /** Their own limits, set in the portal preference centre. Nulls mean they have expressed none. */
+    preference,
     /** Null when they have never answered, which the screen states rather than showing a zero. */
     nps: nps ? { score: nps.score, band: npsBand(nps.score), answeredAt: nps.answeredAt } : null,
     messages: { sent, suppressed, opened: engagement.opened, clicked: engagement.clicked },

@@ -1,10 +1,14 @@
 import {
+  MAX_PAUSE_DAYS,
+  PREFERENCE_WINDOW_HOURS,
   frequencyWindowStart,
   isFrequencyCapped,
+  isPaused,
   isWithinQuietHours,
   localHourIn,
   nextAllowedSendTime,
   nextOccurrenceOfHour,
+  preferenceCap,
 } from '../gates'
 
 describe('isFrequencyCapped', () => {
@@ -150,5 +154,39 @@ describe('nextOccurrenceOfHour', () => {
   test('an unknown timezone falls back rather than deferring indefinitely', () => {
     const at = new Date('2026-09-28T07:30:00.000Z')
     expect(nextOccurrenceOfHour(9, 'Not/AZone', at).getTime()).toBeGreaterThanOrEqual(at.getTime())
+  })
+})
+
+describe('recipient contact preferences', () => {
+  const at = new Date('2026-09-29T12:00:00.000Z')
+
+  test('a preference with no cap produces no cap', () => {
+    expect(preferenceCap(null)).toBeNull()
+    expect(preferenceCap({ maxPerWeek: null, pausedUntil: null })).toBeNull()
+    // Zero or negative is not "unlimited" and not "never" — it is data nobody meant, so it is ignored.
+    expect(preferenceCap({ maxPerWeek: 0, pausedUntil: null })).toBeNull()
+    expect(preferenceCap({ maxPerWeek: -3, pausedUntil: null })).toBeNull()
+  })
+
+  test('a cap is expressed over a week, because that is what the customer chose', () => {
+    expect(preferenceCap({ maxPerWeek: 3, pausedUntil: null })).toEqual({ maxMessages: 3, windowHours: PREFERENCE_WINDOW_HOURS })
+    expect(PREFERENCE_WINDOW_HOURS).toBe(168)
+  })
+
+  test('a pause is only a pause until it expires', () => {
+    expect(isPaused({ maxPerWeek: null, pausedUntil: new Date(at.getTime() + 1000) }, at)).toBe(true)
+    expect(isPaused({ maxPerWeek: null, pausedUntil: new Date(at.getTime() - 1000) }, at)).toBe(false)
+    expect(isPaused({ maxPerWeek: null, pausedUntil: null }, at)).toBe(false)
+    expect(isPaused(null, at)).toBe(false)
+  })
+
+  test('the pause ceiling exists so a pause cannot quietly become an unsubscribe', () => {
+    expect(MAX_PAUSE_DAYS).toBe(365)
+  })
+
+  test('the customer cap is evaluated by the same capping rule as the campaign one', () => {
+    const cap = preferenceCap({ maxPerWeek: 2, pausedUntil: null })
+    expect(isFrequencyCapped(1, cap)).toBe(false)
+    expect(isFrequencyCapped(2, cap)).toBe(true)
   })
 })

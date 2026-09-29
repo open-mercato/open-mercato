@@ -206,7 +206,7 @@ new home.
 | X-05 | MCP tools for campaigns: list, inspect, estimate audience, enable, from any MCP client | Makes the module scriptable by external assistants with no new API design — ✅ 2026-09-28 — six tools; none can enable a campaign, asserted by a test | S | `registerMcpTool` |
 | X-06 | Charts on the campaign dashboard: sends, opens, clicks, revenue over time | The original has tiles and tables only; the platform ships a chart family — ✅ 2026-09-28 — daily series generated in SQL so empty days are zeroes, not gaps | S | `ui` chart components |
 | X-07 | In-app notifications and progress for long operations (bulk enrolment, segment actions) | Operators can watch work finish instead of guessing | S | `core:progress`, notifications, DOM event bridge |
-| X-08 | Customer-portal preference centre: the recipient manages their own consent and frequency | Fewer unsubscribes, and consent that is provably first-party | M | customer portal + portal auth |
+| X-08 | Customer-portal preference centre: the recipient manages their own consent and frequency | Fewer unsubscribes, and consent that is provably first-party — ✅ 2026-09-29 — the middle ground consent lacks: "at most N a week" and "pause for 30/90/180 days" beside unsubscribe. The engine honours both as a SECOND cap (its own weekly window, never merged with the campaign's) and a deferral — a pause is "not now", so it moves the message rather than dropping it, while a cap drops it like the campaign's own. The subject always comes from the portal session and never from the request, or the page would let anybody unsubscribe anybody |
 | X-09 | Segment membership in the search index, so campaigns can target fulltext and vector queries | Semantic audiences ("customers who bought something like X") are impossible in the original | L | `search` module |
 | X-10 | Workflow bridge: let a campaign step start a platform workflow, and a workflow start a campaign | Marketing and operations stop being two disconnected automations | M | `workflows` module |
 | X-11 | Optimal send-time per recipient learned from their own open history | The original has a send-time gate but no learning; tracking data now makes it possible — ✅ 2026-09-28 — per-customer, minimum five opens, always subordinate to quiet hours | M | 3.1 tracking events |
@@ -257,8 +257,8 @@ Value per unit of effort, given what already exists:
 4. **X-14, B-19** — journey preview and real test send. Author confidence, and the two best things to show on a demo.
 5. **B-13, X-01** — product-level and geographic targeting. The two dimensions authors reach for next.
 6. **X-04, X-05, X-06** — agent authoring, MCP tools, charts. Each one is small here and each one is impossible in the original.
-7. **B-27, X-03, X-08** — setup wizard, per-channel targeting, portal preference centre. All
-   unblocked, all additive. (B-06 price drops and B-26 lead routing landed 2026-09-29; B-06's
+7. **B-27, X-03** — setup wizard and per-channel targeting. Both unblocked, both additive.
+   (X-08 the portal preference centre landed 2026-09-29.) (B-06 price drops and B-26 lead routing landed 2026-09-29; B-06's
    back-in-stock half is blocked on the availability contract.) (X-07 progress arrived with B-11: bulk segment actions are
    `ProgressJob`s on the shared top bar.)
    (B-07 NPS, B-15 GDPR, B-17 content blocks, B-08 recommendations, B-18 inbound hooks, B-24 AI copy

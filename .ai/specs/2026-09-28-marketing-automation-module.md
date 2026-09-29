@@ -775,6 +775,21 @@ eight-way concurrent worker and is now backed by a partial unique index on the a
 
 ## Changelog
 
+- **2026-09-29** — X-08: the customer-portal preference centre. A signed-in customer can subscribe or
+  unsubscribe, cap themselves at N messages a week, or pause for 30/90/180 days — the middle ground consent
+  does not have, and the reason a preference centre reduces unsubscribes rather than collecting them: somebody
+  who only wanted less mail has otherwise had one button, and it says stop. The engine honours both new
+  instructions: the customer's cap is evaluated as a SECOND cap in its own weekly window rather than merged
+  with the campaign's, because "three a week" and a shop's "two a day" only have exact answers as written, and
+  a preference may only ever make things quieter; the pause DEFERS at the same step rather than dropping,
+  because it is "not now" and not "no" — and when a pause ends inside quiet hours the later instant wins, since
+  both are promises. The subject always comes from the portal session and never from the request: a preference
+  centre that took an id from its input would let anybody unsubscribe anybody. Consent written here is recorded
+  with the `customer` source on the same append-only trail as a one-click unsubscribe, which is what makes it
+  provably first-party. What reads it: the send gate, and the customer profile, which shows what the person
+  asked for beside the consent they gave — "subscribed, but at most one a week and paused until March" is a
+  customer nobody should be surprised by. 699 unit tests, 141 integration tests.
+
 - **2026-09-29** — Backlog B-26: lead routing. An `assign_owner` step gives a new lead to the rep in the
   configured pool who currently carries the fewest — **least-loaded wins rather than round robin**: a stored
   cursor needs a table, has to be reset whenever the pool changes, keeps feeding a rep who has been away for a

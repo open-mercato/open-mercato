@@ -37,6 +37,8 @@ function makeEffects(handlers: StepHandler<Deps>[], over: Partial<ExecutorSideEf
     countSendsSince: jest.fn().mockResolvedValue(0),
     recordSend: jest.fn().mockResolvedValue(undefined),
     isChannelSuppressed: jest.fn().mockResolvedValue(false),
+    // No preference expressed: the overwhelmingly common case, and the one every other test assumes.
+    loadContactPreference: jest.fn().mockResolvedValue(null),
     resolveTimeZone: jest.fn().mockResolvedValue('UTC'),
     resolvePreferredSendHour: jest.fn().mockResolvedValue(null),
     logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
@@ -412,5 +414,101 @@ describe('executeRun — consent', () => {
     const transition = await executeRun(run(), [step('s1', 'send_email')], noPolicy, deps, effects)
     expect(transition.kind).toBe('completed')
     expect(handler.execute).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('executeRun — recipient preferences', () => {
+  const sender = (): StepHandler<Deps> => ({
+    ...tagHandler(),
+    type: 'send_email',
+    channel: 'email',
+    execute: jest.fn().mockResolvedValue({ status: 'done', detail: 'sent' }),
+  })
+
+  test('a pause defers the message to when the customer said, at the same step', async () => {
+    const pausedUntil = new Date(now.getTime() + 3 * 86_400_000)
+    const handler = sender()
+    const transition = await executeRun(
+      run(),
+      [step('s1', 'send_email')],
+      noPolicy,
+      deps,
+      makeEffects([handler], {
+        loadContactPreference: jest.fn().mockResolvedValue({ maxPerWeek: null, pausedUntil }),
+      }),
+    )
+    expect(transition.kind).toBe('waiting')
+    if (transition.kind === 'waiting') {
+      // Deferred, not dropped: a pause is "not now", unlike an unsubscribe.
+      expect(transition.reason).toBe('paused')
+      expect(transition.resumeAt.getTime()).toBe(pausedUntil.getTime())
+      expect(transition.nextStepIndex).toBe(0)
+    }
+    expect(handler.execute).not.toHaveBeenCalled()
+  })
+
+  test('an expired pause does not hold the message back', async () => {
+    const handler = sender()
+    const transition = await executeRun(
+      run(),
+      [step('s1', 'send_email')],
+      noPolicy,
+      deps,
+      makeEffects([handler], {
+        loadContactPreference: jest.fn().mockResolvedValue({
+          maxPerWeek: null,
+          pausedUntil: new Date(now.getTime() - 1000),
+        }),
+      }),
+    )
+    expect(transition.kind).toBe('completed')
+    expect(handler.execute).toHaveBeenCalled()
+  })
+
+  test('the recipient own cap drops the message and records why', async () => {
+    const recordSend = jest.fn().mockResolvedValue(undefined)
+    const handler = sender()
+    const transition = await executeRun(
+      run(),
+      [step('s1', 'send_email')],
+      noPolicy,
+      deps,
+      makeEffects([handler], {
+        loadContactPreference: jest.fn().mockResolvedValue({ maxPerWeek: 2, pausedUntil: null }),
+        countSendsSince: jest.fn().mockResolvedValue(2),
+        recordSend,
+      }),
+    )
+    expect(transition.kind).toBe('completed')
+    expect(handler.execute).not.toHaveBeenCalled()
+    // Dropped like the campaign cap — a volume limit means this message does not go — and visible in
+    // reporting under its own reason rather than the campaign's.
+    expect(recordSend).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'suppressed',
+      suppressionReason: 'preference_cap',
+    }))
+  })
+
+  test('the recipient cap is measured over their week, not the campaign window', async () => {
+    const countSendsSince = jest.fn().mockResolvedValue(0)
+    await executeRun(
+      run(),
+      [step('s1', 'send_email')],
+      noPolicy,
+      deps,
+      makeEffects([sender()], {
+        loadContactPreference: jest.fn().mockResolvedValue({ maxPerWeek: 3, pausedUntil: null }),
+        countSendsSince,
+      }),
+    )
+    const since = countSendsSince.mock.calls[0][1] as Date
+    expect(now.getTime() - since.getTime()).toBe(168 * 3_600_000)
+  })
+
+  test('no preference means nothing extra is asked of the database', async () => {
+    const countSendsSince = jest.fn().mockResolvedValue(0)
+    await executeRun(run(), [step('s1', 'send_email')], noPolicy, deps, makeEffects([sender()], { countSendsSince }))
+    // With no cap of either kind there is nothing to count, and a query per send nobody wanted is pure cost.
+    expect(countSendsSince).not.toHaveBeenCalled()
   })
 })

@@ -1129,3 +1129,51 @@ export class MarketingProductWatch {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 }
+
+/**
+ * What the recipient asked for themselves.
+ *
+ * Separate from consent, which is permission, and from the campaign's send policy, which is the shop being
+ * careful. This is a person saying "less often" or "not until March" — the middle ground whose absence is why
+ * people unsubscribe instead.
+ */
+@Entity({ tableName: 'marketing_contact_preferences' })
+@Unique({ name: 'marketing_contact_preference_uniq', properties: ['tenantId', 'organizationId', 'subjectEntityId'] })
+export class MarketingContactPreference {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'subject_entity_id', type: 'uuid' })
+  subjectEntityId!: string
+
+  /** Their own ceiling, messages per week. Null when they have expressed none. */
+  @Property({ name: 'max_per_week', type: 'int', nullable: true })
+  maxPerWeek?: number | null
+
+  /** "Not until then". A pause defers messages; it is not an unsubscribe. */
+  @Property({ name: 'paused_until', type: Date, nullable: true })
+  pausedUntil?: Date | null
+
+  /**
+   * Where the preference came from — `portal` when the customer set it themselves.
+   *
+   * Worth recording for the same reason consent records its source: "provably first-party" is a claim somebody
+   * may have to substantiate, and a preference set by an operator is a different fact.
+   */
+  @Property({ type: 'text' })
+  source!: string
+
+  @Property({ name: 'created_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
+  createdAt!: Date
+
+  @Property({ name: 'updated_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt!: Date
+}

@@ -33,6 +33,7 @@ import { buildSubjectDocument, loadSubjectTimeZone } from './subject-document.js
 import type { SubjectDocument } from './engine/types.js'
 import { reportError } from '@open-mercato/telemetry'
 import { loadSegmentDefinitions } from './segments.js'
+import { loadContactPreference } from './preferences.js'
 
 /**
  * Per-subject run budget, across every campaign, inside {@link RUN_BUDGET_WINDOW_MINUTES}.
@@ -99,6 +100,9 @@ export function buildEffects(
       // backdate every send to when the job began and skew the frequency-cap window.
       sentAt: new Date(),
     }),
+    loadContactPreference: async (subjectEntityId) => (subjectEntityId
+      ? loadContactPreference(deps.em, deps.scope, subjectEntityId)
+      : null),
     isChannelSuppressed: async (subjectEntityId, channel) => {
       if (!subjectEntityId) return false
       // Only the channels consent is modelled for; an unknown channel is not silently refused.

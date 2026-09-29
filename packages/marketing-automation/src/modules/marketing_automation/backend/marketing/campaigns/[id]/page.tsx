@@ -66,7 +66,7 @@ type PaletteStep = {
 
 type PreviewEntry =
   | { kind: 'step'; at: string; stepId: string; type: string; status: string; detail: string | null; channel: string | null }
-  | { kind: 'pause'; at: string; until: string; reason: 'wait' | 'quiet_hours' | 'send_time' }
+  | { kind: 'pause'; at: string; until: string; reason: 'wait' | 'quiet_hours' | 'send_time' | 'paused' }
 
 type JourneyPreview = {
   entered: boolean

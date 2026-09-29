@@ -137,6 +137,14 @@ its own. Spec:
   which lane a subject takes is decided by the engine, not by an edge somebody drew — an author who
   can draw an edge has been promised a topology it cannot run. Edges are derived; order lives in the
   definition arrays.
+- Never take the subject of a portal route from the request. It comes from the portal session, or the preference
+  centre lets anybody unsubscribe anybody.
+- Never merge the recipient's own frequency preference into the campaign's cap. Each is evaluated in its own
+  window — "three a week" and "two a day" have exact answers only as written — and the customer's can only ever
+  make things quieter, never louder.
+- Never treat a customer pause as an unsubscribe. A pause is "not now", so it DEFERS at the same step; an
+  unsubscribe is "no", so it drops. And when a pause ends inside quiet hours, take the later instant: both are
+  promises.
 - Never reassign a lead that already has an owner unless explicitly asked. Taking a customer away from the rep
   who has been talking to them is the most damaging thing routing can do, and a re-entry would do it on every
   pass if the default were the other way.
@@ -289,6 +297,8 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | a queued bulk action with real progress | `workers/segment-action.ts`, `api/segments/[id]/actions/` |
 | price watches, the drop rules and the scan | `lib/engine/price-watch.ts`, `lib/product-watches.ts` |
 | lead routing and the weekly rep digest | `lib/engine/lead-routing.ts`, `lib/lead-digest.ts` |
+| what the recipient asked for, and the gate | `lib/preferences.ts`, `lib/engine/gates.ts` → preference |
+| the only PORTAL route in the module | `api/portal/preferences/` |
 | a step that writes into the run context | `steps/issue-referral-code.ts` |
 | enrolment shared by events and sweeps | `lib/dispatcher.ts` → `startCampaignForSubject` |
 | trigger context hydration | `lib/trigger-catalog.ts` |
