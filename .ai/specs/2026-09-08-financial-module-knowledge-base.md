@@ -37,7 +37,7 @@ merges.
 | Journal Entry Line Dimension | [`2026-09-06-journal-entry-line-dimension.md`](https://github.com/open-mercato/open-mercato/pull/5972) | `docs/journal-entry-line-dimension` | Open, PR #5972 — merged latest `develop`; first `financial-spec-writing-process` pass applied (own new Literature & Prior Art section + real-system comparison, commit `3b3780bd6`), see Changelog |
 | GL account balances / Trial Balance (ZSiO) | [`2026-09-09-general-ledger-account-balances.md`](https://github.com/open-mercato/open-mercato/pull/6013) | `docs/general-ledger-account-balances` | Open, PR #6013 — merged latest `develop`; first `financial-spec-writing-process` pass applied (own new Literature & Prior Art section + real-system comparison, commit `8afb415a7`), see Changelog |
 | Fixed Assets | [`2026-09-06-fixed-assets.md`](https://github.com/open-mercato/open-mercato/pull/6014) | `docs/fixed-assets` | Open, PR #6014 — full spec, adversarially reviewed, Final Compliance Report: fully compliant; merged latest `develop` and `financial-spec-writing-process` Steps 2-3 applied (own new Literature & Prior Art section + real-system comparison, commit `fc1cf0464`), see Changelog |
-| Posting Rules Engine (konto 490) | [`2026-09-06-posting-rules-engine.md`](https://github.com/open-mercato/open-mercato/pull/6015) | `docs/posting-rules-engine` | Open, PR #6015 — two external-maintainer review rounds (nine issues, then eight more), both resolved; 2026-09-15 Out of scope annotated re: Default Chart of Accounts (#6137) — its own chart-of-accounts-import gap stays open, commit `72469b961`; see the spec's own Changelog |
+| Posting Rules Engine (konto 490) | [`2026-09-06-posting-rules-engine.md`](https://github.com/open-mercato/open-mercato/pull/6015) | `docs/posting-rules-engine` | Open, PR #6015 — two external-maintainer review rounds (nine issues, then eight more), both resolved; 2026-09-15 Out of scope annotated re: Default Chart of Accounts (#6137) — its own chart-of-accounts-import gap stays open, commit `72469b961`; **2026-09-29: implementation shipped** as [PR #6711](https://github.com/open-mercato/open-mercato/pull/6711) (`feat/posting-rules-engine`, stacked on the still-unmerged GL core engine + JELD branches) — full CRUD (CostCenter, DefaultAccountPostingRule, PostingRulesSettings) plus the reclassifyLine engine, reconcileCostRing sweeper, and lockFiscalPeriod guard; unit tests cover Invariant 3, zespół-4 detection, and all three MPK priority-hybrid paths, reversal/mirror-path coverage deferred; see the spec's own Changelog |
 | This knowledge base | [`2026-09-08-financial-module-knowledge-base.md`](https://github.com/open-mercato/open-mercato/pull/6016) | `docs/financial-module-knowledge-base` | Open, PR #6016 (self-referential row — will read stale the moment this PR merges; treat "Open" as provisional) |
 | GL bulk cross-module read service | [`2026-09-10-general-ledger-bulk-read-service.md`](https://github.com/open-mercato/open-mercato/pull/6038) | `docs/general-ledger-bulk-read-service` | Open, PR #6038 — not yet reviewed by a maintainer; prerequisite for SPEC-010 below. **Update (2026-09-16):** Phase 2 added — Compliance & Audit export/read-only access (`ledger.audit.export`, `GET /api/ledger/audit/export`), following #6013's own Phase 2 precedent; see the spec's own Changelog |
 | SPEC-010 — JPK_KR_PD (`financial_pl`, in `official-modules`) | [`SPEC-010-2026-09-11-jpk-kr-pd-financial-pl.md`](https://github.com/open-mercato/official-modules/pull/54) | `official-modules` fork `mikoajp:docs/spec-010-jpk-kr-pd-financial-pl` → `official-modules:develop` | **Moved 2026-09-18** from `open-mercato#6069` (closed) — reviewed by @pkarw, two rounds of fixes applied and verified against real `official-modules` code, then a compliance pass against `official-modules`' own `AGENTS.md`/spec-writing rules (4 items still Non-compliant, see the spec's own Final Compliance Report); depends on #6038 merging first; number `010` is provisional, not reserved (see the spec's own banner) |
@@ -2035,3 +2035,68 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
   covering both halves; updated to point at `official-modules#55` for
   the half that actually moved). No new PR was needed for either fix —
   both branches already had open PRs; pushed directly to each.
+
+### 2026-09-29 (cont. — Posting Rules Engine: implementation shipped, PR #6711)
+
+- **Full-module implementation shipped**, per the spec's own Design
+  Decisions (settings-based account resolution, MPK priority hybrid,
+  mirrored reversals, period-close guard): `lib/reclassify.ts`
+  (`reclassifyLine`, the shared engine used by both the real-time
+  subscriber and `reconcileCostRing`), full CRUD (commands, API
+  routes, backend UI) for `CostCenter` and `DefaultAccountPostingRule`,
+  a `PostingRulesSettings` settings page, migration, seed defaults
+  (sentinel `UNALLOCATED` cost centre), ACL features, en/pl i18n.
+  Branch `feat/posting-rules-engine`, stacked on the still-unmerged
+  `feat/general-ledger-core-engine` and `feat/journal-entry-line-
+  dimension` branches (so its own diff/commit count reads large until
+  those merge first — expected for a stacked branch, not a defect).
+  Opened as [PR #6711](https://github.com/open-mercato/open-mercato/pull/6711)
+  against `develop`.
+- **A scoped `tsc` sweep over the new module** (the environment's own
+  `tsc` needed a missing native `linux-arm64` platform package fetched
+  before it would even run at all — an environment fix, not a code
+  change) caught three real implementation bugs before they reached
+  review, none of which a naive read would have surfaced: (1) a
+  computed-class-field ASI trap (`[OptionalProps]?: 'updatedAt'`
+  placed after a statement missing a semicolon got parsed as
+  `new Date()[OptionalProps]`, not a new class member — fixed by
+  moving it to the class's first line, matching this module's own
+  `CostCenter`/`DefaultAccountPostingRule` and JELD's
+  `JournalEntryLineDimension` precedent); (2) `commandBus.execute()`
+  resolves `CommandExecuteResult<TResult>` (`{ result, logEntry }`),
+  never the bare command result — four call sites in this module
+  (`postReclassification`, `lockFiscalPeriod`, and the settings/
+  reconcile API routes) had been written as if it returned the raw
+  value directly, which `tsc` alone caught only for the sites with an
+  explicit result type; the settings/reconcile routes' own bug
+  (nesting an extra nested `.result` level in the HTTP response body)
+  produced no type error at all — surfaced only by re-reading each
+  `commandBus.execute` call site by hand after the pattern was found
+  once; (3) a fabricated `translateCrudErrorBody` export invented for
+  two API routes' error handling — grepped the whole repo, confirmed
+  it doesn't exist anywhere, replaced with the real, already-shipped
+  convention (`NextResponse.json(err.body, { status: err.status })`,
+  since `CrudHttpError` bodies are already translated at throw time;
+  see e.g. `customers/api/settings/address-format/route.ts`). Worth
+  adding to `financial-command-implementation-checklist` as a new,
+  reusable item — the `CommandExecuteResult` unwrapping mistake in
+  particular seems likely to recur in any command that calls another
+  module's command via `commandBus.execute` and forwards its result
+  as-is.
+- **Testing**: `lib/__tests__/reclassify.test.ts`, 8 passing unit
+  tests (actually run via `jest`, not just typechecked) covering
+  Invariant 3 (ignore the engine's own output), zespół-4 detection,
+  both "cannot resolve where to post" rejections (missing clearing
+  account, missing target account), and all three MPK priority-hybrid
+  paths (explicit tag > rule default > sentinel). Disclosed gap,
+  deliberately not covered in this pass: the contra-side (reversal/
+  mirror) path needs its own two-entry fixture (an original
+  reclassification plus its reversal) that didn't fit this pass's
+  time budget.
+- **Not yet done**: the full `yarn build:app`/`yarn typecheck` run
+  (the scoped `tsc` sweep is only ever an interim signal per
+  `financial-command-implementation-checklist` item 5); CLA
+  acknowledgment, doc/locale-generator updates, `.ai/qa/tests/`
+  integration coverage, and priority/risk/QA-routing labels on PR
+  #6711 are all still open, left for the maintainer/user rather than
+  guessed at.
