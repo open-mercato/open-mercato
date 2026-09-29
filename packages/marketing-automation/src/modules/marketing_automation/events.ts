@@ -21,6 +21,21 @@ const events = [
   // Something outside the platform asking a campaign to run
   { id: 'marketing_automation.inbound.received', label: 'Inbound Hook Received', entity: 'inbound_hook', category: 'lifecycle' },
 
+  /**
+   * A campaign step asking the outside world to do something.
+   *
+   * **This is how `send_webhook` works, and the shape is the platform's rather than a choice.** There is no
+   * outbound-webhook service to call: the `webhooks` module subscribes to EVERY declared event and delivers it
+   * to whichever endpoints an operator subscribed, as `{ type, timestamp, data }`. So a step that emits this is
+   * a step that can reach any endpoint, with no new API to design and with the module's retries, signing and
+   * delivery log all applying unchanged.
+   *
+   * The author names a `topic` inside the payload so one endpoint can tell two campaigns apart. `tenantId` in
+   * the payload is not decoration either — the outbound dispatcher reads the scope from the payload and silently
+   * drops anything without it.
+   */
+  { id: 'marketing_automation.campaign.signal', label: 'Campaign Signal (outbound webhook)', entity: 'campaign', category: 'lifecycle' },
+
   // Dispatch lifecycle
   { id: 'marketing_automation.dispatch.skipped', label: 'Dispatch Skipped', entity: 'campaign', category: 'lifecycle' },
   { id: 'marketing_automation.action.executed', label: 'Campaign Action Executed', entity: 'campaign_action', category: 'lifecycle' },

@@ -96,6 +96,14 @@ function invalidGraph(code: string, error: string, detail?: string): CrudHttpErr
 const STEP_EMITTED_EVENTS: Record<string, string[]> = {
   add_tag: ['customers.tag.assigned'],
   add_points: ['marketing_automation.customer.score_changed'],
+  /**
+   * `send_signal` emits its own event, which nothing triggers on TODAY.
+   *
+   * Recorded anyway, because the cost of recording it is one line and the cost of forgetting is a campaign that
+   * drives itself the day somebody adds `campaign.signal` to the trigger catalog — and that day, nothing would
+   * connect the two changes.
+   */
+  send_signal: ['marketing_automation.campaign.signal'],
 }
 
 /** Validates a step list, descending into a split's lanes, which are step lists of their own. */
