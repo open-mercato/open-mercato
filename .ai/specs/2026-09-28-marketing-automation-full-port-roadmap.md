@@ -271,6 +271,20 @@ Value per unit of effort, given what already exists:
 Target for the current push: every unblocked item. The blocked ones are documented so nobody mistakes
 a missing dependency for a missing plan.
 
+**Deliberately not built, with the reason** (so nobody re-derives it):
+
+- **B-16 per-provider outbound pacing.** Per-PROVIDER rate limiting needs provider identity, which lives behind
+  the channel abstraction this module does not own. A tenant-wide "sends per minute" cap is reachable and is a
+  DIFFERENT feature: it would add a fourth gate to the hot path of every send for a problem no installation here
+  has reported, on top of the frequency cap, quiet hours and the deliverability breaker. Left until a real
+  provider limit exists to pace against.
+- **A per-locale body map on `send_email`.** Language targeting landed as an audience field, so per-language copy
+  is one campaign or one split lane per language — primitives that already exist and already compose. A map of
+  locale to body would be a second authoring model for the same outcome, and the canvas would have to grow a UI
+  for editing it.
+- **A static (list-based) segment.** A second membership model beside the rule-based one; see the follow-up note
+  below.
+
 **Core proposals recorded rather than made** (this module never edits the platform):
 
 1. `communicationChannels.hasChannel(type, scope)` — a read answering "is a tenant-wide email channel
