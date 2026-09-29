@@ -137,6 +137,10 @@ its own. Spec:
   which lane a subject takes is decided by the engine, not by an edge somebody drew — an author who
   can draw an edge has been promised a topology it cannot run. Edges are derived; order lives in the
   definition arrays.
+- Never match a birthday on the year. A stored year may be a guess, a placeholder or absent, so the sweep matches
+  month and day and puts the YEAR in the claim key — that is what makes the campaign annual rather than once ever.
+- Never read a custom field by the customer id. It is stored against the person PROFILE id, so the birthday
+  source joins `customer_people` to `customer_entities`; the run is about the customer.
 - Never derive the agent's tool list from the pack. It is written out by hand so a tool added to the module does
   not arrive in the agent's hands for free — an enable tool would otherwise hand it the power to publish, which
   is the one thing this module reserves for a person.
@@ -315,6 +319,7 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | the first-run readiness checks | `lib/engine/readiness.ts`, `api/readiness/` |
 | the campaign authoring agent and its limits | `ai-agents.ts`, `ai-tools/__tests__/agent-cannot-publish.test.ts` |
 | the deliverability breaker and what it can see | `lib/engine/deliverability.ts`, `lib/deliverability.ts` |
+| a custom field added to another module's record | `ce.ts` (birth date on the person profile) |
 | a step that writes into the run context | `steps/issue-referral-code.ts` |
 | enrolment shared by events and sweeps | `lib/dispatcher.ts` → `startCampaignForSubject` |
 | trigger context hydration | `lib/trigger-catalog.ts` |

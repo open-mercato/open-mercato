@@ -775,6 +775,18 @@ eight-way concurrent worker and is now backed by a partial unique index on the a
 
 ## Changelog
 
+- **2026-09-29** — X-02: birthday campaigns, which were recorded as blocked and turned out not to be. The
+  platform stores no birth date, and the conclusion that this needed a core change was wrong: custom fields are
+  the platform's own way for one module to extend another's record, so the field is declared in this module's
+  `ce.ts` on the person profile. The sweep source matches **month and day only** — a stored year may be a guess,
+  a placeholder or absent, and matching it would make the campaign fire once ever instead of once a year — and
+  puts the YEAR in its claim key, which is what makes it annual while still being idempotent within a day. A
+  window that crosses new year is handled by comparing month-day strings rather than doing date arithmetic, which
+  is the case arithmetic gets wrong; 29 February simply does not match in a year without one, rather than
+  surprising somebody on the 1st of March. The field lives against the person PROFILE id, so the query joins
+  through to the customer entity — the mapping this module's guidance already warns about. 736 unit tests, 146
+  integration tests.
+
 - **2026-09-29** — X-04 and X-13. **The Campaign Author agent** turns a described intention into a saved draft
   over the tool pack that already existed. Its tool list is written out by hand rather than derived from the
   pack: a tool added to the module must not arrive in the agent's hands for free, and the enable tool this

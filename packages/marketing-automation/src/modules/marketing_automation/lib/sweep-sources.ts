@@ -169,7 +169,81 @@ const fulfilledOrders: RowSweepSource = {
   },
 }
 
-export const ROW_SWEEP_SOURCES: RowSweepSource[] = [expiringQuotes, fulfilledOrders]
+export const BIRTHDAYS_SOURCE_ID = 'birthdays'
+
+/** The custom field this module adds to the person profile — see `ce.ts` for why it is a custom field. */
+export const BIRTH_DATE_FIELD_KEY = 'marketing_birth_date'
+
+/**
+ * Customers whose birthday falls within the window.
+ *
+ * **Month and day only.** A stored year may be a guess, a placeholder or absent, and matching it would mean a
+ * campaign that fires once ever instead of once a year. The claim key carries the YEAR, which is what makes the
+ * campaign annual: the same person is claimed once per calendar year and never twice in one.
+ *
+ * Reads `custom_field_values` because that is where a custom field lives; the join to the person profile and on
+ * to the customer entity is the mapping this module's guidance warns about — the field is stored against the
+ * PROFILE id, while a campaign run is about the CUSTOMER.
+ */
+const birthdays: RowSweepSource = {
+  id: BIRTHDAYS_SOURCE_ID,
+  labelKey: 'marketing_automation.sweep.birthdays.label',
+  available: true,
+  triggerEventId: 'marketing_automation.customer.birthday',
+  contextKeys: ['trigger.daysUntilBirthday', 'trigger.birthDate'],
+  // Zero means "today"; an author who wants a few days' notice raises it.
+  defaultWithinDays: 0,
+  async collect(em, scope, params, now, limit) {
+    const withinDays = Math.max(0, Math.min(params.withinDays ?? 0, 60))
+
+    /**
+     * Compared as month-day STRINGS rather than with date arithmetic.
+     *
+     * A window that crosses new year is the case date arithmetic gets wrong, and a two-element string range
+     * handles it by being two ranges — which is also what makes 29 February behave: it simply does not match in
+     * a year that has no such day, and a campaign nobody wanted to fire on the 1st of March does not.
+     */
+    const days: string[] = []
+    for (let offset = 0; offset <= withinDays; offset += 1) {
+      const at = new Date(now.getTime() + offset * MS_PER_DAY)
+      days.push(`${String(at.getUTCMonth() + 1).padStart(2, '0')}-${String(at.getUTCDate()).padStart(2, '0')}`)
+    }
+    const placeholders = days.map(() => '?').join(', ')
+
+    const rows = await em.getConnection().execute<Array<{ entity_id: string; birth_date: string | null }>>(
+      `select p.entity_id as entity_id, v.value_text as birth_date
+         from custom_field_values v
+         join customer_people p on p.id::text = v.record_id
+         join customer_entities e on e.id = p.entity_id
+        where v.field_key = ?
+          and v.tenant_id = ? and v.organization_id = ?
+          and v.deleted_at is null
+          and v.value_text is not null
+          and e.deleted_at is null
+          and e.kind = 'person'
+          and substring(v.value_text from 6 for 5) in (${placeholders})
+        limit ?`,
+      [BIRTH_DATE_FIELD_KEY, scope.tenantId, scope.organizationId, ...days, limit],
+    )
+
+    return rows.flatMap((row) => {
+      if (!row.entity_id || !row.birth_date) return []
+      const monthDay = row.birth_date.slice(5, 10)
+      const daysUntil = days.indexOf(monthDay)
+      return [{
+        subjectEntityId: row.entity_id,
+        trigger: {
+          birthDate: row.birth_date,
+          daysUntilBirthday: daysUntil >= 0 ? daysUntil : 0,
+        },
+        // The YEAR is in the claim, which is what makes this annual rather than once ever.
+        claimKey: sweepClaimKey([BIRTHDAYS_SOURCE_ID, String(now.getUTCFullYear()), row.entity_id]),
+      }]
+    })
+  },
+}
+
+export const ROW_SWEEP_SOURCES: RowSweepSource[] = [expiringQuotes, fulfilledOrders, birthdays]
 
 export function findRowSweepSource(id: string | null | undefined): RowSweepSource | undefined {
   return ROW_SWEEP_SOURCES.find((source) => source.id === id)

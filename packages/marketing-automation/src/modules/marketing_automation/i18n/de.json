@@ -450,6 +450,7 @@
   "marketing_automation.step.wait.description": "Pausiert den Rest der Kampagne für diesen Kunden.",
   "marketing_automation.step.wait.label": "Warten",
   "marketing_automation.step.wait.param.minutes": "Minuten",
+  "marketing_automation.sweep.birthdays.label": "Kunden mit Geburtstag",
   "marketing_automation.sweep.customers.label": "Alle Kunden",
   "marketing_automation.sweep.expiring_quotes.label": "Angebote kurz vor Ablauf",
   "marketing_automation.sweep.fulfilled_orders.label": "Vor einiger Zeit gelieferte Bestellungen",

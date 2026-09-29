@@ -450,6 +450,7 @@
   "marketing_automation.step.wait.description": "이 고객에 대해 캠페인의 나머지 단계를 일시 중지합니다.",
   "marketing_automation.step.wait.label": "대기",
   "marketing_automation.step.wait.param.minutes": "분",
+  "marketing_automation.sweep.birthdays.label": "생일인 고객",
   "marketing_automation.sweep.customers.label": "모든 고객",
   "marketing_automation.sweep.expiring_quotes.label": "만료가 가까운 견적",
   "marketing_automation.sweep.fulfilled_orders.label": "배송 후 일정 기간 지난 주문",
