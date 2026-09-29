@@ -9,6 +9,7 @@ import type { CampaignStep } from '../../../../lib/engine/types.js'
 import { loadSplitResults, pickSplitWinner } from '../../../../lib/analytics/split-results.js'
 import { loadAttribution } from '../../../../lib/analytics/attribution.js'
 import { loadDailySeries } from '../../../../lib/analytics/daily-series.js'
+import { loadCampaignFunnel } from '../../../../lib/analytics/funnel.js'
 import { readPathUuid } from '../../../shared.js'
 
 /**
@@ -106,6 +107,14 @@ export async function GET(req: Request) {
     campaignId: campaign.id,
   })
 
+  /**
+   * The funnel, over the SAME conversion window as the revenue attribution.
+   *
+   * One window, one definition of "converted", one place the two numbers can be reconciled — a screen whose
+   * funnel and whose revenue disagree about who converted is a screen nobody quotes twice.
+   */
+  const funnel = await loadCampaignFunnel(em, campaign.id, scope, { conversionWindowDays: windowDays })
+
   // One winner per split, or none — the rules live in `pickSplitWinner`, which refuses to answer
   // until every lane has a sample and refuses a tie.
   const winners = [...new Set(splits.map((result) => result.stepId))]
@@ -115,6 +124,8 @@ export async function GET(req: Request) {
   return NextResponse.json({
     campaign: { id: campaign.id, name: campaign.name },
     sends: { sent, suppressed },
+    /** People per stage and the drop-off between them — never messages. See `lib/analytics/funnel.ts`. */
+    funnel,
     events: counts,
     uniqueRecipients: unique,
     splits,
@@ -129,7 +140,7 @@ export const openApi = {
   GET: {
     summary: 'Results for a campaign: delivery, engagement, A/B and attributed revenue',
     description:
-      'Sends and suppressions, delivery events by type with unique-recipient counts alongside raw totals, per-variant A/B results read from the lane recorded on each run, any variant that has earned the right to be called a winner, and linearly attributed revenue per currency. Gated by `marketing_automation.runs.view`. Counts only — never which customer did what.',
+      'Sends and suppressions; the funnel from entered to converted counted in PEOPLE with the drop-off between stages; delivery events by type with unique-recipient counts alongside raw totals; per-variant A/B results read from the lane recorded on each run; any variant that has earned the right to be called a winner; and linearly attributed revenue per currency. The funnel and the revenue share one conversion window, so the two can be reconciled. Gated by `marketing_automation.runs.view`. Counts only — never which customer did what.',
     tags: ['Marketing Automation'],
     responses: { 200: { description: 'The counts' }, 404: { description: 'Not found' } },
   },

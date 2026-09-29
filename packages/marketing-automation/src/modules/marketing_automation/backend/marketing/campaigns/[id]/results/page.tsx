@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { KpiCard, LineChart } from '@open-mercato/ui/backend/charts'
+import { BarChart, KpiCard, LineChart } from '@open-mercato/ui/backend/charts'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -31,9 +31,17 @@ type Winner = { stepId: string; variant: string; clickRate: number; runnerUpClic
 
 type DailyPoint = { date: string; sent: number; opened: number; clicked: number }
 
+type FunnelStage = {
+  key: string
+  people: number
+  conversionFromPrevious: number | null
+  shareOfEntered: number | null
+}
+
 type Results = {
   campaign: { id: string; name: string }
   sends: { sent: number; suppressed: number }
+  funnel: { stages: FunnelStage[]; hasEngagementData: boolean }
   events: { delivered: number; opened: number; clicked: number; bounced: number }
   uniqueRecipients: { opened: number; clicked: number }
   splits: SplitResult[]
@@ -170,6 +178,64 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
             }
           />
         </div>
+
+        {/*
+          The funnel, first, because it is the shape of the answer: how many people entered and where they
+          stopped. Drawn only once somebody has entered the campaign — five empty bars read as a broken
+          campaign rather than one that has not run.
+        */}
+        {(results.funnel?.stages?.[0]?.people ?? 0) > 0 ? (
+          <div className="mb-6">
+            <SectionHeader title={t('marketing_automation.results.funnel', 'Funnel')} />
+            {/* The distinction is the whole reason the numbers are trustworthy, so it is stated on the screen. */}
+            <div className="mb-2 text-xs text-muted-foreground">
+              {t(
+                'marketing_automation.results.funnelHint',
+                'People, not messages — one person going through the campaign once counts once at each stage.',
+              )}
+            </div>
+            <BarChart
+              data={results.funnel.stages.map((stage) => ({
+                stage: t(`marketing_automation.results.funnel.${stage.key}`, stage.key),
+                people: stage.people,
+              }))}
+              index="stage"
+              categories={['people']}
+              categoryLabels={{ people: t('marketing_automation.results.funnel.people', 'People') }}
+              layout="horizontal"
+              emptyMessage={t('marketing_automation.results.noActivity', 'Nothing has been sent yet.')}
+            />
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('marketing_automation.results.funnel.stage', 'Stage')}</TableHead>
+                  <TableHead>{t('marketing_automation.results.funnel.people', 'People')}</TableHead>
+                  <TableHead>{t('marketing_automation.results.funnel.fromPrevious', 'From previous')}</TableHead>
+                  <TableHead>{t('marketing_automation.results.funnel.ofEntered', 'Of everyone who entered')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {results.funnel.stages.map((stage) => (
+                  <TableRow key={stage.key}>
+                    <TableCell>{t(`marketing_automation.results.funnel.${stage.key}`, stage.key)}</TableCell>
+                    <TableCell className="tabular-nums">{stage.people}</TableCell>
+                    {/* Both denominators, because operators quote both and would otherwise compute one wrongly. */}
+                    <TableCell className="tabular-nums text-muted-foreground">{formatRate(stage.conversionFromPrevious)}</TableCell>
+                    <TableCell className="tabular-nums text-muted-foreground">{formatRate(stage.shareOfEntered)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            {results.funnel.hasEngagementData ? null : (
+              <div className="mt-2 text-xs text-muted-foreground">
+                {t(
+                  'marketing_automation.results.funnelUntracked',
+                  'No opens or clicks are on record for this campaign — if its messages were sent with tracking switched off, the stages below "sent" cannot be measured.',
+                )}
+              </div>
+            )}
+          </div>
+        ) : null}
 
         {/* The chart is only drawn once something has happened: an empty 90-day line is a worse answer
             than saying nothing, because it looks like a campaign that failed rather than one that has
