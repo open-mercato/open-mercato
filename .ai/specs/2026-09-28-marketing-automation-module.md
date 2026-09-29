@@ -838,6 +838,26 @@ rather than worked around silently:
 
 ## Changelog
 
+- **2026-09-29** — everything in the roadmap that was neither blocked nor built. The shipping order had claimed
+  "nothing unblocked remains"; seven items were still open, six are now done and the seventh is written up with its
+  reason. **RFM and a value projection** (quintiles over the tenant's own buyers rather than invented day counts,
+  refreshed daily and read as one row; nulls where a number would lie, for a never-buyer and for a shop with too
+  few buyers to rank against). **The funnel and the module's first dashboard widget** (counted in people, with no
+  `delivered` stage while the platform has no provider feedback). **Category targeting**, pushed down to SQL and
+  read from the catalogue rather than the snapshot, with the reason for the difference stated. **Seven lifecycle
+  triggers** — and two corrections that came from checking the platform instead of the plan: neither
+  `sales.invoice.issued` nor `sales.quote.accepted` exists, and `payment_gateways.payment.captured` is the honest
+  "paid" signal. **`notify` and `send_signal`**, the latter named for what it does because the platform has no
+  outbound-webhook service and the `webhooks` module delivers declared events instead. **Automatic A/B conclusion**,
+  off by default and on a stricter rule than the screen's. **Export, import and six templates**, which cost almost
+  nothing because the authored graph already was the contract. **Reorder reminders** from each customer's own
+  cadence, with the cycle number in the claim key. Also fixed on the way: two templates measuring a `wait` in days
+  when the step counts minutes (the template test now validates params, not just types, and was verified to fail on
+  the original), a save validator that refused `withinDays: 0` and so made the birthday source's own default
+  unsaveable, and a shared helper in `subscribers/` that the generator had registered as a subscriber for the
+  empty-string event. 901 unit tests, 176 integration tests.
+
+
 - **2026-09-29** — X-02: birthday campaigns, which were recorded as blocked and turned out not to be. The
   platform stores no birth date, and the conclusion that this needed a core change was wrong: custom fields are
   the platform's own way for one module to extend another's record, so the field is declared in this module's

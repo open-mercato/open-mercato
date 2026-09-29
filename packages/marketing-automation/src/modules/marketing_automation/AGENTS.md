@@ -90,6 +90,28 @@ its own. Spec:
   record: forgetting an unsubscribe is how somebody gets mailed again.
 - Never check consent after a timing gate. Consent is permission and the others are scheduling, so a
   refused message is DROPPED, never deferred — deferring it only sends it later.
+- Never score RFM against fixed day counts. The digits are quintiles over the tenant's OWN buyers, computed once
+  a day by the sweep and read as one row — "bought in the last 30 days" is excellent for a coffee subscription and
+  meaningless for a mattress shop. Below `MINIMUM_BUYERS_FOR_RFM` nothing is scored, and a never-buyer scores
+  nothing rather than 1-1-1, which would read as "our worst customer" and be swept into every win-back audience.
+- Never project a customer's value from one order. One purchase is not a rate, and projecting from it ranks a
+  one-off big spender above somebody who buys steadily every month. The cadence window is first order → NOW, never
+  first → last, or two orders in one week followed by two years of silence reads as a hundred a year forever.
+- Never count a funnel in messages. A journey with three emails would report three times the "sent" of a
+  one-email journey and look like it reached three times as many people. And never add a `delivered` stage while
+  the platform has no provider feedback: it could only be the sent count wearing a more confident name.
+- Never read a purchased CATEGORY from the order snapshot. It is the one purchase fact read from the catalogue,
+  because a category is a current classification while a sku is a historical fact — and reading both sides from the
+  same live table is what lets the category narrowing claim to be exact rather than a superset.
+- Never let a template ship a step whose PARAMS do not validate. Checking step types alone let two templates ship
+  a `wait` measured in days when the step counts minutes; they imported and the save refused them.
+- Never promote an A/B winner automatically on the screen's own rule. Suggesting needs "not tied"; rewriting
+  somebody's campaign unattended needs twice the sample and a relative margin, because 3.0% against 2.9% is a coin
+  toss. It stays off until a tenant switches it on.
+- Never put anything but a subscriber in `subscribers/`. The generator registers every file in that folder, so a
+  helper living there becomes a subscriber for the empty-string event.
+- Never make a reorder reminder once-ever or daily. The cycle NUMBER goes in the claim key: without it a durable
+  claim reminds somebody about their coffee once in their life, and without a claim they are nagged every morning.
 - Never let a link in an email change anything on GET. SafeLinks, antivirus gateways, proxies and chat
   unfurlers fetch every URL in a message, so a mutating GET lets them unsubscribe people and invent NPS
   scores indistinguishably from the recipient. GET asks, POST acts — and RFC 8058 one-click still POSTs, so
@@ -379,5 +401,12 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 - `storefront.cart.abandoned` — no cart entity exists in the platform. It is in the catalog as
   unavailable with a reason so the palette explains itself; blocked on `SPEC-029`.
 - SMS, WhatsApp and push: a channel provider belongs in its own `packages/channel-*`, not here.
-- Funnel analytics. Consent, unsubscribe, segments, GDPR export/erasure and A/B winner selection all exist
-  now; see the spec's phase backlog for what remains.
+- An RSS content block: parsing XML needs a production dependency and fetching an operator-typed URL needs an
+  SSRF policy, which is a platform decision rather than one this module makes for itself.
+- A product-feed content block: `{{recommendations}}` already degrades to best sellers with no history, so a
+  shared block would be a second rendering of the same HTML for a cost nobody has reported.
+- A campaign calendar and a form-based authoring fallback: the first shows facts three existing screens already
+  answer, the second is a second authoring surface for one model. Reasons in the roadmap spec.
+- Everything else in the roadmap's blocked table — each needs a cart, a channel account, storefront tracking,
+  the availability contract, provider feedback, ad credentials, push rails, a `search` scope decision or a change
+  to the frozen `workflows` enum.

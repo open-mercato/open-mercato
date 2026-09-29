@@ -285,6 +285,59 @@ a missing dependency for a missing plan.
 - **A static (list-based) segment.** A second membership model beside the rule-based one; see the follow-up note
   below.
 
+**Cleared on 2026-09-29 — the "plain work" that was still open.** The shipping order above claimed "nothing
+unblocked remains", which was not true: seven items were neither blocked nor built. Six are now done and the
+seventh is recorded below with its reason.
+
+- **4.1 funnel + dashboard widget** — ✅ the funnel counted in PEOPLE (a funnel of messages is not a funnel), with
+  no `delivered` stage because the platform has no provider feedback and a delivered count could only be the sent
+  count wearing a more confident name. Plus the module's first dashboard widget: sends, engagement and attributed
+  revenue across every campaign, in one read.
+- **5.3 RFM and CLV** — ✅ RFM as quintiles over the tenant's OWN buyers, so a 5 means "in the top fifth here"
+  rather than a threshold somebody invented; cut points computed once a day by the sweep and read as one row. The
+  value projection is deliberately arithmetic rather than a model — "four orders a year at 80 each" is a number an
+  operator can argue with, which is what makes it usable — and every forward-looking figure is absent until there
+  are two orders, because one purchase is not a rate.
+- **B-13 `purchased_category`** — ✅ pushed down to SQL like the sku predicate, and read from the CATALOGUE rather
+  than the order snapshot: a category is a current classification, so re-filing a product should change who is
+  targeted, while a sku is a historical fact about the purchase.
+- **X-12 auto-apply the A/B winner** — ✅ off by default, and a stricter question than the screen asks: twice the
+  sample, plus a relative margin, because 3.0% against 2.9% is a coin toss. Acts through the ordinary command, so
+  it is validated, version-checked and recorded as a restorable version.
+- **Phase 8 triggers** — ✅ seven commerce moments no campaign could hear: order confirmed, invoice created,
+  payment captured, payment recorded, deal won, deal lost, tag removed. Two were corrected by checking the
+  platform rather than the plan: `sales.invoice.issued` and `sales.quote.accepted` do not exist, and
+  `payment_gateways.payment.captured` is the honest "paid" signal where `sales.payment.created` also fires for a
+  pending authorisation.
+- **Phase 8 steps `notify` and `send_webhook`** — ✅ as `notify` and `send_signal`. The second is named for what it
+  does because the platform has no outbound-webhook service to call: the `webhooks` module subscribes to every
+  declared event and delivers it with signing, retries and a delivery log, so a step that emits a declared event
+  reaches any endpoint an operator subscribed.
+- **Phase 8 import/export and template library** — ✅ the graph already WAS the contract, so export is that
+  document and import is the ordinary create-and-save. Six templates are data in the same format, validated by the
+  same path. Always disabled on arrival; the format does not even carry the flag.
+- **7.4 reorder reminders** — ✅ measured from each customer's own cadence (median gap, three purchases minimum,
+  plausible band), with the cycle NUMBER in the claim key — which is what makes it neither a single reminder
+  forever nor a daily nag.
+
+**Deliberately not built, added 2026-09-29:**
+
+- **B-17's RSS block.** Blocked on two decisions rather than on effort: parsing XML needs a production dependency
+  (this module has added none), and fetching a URL an operator typed needs an SSRF policy — a private-range and
+  redirect guard — which is a platform-level decision, not one a marketing module should make alone for itself.
+- **B-17's product-feed block.** Reachable and left unbuilt, because it would be a second rendering of the same
+  product HTML, differing only in whether the ranker is handed a subject. `{{recommendations}}` already degrades
+  to best sellers for a customer with no history, so the outcome exists; a shared block would be cheaper per send
+  and that is a performance argument for a problem no installation here has reported. The honest gap in B-17 is
+  EXTERNAL content, which is the RSS item above.
+- **A campaign calendar.** The three questions a calendar would answer are each already answered somewhere better:
+  which campaigns are scheduled and how often (the campaign list's trigger summary), when each last ran and what
+  it did (the job log), and what a specific customer will receive (the journey preview). A fourth screen showing
+  the same three facts in a grid is a screen to keep in step with all of them.
+- **A form-based authoring fallback beside the canvas.** A second authoring surface for the same model, which
+  doubles the authoring work of every future step type — the same objection that ruled out a per-locale body map.
+  The canvas is the authoring surface; an author who wants to edit a campaign as data has export and import.
+
 **Core proposals recorded rather than made** (this module never edits the platform):
 
 1. `communicationChannels.hasChannel(type, scope)` — a read answering "is a tenant-wide email channel
