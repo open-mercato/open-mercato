@@ -26,8 +26,11 @@ type AggregateRow = {
 // The scan aggregates in SQL (orphan detection, counts, samples), so the fake
 // connection answers per referencing table with already-aggregated rows and the
 // tests assert both the merge in JS and the shape of the SQL that was sent.
-function makeConnection(priceRows: AggregateRow[], taxRows: AggregateRow[]) {
-  const execute = jest.fn((sql: string, _params?: unknown[]) => {
+function makeConnection(priceRows: AggregateRow[], taxRows: AggregateRow[], missingTables: string[] = []) {
+  const execute = jest.fn((sql: string, params?: unknown[]) => {
+    if (sql.includes('to_regclass')) {
+      return Promise.resolve([{ present: !missingTables.includes(String(params?.[0])) }])
+    }
     if (sql.includes('from catalog_product_variant_prices')) return Promise.resolve(priceRows)
     if (sql.includes('from sales_tax_rates')) return Promise.resolve(taxRows)
     return Promise.resolve([])
@@ -44,8 +47,9 @@ function makeEm(options: {
   existingIds?: string[]
   existingCodes?: string[]
   flushError?: unknown
+  missingTables?: string[]
 } = {}) {
-  const connection = makeConnection(options.priceRows ?? [], options.taxRows ?? [])
+  const connection = makeConnection(options.priceRows ?? [], options.taxRows ?? [], options.missingTables)
   const findOneByTenant = options.findOneByTenant ?? {}
   const created: Array<Record<string, unknown>> = []
   const persisted: Array<Record<string, unknown>> = []
@@ -96,7 +100,7 @@ describe('scanOrphanedCustomerGroupReferences', () => {
 
     await scanOrphanedCustomerGroupReferences(em as never)
 
-    expect(connection.execute).toHaveBeenCalledTimes(2)
+    expect(connection.execute.mock.calls.filter(([sql]) => sql.includes('customer_group_id'))).toHaveLength(2)
     for (const table of ['catalog_product_variant_prices', 'sales_tax_rates']) {
       const [sql] = sqlFor(connection, table)!
       expect(sql).toContain('group by t.customer_group_id')
@@ -109,6 +113,19 @@ describe('scanOrphanedCustomerGroupReferences', () => {
       expect(sql).not.toContain('deleted_at')
       expect(sql).not.toMatch(/select\s+id,\s*customer_group_id/)
     }
+  })
+
+  it('treats a referencing table of a disabled module as holding no references', async () => {
+    const { em, connection } = makeEm({
+      priceRows: [{ group_id: GROUP_ORPHAN_A, ref_count: 2, sample_ids: ['price-1'], tenant_id: TENANT_A }],
+      taxRows: [{ group_id: GROUP_ORPHAN_B, ref_count: 1, sample_ids: ['tax-1'], tenant_id: TENANT_A }],
+      missingTables: ['sales_tax_rates'],
+    })
+
+    const result = await scanOrphanedCustomerGroupReferences(em as never)
+
+    expect(result.map((orphan) => orphan.groupId)).toEqual([GROUP_ORPHAN_A])
+    expect(sqlFor(connection, 'sales_tax_rates')).toBeUndefined()
   })
 
   it('reports an orphan referenced from both tables with counts, samples, and the tenant id', async () => {

@@ -172,7 +172,7 @@ describe('customer group CRUD route', () => {
       await opts.hooks!.afterCreate!(created, ctx)
 
       expect(em.transactional).toHaveBeenCalledTimes(1)
-      expect(calls).toEqual(['nativeUpdate:others', 'nativeUpdate:self'])
+      expect(calls).toEqual(['find', 'nativeUpdate:others', 'nativeUpdate:self'])
       expect(em.nativeUpdate).toHaveBeenNthCalledWith(
         1,
         CustomerGroup,
@@ -212,6 +212,20 @@ describe('customer group CRUD route', () => {
       ).rejects.toBe(failure)
     })
 
+    it('announces the previous default group whose flag the promotion cleared', async () => {
+      const { em } = createFakeEm({ groups: [{ id: OTHER_ID }] })
+      emitMock.mockClear()
+
+      await opts.hooks!.afterCreate!(makeGroup(), { ...createCtx(em), input: { ...validCreateInput, isDefault: true } })
+
+      expect(emitMock).toHaveBeenCalledTimes(1)
+      expect(emitMock).toHaveBeenCalledWith(
+        'customer_groups.group.updated',
+        { id: OTHER_ID, organizationId: null, tenantId: TENANT_ID },
+        { persistent: true, tenantId: TENANT_ID, organizationId: null },
+      )
+    })
+
     it('does not touch defaults when the created group is not a default', async () => {
       const { em } = createFakeEm()
       await opts.hooks!.afterCreate!(makeGroup(), { ...createCtx(em), input: validCreateInput })
@@ -239,7 +253,7 @@ describe('customer group CRUD route', () => {
 
       await opts.update!.applyToEntity(group, { id: GROUP_ID, isDefault: true, code: 'retail-2' }, createCtx(em))
 
-      expect(calls).toEqual(['count', 'nativeUpdate:others', 'nativeUpdate:self'])
+      expect(calls).toEqual(['count', 'find', 'nativeUpdate:others', 'nativeUpdate:self'])
       expect(em.nativeUpdate).toHaveBeenCalledWith(
         CustomerGroup,
         { tenantId: TENANT_ID, isDefault: true, deletedAt: null, id: { $ne: GROUP_ID } },
@@ -252,6 +266,28 @@ describe('customer group CRUD route', () => {
       )
       expect(group.isDefault).toBe(true)
       expect(group.code).toBe('retail-2')
+    })
+
+    it('announces the cleared previous default only after the update committed', async () => {
+      const { em } = createFakeEm({ groups: [{ id: OTHER_ID }] })
+      const group = makeGroup()
+      const ctx = createCtx(em)
+      emitMock.mockClear()
+
+      await opts.update!.applyToEntity(group, { id: GROUP_ID, isDefault: true }, ctx)
+      expect(emitMock).not.toHaveBeenCalled()
+
+      await opts.hooks!.afterUpdate!(group, { ...ctx, input: { id: GROUP_ID, isDefault: true } })
+      expect(emitMock).toHaveBeenCalledTimes(1)
+      expect(emitMock).toHaveBeenCalledWith(
+        'customer_groups.group.updated',
+        { id: OTHER_ID, organizationId: null, tenantId: TENANT_ID },
+        { persistent: true, tenantId: TENANT_ID, organizationId: null },
+      )
+
+      emitMock.mockClear()
+      await opts.hooks!.afterUpdate!(group, { ...ctx, input: { id: GROUP_ID, isDefault: true } })
+      expect(emitMock).not.toHaveBeenCalled()
     })
 
     it('maps a concurrent default promotion on update to a 409 and leaves the entity untouched', async () => {

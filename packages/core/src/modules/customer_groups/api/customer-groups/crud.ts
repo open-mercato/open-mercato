@@ -16,6 +16,7 @@ import {
   type CustomerGroupCreateInput,
   type CustomerGroupUpdateInput,
 } from '../../data/validators'
+import { emitCustomerGroupLifecycleEvent } from '../../lib/groupEvents'
 import { emitMembershipEvent } from './memberships/crud'
 
 // Shared (non-route) module: `route.ts` delegates to this single `makeCrudRoute`
@@ -119,10 +120,39 @@ type Translate = (key: string, fallback?: string) => string
 // default always wins cleanly instead of racing the unique index. Callers MUST only
 // run this once the write is known to be valid (see `applyToEntity` / `afterCreate`
 // below), otherwise a rejected request would still wipe the tenant's default.
-export async function clearOtherDefaultGroups(em: EntityManager, tenantId: string, excludeId?: string): Promise<void> {
-  const where: Record<string, unknown> = { tenantId, isDefault: true, deletedAt: null }
+// Returns the ids of the groups whose flag was cleared, so the caller can announce
+// them once its transaction committed.
+export async function clearOtherDefaultGroups(em: EntityManager, tenantId: string, excludeId?: string): Promise<string[]> {
+  const where: FilterQuery<CustomerGroup> = { tenantId, isDefault: true, deletedAt: null }
   if (excludeId) where.id = { $ne: excludeId }
+  const cleared = await em.find(CustomerGroup, where, { fields: ['id'] })
   await em.nativeUpdate(CustomerGroup, where, { isDefault: false, updatedAt: new Date() })
+  return cleared.map((group) => group.id)
+}
+
+// The group list route's CRUD cache resource kind and its entity-name alias, the same
+// tags `commands/reorderGroups.ts` flushes for its own bulk writes.
+const CUSTOMER_GROUP_CACHE_RESOURCE = canonicalizeResourceTag('customer_groups.group') ?? 'customer_groups.group'
+const CUSTOMER_GROUP_CACHE_ALIASES = [canonicalizeResourceTag('CustomerGroup') ?? 'customer.group']
+
+// A previous default cleared by a native statement bypasses the factory, so it gets the
+// route's `customer_groups.group.updated` and cache flush here instead.
+export async function announceClearedDefaultGroups(
+  container: CrudCtx['container'],
+  tenantId: string,
+  groupIds: string[],
+): Promise<void> {
+  for (const id of groupIds) {
+    await invalidateCrudCache(
+      container,
+      CUSTOMER_GROUP_CACHE_RESOURCE,
+      { id, tenantId, organizationId: null },
+      tenantId,
+      'updated',
+      CUSTOMER_GROUP_CACHE_ALIASES,
+    )
+    await emitCustomerGroupLifecycleEvent('customer_groups.group.updated', { id, tenantId })
+  }
 }
 
 const CUSTOMER_GROUP_DEFAULT_UNIQUE_CONSTRAINT = 'customer_groups_tenant_default_unique'
@@ -155,19 +185,24 @@ export function toDefaultGroupConflict(err: unknown, translate: Translate): unkn
 // the winner committed and replaces it, exactly as two sequential creates would.
 const DEFAULT_PROMOTION_ATTEMPTS = 3
 
-export async function promoteDefaultGroup(em: EntityManager, tenantId: string, groupId: string, now: Date): Promise<void> {
+export async function promoteDefaultGroup(em: EntityManager, tenantId: string, groupId: string, now: Date): Promise<string[]> {
   for (let attempt = 1; ; attempt += 1) {
     try {
-      await em.transactional(async (tem) => {
-        await clearOtherDefaultGroups(tem, tenantId, groupId)
+      return await em.transactional(async (tem) => {
+        const cleared = await clearOtherDefaultGroups(tem, tenantId, groupId)
         await tem.nativeUpdate(CustomerGroup, { id: groupId, tenantId, deletedAt: null }, { isDefault: true, updatedAt: now })
+        return cleared
       })
-      return
     } catch (err) {
       if (attempt >= DEFAULT_PROMOTION_ATTEMPTS || !isUniqueViolation(err, CUSTOMER_GROUP_DEFAULT_UNIQUE_CONSTRAINT)) throw err
     }
   }
 }
+
+// Previous defaults cleared inside the factory's update transaction, keyed by the
+// updated entity instance (which `afterUpdate` receives) and announced only once the
+// write committed, so a rolled-back update never emits for them.
+const clearedDefaultGroupsByUpdate = new WeakMap<CustomerGroup, string[]>()
 
 // The update path's counterpart of `promoteDefaultGroup`: runs inside the factory's
 // update transaction and writes the flag with a native statement (rather than leaving
@@ -178,10 +213,11 @@ export async function assignDefaultGroup(
   tenantId: string,
   groupId: string,
   translate: Translate,
-): Promise<void> {
+): Promise<string[]> {
   try {
-    await clearOtherDefaultGroups(em, tenantId, groupId)
+    const cleared = await clearOtherDefaultGroups(em, tenantId, groupId)
     await em.nativeUpdate(CustomerGroup, { id: groupId, tenantId, deletedAt: null }, { isDefault: true })
+    return cleared
   } catch (err) {
     throw toDefaultGroupConflict(err, translate)
   }
@@ -425,7 +461,9 @@ export const customerGroupCrud = makeCrudRoute<RawCustomerGroupInput, RawCustome
         },
         translate,
       )
-      if (parsed.isDefault === true) await assignDefaultGroup(em, group.tenantId, group.id, translate)
+      if (parsed.isDefault === true) {
+        clearedDefaultGroupsByUpdate.set(group, await assignDefaultGroup(em, group.tenantId, group.id, translate))
+      }
       applyCustomerGroupUpdate(group, parsed)
     },
     response: () => ({ ok: true }),
@@ -454,14 +492,23 @@ export const customerGroupCrud = makeCrudRoute<RawCustomerGroupInput, RawCustome
       const group = entity as CustomerGroup
       if (parseCreateInput(ctx.input, ctx).isDefault !== true) return
       const now = new Date()
+      let cleared: string[]
       try {
-        await promoteDefaultGroup(ctx.container.resolve('em') as EntityManager, group.tenantId, group.id, now)
+        cleared = await promoteDefaultGroup(ctx.container.resolve('em') as EntityManager, group.tenantId, group.id, now)
       } catch (err) {
         const { translate } = await resolveTranslations()
         throw toDefaultGroupConflict(err, translate)
       }
       group.isDefault = true
       group.updatedAt = now
+      await announceClearedDefaultGroups(ctx.container, group.tenantId, cleared)
+    },
+    afterUpdate: async (entity, ctx) => {
+      const group = entity as CustomerGroup
+      const cleared = clearedDefaultGroupsByUpdate.get(group)
+      if (!cleared) return
+      clearedDefaultGroupsByUpdate.delete(group)
+      await announceClearedDefaultGroups(ctx.container, group.tenantId, cleared)
     },
     afterDelete: async (id, ctx) => {
       const em = ctx.container.resolve('em') as EntityManager

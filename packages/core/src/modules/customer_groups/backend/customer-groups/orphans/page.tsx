@@ -197,9 +197,6 @@ export default function CustomerGroupOrphansPage() {
                     <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
                       {orphan.sampleSalesTaxRateIds.map((id) => (
                         <li key={id}>
-                          {/* Tax rates are managed via a dialog on the sales config page — there is
-                              no id-addressable edit route to deep-link to (see the module AGENTS.md
-                              gap noted for Step 1.11). */}
                           <Link className={linkClassName} href="/backend/config/sales">
                             {id}
                           </Link>

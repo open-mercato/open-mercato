@@ -78,7 +78,7 @@ const reconcile: ModuleCli = {
     }
     const skipped = orphans.length - adopted.length
     if (skipped > 0) {
-      console.warn(`⚠ ${skipped} orphan(s) skipped — no resolvable tenant id from their referencing rows.`)
+      console.warn(`⚠ ${skipped} orphan(s) skipped — no resolvable tenant id from their referencing rows, or the id is already used by another tenant's group.`)
     }
     console.log(`\nFound ${orphans.length} orphaned customer group reference(s); adopted ${adopted.length}.`)
   },

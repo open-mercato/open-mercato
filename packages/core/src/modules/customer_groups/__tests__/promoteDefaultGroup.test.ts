@@ -14,10 +14,11 @@ function defaultUniqueViolation(): Error {
 
 function makeEm(failures: unknown[]) {
   const nativeUpdate = jest.fn().mockResolvedValue(1)
-  const transactional = jest.fn(async (work: (tem: EntityManager) => Promise<void>) => {
+  const find = jest.fn().mockResolvedValue([{ id: 'previous-default' }])
+  const transactional = jest.fn(async (work: (tem: EntityManager) => Promise<string[]>) => {
     const failure = failures.shift()
     if (failure) throw failure
-    await work({ nativeUpdate } as unknown as EntityManager)
+    return work({ find, nativeUpdate } as unknown as EntityManager)
   })
   return { em: { transactional } as unknown as EntityManager, transactional, nativeUpdate }
 }
@@ -25,7 +26,7 @@ function makeEm(failures: unknown[]) {
 describe('promoteDefaultGroup', () => {
   it('retries when a concurrent promotion wins the default unique index', async () => {
     const { em, transactional, nativeUpdate } = makeEm([defaultUniqueViolation()])
-    await promoteDefaultGroup(em, 'tenant-1', 'group-1', new Date())
+    await expect(promoteDefaultGroup(em, 'tenant-1', 'group-1', new Date())).resolves.toEqual(['previous-default'])
     expect(transactional).toHaveBeenCalledTimes(2)
     expect(nativeUpdate).toHaveBeenCalledTimes(2)
   })

@@ -259,7 +259,7 @@ export function PersonGroupsTabWidget({
       } else if (membershipsRes.status === 403) {
         setMemberships([])
       } else {
-        throw new Error('memberships')
+        throw new Error('[internal] memberships')
       }
       // Resolve labels only for the groups this customer actually belongs to
       // (bounded by membership count), not every group in the tenant — a
@@ -278,7 +278,7 @@ export function PersonGroupsTabWidget({
         } else if (groupsRes.status === 403) {
           setGroups([])
         } else {
-          throw new Error('groups')
+          throw new Error('[internal] groups')
         }
       } else {
         setGroups([])

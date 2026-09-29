@@ -50,11 +50,17 @@ function createFakeEm(
     liveGroupIds?: string[]
     membership?: CustomerGroupMembership | null
     visibleCustomerIds?: string[]
+    customerOrganizationId?: string | null
+    customerTablePresent?: boolean
   } = {},
 ) {
   const liveGroupIds = new Set(options.liveGroupIds ?? [GROUP_ID])
   const visibleCustomerIds = new Set(options.visibleCustomerIds ?? [CUSTOMER_ID])
-  const execute = jest.fn(async (_sql: string, params: string[]) => (visibleCustomerIds.has(params[0]) ? [{ exists: 1 }] : []))
+  const customerTablePresent = options.customerTablePresent ?? true
+  const execute = jest.fn(async (sql: string, params: string[]) => {
+    if (sql.includes('to_regclass')) return [{ present: customerTablePresent }]
+    return visibleCustomerIds.has(params[0]) ? [{ organization_id: options.customerOrganizationId ?? null }] : []
+  })
   const em = {
     getConnection: () => ({ execute }),
     execute,
@@ -66,6 +72,10 @@ function createFakeEm(
     fork: () => em,
   }
   return em
+}
+
+function customerQueryCalls(em: ReturnType<typeof createFakeEm>) {
+  return em.execute.mock.calls.filter(([sql]) => !sql.includes('to_regclass'))
 }
 
 function createCtx(em: unknown): CrudCtx {
@@ -266,7 +276,7 @@ describe('customer group membership CRUD route', () => {
       await expect(
         opts.hooks!.beforeCreate!({ groupId: GROUP_ID, customerId: CUSTOMER_ID }, scopedCtx(em, [ORG_A])),
       ).rejects.toMatchObject({ status: 400, body: { error: 'The selected customer does not exist.' } })
-      const [sql, params] = em.execute.mock.calls[0]
+      const [sql, params] = customerQueryCalls(em)[0]
       expect(sql).toContain('from customer_entities where id = ? and tenant_id = ? and deleted_at is null')
       expect(sql).toContain('organization_id in (?)')
       expect(params).toEqual([CUSTOMER_ID, TENANT_ID, ORG_A])
@@ -277,8 +287,8 @@ describe('customer group membership CRUD route', () => {
 
       await opts.hooks!.beforeCreate!({ groupId: GROUP_ID, customerId: CUSTOMER_ID }, scopedCtx(em, null))
 
-      const [sql, params] = em.execute.mock.calls[0]
-      expect(sql).not.toContain('organization_id')
+      const [sql, params] = customerQueryCalls(em)[0]
+      expect(sql).not.toContain('organization_id in')
       expect(params).toEqual([CUSTOMER_ID, TENANT_ID])
     })
 
@@ -332,6 +342,100 @@ describe('customer group membership CRUD route', () => {
       expect(em.execute).not.toHaveBeenCalled()
     })
   })
+  describe('membership organization follows the customer', () => {
+    const CUSTOMER_ORG = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    const SELECTED_ORG = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+    const SPOOFED_ORG = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+
+    function selectedOrgCtx(em: unknown): CrudCtx {
+      return { ...createCtx(em), selectedOrganizationId: SELECTED_ORG } as unknown as CrudCtx
+    }
+
+    it('records the customer organization on create, not the selected or body-supplied one', async () => {
+      const em = createFakeEm({ customerOrganizationId: CUSTOMER_ORG })
+      const ctx = selectedOrgCtx(em)
+      const input = { groupId: GROUP_ID, customerId: CUSTOMER_ID, organizationId: SPOOFED_ORG }
+
+      await opts.hooks!.beforeCreate!(input, ctx)
+      const data = opts.create!.mapToEntity(input, ctx) as Record<string, unknown>
+
+      expect(data.organizationId).toBe(CUSTOMER_ORG)
+      const [sql] = customerQueryCalls(em)[0]
+      expect(sql).toContain('select organization_id from customer_entities')
+    })
+
+    it('moves the organization with the customer when a membership is reassigned', async () => {
+      const otherCustomer = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+      const entity = makeMembership({ organizationId: SELECTED_ORG })
+      const em = createFakeEm({
+        membership: makeMembership(),
+        visibleCustomerIds: [CUSTOMER_ID, otherCustomer],
+        customerOrganizationId: CUSTOMER_ORG,
+      })
+      const ctx = selectedOrgCtx(em)
+      const input = { id: MEMBERSHIP_ID, customerId: otherCustomer }
+
+      await opts.hooks!.beforeUpdate!(input, ctx)
+      await opts.update!.applyToEntity(entity, input, ctx)
+
+      expect(entity.customerId).toBe(otherCustomer)
+      expect(entity.organizationId).toBe(CUSTOMER_ORG)
+    })
+
+    it('keeps the stored organization on an update that does not move the customer', async () => {
+      const entity = makeMembership({ organizationId: CUSTOMER_ORG })
+      const em = createFakeEm({ membership: makeMembership(), customerOrganizationId: SELECTED_ORG })
+      const ctx = selectedOrgCtx(em)
+      const input = { id: MEMBERSHIP_ID, notes: 'VIP', organizationId: SPOOFED_ORG }
+
+      await opts.hooks!.beforeUpdate!(input, ctx)
+      await opts.update!.applyToEntity(entity, input, ctx)
+
+      expect(entity.organizationId).toBe(CUSTOMER_ORG)
+    })
+
+    it('treats the customer as missing when the customers table does not exist', async () => {
+      const em = createFakeEm({ customerTablePresent: false })
+
+      await expect(
+        opts.hooks!.beforeCreate!({ groupId: GROUP_ID, customerId: CUSTOMER_ID }, createCtx(em)),
+      ).rejects.toMatchObject({ status: 400, body: { error: 'The selected customer does not exist.' } })
+      expect(customerQueryCalls(em)).toHaveLength(0)
+    })
+  })
+
+  describe('validity window on update', () => {
+    it('rejects a validUntil earlier than the stored validFrom', async () => {
+      const em = createFakeEm({ membership: makeMembership({ validFrom: new Date('2026-06-01T00:00:00.000Z') }) })
+
+      await expect(
+        opts.hooks!.beforeUpdate!({ id: MEMBERSHIP_ID, validUntil: '2026-01-01T00:00:00.000Z' }, createCtx(em)),
+      ).rejects.toMatchObject({ status: 400, body: { error: 'Valid until must be on or after valid from.' } })
+    })
+
+    it('rejects a validFrom later than the stored validUntil', async () => {
+      const em = createFakeEm({ membership: makeMembership({ validUntil: new Date('2026-01-01T00:00:00.000Z') }) })
+
+      await expect(
+        opts.hooks!.beforeUpdate!({ id: MEMBERSHIP_ID, validFrom: '2026-06-01T00:00:00.000Z' }, createCtx(em)),
+      ).rejects.toMatchObject({ status: 400 })
+    })
+
+    it('accepts clearing the stored bound or a window that stays ordered', async () => {
+      const em = createFakeEm({ membership: makeMembership({ validFrom: new Date('2026-06-01T00:00:00.000Z') }) })
+
+      await expect(
+        opts.hooks!.beforeUpdate!(
+          { id: MEMBERSHIP_ID, validFrom: null, validUntil: '2026-01-01T00:00:00.000Z' },
+          createCtx(em),
+        ),
+      ).resolves.toBeUndefined()
+      await expect(
+        opts.hooks!.beforeUpdate!({ id: MEMBERSHIP_ID, validUntil: '2026-07-01T00:00:00.000Z' }, createCtx(em)),
+      ).resolves.toBeUndefined()
+    })
+  })
+
   describe('hook validation matches the persisted payload', () => {
     const ORG_A = '99999999-9999-4999-8999-999999999999'
 
@@ -359,7 +463,7 @@ describe('customer group membership CRUD route', () => {
 
       await opts.hooks!.beforeDelete!(MEMBERSHIP_ID, createCtx(em))
 
-      const [sql] = em.execute.mock.calls[0]
+      const [sql] = customerQueryCalls(em)[0]
       expect(sql).not.toContain('deleted_at')
     })
   })

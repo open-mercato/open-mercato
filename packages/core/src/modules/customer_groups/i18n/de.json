@@ -10,6 +10,7 @@
   "customer_groups.errors.membershipDuplicate": "Dieser Kunde ist bereits Mitglied dieser Gruppe.",
   "customer_groups.errors.membershipGroupNotFound": "Die ausgewählte Kundengruppe existiert nicht.",
   "customer_groups.errors.membershipNotFound": "Kundengruppen-Mitgliedschaft nicht gefunden.",
+  "customer_groups.errors.membershipValidityRange": "„Gültig bis“ darf nicht vor „Gültig ab“ liegen.",
   "customer_groups.errors.orphanCodeTaken": "Ein Platzhaltercode für eine verwaiste Gruppe wird bereits verwendet. Benennen Sie die betroffene Gruppe um und versuchen Sie es erneut.",
   "customer_groups.errors.orphanIdTaken": "Eine verwaiste Gruppen-ID wird bereits von einer anderen Kundengruppe verwendet und kann daher nicht übernommen werden.",
   "customer_groups.errors.parentCycle": "Die ausgewählte übergeordnete Gruppe ist ein Nachfahre dieser Gruppe, wodurch ein Zyklus entstehen würde.",

@@ -415,14 +415,16 @@ export default function CustomerGroupsPage() {
           </Button>
         ) : undefined
       }
-      rowActions={canManage ? (row) => (
+      rowActions={(row) => (
         <RowActions
-          items={[
+          items={canManage ? [
             { id: 'edit', label: t('common.edit', 'Edit'), href: `/backend/customer-groups/${row.id}/edit` },
             { id: 'delete', label: t('common.delete', 'Delete'), destructive: true, onSelect: () => handleDelete(row) },
+          ] : [
+            { id: 'open', label: t('common.open', 'Open'), href: `/backend/customer-groups/${row.id}/edit` },
           ]}
         />
-      ) : undefined}
+      )}
       emptyState={
         <ListEmptyState
           entityName={t('customer_groups.groups.list.title', 'Customer groups')}

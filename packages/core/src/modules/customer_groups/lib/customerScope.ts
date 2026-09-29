@@ -20,16 +20,26 @@ export type CustomerScope = {
   organizationIds: string[] | null
 }
 
-export async function isCustomerInScope(
+async function isCustomerTablePresent(em: EntityManager): Promise<boolean> {
+  const rows = await em.getConnection().execute('select to_regclass(?) is not null as present', [CUSTOMER_TABLE])
+  return Array.isArray(rows) && (rows[0] as { present?: unknown } | undefined)?.present === true
+}
+
+export type CustomerInScope = { organizationId: string | null }
+
+// `customers` is optional: when its table is absent no customer can be resolved, so
+// every reference reads as "not found" (the callers' existing 400/404 path).
+export async function findCustomerInScope(
   em: EntityManager,
   customerId: string,
   scope: CustomerScope,
   options: { includeDeleted?: boolean } = {},
-): Promise<boolean> {
+): Promise<CustomerInScope | null> {
   const organizationIds = scope.organizationIds
-  if (Array.isArray(organizationIds) && organizationIds.length === 0) return false
+  if (Array.isArray(organizationIds) && organizationIds.length === 0) return null
+  if (!(await isCustomerTablePresent(em))) return null
   const params: string[] = [customerId, scope.tenantId]
-  let sql = `select 1 from ${CUSTOMER_TABLE} where id = ? and tenant_id = ?`
+  let sql = `select organization_id from ${CUSTOMER_TABLE} where id = ? and tenant_id = ?`
   if (!options.includeDeleted) sql += ' and deleted_at is null'
   if (Array.isArray(organizationIds)) {
     sql += ` and organization_id in (${organizationIds.map(() => '?').join(', ')})`
@@ -37,7 +47,19 @@ export async function isCustomerInScope(
   }
   sql += ' limit 1'
   const rows = await em.getConnection().execute(sql, params)
-  return Array.isArray(rows) && rows.length > 0
+  if (!Array.isArray(rows) || rows.length === 0) return null
+  const row = rows[0] as { organization_id?: unknown } | null | undefined
+  const organizationId = row && typeof row.organization_id === 'string' ? row.organization_id : null
+  return { organizationId }
+}
+
+export async function isCustomerInScope(
+  em: EntityManager,
+  customerId: string,
+  scope: CustomerScope,
+  options: { includeDeleted?: boolean } = {},
+): Promise<boolean> {
+  return (await findCustomerInScope(em, customerId, scope, options)) !== null
 }
 
 // Membership ids whose customer is visible in the caller's organization scope. Used
@@ -51,6 +73,7 @@ export async function listMembershipIdsInCustomerScope(
   filters: { groupId?: string | null; membershipId?: string | null } = {},
 ): Promise<string[]> {
   if (scope.organizationIds.length === 0) return []
+  if (!(await isCustomerTablePresent(em))) return []
   const params: string[] = [scope.tenantId, scope.tenantId]
   let sql =
     `select m.id from customer_group_memberships m ` +

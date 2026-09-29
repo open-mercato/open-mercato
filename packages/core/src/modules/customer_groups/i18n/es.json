@@ -10,6 +10,7 @@
   "customer_groups.errors.membershipDuplicate": "Este cliente ya es miembro de este grupo.",
   "customer_groups.errors.membershipGroupNotFound": "El grupo de clientes seleccionado no existe.",
   "customer_groups.errors.membershipNotFound": "Membresía del grupo de clientes no encontrada.",
+  "customer_groups.errors.membershipValidityRange": "«Válido hasta» debe ser igual o posterior a «Válido desde».",
   "customer_groups.errors.orphanCodeTaken": "Ya se está usando un código provisional para un grupo huérfano. Cambia el nombre del grupo en conflicto e inténtalo de nuevo.",
   "customer_groups.errors.orphanIdTaken": "Otro grupo de clientes ya usa un id de grupo huérfano, por lo que no se puede adoptar.",
   "customer_groups.errors.parentCycle": "El grupo principal seleccionado es descendiente de este grupo, lo que crearía un ciclo.",

@@ -10,6 +10,7 @@
   "customer_groups.errors.membershipDuplicate": "This customer is already a member of this group.",
   "customer_groups.errors.membershipGroupNotFound": "The selected customer group does not exist.",
   "customer_groups.errors.membershipNotFound": "Customer group membership not found.",
+  "customer_groups.errors.membershipValidityRange": "Valid until must be on or after valid from.",
   "customer_groups.errors.orphanCodeTaken": "A placeholder code for an orphaned group is already in use. Rename the conflicting group and try again.",
   "customer_groups.errors.orphanIdTaken": "An orphaned group id is already used by another customer group, so it cannot be adopted.",
   "customer_groups.errors.parentCycle": "The selected parent is a descendant of this group, which would create a cycle.",

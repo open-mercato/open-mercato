@@ -10,6 +10,7 @@
   "customer_groups.errors.membershipDuplicate": "Ten klient jest już członkiem tej grupy.",
   "customer_groups.errors.membershipGroupNotFound": "Wybrana grupa klientów nie istnieje.",
   "customer_groups.errors.membershipNotFound": "Nie znaleziono członkostwa w grupie klientów.",
+  "customer_groups.errors.membershipValidityRange": "Data „Ważne do” nie może być wcześniejsza niż data „Ważne od”.",
   "customer_groups.errors.orphanCodeTaken": "Kod zastępczy osieroconej grupy jest już używany. Zmień nazwę kolidującej grupy i spróbuj ponownie.",
   "customer_groups.errors.orphanIdTaken": "Identyfikator osieroconej grupy jest już używany przez inną grupę klientów, więc nie można jej przejąć.",
   "customer_groups.errors.parentCycle": "Wybrana grupa nadrzędna jest potomkiem tej grupy, co utworzyłoby cykl.",

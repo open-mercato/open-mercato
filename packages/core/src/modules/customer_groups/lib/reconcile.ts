@@ -60,11 +60,20 @@ type OrphanAggregate = { count: number; sampleIds: string[]; tenantId: string | 
 // own tenant (every reader is tenant-scoped), so it is reported as an orphan.
 // `SAMPLE_LIMIT` is a module constant, not caller input, so inlining it in the array
 // slice is safe; the tenant id is always bound as a parameter.
+// `catalog` and `sales` are optional modules, so a referencing table may be absent;
+// it then holds no references and contributes no orphans.
+async function isTablePresent(em: EntityManager, table: string): Promise<boolean> {
+  const rows = await em.getConnection().execute('select to_regclass(?) is not null as present', [table])
+  return Array.isArray(rows) && (rows[0] as { present?: unknown } | undefined)?.present === true
+}
+
 async function selectOrphanAggregates(
   em: EntityManager,
   table: string,
   tenantId: string | null | undefined,
 ): Promise<Map<string, OrphanAggregate>> {
+  const aggregates = new Map<string, OrphanAggregate>()
+  if (!(await isTablePresent(em, table))) return aggregates
   const conn = em.getConnection()
   const tenantFilter = tenantId ? ' and t.tenant_id = ?' : ''
   const sql =
@@ -78,7 +87,6 @@ async function selectOrphanAggregates(
     `order by t.customer_group_id`
   const params = tenantId ? [tenantId] : []
   const rows = await conn.execute(sql, params)
-  const aggregates = new Map<string, OrphanAggregate>()
   for (const row of (Array.isArray(rows) ? rows : []) as OrphanAggregateRow[]) {
     const groupId = String(row.group_id)
     aggregates.set(groupId, {

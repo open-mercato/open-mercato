@@ -172,7 +172,7 @@ export function PersonGroupsExplainTerms({
         } else if (res.status === 403) {
           setData(null)
         } else {
-          throw new Error('explain-terms')
+          throw new Error('[internal] explain-terms')
         }
       })
       .catch(() => {
