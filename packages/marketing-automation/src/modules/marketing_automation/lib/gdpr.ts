@@ -349,6 +349,22 @@ async function eraseWithin(
   }
 }
 
+/**
+ * Whether this person's marketing data was erased.
+ *
+ * Asked by everything that would otherwise write about them again — enrolling them in a campaign, a bulk action
+ * over a segment — because erasure only unlinks what existed; it cannot stop what comes next unless somebody asks.
+ */
+export async function isErasedSubject(em: EntityManager, subjectEntityId: string, scope: SubjectScope): Promise<boolean> {
+  const rows = await em.getConnection().execute<Array<{ erased: number }>>(
+    `select 1 as erased from marketing_subject_erasures
+      where subject_entity_id = ? and tenant_id = ? and organization_id = ?
+      limit 1`,
+    [subjectEntityId, scope.tenantId, scope.organizationId],
+  )
+  return rows.length > 0
+}
+
 /** The tables this module holds subject data in. Exported so the tests can hold both halves to it. */
 export const SUBJECT_DATA_TABLES = [
   'marketing_campaign_runs',

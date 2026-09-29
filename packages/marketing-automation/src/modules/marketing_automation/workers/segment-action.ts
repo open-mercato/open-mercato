@@ -8,6 +8,7 @@ import type { ConditionExpression } from '@open-mercato/core/modules/business_ru
 import { MarketingSegment } from '../data/entities.js'
 import { JOB_MAX_CHECKED, resolveSegmentMembers } from '../lib/segment-members.js'
 import { addScoreEntry } from '../lib/scores.js'
+import { isErasedSubject } from '../lib/gdpr.js'
 import { recordJobRun } from '../lib/job-runs.js'
 import type { SegmentActionJob } from '../lib/queue.js'
 import { logger, readScope } from './shared.js'
@@ -93,7 +94,10 @@ export default async function handle(job: QueuedJob<SegmentActionJob>, ctx: Hand
         }
 
         try {
-          if (job.payload.action.kind === 'add_tag') {
+          // Membership comes from the customer record, which erasure does not touch; the erasure record is what says no.
+          if (await isErasedSubject(em, subjectEntityId, scope)) {
+            skipped += 1
+          } else if (job.payload.action.kind === 'add_tag') {
             /**
              * Through the COMMAND, like the campaign step: the tag write carries audit, events and cache
              * invalidation, and a direct insert would skip all three.
@@ -113,6 +117,7 @@ export default async function handle(job: QueuedJob<SegmentActionJob>, ctx: Hand
                 organizationIds: [scope.organizationId],
               },
             })
+            applied += 1
           } else {
             await addScoreEntry(em, {
               scope,
@@ -132,8 +137,8 @@ export default async function handle(job: QueuedJob<SegmentActionJob>, ctx: Hand
               stepId: subjectEntityId,
               now: new Date(),
             })
+            applied += 1
           }
-          applied += 1
         } catch (error) {
           // One customer's failure never stops the batch; the counters report it and the log says why.
           skipped += 1

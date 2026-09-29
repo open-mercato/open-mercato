@@ -34,6 +34,7 @@ import type { SubjectDocument } from './engine/types.js'
 import { reportError } from '@open-mercato/telemetry'
 import { loadSegmentDefinitions } from './segments.js'
 import { loadContactPreference } from './preferences.js'
+import { isErasedSubject } from './gdpr.js'
 
 /**
  * Per-subject run budget, across every campaign, inside {@link RUN_BUDGET_WINDOW_MINUTES}.
@@ -267,6 +268,14 @@ export async function startCampaignForSubject(
   deps: DispatchDeps,
 ): Promise<StartOutcome> {
   if (input.subjectEntityId) {
+    /**
+     * Before every other guard: somebody who asked to be forgotten is never enrolled again.
+     *
+     * Erasure unlinks their runs, sends and points, and a new run would simply start writing all three again —
+     * for a birthday, a reorder reminder or any event that still names their customer id.
+     */
+    if (await isErasedSubject(deps.em, input.subjectEntityId, deps.scope)) return 'guard'
+
     if (await hasActiveRun(deps.em, campaign.id, input.subjectEntityId, deps.scope)) {
       // Already mid-journey here; a second concurrent entry would double every remaining step.
       return 'guard'
