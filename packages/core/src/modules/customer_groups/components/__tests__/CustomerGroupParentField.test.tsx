@@ -66,4 +66,24 @@ describe('CustomerGroupParentField cycle check', () => {
     expect(setValue).not.toHaveBeenCalled()
     expect(mockReportError).not.toHaveBeenCalled()
   })
+
+  it('shows a loading indicator while the selected parent chain is being resolved', async () => {
+    let resolveLookup: (value: Awaited<ReturnType<typeof apiCall>>) => void = () => {}
+    mockedApiCall.mockReturnValue(
+      new Promise((resolve) => {
+        resolveLookup = resolve
+      }),
+    )
+    render(<CustomerGroupParentField value="group-parent" setValue={jest.fn()} />)
+
+    expect(screen.getByRole('status')).toBeTruthy()
+
+    resolveLookup({
+      ok: true,
+      status: 200,
+      result: { items: [{ id: 'group-parent', code: 'parent', name: 'Parent', parent_id: null }] },
+    } as Awaited<ReturnType<typeof apiCall>>)
+
+    await waitFor(() => expect(screen.queryByRole('status')).toBeNull())
+  })
 })

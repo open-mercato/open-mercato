@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { Alert } from '@open-mercato/ui/primitives/alert'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type CustomerGroupDefaultFieldProps = {
@@ -12,6 +13,9 @@ export type CustomerGroupDefaultFieldProps = {
   // Name of the tenant's current default group, excluding the group being edited.
   // `null` when there is no conflict (no other default exists yet).
   conflictGroupName?: string | null
+  // True while the tenant's current default group is still being looked up, so the
+  // conflict warning cannot be shown yet.
+  isLoading?: boolean
 }
 
 export function CustomerGroupDefaultField({
@@ -19,6 +23,7 @@ export function CustomerGroupDefaultField({
   setValue,
   disabled,
   conflictGroupName,
+  isLoading = false,
 }: CustomerGroupDefaultFieldProps) {
   const t = useT()
   const checked = value === true
@@ -35,7 +40,8 @@ export function CustomerGroupDefaultField({
         disabled={disabled}
         onCheckedChange={(next) => setValue(next === true)}
       />
-      {checked && conflictGroupName ? (
+      {checked && isLoading ? <Spinner size="sm" /> : null}
+      {checked && !isLoading && conflictGroupName ? (
         <Alert status="warning" size="xs">
           {t(
             'customer_groups.groups.form.field.isDefaultConflict',

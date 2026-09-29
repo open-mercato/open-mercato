@@ -72,16 +72,21 @@ async function submitCustomerGroupCreate(
 export default function CreateCustomerGroupPage() {
   const t = useT()
   const [defaultGroups, setDefaultGroups] = React.useState<CustomerGroupSummary[]>([])
+  const [defaultGroupsLoading, setDefaultGroupsLoading] = React.useState<boolean>(true)
 
   React.useEffect(() => {
     let cancelled = false
     const errorMessage = t('customer_groups.groups.form.errors.loadGroups', 'Failed to load customer groups')
+    setDefaultGroupsLoading(true)
     loadDefaultGroups(errorMessage)
       .then((items) => {
         if (!cancelled) setDefaultGroups(items)
       })
       .catch(() => {
         if (!cancelled) setDefaultGroups([])
+      })
+      .finally(() => {
+        if (!cancelled) setDefaultGroupsLoading(false)
       })
     return () => {
       cancelled = true
@@ -155,6 +160,7 @@ export default function CreateCustomerGroupPage() {
             setValue={setValue}
             disabled={disabled}
             conflictGroupName={findDefaultConflict(defaultGroups)?.name ?? null}
+            isLoading={defaultGroupsLoading}
           />
         ),
       },
@@ -164,7 +170,7 @@ export default function CreateCustomerGroupPage() {
         type: 'checkbox',
       },
     ],
-    [t, defaultGroups],
+    [t, defaultGroups, defaultGroupsLoading],
   )
 
   const groupConfig = React.useMemo<CrudFormGroup[]>(

@@ -4,6 +4,7 @@ import * as React from 'react'
 import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Alert } from '@open-mercato/ui/primitives/alert'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
@@ -64,13 +65,16 @@ export function CustomerGroupParentField({
   const [chainLength, setChainLength] = React.useState(0)
   const [cycleRejected, setCycleRejected] = React.useState(false)
   const [validating, setValidating] = React.useState(false)
+  const [chainLoading, setChainLoading] = React.useState(false)
 
   React.useEffect(() => {
     let cancelled = false
     if (!selectedId) {
       setChainLength(0)
+      setChainLoading(false)
       return
     }
+    setChainLoading(true)
     loadAncestorChain(selectedId)
       .then((chain) => {
         if (!cancelled) setChainLength(chain.length)
@@ -81,6 +85,9 @@ export function CustomerGroupParentField({
           code: 'customer_groups.parent_depth_check_failed',
         })
         if (!cancelled) setChainLength(0)
+      })
+      .finally(() => {
+        if (!cancelled) setChainLoading(false)
       })
     return () => {
       cancelled = true
@@ -144,22 +151,28 @@ export function CustomerGroupParentField({
     [excludeId, setValue],
   )
 
-  const showDepthWarning = Boolean(selectedId) && chainLength >= CUSTOMER_GROUP_DEPTH_WARNING_THRESHOLD
+  const showDepthWarning = Boolean(selectedId) && !chainLoading && chainLength >= CUSTOMER_GROUP_DEPTH_WARNING_THRESHOLD
+  const isLoading = validating || chainLoading
 
   return (
     <div className="space-y-2">
-      <ComboboxInput
-        value={selectedId}
-        onChange={(next) => {
-          void handleChange(next)
-        }}
-        disabled={disabled || validating}
-        allowCustomValues={false}
-        clearable
-        placeholder={t('customer_groups.groups.form.field.parentPlaceholder', 'No parent (top level)')}
-        loadSuggestions={loadSuggestions}
-        resolveLabel={resolveLabel}
-      />
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <ComboboxInput
+            value={selectedId}
+            onChange={(next) => {
+              void handleChange(next)
+            }}
+            disabled={disabled || validating}
+            allowCustomValues={false}
+            clearable
+            placeholder={t('customer_groups.groups.form.field.parentPlaceholder', 'No parent (top level)')}
+            loadSuggestions={loadSuggestions}
+            resolveLabel={resolveLabel}
+          />
+        </div>
+        {isLoading ? <Spinner size="sm" /> : null}
+      </div>
       {cycleRejected ? (
         <Alert status="error" size="xs">
           {t(
