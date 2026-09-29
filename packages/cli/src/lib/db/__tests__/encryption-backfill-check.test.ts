@@ -1,6 +1,7 @@
 import {
   checkEncryptionMapBackfills,
   findEncryptionBackfillGaps,
+  formatEncryptionBackfillWarning,
   isBackfilledByMigration,
   isEncryptionBackfillCheckEnabled,
   readDeclaredEncryptionMaps,
@@ -96,7 +97,7 @@ describe('checkEncryptionMapBackfills', () => {
 
     expect(gaps).toHaveLength(1)
     expect(warn).toHaveBeenCalledTimes(1)
-    expect(warn.mock.calls[0][0]).toContain('demo: demo:thing.secret (missing in 1/1 tenant scopes)')
+    expect(warn.mock.calls[0][0]).toContain('demo: demo:thing [secret] (missing in 1/1 tenant scopes)')
     expect(warn.mock.calls[0][0]).toContain('buildEncryptionMapBackfillSql')
   })
 
@@ -120,6 +121,20 @@ describe('checkEncryptionMapBackfills', () => {
 
     expect(gaps).toEqual([])
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('connection refused'))
+  })
+})
+
+describe('formatEncryptionBackfillWarning', () => {
+  it('groups fields per entity and caps the list', () => {
+    const gaps = Array.from({ length: 22 }, (_unused, index) => [
+      { moduleId: 'demo', entityId: `demo:thing_${index}`, field: 'secret', missingScopes: 1, totalScopes: 2 },
+      { moduleId: 'demo', entityId: `demo:thing_${index}`, field: 'email', missingScopes: 2, totalScopes: 2 },
+    ]).flat()
+    const message = formatEncryptionBackfillWarning(gaps)
+
+    expect(message).toContain('   - demo: demo:thing_0 [secret, email] (missing in 2/2 tenant scopes)')
+    expect(message).not.toContain('demo:thing_20 ')
+    expect(message).toContain('… and 2 more entities')
   })
 })
 

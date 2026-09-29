@@ -119,11 +119,24 @@ export function findEncryptionBackfillGaps(input: {
   return gaps
 }
 
+const MAX_WARNING_ENTITIES = 20
+
 export function formatEncryptionBackfillWarning(gaps: readonly EncryptionBackfillGap[]): string {
-  const lines = gaps.map(
-    (gap) =>
-      `   - ${gap.moduleId}: ${gap.entityId}.${gap.field} (missing in ${gap.missingScopes}/${gap.totalScopes} tenant scopes)`,
-  )
+  const byEntity = new Map<string, { moduleId: string; fields: string[]; missingScopes: number; totalScopes: number }>()
+  for (const gap of gaps) {
+    const entry = byEntity.get(gap.entityId) ?? { moduleId: gap.moduleId, fields: [], missingScopes: 0, totalScopes: gap.totalScopes }
+    entry.fields.push(gap.field)
+    entry.missingScopes = Math.max(entry.missingScopes, gap.missingScopes)
+    byEntity.set(gap.entityId, entry)
+  }
+  const entities = [...byEntity.entries()]
+  const lines = entities
+    .slice(0, MAX_WARNING_ENTITIES)
+    .map(
+      ([entityId, entry]) =>
+        `   - ${entry.moduleId}: ${entityId} [${entry.fields.join(', ')}] (missing in ${entry.missingScopes}/${entry.totalScopes} tenant scopes)`,
+    )
+  if (entities.length > MAX_WARNING_ENTITIES) lines.push(`   … and ${entities.length - MAX_WARNING_ENTITIES} more entities`)
   return [
     '⚠️  Encryption maps declared in encryption.ts are missing for existing tenants, and no migration backfills them:',
     ...lines,
