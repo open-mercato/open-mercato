@@ -257,7 +257,9 @@ Value per unit of effort, given what already exists:
 4. **X-14, B-19** — journey preview and real test send. Author confidence, and the two best things to show on a demo.
 5. **B-13, X-01** — product-level and geographic targeting. The two dimensions authors reach for next.
 6. **X-04, X-05, X-06** — agent authoring, MCP tools, charts. Each one is small here and each one is impossible in the original.
-7. **Nothing unblocked remains.** X-08, X-03, B-27, X-04, X-13 and X-02 landed on 2026-09-29. Everything still
+7. **Superseded 2026-09-29 — see "Ordo parity audit" below.** The claim that follows held for the backlog
+   table, not for the source module: a business-feature audit found unbuilt, unblocked items (score rules
+   first). Kept for the record: **Nothing unblocked remains.** X-08, X-03, B-27, X-04, X-13 and X-02 landed on 2026-09-29. Everything still
    open is in the blocked table below or needs a platform capability listed under "core proposals" — a missing
    dependency rather than remaining effort. Two items are partially delivered and say so in their rows: B-06
    (price drops yes, back-in-stock blocked on the availability contract) and X-13 (send-failure rate yes, bounce
@@ -270,6 +272,58 @@ Value per unit of effort, given what already exists:
 
 Target for the current push: every unblocked item. The blocked ones are documented so nobody mistakes
 a missing dependency for a missing plan.
+
+## Ordo parity audit — business features, 2026-09-29
+
+**Read this before choosing the next item.** The backlog above was scored against a 2026-09-28 inventory; this
+section is a second pass, done by comparing what a MERCHANT can do in each system rather than by table or cron.
+It found unblocked work the backlog never listed, and it records why two items that look cheap are not.
+
+Method: two inventories. Ordo (`Ordo_Automation`, the Magento source — local checkout at `~/Projects/ordo`): 14
+triggers, 19 conditions plus a nested group, 14 action types, 62 tables, 34 crons, 23 ACL resources, 58 REST
+routes. This module: 18 catalogue triggers (14 available), 5 sweep sources, 10 step types, 21 tables. Ordo paths
+below are relative to its root.
+
+### A. Doable now — in this order
+
+| # | Capability (Ordo evidence) | State here | Notes |
+|---|---|---|---|
+| A1 | **Demographic score rules**: a rule is attribute + operator (`equals`/`not_equals`/`contains`) + value + signed points; the sum of matching rules is kept apart from the running score and only the DELTA is applied, re-evaluated on every customer save and able to cross the score threshold (`Model/ScoreRule/ScoreRuleEvaluator.php`, `Observer/EvaluateCustomerScoreRules.php`, tables `ordo_score_rule`, `ordo_customer_demographic_score`) | Absent. The ledger already reserves `source: 'rule'` on `MarketingCustomerScoreEntry`, and nothing writes it | **Next.** Intended shape: the rule's condition is the same `ConditionExpression` a segment uses (a superset of Ordo's attribute/operator/value), evaluated by `matchesAudience` over the subject document. A rule may reference neither `score` (rule points would feed themselves) nor `segments` (a segment may be defined on score). The current rule sum is the sum of `source = 'rule'` entries, so no second table is needed; the delta goes into the ledger and emits `score_changed` like `add_points` does. Re-evaluate on `customers.person.created` / `customers.person.updated` (nothing here subscribes to the latter yet) and in a daily sweep pass gated like the lead digest (`lib/lead-digest.ts`), because rules over behaviour change without a save. There is no lock in this module to reuse — make the delta insert idempotent through the ledger's `(run_id, step_id)` unique index |
+| A2 | **Reorder at-risk**: tag customers whose cycle is overdue, `reorder_cycle_at_risk` condition, admin grid with "recalculate" and "send reminder" (`Cron/TagReorderCycleAtRiskCustomers`, `Controller/Adminhtml/ReorderCycle/*`) | Reminders exist (`lib/engine/reorder.ts`, `reorder_due` sweep); no at-risk flag, predicate or grid | Build-a-cart stays blocked on the cart |
+| A3 | **Static segment import** (`Controller/Adminhtml/Segment/Import.php`) | Export only (B-11) | A second membership model — core proposal 5. Its own entity, not a flag on `MarketingSegment` |
+| A4 | **Mass enable / disable / delete of campaigns** (`Controller/Adminhtml/Campaign/Mass*`) | Absent | Small; publish still goes through the volume-estimate dialog |
+| A5 | **B2B offers**: automatic expiry of overdue offers, customer self-extension from "My offers" with a day count and a cap (`Cron/ExpireOverdueOffers`, `Model/OfferManagement.php`, `Controller/Offer/Extend.php`) | Only the `quote.expiring` sweep trigger | **Changes `sales` — ask the user first** |
+| A6 | **B2B credit limit**: alerts at a warning band (default 80%) and at 100% with a cooldown, hard checkout block at 100%, "my limit" endpoint (`Cron/SendCreditLimitAlerts`, `Plugin/Quote/BlockOverLimitCheckout.php`) | Absent | **Changes `sales` / checkout — ask first.** Phase 7.2 |
+| A7 | **B2B order approval**: hold orders over a customer's spend limit, approve/reject from an emailed token without logging in, multi-level escalation of stale approvals, admin grid (`Observer/HoldOrderForApproval.php`, `Controller/Approval/*`, `Cron/EscalateStalePendingApprovals`) | Absent | **Changes `sales` — ask first.** Phase 7.1 applies: establish what the existing `sales.orders.approve` feature already does |
+
+### B. Blocked — each checked on 2026-09-29
+
+| Capability | Why it is blocked |
+|---|---|
+| **Per-customer coupon** (`generate_coupon`, `Model/CouponGenerator.php`) | No promotions engine. SPEC-055 (`SPEC-055-2026-02-23-promotions-module.md`) is approved and unimplemented; `sales` only snapshots a `promotion_code` on lines. A code nothing at checkout will redeem is a promise the shop cannot keep |
+| **Push to customers** (`send_push`, web push with VAPID, push-subscription grid — B-28) | The platform's push rails reach STAFF: `devices.user_devices` is keyed on `user_id` (an auth user) and the providers are mobile-only (FCM, APNs, Expo). There is no customer device registry and no browser web push (the push spec lists it as a follow-up). Needs a core change plus a provider package — ask first |
+| Abandoned cart (with SMS/WhatsApp fallback), browse abandonment, build-a-cart, free-gift tiers, "cheapest item free" rule | A cart and a storefront (`SPEC-029`) |
+| Popups and banners, dismissable visitor notifications, tracking pixel, visitor tags with identity stitching, `event_occurred` (cart add, wishlist add) | Storefront behaviour tracking |
+| Back-in-stock; price-watch registration by guests or from the storefront | The availability contract (`2026-08-14-availability-contract.md`), and a storefront |
+| SMS (Twilio), WhatsApp templates and approval, two-way inbox, STOP keywords, per-provider rate limits | A channel-provider account with a verified sender |
+| Delivered / bounced / complained status | Provider feedback webhooks — core proposal 6 |
+| Google Ads / Meta audience sync, Google Merchant / Meta catalogue feeds, AI-agent commerce (API-key quote endpoint, `.well-known` plugin manifest) | External accounts; agent commerce also needs the cart |
+
+### C. Deliberately not built
+
+Campaign calendar, per-recipient AI generation at send time, RSS and product-feed content blocks — reasons in
+"Deliberately not built" below. Not to be reopened without a new reason.
+
+### D. Already at parity — no need to re-audit
+
+Campaigns with several triggers; one-off and recurring schedules; waits; A/B with an auto-applied winner; quiet
+hours in the recipient's zone; learned send time; frequency cap; re-entry guard; import/export; win-back; review
+requests; reorder reminders; price-drop alerts; 16 of the 19 conditions (missing: `visitor_tag`,
+`reorder_cycle_at_risk`, `event_occurred`); segments with overlap, size history, bulk actions and export;
+recommendations; snippet blocks; AI copy; template versioning; test send; NPS; referrals; tiers; lead scoring by
+step; lead routing and the rep digest; RFM; CLV; customer profile; quote-expiry reminder; funnel; attribution;
+consent with audit, suppression import and GDPR; admin audit trail; signed inbound hooks; setup wizard; job log;
+dead letters. **Email is the only channel that reaches a customer.**
 
 **Deliberately not built, with the reason** (so nobody re-derives it):
 
@@ -480,3 +534,9 @@ Each phase ships: its own spec, integration tests for every affected API path an
 i18n in all five locales, and a green run of the ordered `validation.commands` gate from
 `.ai/agentic.config.json`. A phase that sends messages also ships a dry-run path before it
 ships the send.
+
+## Changelog
+
+- 2026-09-29 — Ordo parity audit by business feature: seven doable items (score rules next), the blocked ones with
+  verified reasons (coupons need SPEC-055, customer push needs a customer device registry and web push), and the
+  list already at parity. Shipping-order item 7 marked superseded.

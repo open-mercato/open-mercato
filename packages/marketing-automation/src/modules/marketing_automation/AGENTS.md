@@ -5,6 +5,14 @@ expression → an ordered list of **steps**, one of which may be an A/B **split*
 its own. Spec:
 [`.ai/specs/2026-09-28-marketing-automation-module.md`](../../../../../.ai/specs/2026-09-28-marketing-automation-module.md).
 
+## What To Build Next
+
+Read "Ordo parity audit — business features, 2026-09-29" in
+`.ai/specs/2026-09-28-marketing-automation-full-port-roadmap.md` before picking work. It lists the unblocked
+items in order (score rules first), the blocked ones with verified reasons (coupons need SPEC-055; customer push
+needs a customer device registry and web push, because the platform's push rails reach staff), and what is
+already at parity. Items A5–A7 change `sales` — ask before building them.
+
 ## Always
 
 - Keep `lib/engine/` pure — no React, no ORM, no container, no `reportError`. It is the only
