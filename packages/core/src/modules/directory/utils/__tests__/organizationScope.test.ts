@@ -2,7 +2,9 @@
 
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
-import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { ALL_ORGANIZATIONS_COOKIE_VALUE } from '@open-mercato/core/modules/directory/constants'
 import {
@@ -45,6 +47,38 @@ const ORG_HOME = { id: 'org-home', descendantIds: ['org-home-child'] }
 const ORG_A = { id: 'org-a', descendantIds: [] }
 const ORG_B = { id: 'org-b', descendantIds: ['org-b-child'] }
 const ALL_ORGS = [ORG_HOME, ORG_A, ORG_B]
+
+function createAllOrganizationsRequest() {
+  return {
+    headers: {
+      get: (name: string) => name === 'cookie'
+        ? `om_selected_org=${ALL_ORGANIZATIONS_COOKIE_VALUE}`
+        : null,
+    },
+  }
+}
+
+function createFeatureNarrowingContainer(options: {
+  approvedOrganizationIds: string[]
+  acl?: { isSuperAdmin: boolean; features: string[]; organizations: string[] | null }
+}) {
+  const em = createMockEm(ALL_ORGS)
+  const rbac = {
+    loadAcl: jest.fn(async () => options.acl ?? { isSuperAdmin: false, features: [], organizations: null }),
+    resolveFeatureOrganizationAccess: jest.fn(async () => ({
+      unrestricted: false,
+      filterOrganizationIds: () => options.approvedOrganizationIds,
+    })),
+  }
+  const container = {
+    resolve: (name: string) => {
+      if (name === 'em') return em
+      if (name === 'rbacService') return rbac
+      throw new Error(`Unexpected dependency: ${name}`)
+    },
+  } as unknown as AwilixContainer
+  return { container, rbac }
+}
 
 describe('resolveOrganizationScope', () => {
   describe('unauthenticated / missing context', () => {
@@ -507,7 +541,7 @@ describe('resolveFeatureCheckContext', () => {
       { tenantId: 'tenant-1' },
     )
     expect((em.find as jest.Mock).mock.calls[1]?.[1]).toMatchObject({ tenant: 'tenant-1', deletedAt: null })
-    expect(featureContext.organizationId).toBe('org-a')
+    expect(featureContext.organizationId).toBe('org-home')
     expect(featureContext.allowedOrganizationIds).toEqual(['org-a'])
     expect(featureContext.scope).toEqual({
       selectedId: null,
@@ -518,6 +552,10 @@ describe('resolveFeatureCheckContext', () => {
 
     const handlerScope = await resolveOrganizationScopeForRequest({ container, auth, request })
     expect(handlerScope).toEqual(featureContext.scope)
+
+    const handlerFeatureContext = await resolveFeatureCheckContext({ container, auth, request })
+    expect(handlerFeatureContext.organizationId).toBe('org-home')
+    expect(handlerFeatureContext.scope).toEqual(featureContext.scope)
 
     const otherRequestScope = await resolveOrganizationScopeForRequest({
       container,
@@ -656,5 +694,237 @@ describe('resolveFeatureCheckContext', () => {
       ['eudr.risk.view'],
       { tenantId: 'tenant-1' },
     )
+  })
+})
+
+describe('resolveFeatureCheckContext authorization organization', () => {
+  it('authorizes against the pre-narrowing home organization instead of an approved organization', async () => {
+    const { container } = createFeatureNarrowingContainer({ approvedOrganizationIds: ['org-b'] })
+    const auth = createAuth({ sub: 'user-1', orgId: 'org-a' })
+    const request = createAllOrganizationsRequest()
+
+    const featureContext = await resolveFeatureCheckContext({
+      container,
+      auth,
+      request,
+      requiredFeatures: ['business_rules.manage'],
+    })
+
+    expect(featureContext.organizationId).toBe('org-a')
+    expect(featureContext.scope.filterIds).toEqual(['org-b'])
+    expect(featureContext.allowedOrganizationIds).toEqual(['org-b'])
+
+    const handlerFeatureContext = await resolveFeatureCheckContext({ container, auth, request })
+    expect(handlerFeatureContext.organizationId).toBe('org-a')
+    expect(handlerFeatureContext.scope).toEqual(featureContext.scope)
+  })
+
+  it('keeps the home organization when no organization is approved', async () => {
+    const { container } = createFeatureNarrowingContainer({ approvedOrganizationIds: [] })
+    const auth = createAuth({ sub: 'user-1', orgId: 'org-a' })
+
+    const featureContext = await resolveFeatureCheckContext({
+      container,
+      auth,
+      request: createAllOrganizationsRequest(),
+      requiredFeatures: ['business_rules.manage'],
+    })
+
+    expect(featureContext.organizationId).not.toBeNull()
+    expect(featureContext.organizationId).toBe('org-a')
+    expect(featureContext.scope.filterIds).toEqual([])
+    expect(featureContext.allowedOrganizationIds).toEqual([])
+  })
+})
+
+describe('resolveFeatureCheckContext with a feature granted only outside the home organization', () => {
+  type RbacGrantEm = {
+    fork: () => RbacGrantEm
+    findOne: jest.Mock
+    find: jest.Mock
+  }
+
+  const requiredFeature = 'business_rules.manage'
+  const organizations = [
+    { id: 'org-a', descendantIds: [], ancestorIds: [] },
+    { id: 'org-b', descendantIds: [], ancestorIds: [] },
+  ]
+
+  function createRbacContainer(restrictedOrganizationIds: string[]) {
+    const user = { id: 'user-split', tenantId: 'tenant-1', organizationId: 'org-a' }
+    const visibilityRole = { id: 'role-visibility' }
+    const restrictedRole = { id: 'role-restricted' }
+    const roleAcls = [
+      {
+        role: visibilityRole,
+        isSuperAdmin: false,
+        featuresJson: ['business_rules.view'],
+        organizationsJson: null,
+      },
+      {
+        role: restrictedRole,
+        isSuperAdmin: false,
+        featuresJson: [requiredFeature],
+        organizationsJson: restrictedOrganizationIds,
+      },
+    ]
+    const em: RbacGrantEm = {
+      fork: () => em,
+      findOne: jest.fn(async (entity: unknown) => (entity === User ? user : null)),
+      find: jest.fn(async (entity: unknown, where: { id?: { $in?: string[] } } | undefined) => {
+        if (entity === UserRole) return [{ role: visibilityRole }, { role: restrictedRole }]
+        if (entity === RoleAcl) return roleAcls
+        if (entity === Organization) {
+          const requestedIds = where?.id?.$in
+          return requestedIds
+            ? organizations.filter((organization) => requestedIds.includes(organization.id))
+            : organizations
+        }
+        return []
+      }),
+    }
+    const rbac = new RbacService(em as unknown as EntityManager)
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'rbacService') return rbac
+        throw new Error(`Unexpected dependency: ${name}`)
+      },
+    } as unknown as AwilixContainer
+    return { container, rbac }
+  }
+
+  it('rejects the gate check even though the feature narrows the scope to another organization', async () => {
+    const { container, rbac } = createRbacContainer(['org-b'])
+    const auth = createAuth({ sub: 'user-split', orgId: 'org-a' })
+    const request = createAllOrganizationsRequest()
+
+    const featureContext = await resolveFeatureCheckContext({
+      container,
+      auth,
+      request,
+      requiredFeatures: [requiredFeature],
+    })
+
+    expect(featureContext.scope.filterIds).toEqual(['org-b'])
+    expect(featureContext.organizationId).toBe('org-a')
+    await expect(rbac.userHasAllFeatures('user-split', [requiredFeature], {
+      tenantId: 'tenant-1',
+      organizationId: featureContext.organizationId,
+    })).resolves.toBe(false)
+    await expect(rbac.userHasAllFeatures('user-split', [requiredFeature], {
+      tenantId: 'tenant-1',
+      organizationId: 'org-b',
+    })).resolves.toBe(true)
+
+    const handlerFeatureContext = await resolveFeatureCheckContext({ container, auth, request })
+    expect(handlerFeatureContext.organizationId).toBe('org-a')
+  })
+
+  it('never falls back to a null organization that would union every role when nothing is approved', async () => {
+    const { container, rbac } = createRbacContainer(['org-outside'])
+    const auth = createAuth({ sub: 'user-split', orgId: 'org-a' })
+
+    const featureContext = await resolveFeatureCheckContext({
+      container,
+      auth,
+      request: createAllOrganizationsRequest(),
+      requiredFeatures: [requiredFeature],
+    })
+
+    expect(featureContext.scope.filterIds).toEqual([])
+    expect(featureContext.organizationId).toBe('org-a')
+    await expect(rbac.userHasAllFeatures('user-split', [requiredFeature], {
+      tenantId: 'tenant-1',
+      organizationId: featureContext.organizationId,
+    })).resolves.toBe(false)
+    await expect(rbac.userHasAllFeatures('user-split', [requiredFeature], {
+      tenantId: 'tenant-1',
+      organizationId: null,
+    })).resolves.toBe(true)
+  })
+})
+
+describe('request-bound feature scope with explicit tenant overrides', () => {
+  it('reuses the bound scope when the caller passes its own tenant explicitly', async () => {
+    const { container, rbac } = createFeatureNarrowingContainer({ approvedOrganizationIds: ['org-a'] })
+    const auth = createAuth({ sub: 'user-1' })
+    const request = createAllOrganizationsRequest()
+
+    const featureContext = await resolveFeatureCheckContext({
+      container,
+      auth,
+      request,
+      requiredFeatures: ['auth.users.edit'],
+    })
+    const loadAclCalls = rbac.loadAcl.mock.calls.length
+
+    await expect(resolveOrganizationScopeForRequest({
+      container,
+      auth,
+      request,
+      tenantId: ' tenant-1 ',
+    })).resolves.toEqual(featureContext.scope)
+
+    const handlerFeatureContext = await resolveFeatureCheckContext({
+      container,
+      auth,
+      request,
+      tenantId: 'tenant-1',
+    })
+    expect(handlerFeatureContext.scope).toEqual(featureContext.scope)
+    expect(handlerFeatureContext.organizationId).toBe(featureContext.organizationId)
+    expect(rbac.loadAcl).toHaveBeenCalledTimes(loadAclCalls)
+  })
+
+  it('bypasses the bound scope when a super admin targets a different tenant', async () => {
+    const { container } = createFeatureNarrowingContainer({
+      approvedOrganizationIds: ['org-a'],
+      acl: { isSuperAdmin: true, features: ['*'], organizations: null },
+    })
+    const auth = createAuth({ sub: 'super-user', isSuperAdmin: true })
+    const request = createAllOrganizationsRequest()
+
+    const featureContext = await resolveFeatureCheckContext({
+      container,
+      auth,
+      request,
+      requiredFeatures: ['auth.users.edit'],
+    })
+    expect(featureContext.scope.filterIds).toEqual(['org-a'])
+
+    await expect(resolveOrganizationScopeForRequest({
+      container,
+      auth,
+      request,
+      tenantId: 'tenant-2',
+    })).resolves.toEqual({
+      selectedId: null,
+      filterIds: null,
+      allowedIds: null,
+      tenantId: 'tenant-2',
+    })
+  })
+
+  it('bypasses the bound scope when an explicit organization is requested', async () => {
+    const { container } = createFeatureNarrowingContainer({ approvedOrganizationIds: ['org-a'] })
+    const auth = createAuth({ sub: 'user-1' })
+    const request = createAllOrganizationsRequest()
+
+    await resolveFeatureCheckContext({
+      container,
+      auth,
+      request,
+      requiredFeatures: ['auth.users.edit'],
+    })
+
+    const explicitScope = await resolveOrganizationScopeForRequest({
+      container,
+      auth,
+      request,
+      selectedId: 'org-b',
+    })
+    expect(explicitScope.selectedId).toBe('org-b')
+    expect(explicitScope.filterIds).toEqual(['org-b', 'org-b-child'])
   })
 })

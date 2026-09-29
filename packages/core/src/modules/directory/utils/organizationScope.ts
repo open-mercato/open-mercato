@@ -134,7 +134,14 @@ export async function invalidateOrganizationScopeCacheForTenant(
 // staleness risk: the memo lives only for the lifetime of one request and is
 // dropped with the request object by the GC.
 const orgScopeRequestMemo = new WeakMap<object, Map<string, Promise<OrganizationScope>>>()
-const featureScopeRequestMemo = new WeakMap<object, { userId: string; scope: OrganizationScope }>()
+
+type BoundFeatureScope = {
+  userId: string
+  scope: OrganizationScope
+  organizationId: string | null
+}
+
+const featureScopeRequestMemo = new WeakMap<object, BoundFeatureScope>()
 
 function getRequestScopeMemo(request: unknown): Map<string, Promise<OrganizationScope>> | null {
   if (!request || (typeof request !== 'object' && typeof request !== 'function')) return null
@@ -147,22 +154,22 @@ function getRequestScopeMemo(request: unknown): Map<string, Promise<Organization
   return memo
 }
 
-function bindFeatureScopeToRequest(
-  request: unknown,
-  userId: string,
-  scope: OrganizationScope,
-): void {
+function bindFeatureScopeToRequest(request: unknown, binding: BoundFeatureScope): void {
   if (!request || (typeof request !== 'object' && typeof request !== 'function')) return
-  featureScopeRequestMemo.set(request as object, { userId, scope })
+  featureScopeRequestMemo.set(request as object, binding)
 }
 
 function getFeatureScopeForRequest(
   request: unknown,
   userId: string,
-): OrganizationScope | null {
+  tenantOverride: string | null | undefined,
+): BoundFeatureScope | null {
   if (!request || (typeof request !== 'object' && typeof request !== 'function')) return null
   const entry = featureScopeRequestMemo.get(request as object)
-  return entry?.userId === userId ? entry.scope : null
+  if (!entry || entry.userId !== userId) return null
+  if (tenantOverride === undefined) return entry
+  const requestedTenantId = typeof tenantOverride === 'string' ? tenantOverride.trim() : ''
+  return requestedTenantId.length > 0 && requestedTenantId === entry.scope.tenantId ? entry : null
 }
 
 function normalizeOrganizationId(value: unknown): string | null {
@@ -421,9 +428,9 @@ export async function resolveOrganizationScopeForRequest({
     return { selectedId: null, filterIds: null, allowedIds: null, tenantId: null }
   }
 
-  if (selectedId === undefined && tenantOverride === undefined) {
-    const featureScope = getFeatureScopeForRequest(request, auth.sub)
-    if (featureScope) return featureScope
+  if (selectedId === undefined) {
+    const boundFeatureScope = getFeatureScopeForRequest(request, auth.sub, tenantOverride)
+    if (boundFeatureScope) return boundFeatureScope.scope
   }
 
   let em: EntityManager | null = null
@@ -568,7 +575,15 @@ export async function resolveFeatureCheckContext({
   tenantId?: string | null
   requiredFeatures?: readonly string[]
 }): Promise<FeatureCheckContext> {
-  let scope = await resolveOrganizationScopeForRequest({ container, auth, request, selectedId, tenantId })
+  const boundFeatureScope = auth?.sub && selectedId === undefined
+    ? getFeatureScopeForRequest(request, auth.sub, tenantId)
+    : null
+  let scope = boundFeatureScope
+    ? boundFeatureScope.scope
+    : await resolveOrganizationScopeForRequest({ container, auth, request, selectedId, tenantId })
+  const organizationId = boundFeatureScope
+    ? boundFeatureScope.organizationId
+    : resolveFeatureCheckOrganizationId(scope, auth)
   if (
     auth?.sub
     && request
@@ -603,7 +618,7 @@ export async function resolveFeatureCheckContext({
         })),
       )
       const approvedOrganizationIds = Array.from(new Set(
-        featureOrganizationIds.filter((organizationId) => candidateOrganizationIds.has(organizationId)),
+        featureOrganizationIds.filter((featureOrganizationId) => candidateOrganizationIds.has(featureOrganizationId)),
       ))
       scope = {
         selectedId: null,
@@ -612,14 +627,19 @@ export async function resolveFeatureCheckContext({
         tenantId: scope.tenantId,
       }
     }
-    bindFeatureScopeToRequest(request, auth.sub, scope)
+    bindFeatureScopeToRequest(request, { userId: auth.sub, scope, organizationId })
   }
+
+  return { organizationId, scope, allowedOrganizationIds: scope.allowedIds ?? null }
+}
+
+function resolveFeatureCheckOrganizationId(
+  scope: OrganizationScope,
+  auth: AuthContext | null | undefined,
+): string | null {
   const allowedOrganizationIds = scope.allowedIds ?? null
   const authOrgId = auth?.orgId ?? null
-  const organizationId =
-    scope.selectedId
+  return scope.selectedId
     ?? (authOrgId && (!Array.isArray(allowedOrganizationIds) || allowedOrganizationIds.includes(authOrgId)) ? authOrgId : null)
     ?? (Array.isArray(allowedOrganizationIds) && allowedOrganizationIds.length ? allowedOrganizationIds[0] : null)
-
-  return { organizationId, scope, allowedOrganizationIds }
 }

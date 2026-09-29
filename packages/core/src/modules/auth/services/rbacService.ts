@@ -47,6 +47,62 @@ type FeatureOrganizationAccess = {
   filterOrganizationIds: (organizations: readonly FeatureOrganizationCandidate[]) => string[]
 }
 
+type FeatureOrganizationRoleGrant = {
+  isSuperAdmin: boolean
+  featuresJson: string[] | null
+  organizationsJson: string[] | null
+}
+
+type FeatureOrganizationGrants =
+  | { kind: 'none' }
+  | { kind: 'api_key'; organizationId: string | null; roleGrants: FeatureOrganizationRoleGrant[] }
+  | { kind: 'user_acl'; isSuperAdmin: boolean; features: string[]; organizations: string[] | null }
+  | { kind: 'roles'; roleGrants: FeatureOrganizationRoleGrant[] }
+
+function isStringListOrNull(value: unknown): value is string[] | null {
+  return value === null || (Array.isArray(value) && value.every((entry) => typeof entry === 'string'))
+}
+
+function isFeatureOrganizationRoleGrant(value: unknown): value is FeatureOrganizationRoleGrant {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Partial<FeatureOrganizationRoleGrant>
+  return typeof record.isSuperAdmin === 'boolean'
+    && isStringListOrNull(record.featuresJson)
+    && isStringListOrNull(record.organizationsJson)
+}
+
+function isFeatureOrganizationGrants(value: unknown): value is FeatureOrganizationGrants {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Record<string, unknown>
+  switch (record.kind) {
+    case 'none':
+      return true
+    case 'api_key':
+      return (record.organizationId === null || typeof record.organizationId === 'string')
+        && Array.isArray(record.roleGrants)
+        && record.roleGrants.every(isFeatureOrganizationRoleGrant)
+    case 'user_acl':
+      return typeof record.isSuperAdmin === 'boolean'
+        && Array.isArray(record.features)
+        && record.features.every((feature) => typeof feature === 'string')
+        && isStringListOrNull(record.organizations)
+    case 'roles':
+      return Array.isArray(record.roleGrants) && record.roleGrants.every(isFeatureOrganizationRoleGrant)
+    default:
+      return false
+  }
+}
+
+function toFeatureOrganizationRoleGrant(
+  acl: Pick<RoleAcl, 'isSuperAdmin' | 'featuresJson' | 'organizationsJson'>,
+): FeatureOrganizationRoleGrant {
+  return {
+    isSuperAdmin: acl.isSuperAdmin === true,
+    featuresJson: Array.isArray(acl.featuresJson) ? [...acl.featuresJson] : null,
+    organizationsJson: Array.isArray(acl.organizationsJson) ? [...acl.organizationsJson] : null,
+  }
+}
+
 function normalizeFeatureOrganizationCandidates(
   organizations: readonly FeatureOrganizationCandidate[],
 ): FeatureOrganizationCandidate[] {
@@ -96,7 +152,7 @@ function roleAclProvidesOrganizationVisibility(
 }
 
 function roleAclsAuthorizeFeatures(
-  roleAcls: readonly RoleAcl[],
+  roleAcls: readonly FeatureOrganizationRoleGrant[],
   required: readonly string[],
   organization: FeatureOrganizationCandidate,
   emptyOrganizationsAreUnrestricted: boolean,
@@ -125,7 +181,7 @@ function roleAclsAuthorizeFeatures(
 }
 
 function roleAclsAuthorizeFeaturesGlobally(
-  roleAcls: readonly RoleAcl[],
+  roleAcls: readonly FeatureOrganizationRoleGrant[],
   required: readonly string[],
   emptyOrganizationsAreUnrestricted: boolean,
 ): boolean {
@@ -203,6 +259,13 @@ export class RbacService {
   private async setCache(cacheKey: string, data: AclData, userId: string, scope: { tenantId: string | null; organizationId: string | null }): Promise<void> {
     if (!this.cache) return
 
+    await this.cache.set(cacheKey, data, {
+      ttl: this.cacheTtlMs,
+      tags: this.buildCacheTags(userId, scope),
+    })
+  }
+
+  private buildCacheTags(userId: string, scope: { tenantId: string | null; organizationId: string | null }): string[] {
     const tags = [
       this.getUserTag(userId),
       'rbac:all'
@@ -220,10 +283,7 @@ export class RbacService {
       tags.push(this.getOrganizationTag(scope.organizationId))
     }
 
-    await this.cache.set(cacheKey, data, {
-      ttl: this.cacheTtlMs,
-      tags
-    })
+    return tags
   }
 
   /**
@@ -647,29 +707,13 @@ export class RbacService {
       return { unrestricted: true, filterOrganizationIds: allowAll }
     }
 
-    const em = this.em.fork()
-    if (userId.startsWith('api_key:')) {
-      const apiKeyId = userId.slice('api_key:'.length)
-      const key = await em.findOne(ApiKey, { id: apiKeyId, deletedAt: null })
-      if (
-        !key
-        || (key.expiresAt && key.expiresAt.getTime() < Date.now())
-        || (key.tenantId && key.tenantId !== input.tenantId)
-      ) {
-        return { unrestricted: false, filterOrganizationIds: denyAll }
-      }
+    const grants = await this.loadFeatureOrganizationGrants(userId, input.tenantId)
+    if (grants.kind === 'none') return { unrestricted: false, filterOrganizationIds: denyAll }
 
-      const roleIds = Array.isArray(key.rolesJson) ? key.rolesJson.filter(Boolean) : []
-      if (!roleIds.length) return { unrestricted: false, filterOrganizationIds: denyAll }
-      const roleAcls = await em.find(RoleAcl, {
-        tenantId: input.tenantId,
-        role: { $in: roleIds },
-      })
-      const keyOrganizationId = typeof key.organizationId === 'string' && key.organizationId.trim().length > 0
-        ? key.organizationId.trim()
-        : null
+    if (grants.kind === 'api_key') {
+      const keyOrganizationId = grants.organizationId
       const unrestricted = keyOrganizationId === null
-        && roleAclsAuthorizeFeaturesGlobally(roleAcls, required, true)
+        && roleAclsAuthorizeFeaturesGlobally(grants.roleGrants, required, true)
       if (unrestricted) return { unrestricted: true, filterOrganizationIds: allowAll }
 
       return {
@@ -677,27 +721,21 @@ export class RbacService {
         filterOrganizationIds: (candidates) => normalizeFeatureOrganizationCandidates(candidates)
           .filter((organization) => (
             (!keyOrganizationId || organization.id === keyOrganizationId)
-            && roleAclsAuthorizeFeatures(roleAcls, required, organization, true)
+            && roleAclsAuthorizeFeatures(grants.roleGrants, required, organization, true)
           ))
           .map((organization) => organization.id),
       }
     }
 
-    const user = await em.findOne(User, { id: userId })
-    if (!user) return { unrestricted: false, filterOrganizationIds: denyAll }
-
-    const userAcl = await em.findOne(UserAcl, { user: userId, tenantId: input.tenantId })
-    if (userAcl) {
-      const grantedFeatures = Array.isArray(userAcl.featuresJson) ? userAcl.featuresJson : []
-      const allowedOrganizations = Array.isArray(userAcl.organizationsJson)
-        ? userAcl.organizationsJson
-        : null
-      const hasGlobalScope = userAcl.isSuperAdmin === true
+    if (grants.kind === 'user_acl') {
+      const grantedFeatures = grants.features
+      const allowedOrganizations = grants.organizations
+      const hasGlobalScope = grants.isSuperAdmin
         || allowedOrganizations === null
         || allowedOrganizations.includes('__all__')
       const unrestricted = authorizeFeatures([...required], {
         grantedFeatures,
-        unrestricted: userAcl.isSuperAdmin === true,
+        unrestricted: grants.isSuperAdmin,
         scopeAllowed: hasGlobalScope,
       })
       if (unrestricted) return { unrestricted: true, filterOrganizationIds: allowAll }
@@ -706,13 +744,13 @@ export class RbacService {
         unrestricted: false,
         filterOrganizationIds: (candidates) => normalizeFeatureOrganizationCandidates(candidates)
           .filter((organization) => {
-            const scopeAllowed = userAcl.isSuperAdmin === true
+            const scopeAllowed = grants.isSuperAdmin
               || allowedOrganizations === null
               || allowedOrganizations.includes('__all__')
               || allowedOrganizations.includes(organization.id)
             return authorizeFeatures([...required], {
               grantedFeatures,
-              unrestricted: userAcl.isSuperAdmin === true,
+              unrestricted: grants.isSuperAdmin,
               scopeAllowed,
             })
           })
@@ -720,32 +758,99 @@ export class RbacService {
       }
     }
 
-    const links = await findWithDecryption(
-      em,
-      UserRole,
-      { user: userId, role: { tenantId: input.tenantId } },
-      { populate: ['role'] },
-      { tenantId: input.tenantId, organizationId: null },
-    )
-    const roleIds = Array.from(new Set(links
-      .map((link) => link.role?.id)
-      .filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0)))
-    if (!roleIds.length) return { unrestricted: false, filterOrganizationIds: denyAll }
-
-    const roleAcls = await em.find(RoleAcl, {
-      tenantId: input.tenantId,
-      role: { $in: roleIds },
-    })
-    if (roleAclsAuthorizeFeaturesGlobally(roleAcls, required, false)) {
+    if (roleAclsAuthorizeFeaturesGlobally(grants.roleGrants, required, false)) {
       return { unrestricted: true, filterOrganizationIds: allowAll }
     }
 
     return {
       unrestricted: false,
       filterOrganizationIds: (candidates) => normalizeFeatureOrganizationCandidates(candidates)
-        .filter((organization) => roleAclsAuthorizeFeatures(roleAcls, required, organization, false))
+        .filter((organization) => roleAclsAuthorizeFeatures(grants.roleGrants, required, organization, false))
         .map((organization) => organization.id),
     }
+  }
+
+  private async loadFeatureOrganizationGrants(
+    userId: string,
+    tenantId: string,
+  ): Promise<FeatureOrganizationGrants> {
+    const cacheKey = `rbac:feature-organizations:${userId}:${tenantId}`
+    if (this.cache) {
+      const cached = await this.cache.get(cacheKey)
+      if (isFeatureOrganizationGrants(cached)) return cached
+    }
+    const grants = await this.queryFeatureOrganizationGrants(userId, tenantId)
+    if (this.cache) {
+      await this.cache.set(cacheKey, grants, {
+        ttl: this.cacheTtlMs,
+        tags: this.buildCacheTags(userId, { tenantId, organizationId: null }),
+      })
+    }
+    return grants
+  }
+
+  private async queryFeatureOrganizationGrants(
+    userId: string,
+    tenantId: string,
+  ): Promise<FeatureOrganizationGrants> {
+    const em = this.em.fork()
+    if (userId.startsWith('api_key:')) {
+      const apiKeyId = userId.slice('api_key:'.length)
+      const key = await em.findOne(ApiKey, { id: apiKeyId, deletedAt: null })
+      if (
+        !key
+        || (key.expiresAt && key.expiresAt.getTime() < Date.now())
+        || (key.tenantId && key.tenantId !== tenantId)
+      ) {
+        return { kind: 'none' }
+      }
+
+      const roleIds = Array.isArray(key.rolesJson) ? key.rolesJson.filter(Boolean) : []
+      if (!roleIds.length) return { kind: 'none' }
+      const roleAcls = await em.find(RoleAcl, {
+        tenantId,
+        role: { $in: roleIds },
+      })
+      const keyOrganizationId = typeof key.organizationId === 'string' && key.organizationId.trim().length > 0
+        ? key.organizationId.trim()
+        : null
+      return {
+        kind: 'api_key',
+        organizationId: keyOrganizationId,
+        roleGrants: roleAcls.map(toFeatureOrganizationRoleGrant),
+      }
+    }
+
+    const user = await em.findOne(User, { id: userId })
+    if (!user) return { kind: 'none' }
+
+    const userAcl = await em.findOne(UserAcl, { user: userId, tenantId })
+    if (userAcl) {
+      return {
+        kind: 'user_acl',
+        isSuperAdmin: userAcl.isSuperAdmin === true,
+        features: Array.isArray(userAcl.featuresJson) ? [...userAcl.featuresJson] : [],
+        organizations: Array.isArray(userAcl.organizationsJson) ? [...userAcl.organizationsJson] : null,
+      }
+    }
+
+    const links = await findWithDecryption(
+      em,
+      UserRole,
+      { user: userId, role: { tenantId } },
+      { populate: ['role'] },
+      { tenantId, organizationId: null },
+    )
+    const roleIds = Array.from(new Set(links
+      .map((link) => link.role?.id)
+      .filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0)))
+    if (!roleIds.length) return { kind: 'none' }
+
+    const roleAcls = await em.find(RoleAcl, {
+      tenantId,
+      role: { $in: roleIds },
+    })
+    return { kind: 'roles', roleGrants: roleAcls.map(toFeatureOrganizationRoleGrant) }
   }
 
   /**

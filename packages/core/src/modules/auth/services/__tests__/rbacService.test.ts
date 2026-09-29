@@ -1179,6 +1179,99 @@ describe('RbacService', () => {
         { id: 'org-1-child', ancestorIds: ['org-1'] },
       ])).toEqual(['org-1'])
     })
+
+    describe('grant snapshot cache', () => {
+      let restrictedOrganizations: string[]
+
+      beforeEach(() => {
+        restrictedOrganizations = ['org-1']
+        const role: Partial<Role> = { id: 'role-cached' }
+        em.findOne.mockImplementation(async (entity: unknown, where: { id?: string } | undefined) => {
+          if (entity === User && where?.id === baseUser.id) return baseUser
+          return null
+        })
+        em.find.mockImplementation(async (entity: unknown) => {
+          if (entity === UserRole) return [{ role }]
+          if (entity === RoleAcl) return [{
+            role,
+            featuresJson: ['eudr.risk.view'],
+            organizationsJson: restrictedOrganizations,
+          }]
+          return []
+        })
+      })
+
+      it('reuses the cached grants across required feature sets without querying again', async () => {
+        const first = await service.resolveFeatureOrganizationAccess(
+          baseUser.id!,
+          ['eudr.risk.view'],
+          { tenantId: 'tenant-1' },
+        )
+        const findCalls = em.find.mock.calls.length
+        const findOneCalls = em.findOne.mock.calls.length
+
+        const second = await service.resolveFeatureOrganizationAccess(
+          baseUser.id!,
+          ['eudr.risk.view', 'eudr.statements.view'],
+          { tenantId: 'tenant-1' },
+        )
+
+        expect(em.find.mock.calls.length).toBe(findCalls)
+        expect(em.findOne.mock.calls.length).toBe(findOneCalls)
+        expect(first.filterOrganizationIds(organizations)).toEqual(['org-1'])
+        expect(second.filterOrganizationIds(organizations)).toEqual([])
+      })
+
+      it('drops the cached grants when the user cache is invalidated', async () => {
+        const before = await service.resolveFeatureOrganizationAccess(
+          baseUser.id!,
+          ['eudr.risk.view'],
+          { tenantId: 'tenant-1' },
+        )
+        expect(before.filterOrganizationIds(organizations)).toEqual(['org-1'])
+
+        restrictedOrganizations = ['org-2']
+        await service.invalidateUserCache(baseUser.id!)
+
+        const after = await service.resolveFeatureOrganizationAccess(
+          baseUser.id!,
+          ['eudr.risk.view'],
+          { tenantId: 'tenant-1' },
+        )
+        expect(after.filterOrganizationIds(organizations)).toEqual(['org-2'])
+      })
+
+      it('drops the cached grants when the tenant cache is invalidated', async () => {
+        const before = await service.resolveFeatureOrganizationAccess(
+          baseUser.id!,
+          ['eudr.risk.view'],
+          { tenantId: 'tenant-1' },
+        )
+        expect(before.filterOrganizationIds(organizations)).toEqual(['org-1'])
+
+        restrictedOrganizations = ['org-2']
+        await service.invalidateTenantCache('tenant-1')
+
+        const after = await service.resolveFeatureOrganizationAccess(
+          baseUser.id!,
+          ['eudr.risk.view'],
+          { tenantId: 'tenant-1' },
+        )
+        expect(after.filterOrganizationIds(organizations)).toEqual(['org-2'])
+      })
+
+      it('ignores a malformed cached grant snapshot', async () => {
+        await cache.set(`rbac:feature-organizations:${baseUser.id}:tenant-1`, { kind: 'roles', roleGrants: 'invalid' })
+
+        const access = await service.resolveFeatureOrganizationAccess(
+          baseUser.id!,
+          ['eudr.risk.view'],
+          { tenantId: 'tenant-1' },
+        )
+
+        expect(access.filterOrganizationIds(organizations)).toEqual(['org-1'])
+      })
+    })
   })
 
   describe('Cache behavior', () => {

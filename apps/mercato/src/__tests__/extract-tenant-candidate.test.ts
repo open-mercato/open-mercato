@@ -33,6 +33,7 @@ jest.mock('@open-mercato/core/modules/auth/lib/tenantAccess', () => {
 })
 
 import { enforceTenantSelection } from '@open-mercato/core/modules/auth/lib/tenantAccess'
+import { ALL_ORGANIZATIONS_COOKIE_VALUE } from '@open-mercato/core/modules/directory/constants'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { checkAuthorization, extractTenantCandidate, extractTenantCandidates } from '@/app/api/[...slug]/route'
@@ -247,7 +248,7 @@ describe('checkAuthorization organization feature narrowing', () => {
         }
         return {}
       }),
-    } as Awaited<ReturnType<typeof createRequestContainer>>)
+    } as unknown as Awaited<ReturnType<typeof createRequestContainer>>)
     resolveFeatureCheckContextMock.mockResolvedValue({
       organizationId: null,
       scope: {
@@ -291,6 +292,79 @@ describe('checkAuthorization organization feature narrowing', () => {
 
       expect(response?.status).toBe(403)
       expect(loadAclMock).toHaveBeenCalled()
+    } finally {
+      warning.mockRestore()
+    }
+  })
+
+  it('rejects an all-organizations request when the feature is granted only outside the home organization', async () => {
+    const actualOrganizationScope = jest.requireActual<
+      typeof import('@open-mercato/core/modules/directory/utils/organizationScope')
+    >('@open-mercato/core/modules/directory/utils/organizationScope')
+    resolveFeatureCheckContextMock.mockImplementation(actualOrganizationScope.resolveFeatureCheckContext)
+    const homeOrganizationId = '00000000-0000-0000-0000-00000000000a'
+    const featureOrganizationId = '00000000-0000-0000-0000-00000000000b'
+    const organizations = [
+      { id: homeOrganizationId, ancestorIds: [], descendantIds: [] },
+      { id: featureOrganizationId, ancestorIds: [], descendantIds: [] },
+    ]
+    userHasAllFeaturesMock.mockImplementation(async (
+      _userId: string,
+      _features: string[],
+      scope: { organizationId: string | null },
+    ) => scope.organizationId === featureOrganizationId)
+    loadAclMock.mockResolvedValue({
+      features: ['business_rules.view'],
+      isSuperAdmin: false,
+      organizations: null,
+    })
+    const resolveFeatureOrganizationAccessMock = jest.fn(async () => ({
+      unrestricted: false,
+      filterOrganizationIds: () => [featureOrganizationId],
+    }))
+    const em = { find: jest.fn(async () => organizations) }
+    createRequestContainerMock.mockResolvedValue({
+      resolve: jest.fn((name: string) => {
+        if (name === 'em') return em
+        if (name === 'rbacService') {
+          return {
+            userHasAllFeatures: userHasAllFeaturesMock,
+            loadAcl: loadAclMock,
+            resolveFeatureOrganizationAccess: resolveFeatureOrganizationAccessMock,
+          }
+        }
+        return {}
+      }),
+    } as unknown as Awaited<ReturnType<typeof createRequestContainer>>)
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const request = new NextRequest('http://localhost:3001/api/business_rules/rules', {
+      method: 'POST',
+      headers: { cookie: `om_selected_org=${ALL_ORGANIZATIONS_COOKIE_VALUE}` },
+    })
+
+    try {
+      const response = await checkAuthorization(
+        { requireFeatures: ['business_rules.manage'] },
+        { sub: 'user-1', tenantId, orgId: homeOrganizationId },
+        request,
+      )
+
+      expect(response?.status).toBe(403)
+      expect(resolveFeatureOrganizationAccessMock).toHaveBeenCalledWith(
+        'user-1',
+        ['business_rules.manage'],
+        { tenantId },
+      )
+      expect(userHasAllFeaturesMock).toHaveBeenCalledWith(
+        'user-1',
+        ['business_rules.manage'],
+        { tenantId, organizationId: homeOrganizationId },
+      )
+      expect(userHasAllFeaturesMock).not.toHaveBeenCalledWith(
+        'user-1',
+        ['business_rules.manage'],
+        { tenantId, organizationId: featureOrganizationId },
+      )
     } finally {
       warning.mockRestore()
     }
