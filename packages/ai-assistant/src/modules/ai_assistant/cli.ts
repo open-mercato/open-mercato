@@ -141,6 +141,10 @@ const mcpServeHttp: ModuleCli = {
     const portArg = parseInt(String(args.port ?? ''), 10)
     const port = !portArg || isNaN(portArg) ? MCP_DEFAULT_PORT : portArg
     const debug = args.debug === true || args.debug === 'true'
+    const host =
+      (typeof args.host === 'string' && args.host.trim()) ||
+      process.env.MCP_HTTP_HOST?.trim() ||
+      undefined
 
     await ensureBootstrap()
     const container = await createRequestContainer()
@@ -155,6 +159,7 @@ const mcpServeHttp: ModuleCli = {
       },
       container,
       port,
+      host,
     })
   },
 }

@@ -27,6 +27,14 @@ export type McpHttpServerOptions = {
   config: McpServerConfig
   container: AwilixContainer
   port: number
+  /**
+   * Bind address. Defaults to loopback (`127.0.0.1`) — the only intended client is OpenCode
+   * running in Docker, which reaches the host via `host.docker.internal` and needs no
+   * non-loopback binding. Omitting a host to `net.Server.listen` binds every interface
+   * (`0.0.0.0`/`::`), which exposes the server (and its shared API key) off-host; pass this
+   * explicitly to opt into that, paired with a firewall and a strong, rotated key.
+   */
+  host?: string
 }
 
 /**
@@ -405,8 +413,11 @@ async function parseJsonBody(req: IncomingMessage): Promise<unknown> {
  * Each request creates a new MCP server instance and transport.
  * The server authenticates requests using API keys from the x-api-key header.
  */
+const DEFAULT_HOST = '127.0.0.1'
+
 export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<void> {
   const { config, container, port } = options
+  const host = options.host?.trim() || DEFAULT_HOST
 
   await loadAllModuleTools()
 
@@ -593,11 +604,14 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
   logger.info('Mode: stateless (new server per request)')
   logger.info('Server auth: API key validated against database (x-api-key header)')
   logger.info('User auth: session token (_sessionToken) preferred, falls back to API key roles')
+  if (host !== DEFAULT_HOST) {
+    logger.warn('Binding beyond loopback — ensure a firewall and a strong, rotated MCP_SERVER_API_KEY', { host })
+  }
 
   // Return a Promise that keeps the process alive until shutdown
   return new Promise<void>((resolve) => {
-    httpServer.listen(port, () => {
-      logger.info('Server listening', { port })
+    httpServer.listen(port, host, () => {
+      logger.info('Server listening', { host, port })
     })
 
     const shutdown = async () => {
