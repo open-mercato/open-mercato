@@ -126,7 +126,7 @@ export async function fetchDealById(dealId: string, signal: AbortSignal): Promis
 
 export async function searchPeopleOptions(
   query: string,
-  options: { includeCustomers: boolean; includeStaff?: boolean; signal: AbortSignal },
+  options: { includeCustomers: boolean; includeStaff?: boolean; signal: AbortSignal; activeOrgId?: string | null },
 ): Promise<PersonOption[]> {
   // Staff lookup is optional twice over: skipped when the staff module is not
   // loaded (includeStaff === false) and non-fatal when the endpoint errors, so
@@ -134,7 +134,11 @@ export async function searchPeopleOptions(
   const [staff, customers] = await Promise.all([
     options.includeStaff === false
       ? Promise.resolve<Awaited<ReturnType<typeof fetchAssignableStaffMembers>>>([])
-      : fetchAssignableStaffMembers(query, { pageSize: 10, signal: options.signal }).catch(() => []),
+      : fetchAssignableStaffMembers(query, {
+          pageSize: 10,
+          activeOrgId: options.activeOrgId,
+          signal: options.signal,
+        }).catch(() => []),
     options.includeCustomers
       ? searchRelatedEntities('person', query, options.signal)
       : Promise.resolve<RelatedEntityOption[]>([]),
@@ -262,9 +266,13 @@ export async function fetchPeoplePhones(ids: string[], signal: AbortSignal): Pro
   }
 }
 
-export async function findStaffMemberName(userId: string, signal: AbortSignal): Promise<string | null> {
+export async function findStaffMemberName(
+  userId: string,
+  signal: AbortSignal,
+  activeOrgId?: string | null,
+): Promise<string | null> {
   try {
-    const members = await fetchAssignableStaffMembers('', { pageSize: 100, signal })
+    const members = await fetchAssignableStaffMembers('', { pageSize: 100, activeOrgId, signal })
     const match = members.find((member) => member.userId === userId)
     return match ? match.displayName : null
   } catch {

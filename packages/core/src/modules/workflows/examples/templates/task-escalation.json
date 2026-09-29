@@ -1,0 +1,110 @@
+{
+  "id": "task-escalation",
+  "nameKey": "workflows.templates.task-escalation.name",
+  "descriptionKey": "workflows.templates.task-escalation.description",
+  "category": "Operations",
+  "icon": "alarm-clock",
+  "definition": {
+    "steps": [
+      {
+        "stepId": "start",
+        "stepName": "Start",
+        "stepType": "START",
+        "description": "A task that must be handled within its SLA"
+      },
+      {
+        "stepId": "review_task",
+        "stepName": "Review Task",
+        "stepType": "USER_TASK",
+        "description": "Handle the task before the deadline",
+        "userTaskConfig": {
+          "assignedTo": ["support"],
+          "formSchema": {
+            "type": "object",
+            "required": ["resolution"],
+            "properties": {
+              "resolution": {
+                "enum": ["resolved", "escalate"],
+                "type": "string",
+                "title": "Resolution",
+                "description": "Resolve the task or escalate it"
+              },
+              "notes": {
+                "type": "string",
+                "title": "Notes",
+                "description": "Resolution or escalation notes"
+              }
+            }
+          },
+          "slaDuration": "PT8H",
+          "escalationRules": [
+            { "trigger": "sla_breach", "action": "escalate" }
+          ]
+        }
+      },
+      {
+        "stepId": "notify_escalation",
+        "stepName": "Notify Escalation",
+        "stepType": "AUTOMATED",
+        "description": "Alert the escalation channel"
+      },
+      {
+        "stepId": "end",
+        "stepName": "Done",
+        "stepType": "END",
+        "description": "Task closed"
+      }
+    ],
+    "transitions": [
+      {
+        "transitionId": "start_to_review",
+        "transitionName": "Assign Task",
+        "fromStepId": "start",
+        "toStepId": "review_task",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "review_to_end",
+        "transitionName": "Resolved",
+        "fromStepId": "review_task",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "review_to_escalation",
+        "transitionName": "Escalate",
+        "fromStepId": "review_task",
+        "toStepId": "notify_escalation",
+        "trigger": "auto",
+        "priority": 90,
+        "activities": [
+          {
+            "activityId": "emit_task_escalated",
+            "activityName": "Emit Task Escalated Event",
+            "activityType": "EMIT_EVENT",
+            "async": true,
+            "config": {
+              "eventName": "workflows.task.escalated",
+              "payload": {
+                "taskId": "{{context.taskId}}",
+                "workflowInstanceId": "{{workflow.instanceId}}",
+                "notes": "{{context.notes}}"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "escalation_to_end",
+        "transitionName": "Close After Escalation",
+        "fromStepId": "notify_escalation",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 100
+      }
+    ],
+    "triggers": []
+  }
+}

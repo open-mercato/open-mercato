@@ -146,7 +146,7 @@ async function registerWidgetsAndOptionalPackages(data: BootstrapData, options: 
     if (!options.skipCoreInjectionWidgets) {
       coreInjection.registerCoreInjectionWidgets(data.injectionWidgetEntries)
     }
-    coreInjection.registerCoreInjectionTables(data.injectionTables)
+    coreInjection.registerCoreInjectionTables(data.injectionTables, data.injectionWidgetEntries)
     coreInjection.registerEnabledModuleIds(
       data.modules.map((module) => module.id).filter((id): id is string => typeof id === 'string' && id.length > 0),
     )

@@ -228,3 +228,48 @@ describe('VectorIndexService encryption fail-closed (issue #2716)', () => {
     expect(driver.upsertCalls[0].resultTitle).toBe('Title')
   })
 })
+
+describe('VectorIndexService decrypted result parse-back (issue #5789)', () => {
+  const passthroughEncryptionService = (): TenantDataEncryptionService =>
+    ({
+      isEnabled: () => true,
+      decryptEntityPayload: async (_entityId: string, payload: Record<string, unknown>) => payload,
+    }) as unknown as TenantDataEncryptionService
+
+  it('parses links/payload back to objects when decryptEntityPayload returns sealed JSON strings', async () => {
+    const driver = createDriver({
+      query: async () => [
+        {
+          entityId: 'demo:item',
+          recordId: 'rec-6',
+          organizationId: null,
+          score: 0.9,
+          checksum: 'abc',
+          resultTitle: 'Visible Title',
+          resultSubtitle: null,
+          resultIcon: null,
+          resultBadge: null,
+          resultSnapshot: null,
+          primaryLinkHref: null,
+          primaryLinkLabel: null,
+          links: '[{"href":"/backend/demo/rec-6","label":"View","kind":"primary"}]',
+          payload: '{"foo":"bar"}',
+        },
+      ],
+    })
+    const captured: CapturedEmbeddingInput = { value: null }
+    const service = createService({
+      driver,
+      embeddingService: createEmbeddingService(captured),
+      queryEngine: createQueryEngine({ id: 'rec-6' }),
+      moduleConfigs: [{ entities: [{ entityId: 'demo:item' }] }],
+      encryptionService: passthroughEncryptionService(),
+    })
+
+    const results = await service.search({ tenantId: 'tenant-1', query: 'anything' })
+
+    expect(results).toHaveLength(1)
+    expect(results[0].links).toEqual([{ href: '/backend/demo/rec-6', label: 'View', kind: 'primary' }])
+    expect(results[0].metadata).toEqual({ foo: 'bar' })
+  })
+})

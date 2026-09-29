@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/communication_channels/extension-points'
+import { getImportHistoryLimits } from '@open-mercato/core/modules/communication_channels/lib/import-history-limits'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -21,11 +22,14 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
-import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { ConnectChannelMenu } from './ConnectChannelMenu'
 
 type ChannelRow = {
   id: string
@@ -34,6 +38,10 @@ type ChannelRow = {
   displayName: string
   externalIdentifier: string | null
   isPrimary: boolean
+  /** `shared` = a team mailbox: teammates can read the CRM email it ingests. */
+  visibility: 'private' | 'shared'
+  /** Version token for the share toggle's optimistic-lock header. */
+  updatedAt: string | null
   isActive: boolean
   status: 'connected' | 'requires_reauth' | 'error' | 'disconnected'
   lastError: string | null
@@ -81,6 +89,9 @@ export default function ProfileCommunicationChannelsPage() {
     contextId: PROFILE_CHANNELS_MUTATION_CONTEXT_ID,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
+  // Sharing a mailbox is privacy-consequential, so the widening direction is
+  // confirmed. Escape cancels and Cmd/Ctrl+Enter submits (ConfirmDialog owns both).
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   React.useEffect(() => {
     if (flashType === 'connected') {
@@ -145,6 +156,79 @@ export default function ProfileCommunicationChannelsPage() {
   }, [reloadKey, t])
 
   const reauthRows = rows.filter((r) => r.status === 'requires_reauth')
+
+  const reloadChannels = React.useCallback(() => setReloadKey((k) => k + 1), [])
+
+  const onSetVisibility = React.useCallback(
+    async (channel: ChannelRow, nextShared: boolean) => {
+      // Only the widening direction needs a confirmation; making a mailbox
+      // private again is the safe direction and stays one click.
+      if (nextShared) {
+        const confirmed = await confirm({
+          title: t(
+            'communication_channels.profile.share.confirm.title',
+            'Share this mailbox with your team?',
+          ),
+          text: t(
+            'communication_channels.profile.share.confirm.text',
+            'Colleagues will be able to read the CRM email this mailbox handles, including messages already received. You stay the only person who can manage the connection, and you can stop sharing at any time.',
+          ),
+          confirmText: t('communication_channels.profile.share.confirm.cta', 'Share with team'),
+        })
+        if (!confirmed) return
+      }
+
+      const nextVisibility = nextShared ? 'shared' : 'private'
+      let response
+      try {
+        response = await runMutation({
+          operation: () => withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(channel.updatedAt),
+            () => apiCall(
+              `/api/communication_channels/channels/${encodeURIComponent(channel.id)}/visibility`,
+              {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ visibility: nextVisibility }),
+              },
+            ),
+          ),
+          context: {
+            formId: PROFILE_CHANNELS_MUTATION_CONTEXT_ID,
+            resourceKind: 'communication_channels.channel',
+            resourceId: channel.id,
+            retryLastMutation,
+          },
+          mutationPayload: { visibility: nextVisibility },
+        })
+      } catch (err) {
+        if (surfaceRecordConflict(err, t)) return
+        flash(
+          err instanceof Error
+            ? err.message
+            : t('communication_channels.profile.share.failed', 'Failed to update sharing'),
+          'error',
+        )
+        return
+      }
+      if (!response.ok) {
+        const body = response.result as { error?: string } | undefined
+        flash(
+          body?.error ?? t('communication_channels.profile.share.failed', 'Failed to update sharing'),
+          'error',
+        )
+        return
+      }
+      flash(
+        nextShared
+          ? t('communication_channels.profile.share.sharedSuccess', 'Mailbox shared with your team.')
+          : t('communication_channels.profile.share.privateSuccess', 'Mailbox is private again.'),
+        'success',
+      )
+      setReloadKey((k) => k + 1)
+    },
+    [runMutation, retryLastMutation, confirm, t],
+  )
 
   const onSetPrimary = React.useCallback(
     async (channelId: string) => {
@@ -312,6 +396,45 @@ export default function ProfileCommunicationChannelsPage() {
             >
               {t('communication_channels.profile.actions.setPrimary', 'Set as primary')}
             </Button>
+          ),
+      },
+      {
+        header: t('communication_channels.profile.columns.sharing', 'Team access'),
+        accessorKey: 'visibility',
+        // Only email ingestion writes customer_interactions, so on an SMS or push
+        // channel a share would flip the flag and flash success while changing
+        // nothing anyone can observe. Offer it for email channels only.
+        cell: ({ row }) =>
+          row.original.channelType !== 'email' ? (
+            <span className="text-xs text-muted-foreground">—</span>
+          ) : row.original.visibility === 'shared' ? (
+            <div className="flex items-center gap-2">
+              <Tag variant="info" dot>
+                {t('communication_channels.profile.share.shared', 'Shared')}
+              </Tag>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void onSetVisibility(row.original, false)}
+              >
+                {t('communication_channels.profile.share.makePrivate', 'Make private')}
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">
+                {t('communication_channels.profile.share.private', 'Only you')}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void onSetVisibility(row.original, true)}
+              >
+                {t('communication_channels.profile.share.shareCta', 'Share with team')}
+              </Button>
+            </div>
           ),
       },
       {
@@ -494,17 +617,17 @@ export default function ProfileCommunicationChannelsPage() {
         },
       },
     ],
-    [onSetPrimary, onPollNow, onRegisterPush, t],
+    [onSetPrimary, onSetVisibility, onPollNow, onRegisterPush, t],
   )
 
   return (
     <Page>
       <PageBody>
-        <header className="mb-4 flex items-baseline justify-between">
-          <div>
-            <h2 className="text-2xl font-semibold">
+        <header className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold">
               {t('communication_channels.profile.title', 'My communication channels')}
-            </h2>
+            </h1>
             <p className="text-sm text-muted-foreground">
               {t(
                 'communication_channels.profile.subtitle',
@@ -513,12 +636,9 @@ export default function ProfileCommunicationChannelsPage() {
             </p>
           </div>
           {/* Provider connect entry points injected by each channel-* package
-              (channel-gmail, channel-imap) via UMES. */}
-          <InjectionSpot
-            spotId={extensionPoints.hosts.profileConnect.spotId}
-            context={{ reload: () => setReloadKey((k) => k + 1) }}
-            data={{}}
-          />
+              (channel-gmail, channel-imap) via UMES. They stack inside one
+              dropdown so the header does not widen per installed provider. */}
+          <ConnectChannelMenu onConnected={reloadChannels} />
         </header>
 
         {reauthRows.length > 0 ? (
@@ -535,6 +655,7 @@ export default function ProfileCommunicationChannelsPage() {
 
         <DataTable<ChannelRow>
           title={t('communication_channels.profile.tableTitle', 'Your channels')}
+          titleHeadingLevel={2}
           extensionTableId={extensionPoints.hosts.profileChannelsTable.tableId}
           columns={columns}
           data={rows}
@@ -542,7 +663,7 @@ export default function ProfileCommunicationChannelsPage() {
           error={errorMessage}
           emptyState={t(
             'communication_channels.profile.empty',
-            'You have no connected channels yet. Use one of the Connect buttons above to add a channel.',
+            'You have no connected channels yet. Add one using the menu at the top of this page.',
           )}
         />
         <ImportHistoryDialog
@@ -561,6 +682,7 @@ export default function ProfileCommunicationChannelsPage() {
             setReloadKey((k) => k + 1)
           }}
         />
+        {ConfirmDialogElement}
       </PageBody>
     </Page>
   )
@@ -574,6 +696,7 @@ type ImportHistoryDialogProps = {
 
 function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialogProps): React.JSX.Element {
   const t = useT()
+  const importLimits = React.useMemo(() => getImportHistoryLimits(channel?.providerKey), [channel?.providerKey])
   const [sinceDays, setSinceDays] = React.useState('30')
   const [contactEmails, setContactEmails] = React.useState('')
   const [maxMessages, setMaxMessages] = React.useState('500')
@@ -599,16 +722,18 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
     const sinceNum = Number.parseInt(sinceDays, 10)
     const maxNum = Number.parseInt(maxMessages, 10)
     const errors: Record<string, string> = {}
-    if (!Number.isFinite(sinceNum) || sinceNum < 1 || sinceNum > 365) {
+    if (!Number.isFinite(sinceNum) || sinceNum < 1 || sinceNum > importLimits.maxSinceDays) {
       errors.sinceDays = t(
         'communication_channels.profile.importHistory.errors.sinceDays',
-        'Choose a number between 1 and 365 days.',
+        'Choose a number between 1 and {max} days.',
+        { max: importLimits.maxSinceDays },
       )
     }
-    if (!Number.isFinite(maxNum) || maxNum < 1 || maxNum > 5000) {
+    if (!Number.isFinite(maxNum) || maxNum < 1 || maxNum > importLimits.maxMessages) {
       errors.maxMessages = t(
         'communication_channels.profile.importHistory.errors.maxMessages',
-        'Choose a number between 1 and 5000 messages.',
+        'Choose a number between 1 and {max} messages.',
+        { max: importLimits.maxMessages },
       )
     }
     const parsedEmails = contactEmails
@@ -686,7 +811,7 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
       'success',
     )
     onQueued()
-  }, [channel, sinceDays, maxMessages, contactEmails, submitting, t, onQueued, retryLastMutation, runMutation])
+  }, [channel, sinceDays, maxMessages, contactEmails, submitting, t, onQueued, retryLastMutation, runMutation, importLimits])
 
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent) => {
@@ -722,7 +847,7 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
               id="import-history-since"
               type="number"
               min={1}
-              max={365}
+              max={importLimits.maxSinceDays}
               value={sinceDays}
               onChange={(e) => setSinceDays(e.target.value)}
               aria-invalid={Boolean(fieldErrors.sinceDays)}
@@ -770,7 +895,7 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
               id="import-history-max"
               type="number"
               min={1}
-              max={5000}
+              max={importLimits.maxMessages}
               value={maxMessages}
               onChange={(e) => setMaxMessages(e.target.value)}
               aria-invalid={Boolean(fieldErrors.maxMessages)}

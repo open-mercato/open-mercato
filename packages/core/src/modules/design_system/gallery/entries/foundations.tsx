@@ -1,7 +1,11 @@
 import * as React from 'react'
-import { Circle } from 'lucide-react'
+import { ArrowRight, Circle } from 'lucide-react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
+import { Button } from '@open-mercato/ui/primitives/button'
 import type { GalleryEntry } from '../types'
+import { SourceColors, SourceGrids, SourceRadius, SourceShadows, SourceTypography } from '../demos/foundation-references'
 
 // Token names are proper nouns from the codebase and are deliberately not
 // translated. Structure mirrors the DS Figma color-system sheet (node
@@ -12,32 +16,40 @@ import type { GalleryEntry } from '../types'
 const TOKENS_IMPORT = 'apps/mercato/src/app/globals.css'
 const FIGMA_COLORS_NODE = '553:14956'
 
-function SwatchCard({ copyText, label, children }: { copyText: string; label: string; children: React.ReactNode }) {
+function useCopyToken(copyText: string) {
+  const t = useT()
   const onCopy = React.useCallback(async () => {
     try {
       await navigator.clipboard.writeText(copyText)
-      flash(`${copyText} copied`, 'success')
+      flash(t('design_system.gallery.tokenCopied', { token: copyText }), 'success')
     } catch {
-      flash('Could not copy the token', 'error')
+      flash(t('design_system.gallery.tokenCopyFailed'), 'error')
     }
-  }, [copyText])
+  }, [copyText, t])
+  return { onCopy, copyLabel: t('design_system.gallery.copyToken', { token: copyText }) }
+}
+
+function SwatchCard({ copyText, label, children }: { copyText: string; label: string; children: React.ReactNode }) {
+  const { onCopy, copyLabel } = useCopyToken(copyText)
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
       onClick={onCopy}
-      className="flex w-36 flex-col items-start gap-1 rounded-md border border-border bg-background p-2 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:shadow-focus"
-      title={`Copy ${copyText}`}
+      className="h-auto w-44 max-w-full flex-col items-start gap-3 whitespace-normal border border-border bg-background p-3 text-left hover:bg-muted/50"
+      title={copyLabel}
+      aria-label={copyLabel}
     >
       {children}
-      <code className="break-all text-[11px] leading-tight text-muted-foreground">{label}</code>
-    </button>
+      <code className="break-all text-xs text-muted-foreground">{label}</code>
+    </Button>
   )
 }
 
 function TokenSwatch({ tokenClass, label }: { tokenClass: string; label: string }) {
   return (
     <SwatchCard copyText={label} label={label}>
-      <span aria-hidden className={`h-10 w-full rounded-sm border border-border ${tokenClass}`} />
+      <span aria-hidden className={`h-20 w-full rounded-sm border border-border ${tokenClass}`} />
     </SwatchCard>
   )
 }
@@ -46,8 +58,8 @@ function TokenSwatch({ tokenClass, label }: { tokenClass: string; label: string 
 function TextSwatch({ textClass, label }: { textClass: string; label: string }) {
   return (
     <SwatchCard copyText={textClass} label={label}>
-      <span aria-hidden className="flex h-10 w-full items-center justify-center rounded-sm border border-border bg-background">
-        <span className={`text-xl font-semibold leading-none ${textClass}`}>Aa</span>
+      <span aria-hidden className="flex h-20 w-full items-center justify-center rounded-sm border border-border bg-background">
+        <span className={`text-3xl font-medium leading-none ${textClass}`}>Aa</span>
       </span>
     </SwatchCard>
   )
@@ -57,7 +69,7 @@ function TextSwatch({ textClass, label }: { textClass: string; label: string }) 
 function BorderSwatch({ borderClass, label }: { borderClass: string; label: string }) {
   return (
     <SwatchCard copyText={borderClass} label={label}>
-      <span aria-hidden className={`h-10 w-full rounded-sm border-2 bg-background ${borderClass}`} />
+      <span aria-hidden className={`h-20 w-full rounded-sm border-2 bg-background ${borderClass}`} />
     </SwatchCard>
   )
 }
@@ -66,7 +78,7 @@ function BorderSwatch({ borderClass, label }: { borderClass: string; label: stri
 function IconSwatch({ iconClass, label }: { iconClass: string; label: string }) {
   return (
     <SwatchCard copyText={iconClass} label={label}>
-      <span aria-hidden className="flex h-10 w-full items-center justify-center rounded-sm border border-border bg-background">
+      <span aria-hidden className="flex h-20 w-full items-center justify-center rounded-sm border border-border bg-background">
         <Circle className={`size-4 fill-current ${iconClass}`} />
       </span>
     </SwatchCard>
@@ -88,8 +100,8 @@ const brandColorsEntry: GalleryEntry = {
   title: 'Brand colors',
   importPath: TOKENS_IMPORT,
   usage: {
-    do: ['brand-violet 10/30/100 pattern (bg/border/text) for proposed and feature accents.'],
-    dont: ['Never theme or repurpose accent-indigo — it is the selection-control contract.'],
+    do: ['Use the brand-violet 10/30/100 pattern (bg/border/text) for AI features and user-saved views.'],
+    dont: ['Do not substitute brand colors for semantic status tokens.', 'Do not repurpose accent-indigo — it is the selection-control contract.'],
   },
   figmaNodeId: FIGMA_COLORS_NODE,
   variants: [
@@ -100,7 +112,7 @@ const brandColorsEntry: GalleryEntry = {
         <div className="space-y-2">
           <div
             aria-hidden
-            className="h-16 w-full max-w-md rounded-md border border-border bg-linear-135 from-brand-lime from-0% via-brand-yellow via-35% to-brand-violet to-70%"
+            className="h-32 w-full rounded-lg border border-border bg-linear-135 from-brand-lime from-0% via-brand-yellow via-35% to-brand-violet to-70%"
           />
           <code className="text-xs text-muted-foreground">brand-lime 0%, brand-yellow 35%, brand-violet 70%</code>
         </div>
@@ -154,6 +166,14 @@ const colorTokensEntry: GalleryEntry = {
   figmaNodeId: FIGMA_COLORS_NODE,
   variants: [
     {
+      id: 'source-palette',
+      title: 'Complete source palette',
+      render: () => <SourceColors />,
+      code: `import { SourceColors } from '@open-mercato/core/modules/design_system/gallery/demos/foundation-references'
+
+<SourceColors />`,
+    },
+    {
       id: 'primary',
       title: 'primary',
       render: () => (
@@ -198,7 +218,7 @@ const colorTokensEntry: GalleryEntry = {
           <TextSwatch textClass="text-text-disabled" label="text-text-disabled" />
         </div>
       ),
-      code: `<p className="text-muted-foreground">Secondary copy</p>`,
+      code: `<p className="text-muted-foreground">{t('design_system.gallery.samples.typeBody')}</p>`,
     },
     {
       id: 'stroke',
@@ -259,6 +279,15 @@ function StatusFamilyPreview({ family }: { family: StatusFamily }) {
   )
 }
 
+function FeatureStatePreview() {
+  const t = useT()
+  return (
+    <Alert status="feature" className="max-w-md">
+      <AlertDescription>{t('design_system.gallery.samples.featureState')}</AlertDescription>
+    </Alert>
+  )
+}
+
 const stateTokensEntry: GalleryEntry = {
   id: 'state-tokens',
   title: 'State color tokens',
@@ -267,6 +296,7 @@ const stateTokensEntry: GalleryEntry = {
     do: [
       'Pair -bg with -text of the same family — the shades are contrast-tested together.',
       '-icon for glyphs and dots, -border for outlines; both handle dark mode themselves.',
+      'Alert status="feature" uses the neutral token family; brand-violet is reserved for AI and saved-view accents.',
     ],
     dont: [
       'Never hardcode Tailwind status colors (text-red-*, bg-green-*, text-amber-*).',
@@ -283,13 +313,13 @@ const stateTokensEntry: GalleryEntry = {
     })),
     {
       id: 'feature',
-      title: 'Feature → brand-violet pattern',
-      render: () => (
-        <div className="flex max-w-md items-center gap-2 rounded-md border border-brand-violet/30 bg-brand-violet/10 p-3 text-sm text-brand-violet">
-          Feature state uses the brand-violet 10/30/100 pattern, not a status family.
-        </div>
-      ),
-      code: `<Alert status="feature" />`,
+      title: 'Feature → status-neutral',
+      render: () => <FeatureStatePreview />,
+      code: `import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
+
+<Alert status="feature" className="max-w-md">
+  <AlertDescription>{t('design_system.gallery.samples.featureState')}</AlertDescription>
+</Alert>`,
     },
   ],
 }
@@ -353,31 +383,27 @@ type ColorRole = {
 }
 
 function RoleCard({ role }: { role: ColorRole }) {
-  const label = `${role.surface} / ${role.onSurface}`
-  const onCopy = React.useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(`${role.surfaceCls} ${role.onSurfaceCls}`)
-      flash(`${role.surfaceCls} ${role.onSurfaceCls} copied`, 'success')
-    } catch {
-      flash('Could not copy the classes', 'error')
-    }
-  }, [role])
+  const { onCopy, copyLabel } = useCopyToken(`${role.surfaceCls} ${role.onSurfaceCls}`)
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
       onClick={onCopy}
-      title={`Copy ${role.surfaceCls} ${role.onSurfaceCls}`}
-      className={`flex h-24 w-full flex-col justify-between rounded-md border p-3 text-left transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:shadow-focus ${role.surfaceCls} ${role.onSurfaceCls} ${role.borderCls ?? 'border-border'}`}
+      title={copyLabel}
+      aria-label={copyLabel}
+      className="h-auto w-full whitespace-normal p-0 text-left transition-opacity hover:bg-transparent hover:opacity-90"
     >
-      <span className="text-sm font-medium leading-tight">{role.surface}</span>
-      <code className="text-xs opacity-80">{role.onSurface}</code>
-    </button>
+      <span className={`flex h-36 w-full flex-col items-start justify-between rounded-lg border p-4 ${role.surfaceCls} ${role.onSurfaceCls} ${role.borderCls ?? 'border-border'}`}>
+        <span className="text-base font-medium leading-tight">{role.surface}</span>
+        <code className="text-xs opacity-80">{role.onSurface}</code>
+      </span>
+    </Button>
   )
 }
 
 function RoleGrid({ roles }: { roles: ColorRole[] }) {
   return (
-    <div className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid w-full gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {roles.map((role) => (
         <RoleCard key={role.surface + role.onSurface} role={role} />
       ))}
@@ -415,7 +441,9 @@ const colorRolesEntry: GalleryEntry = {
           ]}
         />
       ),
-      code: `<button className="bg-primary text-primary-foreground" />`,
+      code: `import { Button } from '@open-mercato/ui/primitives/button'
+
+<Button type="button">{t('design_system.gallery.samples.primaryAction')}</Button>`,
     },
     {
       id: 'surfaces',
@@ -439,12 +467,12 @@ const colorRolesEntry: GalleryEntry = {
       title: 'status',
       render: () => (
         <RoleGrid
-          roles={['error', 'success', 'warning', 'info', 'neutral', 'pink'].map((status) => ({
-            surface: `status-${status}-bg`,
-            onSurface: `status-${status}-text`,
-            surfaceCls: `bg-status-${status}-bg`,
-            onSurfaceCls: `text-status-${status}-text`,
-            borderCls: `border-status-${status}-border`,
+          roles={FIGMA_STATE_TO_CODE.map((family) => ({
+            surface: `status-${family.status}-bg`,
+            onSurface: `status-${family.status}-text`,
+            surfaceCls: family.bg,
+            onSurfaceCls: family.text,
+            borderCls: family.border,
           }))}
         />
       ),
@@ -463,27 +491,22 @@ const RADIUS_SCALE: Array<{ cls: string; label: string; px: string }> = [
 ]
 
 function RadiusCard({ cls, label, px }: { cls: string; label: string; px: string }) {
-  const onCopy = React.useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(label)
-      flash(`${label} copied`, 'success')
-    } catch {
-      flash('Could not copy the class', 'error')
-    }
-  }, [label])
+  const { onCopy, copyLabel } = useCopyToken(label)
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
       onClick={onCopy}
-      title={`Copy ${label}`}
-      className="flex w-36 flex-col items-start gap-2 rounded-md border border-border bg-background p-2 text-left transition-colors hover:bg-muted/40"
+      title={copyLabel}
+      aria-label={copyLabel}
+      className="h-auto w-36 flex-col items-start gap-2 border border-border bg-background p-2 text-left hover:bg-muted/50"
     >
       <span aria-hidden className={`h-14 w-full border-2 border-dashed border-status-pink-icon bg-status-pink-bg ${cls}`} />
       <span className="space-y-0.5">
         <code className="block text-xs text-foreground">{label}</code>
         <span className="block text-xs text-muted-foreground">{px}</span>
       </span>
-    </button>
+    </Button>
   )
 }
 
@@ -491,6 +514,7 @@ const radiusEntry: GalleryEntry = {
   id: 'corner-radius',
   title: 'Corner radius',
   importPath: TOKENS_IMPORT,
+  figmaNodeId: '553:14961',
   keywords: ['radius', 'rounded', 'border-radius', 'corners'],
   usage: {
     do: [
@@ -504,6 +528,14 @@ const radiusEntry: GalleryEntry = {
     ],
   },
   variants: [
+    {
+      id: 'source-radius',
+      title: 'Complete radius scale',
+      render: () => <SourceRadius />,
+      code: `import { SourceRadius } from '@open-mercato/core/modules/design_system/gallery/demos/foundation-references'
+
+<SourceRadius />`,
+    },
     {
       id: 'scale',
       title: 'scale',
@@ -519,6 +551,313 @@ const radiusEntry: GalleryEntry = {
   ],
 }
 
+const TYPOGRAPHY_ROLES = [
+  { id: 'page', className: 'text-2xl font-bold tracking-tight', metrics: '24 / 32 px' },
+  { id: 'section', className: 'text-xl font-semibold', metrics: '20 / 28 px' },
+  { id: 'body', className: 'text-sm', metrics: '14 / 20 px' },
+  { id: 'label', className: 'text-sm font-medium', metrics: '14 / 20 px' },
+  { id: 'helper', className: 'text-xs text-muted-foreground', metrics: '12 / 16 px' },
+] as const
+
+function TypographyRolesPreview() {
+  const t = useT()
+  return <div className="space-y-6">
+    <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">{t('design_system.foundations.typography.guide.intro')}</p>
+    <div className="divide-y divide-border border-y border-border">
+      {TYPOGRAPHY_ROLES.map(role => <article key={role.id} className="grid min-w-0 gap-4 py-6 md:grid-cols-3 md:gap-8" data-typography-role={role.id}>
+        <div className="space-y-2">
+          <h4 className="text-sm font-medium">{t(`design_system.foundations.typography.guide.${role.id}.title`)}</h4>
+          <p className="text-xs text-muted-foreground">{role.metrics}</p>
+        </div>
+        <div className="min-w-0 space-y-3 md:col-span-2">
+          <p className={`${role.className} break-words`}>{t(`design_system.foundations.typography.guide.${role.id}.example`)}</p>
+          <p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{t(`design_system.foundations.typography.guide.${role.id}.usage`)}</p>
+        </div>
+      </article>)}
+    </div>
+    <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">{t('design_system.foundations.typography.guide.fonts')}</p>
+  </div>
+}
+
+function TypographyReferencePreview() {
+  const t = useT()
+  return <section className="rounded-lg border border-border">
+    <h3 className="p-4 text-sm font-medium">{t('design_system.foundations.typography.guide.reference')}</h3>
+    <div className="space-y-8 border-t border-border p-4 sm:p-6">
+      <div className="space-y-3">
+        <h4 className="text-sm font-medium">{t('design_system.foundations.typography.guide.classes')}</h4>
+        <dl className="divide-y divide-border">
+          {TYPOGRAPHY_ROLES.map(role => <div key={role.id} className="flex flex-wrap justify-between gap-2 py-3 text-sm">
+            <dt>{t(`design_system.foundations.typography.guide.${role.id}.title`)}</dt>
+            <dd><code className="break-words text-xs text-muted-foreground">{role.className}</code></dd>
+          </div>)}
+        </dl>
+      </div>
+      <SourceTypography />
+    </div>
+  </section>
+}
+
+const typographyEntry: GalleryEntry = {
+  id: 'typography',
+  title: 'Typography',
+  importPath: TOKENS_IMPORT,
+  figmaNodeId: '553:14957',
+  keywords: ['font', 'type', 'heading', 'body', 'line-height', 'Geist', 'Inter'],
+  usage: {
+    do: [
+      'Use font-sans for the interface and font-mono for code and identifiers. Both resolve through the host application font tokens, with system fallbacks in globals.css.',
+      'Use text-2xl for backend page titles and text-sm for body text. Scale measurements assume a 16px root font size.',
+      'The Figma reference uses Inter / Inter Display; these specimens show the shipped font tokens rather than claiming font parity.',
+    ],
+    dont: ['Do not copy marketing display sizes into dense backend pages.', 'Do not set inline font families or arbitrary text sizes.'],
+  },
+  variants: [
+    {
+      id: 'roles',
+      title: 'Text hierarchy',
+      render: () => <TypographyRolesPreview />,
+      code: `import { Label } from '@open-mercato/ui/primitives/label'
+import { Input } from '@open-mercato/ui/primitives/input'
+
+<h1 className="text-2xl font-bold tracking-tight">{t('design_system.foundations.typography.guide.page.example')}</h1>
+<h2 className="text-xl font-semibold">{t('design_system.foundations.typography.guide.section.example')}</h2>
+<p className="text-sm">{t('design_system.foundations.typography.guide.body.example')}</p>
+<Label htmlFor="name">{t('design_system.foundations.typography.guide.label.example')}</Label>
+<Input id="name" aria-describedby="name-hint" />
+<p id="name-hint" className="text-xs text-muted-foreground">{t('design_system.foundations.typography.guide.helper.example')}</p>`,
+    },
+    {
+      id: 'source-typography',
+      title: 'Complete typography scale',
+      render: () => <TypographyReferencePreview />,
+      code: `import { SourceTypography } from '@open-mercato/core/modules/design_system/gallery/demos/foundation-references'
+
+<SourceTypography />`,
+    },
+  ],
+}
+
+const SPACING_SCALE = [
+  { token: '1', className: 'w-1', pixels: 4 },
+  { token: '2', className: 'w-2', pixels: 8 },
+  { token: '3', className: 'w-3', pixels: 12 },
+  { token: '4', className: 'w-4', pixels: 16 },
+  { token: '6', className: 'w-6', pixels: 24 },
+  { token: '8', className: 'w-8', pixels: 32 },
+  { token: '12', className: 'w-12', pixels: 48 },
+]
+
+function SpacingScalePreview() {
+  const t = useT()
+  return (
+    <div className="w-full space-y-6">
+      <p className="text-sm text-muted-foreground">{t('design_system.foundations.spacing.scaleHint')}</p>
+      {SPACING_SCALE.map((item) => (
+        <div key={item.token} className="flex items-center gap-4 py-2">
+          <code className="w-12 shrink-0 text-sm text-muted-foreground">p-{item.token}</code>
+          <div className="min-w-0 flex-1"><span aria-hidden className="block h-8 rounded-sm border-l-4 border-primary bg-muted" style={{ width: `${item.pixels / 48 * 100}%` }} /></div>
+          <span className="w-28 shrink-0 font-mono text-xs"><span>{item.pixels / 16} rem</span><span className="ml-3 text-muted-foreground">{item.pixels} px</span></span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function SpacingRhythmPreview() {
+  return (
+    <div className="grid w-full gap-6 md:grid-cols-2">
+      {[
+        { padding: 'p-4', gap: 'gap-2' },
+        { padding: 'p-6', gap: 'gap-4' },
+      ].map((item) => (
+        <div key={item.padding} className={`space-y-4 rounded-lg border border-border bg-muted/30 ${item.padding}`}>
+          <code className="text-xs text-muted-foreground">{item.padding} / {item.gap}</code>
+          <div aria-hidden className={`flex ${item.gap}`}>
+            <span className="h-12 flex-1 rounded-md border border-border bg-background" />
+            <span className="h-12 flex-1 rounded-md border border-border bg-background" />
+            <span className="h-12 flex-1 rounded-md border border-border bg-background" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+const spacingEntry: GalleryEntry = {
+  id: 'spacing',
+  title: 'Spacing',
+  importPath: TOKENS_IMPORT,
+  figmaNodeId: '553:14958',
+  keywords: ['padding', 'gap', 'margin', 'grid', 'rhythm'],
+  usage: {
+    do: ['Use the 4px spacing grid. Start with gap-2 between controls, p-4 within containers and p-6 for larger panels.'],
+    dont: ['Do not invent arbitrary spacing values or compensate for layout problems with negative margins.'],
+  },
+  variants: [
+    {
+      id: 'source-grids',
+      title: 'Layout grids',
+      render: () => <SourceGrids />,
+      code: `import { SourceGrids } from '@open-mercato/core/modules/design_system/gallery/demos/foundation-references'
+
+<SourceGrids />`,
+    },
+    {
+      id: 'scale',
+      title: 'Spacing scale',
+      render: () => <SpacingScalePreview />,
+      code: `<div className="flex gap-2 p-4">{children}</div>
+<section className="space-y-6 p-6">{children}</section>`,
+    },
+    {
+      id: 'rhythm',
+      title: 'Container rhythm',
+      render: () => <SpacingRhythmPreview />,
+      code: `<div className="p-4">
+  <div className="flex gap-2">{children}</div>
+</div>
+<div className="p-6">
+  <div className="flex gap-4">{children}</div>
+</div>`,
+    },
+  ],
+}
+
+const SHADOW_SCALE = ['shadow-none', 'shadow-xs', 'shadow-sm', 'shadow-md', 'shadow-lg', 'shadow-xl', 'shadow-2xl']
+
+function ShadowScalePreview() {
+  return (
+    <div className="grid w-full grid-cols-2 gap-6 p-4 md:grid-cols-3 lg:grid-cols-4">
+      {SHADOW_SCALE.map((className) => (
+        <div key={className} className={`flex h-24 items-center justify-center rounded-lg border border-border bg-card p-4 ${className}`}>
+          <code className="text-xs text-card-foreground">{className}</code>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function FocusPreview() {
+  const t = useT()
+  return (
+    <div className="space-y-4 p-2">
+      <p className="text-sm text-muted-foreground">{t('design_system.gallery.samples.focusHint')}</p>
+      <div className="flex flex-wrap items-center gap-6">
+        <Button type="button" variant="outline">{t('design_system.gallery.samples.focusAction')}</Button>
+        <span aria-hidden className="rounded-md border border-border bg-background px-4 py-2 text-sm shadow-focus">shadow-focus</span>
+      </div>
+    </div>
+  )
+}
+
+const shadowsEntry: GalleryEntry = {
+  id: 'shadows',
+  title: 'Shadows & focus',
+  importPath: TOKENS_IMPORT,
+  figmaNodeId: '553:14959',
+  keywords: ['elevation', 'depth', 'focus', 'keyboard'],
+  usage: {
+    do: ['Use shadow-xs for controls, shadow-sm for cards and higher elevations for overlays.', 'Keep the visible keyboard focus supplied by DS primitives. Shadow tokens adapt to the active theme.'],
+    dont: ['Do not draw custom colored glows or arbitrary box shadows.', 'Do not remove focus feedback without an equivalent visible indicator.'],
+  },
+  variants: [
+    {
+      id: 'source-shadows',
+      title: 'Complete shadow collection',
+      render: () => <SourceShadows />,
+      code: `import { SourceShadows } from '@open-mercato/core/modules/design_system/gallery/demos/foundation-references'
+
+<SourceShadows />`,
+    },
+    {
+      id: 'elevation',
+      title: 'Elevation scale',
+      render: () => <ShadowScalePreview />,
+      code: `<div className="rounded-lg border border-border bg-card p-4 shadow-sm">{children}</div>
+<div className="rounded-lg border border-border bg-popover p-4 shadow-lg">{children}</div>`,
+    },
+    {
+      id: 'focus',
+      title: 'Keyboard focus',
+      render: () => <FocusPreview />,
+      code: `import { Button } from '@open-mercato/ui/primitives/button'
+
+<Button type="button" variant="outline">{t('design_system.gallery.samples.focusAction')}</Button>`,
+    },
+  ],
+}
+
+function MotionPreview() {
+  const t = useT()
+  const [active, setActive] = React.useState(false)
+  return (
+    <div className="w-full space-y-4">
+      <Button type="button" variant="outline" aria-pressed={active} onClick={() => setActive((value) => !value)}>
+        {t('design_system.gallery.samples.toggleMotion')}
+      </Button>
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="space-y-3 rounded-lg border border-border p-4">
+          <code className="text-xs text-muted-foreground">transition-colors / 150 ms</code>
+          <div aria-hidden className={`h-12 rounded-md transition-colors duration-150 motion-reduce:transition-none ${active ? 'bg-primary' : 'bg-muted'}`} />
+        </div>
+        <div className="space-y-3 rounded-lg border border-border p-4">
+          <code className="text-xs text-muted-foreground">transition-opacity / 200 ms</code>
+          <div aria-hidden className={`h-12 rounded-md bg-primary transition-opacity duration-200 ease-out motion-reduce:transition-none ${active ? 'opacity-100' : 'opacity-30'}`} />
+        </div>
+        <div className="space-y-3 rounded-lg border border-border p-4">
+          <code className="text-xs text-muted-foreground">transition-transform / 300 ms</code>
+          <div aria-hidden className="flex h-12 items-center">
+            <ArrowRight className={`size-6 text-foreground transition-transform duration-300 ease-out motion-reduce:transition-none ${active ? 'translate-x-8' : 'translate-x-0'}`} />
+          </div>
+        </div>
+        <div className="space-y-3 rounded-lg border border-border p-4">
+          <code className="text-xs text-muted-foreground">transition-opacity / 400 ms</code>
+          <div aria-hidden className={`h-12 rounded-md bg-primary transition-opacity duration-400 ease-out motion-reduce:transition-none ${active ? 'opacity-100' : 'opacity-30'}`} />
+        </div>
+        <div className="space-y-3 rounded-lg border border-border p-4">
+          <code className="text-xs text-muted-foreground">transition-opacity / 500 ms</code>
+          <div aria-hidden className={`h-12 rounded-md bg-primary transition-opacity duration-500 ease-out motion-reduce:transition-none ${active ? 'opacity-100' : 'opacity-30'}`} />
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">{t('design_system.gallery.samples.reducedMotion')}</p>
+    </div>
+  )
+}
+
+const motionEntry: GalleryEntry = {
+  id: 'motion',
+  title: 'Motion',
+  importPath: TOKENS_IMPORT,
+  figmaNodeId: '553:14960',
+  keywords: ['animation', 'transition', 'duration', 'reduced-motion'],
+  usage: {
+    do: ['The Figma duration scale is 150, 200, 300, 400 and 500ms; choose timing according to content size and travel distance.', 'Name the changing property and respect reduced-motion preferences.'],
+    dont: ['Do not use animation as the only feedback for a state change.', 'Do not use transition-all when only one property changes.'],
+  },
+  variants: [
+    {
+      id: 'durations',
+      title: 'Interactive duration scale',
+      render: () => <MotionPreview />,
+      code: `import * as React from 'react'
+import { ArrowRight } from 'lucide-react'
+import { Button } from '@open-mercato/ui/primitives/button'
+
+const [active, setActive] = React.useState(false)
+
+<Button type="button" variant="outline" aria-pressed={active} onClick={() => setActive((value) => !value)}>
+  {t('design_system.gallery.samples.toggleMotion')}
+</Button>
+<div aria-hidden className={['h-12 rounded-md transition-colors duration-150 motion-reduce:transition-none', active ? 'bg-primary' : 'bg-muted'].join(' ')} />
+<div aria-hidden className={['h-12 rounded-md bg-primary transition-opacity duration-200 ease-out motion-reduce:transition-none', active ? 'opacity-100' : 'opacity-30'].join(' ')} />
+<ArrowRight aria-hidden className={['size-6 transition-transform duration-300 ease-out motion-reduce:transition-none', active ? 'translate-x-8' : 'translate-x-0'].join(' ')} />
+<div aria-hidden className={['h-12 rounded-md bg-primary transition-opacity duration-400 ease-out motion-reduce:transition-none', active ? 'opacity-100' : 'opacity-30'].join(' ')} />
+<div aria-hidden className={['h-12 rounded-md bg-primary transition-opacity duration-500 ease-out motion-reduce:transition-none', active ? 'opacity-100' : 'opacity-30'].join(' ')} />`,
+    },
+  ],
+}
+
 export const entries: GalleryEntry[] = [
   brandColorsEntry,
   colorRolesEntry,
@@ -526,4 +865,8 @@ export const entries: GalleryEntry[] = [
   stateTokensEntry,
   chartPaletteEntry,
   radiusEntry,
+  typographyEntry,
+  spacingEntry,
+  shadowsEntry,
+  motionEntry,
 ]

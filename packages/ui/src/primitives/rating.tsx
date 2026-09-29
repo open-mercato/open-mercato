@@ -6,16 +6,17 @@ import { cva, type VariantProps } from 'class-variance-authority'
 
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Button } from './button'
 
 /**
  * 1-to-N star / heart / dot rating per Figma `Rating & Review [1.0]`
- * (DS Open Mercato componentSet `199969:1797`). Two distinct modes:
+ * (DS Open Mercato componentSet `532:4340`). Two distinct modes:
  *
  * - **Read-only display** — no `onChange` prop. Renders `role="img"` with
  *   an `aria-label` like "4.5 out of 5 stars". Used in product reviews,
  *   feedback summaries.
  * - **Interactive input** — `onChange` provided. Renders as a row of
- *   focusable buttons; arrow keys / number keys navigate, click /
+ *   focusable buttons; arrow keys navigate, click /
  *   Enter / Space commits. Used in submission forms.
  *
  * ```tsx
@@ -26,7 +27,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
  * const [v, setV] = React.useState(0)
  * <Rating value={v} onChange={setV} aria-label="Your rating" />
  *
- * // Half precision (stars only — Lucide ships StarHalf but not HeartHalf)
+ * // Half precision for stars and hearts
  * <Rating value={3.5} max={5} allowHalf />
  *
  * // Heart variant
@@ -90,9 +91,16 @@ function renderIcon(
   className: string,
 ): React.ReactElement {
   if (iconType === 'heart') {
-    // Lucide does not ship HeartHalf — half precision is treated as full
-    // for hearts (consumer should set allowHalf=false when icon="heart").
-    return <HeartIcon className={className} />
+    const heartClassName = cn(className, fill !== 'empty' && 'fill-status-error-icon text-status-error-icon')
+    if (fill === 'half') {
+      return (
+        <span aria-hidden="true" className={cn('relative inline-flex size-full', className)}>
+          <HeartIcon className="absolute inset-0 size-full fill-transparent text-status-error-icon" />
+          <HeartIcon className={cn('absolute inset-0 size-full', heartClassName)} style={{ clipPath: 'inset(0 50% 0 0)' }} />
+        </span>
+      )
+    }
+    return <HeartIcon className={heartClassName} />
   }
   if (iconType === 'circle') {
     return <CircleIcon className={className} />
@@ -112,10 +120,11 @@ export type RatingProps = Omit<React.HTMLAttributes<HTMLSpanElement>, 'onChange'
     onChange?: (next: number) => void
     /** Which icon glyph to render. Defaults to `'star'`. */
     icon?: 'star' | 'heart' | 'circle'
-    /** Enable half-step precision (stars only — Lucide has no HeartHalf). */
+    /** Enable half-step precision. Stars and hearts support a half-filled glyph. */
     allowHalf?: boolean
     /** When true, dim the control and block clicks. Inherited via `disabled` prop on the root. */
     disabled?: boolean
+    appearance?: 'inline' | 'cell'
     /** Required when interactive — screen-readers announce this as the group label. */
     'aria-label'?: string
   }
@@ -131,11 +140,20 @@ export const Rating = React.forwardRef<HTMLSpanElement, RatingProps>(
       allowHalf = false,
       size,
       disabled,
+      appearance = 'inline',
       ...rest
     },
     ref,
   ) => {
     const t = useT()
+    const cell = appearance === 'cell'
+    const rootClassName = cn(ratingRootVariants({ size, disabled }), cell && 'gap-2 [&>*]:size-14', className)
+    const iconClassName = (fill: FillState) => cn(
+      cell ? 'size-8' : 'size-full',
+      ratingItemColorVariants({ fill }),
+      cell && fill === 'empty' && 'fill-border text-border',
+      cell && fill === 'empty' && !disabled && (icon === 'heart' ? 'group-hover:fill-status-error-icon group-hover:text-status-error-icon' : 'group-hover:fill-status-warning-icon group-hover:text-status-warning-icon'),
+    )
     const interactive = typeof onChange === 'function'
     const handleSelect = React.useCallback(
       (next: number) => {
@@ -153,7 +171,8 @@ export const Rating = React.forwardRef<HTMLSpanElement, RatingProps>(
           role="img"
           aria-label={rest['aria-label'] ?? t('ui.rating.summary.ariaLabel', '{value} out of {max}', { value, max })}
           data-slot="rating"
-          className={cn(ratingRootVariants({ size, disabled }), className)}
+          data-appearance={appearance}
+          className={rootClassName}
           {...rest}
         >
           {Array.from({ length: max }).map((_, index) => {
@@ -163,9 +182,9 @@ export const Rating = React.forwardRef<HTMLSpanElement, RatingProps>(
                 key={index}
                 data-slot="rating-item"
                 data-fill={fill}
-                className="inline-flex items-center justify-center"
+                className={cn('inline-flex items-center justify-center', cell && 'rounded-lg bg-background ring-1 ring-inset ring-border shadow-xs')}
               >
-                {renderIcon(icon, fill, ratingItemColorVariants({ fill }))}
+                {renderIcon(icon, fill, cell ? iconClassName(fill) : ratingItemColorVariants({ fill }))}
               </span>
             )
           })}
@@ -183,7 +202,8 @@ export const Rating = React.forwardRef<HTMLSpanElement, RatingProps>(
         role="radiogroup"
         aria-label={rest['aria-label']}
         data-slot="rating"
-        className={cn(ratingRootVariants({ size, disabled }), className)}
+        data-appearance={appearance}
+        className={rootClassName}
         {...rest}
       >
         {Array.from({ length: max }).map((_, index) => {
@@ -191,18 +211,19 @@ export const Rating = React.forwardRef<HTMLSpanElement, RatingProps>(
           // Empty rating (value === 0) falls back to the first item so it stays Tab-reachable.
           const isCurrent = value === 0 ? index === 0 : Math.ceil(value) - 1 === index
           return (
-            <button
+            <Button
               key={index}
               type="button"
+              variant="ghost"
               role="radio"
-              aria-checked={fill !== 'empty'}
-              aria-label={t('ui.rating.item.ariaLabel', '{position} of {max}', { position: index + 1, max })}
+              aria-checked={value > 0 && isCurrent}
+              aria-label={t('ui.rating.item.ariaLabel', '{position} of {max}', { position: allowHalf && value > 0 && isCurrent ? value : index + 1, max })}
               tabIndex={isCurrent ? 0 : -1}
               data-slot="rating-item"
               data-fill={fill}
               disabled={disabled}
               onClick={(event) => {
-                if (!allowHalf) {
+                if (!allowHalf || event.detail === 0) {
                   handleSelect(index + 1)
                   return
                 }
@@ -211,29 +232,36 @@ export const Rating = React.forwardRef<HTMLSpanElement, RatingProps>(
                 handleSelect(isLeftHalf ? index + 0.5 : index + 1)
               }}
               onKeyDown={(event) => {
+                const selectAndFocus = (next: number) => {
+                  if (disabled) return
+                  handleSelect(next)
+                  const choices = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="radio"]')
+                  choices?.[Math.max(0, Math.ceil(next) - 1)]?.focus()
+                }
                 if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
                   event.preventDefault()
-                  handleSelect(Math.min(max, value + (allowHalf ? 0.5 : 1)))
+                  selectAndFocus(Math.min(max, value + (allowHalf ? 0.5 : 1)))
                 } else if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
                   event.preventDefault()
-                  handleSelect(Math.max(0, value - (allowHalf ? 0.5 : 1)))
+                  selectAndFocus(Math.max(0, value - (allowHalf ? 0.5 : 1)))
                 } else if (event.key === 'Home') {
                   event.preventDefault()
-                  handleSelect(allowHalf ? 0.5 : 1)
+                  selectAndFocus(allowHalf ? 0.5 : 1)
                 } else if (event.key === 'End') {
                   event.preventDefault()
-                  handleSelect(max)
+                  selectAndFocus(max)
                 }
               }}
               className={cn(
-                'inline-flex items-center justify-center rounded-sm outline-none',
+                'inline-flex items-center justify-center p-0 outline-none has-[>svg]:p-0',
+                cell ? 'group rounded-lg bg-background ring-1 ring-inset ring-border shadow-xs hover:bg-muted hover:ring-transparent hover:shadow-none' : 'rounded-sm hover:bg-transparent disabled:bg-transparent dark:hover:bg-transparent',
                 'focus-visible:shadow-focus',
-                'enabled:hover:scale-110 enabled:hover:transition-transform',
+                !cell && 'enabled:hover:scale-110 enabled:hover:transition-transform',
                 'disabled:cursor-not-allowed',
               )}
             >
-              {renderIcon(icon, fill, ratingItemColorVariants({ fill }))}
-            </button>
+              {renderIcon(icon, fill, iconClassName(fill))}
+            </Button>
           )
         })}
       </span>

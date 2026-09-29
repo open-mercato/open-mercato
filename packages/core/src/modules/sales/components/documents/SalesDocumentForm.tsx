@@ -57,11 +57,21 @@ import {
   type AddressValue,
 } from '@open-mercato/core/modules/customers/utils/addressFormat'
 import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modules/customers/components/AddressEditor'
+import { extensionPoints as customersExtensionPoints } from '@open-mercato/core/modules/customers/extension-points'
+import { crudFormExtensionSpotId } from '@open-mercato/shared/modules/widgets/extension-points'
 import { useSalesChannelsEnabled } from '../useSalesChannelsEnabled'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { SalesOrderDraftLines, createSalesOrderLineDraft, type SalesOrderLineDraft } from './SalesOrderDraftLines'
+import { normalizeAddressDraft } from './normalizeAddressDraft'
 
 const logger = createLogger('sales')
+
+// Before this change, `CrudForm` auto-derived its injection spot id from
+// `entityIds[0]` (`E.customers.customer_entity`), which resolves to this id.
+// Declaring `injectionSpotId` below on the two quick-create dialogs replaces
+// that auto-derived id with the customers module's declared host — bridge the
+// legacy one for one minor version per BACKWARD_COMPATIBILITY.md §6.
+const CUSTOMER_QUICK_CREATE_LEGACY_INJECTION_SPOT_ID = crudFormExtensionSpotId('customers.customer_entity')
 
 type DocumentKind = 'quote' | 'order'
 
@@ -369,6 +379,8 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
                 submitLabel={t('common.save', 'Save')}
                 cancelHref={undefined}
                 onSubmit={(values) => handlePersonCreate(values)}
+                injectionSpotId={customersExtensionPoints.hosts.personForm.spotId}
+                legacyInjectionSpotId={CUSTOMER_QUICK_CREATE_LEGACY_INJECTION_SPOT_ID}
                 entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
               />
             </div>
@@ -403,6 +415,8 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
                 submitLabel={t('common.save', 'Save')}
                 cancelHref={undefined}
                 onSubmit={(values) => handleCompanyCreate(values)}
+                injectionSpotId={customersExtensionPoints.hosts.companyForm.spotId}
+                legacyInjectionSpotId={CUSTOMER_QUICK_CREATE_LEGACY_INJECTION_SPOT_ID}
                 entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
               />
             </div>
@@ -433,29 +447,6 @@ function parseCustomerOptions(items: unknown[], kind: 'person' | 'company'): Cus
     parsed.push({ id, label: `${label}`, subtitle, kind, primaryEmail: email })
   }
   return parsed
-}
-
-function normalizeAddressDraft(draft?: AddressDraft | null): Record<string, unknown> | null {
-  if (!draft) return null
-  const normalized: Record<string, unknown> = {}
-  const assign = (key: keyof AddressDraft, target: string) => {
-    const value = draft[key]
-    if (typeof value === 'string' && value.trim().length) normalized[target] = value.trim()
-    if (typeof value === 'boolean') normalized[target] = value
-  }
-  assign('name', 'name')
-  assign('purpose', 'purpose')
-  assign('companyName', 'companyName')
-  assign('addressLine1', 'addressLine1')
-  assign('addressLine2', 'addressLine2')
-  assign('buildingNumber', 'buildingNumber')
-  assign('flatNumber', 'flatNumber')
-  assign('city', 'city')
-  assign('region', 'region')
-  assign('postalCode', 'postalCode')
-  assign('country', 'country')
-  assign('isPrimary', 'isPrimary')
-  return Object.keys(normalized).length ? normalized : null
 }
 
 type DocumentNumberFieldProps = CrudCustomFieldRenderProps & { t: Translator }
@@ -655,6 +646,8 @@ function BillingAddressSectionField({ values, setFormValue, t, addressesLoading,
                 t={t}
                 onChange={(next) => updateValue('billingAddressDraft', next)}
                 hidePrimaryToggle
+                showPhoneField
+                showTaxIdField
               />
               <SwitchField
                 containerClassName="col-span-2"
@@ -1267,6 +1260,8 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                   t={t}
                   onChange={(next) => updateValue('shippingAddressDraft', next)}
                   hidePrimaryToggle
+                  showPhoneField
+                  showTaxIdField
                 />
                 <SwitchField
                   containerClassName="col-span-2"
@@ -1533,6 +1528,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
   return (
     <CrudForm<SalesDocumentFormValues>
       title={t('sales.documents.form.title', 'Create sales document')}
+      titleHeadingLevel={1}
       backHref={cancelHref}
       fields={fields}
       groups={groups}

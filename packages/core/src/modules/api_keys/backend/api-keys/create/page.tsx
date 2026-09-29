@@ -153,6 +153,7 @@ export default function CreateApiKeyPage() {
         <div className="space-y-6">
           <CrudForm<FormValues>
             title={t('api_keys.form.title')}
+            titleHeadingLevel={1}
             backHref="/backend/api-keys"
             fields={fields}
             groups={groups}

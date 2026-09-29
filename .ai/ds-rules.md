@@ -110,6 +110,7 @@ Pill vs no-pill chips: the shipped primitives (`Badge`, `Tag` pill variant, `Seg
 - NEVER use arbitrary tracking — use `tracking-widest` (0.1em) for uppercase labels
 - USE Tailwind scale: `text-xs` (12px), `text-sm` (14px), `text-base` (16px), `text-lg` (18px), `text-xl` (20px), `text-2xl` (24px)
 - For 11px uppercase labels: use `text-overline` (custom token, 11px / 16px line-height)
+- Source widget typography: `text-compact` is 13px / 20px, `text-ai-body` is 15px / 24px, and `text-title-4` is 32px / 40px. Use these only for the corresponding Figma compositions; ordinary application copy keeps the standard scale.
 - Exception: `text-[9px]` for notification badge count and `Avatar size="sm"` initials (documented exceptions)
 - Font families come from tokens: `--font-geist-sans` (default UI) and `--font-geist-mono` (`font-mono`) — never declare `font-family` inline
 
@@ -365,4 +366,3 @@ If you find yourself writing `dark:{something}`, first check whether a semantic 
 
 ## Boy Scout Rule
 When modifying a file that contains hardcoded status colors (`text-red-*`, `bg-green-*`, etc.), arbitrary text sizes (`text-[11px]`), or `dark:` overrides on status colors, you MUST migrate at minimum the lines you touched to semantic tokens.
-
