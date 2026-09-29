@@ -56,6 +56,31 @@ test.describe('TC-MA-015 consent and unsubscribe', () => {
     }
   })
 
+  /**
+   * The page a recipient sees is in THEIR language, not always in English.
+   *
+   * It was the only user-facing text in the module that could not be translated: somebody clicking a link in an
+   * email has no session, so there was nothing to read a locale from. There is the browser's own
+   * `accept-language`, and this test is the proof the wiring works — otherwise "localised" would be a claim in a
+   * commit message with an English page behind it.
+   */
+  test('the page speaks the language the browser asks for', async ({ request }) => {
+    const polish = await request.get(`${UNSUBSCRIBE_PATH}?${TRACKING_TOKEN_PARAM}=garbage`, {
+      headers: { 'accept-language': 'pl-PL,pl;q=0.9' },
+    })
+    expect(polish.status()).toBe(400)
+    const html = await polish.text()
+    expect(html).toContain('Ten link jest nieprawidłowy')
+    // The document's own language follows, so a screen reader does not announce Polish as English.
+    expect(html).toContain('lang="pl"')
+
+    // And English is still what an unspecified browser gets, which is what every other test here assumes.
+    const english = await request.get(`${UNSUBSCRIBE_PATH}?${TRACKING_TOKEN_PARAM}=garbage`, {
+      headers: { 'accept-language': 'en-GB,en;q=0.9' },
+    })
+    expect(await english.text()).toContain('This link is not valid')
+  })
+
   test('an open token cannot be replayed as an unsubscribe', async ({ request }) => {
     const authToken = await getAuthToken(request, 'admin')
     const scope = callerScope(authToken)

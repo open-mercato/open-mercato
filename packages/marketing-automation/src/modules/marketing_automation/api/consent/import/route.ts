@@ -49,7 +49,7 @@ const MAX_CSV_BYTES = 2 * 1024 * 1024
  * fifty thousand would be a migration pretending to be an HTTP call. A larger file is imported in parts, and the
  * response says plainly that it was cut rather than reporting success over a fraction.
  */
-export const MAX_IMPORT_ROWS = 2_000
+const MAX_IMPORT_ROWS = 2_000
 
 const bodySchema = z.object({
   /** The file's contents. Sent as JSON rather than multipart so the reason travels with it in one payload. */

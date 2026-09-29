@@ -2,8 +2,10 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { reportError } from '@open-mercato/telemetry'
 import { MarketingCampaignRun } from '../../data/entities.js'
+import { escapeAttribute, escapeText } from '../../lib/html-escape.js'
 import { recordConsent } from '../../lib/consent.js'
 import { resolveTrackingSecret, resolveTrackingSecrets } from '../../lib/tracking/secret.js'
 import { signTrackingToken, verifyTrackingTokenWithAny } from '../../lib/tracking/token.js'
@@ -38,13 +40,30 @@ export const metadata = routeMetadata
 
 const logger = createLogger('marketing_automation')
 
-function page(title: string, body: string, status = 200): NextResponse {
-  // Deliberately minimal and self-contained: no stylesheet to fetch, nothing to track, nothing to leak
-  // through a referrer.
+/**
+ * Deliberately minimal and self-contained: no stylesheet to fetch, nothing to track, nothing to leak through a
+ * referrer — and now in the reader's own language rather than always in English.
+ *
+ * The locale comes from the browser (`resolveTranslations` reads `accept-language`), because the person is holding
+ * one. Which language we EMAIL them in is a different decision they make in the preference centre. `lang` follows
+ * it, so a screen reader does not announce Polish text as English.
+ */
+function page(locale: string, title: string, body: string, status = 200): NextResponse {
   return new NextResponse(
-    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>${title}</title></head>`
-    + `<body style="font-family:system-ui,sans-serif;margin:3rem auto;max-width:32rem;line-height:1.5;color:#111"><h1 style="font-size:1.25rem">${title}</h1><p>${body}</p></body></html>`,
+    `<!doctype html><html lang="${escapeAttribute(locale)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>${escapeText(title)}</title></head>`
+    + `<body style="font-family:system-ui,sans-serif;margin:3rem auto;max-width:32rem;line-height:1.5;color:#111"><h1 style="font-size:1.25rem">${escapeText(title)}</h1><p>${escapeText(body)}</p></body></html>`,
     { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } },
+  )
+}
+
+/** The one page whose body is a form rather than a sentence, so it composes its own markup. */
+async function invalidLink(): Promise<NextResponse> {
+  const { locale, t } = await resolveTranslations()
+  return page(
+    locale,
+    t('marketing_automation.public.invalidTitle', 'This link is not valid'),
+    t('marketing_automation.public.unsubscribe.invalidBody', 'Please use the unsubscribe link from a recent message.'),
+    400,
   )
 }
 
@@ -55,15 +74,17 @@ function page(title: string, body: string, status = 200): NextResponse {
  * request bytes into an HTML attribute is how the survey page acquired a reflected XSS, and a minted token is
  * a value we produced.
  */
-function confirmPage(claims: TrackingClaims, secret: string): NextResponse {
+async function confirmPage(claims: TrackingClaims, secret: string): Promise<NextResponse> {
   const token = encodeURIComponent(signTrackingToken(claims, secret))
+  const { locale, t } = await resolveTranslations()
+  const title = t('marketing_automation.public.unsubscribe.title', 'Unsubscribe')
   return new NextResponse(
-    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Unsubscribe</title></head>`
+    `<!doctype html><html lang="${escapeAttribute(locale)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>${escapeText(title)}</title></head>`
     + `<body style="font-family:system-ui,sans-serif;margin:3rem auto;max-width:32rem;line-height:1.5;color:#111">`
-    + `<h1 style="font-size:1.25rem">Unsubscribe</h1>`
-    + `<p>Confirm that you no longer want marketing email from us.</p>`
+    + `<h1 style="font-size:1.25rem">${escapeText(title)}</h1>`
+    + `<p>${escapeText(t('marketing_automation.public.unsubscribe.confirmBody', 'Confirm that you no longer want marketing email from us.'))}</p>`
     + `<form method="post" action="?${TRACKING_TOKEN_PARAM}=${token}">`
-    + `<p><button type="submit" style="font:inherit;padding:.5rem 1rem">Unsubscribe me</button></p>`
+    + `<p><button type="submit" style="font:inherit;padding:.5rem 1rem">${escapeText(t('marketing_automation.public.unsubscribe.submit', 'Unsubscribe me'))}</button></p>`
     + `</form>`
     + `</body></html>`,
     { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } },
@@ -82,10 +103,10 @@ function readClaims(req: Request): { claims: TrackingClaims; secret: string } | 
 
 async function handle(req: Request): Promise<NextResponse> {
   const verified = readClaims(req)
-  if (!verified) {
-    return page('This link is not valid', 'Please use the unsubscribe link from a recent message.', 400)
-  }
+  if (!verified) return invalidLink()
   const { claims } = verified
+
+  const { locale, t } = await resolveTranslations()
 
   try {
     const container = await createRequestContainer()
@@ -96,7 +117,12 @@ async function handle(req: Request): Promise<NextResponse> {
     if (!run?.subjectEntityId) {
       // The run is gone, so there is nobody to unsubscribe. Said plainly rather than pretending it worked:
       // a false confirmation is worse than an honest failure for a request like this one.
-      return page('We could not find that subscription', 'The message this link came from is no longer on record. Please contact us and we will remove you.', 404)
+      return page(
+        locale,
+        t('marketing_automation.public.unsubscribe.notFoundTitle', 'We could not find that subscription'),
+        t('marketing_automation.public.unsubscribe.notFoundBody', 'The message this link came from is no longer on record. Please contact us and we will remove you.'),
+        404,
+      )
     }
 
     await recordConsent(em, {
@@ -120,18 +146,25 @@ async function handle(req: Request): Promise<NextResponse> {
       attributes: { campaignId: claims.campaignId },
     })
     // Never claim success we did not achieve: the person would stay subscribed believing otherwise.
-    return page('Something went wrong', 'We could not record that just now. Please try again, or contact us and we will remove you.', 500)
+    return page(
+      locale,
+      t('marketing_automation.public.errorTitle', 'Something went wrong'),
+      t('marketing_automation.public.unsubscribe.errorBody', 'We could not record that just now. Please try again, or contact us and we will remove you.'),
+      500,
+    )
   }
 
-  return page('You have been unsubscribed', 'You will not receive marketing email from us again. It may take a moment to take effect for messages already on their way.')
+  return page(
+    locale,
+    t('marketing_automation.public.unsubscribe.doneTitle', 'You have been unsubscribed'),
+    t('marketing_automation.public.unsubscribe.doneBody', 'You will not receive marketing email from us again. It may take a moment to take effect for messages already on their way.'),
+  )
 }
 
 /** Asks. A link scanner fetching this changes nothing, which is the entire reason it only asks. */
 export async function GET(req: Request) {
   const verified = readClaims(req)
-  if (!verified) {
-    return page('This link is not valid', 'Please use the unsubscribe link from a recent message.', 400)
-  }
+  if (!verified) return invalidLink()
   return confirmPage(verified.claims, verified.secret)
 }
 

@@ -33,9 +33,9 @@ export async function createCampaign(
   name: string,
 ): Promise<string> {
   const response = await apiRequest(request, 'POST', CAMPAIGNS_PATH, { token, data: { name } })
-  if (!response.ok()) throw new Error(`campaign create failed: ${response.status()}`)
+  if (!response.ok()) throw new Error(`[internal] campaign create failed: ${response.status()}`)
   const body = await readJsonSafe<{ id?: string }>(response)
-  if (!body?.id) throw new Error('campaign create returned no id')
+  if (!body?.id) throw new Error('[internal] campaign create returned no id')
   return body.id
 }
 
@@ -45,9 +45,9 @@ export async function getCampaign(
   id: string,
 ): Promise<CampaignDetail> {
   const response = await apiRequest(request, 'GET', `${CAMPAIGNS_PATH}/${id}`, { token })
-  if (!response.ok()) throw new Error(`campaign read failed: ${response.status()}`)
+  if (!response.ok()) throw new Error(`[internal] campaign read failed: ${response.status()}`)
   const body = await readJsonSafe<CampaignDetail>(response)
-  if (!body) throw new Error('campaign read returned no body')
+  if (!body) throw new Error('[internal] campaign read returned no body')
   return body
 }
 

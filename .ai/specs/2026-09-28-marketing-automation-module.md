@@ -887,6 +887,15 @@ rather than worked around silently:
 
 ## Changelog
 
+- **2026-09-29** — housekeeping, all of it inside the module. Three step icons were renamed to names the
+  shared registry already has (`git-branch`, `star`, `share-2`), so `yarn generate` no longer rewrites a
+  file in `packages/ui`, with a test holding every icon string to the registry. The two PUBLIC pages —
+  the unsubscribe confirmation and the NPS answer, the only words a customer reads outside an email —
+  are now localised from the browser's `accept-language` with `lang` following, escaped through
+  `lib/html-escape.ts`, and proved by a test that asks for Polish. Two translation keys the UI referenced
+  and no locale file held were added in all five languages; the module now reports zero missing keys,
+  zero unused keys and zero hardcoded strings. Four duplicated AGENTS.md rules were merged.
+
 - **2026-09-29** — Four UI findings from the browser coverage, fixed: a deleted customer's referral code no longer
   lists or resolves (not retired — a delete can be undone); the inbound-hooks screen leaves out create/revoke for a
   reader the API would refuse (`canManage` on the list response); the settings form survives the scope settling after

@@ -21,7 +21,8 @@ export const issueReferralCodeStep: StepHandler<StepDeps> = {
   type: 'issue_referral_code',
   labelKey: 'marketing_automation.step.issue_referral_code.label',
   descriptionKey: 'marketing_automation.step.issue_referral_code.description',
-  icon: 'share',
+  // `share-2` rather than `share`, for the registry reason in `steps/split.ts`. It is the same glyph family.
+  icon: 'share-2',
   paramsSchema,
   uiFields: [],
   async execute(ctx: AutomationContext, _rawParams, deps: StepDeps) {

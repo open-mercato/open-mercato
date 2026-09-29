@@ -120,18 +120,13 @@ already at parity. Items A5–A7 change `sales` — ask before building them.
 - Never let a CSV import mark anybody as SUBSCRIBED. A file is not consent: nobody in it agreed to anything in
   this system, and an import that could add people would manufacture the exact evidence a shop may one day have to
   substantiate. Suppression needs no such evidence, which is why that direction is safe and the other is not.
-- Never let a suppression import treat "unmatched" as "not a customer". The address lookup can only see a bounded
-  window of recent people on an encrypted installation, so the count and a sample are REPORTED — an operator who
-  cannot see them has no way to know their list was only partly applied.
+- Never let a suppression import treat "unmatched" as "not a customer". `primary_email` is encrypted with a random
+  IV, so the lookup decrypts a bounded window of recent rows and an older customer on a large installation will not
+  match — the count and a sample are therefore REPORTED, because an operator who cannot see them has no way to know
+  their list was only partly applied.
 - Never multiply an audience estimate by a step count to get a message volume. A subject walks ONE split lane, and
   every gate can still drop a message, so the product is a confident number that is wrong in the direction that
   matters. Report people, and the largest number of messages one person can receive, separately.
-- Never let a suppression import write `subscribed`. A CSV is not consent: nobody in that file agreed to anything
-  in this system, so an import that could mark people as subscribed would manufacture the evidence a shop may have
-  to substantiate. Taking somebody OFF a list needs no such evidence, which is why only that direction exists.
-- Never report an import as applied when addresses matched nobody. `primary_email` is encrypted, so the lookup
-  decrypts a bounded window of recent rows — on a large installation an older customer will not match, and the
-  operator has to be able to see that their list was not fully applied.
 - Never guess which column of an imported CSV is an address. A row with nothing usable is counted and reported;
   guessing suppresses whoever the guess lands on, and there is no import that can undo it.
 - Never make erasure delete rows. It nulls the subject link — including inside the run context's jsonb —
@@ -176,6 +171,15 @@ already at parity. Items A5–A7 change `sales` — ask before building them.
   helper living there becomes a subscriber for the empty-string event.
 - Never make a reorder reminder once-ever or daily. The cycle NUMBER goes in the claim key: without it a durable
   claim reminds somebody about their coffee once in their life, and without a claim they are nagged every morning.
+- Never name an icon the shared registry does not already have. `lucideRegistry.generated.tsx` is generated from
+  icon strings found across the repo, so a new name makes `yarn generate` rewrite a file in `packages/ui` — and
+  then the choice is committing to another package or leaving permanent dirt in the tree.
+  `__tests__/icon-strings.test.ts` holds every `icon:` string in this module to the registry.
+- Never leave the two PUBLIC pages in English. They are the only words a customer reads outside an email, and the
+  locale comes from the browser's `accept-language` (`resolveTranslations`), not from their mail-language
+  preference — which language to EMAIL somebody in is a different decision they make in the preference centre.
+  `lang` follows the resolved locale, and anything interpolated into that hand-built HTML goes through
+  `lib/html-escape.ts`, whoever produced it.
 - Never let a link in an email change anything on GET. SafeLinks, antivirus gateways, proxies and chat
   unfurlers fetch every URL in a message, so a mutating GET lets them unsubscribe people and invent NPS
   scores indistinguishably from the recipient. GET asks, POST acts — and RFC 8058 one-click still POSTs, so
@@ -286,9 +290,10 @@ already at parity. Items A5–A7 change `sales` — ask before building them.
   timestamp are the only things stopping a redelivered scan from telling the same person twice.
 - Never add a back-in-stock scan by reading `wms` tables. Stock belongs behind the availability contract that
   does not exist yet; the module says so in the roadmap rather than reaching across a module boundary.
-- Never resolve segment membership anywhere but `resolveSegmentMembers`. Five callers need that answer — the
-  members screen, overlap, size snapshots, bulk actions and the CSV export — and the moment two of them
-  compute it differently one of the screens starts disagreeing with what actually sends.
+- Never resolve segment membership anywhere but `resolveSegmentMembers`, and never with a second implementation.
+  It is `matchesAudience` over a subject document — the same call the dispatcher makes — and five callers need that
+  answer: the members screen, overlap, size snapshots, bulk actions and the CSV export. The moment two of them
+  compute it differently, one screen starts disagreeing with what actually sends.
 - Never treat a narrowed candidate set as people. A tag, an order or a score entry can point at a deleted
   customer or at a COMPANY, so candidates are filtered to live persons in BOTH paths. Skipping it made
   comparing two segments report an empty overlap where one side plainly contained the other.
@@ -299,9 +304,6 @@ already at parity. Items A5–A7 change `sales` — ask before building them.
 - Never define a segment in terms of segments. Membership is computed FROM the subject document, so a nested
   segment would evaluate against a key still being built; the writer refuses it and `computeSegmentSlugs`
   empties the key before evaluating, so an older row cannot reintroduce the cycle.
-- Never resolve segment membership with a second implementation. It is `matchesAudience` over a subject
-  document — the same call the dispatcher makes — because a members screen that disagrees with what actually
-  sends is the screen people trust.
 - Never let `buildSubjectDocument` default segment definitions to none. An empty list makes every
   `segments CONTAINS …` audience quietly false; when they are not passed, they are loaded.
 - Never rename a segment's slug. Saved audiences reference it, and a rename empties every campaign that
@@ -411,6 +413,7 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | duplicate-delivery guard and its window | `lib/occurrence.ts`, `lib/runs.ts` → `createRun` |
 | signed tracking tokens, link rewriting | `lib/tracking/` (`token.ts`, `rewrite.ts`, `urls.ts`) |
 | the only PUBLIC routes in the module | `api/track/open`, `api/track/click`, `api/unsubscribe`, `api/survey`, `api/inbound` |
+| escaping for the hand-built public pages | `lib/html-escape.ts` |
 | signed inbound hook URLs and their payload split | `lib/inbound.ts`, `api/inbound-hooks/` |
 | AI copy drafting, its prompt and its sanitiser | `lib/ai-copy.ts`, `lib/engine/copy-draft.ts` |
 | campaign history, versions and restore | `lib/revisions.ts`, `api/campaigns/[id]/revisions/` |

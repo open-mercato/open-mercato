@@ -28,7 +28,10 @@ export const splitStep: StepHandler<StepDeps> = {
   type: SPLIT_STEP_TYPE,
   labelKey: 'marketing_automation.step.split.label',
   descriptionKey: 'marketing_automation.step.split.description',
-  icon: 'split',
+  // `git-branch` rather than `split`: both read as a fork, and this one is already in the shared icon
+  // registry — an icon string nothing else in the repo uses makes every `yarn generate` rewrite a file in
+  // `packages/ui`, which this module has no business touching.
+  icon: 'git-branch',
   paramsSchema: z.object({ variants: z.array(variantSchema).min(2) }),
   // Edited on the canvas as lanes rather than through generic parameter inputs.
   uiFields: [],

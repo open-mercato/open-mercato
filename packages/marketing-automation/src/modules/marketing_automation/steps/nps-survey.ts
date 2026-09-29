@@ -53,7 +53,8 @@ export const npsSurveyStep: StepHandler<StepDeps> = {
   type: 'nps_survey',
   labelKey: 'marketing_automation.step.nps_survey.label',
   descriptionKey: 'marketing_automation.step.nps_survey.description',
-  icon: 'smile',
+  // `star` rather than `smile`, for the registry reason in `steps/split.ts`. A rating is what the step asks for.
+  icon: 'star',
   channel: 'email',
   paramsSchema,
   uiFields: [
