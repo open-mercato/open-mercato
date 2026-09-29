@@ -5,6 +5,7 @@ import {
   MarketingConsentEvent,
   MarketingContactPreference,
   MarketingCustomerScoreEntry,
+  MarketingSubjectErasure,
   MarketingMessageSend,
   MarketingMessageSendEvent,
   MarketingProductWatch,
@@ -44,6 +45,8 @@ export type SubjectExport = {
   referralCode: string | null
   referralsMade: Array<{ status: string; orderTotal: string | null; createdAt: string; convertedAt: string | null }>
   referredBy: { status: string; createdAt: string } | null
+  /** When this person's marketing data was erased, if it ever was: the only thing erasure writes. */
+  erasedAt: string | null
 }
 
 /**
@@ -74,6 +77,7 @@ export async function exportSubjectData(
     referralCode,
     referralsMade,
     referredBy,
+    erasure,
   ] = await Promise.all([
     em.find(MarketingConsent, where),
     em.find(MarketingConsentEvent, where, { orderBy: { occurredAt: 'DESC' } }),
@@ -99,6 +103,7 @@ export async function exportSubjectData(
       organizationId: scope.organizationId,
       referredEntityId: subjectEntityId,
     }),
+    em.findOne(MarketingSubjectErasure, where),
   ])
 
   // Engagement is keyed to the send, not the person, so it is reached through this subject's runs — the
@@ -184,6 +189,7 @@ export async function exportSubjectData(
     })),
     // Who referred THEM is a fact about them, but the other person's id is not theirs to receive.
     referredBy: referredBy ? { status: referredBy.status, createdAt: referredBy.createdAt.toISOString() } : null,
+    erasedAt: erasure ? erasure.erasedAt.toISOString() : null,
   }
 }
 
@@ -315,6 +321,20 @@ async function eraseWithin(
 
   const consentKept = await em.count(MarketingConsent, scoped)
 
+  /**
+   * The one thing written rather than removed: that this happened.
+   *
+   * Everything above unlinks, so afterwards nothing would say the person asked to be forgotten — and score rules,
+   * which derive points from the customer record, would start a new ledger for them on the next pass. Idempotent,
+   * because a second erasure of the same person is a legitimate request and must not fail on the first one's row.
+   */
+  await em.getConnection().execute(
+    `insert into marketing_subject_erasures (tenant_id, organization_id, subject_entity_id, erased_at)
+     values (?, ?, ?, ?)
+     on conflict (tenant_id, organization_id, subject_entity_id) do nothing`,
+    [scope.tenantId, scope.organizationId, subjectEntityId, now],
+  )
+
   return {
     subjectEntityId,
     erasedAt: now.toISOString(),
@@ -342,4 +362,5 @@ export const SUBJECT_DATA_TABLES = [
   'marketing_product_watches',
   'marketing_referral_codes',
   'marketing_referral_redemptions',
+  'marketing_subject_erasures',
 ] as const

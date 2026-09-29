@@ -23,6 +23,8 @@ export type ScoreEntryInput = {
   /** Together these make the write idempotent; omit both for a manual adjustment. */
   runId?: string | null
   stepId?: string | null
+  /** Only for `rule` entries: the position this entry claims in the subject's rule history. */
+  ruleSequence?: number | null
   now: Date
 }
 
@@ -48,6 +50,29 @@ export async function loadScorePoints(
   return Number.isFinite(total) ? total : 0
 }
 
+export type RuleScoreState = {
+  /** What the score rules award this subject right now: the sum of its `rule` entries. */
+  points: number
+  /** How many `rule` entries exist, which is the sequence number the next one claims. */
+  entries: number
+}
+
+export async function loadRuleScoreState(
+  em: EntityManager,
+  subjectEntityId: string,
+  scope: SubjectScope,
+): Promise<RuleScoreState> {
+  const rows = await em.getConnection().execute<{ total: string | null; entries: string | null }[]>(
+    `select coalesce(sum(points), 0)::text as total, count(*)::text as entries
+       from marketing_customer_score_entries
+      where subject_entity_id = ? and tenant_id = ? and organization_id = ? and rule_sequence is not null`,
+    [subjectEntityId, scope.tenantId, scope.organizationId],
+  )
+  const points = Number.parseInt(rows[0]?.total ?? '0', 10)
+  const entries = Number.parseInt(rows[0]?.entries ?? '0', 10)
+  return { points: Number.isFinite(points) ? points : 0, entries: Number.isFinite(entries) ? entries : 0 }
+}
+
 /**
  * Records points once.
  *
@@ -70,6 +95,7 @@ export async function addScoreEntry(em: EntityManager, input: ScoreEntryInput): 
     campaignId: input.campaignId ?? null,
     runId: input.runId ?? null,
     stepId: input.stepId ?? null,
+    ruleSequence: input.ruleSequence ?? null,
     occurredAt: input.now,
   })
 

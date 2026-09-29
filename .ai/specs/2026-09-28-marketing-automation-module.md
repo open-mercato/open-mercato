@@ -474,6 +474,43 @@ disagreeing. It requires BOTH `marketing_automation.runs.view` and `customers.pe
 identifiable person and reports their behaviour, which is the union of two disclosures. It is linked
 from the run list, so it is reachable from the place where somebody asks who a run is about.
 
+### Score rules — points for who a customer is
+
+Ported from Ordo's demographic scoring (`ordo_score_rule`). A rule is a name, signed non-zero points and a
+condition; Ordo's condition is one attribute compared with one value, ours is the same `ConditionExpression`
+a segment holds, evaluated by `matchesAudience` over the subject document. That is a strict superset — a rule
+can say "lives in Poland", "has the b2b tag", "spent over 1000" or any combination — and it adds no condition
+language and no evaluator. Rules live in `marketing_score_rules`, managed on `/backend/marketing/score-rules`.
+
+A rule may read neither `score` (its own points would feed back into it) nor `segments` (a segment may itself
+be defined on score). The writer refuses both with `marketing_automation.errors.scoreRuleSelfReference`, and
+evaluation blanks both keys anyway, so an older row cannot reintroduce the loop — the same belt and braces as
+segment membership.
+
+What the rules award is kept in the existing ledger as `source = 'rule'` entries, so "why does this customer
+have 40 points" is still answerable and the total is still `sum(points)`. There is no second table for the
+rule total: it is the sum of the subject's rule entries. Re-evaluating writes only the DIFFERENCE between what
+the rules award now and what they awarded before, and nothing when that is zero, with the names of the rules
+that match now as the entry's reason. Concurrency needs no lock: each rule entry carries `rule_sequence`, the
+number of rule entries the subject already had, under a partial unique index — two overlapping evaluations
+read the same count, claim the same number, and one collides. A change emits `score_changed` with `source:
+'rule'` and the previous total, exactly as `add_points` does, so a threshold campaign treats both alike.
+
+Re-evaluated on `customers.person.created`/`updated` and `customers.tag.assigned`/`removed` (one probe first:
+an installation with no rules pays nothing per customer save), by a queued pass over every live person after a
+rule is created, edited or removed, and by the same pass once a day from the sweep — rules over orders,
+engagement or RFM change without an event. With no rule left, the pass walks only people who still hold rule
+points. `POST /api/marketing_automation/customers/{id}/rescore` applies the rules to one person immediately and
+backs the profile's "Recalculate score" button.
+
+Rules score live PERSONS only, and never a person whose marketing data was erased. Erasure unlinks every row, so
+on its own it leaves nothing that says it happened — and a pass that derives points from the customer record
+would find a person with no rule points and start a new ledger for somebody who asked to be forgotten. Erasure
+therefore writes one row it keeps, `marketing_subject_erasures` (id and date only, kept for the same reason the
+consent record is), and `isScorableSubject` checks it before anything is read. The recalculate endpoint answers
+409 `marketing_automation.errors.subjectErased` rather than "nothing changed", which would read as "the rules do
+not match".
+
 ### Delivery tracking
 
 Opens and clicks, because "did this campaign work" is the question the module exists to answer and
@@ -850,6 +887,15 @@ rather than worked around silently:
 
 ## Changelog
 
+- **2026-09-29** — Score rules (Ordo parity A1): points for standing facts about a customer, with a segment
+  expression as the condition; kept in the ledger as `rule` entries holding only the difference, ordered by a
+  per-subject `rule_sequence` so overlapping evaluations cannot double-count; re-evaluated on customer and tag
+  events, after any rule change and daily; a per-customer recalculate endpoint and button. 1035 unit tests;
+  integration coverage in TC-MA-038 (API), TC-MA-039 (event- and queue-driven paths, threshold campaign, ACL,
+  companies, erased people) and TC-MA-040 (screen and profile button). Erasure now records that it happened
+  (`marketing_subject_erasures`, also in the subject export), and rules never score an erased person again.
+  Fixed on the way: `marketing_customer_score_entries.subject_entity_id` was NOT NULL while erasure nulls it, so
+  erasing anybody who had ever scored failed with a constraint violation. 214 integration tests.
 - **2026-09-29** — the last two items on the list: a CSV suppression-list import (suppress-only by design —
   a file is not consent — reporting what it could not match, because the encrypted address lookup sees only
   a bounded window and "unmatched" is not "not a customer"), and the audience estimate shown at the moment

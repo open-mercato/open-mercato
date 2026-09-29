@@ -1,10 +1,12 @@
 import { metadata as dispatchMeta } from '../dispatch'
 import { metadata as resumeMeta } from '../resume'
+import { metadata as scoreRulesMeta } from '../score-rules'
 import { metadata as segmentActionMeta } from '../segment-action'
 import { metadata as sweepMeta } from '../sweep'
 import {
   MARKETING_DISPATCH_QUEUE,
   MARKETING_RESUME_QUEUE,
+  MARKETING_SCORE_RULES_QUEUE,
   MARKETING_SEGMENT_ACTION_QUEUE,
   MARKETING_SWEEP_QUEUE,
 } from '../../lib/queues'
@@ -29,6 +31,10 @@ describe('worker queue names', () => {
 
   test('segment action worker matches its constant', () => {
     expect(segmentActionMeta.queue).toBe(MARKETING_SEGMENT_ACTION_QUEUE)
+  })
+
+  test('score rules worker matches its constant', () => {
+    expect(scoreRulesMeta.queue).toBe(MARKETING_SCORE_RULES_QUEUE)
   })
 
   test('the bulk action worker is NOT scheduler-facing', () => {

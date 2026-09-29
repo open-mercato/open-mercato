@@ -13,7 +13,8 @@ import { availableEventTriggers, findTrigger, TRIGGER_CATALOG } from '../trigger
 
 const MODULE_ROOT = path.resolve(__dirname, '..', '..')
 
-type DeclaredSubscriber = { eventId: string; file: string }
+/** `forwards` is whether it hands the event to campaigns; a score-rule subscriber listens without dispatching. */
+type DeclaredSubscriber = { eventId: string; file: string; forwards: boolean }
 
 /**
  * Every file in `subscribers/` and the event it declares.
@@ -30,7 +31,7 @@ function declaredSubscribers(): DeclaredSubscriber[] {
     if (!file.endsWith('.ts')) continue
     const source = fs.readFileSync(path.join(directory, file), 'utf8')
     const match = /event:\s*'([^']*)'/.exec(source)
-    if (match) declared.push({ eventId: match[1], file })
+    if (match) declared.push({ eventId: match[1], file, forwards: source.includes('forwardEventToCampaigns(') })
   }
   return declared
 }
@@ -71,7 +72,9 @@ describe('the trigger catalog', () => {
   test('every subscriber forwards an event the catalog knows about', () => {
     // The other direction: a subscriber for an event with no catalog entry dispatches runs whose
     // `trigger.*` context is empty, so every audience over it is quietly false.
-    const unknown = [...subscribedEvents]
+    // Only subscribers that FORWARD are held to this: one that re-scores a customer on `person.updated` starts no
+    // run, so it needs no catalog entry — and offering that event to authors is a separate decision.
+    const unknown = [...new Set(declared.filter((entry) => entry.forwards).map((entry) => entry.eventId))]
       .filter((eventId) => !eventId.startsWith(SYNTHETIC_PREFIX))
       .filter((eventId) => !findTrigger(eventId))
     expect(unknown).toEqual([])

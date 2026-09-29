@@ -65,6 +65,7 @@ describe('exportSubjectData', () => {
       // Added after a review found all four missing from the export: the survey answer is the person's own
       // words, and the other three are choices they made.
       'MarketingSurveyPrompt', 'MarketingContactPreference', 'MarketingProductWatch', 'MarketingReferralRedemption',
+      'MarketingSubjectErasure',
     ]) {
       expect(queried.has(entity)).toBe(true)
     }
@@ -154,9 +155,10 @@ describe('eraseSubjectData', () => {
   test('also clears the subject id inside the run context', async () => {
     const { em, executed } = fakeEm()
     await eraseSubjectData(em, 'c1', scope, now)
-    expect(executed).toHaveLength(1)
-    expect(executed[0].sql).toContain("jsonb_set(context, '{subjectEntityId}'")
-    expect(executed[0].params).toEqual(['t1', 'o1', 'c1'])
+    const contextUpdate = executed.filter((entry) => entry.sql.includes('jsonb_set'))
+    expect(contextUpdate).toHaveLength(1)
+    expect(contextUpdate[0].sql).toContain("jsonb_set(context, '{subjectEntityId}'")
+    expect(contextUpdate[0].params).toEqual(['t1', 'o1', 'c1'])
   })
 
   /**
@@ -239,6 +241,15 @@ describe('eraseSubjectData', () => {
       'marketing_product_watches',
       'marketing_referral_codes',
       'marketing_referral_redemptions',
+      'marketing_subject_erasures',
     ])
+  })
+
+  test('records that the erasure happened, idempotently, so nothing rebuilds a profile afterwards', async () => {
+    const { em, executed } = fakeEm()
+    await eraseSubjectData(em, 'c1', scope, now)
+    const insert = executed.find((entry) => entry.sql.includes('insert into marketing_subject_erasures'))
+    expect(insert?.sql).toContain('on conflict')
+    expect(insert?.params).toEqual(['t1', 'o1', 'c1', now])
   })
 })

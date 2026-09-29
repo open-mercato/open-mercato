@@ -181,6 +181,41 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
   }
 
   /**
+   * Applies the current score rules to this customer now, instead of waiting for the background pass.
+   *
+   * What an operator reaches for right after editing a rule: the answer to "does it do what I meant for THIS
+   * person". A second press with nothing changed writes nothing, and says so.
+   */
+  const recalculateScore = async () => {
+    setBusy(true)
+    try {
+      const response = await apiCallOrThrow<{ changed?: boolean; delta?: number }>(
+        `/api/marketing_automation/customers/${customerId}/rescore`,
+        { method: 'POST' },
+      )
+      const delta = response.result?.delta ?? 0
+      flash(
+        response.result?.changed
+          ? t('marketing_automation.profile.rescored', 'Score rules applied: {delta} points.')
+              .replace('{delta}', delta > 0 ? `+${delta}` : String(delta))
+          : t('marketing_automation.profile.rescoreUnchanged', 'Score rules already up to date.'),
+        'success',
+      )
+      setRefreshToken((token) => token + 1)
+    } catch (error) {
+      const code = (error as { body?: { code?: unknown } } | null)?.body?.code
+      flash(
+        code === 'marketing_automation.errors.subjectErased'
+          ? t('marketing_automation.errors.subjectErased', 'This customer\'s marketing data was erased, so score rules no longer apply to them.')
+          : t('marketing_automation.profile.rescoreFailed', 'Could not recalculate the score.'),
+        'error',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
    * Hands the person their data as a file.
    *
    * Downloaded rather than rendered: it is a subject access response, which somebody has to be able to send
@@ -299,6 +334,9 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
             <div className="text-sm font-normal text-muted-foreground">{profile.customer.email ?? '—'}</div>
           </div>
           <div className="flex gap-2">
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => void recalculateScore()}>
+              {t('marketing_automation.profile.rescore', 'Recalculate score')}
+            </Button>
             <Button variant="outline" size="sm" disabled={busy} onClick={() => void exportData()}>
               {t('marketing_automation.gdpr.export', 'Export data')}
             </Button>
@@ -697,6 +735,9 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
                   <li key={entry.id} className="flex items-baseline justify-between gap-2 border-b border-border py-1 text-sm">
                     <span className="text-foreground">
                       <span className="tabular-nums font-medium">{entry.points > 0 ? `+${entry.points}` : entry.points}</span>
+                      {entry.source === 'rule' ? (
+                        <span className="text-muted-foreground"> · {t('marketing_automation.profile.scoreSource.rule', 'Score rules')}</span>
+                      ) : null}
                       {entry.reason ? <span className="text-muted-foreground"> · {entry.reason}</span> : null}
                     </span>
                     <span className="shrink-0 text-xs text-muted-foreground">{formatDateTime(entry.occurredAt)}</span>

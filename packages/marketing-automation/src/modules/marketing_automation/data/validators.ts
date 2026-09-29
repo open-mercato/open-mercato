@@ -199,3 +199,32 @@ export const segmentUpdateSchema = z.object({
   description: z.string().trim().max(500).nullable().optional(),
   expression: campaignDefinitionSchema.shape.audience.optional(),
 })
+
+/** Signed, bounded and never zero: a rule that awards nothing is a rule that does nothing. */
+const scoreRulePointsSchema = z
+  .number()
+  .int()
+  .min(-10_000)
+  .max(10_000)
+  .refine((value) => value !== 0, { message: 'points must not be zero' })
+
+/**
+ * A score rule. The expression is a segment's; the writer also refuses one that reads `score` or `segments`,
+ * which the schema cannot see.
+ */
+export const scoreRuleCreateSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(500).optional(),
+  expression: campaignDefinitionSchema.shape.audience,
+  points: scoreRulePointsSchema,
+  isEnabled: z.boolean().optional(),
+})
+
+export const scoreRuleUpdateSchema = z.object({
+  updatedAt: z.string().min(1).optional(),
+  name: z.string().trim().min(1).max(120).optional(),
+  description: z.string().trim().max(500).nullable().optional(),
+  expression: campaignDefinitionSchema.shape.audience.optional(),
+  points: scoreRulePointsSchema.optional(),
+  isEnabled: z.boolean().optional(),
+})

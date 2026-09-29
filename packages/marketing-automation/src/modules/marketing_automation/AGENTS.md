@@ -9,7 +9,7 @@ its own. Spec:
 
 Read "Ordo parity audit — business features, 2026-09-29" in
 `.ai/specs/2026-09-28-marketing-automation-full-port-roadmap.md` before picking work. It lists the unblocked
-items in order (score rules first), the blocked ones with verified reasons (coupons need SPEC-055; customer push
+items in order (score rules are done; A2 is next), the blocked ones with verified reasons (coupons need SPEC-055; customer push
 needs a customer device registry and web push, because the platform's push rails reach staff), and what is
 already at parity. Items A5–A7 change `sales` — ask before building them.
 
@@ -389,6 +389,7 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | frequency cap, quiet hours | `lib/engine/gates.ts` |
 | claim-and-lease, backoff, dead-lettering | `lib/runs.ts`, `lib/engine/scheduling.ts` |
 | score ledger, idempotent awarding | `lib/scores.ts`, `steps/add-points.ts` |
+| score rules, the delta and its sequence number | `lib/score-rules.ts`, `workers/score-rules.ts` |
 | tier ladder, derivation and its defaults | `lib/engine/tiers.ts`, `lib/tiers.ts` |
 | everything known about one customer | `api/customers/[id]/profile/route.ts` |
 | NPS asking, answering and the latest score | `lib/survey.ts`, `steps/nps-survey.ts`, `api/survey/` |

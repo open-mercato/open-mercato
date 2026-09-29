@@ -25,9 +25,11 @@ import { sendWeeklyLeadDigests, DIGEST_JOB_KIND } from '../lib/lead-digest.js'
 import { announceBreaker, applyDeliverabilityGuardrails } from '../lib/deliverability.js'
 import { announceAppliedWinner, applyEarnedWinners } from '../lib/auto-winner.js'
 import { emitMarketingAutomationEvent } from '../events.js'
-import { MarketingCampaignTrigger as TriggerEntity } from '../data/entities.js'
+import { MarketingCampaignTrigger as TriggerEntity, MarketingJobRun } from '../data/entities.js'
 import type { MarketingCampaign, MarketingCampaignTrigger } from '../data/entities.js'
 import type { SweepJob } from '../lib/queue.js'
+import { enqueueScoreRulesRecompute } from '../lib/queue.js'
+import { SCORE_RULES_JOB_KIND, scoreRulesInPlay } from '../lib/score-rules.js'
 import { buildDispatchDeps, logger, readScope } from './shared.js'
 import type { HandlerContext, JobScope } from './shared.js'
 import { reportError } from '@open-mercato/telemetry'
@@ -460,6 +462,26 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
     }
   } catch (error) {
     logger.warn('[internal] marketing lead digest failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  /**
+   * Score rules, re-evaluated for everybody once a day.
+   *
+   * A rule over orders, engagement or RFM changes its answer without anything happening to the customer record, so
+   * the per-customer subscribers alone would leave those points stale for ever. The job log is the "already done
+   * today" answer, as it is for the lead digest; the pass itself runs on its own queue, because walking the whole
+   * population does not belong inside an hourly tick.
+   */
+  try {
+    const since = new Date(deps.now.getTime() - 86_400_000)
+    const recent = await deps.em.count(MarketingJobRun, { ...scope, kind: SCORE_RULES_JOB_KIND, startedAt: { $gte: since } })
+    if (recent === 0 && await scoreRulesInPlay(deps.em, scope)) {
+      await enqueueScoreRulesRecompute(scope)
+    }
+  } catch (error) {
+    logger.warn('[internal] marketing score rules pass could not be queued', {
       error: error instanceof Error ? error.message : String(error),
     })
   }

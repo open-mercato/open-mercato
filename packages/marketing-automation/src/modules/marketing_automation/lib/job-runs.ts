@@ -12,7 +12,7 @@ import { MarketingJobRun } from '../data/entities.js'
 export type JobRunScope = { tenantId: string; organizationId: string }
 
 /** The jobs this module runs. A string, not an enum, so adding one needs no migration. */
-export type JobKind = 'sweep' | 'due_runs' | 'dispatch' | 'lead_digest'
+export type JobKind = 'sweep' | 'due_runs' | 'dispatch' | 'lead_digest' | 'rule_scores'
 
 export type JobRunResult = { counters?: Record<string, number> }
 

@@ -3,6 +3,7 @@ import type { Queue } from '@open-mercato/queue'
 import {
   MARKETING_DISPATCH_QUEUE,
   MARKETING_RESUME_QUEUE,
+  MARKETING_SCORE_RULES_QUEUE,
   MARKETING_SEGMENT_ACTION_QUEUE,
   MARKETING_SWEEP_QUEUE,
 } from './queues.js'
@@ -39,6 +40,16 @@ export type SegmentActionJob = {
     | { kind: 'add_points'; points: number; reason?: string }
 }
 
+/**
+ * Re-evaluate every customer's score rules in one scope.
+ *
+ * Carries nothing but the scope: the rules are read when the job runs, so a burst of edits queues several jobs
+ * that all apply the LATEST rules, and the later ones find nothing left to change.
+ */
+export type ScoreRulesJob = {
+  scope: { tenantId: string; organizationId: string }
+}
+
 // Queues are created lazily and cached: constructing one opens a Redis connection under the
 // async strategy, and a module-load-time connection would be opened by every process that
 // merely imports this file, including the CLI.
@@ -46,6 +57,7 @@ let dispatchQueue: Queue<DispatchJob> | null = null
 let resumeQueue: Queue<ResumeJob> | null = null
 let sweepQueue: Queue<SweepJob> | null = null
 let segmentActionQueue: Queue<SegmentActionJob> | null = null
+let scoreRulesQueue: Queue<ScoreRulesJob> | null = null
 
 export function getDispatchQueue(): Queue<DispatchJob> {
   dispatchQueue ??= createModuleQueue<DispatchJob>(MARKETING_DISPATCH_QUEUE, { concurrency: 8 })
@@ -67,6 +79,16 @@ export function getSegmentActionQueue(): Queue<SegmentActionJob> {
   // the same customers is how a frequency cap gets tested in production.
   segmentActionQueue ??= createModuleQueue<SegmentActionJob>(MARKETING_SEGMENT_ACTION_QUEUE, { concurrency: 1 })
   return segmentActionQueue
+}
+
+export function getScoreRulesQueue(): Queue<ScoreRulesJob> {
+  // One at a time: two passes over the same customers would only race each other for the same entries.
+  scoreRulesQueue ??= createModuleQueue<ScoreRulesJob>(MARKETING_SCORE_RULES_QUEUE, { concurrency: 1 })
+  return scoreRulesQueue
+}
+
+export async function enqueueScoreRulesRecompute(scope: { tenantId: string; organizationId: string }): Promise<void> {
+  await getScoreRulesQueue().enqueue({ scope })
 }
 
 export async function enqueueSegmentAction(job: SegmentActionJob): Promise<void> {

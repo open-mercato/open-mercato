@@ -453,6 +453,19 @@ export class MarketingMessageSendEvent {
   expression:
     'create unique index "marketing_score_entry_step_uniq" on "marketing_customer_score_entries" ("tenant_id", "organization_id", "run_id", "step_id") where run_id is not null',
 })
+/**
+ * One rule entry per position in a subject's rule history, enforced by the database.
+ *
+ * A score rule writes the DIFFERENCE between what the rules award now and what they awarded before, and two
+ * evaluations of the same customer that overlap would both read the same "before" and both write the same
+ * difference. Numbering rule entries per subject makes the second one collide instead: both claim the same next
+ * number, and only one can have it.
+ */
+@Index({
+  name: 'marketing_score_entry_rule_seq_uniq',
+  expression:
+    'create unique index "marketing_score_entry_rule_seq_uniq" on "marketing_customer_score_entries" ("tenant_id", "organization_id", "subject_entity_id", "rule_sequence") where rule_sequence is not null',
+})
 export class MarketingCustomerScoreEntry {
   [OptionalProps]?: 'occurredAt' | 'createdAt'
 
@@ -465,8 +478,14 @@ export class MarketingCustomerScoreEntry {
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 
-  @Property({ name: 'subject_entity_id', type: 'uuid' })
-  subjectEntityId!: string
+  /**
+   * Null only after an erasure, which unlinks the entry and keeps its points in the totals.
+   *
+   * It was NOT NULL while erasure already nulled it, so erasing anybody who had ever scored failed with a
+   * constraint violation — found the day score rules made scored customers common.
+   */
+  @Property({ name: 'subject_entity_id', type: 'uuid', nullable: true })
+  subjectEntityId?: string | null
 
   /** Signed: a campaign can deduct points as well as award them. */
   @Property({ type: 'integer' })
@@ -487,6 +506,10 @@ export class MarketingCustomerScoreEntry {
 
   @Property({ name: 'step_id', type: 'text', nullable: true })
   stepId?: string | null
+
+  /** Set only on `rule` entries: their position in this subject's rule history. See the index above. */
+  @Property({ name: 'rule_sequence', type: 'integer', nullable: true })
+  ruleSequence?: number | null
 
   @Property({ name: 'occurred_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
   occurredAt!: Date
@@ -1248,4 +1271,85 @@ export class MarketingValueBoundaries {
 
   @Property({ name: 'updated_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date(), onUpdate: () => new Date() })
   updatedAt!: Date
+}
+
+/**
+ * Points for who a customer IS, rather than for what a campaign did to them.
+ *
+ * The condition is the same `business_rules` expression a segment holds, so a rule can say anything an audience
+ * can — country, tags, order totals, NPS — with no second condition language. It may not read `score` (its own
+ * points would feed back into it) or `segments` (a segment may itself be defined on score).
+ *
+ * What a customer's rules award is kept in the score ledger as `rule` entries, one per change, so the ledger still
+ * answers "why does this customer have 40 points".
+ */
+@Entity({ tableName: 'marketing_score_rules' })
+@Index({ name: 'mkt_score_rules_scope_idx', properties: ['tenantId', 'organizationId', 'deletedAt'] })
+export class MarketingScoreRule {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'isEnabled'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  /** A `ConditionExpression`; null matches everybody, which is how a baseline award is written. */
+  @Property({ type: 'json', nullable: true })
+  expression?: Record<string, unknown> | null
+
+  /** Signed and never zero: a rule can deduct as well as award. */
+  @Property({ type: 'integer' })
+  points!: number
+
+  @Property({ name: 'is_enabled', type: 'boolean', default: true })
+  isEnabled: boolean = true
+
+  @Property({ name: 'created_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
+  createdAt!: Date
+
+  @Property({ name: 'updated_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt!: Date
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+/**
+ * That a person's marketing data was erased, and when.
+ *
+ * Erasure unlinks every row rather than deleting it, so without this nothing records that it happened — and a
+ * process that derives data from the customer record, like score rules, would quietly start building a profile
+ * again for somebody who asked to be forgotten. Kept for the reason the consent record is kept: forgetting the
+ * request is how it gets undone. It holds the id and a date, nothing else, and once the platform deletes the
+ * customer row the id points at nobody.
+ */
+@Entity({ tableName: 'marketing_subject_erasures' })
+@Unique({ name: 'marketing_subject_erasures_subject_uniq', properties: ['tenantId', 'organizationId', 'subjectEntityId'] })
+export class MarketingSubjectErasure {
+  [OptionalProps]?: 'erasedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'subject_entity_id', type: 'uuid' })
+  subjectEntityId!: string
+
+  @Property({ name: 'erased_at', type: Date, defaultRaw: 'now()', onCreate: () => new Date() })
+  erasedAt!: Date
 }
