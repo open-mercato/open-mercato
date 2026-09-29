@@ -98,6 +98,7 @@ describe('scoped calendar event type resolver', () => {
       updatedAt: '2026-09-02T00:00:00.000Z',
       behavior: { order: 42, customFieldsetIds: ['visits'] },
     })
+    expect(catalog.items.find((item) => item.key === 'meeting')?.labelKey).toBeUndefined()
     expect(Object.isFrozen(catalog)).toBe(true)
     expect(Object.isFrozen(catalog.items[0]?.behavior)).toBe(true)
   })

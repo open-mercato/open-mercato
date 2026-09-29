@@ -198,10 +198,12 @@ export async function resolveScopedCalendarEventTypes(
       ? parsedBehavior.data
       : base?.behavior ?? { ...fallbackBehavior, selectable: true }
     const isLocalOverride = row.organizationId === input.organizationId
+    const defaultLabel = calendarEventTypes.find((entry) => entry.key === key)?.label ?? base?.label
+    const hasCustomLabel = !!row.label && row.label !== defaultLabel
     return deepFreeze({
       key,
-      label: row.label || base?.label || row.value,
-      ...(base?.labelKey ? { labelKey: base.labelKey } : {}),
+      label: hasCustomLabel ? row.label : base?.label || row.label || row.value,
+      ...(!hasCustomLabel && base?.labelKey ? { labelKey: base.labelKey } : {}),
       icon: row.icon ?? base?.icon ?? null,
       color: row.color ?? base?.color ?? null,
       behavior,

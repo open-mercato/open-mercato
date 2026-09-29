@@ -607,6 +607,10 @@ export function getCalendarEventTypes(): readonly EffectiveCalendarEventType[] {
   return compose().items
 }
 
+export function resolveCalendarEventTypes(): readonly EffectiveCalendarEventType[] {
+  return getCalendarEventTypes()
+}
+
 export function getCalendarEventTypeTombstones(): readonly CalendarEventTypeTombstone[] {
   return compose().tombstones
 }

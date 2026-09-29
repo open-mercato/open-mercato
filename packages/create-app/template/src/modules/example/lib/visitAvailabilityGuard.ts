@@ -16,7 +16,7 @@ function userIds(participants: unknown): string[] {
   return [...new Set(participants.flatMap((item) => {
     if (!item || typeof item !== 'object') return []
     const participant = item as Row
-    return participant.isCustomer !== true && typeof participant.userId === 'string' ? [participant.userId] : []
+    return participant.isCustomer !== true && participant.status !== 'customer' && typeof participant.userId === 'string' ? [participant.userId] : []
   }))]
 }
 

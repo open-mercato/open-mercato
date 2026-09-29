@@ -10,6 +10,7 @@ import {
   registerCalendarModuleOverrides,
   registerWidgetCalendarEventTypeContributions,
   resetCalendarEventTypeRegistryForTests,
+  resolveCalendarEventTypes,
   resolveCalendarEventType,
   type CalendarEventTypeDefinition,
 } from '../calendar-event-types'
@@ -46,6 +47,7 @@ describe('calendar event type contracts', () => {
     createCalendarEventTypeRegistry().patch('app', { targetEventTypeKey: 'meeting', replaceIcon: 'app-icon' })
 
     expect(getCalendarEventTypes().map((definition) => definition.key).slice(0, 3)).toEqual(['meeting', 'visit', 'call'])
+    expect(resolveCalendarEventTypes()).toEqual(getCalendarEventTypes())
     const resolved = resolveCalendarEventType('meeting')
     expect(resolved).toMatchObject({
       label: 'Customer meeting', color: 'later', icon: 'app-icon',

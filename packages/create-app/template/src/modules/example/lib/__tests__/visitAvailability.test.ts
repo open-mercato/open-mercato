@@ -83,18 +83,20 @@ describe('Visit availability', () => {
     ])
   })
 
-  it('does not require a staff schedule for a customer recipient', async () => {
-    const { container, query } = setup({ inactive: true })
-    const interceptor = visitAvailabilityInterceptors.find((item) => item.targetCommand === 'customers.interactions.create')!
-    const result = await interceptor.beforeExecute!({
-      interactionType: 'visit', scheduledAt: input.startAt, durationMinutes: 60,
-      participants: [{ userId: USER_ID, isCustomer: true }],
-    }, {
-      commandId: 'customers.interactions.create', auth: { sub: USER_ID, tenantId: scope.tenantId } as never,
-      selectedOrganizationId: scope.organizationId, container: container as never,
-    })
-    expect(result).toMatchObject({ ok: true })
-    expect(query).not.toHaveBeenCalled()
+  it('does not require a staff schedule for a customer recipient in editor or wire format', async () => {
+    for (const participant of [{ userId: USER_ID, isCustomer: true }, { userId: USER_ID, status: 'customer' }]) {
+      const { container, query } = setup({ inactive: true })
+      const interceptor = visitAvailabilityInterceptors.find((item) => item.targetCommand === 'customers.interactions.create')!
+      const result = await interceptor.beforeExecute!({
+        interactionType: 'visit', scheduledAt: input.startAt, durationMinutes: 60,
+        participants: [participant],
+      }, {
+        commandId: 'customers.interactions.create', auth: { sub: USER_ID, tenantId: scope.tenantId } as never,
+        selectedOrganizationId: scope.organizationId, container: container as never,
+      })
+      expect(result).toMatchObject({ ok: true })
+      expect(query).not.toHaveBeenCalled()
+    }
   })
 
   it('returns unknown when source permissions are absent', async () => {
