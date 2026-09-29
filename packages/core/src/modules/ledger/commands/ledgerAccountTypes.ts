@@ -72,7 +72,7 @@ async function accountTypeHasPostedEntries(
  * Whether any `LedgerAccount` still names `accountTypeId` as its
  * `accountTypeId` — deleting the type out from under an unposted account
  * would leave that account pointing at a soft-deleted type, which nothing
- * else checks for (PR #6340 review, m4). Distinct from
+ * else checks for. Distinct from
  * `accountTypeHasPostedEntries` above: that one only cares whether any of
  * those accounts have posted entries; this one blocks the delete whenever
  * *any* non-deleted account of this type still exists, posted or not.
@@ -109,8 +109,7 @@ async function accountTypeReferencedAsParent(
 
 /**
  * Rejects an `accountGroupId` that doesn't exist, is soft-deleted, or
- * belongs to a different organization/tenant. Not checked before (PR
- * #6340 review, M5).
+ * belongs to a different organization/tenant. Not checked before.
  */
 async function requireExistingAccountGroup(
   em: EntityManager,
@@ -135,8 +134,7 @@ async function requireExistingAccountGroup(
  * belongs to a different organization/tenant, names the type itself (only
  * reachable on update — see the equivalent note on `LedgerAccount`'s
  * `requireValidParentAccount`), or would close a cycle through the
- * existing parent chain. `selfId` is `null` on create. PR #6340 review,
- * M5.
+ * existing parent chain. `selfId` is `null` on create.
  */
 async function requireValidParentAccountType(
   em: EntityManager,

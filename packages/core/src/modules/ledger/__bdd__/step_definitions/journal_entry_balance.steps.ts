@@ -9,7 +9,7 @@
 // schema validation and reaches the real persistence path
 // (`runPostJournalEntry`), which needs a covering `FiscalPeriod` and a
 // real `Currency`/`LedgerAccount` for each referenced id
-// (`requireValidPostingReferences`, PR #6340 review M5) — seeded below so
+// (`requireValidPostingReferences`) — seeded below so
 // that scenario can actually succeed rather than fail on an unrelated
 // "currency not found"/"account not found".
 import { Given, When, Then, type DataTable } from '@cucumber/cucumber'

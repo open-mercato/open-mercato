@@ -161,14 +161,14 @@ export async function seedJournalEntryInDb(input: SeedJournalEntryInput): Promis
 
 /**
  * Best-effort cleanup for `seedJournalEntryInDb` — deletes lines, then the
- * entry. PR #6340 review, N1: this used to target the pre-rename singular
- * tables (`journal_entry`/`journal_entry_line`), so every call threw
+ * entry. This used to target the pre-rename singular tables
+ * (`journal_entry`/`journal_entry_line`), so every call threw
  * `relation "journal_entry" does not exist` — silently, because the whole
  * function is wrapped in a best-effort `catch {}`. Even against the correct
  * plural tables, a plain DELETE would still fail: `journal_entries_append_only`
- * / `journal_entry_lines_append_only` (added for m6) block UPDATE/DELETE on
- * both tables by design, since a posted journal entry must never be mutated
- * or removed. Both triggers are disabled for the span of this one
+ * / `journal_entry_lines_append_only` block UPDATE/DELETE on both tables by
+ * design, since a posted journal entry must never be mutated or removed.
+ * Both triggers are disabled for the span of this one
  * transaction (`ALTER TABLE ... DISABLE TRIGGER` is transactional DDL, so a
  * rollback restores them) and re-enabled before commit — this only ever
  * touches rows this same fixture inserted directly via SQL in

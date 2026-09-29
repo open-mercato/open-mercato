@@ -94,8 +94,8 @@ test.describe('TC-GL-002: fiscal-periods lock/unlock 200/409/403', () => {
       expect(unlockBody.isLocked).toBe(false);
     } finally {
       await deleteOrganizationIfExists(request, superadminToken, organizationId);
-      // PR #6340 review, m11: createTenant() had no matching cleanup call,
-      // leaking a throwaway tenant on every run of this test.
+      // createTenant() had no matching cleanup call, leaking a throwaway
+      // tenant on every run of this test.
       await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', tenantId);
     }
   });

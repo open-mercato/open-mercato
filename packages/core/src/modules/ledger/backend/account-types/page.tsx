@@ -47,7 +47,8 @@ type ResponsePayload = {
 export default function LedgerAccountTypesPage() {
   const t = useT()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
-  // PR #6340 review, m3 (same gap as backend/accounts/page.tsx).
+  // Client-side gate matching backend/accounts/page.tsx's own (view-only
+  // users must not see New/Edit/Delete on this list page).
   const { payload } = useBackendChrome()
   const canManage = hasFeature(payload?.grantedFeatures, 'ledger.accounts.manage')
   const [rows, setRows] = React.useState<LedgerAccountTypeRow[]>([])
@@ -102,8 +103,8 @@ export default function LedgerAccountTypesPage() {
           setTotalIsCapped(payload.totalIsCapped === true)
 
           // Resolve `parentAccountTypeId` to a human-readable label for the
-          // column below, batched into one request via `?ids=` (PR #6340
-          // review nit: raw UUIDs were shown instead). Best-effort.
+          // column below, batched into one request via `?ids=` (raw UUIDs
+          // were shown before). Best-effort.
           const parentIds = [...new Set(items.map((row) => row.parentAccountTypeId).filter((id): id is string => Boolean(id)))]
           if (parentIds.length) {
             loadLedgerAccountTypeLabelsByIds(parentIds)

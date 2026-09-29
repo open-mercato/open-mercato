@@ -12,8 +12,8 @@ from the spec, which the unit/integration tests then implement against.
 
 ## Why Cucumber, why `ts-node` was rejected (and `tsx/cjs` later replaced too)
 
-**Update (PR #6340 review, m13):** the require hook this section
-originally settled on, `tsx/cjs`, is no longer what actually runs —
+**Update:** the require hook this section originally settled on,
+`tsx/cjs`, is no longer what actually runs —
 see "Verification status" below for why it was swapped for
 `cucumber-ts-register.cjs`. The `ts-node` findings right below are
 still accurate and are why `ts-node` was never an option either way.

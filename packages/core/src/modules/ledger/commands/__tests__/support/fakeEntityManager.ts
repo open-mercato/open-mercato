@@ -77,9 +77,9 @@ export function buildFakeEm(opts: { throwOnNextFlush?: unknown } = {}): FakeEm {
   }
 
   const connectionExecute = jest.fn(async (sql: string, params: unknown[]) => {
-    // `SET CONSTRAINTS ... IMMEDIATE` (postJournalEntry.ts, PR #6340 review
-    // m5) forces Postgres's deferred balance-check trigger to run before
-    // commit — this fake has no triggers at all, so it's a safe no-op here.
+    // `SET CONSTRAINTS ... IMMEDIATE` (postJournalEntry.ts) forces
+    // Postgres's deferred balance-check trigger to run before commit —
+    // this fake has no triggers at all, so it's a safe no-op here.
     if (sql.toLowerCase().includes('set constraints')) return []
     if (!sql.includes('journal_entry_sequence')) {
       throw new Error(`buildFakeEm: unhandled raw SQL — ${sql}`)
@@ -140,9 +140,9 @@ export function buildFakeEm(opts: { throwOnNextFlush?: unknown } = {}): FakeEm {
     // first one's.
     getConnection: jest.fn(() => ({ execute: connectionExecute })),
     // `postJournalEntry.ts`'s `claimNextSequenceNumber` calls
-    // `em.execute(...)` directly (PR #6340 review's M2 fix — joins the
-    // active transaction, which `em.getConnection().execute(...)` does
-    // not). Same underlying mock as `getConnection().execute` above, so
+    // `em.execute(...)` directly — joins the active transaction, which
+    // `em.getConnection().execute(...)` does not. Same underlying mock as
+    // `getConnection().execute` above, so
     // a test can assert on whichever call path the code under test
     // actually takes.
     execute: connectionExecute,

@@ -28,10 +28,10 @@ const FISCAL_PERIOD_RESOURCE_KIND = 'ledger.fiscal_period'
 
 type Scope = { organizationId: string; tenantId: string }
 
-// PR #6340 review, m14: create/lock/unlock previously emitted no event at
-// all, unlike this module's other entities. Both toggleFiscalPeriodLock
-// arms emit 'updated' — see the events.ts declaration's own comment for
-// why there's no separate locked/unlocked pair.
+// create/lock/unlock now emit an event, unlike before (this module's other
+// entities always did). Both toggleFiscalPeriodLock arms emit 'updated' —
+// see the events.ts declaration's own comment for why there's no separate
+// locked/unlocked pair.
 const ledgerFiscalPeriodCrudEvents: CrudEventsConfig<FiscalPeriod> = {
   module: 'ledger',
   entity: 'fiscal_period',
@@ -56,9 +56,9 @@ const ledgerFiscalPeriodCrudIndexer: CrudIndexerConfig<FiscalPeriod> = {
  * app-layer check is the documented Phase 1 guard — the caller
  * (`createFiscalPeriodCommand`) now runs it inside a per-(organizationId,
  * tenantId) `pg_advisory_xact_lock`, so two concurrent creates for the same
- * scope no longer both pass the check before either inserts (PR #6340
- * review, M4). That closes the race for today's Phase 1 guard; it is not a
- * substitute for the Phase 2 exclusion constraint.
+ * scope no longer both pass the check before either inserts. That closes
+ * the race for today's Phase 1 guard; it is not a substitute for the
+ * Phase 2 exclusion constraint.
  * Overlap test: `existing.startDate <= new.endDate AND existing.endDate >= new.startDate`.
  */
 async function findOverlappingFiscalPeriod(
@@ -93,9 +93,9 @@ const createFiscalPeriodCommand: CommandHandler<CreateFiscalPeriodInput, { fisca
     // two concurrent creates for the same (organizationId, tenantId) can
     // both read "no overlap" and both insert, leaving two overlapping
     // periods — which makes "the covering period" in postJournalEntry's
-    // `requireCoveringUnlockedFiscalPeriod` ambiguous (PR #6340 review,
-    // M4). A real exclusion constraint is the Phase 2 fix (see the comment
-    // on `findOverlappingFiscalPeriod`); until then, a per-(org, tenant)
+    // `requireCoveringUnlockedFiscalPeriod` ambiguous. A real exclusion
+    // constraint is the Phase 2 fix (see the comment on
+    // `findOverlappingFiscalPeriod`); until then, a per-(org, tenant)
     // Postgres advisory transaction lock closes the race today by making
     // concurrent creates for the same scope queue up rather than
     // interleave. `pg_advisory_xact_lock` auto-releases at commit/rollback,
@@ -126,9 +126,9 @@ const createFiscalPeriodCommand: CommandHandler<CreateFiscalPeriodInput, { fisca
       return created
     })
 
-    // PR #6340 review, m14: emit after the transaction commits, mirroring
-    // this module's other create commands (see ledgerAccounts.ts /
-    // ledgerAccountTypes.ts) — fiscal periods previously emitted nothing.
+    // Emit after the transaction commits, mirroring this module's other
+    // create commands (see ledgerAccounts.ts / ledgerAccountTypes.ts) —
+    // fiscal periods previously emitted nothing.
     emitCrudSideEffects({
       dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
       action: 'created',
@@ -222,9 +222,9 @@ async function toggleFiscalPeriodLock(
     return { id: period.id, isLocked: period.isLocked, updatedAt: period.updatedAt.toISOString() }
   })
 
-  // PR #6340 review, m14: emit after the transaction commits — see the
-  // module-level comment on ledgerFiscalPeriodCrudEvents for why both lock
-  // and unlock emit 'updated' rather than a separate locked/unlocked pair.
+  // Emit after the transaction commits — see the module-level comment on
+  // ledgerFiscalPeriodCrudEvents for why both lock and unlock emit
+  // 'updated' rather than a separate locked/unlocked pair.
   emitCrudSideEffects({
     dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
     action: 'updated',

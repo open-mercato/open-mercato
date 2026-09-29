@@ -10,11 +10,11 @@ export async function createCurrencyFixture(
     code: string;
     name: string;
     symbol?: string;
-    // PR #6340 review, m11: without these, the currency always lands in the
-    // caller token's own home (organizationId, tenantId) — wrong when the
-    // caller is acting on behalf of a throwaway test tenant/org (e.g. a
-    // superadmin token creating fixtures scoped to a QA tenant). Falls back
-    // to the token's own scope, so existing callers are unaffected.
+    // Without these, the currency always lands in the caller token's own
+    // home (organizationId, tenantId) — wrong when the caller is acting on
+    // behalf of a throwaway test tenant/org (e.g. a superadmin token
+    // creating fixtures scoped to a QA tenant). Falls back to the token's
+    // own scope, so existing callers are unaffected.
     organizationId?: string;
     tenantId?: string;
     headers?: Record<string, string>;
