@@ -51,11 +51,11 @@ Make sure agents and developers who add an encryption map entry to a module that
 
 ### Phase 1: Backfill SQL helper
 
-- [ ] 1.1 Add buildEncryptionMapBackfillSql helper with unit tests
+- [x] 1.1 Add buildEncryptionMapBackfillSql helper with unit tests — 8d9ee65fa
 
 ### Phase 2: Core migrations on the helper
 
-- [ ] 2.1 Refactor entities backfill migrations to the helper
+- [x] 2.1 Refactor entities backfill migrations to the helper — 0700a19b7
 
 ### Phase 3: Warn-only check in db:generate
 
