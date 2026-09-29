@@ -1,5 +1,8 @@
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
+const ancestorId = '99999999-9999-9999-9999-999999999999'
+const siblingId = '88888888-8888-4888-8888-888888888888'
+const resolveAncestorIdsMock = jest.fn(async () => [ancestorId])
 
 const em = {
   find: jest.fn(),
@@ -19,8 +22,9 @@ jest.mock('../../context', () => ({
     em,
     organizationId,
     tenantId,
-    readableOrganizationIds: [organizationId, '99999999-9999-9999-9999-999999999999'],
+    readableOrganizationIds: [organizationId, ancestorId, siblingId],
     cache: undefined,
+    container: { resolve: (key: string) => key === 'organizationHierarchyService' ? { resolveAncestorIds: resolveAncestorIdsMock } : undefined },
   })),
 }))
 
@@ -86,7 +90,7 @@ describe('customer dictionary route', () => {
         tenantId,
         kind: 'status',
         organizationId: {
-          $in: [organizationId, '99999999-9999-9999-9999-999999999999'],
+          $in: [organizationId, ancestorId, siblingId],
         },
       }),
       expect.objectContaining({
@@ -168,6 +172,10 @@ describe('customer dictionary route', () => {
     )
 
     expect(response.status).toBe(200)
+    expect(resolveAncestorIdsMock).toHaveBeenCalledWith({ tenantId, organizationId })
+    expect(em.find).toHaveBeenCalledWith(expect.any(Function), expect.objectContaining({
+      tenantId, kind: 'activity_type', organizationId: { $in: [organizationId, ancestorId] },
+    }), expect.any(Object))
     await expect(response.json()).resolves.toMatchObject({
       items: [expect.objectContaining({ value: 'meeting', behavior })],
     })

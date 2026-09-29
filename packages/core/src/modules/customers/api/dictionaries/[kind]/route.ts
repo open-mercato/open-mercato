@@ -25,6 +25,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE } from '../../../lib/dictionaries'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { calendarEventTypeBehaviorSchema } from '../../../calendar-event-types'
+import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
 
 const logger = createLogger('customers')
 
@@ -54,7 +55,7 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
     const query = querySchema.parse({
       organizationId: url.searchParams.get('organizationId') ?? undefined,
     })
-    const { translate, em, organizationId, readableOrganizationIds, tenantId, cache } = await resolveDictionaryRouteContext(req, {
+    const { translate, em, organizationId, readableOrganizationIds, tenantId, cache, container } = await resolveDictionaryRouteContext(req, {
       selectedId: query.organizationId ?? undefined,
     })
     const { kind, mappedKind } = mapDictionaryKind(ctx.params?.kind)
@@ -66,7 +67,15 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
     }
     const settings = await loadCustomerSettings(em, { tenantId, organizationId })
     const sortMode = resolveDictionaryEntrySortMode(settings?.dictionarySortModes?.[kind])
-    const scopedOrganizationIds = readableOrganizationIds.length > 0 ? readableOrganizationIds : [organizationId]
+    let scopedOrganizationIds = readableOrganizationIds.length > 0 ? readableOrganizationIds : [organizationId]
+    if (mappedKind === 'activity_type') {
+      const hierarchy = container.resolve('organizationHierarchyService') as OrganizationHierarchyService
+      const ancestors = await hierarchy.resolveAncestorIds({ tenantId, organizationId })
+      if (ancestors === null) {
+        throw new CrudHttpError(404, { error: translate('customers.errors.organization_not_found', 'Organization not found') })
+      }
+      scopedOrganizationIds = Array.from(new Set([organizationId, ...ancestors.slice().reverse()]))
+    }
     const canUseCache = Boolean(cache) && mappedKind !== 'person_company_role'
 
     let cacheKey: string | null = null
