@@ -10,6 +10,7 @@ import { loadSplitResults, pickSplitWinner } from '../../../../lib/analytics/spl
 import { loadAttribution } from '../../../../lib/analytics/attribution.js'
 import { loadDailySeries } from '../../../../lib/analytics/daily-series.js'
 import { loadCampaignFunnel } from '../../../../lib/analytics/funnel.js'
+import { loadWinnerMetric } from '../../../../lib/winner-metric.js'
 import { readPathUuid } from '../../../shared.js'
 
 /**
@@ -98,7 +99,14 @@ export async function GET(req: Request) {
   // produced — the run alone cannot say which sends belonged to the lane and which to the trunk.
   const definition = campaignDefinitionSchema.safeParse(campaign.definition)
   const lanes = definition.success ? describeLanes(definition.data.steps as CampaignStep[]) : []
-  const splits = await loadSplitResults(em, campaign.id, scope, lanes)
+  /**
+   * The lanes' revenue is attributed over the SAME window as the attribution block and the funnel.
+   *
+   * One window, one definition of "converted", one place the three numbers can be reconciled — and it is also
+   * the window the author can change with `?windowDays=`, so a revenue verdict never comes from a period the
+   * screen is not showing.
+   */
+  const splits = await loadSplitResults(em, campaign.id, scope, lanes, windowDays)
   const seriesFrom = new Date(Date.now() - (DEFAULT_REPORT_DAYS - 1) * 86_400_000)
   const daily = await loadDailySeries(em, campaign.id, scope, { from: seriesFrom, to: new Date() })
   const attribution = await loadAttribution(em, scope, {
@@ -115,10 +123,19 @@ export async function GET(req: Request) {
    */
   const funnel = await loadCampaignFunnel(em, campaign.id, scope, { conversionWindowDays: windowDays })
 
+  /**
+   * On the metric the TENANT chose, which is the same one the unattended promotion uses.
+   *
+   * A variant that collects clicks and sells less is the classic A/B trap, and this screen could not see it
+   * until revenue was attributable per lane. The suggestion and the automation read one setting on purpose: being
+   * shown a click winner while a revenue winner is applied behind your back is worse than either alone.
+   */
+  const winnerMetric = await loadWinnerMetric(container, scope)
+
   // One winner per split, or none — the rules live in `pickSplitWinner`, which refuses to answer
-  // until every lane has a sample and refuses a tie.
+  // until every lane has a sample, refuses a tie, and refuses a revenue verdict it cannot compare.
   const winners = [...new Set(splits.map((result) => result.stepId))]
-    .map((stepId) => pickSplitWinner(splits, stepId, minimumSends))
+    .map((stepId) => pickSplitWinner(splits, stepId, minimumSends, winnerMetric))
     .filter((winner): winner is NonNullable<typeof winner> => winner !== null)
 
   return NextResponse.json({
@@ -132,7 +149,8 @@ export async function GET(req: Request) {
     daily,
     winners,
     attribution,
-    settings: { windowDays, minimumSends },
+    /** `winnerMetric` is reported so the screen can say what a verdict was judged on, not just who won. */
+    settings: { windowDays, minimumSends, winnerMetric },
   })
 }
 
@@ -140,7 +158,7 @@ export const openApi = {
   GET: {
     summary: 'Results for a campaign: delivery, engagement, A/B and attributed revenue',
     description:
-      'Sends and suppressions; the funnel from entered to converted counted in PEOPLE with the drop-off between stages; delivery events by type with unique-recipient counts alongside raw totals; per-variant A/B results read from the lane recorded on each run; any variant that has earned the right to be called a winner; and linearly attributed revenue per currency. The funnel and the revenue share one conversion window, so the two can be reconciled. Gated by `marketing_automation.runs.view`. Counts only — never which customer did what.',
+      'Sends and suppressions; the funnel from entered to converted counted in PEOPLE with the drop-off between stages; delivery events by type with unique-recipient counts alongside raw totals; per-variant A/B results read from the lane recorded on each run, each carrying what that lane earned and in which currency; any variant that has earned the right to be called a winner, judged on the clicks or the revenue the tenant chose; and linearly attributed revenue per currency. The funnel, the lane revenue and the attribution share one conversion window, so the three can be reconciled. Gated by `marketing_automation.runs.view`. Counts only — never which customer did what.',
     tags: ['Marketing Automation'],
     responses: { 200: { description: 'The counts' }, 404: { description: 'Not found' } },
   },

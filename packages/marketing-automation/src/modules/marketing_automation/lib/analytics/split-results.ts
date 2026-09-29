@@ -48,6 +48,21 @@ export type SplitVariantResult = {
   /** Clicks per person reached, or null with nobody reached — a rate over zero is not a zero rate. */
   clickRate: number | null
   openRate: number | null
+  /**
+   * What this lane's messages earned, and in which currency.
+   *
+   * Attributed the same way the funnel's conversion stage is: an order placed by one of this lane's recipients
+   * after clicking one of ITS steps, inside the window. Null when nothing is attributable yet.
+   *
+   * `currencyCode` is carried rather than assumed because a shop selling in two currencies has two numbers here
+   * and they must never be added — `mixedCurrency` says so, and the winner rule refuses to rank on revenue when
+   * it is true instead of comparing figures that are not comparable.
+   */
+  revenue: number | null
+  currencyCode: string | null
+  mixedCurrency: boolean
+  /** Revenue per person reached, which is what a comparison between unequal lanes needs. */
+  revenuePerRecipient: number | null
 }
 
 /**
@@ -96,15 +111,107 @@ function laneSql(stepPlaceholders: string): string {
                and e.organization_id = ?
                and e.type = 'clicked'
                and e.run_id in (select id from lane_runs)
-               and e.step_id in (${stepPlaceholders}))::int as clicked
+               and e.step_id in (${stepPlaceholders}))::int as clicked,
+           /**
+            * What the lane earned, and how many currencies that is spread across.
+            *
+            * Attributed exactly as the funnel attributes a conversion — a click on one of THIS lane's steps
+            * followed by an order from that recipient inside the window — so the two screens cannot disagree
+            * about who converted. Distinct by order id, because one order must not be counted twice when a
+            * recipient clicked two of the lane's messages before buying.
+            */
+           (select coalesce(sum(orders.total), 0)::float8
+              from (
+                select distinct o.id, o.grand_total_gross_amount as total
+                  from marketing_message_send_events e
+                  join marketing_campaign_runs r on r.id = e.run_id
+                  join sales_orders o
+                    on o.customer_entity_id = r.subject_entity_id
+                   and o.placed_at > e.occurred_at
+                   and o.placed_at <= e.occurred_at + make_interval(days => ?)
+                 where e.tenant_id = ? and e.organization_id = ?
+                   and e.type = 'clicked'
+                   and e.run_id in (select id from lane_runs)
+                   and e.step_id in (${stepPlaceholders})
+                   and r.subject_entity_id is not null
+                   and o.deleted_at is null
+                   and o.placed_at is not null
+                   and (o.status is null or o.status not in ('canceled', 'cancelled'))
+              ) orders)::float8 as revenue,
+           (select count(distinct o.currency_code)
+              from marketing_message_send_events e
+              join marketing_campaign_runs r on r.id = e.run_id
+              join sales_orders o
+                on o.customer_entity_id = r.subject_entity_id
+               and o.placed_at > e.occurred_at
+               and o.placed_at <= e.occurred_at + make_interval(days => ?)
+             where e.tenant_id = ? and e.organization_id = ?
+               and e.type = 'clicked'
+               and e.run_id in (select id from lane_runs)
+               and e.step_id in (${stepPlaceholders})
+               and r.subject_entity_id is not null
+               and o.deleted_at is null
+               and o.placed_at is not null
+               and (o.status is null or o.status not in ('canceled', 'cancelled')))::int as currencies,
+           (select min(o.currency_code)
+              from marketing_message_send_events e
+              join marketing_campaign_runs r on r.id = e.run_id
+              join sales_orders o
+                on o.customer_entity_id = r.subject_entity_id
+               and o.placed_at > e.occurred_at
+               and o.placed_at <= e.occurred_at + make_interval(days => ?)
+             where e.tenant_id = ? and e.organization_id = ?
+               and e.type = 'clicked'
+               and e.run_id in (select id from lane_runs)
+               and e.step_id in (${stepPlaceholders})
+               and r.subject_entity_id is not null
+               and o.deleted_at is null
+               and o.placed_at is not null
+               and (o.status is null or o.status not in ('canceled', 'cancelled'))) as currency_code
   `
 }
 
-type ResultRow = { runs: number; sends: number; reached: number; opened: number; clicked: number }
+type ResultRow = {
+  runs: number
+  sends: number
+  reached: number
+  opened: number
+  clicked: number
+  revenue: number | null
+  currencies: number
+  currency_code: string | null
+}
 
 function rate(numerator: number, denominator: number): number | null {
   if (denominator <= 0) return null
   return numerator / denominator
+}
+
+/**
+ * The revenue half of a lane's row, and the currency caveat that comes with it.
+ *
+ * Null rather than zero when nothing has been attributed: "nobody has bought yet" and "they bought nothing" are
+ * different facts, and only the second is a result. More than one currency is reported as such rather than summed
+ * — a figure mixing PLN and EUR is not a number — and the winner rule refuses to rank on revenue when it sees one.
+ */
+function readRevenue(
+  row: ResultRow | undefined,
+  reached: number,
+): Pick<SplitVariantResult, 'revenue' | 'currencyCode' | 'mixedCurrency' | 'revenuePerRecipient'> {
+  const currencies = row?.currencies ?? 0
+  if (!row || currencies === 0) {
+    return { revenue: null, currencyCode: null, mixedCurrency: false, revenuePerRecipient: null }
+  }
+  const revenue = Math.round((row.revenue ?? 0) * 100) / 100
+  const mixedCurrency = currencies > 1
+  return {
+    revenue,
+    // With several currencies there is no single code to report, and reporting one of them would be a lie.
+    currencyCode: mixedCurrency ? null : row.currency_code ?? null,
+    mixedCurrency,
+    // Per person reached, for the same reason the click rate is: lanes are rarely weighted equally.
+    revenuePerRecipient: reached > 0 ? Math.round((revenue / reached) * 100) / 100 : null,
+  }
 }
 
 /**
@@ -120,6 +227,13 @@ export async function loadSplitResults(
   campaignId: string,
   scope: SubjectScope,
   lanes: LaneDescriptor[],
+  /**
+   * How long after a click an order still counts towards a lane.
+   *
+   * The SAME window the revenue attribution and the funnel use, passed in rather than defaulted here so the
+   * three cannot drift into disagreeing about which orders belong to a campaign.
+   */
+  conversionWindowDays = 7,
 ): Promise<SplitVariantResult[]> {
   const results: SplitVariantResult[] = []
 
@@ -144,6 +258,11 @@ export async function loadSplitResults(
         clicked: 0,
         clickRate: null,
         openRate: null,
+        // A holdout sends nothing, so nothing is attributable to it — which is the point of having one.
+        revenue: null,
+        currencyCode: null,
+        mixedCurrency: false,
+        revenuePerRecipient: null,
       })
       continue
     }
@@ -156,6 +275,10 @@ export async function loadSplitResults(
       scope.tenantId, scope.organizationId, ...lane.stepIds,
       scope.tenantId, scope.organizationId, ...lane.stepIds,
       scope.tenantId, scope.organizationId, ...lane.stepIds,
+      // The three revenue subqueries: each takes the window, then the scope, then the step ids.
+      conversionWindowDays, scope.tenantId, scope.organizationId, ...lane.stepIds,
+      conversionWindowDays, scope.tenantId, scope.organizationId, ...lane.stepIds,
+      conversionWindowDays, scope.tenantId, scope.organizationId, ...lane.stepIds,
     ])
     const row = rows[0]
     results.push({
@@ -169,17 +292,33 @@ export async function loadSplitResults(
       clicked: row?.clicked ?? 0,
       clickRate: rate(row?.clicked ?? 0, row?.reached ?? 0),
       openRate: rate(row?.opened ?? 0, row?.reached ?? 0),
+      ...readRevenue(row, row?.reached ?? 0),
     })
   }
 
   return results
 }
 
+/**
+ * What a winner is judged on.
+ *
+ * `clicks` is the default and was the only option: it is available on every campaign and needs no order data.
+ * `revenue` is the better question — a variant that collects clicks and sells less is the classic trap, and this
+ * module could not see it — but it needs attribution, so a shop whose orders are not attributable would never
+ * conclude a test on it. The choice is the operator's, per tenant.
+ */
+export type WinnerMetric = 'clicks' | 'revenue'
+
 export type SplitWinner = {
   stepId: string
   variant: string
+  /** Which question this winner answered. */
+  metric: WinnerMetric
+  /** The winner's figure on that metric, and the runner-up's below it. */
+  value: number
+  runnerUpValue: number | null
   clickRate: number
-  /** The runner-up's rate, so a caller can see how close the call was. */
+  /** The runner-up's CLICK rate, kept whichever metric decided, so a screen can always show both. */
   runnerUpClickRate: number | null
   sends: number
   /** The sample the call was made on: people, not messages. */
@@ -204,6 +343,7 @@ export function pickSplitWinner(
   results: SplitVariantResult[],
   stepId: string,
   minimumReached: number,
+  metric: WinnerMetric = 'clicks',
 ): SplitWinner | null {
   /**
    * Holdouts are excluded from the comparison, not from the results.
@@ -216,16 +356,41 @@ export function pickSplitWinner(
   if (lanes.length < 2) return null
   if (lanes.some((lane) => lane.reached < minimumReached)) return null
 
-  const ranked = [...lanes].sort((left, right) => (right.clickRate ?? 0) - (left.clickRate ?? 0))
+  /**
+   * Revenue is refused rather than approximated when the lanes are not comparable.
+   *
+   * Two lanes earning in different currencies have no ordering, and neither does a lane with nothing attributed
+   * yet — answering anyway would pick a winner on a number that does not mean what it says. Saying "not yet" is
+   * the honest outcome, and it is also recoverable: attribution arrives as orders do.
+   */
+  if (metric === 'revenue') {
+    if (lanes.some((lane) => lane.mixedCurrency)) return null
+    const codes = new Set(lanes.map((lane) => lane.currencyCode).filter((code): code is string => Boolean(code)))
+    if (codes.size > 1) return null
+    if (lanes.some((lane) => lane.revenuePerRecipient === null)) return null
+  }
+
+  const score = (lane: SplitVariantResult): number | null => (
+    metric === 'revenue' ? lane.revenuePerRecipient : lane.clickRate
+  )
+
+  const ranked = [...lanes].sort((left, right) => (score(right) ?? 0) - (score(left) ?? 0))
   const best = ranked[0]
   const runnerUp = ranked[1]
-  if (best.clickRate === null) return null
-  if (runnerUp && (runnerUp.clickRate ?? 0) === best.clickRate) return null
+  const bestScore = score(best)
+  if (bestScore === null) return null
+  const runnerUpScore = runnerUp ? score(runnerUp) : null
+  // A tie teaches nothing, and replacing the split would throw away the ability to keep measuring.
+  if (runnerUp && runnerUpScore === bestScore) return null
 
   return {
     stepId,
     variant: best.variant,
-    clickRate: best.clickRate,
+    metric,
+    value: bestScore,
+    runnerUpValue: runnerUpScore,
+    // Both rates travel regardless of which metric decided, so a screen never has to ask twice.
+    clickRate: best.clickRate ?? 0,
     runnerUpClickRate: runnerUp?.clickRate ?? null,
     sends: best.sends,
     reached: best.reached,

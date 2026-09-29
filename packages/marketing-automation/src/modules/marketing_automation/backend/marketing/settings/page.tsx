@@ -9,6 +9,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -25,6 +26,7 @@ type Settings = {
   loyaltyTiers: Array<{ key: string; minPoints: number }>
   autoApplySplitWinner: boolean
   autoApplySplitWinnerMargin: number
+  splitWinnerMetric: 'clicks' | 'revenue'
   valueHorizonYears: number
 }
 
@@ -176,6 +178,34 @@ export default function MarketingSettingsPage() {
 
           <div className="space-y-2">
             <SectionHeader title={t('marketing_automation.settings.experiments', 'A/B tests')} />
+            <Label htmlFor="winner-metric">
+              {t('marketing_automation.settings.winnerMetric', 'Decide a test on')}
+            </Label>
+            <Select
+              value={settings.splitWinnerMetric}
+              onValueChange={(value) => setSettings({
+                ...settings,
+                splitWinnerMetric: value === 'revenue' ? 'revenue' : 'clicks',
+              })}
+            >
+              <SelectTrigger id="winner-metric" className="w-72">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="clicks">
+                  {t('marketing_automation.settings.winnerMetricClicks', 'Clicks per recipient')}
+                </SelectItem>
+                <SelectItem value="revenue">
+                  {t('marketing_automation.settings.winnerMetricRevenue', 'Revenue per recipient')}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="text-xs text-muted-foreground">
+              {t(
+                'marketing_automation.settings.winnerMetricHint',
+                'Clicks are available on every campaign; revenue is the better question, because a variant that collects clicks and sells less would otherwise win. On revenue a verdict waits for orders to be attributable, and is withheld entirely when the lanes earn in different currencies. The same choice governs the suggestion on the results screen and any promotion made for you.',
+              )}
+            </div>
             <CheckboxField
               label={t('marketing_automation.settings.autoApply', 'Let a decisive test promote its own winner')}
               checked={settings.autoApplySplitWinner}
@@ -207,7 +237,7 @@ export default function MarketingSettingsPage() {
             <div className="text-xs text-muted-foreground">
               {t(
                 'marketing_automation.settings.autoApplyMarginHint',
-                'A proportion, not percentage points: 0.25 means the winner needs a click rate a quarter higher than the runner-up. 3.0% against 2.9% is a coin toss; 3.0% against 2.0% is a result.',
+                'A proportion, not percentage points: 0.25 means the winner needs a figure a quarter higher than the runner-up, measured on whichever of the two above decides. 3.0% against 2.9% is a coin toss; 3.0% against 2.0% is a result.',
               )}
             </div>
           </div>

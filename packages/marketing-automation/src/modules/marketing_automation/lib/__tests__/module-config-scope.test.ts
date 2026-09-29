@@ -2,6 +2,7 @@ import { asValue, createContainer } from 'awilix'
 import { loadTierThresholds } from '../tiers'
 import { DEFAULT_TIER_THRESHOLDS } from '../engine/tiers'
 import { loadProductUrlTemplate } from '../recommendations'
+import { DEFAULT_WINNER_METRIC, loadWinnerMetric } from '../winner-metric'
 
 /**
  * The per-tenant config reads, and the one mistake they invite.
@@ -80,5 +81,35 @@ describe('loadProductUrlTemplate', () => {
 
   it('answers null in a process with no config service', async () => {
     expect(await loadProductUrlTemplate(createContainer(), scope)).toBeNull()
+  })
+})
+
+describe('loadWinnerMetric', () => {
+  it('asks for the value with the scope inside the options object', async () => {
+    const recorded: Recorded[] = []
+    await loadWinnerMetric(containerWithConfig(null, recorded), scope)
+    expect(recorded[0].name).toBe('splitWinnerMetric')
+    expect(recorded[0].options).toEqual({ scope })
+  })
+
+  it('returns revenue when a tenant has chosen it', async () => {
+    expect(await loadWinnerMetric(containerWithConfig('revenue'), scope)).toBe('revenue')
+  })
+
+  /**
+   * Anything unrecognised is clicks, not an error and not the stored string.
+   *
+   * The value reaches `pickSplitWinner`, and a third metric that no branch handles would silently rank on
+   * nothing. Defaulting means a value written by a later version degrades to the answer that always works.
+   */
+  it('treats anything else as clicks', async () => {
+    expect(await loadWinnerMetric(containerWithConfig('clicks'), scope)).toBe('clicks')
+    expect(await loadWinnerMetric(containerWithConfig('profit'), scope)).toBe(DEFAULT_WINNER_METRIC)
+    expect(await loadWinnerMetric(containerWithConfig(null), scope)).toBe(DEFAULT_WINNER_METRIC)
+    expect(await loadWinnerMetric(containerWithConfig(true), scope)).toBe(DEFAULT_WINNER_METRIC)
+  })
+
+  it('answers the default in a process with no config service', async () => {
+    expect(await loadWinnerMetric(createContainer(), scope)).toBe(DEFAULT_WINNER_METRIC)
   })
 })

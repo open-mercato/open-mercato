@@ -25,9 +25,23 @@ type SplitResult = {
   clicked: number
   clickRate: number | null
   openRate: number | null
+  revenue: number | null
+  currencyCode: string | null
+  mixedCurrency: boolean
+  revenuePerRecipient: number | null
 }
 
-type Winner = { stepId: string; variant: string; clickRate: number; runnerUpClickRate: number | null; sends: number; reached: number }
+type Winner = {
+  stepId: string
+  variant: string
+  metric: 'clicks' | 'revenue'
+  value: number
+  runnerUpValue: number | null
+  clickRate: number
+  runnerUpClickRate: number | null
+  sends: number
+  reached: number
+}
 
 type DailyPoint = { date: string; sent: number; opened: number; clicked: number }
 
@@ -48,11 +62,22 @@ type Results = {
   daily: DailyPoint[]
   winners: Winner[]
   attribution: Array<{ campaignId: string; currencyCode: string | null; orders: number; revenue: number }>
-  settings: { windowDays: number; minimumSends: number }
+  settings: { windowDays: number; minimumSends: number; winnerMetric: 'clicks' | 'revenue' }
 }
 
 function formatRate(rate: number | null): string {
   return rate === null ? '—' : `${(rate * 100).toFixed(1)}%`
+}
+
+/**
+ * Money with its currency, or a dash.
+ *
+ * Never a bare number: a lane's figure is meaningless without the code beside it, and null means nothing has
+ * been attributed yet rather than that nothing was earned.
+ */
+function formatMoney(amount: number | null, currencyCode: string | null): string {
+  if (amount === null) return '—'
+  return currencyCode ? `${currencyCode} ${amount.toFixed(2)}` : amount.toFixed(2)
 }
 
 /**
@@ -298,6 +323,12 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
                           {t('marketing_automation.results.winner', 'Variant {key} leads')
                             .replace('{key}', winner.variant)}
                         </StatusBadge>
+                        {/* Which question produced the verdict, because "leads" alone hides the one that matters. */}
+                        <span className="text-xs text-muted-foreground">
+                          {winner.metric === 'revenue'
+                            ? t('marketing_automation.results.judgedOnRevenue', 'on revenue per recipient')
+                            : t('marketing_automation.results.judgedOnClicks', 'on clicks per recipient')}
+                        </span>
                         <Button
                           size="sm"
                           disabled={applying !== null || !updatedAt}
@@ -308,8 +339,15 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
                       </div>
                     ) : (
                       <span className="text-xs text-muted-foreground">
-                        {t('marketing_automation.results.notEnoughData', 'Not enough data yet ({count} recipients per variant needed)')
-                          .replace('{count}', String(results.settings.minimumSends))}
+                        {/*
+                          * A revenue test can also be withheld for a reason that is not the sample: two lanes
+                          * earning in different currencies have no ordering, and saying "not enough data" for that
+                          * would send somebody looking for recipients they already have.
+                          */}
+                        {results.settings.winnerMetric === 'revenue' && lanes.some((lane) => lane.mixedCurrency)
+                          ? t('marketing_automation.results.mixedCurrency', 'No revenue verdict: these lanes earn in more than one currency, which cannot be compared.')
+                          : t('marketing_automation.results.notEnoughData', 'Not enough data yet ({count} recipients per variant needed)')
+                            .replace('{count}', String(results.settings.minimumSends))}
                       </span>
                     )}
                   </div>
@@ -322,6 +360,8 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
                         <TableHead>{t('marketing_automation.results.column.reached', 'Reached')}</TableHead>
                         <TableHead>{t('marketing_automation.results.column.openRate', 'Open rate')}</TableHead>
                         <TableHead>{t('marketing_automation.results.column.clickRate', 'Click rate')}</TableHead>
+                        <TableHead>{t('marketing_automation.results.column.revenue', 'Revenue')}</TableHead>
+                        <TableHead>{t('marketing_automation.results.column.revenuePerRecipient', 'Per recipient')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -341,7 +381,26 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
                           {/* The denominator of both rates: people, not messages. */}
                           <TableCell className="tabular-nums text-muted-foreground">{laneResult.reached}</TableCell>
                           <TableCell className="tabular-nums text-muted-foreground">{formatRate(laneResult.openRate)}</TableCell>
-                          <TableCell className="tabular-nums">{formatRate(laneResult.clickRate)}</TableCell>
+                          <TableCell className={results.settings.winnerMetric === 'revenue' ? 'tabular-nums text-muted-foreground' : 'tabular-nums'}>
+                            {formatRate(laneResult.clickRate)}
+                          </TableCell>
+                          {/*
+                            * What the lane's own messages earned, attributed over the same window as the revenue
+                            * block above — so a lane that collects clicks and sells less is visible here rather
+                            * than only in whichever total somebody reconciles later.
+                            */}
+                          <TableCell className="tabular-nums text-muted-foreground">
+                            {formatMoney(laneResult.revenue, laneResult.currencyCode)}
+                            {laneResult.mixedCurrency ? (
+                              <span className="ml-2 text-xs">
+                                {t('marketing_automation.results.multiCurrency', 'mixed currencies')}
+                              </span>
+                            ) : null}
+                          </TableCell>
+                          {/* The figure a revenue verdict is made on: earnings divided by people, never by messages. */}
+                          <TableCell className={results.settings.winnerMetric === 'revenue' ? 'tabular-nums' : 'tabular-nums text-muted-foreground'}>
+                            {formatMoney(laneResult.revenuePerRecipient, laneResult.currencyCode)}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

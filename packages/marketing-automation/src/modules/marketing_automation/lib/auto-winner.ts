@@ -6,6 +6,8 @@ import { campaignDefinitionSchema } from '../data/validators.js'
 import { describeLanes } from './engine/split.js'
 import { decideAutoWinner, DEFAULT_WINNER_MARGIN } from './engine/auto-winner.js'
 import { loadSplitResults } from './analytics/split-results.js'
+import type { WinnerMetric } from './analytics/split-results.js'
+import { loadWinnerMetric } from './winner-metric.js'
 import { buildCampaignCommandContext } from './command-context.js'
 import type { CampaignStep } from './engine/types.js'
 
@@ -45,7 +47,7 @@ type NotificationServiceLike = {
   ): Promise<unknown>
 }
 
-export type AutoWinnerSettings = { enabled: boolean; margin: number }
+export type AutoWinnerSettings = { enabled: boolean; margin: number; metric: WinnerMetric }
 
 /**
  * Reads the tenant's settings, defaulting to OFF.
@@ -58,7 +60,14 @@ export async function loadAutoWinnerSettings(
   container: AwilixContainer,
   scope: AutoWinnerScope,
 ): Promise<AutoWinnerSettings> {
-  const fallback: AutoWinnerSettings = { enabled: false, margin: DEFAULT_WINNER_MARGIN }
+  /**
+   * The metric is read through its own loader rather than a third key here.
+   *
+   * It is not an auto-apply setting: the results screen suggests on the same metric, and one question answered
+   * two ways is how a tenant ends up shown a click winner while a revenue winner is applied behind their back.
+   */
+  const metric = await loadWinnerMetric(container, scope)
+  const fallback: AutoWinnerSettings = { enabled: false, margin: DEFAULT_WINNER_MARGIN, metric }
   let service: ModuleConfigLike
   try {
     service = container.resolve<ModuleConfigLike>('moduleConfigService')
@@ -76,6 +85,7 @@ export async function loadAutoWinnerSettings(
     return {
       enabled: enabled === true || enabled === 'true',
       margin: Number.isFinite(parsedMargin) && parsedMargin > 0 ? parsedMargin : DEFAULT_WINNER_MARGIN,
+      metric,
     }
   } catch {
     return fallback
@@ -87,6 +97,11 @@ export type AppliedWinner = {
   campaignName: string
   stepId: string
   variant: string
+  /** Which question decided it, and the winner's figure on that question. */
+  metric: WinnerMetric
+  value: number
+  /** The currency the figure is in, on a revenue verdict. Null on a click one, which has no currency. */
+  currencyCode: string | null
   clickRate: number
   reached: number
 }
@@ -119,7 +134,7 @@ export async function applyEarnedWinners(
     const splitStepIds = [...new Set(lanes.map((lane) => lane.splitStepId))]
 
     for (const stepId of splitStepIds) {
-      const decision = decideAutoWinner(results, stepId, minimumReached, settings.margin)
+      const decision = decideAutoWinner(results, stepId, minimumReached, settings.margin, settings.metric)
       if (!decision.apply) continue
 
       /**
@@ -146,11 +161,21 @@ export async function applyEarnedWinners(
         continue
       }
 
+      /**
+       * The currency comes from the lane, not from the winner.
+       *
+       * A winner carries a figure; only the lane knows what that figure is denominated in, and announcing a
+       * revenue verdict without it would print a bare number in whatever currency the reader assumed.
+       */
+      const lane = results.find((result) => result.stepId === stepId && result.variant === decision.winner.variant)
       applied.push({
         campaignId: campaign.id,
         campaignName: campaign.name,
         stepId,
         variant: decision.winner.variant,
+        metric: decision.winner.metric,
+        value: decision.winner.value,
+        currencyCode: decision.winner.metric === 'revenue' ? lane?.currencyCode ?? null : null,
         clickRate: decision.winner.clickRate,
         reached: decision.winner.reached,
       })
@@ -186,16 +211,28 @@ export async function announceAppliedWinner(
   } catch {
     return
   }
+  /**
+   * Two bodies, because the evidence is a different KIND of number.
+   *
+   * A click verdict is a percentage; a revenue one is money per recipient and needs its currency beside it.
+   * Formatting money into a "rate" sentence would read as "3.4% click rate" for an amount that is nothing of
+   * the sort, so the sentence changes with the metric rather than the number being squeezed into it.
+   */
+  const revenueVerdict = applied.metric === 'revenue'
   await notifications.createForFeature(
     {
       type: 'marketing_automation.split_winner_applied',
       titleKey: 'marketing_automation.notifications.winnerApplied.title',
-      bodyKey: 'marketing_automation.notifications.winnerApplied.body',
+      bodyKey: revenueVerdict
+        ? 'marketing_automation.notifications.winnerApplied.bodyRevenue'
+        : 'marketing_automation.notifications.winnerApplied.body',
       titleVariables: { campaign: applied.campaignName },
       bodyVariables: {
         campaign: applied.campaignName,
         variant: applied.variant,
         rate: (applied.clickRate * 100).toFixed(1),
+        amount: applied.value.toFixed(2),
+        currency: applied.currencyCode ?? '',
         reached: String(applied.reached),
       },
       severity: 'info',

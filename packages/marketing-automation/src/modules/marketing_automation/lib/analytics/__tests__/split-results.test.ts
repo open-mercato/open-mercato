@@ -10,7 +10,15 @@ const scope = { tenantId: 't1', organizationId: 'o1' }
  * `reached` is the sample, and defaults to one message per person — the shape a one-email lane has. A test
  * that cares about the two-email case passes it explicitly.
  */
-const lane = (variant: string, reached: number, clicked: number, opened = clicked, sends = reached): SplitVariantResult => ({
+const lane = (
+  variant: string,
+  reached: number,
+  clicked: number,
+  opened = clicked,
+  sends = reached,
+  /** Attributed revenue and its currency — null means nothing has been attributed yet, which is not zero. */
+  revenue: { amount: number; currencyCode?: string | null; mixed?: boolean } | null = null,
+): SplitVariantResult => ({
   stepId: 'sp1',
   variant,
   runs: reached,
@@ -21,6 +29,10 @@ const lane = (variant: string, reached: number, clicked: number, opened = clicke
   clicked,
   clickRate: reached > 0 ? clicked / reached : null,
   openRate: reached > 0 ? opened / reached : null,
+  revenue: revenue?.amount ?? null,
+  currencyCode: revenue ? (revenue.mixed ? null : revenue.currencyCode ?? 'PLN') : null,
+  mixedCurrency: revenue?.mixed ?? false,
+  revenuePerRecipient: revenue && reached > 0 ? revenue.amount / reached : null,
 })
 
 describe('loadSplitResults', () => {
@@ -40,12 +52,16 @@ describe('loadSplitResults', () => {
   const lane = (variant: string, stepIds: string[]) => ({ splitStepId: 'sp1', variant, stepIds })
 
   test('counts only the lane OWN steps, and reads the recorded lane off the run', async () => {
-    const { em, executed } = fakeEm([{ runs: 10, sends: 16, reached: 8, opened: 4, clicked: 2 }])
+    const { em, executed } = fakeEm([
+      { runs: 10, sends: 16, reached: 8, opened: 4, clicked: 2, revenue: 400, currencies: 1, currency_code: 'PLN' },
+    ])
     const results = await loadSplitResults(em, 'camp-1', scope, [lane('a', ['a1', 'a2'])])
     // Sixteen messages to eight people: the rates are over the eight, because the numerators are people too.
     expect(results).toEqual([{
       stepId: 'sp1', variant: 'a', runs: 10, sends: 16, reached: 8, hasSteps: true, opened: 4, clicked: 2,
       clickRate: 0.25, openRate: 0.5,
+      // Revenue per person reached, for the same reason the rates are per person.
+      revenue: 400, currencyCode: 'PLN', mixedCurrency: false, revenuePerRecipient: 50,
     }])
     const { sql, params } = executed[0]
     // Recorded, not recomputed.
@@ -61,6 +77,11 @@ describe('loadSplitResults', () => {
       't1', 'o1', 'a1', 'a2',
       't1', 'o1', 'a1', 'a2',
       't1', 'o1', 'a1', 'a2',
+      // The three revenue subqueries, each taking the conversion window before its scope and step ids — the
+      // same window the funnel and the revenue attribution use, so the three cannot disagree.
+      7, 't1', 'o1', 'a1', 'a2',
+      7, 't1', 'o1', 'a1', 'a2',
+      7, 't1', 'o1', 'a1', 'a2',
     ])
   })
 
@@ -72,6 +93,7 @@ describe('loadSplitResults', () => {
     expect(results).toEqual([{
       stepId: 'sp1', variant: 'holdout', runs: 5, sends: 0, opened: 0, clicked: 0,
       reached: 0, hasSteps: false, clickRate: null, openRate: null,
+      revenue: null, currencyCode: null, mixedCurrency: false, revenuePerRecipient: null,
     }])
     expect(executed[0].sql).not.toContain('step_id in ()')
   })
@@ -228,5 +250,80 @@ describe('describeLanes', () => {
 
   test('a definition with no split has no lanes', () => {
     expect(describeLanes([step('s1'), step('s2')])).toEqual([])
+  })
+})
+
+/**
+ * Judging a test on money rather than on clicks.
+ *
+ * The trap this exists for: a variant that collects more clicks and sells less. Until now the module could not
+ * see it, because the only metric was the click rate.
+ */
+describe('pickSplitWinner on revenue', () => {
+  const SAMPLE = 100
+
+  test('the variant that SOLD more wins, even when it was clicked less', () => {
+    // b is clicked half as often and earns twice as much per recipient — the classic case.
+    const a = lane('a', SAMPLE, 40, 40, SAMPLE, { amount: 1000 })
+    const b = lane('b', SAMPLE, 20, 20, SAMPLE, { amount: 4000 })
+
+    expect(pickSplitWinner([a, b], 'sp1', 50, 'clicks')?.variant).toBe('a')
+    const winner = pickSplitWinner([a, b], 'sp1', 50, 'revenue')
+    expect(winner?.variant).toBe('b')
+    expect(winner?.metric).toBe('revenue')
+    // The figure it was judged on, and the runner-up's, so a screen can show how close the call was.
+    expect(winner?.value).toBeCloseTo(40, 5)
+    expect(winner?.runnerUpValue).toBeCloseTo(10, 5)
+    // Both rates travel regardless of the metric, so nothing has to ask twice.
+    expect(winner?.clickRate).toBeCloseTo(0.2, 5)
+  })
+
+  /**
+   * Refused rather than approximated: two lanes earning in different currencies have no ordering, and answering
+   * anyway would pick a winner on a number that does not mean what it says.
+   */
+  test('mixed currencies refuse a revenue verdict', () => {
+    const a = lane('a', SAMPLE, 10, 10, SAMPLE, { amount: 1000, currencyCode: 'PLN' })
+    const b = lane('b', SAMPLE, 10, 10, SAMPLE, { amount: 900, currencyCode: 'EUR' })
+    expect(pickSplitWinner([a, b], 'sp1', 50, 'revenue')).toBeNull()
+  })
+
+  test('a lane whose own revenue spans currencies refuses too', () => {
+    const a = lane('a', SAMPLE, 10, 10, SAMPLE, { amount: 1000, mixed: true })
+    const b = lane('b', SAMPLE, 10, 10, SAMPLE, { amount: 500 })
+    expect(pickSplitWinner([a, b], 'sp1', 50, 'revenue')).toBeNull()
+  })
+
+  /**
+   * "Nobody has bought yet" is not "they sold nothing", and only the second is a result. Recoverable: attribution
+   * arrives as orders do.
+   */
+  test('a lane with nothing attributed yet is not judged on revenue', () => {
+    const a = lane('a', SAMPLE, 20, 20, SAMPLE, { amount: 1000 })
+    // Clicked less and with nothing attributed: the click rates differ, so that metric still has an answer.
+    const b = lane('b', SAMPLE, 10)
+    expect(pickSplitWinner([a, b], 'sp1', 50, 'revenue')).toBeNull()
+    // The same pair still has a click-rate answer, because that metric has its data.
+    expect(pickSplitWinner([a, b], 'sp1', 50, 'clicks')).not.toBeNull()
+  })
+
+  test('equal revenue per recipient is a tie, like an equal click rate', () => {
+    const a = lane('a', SAMPLE, 10, 10, SAMPLE, { amount: 1000 })
+    const b = lane('b', SAMPLE, 30, 30, SAMPLE, { amount: 1000 })
+    expect(pickSplitWinner([a, b], 'sp1', 50, 'revenue')).toBeNull()
+  })
+
+  test('the metric defaults to clicks, so nothing changes for a caller that did not ask', () => {
+    const a = lane('a', SAMPLE, 40, 40, SAMPLE, { amount: 1000 })
+    const b = lane('b', SAMPLE, 20, 20, SAMPLE, { amount: 4000 })
+    expect(pickSplitWinner([a, b], 'sp1', 50)?.variant).toBe('a')
+    expect(pickSplitWinner([a, b], 'sp1', 50)?.metric).toBe('clicks')
+  })
+
+  test('revenue is compared PER RECIPIENT, so an unevenly weighted split is judged fairly', () => {
+    // a reached nine times as many people and earned three times as much: worse per person.
+    const a = lane('a', 900, 90, 90, 900, { amount: 3000 })
+    const b = lane('b', 100, 10, 10, 100, { amount: 1000 })
+    expect(pickSplitWinner([a, b], 'sp1', 50, 'revenue')?.variant).toBe('b')
   })
 })

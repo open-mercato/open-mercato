@@ -4,7 +4,12 @@ import type { SplitVariantResult } from '../../analytics/split-results'
 /**
  * The stricter question: is this result strong enough to rewrite somebody's campaign with nobody watching.
  */
-const lane = (variant: string, reached: number, clicked: number): SplitVariantResult => ({
+const lane = (
+  variant: string,
+  reached: number,
+  clicked: number,
+  revenue: { amount: number | null; currencyCode?: string | null; mixed?: boolean } = { amount: null },
+): SplitVariantResult => ({
   stepId: 'sp1',
   variant,
   runs: reached,
@@ -15,6 +20,10 @@ const lane = (variant: string, reached: number, clicked: number): SplitVariantRe
   clicked,
   clickRate: reached > 0 ? clicked / reached : null,
   openRate: reached > 0 ? clicked / reached : null,
+  revenue: revenue.amount,
+  currencyCode: revenue.amount === null ? null : revenue.currencyCode ?? 'EUR',
+  mixedCurrency: revenue.mixed === true,
+  revenuePerRecipient: revenue.amount === null || reached === 0 ? null : revenue.amount / reached,
 })
 
 const MINIMUM = 50
@@ -85,5 +94,85 @@ describe('decideAutoWinner', () => {
     }
     const decision = decideAutoWinner([holdout, lane('a', SAMPLE, 6), lane('b', SAMPLE, 2)], 'sp1', MINIMUM)
     expect(decision.apply).toBe(true)
+  })
+})
+
+/**
+ * The same decision, asked about money.
+ *
+ * The margin has to be measured on the metric that DECIDED, not on the click rates: a lane can earn twice as
+ * much per recipient on marginally fewer clicks, and reading the clicks here would refuse that promotion for
+ * failing a margin nobody was judging on. These four tests are the ones that would pass either way but for that.
+ */
+describe('decideAutoWinner on revenue', () => {
+  test('applies a lane that earns decisively more per recipient', () => {
+    const decision = decideAutoWinner(
+      [
+        lane('a', SAMPLE, 10, { amount: 2000 }),
+        lane('b', SAMPLE, 10, { amount: 1000 }),
+      ],
+      'sp1',
+      MINIMUM,
+      DEFAULT_WINNER_MARGIN,
+      'revenue',
+    )
+    expect(decision.apply).toBe(true)
+    if (decision.apply) {
+      expect(decision.winner.variant).toBe('a')
+      expect(decision.winner.metric).toBe('revenue')
+      // Twice the revenue per recipient is a margin of 1.0, comfortably past the default quarter.
+      expect(decision.marginAchieved).toBeCloseTo(1)
+    }
+  })
+
+  /**
+   * The trap this metric exists to catch, stated as a test.
+   *
+   * Lane `b` collects five times the clicks and sells half as much. On clicks it is the winner and would be
+   * promoted unattended; on revenue the decision goes the other way, which is the whole point.
+   */
+  test('the click leader is not the revenue winner', () => {
+    const lanes = [
+      lane('a', SAMPLE, 4, { amount: 2000 }),
+      lane('b', SAMPLE, 20, { amount: 1000 }),
+    ]
+    const onClicks = decideAutoWinner(lanes, 'sp1', MINIMUM, DEFAULT_WINNER_MARGIN, 'clicks')
+    const onRevenue = decideAutoWinner(lanes, 'sp1', MINIMUM, DEFAULT_WINNER_MARGIN, 'revenue')
+    expect(onClicks.apply && onClicks.winner.variant).toBe('b')
+    expect(onRevenue.apply && onRevenue.winner.variant).toBe('a')
+  })
+
+  test('refuses a revenue lead that is merely ahead', () => {
+    const decision = decideAutoWinner(
+      [
+        lane('a', SAMPLE, 10, { amount: 1050 }),
+        lane('b', SAMPLE, 10, { amount: 1000 }),
+      ],
+      'sp1',
+      MINIMUM,
+      DEFAULT_WINNER_MARGIN,
+      'revenue',
+    )
+    expect(decision).toEqual({ apply: false, reason: 'margin_too_small' })
+  })
+
+  /**
+   * Nothing attributed yet is not evidence of nothing to attribute.
+   *
+   * `pickSplitWinner` already withholds a revenue verdict when a lane has no figure, so this arrives here as
+   * `no_winner` rather than `runner_up_unmeasured` — and either way the campaign is left alone.
+   */
+  test('will not promote on revenue while a lane has nothing attributed', () => {
+    const decision = decideAutoWinner(
+      [
+        lane('a', SAMPLE, 10, { amount: 2000 }),
+        lane('b', SAMPLE, 10),
+      ],
+      'sp1',
+      MINIMUM,
+      DEFAULT_WINNER_MARGIN,
+      'revenue',
+    )
+    expect(decision.apply).toBe(false)
   })
 })

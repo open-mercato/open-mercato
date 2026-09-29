@@ -105,6 +105,14 @@ its own. Spec:
   same live table is what lets the category narrowing claim to be exact rather than a superset.
 - Never let a template ship a step whose PARAMS do not validate. Checking step types alone let two templates ship
   a `wait` measured in days when the step counts minutes; they imported and the save refused them.
+- Never judge an A/B winner on revenue the lanes cannot be compared on. Different currency codes have no
+  ordering, a mixed-currency lane cannot be summed, and a lane with nothing attributed yet is not evidence that
+  nothing will be — `pickSplitWinner` withholds the verdict in all three cases instead of ranking numbers that do
+  not mean what they say. And never measure the auto-promotion's margin on the click rates when revenue decided:
+  a lane can earn twice as much per recipient on marginally fewer clicks.
+- Never split the winner metric into two settings. One tenant setting governs the suggestion on the results
+  screen AND the unattended promotion, because being shown a click winner while a revenue winner is applied for
+  you is worse than either alone.
 - Never promote an A/B winner automatically on the screen's own rule. Suggesting needs "not tied"; rewriting
   somebody's campaign unattended needs twice the sample and a relative margin, because 3.0% against 2.9% is a coin
   toss. It stays off until a tenant switches it on.
@@ -333,7 +341,7 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | daily series behind the results chart | `lib/analytics/daily-series.ts` |
 | journey preview, and why it reuses the engine | `lib/preview.ts` |
 | learned send hour, and its minimum evidence | `lib/analytics/send-time.ts` |
-| A/B results, winner rules | `lib/analytics/split-results.ts` |
+| A/B results, winner rules, the two metrics | `lib/analytics/split-results.ts`, `lib/winner-metric.ts` |
 | linear revenue attribution | `lib/analytics/attribution.ts` |
 | periodic candidate sources and their claims | `lib/sweep-sources.ts` |
 | duplicate-delivery guard and its window | `lib/occurrence.ts`, `lib/runs.ts` → `createRun` |

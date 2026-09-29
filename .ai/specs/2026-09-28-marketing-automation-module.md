@@ -373,6 +373,18 @@ Opens and clicks are counted as UNIQUE RUNS rather than raw events: a mail clien
 not a second person reading the message, and a winner picked on raw opens rewards whichever variant
 reached the more aggressive inbox previewers.
 
+A winner is judged on the metric the TENANT chose — clicks per recipient, or attributed revenue per
+recipient (`splitWinnerMetric`, default clicks). Clicks are available on every campaign; revenue is the
+better question, because a variant that collects clicks and sells less is the classic A/B trap and the
+module could not see it. Revenue is refused rather than approximated when the lanes are not comparable:
+different currency codes have no ordering, a `mixedCurrency` lane cannot be summed, and a lane with
+nothing attributed yet is not evidence that nothing will be. One setting governs BOTH the suggestion on
+the results screen and the unattended promotion, because being shown a click winner while a revenue
+winner is applied for you is worse than either alone. The lanes' revenue is attributed over the same
+window as the attribution block and the funnel, so the three reconcile. `decideAutoWinner` measures its
+relative margin on whichever metric decided — reading the click rates there would refuse a revenue
+promotion for failing a margin nobody was judging on.
+
 `pickSplitWinner` refuses to answer until EVERY lane has reached the minimum sample, and refuses a tie.
 Declaring a winner before each lane has been received is the standard way to pick whichever variant went
 out first; an automation that does it confidently is worse than one that says "not yet". The refusal is
@@ -837,6 +849,13 @@ rather than worked around silently:
    provider package cannot declare one at all.
 
 ## Changelog
+
+- **2026-09-29** — An A/B test can be decided on attributed revenue per recipient rather than clicks
+  (`splitWinnerMetric`, per tenant, default clicks). Lane revenue is attributed over the same window as
+  the funnel and the attribution block; a verdict is withheld when the lanes earn in different currencies
+  or one has nothing attributed yet. The results table shows each lane's earnings and per-recipient
+  figure, and says which metric produced the verdict; the auto-promotion measures its margin on that same
+  metric. 970 unit tests, 193 integration tests.
 
 - **2026-09-29** — everything in the roadmap that was neither blocked nor built. The shipping order had claimed
   "nothing unblocked remains"; seven items were still open, six are now done and the seventh is written up with its

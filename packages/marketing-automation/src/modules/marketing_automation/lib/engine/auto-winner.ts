@@ -1,4 +1,4 @@
-import type { SplitVariantResult, SplitWinner } from '../analytics/split-results.js'
+import type { SplitVariantResult, SplitWinner, WinnerMetric } from '../analytics/split-results.js'
 import { pickSplitWinner } from '../analytics/split-results.js'
 
 /**
@@ -11,10 +11,15 @@ import { pickSplitWinner } from '../analytics/split-results.js'
  *
  * So there are two extra conditions, and both are about not being fooled:
  *
- *  - a **relative margin**: the winner's click rate must beat the runner-up's by a proportion, not by any
+ *  - a **relative margin**: the winner's figure must beat the runner-up's by a proportion, not by any
  *    amount. 3.0% against 2.9% is a coin toss; 3.0% against 2.0% is a result.
- *  - the runner-up must have a rate at all. A null one means nobody in that lane has clicked yet, which is not
- *    evidence that they never will.
+ *  - the runner-up must have a figure at all. A null one means nobody in that lane has clicked or bought yet,
+ *    which is not evidence that they never will.
+ *
+ * The margin is measured on whichever metric decided — `pickSplitWinner` reports the winner's own figure and the
+ * runner-up's beside it. Reading the CLICK rates here instead would compute a revenue winner's confidence from
+ * numbers that did not choose it: a lane can earn twice as much per recipient on marginally fewer clicks, and
+ * that decision would then be refused for a margin nobody was judging on.
  */
 
 /** How much better the winner must be, as a proportion of the runner-up's rate. */
@@ -38,9 +43,10 @@ export function decideAutoWinner(
   stepId: string,
   minimumReached: number,
   margin: number = DEFAULT_WINNER_MARGIN,
+  metric: WinnerMetric = 'clicks',
 ): AutoWinnerDecision {
   const sample = Math.max(1, Math.round(minimumReached * AUTO_APPLY_SAMPLE_MULTIPLIER))
-  const winner = pickSplitWinner(results, stepId, sample)
+  const winner = pickSplitWinner(results, stepId, sample, metric)
   if (!winner) {
     /**
      * Two different "no" answers, distinguished for the log.
@@ -55,16 +61,16 @@ export function decideAutoWinner(
     return { apply: false, reason: 'no_winner' }
   }
 
-  if (winner.runnerUpClickRate === null) return { apply: false, reason: 'runner_up_unmeasured' }
+  if (winner.runnerUpValue === null) return { apply: false, reason: 'runner_up_unmeasured' }
 
   /**
-   * A runner-up rate of exactly zero is a special case, and it is the easy one: any measured click rate beats
-   * it by an infinite proportion, so the margin is satisfied by definition rather than by arithmetic on a zero
+   * A runner-up figure of exactly zero is a special case, and it is the easy one: any measured figure beats it
+   * by an infinite proportion, so the margin is satisfied by definition rather than by arithmetic on a zero
    * denominator.
    */
-  const achieved = winner.runnerUpClickRate === 0
+  const achieved = winner.runnerUpValue === 0
     ? Number.POSITIVE_INFINITY
-    : (winner.clickRate - winner.runnerUpClickRate) / winner.runnerUpClickRate
+    : (winner.value - winner.runnerUpValue) / winner.runnerUpValue
 
   if (achieved < margin) return { apply: false, reason: 'margin_too_small' }
   return { apply: true, winner, marginAchieved: achieved }

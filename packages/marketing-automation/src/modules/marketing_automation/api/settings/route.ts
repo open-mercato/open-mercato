@@ -10,6 +10,7 @@ import { REFERRAL_URL_TEMPLATE_CONFIG } from '../../lib/referrals.js'
 import { LEAD_ROUTING_CONFIG } from '../../lib/lead-routing.js'
 import { AUTO_APPLY_CONFIG_NAME, AUTO_APPLY_MARGIN_CONFIG_NAME } from '../../lib/auto-winner.js'
 import { VALUE_HORIZON_CONFIG_NAME } from '../../lib/value-horizon.js'
+import { DEFAULT_WINNER_METRIC, WINNER_METRIC_CONFIG_NAME } from '../../lib/winner-metric.js'
 import { DEFAULT_VALUE_HORIZON_YEARS } from '../../lib/engine/rfm.js'
 import { DEFAULT_WINNER_MARGIN } from '../../lib/engine/auto-winner.js'
 
@@ -83,6 +84,13 @@ const bodySchema = z.object({
    * requirement to be six times better is a requirement never to conclude anything.
    */
   autoApplySplitWinnerMargin: z.coerce.number().min(0.05).max(5).optional(),
+  /**
+   * Whether an A/B test is decided on clicks or on attributed revenue.
+   *
+   * The same setting governs the suggestion on the results screen and the unattended promotion, because one
+   * question answered two ways is how somebody is shown one winner and has a different one applied for them.
+   */
+  splitWinnerMetric: z.enum(['clicks', 'revenue']).optional(),
   /** How many years a value projection looks ahead. Bounded: a projection is only as good as its cadence. */
   valueHorizonYears: z.coerce.number().min(0.5).max(5).optional(),
 })
@@ -119,7 +127,7 @@ export async function GET(req: Request) {
   if ('error' in resolved) return resolved.error
   const { service, scope } = resolved
 
-  const [template, tiers, brandVoice, referralTemplate, routingPool, autoApply, autoApplyMargin, horizon] = await Promise.all([
+  const [template, tiers, brandVoice, referralTemplate, routingPool, autoApply, autoApplyMargin, horizon, winnerMetric] = await Promise.all([
     service.getValue<unknown>(MODULE_ID, PRODUCT_URL_TEMPLATE_CONFIG, { scope }),
     service.getValue<unknown>(MODULE_ID, TIER_CONFIG_NAME, { scope }),
     service.getValue<unknown>(MODULE_ID, BRAND_VOICE_CONFIG, { scope }),
@@ -128,6 +136,7 @@ export async function GET(req: Request) {
     service.getValue<unknown>(MODULE_ID, AUTO_APPLY_CONFIG_NAME, { scope }),
     service.getValue<unknown>(MODULE_ID, AUTO_APPLY_MARGIN_CONFIG_NAME, { scope }),
     service.getValue<unknown>(MODULE_ID, VALUE_HORIZON_CONFIG_NAME, { scope }),
+    service.getValue<unknown>(MODULE_ID, WINNER_METRIC_CONFIG_NAME, { scope }),
   ])
 
   const readNumber = (value: unknown, fallback: number): number => {
@@ -149,6 +158,8 @@ export async function GET(req: Request) {
     autoApplySplitWinner: autoApply === true || autoApply === 'true',
     autoApplySplitWinnerMargin: readNumber(autoApplyMargin, DEFAULT_WINNER_MARGIN),
     valueHorizonYears: readNumber(horizon, DEFAULT_VALUE_HORIZON_YEARS),
+    // Anything unrecognised reads as the default rather than being echoed back: the screen offers two choices.
+    splitWinnerMetric: winnerMetric === 'revenue' ? 'revenue' : DEFAULT_WINNER_METRIC,
   })
 }
 
@@ -187,6 +198,9 @@ export async function PUT(req: Request) {
   }
   if (parsed.data.autoApplySplitWinnerMargin !== undefined) {
     await service.setValue(MODULE_ID, AUTO_APPLY_MARGIN_CONFIG_NAME, parsed.data.autoApplySplitWinnerMargin, scope)
+  }
+  if (parsed.data.splitWinnerMetric !== undefined) {
+    await service.setValue(MODULE_ID, WINNER_METRIC_CONFIG_NAME, parsed.data.splitWinnerMetric, scope)
   }
   if (parsed.data.valueHorizonYears !== undefined) {
     await service.setValue(MODULE_ID, VALUE_HORIZON_CONFIG_NAME, parsed.data.valueHorizonYears, scope)

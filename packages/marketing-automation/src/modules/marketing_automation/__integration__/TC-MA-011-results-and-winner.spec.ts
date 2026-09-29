@@ -3,6 +3,8 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { CAMPAIGNS_PATH, createCampaign, deleteCampaignIfExists, getCampaign, saveGraph } from './helpers/marketing'
 
+const SETTINGS_PATH = '/api/marketing_automation/settings'
+
 const email = (id: string, subject: string) => ({ id, type: 'send_email', params: { subject, bodyHtml: `<p>${subject}</p>` } })
 
 function splitStep(id: string, lanes: Array<{ key: string; steps: unknown[] }>) {
@@ -37,8 +39,13 @@ test.describe('TC-MA-011 results and winner promotion', () => {
       expect(body.winners).toEqual([])
       expect(body.attribution).toEqual([])
       expect(body.sends).toMatchObject({ sent: 0, suppressed: 0 })
-      // The settings are reported so the screen can say what "not enough data" means.
-      expect(body.settings).toMatchObject({ windowDays: expect.any(Number), minimumSends: expect.any(Number) })
+      // The settings are reported so the screen can say what "not enough data" means, and what a verdict
+      // would be judged on — clicks until a tenant chooses otherwise.
+      expect(body.settings).toMatchObject({
+        windowDays: expect.any(Number),
+        minimumSends: expect.any(Number),
+        winnerMetric: 'clicks',
+      })
     } finally {
       await deleteCampaignIfExists(request, token, campaignId)
     }
@@ -54,6 +61,40 @@ test.describe('TC-MA-011 results and winner promotion', () => {
       expect(body?.settings?.windowDays).toBeLessThanOrEqual(90)
     } finally {
       await deleteCampaignIfExists(request, token, campaignId)
+    }
+  })
+
+  /**
+   * The metric is a TENANT setting, and the results endpoint answers on it.
+   *
+   * Asserted end to end rather than in the picker's own unit tests because the failure this guards against is a
+   * wiring one: a setting that saves, reads back and never reaches the question being asked. The screen shows
+   * which metric decided, so the two must agree.
+   */
+  test('the winner metric round-trips through the settings endpoint and reaches the results', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const before = await readJsonSafe<{ splitWinnerMetric?: string }>(
+      await apiRequest(request, 'GET', SETTINGS_PATH, { token }),
+    )
+    let campaignId: string | null = null
+    try {
+      const saved = await apiRequest(request, 'PUT', SETTINGS_PATH, { token, data: { splitWinnerMetric: 'revenue' } })
+      expect(saved.status()).toBe(200)
+      expect((await readJsonSafe<{ splitWinnerMetric?: string }>(saved))?.splitWinnerMetric).toBe('revenue')
+
+      campaignId = await createCampaign(request, token, `QA metric ${Date.now()}`)
+      const body = await results(request, token, campaignId)
+      expect(body.settings).toMatchObject({ winnerMetric: 'revenue' })
+
+      // A metric the module does not offer is not stored as itself, and not a 500 either.
+      const refused = await apiRequest(request, 'PUT', SETTINGS_PATH, { token, data: { splitWinnerMetric: 'profit' } })
+      expect(refused.status()).toBe(400)
+    } finally {
+      await deleteCampaignIfExists(request, token, campaignId)
+      await apiRequest(request, 'PUT', SETTINGS_PATH, {
+        token,
+        data: { splitWinnerMetric: before?.splitWinnerMetric ?? 'clicks' },
+      })
     }
   })
 
