@@ -281,6 +281,7 @@
   "marketing_automation.profile.rfmBreakdown": "świeżość {r} · częstotliwość {f} · wydatki {m}, w skali do 5",
   "marketing_automation.profile.scoreHistory": "Ostatnie zmiany scoringu",
   "marketing_automation.profile.segments": "Segmenty",
+  "marketing_automation.profile.silentFor": "cisza od {days} dni",
   "marketing_automation.profile.spendPercentile": "Górne {share}% kupujących · {amount} na zamówienie",
   "marketing_automation.profile.tags": "Tagi",
   "marketing_automation.profile.title": "Profil klienta",

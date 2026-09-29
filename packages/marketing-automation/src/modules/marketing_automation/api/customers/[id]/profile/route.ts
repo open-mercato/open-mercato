@@ -165,20 +165,14 @@ export async function GET(req: Request) {
    * thirty runs the list did not show — while `sent` beside it was all-time. Two numbers on one line,
    * measured over different populations, is worse than either alone.
    */
-  const engagementRows = await em.getConnection().execute<Array<{ type: string; count: string }>>(
-    `select e.type as type, count(distinct e.run_id)::text as count
-       from marketing_message_send_events e
-       join marketing_campaign_runs r on r.id = e.run_id
-      where e.tenant_id = ? and e.organization_id = ? and r.subject_entity_id = ?
-      group by e.type`,
-    [scope.tenantId, scope.organizationId, customerId],
-  )
-  const engagement = { opened: 0, clicked: 0 }
-  for (const row of engagementRows) {
-    const count = Number.parseInt(row.count ?? '0', 10) || 0
-    if (row.type === 'opened') engagement.opened = count
-    if (row.type === 'clicked') engagement.clicked = count
-  }
+  /**
+   * Read from the subject DOCUMENT now, not from a query of this screen's own.
+   *
+   * The same numbers became an audience field, so there are two ways to count them and only one may be
+   * authoritative — a profile that disagrees with what an audience selects is the screen people stop trusting.
+   * The document's query is the same shape this one was, so no number changes.
+   */
+  const engagement = document.engagement
 
   return NextResponse.json({
     customer: {
@@ -222,7 +216,18 @@ export async function GET(req: Request) {
     preference,
     /** Null when they have never answered, which the screen states rather than showing a zero. */
     nps: nps ? { score: nps.score, band: npsBand(nps.score), answeredAt: nps.answeredAt } : null,
-    messages: { sent, suppressed, opened: engagement.opened, clicked: engagement.clicked },
+    messages: {
+      sent,
+      suppressed,
+      opened: engagement.opened,
+      clicked: engagement.clicked,
+      /**
+       * How long since any sign of life — the number a sunset audience acts on, so the screen shows what the
+       * campaign will see. Null when nobody has ever written to them, which is not the same as silence.
+       */
+      daysSinceEngaged: engagement.daysSinceEngaged ?? null,
+      lastEngagedAt: engagement.lastEngagedAt ?? null,
+    },
     /** Segment NAMES, not slugs: the slug is a reference for audiences, the name is for people. */
     segments,
     /** Each carries the price they last saw and the price now, which is the whole point of a watch. */

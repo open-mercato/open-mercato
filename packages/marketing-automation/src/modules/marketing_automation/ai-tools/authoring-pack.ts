@@ -82,6 +82,8 @@ const describeBuildingBlocksTool: MarketingAiToolDefinition<z.infer<typeof noInp
           'rfm.recency', 'rfm.frequency', 'rfm.monetary', 'rfm.total', 'rfm.cell',
           'value.averageOrderGross', 'value.ordersPerYear', 'value.projectedHorizonGross', 'value.grossPercentile',
           'survey.nps', 'segments',
+          // Engagement, which is what a re-engagement or sunset audience is built on.
+          'engagement.sent', 'engagement.opened', 'engagement.clicked', 'engagement.daysSinceEngaged',
           'address.country', 'address.region', 'address.city', 'address.postalCode',
           'customer.email', 'customer.displayName', 'customer.createdAt', 'customer.locale',
         ],

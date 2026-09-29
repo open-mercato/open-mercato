@@ -36,6 +36,15 @@ function satisfiesNarrowing(narrowing: Narrowing, subject: SubjectDocument): boo
       if (predicate.kind === 'hasAnyTag') return subject.tags.length > 0
       if (predicate.kind === 'purchasedSku') return subject.orders.skus.includes(predicate.sku)
       if (predicate.kind === 'purchasedCategory') return subject.orders.categories.includes(predicate.slug)
+      if (predicate.kind === 'engagedEvent') {
+        // The query returns customers with at least one such event; a customer with none is excluded here too.
+        return (predicate.type === 'opened' ? subject.engagement.opened : subject.engagement.clicked) >= 1
+      }
+      if (predicate.kind === 'silentSince') {
+        // Absent means nobody ever wrote to them, and the query cannot produce them either.
+        if (subject.engagement.daysSinceEngaged === undefined) return false
+        return subject.engagement.daysSinceEngaged >= predicate.days
+      }
       if (predicate.kind === 'npsScore') {
         // The query returns only customers who ANSWERED; a non-answerer is excluded here too, which is why
         // pushing this predicate stays a superset.
@@ -94,6 +103,7 @@ function subjectOf(input: {
   categories?: string[]
   country?: string | null
   nps?: number | null
+  engagement?: SubjectDocument['engagement']
 }): SubjectDocument {
   const orders: SubjectDocument['orders'] = {
     count: input.count ?? 0,
@@ -109,6 +119,7 @@ function subjectOf(input: {
   return {
     customer: { id: 'c1', email: null, displayName: null, createdAt: null },
     tags: input.tags ?? [],
+    engagement: input.engagement ?? { sent: 0, opened: 0, clicked: 0 },
     orders,
     score: { points: input.points ?? 0, tier: null, tierRank: -1 },
     address: input.country === undefined
@@ -227,6 +238,64 @@ describe('planNarrowing — what can be pushed', () => {
 
   test('an empty category slug is not pushed as a match-everything', () => {
     expect(planNarrowing(leaf('orders.categories', 'CONTAINS', '   ')).narrowing.kind).toBe('all')
+  })
+
+  /**
+   * Engagement: existence pushes down, absence cannot.
+   *
+   * The event table can return exactly the customers who have an open; it cannot return the ones who have none
+   * without listing every customer first. Same shape as the score ledger, and the same reason.
+   */
+  test('"has opened at least once" becomes a membership lookup', () => {
+    const plan = planNarrowing(leaf('engagement.opened', '>=', 1))
+    expect(plan.narrowing).toEqual({ kind: 'predicate', predicate: { kind: 'engagedEvent', type: 'opened' } })
+    expect(plan.complete).toBe(true)
+  })
+
+  test('"opened at least three times" narrows to "opened at all", which is a superset', () => {
+    const plan = planNarrowing(leaf('engagement.opened', '>=', 3))
+    expect(plan.narrowing).toEqual({ kind: 'predicate', predicate: { kind: 'engagedEvent', type: 'opened' } })
+    // Not exact: the query returns everybody with one, and `matchesAudience` still decides who has three.
+    expect(plan.complete).toBe(false)
+  })
+
+  test.each([
+    ['never opened', '=', 0],
+    ['opened at most twice', '<=', 2],
+    ['opened fewer than five times', '<', 5],
+  ])('%s is not pushed down, because it is an absence', (_label, operator, value) => {
+    expect(planNarrowing(leaf('engagement.opened', operator, value)).narrowing.kind).toBe('all')
+  })
+
+  /**
+   * The sunset predicate, which is the reason engagement became an audience field at all.
+   *
+   * Computable exactly in SQL from the same two halves the subject document uses — the last open, or the first
+   * message when there has never been one — so a six-month silence is a query rather than a walk.
+   */
+  test('"silent for six months" is pushed down exactly', () => {
+    const plan = planNarrowing(leaf('engagement.daysSinceEngaged', '>=', 180))
+    expect(plan.narrowing).toEqual({ kind: 'predicate', predicate: { kind: 'silentSince', days: 180 } })
+    expect(plan.complete).toBe(true)
+  })
+
+  test('a strict comparison shifts the boundary by a day rather than being refused', () => {
+    // `> 180` and `>= 181` describe the same set of whole days.
+    const plan = planNarrowing(leaf('engagement.daysSinceEngaged', '>', 180))
+    expect(plan.narrowing).toEqual({ kind: 'predicate', predicate: { kind: 'silentSince', days: 181 } })
+  })
+
+  test.each([
+    ['engaged recently', '<=', 30],
+    ['engaged today', '=', 0],
+  ])('%s is not pushed down: the query would have to invent the customers it cannot see', (_label, operator, value) => {
+    expect(planNarrowing(leaf('engagement.daysSinceEngaged', operator, value)).narrowing.kind).toBe('all')
+  })
+
+  test('the plan describes engagement in terms somebody reading a log can check', () => {
+    expect(describeNarrowing(planNarrowing(leaf('engagement.daysSinceEngaged', '>=', 90))))
+      .toBe('engagement.daysSinceEngaged>=90')
+    expect(describeNarrowing(planNarrowing(leaf('engagement.clicked', '>=', 1)))).toBe('engagement.clicked>=1')
   })
 
   /**
@@ -406,6 +475,14 @@ describe('the narrowing never excludes a subject the audience accepts', () => {
       leaf('orders.skus', 'CONTAINS', 'ATLAS-RUNNER'),
       leaf('address.country', '=', 'PL'),
     ])],
+    ['never opened anything', leaf('engagement.opened', '=', 0)],
+    ['opened at least once', leaf('engagement.opened', '>=', 1)],
+    ['clicked at least once', leaf('engagement.clicked', '>=', 1)],
+    ['silent for six months', leaf('engagement.daysSinceEngaged', '>=', 180)],
+    ['silent, and a buyer', group('AND', [
+      leaf('engagement.daysSinceEngaged', '>=', 180),
+      leaf('orders.count', '>=', 1),
+    ])],
     ['detractors', leaf('survey.nps', '<=', 6)],
     ['promoters', leaf('survey.nps', '>=', 9)],
     ['scored at all', leaf('score.points', '>=', 1)],
@@ -434,10 +511,25 @@ describe('the narrowing never excludes a subject the audience accepts', () => {
             [['OTHER-SKU'], ['accessories'], 'DE'],
           ] as const) {
             for (const nps of [null, 2, 7, 10]) {
-              subjects.push(subjectOf({
-                tags, count, totalGross, daysAgo, points,
-                skus: [...skus], categories: [...categories], country, nps,
-              }))
+              /**
+               * Four engagement states, and the last two are the point.
+               *
+               * Never written to (absent silence), engaged recently, mailed a year ago and never opened, and
+               * opened a year ago. A sunset audience must collect the last two and spare the first — which is
+               * only testable if the population contains all four.
+               */
+              for (const engagement of [
+                { sent: 0, opened: 0, clicked: 0 },
+                { sent: 10, opened: 4, clicked: 2, daysSinceEngaged: 3 },
+                { sent: 10, opened: 0, clicked: 0, daysSinceEngaged: 400 },
+                { sent: 10, opened: 1, clicked: 0, daysSinceEngaged: 365 },
+              ] as const) {
+                subjects.push(subjectOf({
+                  tags, count, totalGross, daysAgo, points,
+                  skus: [...skus], categories: [...categories], country, nps,
+                  engagement: { ...engagement },
+                }))
+              }
             }
           }
         }
@@ -527,6 +619,7 @@ describe('reaching a score threshold, expressed in an audience', () => {
     customer: { id: 'c1', email: null, displayName: null, createdAt: null },
     tags: [],
     orders: { count: 0, totalGross: 0, skus: [], categories: [] },
+    engagement: { sent: 0, opened: 0, clicked: 0 },
     score: { points, tier: null, tierRank: -1 },
     address: null,
     survey: { nps: null, answeredAt: null },

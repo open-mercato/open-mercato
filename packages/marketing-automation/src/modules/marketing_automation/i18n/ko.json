@@ -281,6 +281,7 @@
   "marketing_automation.profile.rfmBreakdown": "최근성 {r} · 빈도 {f} · 지출 {m} (5점 기준)",
   "marketing_automation.profile.scoreHistory": "최근 점수 변동",
   "marketing_automation.profile.segments": "세그먼트",
+  "marketing_automation.profile.silentFor": "{days}일간 반응 없음",
   "marketing_automation.profile.spendPercentile": "구매자 상위 {share}% · 주문당 {amount}",
   "marketing_automation.profile.tags": "태그",
   "marketing_automation.profile.title": "고객 프로필",

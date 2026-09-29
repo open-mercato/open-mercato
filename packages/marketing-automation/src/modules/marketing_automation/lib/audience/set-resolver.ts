@@ -26,6 +26,8 @@ export type CandidateSource = {
   purchasedInChannelMembers(code: string): Promise<string[]>
   /** Subject ids whose latest NPS answer satisfies the comparison. */
   npsMembers(op: ComparisonOp, value: number): Promise<string[]>
+  engagedMembers(type: 'opened' | 'clicked'): Promise<string[]>
+  silentSinceMembers(days: number): Promise<string[]>
 }
 
 /**
@@ -65,6 +67,10 @@ async function resolvePredicate(
             ? await source.purchasedCategoryMembers(predicate.slug)
           : predicate.kind === 'purchasedInChannel'
             ? await source.purchasedInChannelMembers(predicate.code)
+          : predicate.kind === 'engagedEvent'
+            ? await source.engagedMembers(predicate.type)
+          : predicate.kind === 'silentSince'
+            ? await source.silentSinceMembers(predicate.days)
           : predicate.kind === 'npsScore'
             ? await source.npsMembers(predicate.op, predicate.value)
             : await source.orderMetricMembers(predicate.metric, predicate.op, predicate.value)
@@ -264,6 +270,55 @@ export function createSqlCandidateSource(
         [scope.tenantId, scope.organizationId, code],
       )
       return rows.map((row) => row.customer_entity_id).filter(Boolean)
+    },
+
+    /** Everybody who has opened or clicked at least once — reached through the run, like the event table itself. */
+    async engagedMembers(type: 'opened' | 'clicked'): Promise<string[]> {
+      const rows = await em.getConnection().execute<{ subject_entity_id: string }[]>(
+        `select distinct r.subject_entity_id
+           from marketing_message_send_events e
+           join marketing_campaign_runs r on r.id = e.run_id
+          where e.tenant_id = ? and e.organization_id = ?
+            and e.type = ?
+            and r.subject_entity_id is not null`,
+        [scope.tenantId, scope.organizationId, type],
+      )
+      return rows.map((row) => row.subject_entity_id).filter(Boolean)
+    },
+
+    /**
+     * Customers with no sign of life for this many days, computed the same way the subject document does.
+     *
+     * The `coalesce` is the whole definition: from their last open or click, and from the FIRST message we sent
+     * them when there has never been one. A customer with no sends at all cannot appear, which matches the
+     * document's absent value — so this is exact rather than a superset.
+     */
+    async silentSinceMembers(days: number): Promise<string[]> {
+      const rows = await em.getConnection().execute<{ subject_entity_id: string }[]>(
+        `with sends as (
+           select subject_entity_id, min(sent_at) as first_sent_at
+             from marketing_message_sends
+            where tenant_id = ? and organization_id = ?
+              and status = 'sent'
+              and subject_entity_id is not null
+            group by subject_entity_id
+         ),
+         engaged as (
+           select r.subject_entity_id, max(e.occurred_at) as last_engaged_at
+             from marketing_message_send_events e
+             join marketing_campaign_runs r on r.id = e.run_id
+            where e.tenant_id = ? and e.organization_id = ?
+              and e.type in ('opened', 'clicked')
+              and r.subject_entity_id is not null
+            group by r.subject_entity_id
+         )
+         select s.subject_entity_id
+           from sends s
+           left join engaged g on g.subject_entity_id = s.subject_entity_id
+          where coalesce(g.last_engaged_at, s.first_sent_at) <= now() - make_interval(days => ?)`,
+        [scope.tenantId, scope.organizationId, scope.tenantId, scope.organizationId, days],
+      )
+      return rows.map((row) => row.subject_entity_id).filter(Boolean)
     },
 
     async npsMembers(op: ComparisonOp, value: number): Promise<string[]> {

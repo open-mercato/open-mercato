@@ -281,6 +281,7 @@
   "marketing_automation.profile.rfmBreakdown": "Aktualität {r} · Häufigkeit {f} · Umsatz {m}, von 5",
   "marketing_automation.profile.scoreHistory": "Letzte Score-Änderungen",
   "marketing_automation.profile.segments": "Segmente",
+  "marketing_automation.profile.silentFor": "seit {days} Tagen still",
   "marketing_automation.profile.spendPercentile": "Top {share}% der Käufer · {amount} pro Bestellung",
   "marketing_automation.profile.tags": "Tags",
   "marketing_automation.profile.title": "Kundenprofil",

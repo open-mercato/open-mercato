@@ -49,7 +49,14 @@ type Profile = {
   consent: { email: 'subscribed' | 'unsubscribed' | null }
   preference?: { maxPerWeek: number | null; pausedUntil: string | null; locale: string | null; source: string | null }
   nps: { score: number; band: 'detractor' | 'passive' | 'promoter'; answeredAt: string } | null
-  messages: { sent: number; suppressed: number; opened: number; clicked: number }
+  messages: {
+    sent: number
+    suppressed: number
+    opened: number
+    clicked: number
+    daysSinceEngaged: number | null
+    lastEngagedAt: string | null
+  }
   recommendations: Array<{ sku: string; name: string; source: 'affinity' | 'bestSeller' }>
   segments?: string[]
   watches?: Array<{
@@ -344,6 +351,11 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
                 {t('marketing_automation.profile.engagement', '{opened} opened · {clicked} clicked')
                   .replace('{opened}', String(profile.messages.opened))
                   .replace('{clicked}', String(profile.messages.clicked))}
+                {/* The number a sunset audience acts on, so the screen shows what a campaign would see. */}
+                {profile.messages.daysSinceEngaged === null
+                  ? null
+                  : ` · ${t('marketing_automation.profile.silentFor', 'quiet for {days} days')
+                      .replace('{days}', String(profile.messages.daysSinceEngaged))}`}
               </span>
             }
           />

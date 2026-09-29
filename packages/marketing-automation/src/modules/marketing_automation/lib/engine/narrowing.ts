@@ -33,6 +33,8 @@ export type NarrowingPredicate =
   | { kind: 'purchasedCategory'; slug: string }
   | { kind: 'purchasedInChannel'; code: string }
   | { kind: 'npsScore'; op: ComparisonOp; value: number }
+  | { kind: 'engagedEvent'; type: 'opened' | 'clicked' }
+  | { kind: 'silentSince'; days: number }
 
 export type Narrowing =
   /** Every subject is a candidate — the expression said nothing the database can answer. */
@@ -180,6 +182,45 @@ function translateLeaf(leaf: SimpleCondition): LeafTranslation {
    */
   if (field.startsWith('address.')) return null
 
+  /**
+   * Engagement, in the two directions a join can actually produce.
+   *
+   * `opened >= 1` and `clicked >= 1` are existence: the event table can return exactly the customers who have
+   * one. Everything else here is an ABSENCE — "never opened", "opened at most twice" — and a join cannot produce
+   * an absence as a superset without listing every customer first. Same shape as the score ledger, and the same
+   * reason.
+   */
+  if (field === 'engagement.opened' || field === 'engagement.clicked') {
+    if (!NUMERIC_OPS.has(operator)) return null
+    const op = normalizeOp(operator)
+    const value = numericValue(leaf.value)
+    if (!op || value === null) return null
+    const impliesAnEvent = (op === '=' || op === '>=') ? value >= 1 : op === '>' ? value >= 0 : false
+    if (!impliesAnEvent) return null
+    const type = field === 'engagement.opened' ? 'opened' : 'clicked'
+    /**
+     * Not exact: the query returns everybody with at least one such event, while the audience may be asking for
+     * at least three. A superset is all a narrowing promises, and `matchesAudience` decides membership.
+     */
+    return { predicate: { kind: 'engagedEvent', type }, exact: op === '>=' && value === 1 }
+  }
+
+  /**
+   * The sunset predicate, and the only interesting one to push down.
+   *
+   * `daysSinceEngaged >= 180` is "no sign of life in six months", and it is ABSENT for anybody we have never
+   * written to — so the SQL can compute it exactly, from the same two halves the subject document uses. Only the
+   * `>=` and `>` directions: "engaged recently" is satisfied by a customer with no sends at all in the document
+   * (absent, so false) but the query would have to invent them, and a narrowing that adds nobody is useless
+   * while one that drops somebody is wrong.
+   */
+  if (field === 'engagement.daysSinceEngaged') {
+    if (operator !== '>=' && operator !== '>') return null
+    const value = numericValue(leaf.value)
+    if (value === null || value < 0) return null
+    return { predicate: { kind: 'silentSince', days: operator === '>' ? value + 1 : value }, exact: true }
+  }
+
   if (field === 'score.points') {
     if (!NUMERIC_OPS.has(operator)) return null
     const op = normalizeOp(operator)
@@ -321,6 +362,8 @@ export function describeNarrowing(plan: NarrowingPlan): string {
       if (predicate.kind === 'purchasedCategory') return `category:${predicate.slug}`
       if (predicate.kind === 'purchasedInChannel') return `channel:${predicate.code}`
       if (predicate.kind === 'npsScore') return `survey.nps${predicate.op}${predicate.value}`
+      if (predicate.kind === 'engagedEvent') return `engagement.${predicate.type}>=1`
+      if (predicate.kind === 'silentSince') return `engagement.daysSinceEngaged>=${predicate.days}`
       return `orders.${predicate.metric}${predicate.op}${predicate.value}`
     })
     .join(plan.narrowing.kind === 'or' ? '|' : '&')

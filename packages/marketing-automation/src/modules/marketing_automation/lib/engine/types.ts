@@ -182,6 +182,37 @@ export type SubjectDocument = {
    */
   survey: { nps: number | null; answeredAt: string | null }
   /**
+   * What this customer has done with the messages we sent them.
+   *
+   * The data existed from Phase 3 and only one screen could read it: an audience could not ask about it at all,
+   * so "has not opened anything in six months" — the basis of every re-engagement campaign and of the sunset
+   * policy that protects a sending domain — was unwritable.
+   *
+   * Opens and clicks are counted as unique RUNS, like everywhere else in this module: a mail client re-fetching a
+   * pixel is not a second reader.
+   */
+  engagement: {
+    /** Messages actually sent to them, all time. Zero is meaningful: we have never written to them. */
+    sent: number
+    opened: number
+    clicked: number
+    lastSentAt?: string
+    /** The last open or click. Absent when they have never done either. */
+    lastEngagedAt?: string
+    /**
+     * Days since their last sign of life — and the key a sunset audience is built on.
+     *
+     * For somebody who HAS engaged, it is days since that open or click. For somebody who never has, it is days
+     * since we FIRST wrote to them. That definition is the whole point: `engagement.daysSinceEngaged >= 180`
+     * then means "no sign of life in six months" and includes the customer who has never once opened anything —
+     * while sparing the one who was added last week and has not had time to.
+     *
+     * ABSENT, never null, when we have never sent them anything: there is no silence to measure, and a zero
+     * would make every sunset audience true for somebody we have never written to.
+     */
+    daysSinceEngaged?: number
+  }
+  /**
    * Slugs of the saved segments this customer is in, so an audience can say
    * `segments CONTAINS 'lapsed-vip'` — and `NOT CONTAINS` for the negative case.
    *

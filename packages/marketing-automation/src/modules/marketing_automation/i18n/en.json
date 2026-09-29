@@ -281,6 +281,7 @@
   "marketing_automation.profile.rfmBreakdown": "recency {r} · frequency {f} · spend {m}, out of 5",
   "marketing_automation.profile.scoreHistory": "Recent score changes",
   "marketing_automation.profile.segments": "Segments",
+  "marketing_automation.profile.silentFor": "quiet for {days} days",
   "marketing_automation.profile.spendPercentile": "Top {share}% of buyers · {amount} per order",
   "marketing_automation.profile.tags": "Tags",
   "marketing_automation.profile.title": "Customer profile",

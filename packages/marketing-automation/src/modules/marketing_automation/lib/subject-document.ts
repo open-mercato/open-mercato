@@ -196,6 +196,86 @@ export async function loadPurchasedSkus(
     .filter((sku): sku is string => typeof sku === 'string' && sku.length > 0)
 }
 
+/**
+ * What this customer did with the messages we sent, in one statement.
+ *
+ * Two halves that have to be read together, which is why they are one query: the sends say when we started
+ * writing to them, and the events say whether they ever answered. `daysSinceEngaged` needs both — a customer who
+ * never opened anything is measured from the FIRST send, and one who has is measured from their last open.
+ *
+ * Opens and clicks are counted as distinct RUNS. An earlier version of the profile counted them over the ten runs
+ * it happened to be listing while `sent` beside it was all-time, and asserted that a customer with forty runs had
+ * never engaged. Two numbers on one line measured over different populations is worse than either alone.
+ */
+export async function loadEngagement(
+  em: EntityManager,
+  subjectEntityId: string,
+  scope: SubjectScope,
+  now: Date,
+): Promise<SubjectDocument['engagement']> {
+  const rows = await em.getConnection().execute<Array<{
+    sent: number
+    first_sent_at: Date | string | null
+    last_sent_at: Date | string | null
+    opened: number
+    clicked: number
+    last_engaged_at: Date | string | null
+  }>>(
+    `with sends as (
+       select count(*) filter (where status = 'sent')::int as sent,
+              min(sent_at) filter (where status = 'sent') as first_sent_at,
+              max(sent_at) filter (where status = 'sent') as last_sent_at
+         from marketing_message_sends
+        where tenant_id = ? and organization_id = ? and subject_entity_id = ?
+     ),
+     events as (
+       select count(distinct e.run_id) filter (where e.type = 'opened')::int as opened,
+              count(distinct e.run_id) filter (where e.type = 'clicked')::int as clicked,
+              max(e.occurred_at) filter (where e.type in ('opened', 'clicked')) as last_engaged_at
+         from marketing_message_send_events e
+         join marketing_campaign_runs r on r.id = e.run_id
+        where e.tenant_id = ? and e.organization_id = ? and r.subject_entity_id = ?
+     )
+     select sends.sent, sends.first_sent_at, sends.last_sent_at,
+            events.opened, events.clicked, events.last_engaged_at
+       from sends, events`,
+    [
+      scope.tenantId, scope.organizationId, subjectEntityId,
+      scope.tenantId, scope.organizationId, subjectEntityId,
+    ],
+  )
+  const row = rows[0]
+
+  const engagement: SubjectDocument['engagement'] = {
+    sent: row?.sent ?? 0,
+    opened: row?.opened ?? 0,
+    clicked: row?.clicked ?? 0,
+  }
+
+  const readDate = (value: Date | string | null | undefined): Date | null => {
+    if (!value) return null
+    const parsed = value instanceof Date ? value : new Date(value)
+    return Number.isNaN(parsed.getTime()) ? null : parsed
+  }
+
+  const lastSentAt = readDate(row?.last_sent_at)
+  if (lastSentAt) engagement.lastSentAt = lastSentAt.toISOString()
+
+  const lastEngagedAt = readDate(row?.last_engaged_at)
+  if (lastEngagedAt) engagement.lastEngagedAt = lastEngagedAt.toISOString()
+
+  /**
+   * The silence is measured from the last sign of life, or from when we first spoke.
+   *
+   * Absent when we have never sent them anything, which is the only honest answer: there is no silence to
+   * measure, and a zero would make every sunset audience true for a customer nobody has written to.
+   */
+  const since = lastEngagedAt ?? readDate(row?.first_sent_at)
+  if (since) engagement.daysSinceEngaged = Math.max(0, wholeDaysBetween(since, now))
+
+  return engagement
+}
+
 /** Tag slugs, so an audience can ask `tags CONTAINS 'vip'` rather than carry uuids. */
 export async function loadTagSlugs(
   em: EntityManager,
@@ -325,6 +405,8 @@ export async function buildSubjectDocument(
       value: null,
       address: null,
       survey: { nps: null, answeredAt: null },
+      // Nobody to have written to, so nothing to have been ignored.
+      engagement: { sent: 0, opened: 0, clicked: 0 },
       // No subject, so no membership. A segment describes a customer, and there is none here.
       segments: [],
       trigger,
@@ -341,7 +423,7 @@ export async function buildSubjectDocument(
     scope,
   )
 
-  const [tags, orders, scorePoints, skus, categories, channels, locale, address, nps] = await Promise.all([
+  const [tags, orders, scorePoints, skus, categories, channels, locale, address, nps, engagement] = await Promise.all([
     loadTagSlugs(em, subjectEntityId, scope),
     loadOrderAggregates(em, subjectEntityId, scope, now),
     loadScorePoints(em, subjectEntityId, scope),
@@ -351,6 +433,7 @@ export async function buildSubjectDocument(
     loadPreferredLocale(em, scope, subjectEntityId),
     loadSubjectAddress(em, subjectEntityId, scope),
     loadLatestNps(em, subjectEntityId, scope),
+    loadEngagement(em, subjectEntityId, scope, now),
   ])
 
   const tier = resolveTier(scorePoints, options?.tierThresholds)
@@ -391,6 +474,7 @@ export async function buildSubjectDocument(
     value: projectedValue,
     address,
     survey: { nps: nps?.score ?? null, answeredAt: nps?.answeredAt ?? null },
+    engagement,
     // Filled below, once the rest of the document exists: membership is computed FROM it.
     segments: [],
     trigger,
