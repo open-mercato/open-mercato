@@ -55,6 +55,7 @@ function cacheKeyForItem(query: AvailabilityQuery, item: AvailabilityQuery['item
     'wms:availability',
     query.organizationId,
     query.storeId ?? '',
+    query.locationIds && query.locationIds.length > 0 ? [...query.locationIds].sort().join(',') : '*',
     item.catalogProductId,
     item.catalogVariantId ?? '',
     item.quantity,
