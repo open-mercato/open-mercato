@@ -127,6 +127,7 @@ export default function ChannelsListPage() {
       <PageBody>
         <DataTable<ChannelRow>
           title={t('communication_channels.nav.title', 'Communication Channels')}
+          titleHeadingLevel={1}
           extensionTableId={extensionPoints.hosts.channelsTable.tableId}
           injectionContext={injectionContext}
           columns={columns}

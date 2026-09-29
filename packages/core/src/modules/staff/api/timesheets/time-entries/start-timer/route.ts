@@ -11,7 +11,10 @@ import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { staffTimeEntryStartTimerSchema, type StaffTimeEntryStartTimerInput } from '../../../../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../../guards'
+import { runTimesheetInterceptors } from '../../_shared/withTimesheetInterceptors'
 
 const logger = createLogger('staff')
 
@@ -21,7 +24,12 @@ export const metadata = {
 
 async function buildContext(
   req: Request
-): Promise<{ ctx: CommandRuntimeContext; translate: (key: string, fallback?: string) => string }> {
+): Promise<{
+  ctx: CommandRuntimeContext
+  translate: (key: string, fallback?: string) => string
+  tenantId: string | null
+  organizationId: string | null
+}> {
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(req)
   const { translate } = await resolveTranslations()
@@ -35,20 +43,33 @@ async function buildContext(
     organizationIds: scope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
     request: req,
   }
-  return { ctx, translate }
+  return {
+    ctx,
+    translate,
+    tenantId: scope?.tenantId ?? auth.tenantId ?? null,
+    organizationId: scope?.selectedId ?? auth.orgId ?? null,
+  }
 }
 
 export async function POST(req: Request) {
   try {
-    const { ctx, translate } = await buildContext(req)
-    const body = await req.json().catch(() => ({}))
-    const input = parseScopedCommandInput(staffTimeEntryStartTimerSchema, body, ctx, translate)
+    const { ctx, translate, tenantId, organizationId } = await buildContext(req)
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'POST',
+      scope: { container: ctx.container, userId: ctx.auth?.sub, tenantId, organizationId },
+      body: await readJsonSafe<Record<string, unknown>>(req, {}),
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
+
+    const input = parseScopedCommandInput(staffTimeEntryStartTimerSchema, session.body, ctx, translate)
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { result, logEntry } = await commandBus.execute<StaffTimeEntryStartTimerInput, { timeEntryId: string }>(
       'staff.timesheets.time_entries.start_timer',
       { input, ctx },
     )
-    const response = NextResponse.json({ ok: true, id: result?.timeEntryId ?? null }, { status: 201 })
+    const response = await session.respond(201, { ok: true, id: result?.timeEntryId ?? null })
     if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
       response.headers.set(
         'x-om-operation',
@@ -57,7 +78,7 @@ export async function POST(req: Request) {
           undoToken: logEntry.undoToken,
           commandId: logEntry.commandId,
           actionLabel: logEntry.actionLabel ?? null,
-          resourceKind: logEntry.resourceKind ?? 'staff.timesheets.time_entry',
+          resourceKind: logEntry.resourceKind ?? STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntry,
           resourceId: logEntry.resourceId ?? result?.timeEntryId ?? null,
           executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : undefined,
         }),
@@ -88,7 +109,7 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Start a timesheet timer',
       description:
-        'Atomically creates a timer-sourced time entry and starts it (sets startedAt and creates the initial work segment) in a single transaction, so a partial failure cannot leave an orphaned, unstarted entry.',
+        'Atomically creates a timer-sourced time entry and starts it (sets startedAt and creates the initial work segment) in a single transaction, so a partial failure cannot leave an orphaned, unstarted entry. An optional `taskId` is validated and stored by the same write, so starting a timer from a board card or the task drawer takes one request instead of a start followed by a link that can fail; when only `taskId` is sent, the project follows from the task.',
       requestBody: {
         contentType: 'application/json',
         schema: staffTimeEntryStartTimerSchema,
@@ -109,7 +130,8 @@ export const openApi: OpenApiRouteDoc = {
         },
         {
           status: 422,
-          description: 'Referenced time project not found or out of scope',
+          description:
+            'Referenced time project or task not found, out of scope, or the task belongs to another project',
           schema: z.object({ error: z.string() }),
         },
       ],

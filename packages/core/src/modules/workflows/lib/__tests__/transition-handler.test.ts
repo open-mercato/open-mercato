@@ -124,6 +124,42 @@ describe('Transition Handler (Unit Tests)', () => {
       expect(result.transition.toStepId).toBe('step-2')
     })
 
+    test('selects the durable transition id when multiple routes share endpoints', async () => {
+      const definitionWithDuplicateEndpoints = {
+        ...mockDefinition,
+        definition: {
+          ...mockDefinition.definition,
+          transitions: [
+            {
+              transitionId: 'normal-route',
+              fromStepId: 'step-1',
+              toStepId: 'step-2',
+              kind: 'normal',
+            },
+            {
+              transitionId: 'outcome-route',
+              fromStepId: 'step-1',
+              toStepId: 'step-2',
+              kind: 'outcome',
+              outcomeKind: 'rejected',
+            },
+          ],
+        },
+      }
+      mockEm.findOne.mockResolvedValue(definitionWithDuplicateEndpoints as WorkflowDefinition)
+
+      const result = await transitionHandler.evaluateTransition(
+        mockEm,
+        mockInstance,
+        'step-1',
+        'step-2',
+        { workflowContext: {}, transitionId: 'outcome-route' },
+      )
+
+      expect(result.isValid).toBe(true)
+      expect(result.transition.transitionId).toBe('outcome-route')
+    })
+
     test('should return false if workflow definition not found', async () => {
       mockEm.findOne.mockResolvedValue(null)
 
@@ -829,6 +865,81 @@ describe('Transition Handler (Unit Tests)', () => {
 
       expect(result.success).toBe(false)
       expect(result.error).toContain('Email failed')
+    })
+  })
+
+  // ============================================================================
+  // SET_VARIABLE Context Merge Tests
+  // ============================================================================
+
+  describe('executeTransition with SET_VARIABLE activities', () => {
+    const definitionWithSetVariable = (assignments: Array<{ path: string; value: unknown }>) => ({
+      ...mockDefinition,
+      definition: {
+        ...mockDefinition.definition,
+        transitions: [
+          { fromStepId: 'start', toStepId: 'step-1' },
+          {
+            fromStepId: 'step-1',
+            toStepId: 'step-2',
+            activities: [
+              { activityId: 'set-vars', activityType: 'SET_VARIABLE', config: { assignments } },
+            ],
+          },
+          { fromStepId: 'step-2', toStepId: 'end' },
+        ],
+      },
+    })
+
+    const mockSetVariableResult = (assignments: Array<{ path: string; value: unknown }>) => {
+      ;(activityExecutor.executeActivities as jest.Mock).mockResolvedValue([
+        {
+          activityId: 'set-vars',
+          activityType: 'SET_VARIABLE',
+          success: true,
+          output: { assignments },
+          retryCount: 0,
+          executionTimeMs: 1,
+        },
+      ])
+    }
+
+    test('applies assignments at their context paths after the transition executes', async () => {
+      const assignments = [{ path: 'customer.priority', value: 'high' }]
+      mockInstance.context = {
+        initiatedBy: 'user@example.com',
+        customer: { name: 'Ada' },
+      }
+      mockEm.findOne.mockReset()
+      mockEm.findOne.mockResolvedValue(definitionWithSetVariable(assignments))
+      mockEm.create.mockReturnValue({} as any)
+      mockSetVariableResult(assignments)
+
+      const result = await transitionHandler.executeTransition(
+        mockEm, mockContainer, mockInstance, 'step-1', 'step-2', { workflowContext: {} }
+      )
+
+      expect(result.success).toBe(true)
+      expect(mockInstance.context.customer).toEqual({ name: 'Ada', priority: 'high' })
+      expect(mockInstance.context.initiatedBy).toBe('user@example.com')
+      expect(mockInstance.context.SET_VARIABLE).toBeUndefined()
+      expect(mockInstance.context['set-vars']).toBeUndefined()
+    })
+
+    test('creates intermediate objects for paths missing from context', async () => {
+      const assignments = [{ path: 'escalation.owner.team', value: 'support' }]
+      mockInstance.context = { initiatedBy: 'user@example.com' }
+      mockEm.findOne.mockReset()
+      mockEm.findOne.mockResolvedValue(definitionWithSetVariable(assignments))
+      mockEm.create.mockReturnValue({} as any)
+      mockSetVariableResult(assignments)
+
+      const result = await transitionHandler.executeTransition(
+        mockEm, mockContainer, mockInstance, 'step-1', 'step-2', { workflowContext: {} }
+      )
+
+      expect(result.success).toBe(true)
+      expect(mockInstance.context.escalation).toEqual({ owner: { team: 'support' } })
     })
   })
 

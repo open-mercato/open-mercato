@@ -37,6 +37,15 @@ const avatarVariants = cva(
         md: 'size-9 text-sm',
         lg: 'size-12 text-base',
         xl: 'size-16 text-xl',
+        20: 'size-5 text-xs font-medium',
+        24: 'size-6 text-xs font-medium',
+        32: 'size-8 text-sm font-medium',
+        40: 'size-10 text-base font-medium',
+        48: 'size-12 text-lg leading-6 font-medium',
+        56: 'size-14 text-lg leading-6 font-medium',
+        64: 'size-16 text-2xl font-medium',
+        72: 'size-18 text-2xl font-medium',
+        80: 'size-20 text-2xl font-medium',
       },
       variant: {
         default: 'bg-primary/10 text-primary',
@@ -94,6 +103,24 @@ const AVATAR_STATUS_SIZE: Record<NonNullable<VariantProps<typeof avatarVariants>
   md: 'size-2.5',
   lg: 'size-3',
   xl: 'size-4',
+  20: 'size-2.5',
+  24: 'size-3',
+  32: 'size-4',
+  40: 'size-4.5',
+  48: 'size-5',
+  56: 'size-6',
+  64: 'size-7',
+  72: 'size-8',
+  80: 'size-8',
+}
+
+const AVATAR_BADGE_SIZE = {
+  ...AVATAR_STATUS_SIZE,
+  xs: 'size-3.5',
+  sm: 'size-3.5',
+  md: 'size-4',
+  lg: 'size-5',
+  xl: 'size-6',
 }
 
 // Outer ring tones (story-style highlight, selected, status outline).
@@ -148,7 +175,10 @@ const AvatarCircle = React.forwardRef<HTMLDivElement, AvatarCircleProps>(functio
   { className, label, src, icon, size, variant, ariaLabel, ...rest },
   ref,
 ) {
-  const initials = React.useMemo(() => computeInitials(label), [label])
+  const initials = React.useMemo(() => {
+    const letters = computeInitials(label)
+    return typeof size === 'number' && size <= 32 ? letters.slice(0, 1) : letters
+  }, [label, size])
   return (
     <div
       ref={ref}
@@ -161,7 +191,7 @@ const AvatarCircle = React.forwardRef<HTMLDivElement, AvatarCircleProps>(functio
       {src ? (
         <img src={src} alt="" className="size-full object-cover" aria-hidden="true" />
       ) : icon ? (
-        <span aria-hidden="true" className="flex items-center justify-center [&>svg]:size-[55%]">
+        <span aria-hidden="true" data-slot="avatar-icon" className="flex size-full items-center justify-center [&>svg]:size-1/2">
           {icon}
         </span>
       ) : (
@@ -257,8 +287,7 @@ export const Avatar = React.forwardRef<HTMLDivElement, AvatarProps>((props, ref)
           aria-hidden="true"
           className={cn(
             'absolute inline-flex items-center justify-center rounded-full ring-2 ring-background bg-background text-foreground',
-            // Default size ~40% of avatar; consumer overrides via badgeClassName.
-            size === 'xs' || size === 'sm' ? 'size-3.5' : size === 'md' ? 'size-4' : size === 'lg' ? 'size-5' : 'size-6',
+            AVATAR_BADGE_SIZE[size ?? 'md'],
             badgePositionClass,
             badgeClassName,
           )}
@@ -287,19 +316,111 @@ export type AvatarStackProps = {
   overflowCount?: number
 }
 
+type AvatarSize = NonNullable<AvatarProps['size']>
+type AvatarStackOverlap = 0 | 4 | 6 | 8 | 12 | 16
+
+const AVATAR_STACK_OVERLAP: Record<AvatarSize, AvatarStackOverlap> = {
+  xs: 0,
+  sm: 4,
+  md: 6,
+  lg: 12,
+  xl: 12,
+  20: 4,
+  24: 4,
+  32: 6,
+  40: 12,
+  48: 12,
+  56: 16,
+  64: 16,
+  72: 16,
+  80: 16,
+}
+
+const AVATAR_STACK_TEXT_OVERLAP: Record<AvatarSize, AvatarStackOverlap> = {
+  ...AVATAR_STACK_OVERLAP,
+  40: 6,
+  48: 8,
+  56: 12,
+  64: 12,
+}
+
+const AVATAR_STACK_OVERLAP_CLASS: Record<AvatarStackOverlap, string> = {
+  0: 'ml-0',
+  4: '-ml-1',
+  6: '-ml-1.5',
+  8: '-ml-2',
+  12: '-ml-3',
+  16: '-ml-4',
+}
+
+const AVATAR_STACK_MIN_WIDTH: Record<AvatarSize, string> = {
+  xs: 'min-w-5',
+  sm: 'min-w-7',
+  md: 'min-w-9',
+  lg: 'min-w-12',
+  xl: 'min-w-16',
+  20: 'min-w-5',
+  24: 'min-w-6',
+  32: 'min-w-8',
+  40: 'min-w-10',
+  48: 'min-w-12',
+  56: 'min-w-14',
+  64: 'min-w-16',
+  72: 'min-w-18',
+  80: 'min-w-20',
+}
+
+function AvatarStackItem({ children, overlap, previousOverlap }: {
+  children: React.ReactNode
+  overlap: AvatarStackOverlap
+  previousOverlap?: AvatarStackOverlap
+}) {
+  const resolvedOverlap = previousOverlap === undefined ? 0 : Math.min(previousOverlap, overlap) as AvatarStackOverlap
+  return (
+    <span
+      data-slot="avatar-stack-item"
+      className={cn(
+        'relative inline-flex shrink-0 rounded-full bg-background [&_[data-slot=avatar]]:ring-2 [&_[data-slot=avatar]]:ring-inset [&_[data-slot=avatar]]:ring-background',
+        previousOverlap !== undefined && AVATAR_STACK_OVERLAP_CLASS[resolvedOverlap],
+      )}
+    >
+      {children}
+    </span>
+  )
+}
+
 export function AvatarStack({ children, max = 4, size = 'md', className, overflowCount = 0 }: AvatarStackProps) {
   const items = React.Children.toArray(children)
   const visible = items.slice(0, max)
   const overflow = Math.max(0, items.length - max) + Math.max(0, overflowCount)
+  const resolvedSize = size ?? 'md'
+  const overflowLabel = `+${overflow}`
+  const visibleOverlaps = visible.map((item) => {
+    if (!React.isValidElement<AvatarProps>(item) || item.type !== Avatar) return AVATAR_STACK_OVERLAP[resolvedSize]
+    const itemSize = item.props.size ?? 'md'
+    return !item.props.src && !item.props.icon ? AVATAR_STACK_TEXT_OVERLAP[itemSize] : AVATAR_STACK_OVERLAP[itemSize]
+  })
 
   return (
     <div
       data-slot="avatar-stack"
-      className={cn('flex items-center [&>*:not(:first-child)]:-ml-2 [&>*]:ring-2 [&>*]:ring-background', className)}
+      className={cn('flex items-center', className)}
     >
-      {visible}
+      {visible.map((item, index) => (
+        <AvatarStackItem key={React.isValidElement(item) ? item.key : index} overlap={visibleOverlaps[index]} previousOverlap={visibleOverlaps[index - 1]}>
+          {item}
+        </AvatarStackItem>
+      ))}
       {overflow > 0 && (
-        <Avatar label={`+${overflow}`} size={size} variant="monochrome" className="-ml-2" />
+        <AvatarStackItem overlap={AVATAR_STACK_TEXT_OVERLAP[resolvedSize]} previousOverlap={visibleOverlaps[visible.length - 1]}>
+          <Avatar
+            label={overflowLabel}
+            icon={<span>{overflowLabel}</span>}
+            size={resolvedSize}
+            variant="monochrome"
+            className={cn('w-auto px-1', AVATAR_STACK_MIN_WIDTH[resolvedSize])}
+          />
+        </AvatarStackItem>
       )}
     </div>
   )

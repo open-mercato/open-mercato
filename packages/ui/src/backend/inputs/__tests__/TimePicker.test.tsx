@@ -1,13 +1,19 @@
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn() }),
 }))
+let mockLocale: string | undefined
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback: string) => fallback,
+  useOptionalLocale: () => mockLocale,
 }))
 
 import * as React from 'react'
 import { renderToString } from 'react-dom/server'
 import { TimePicker } from '../TimePicker'
+
+beforeEach(() => {
+  mockLocale = 'en'
+})
 
 // Note: Tests for Now/Clear button visibility and click behaviour require opening
 // the Radix Popover (portal content is not rendered by renderToString when closed).
@@ -24,6 +30,31 @@ describe('TimePicker SSR render', () => {
   })
 
   it('shows 12h-formatted value in trigger when value is provided (matches slot list)', () => {
+    const html = render(<TimePicker value="14:30" onChange={jest.fn()} />)
+    expect(html).toContain('02:30 PM')
+  })
+
+  it('shows a 24h value for a locale that writes time on a 24-hour clock', () => {
+    mockLocale = 'pl'
+    const html = render(<TimePicker value="14:30" onChange={jest.fn()} />)
+    expect(html).toContain('14:30')
+    expect(html).not.toContain('PM')
+  })
+
+  it('keeps the 12h clock for a locale that uses AM/PM', () => {
+    mockLocale = 'ko'
+    const html = render(<TimePicker value="14:30" onChange={jest.fn()} />)
+    expect(html).toContain('02:30 PM')
+  })
+
+  it('lets an explicit format prop override the locale default', () => {
+    mockLocale = 'pl'
+    const html = render(<TimePicker value="14:30" onChange={jest.fn()} format="12h" />)
+    expect(html).toContain('02:30 PM')
+  })
+
+  it('falls back to the 12h clock when rendered outside an i18n provider', () => {
+    mockLocale = undefined
     const html = render(<TimePicker value="14:30" onChange={jest.fn()} />)
     expect(html).toContain('02:30 PM')
   })

@@ -13,12 +13,22 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { UserTask } from '../../../data/entities'
+import { serializeUserTask } from '../serialize'
+import { loadTaskDecisionContext } from '../../../lib/task-decision-context'
 import {
   workflowsTag,
   userTaskDetailResponseSchema,
   workflowErrorSchema,
 } from '../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  collectTaskEntityTypesFromTasks,
+  decideTaskAccess,
+  resolveTaskAffordancesForRequest,
+  resolveTaskRefusal,
+  resolveTaskVisibilityForRequest,
+  TASK_NOT_FOUND_BODY,
+} from '../../../lib/task-visibility-request'
 
 const logger = createLogger('workflows')
 
@@ -62,15 +72,50 @@ export async function GET(
       ...orgFilter.where,
     })
 
+    // A cross-tenant id, an organization the caller cannot see and a random uuid
+    // all land here with the SAME body — existence must not be disclosed by the
+    // shape of the refusal.
     if (!task) {
-      return NextResponse.json(
-        { error: 'Task not found' },
-        { status: 404 }
-      )
+      return NextResponse.json(TASK_NOT_FOUND_BODY, { status: 404 })
     }
 
+    const visibility = await resolveTaskVisibilityForRequest({
+      container,
+      em,
+      auth: { userId: auth.sub, tenantId, roleNames: auth.roles ?? [] },
+      organizationIds: orgFilter.organizationIds ?? null,
+      aclOrganizationId: orgFilter.rbacOrganizationId,
+      entityTypes: collectTaskEntityTypesFromTasks([task]),
+    })
+
+    const decision = decideTaskAccess(visibility, task)
+    if (!decision.visible) {
+      // 404 for everyone who has no legitimate knowledge that the row exists;
+      // 403-with-reason only for a caller who already sees it in a list view and
+      // needs to know which binding hid its contents.
+      const refusal = resolveTaskRefusal(visibility, decision)
+      return NextResponse.json(refusal.body, { status: refusal.status })
+    }
+
+    // Decision buttons are DERIVED, never stored: the instance pins its
+    // definition version, so re-resolving here always yields the buttons the
+    // author wrote for this step. A task on a step that authored none gets an
+    // empty list and completes through the plain form exactly as before.
+    const { decisions, stepId, formKey } = await loadTaskDecisionContext(em, task)
+
+    // The predicate already answered "may this caller act on this row" above.
+    // Sending it is what stops the page offering a Complete button that 409s for
+    // an administrator, and what lets it name the remedy (reassignment) instead.
+    const affordances = resolveTaskAffordancesForRequest(visibility, task, decision)
+
     return NextResponse.json({
-      data: task,
+      data: {
+        ...serializeUserTask(task),
+        stepId,
+        decisions,
+        formKey,
+        ...affordances,
+      },
     })
   } catch (error) {
     logger.error('Error fetching user task', { err: error })
@@ -97,7 +142,13 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Missing tenant or organization context', schema: workflowErrorSchema },
         { status: 401, description: 'Unauthorized', schema: workflowErrorSchema },
-        { status: 404, description: 'Task not found', schema: workflowErrorSchema },
+        {
+          status: 403,
+          description:
+            'The task is bound to an entity type the caller may not view. Returned only to callers holding workflows.tasks.view_all (or a superadmin), who already see the row in a list view; everyone else receives the generic 404.',
+          schema: workflowErrorSchema,
+        },
+        { status: 404, description: 'Task not found, or not visible to the caller', schema: workflowErrorSchema },
         { status: 500, description: 'Internal server error', schema: workflowErrorSchema },
       ],
     },

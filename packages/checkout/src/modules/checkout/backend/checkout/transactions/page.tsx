@@ -229,7 +229,8 @@ export default function CheckoutTransactionsPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('checkout.admin.transactions.title')}
+        title={t('checkout.admin.transactions.title')}
+        titleHeadingLevel={1}
           columns={columns}
           data={rows}
           isLoading={loading}

@@ -36,6 +36,7 @@ export default function CreateExchangeRatePage() {
       <PageBody>
         <CrudForm
           title={t('exchangeRates.create.title')}
+          titleHeadingLevel={1}
           backHref="/backend/exchange-rates"
           fields={[]}
           groups={groups}

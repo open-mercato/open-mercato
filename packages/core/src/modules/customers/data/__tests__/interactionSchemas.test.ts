@@ -7,6 +7,7 @@ const tenantId = '11111111-1111-4111-8111-111111111111'
 const orgId = '22222222-2222-4222-8222-222222222222'
 const entityId = '33333333-3333-4333-8333-333333333333'
 const interactionId = '44444444-4444-4444-8444-444444444444'
+const personId = '55555555-5555-4555-8555-555555555555'
 const userA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const userB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 
@@ -119,10 +120,48 @@ describe('interaction validators — extended scheduling fields', () => {
         id: interactionId,
         tenantId,
         organizationId: orgId,
-        linkedEntities: [{ id: entityId, type: 'person', label: 'Nope' }],
+        linkedEntities: [{ id: entityId, type: 'unicorn', label: 'Nope' }],
       }),
     ).toThrow()
   })
+
+  test('interactionCreateSchema accepts a person linked entity', () => {
+    const parsed = interactionCreateSchema.parse({
+      tenantId,
+      organizationId: orgId,
+      entityId,
+      interactionType: 'task',
+      linkedEntities: [{ id: personId, type: 'person', label: 'Ada Lovelace' }],
+    })
+    expect(parsed.linkedEntities).toEqual([
+      { id: personId, type: 'person', label: 'Ada Lovelace' },
+    ])
+  })
+
+  test('interactionUpdateSchema accepts a person linked entity', () => {
+    const parsed = interactionUpdateSchema.parse({
+      id: interactionId,
+      tenantId,
+      organizationId: orgId,
+      linkedEntities: [{ id: personId, type: 'person', label: 'Ada Lovelace' }],
+    })
+    expect(parsed.linkedEntities).toEqual([
+      { id: personId, type: 'person', label: 'Ada Lovelace' },
+    ])
+  })
+
+  test.each(['company', 'deal', 'offer', 'resource', 'person'])(
+    'interactionUpdateSchema accepts the %s linked entity type',
+    (type) => {
+      const parsed = interactionUpdateSchema.parse({
+        id: interactionId,
+        tenantId,
+        organizationId: orgId,
+        linkedEntities: [{ id: entityId, type, label: 'Linked' }],
+      })
+      expect(parsed.linkedEntities?.[0].type).toBe(type)
+    },
+  )
 
   test('interactionCreateSchema accepts a guest participant identified only by email', () => {
     const parsed = interactionCreateSchema.parse({

@@ -1,14 +1,10 @@
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import * as React from 'react'
 import { Bell } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import {
-  NotificationCountBadge,
-  NotificationItem,
-  NotificationPanel,
-} from '@open-mercato/ui/backend/notifications'
+import { NotificationCountBadge, NotificationItem, NotificationPanel } from '@open-mercato/ui/backend/notifications'
 import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
-import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { GalleryEntry } from '../types'
 
 // Component titles and variant names are proper nouns from the codebase and
@@ -20,27 +16,104 @@ import type { GalleryEntry } from '../types'
 // `NotificationBell` itself is wired to `useNotifications` (SSE + API) and
 // cannot be severed from it, so its entry shows the presentational chrome
 // (bell trigger + `NotificationCountBadge`) instead of mounting the live bell.
-
-const galleryT: TranslateFn = (key, fallbackOrParams, params) => {
-  const fallback = typeof fallbackOrParams === 'string' ? fallbackOrParams : key
-  const variables = (typeof fallbackOrParams === 'object' ? fallbackOrParams : params) ?? {}
-  return Object.entries(variables).reduce(
-    (text, [name, value]) => text.replaceAll(`{${name}}`, String(value)),
-    fallback,
+function NotificationBellEntryPresentationalMockPreview() {
+  const t = useT()
+  return (
+    <IconButton
+      variant="ghost"
+      size="sm"
+      className="relative"
+      aria-label={t('design_system.gallery.samples.content.3UnreadNotifications')}
+    >
+      <Bell className="h-5 w-5" />
+      <NotificationCountBadge count={3} />
+    </IconButton>
   )
 }
-
+function NotificationCountBadgeEntryCountsPreview() {
+  const t = useT()
+  return (
+    <>
+      <IconButton
+        variant="ghost"
+        size="sm"
+        className="relative"
+        aria-label={t('design_system.gallery.samples.content.3UnreadNotifications')}
+      >
+        <Bell className="h-5 w-5" />
+        <NotificationCountBadge count={3} />
+      </IconButton>
+      <IconButton
+        variant="ghost"
+        size="sm"
+        className="relative"
+        aria-label={t('design_system.gallery.samples.content.12UnreadNotifications')}
+      >
+        <Bell className="h-5 w-5" />
+        <NotificationCountBadge count={12} />
+      </IconButton>
+      <IconButton
+        variant="ghost"
+        size="sm"
+        className="relative"
+        aria-label={t('design_system.gallery.samples.content.120UnreadNotifications')}
+      >
+        <Bell className="h-5 w-5" />
+        <NotificationCountBadge count={120} />
+      </IconButton>
+    </>
+  )
+}
+function NotificationItemEntryUnreadInfoPreview() {
+  const t = useT()
+  return (
+    <div className="w-full max-w-md">
+      <NotificationItem
+        notification={unreadInfoNotification(t)}
+        onMarkAsRead={noopMarkAsRead}
+        onExecuteAction={noopExecuteAction}
+        onDismiss={noopDismiss}
+        t={t}
+      />
+    </div>
+  )
+}
+function NotificationItemEntryWithBodyPreview() {
+  const t = useT()
+  return (
+    <div className="w-full max-w-md">
+      <NotificationItem
+        notification={successWithBodyNotification(t)}
+        onMarkAsRead={noopMarkAsRead}
+        onExecuteAction={noopExecuteAction}
+        onDismiss={noopDismiss}
+        t={t}
+      />
+    </div>
+  )
+}
+function NotificationItemEntryWithActionsPreview() {
+  const t = useT()
+  return (
+    <div className="w-full max-w-md">
+      <NotificationItem
+        notification={actionRequiredNotification(t)}
+        onMarkAsRead={noopMarkAsRead}
+        onExecuteAction={noopExecuteAction}
+        onDismiss={noopDismiss}
+        t={t}
+      />
+    </div>
+  )
+}
 const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString()
-
 const noopMarkAsRead = async () => {}
 const noopDismiss = async () => {}
 const noopExecuteAction = async () => ({})
-
-function mockNotification(overrides: Partial<NotificationDto>): NotificationDto {
+function mockNotification(overrides: Partial<NotificationDto> & Pick<NotificationDto, 'title'>): NotificationDto {
   return {
     id: 'gallery-notification',
     type: 'gallery.demo',
-    title: 'Notification',
     severity: 'info',
     status: 'unread',
     actions: [],
@@ -48,68 +121,74 @@ function mockNotification(overrides: Partial<NotificationDto>): NotificationDto 
     ...overrides,
   }
 }
-
-const unreadInfoNotification = mockNotification({
-  id: 'gallery-unread-info',
-  title: 'Nightly import finished',
-  severity: 'info',
-  status: 'unread',
-  sourceModule: 'catalog',
-  createdAt: minutesAgo(4),
-})
-
-const successWithBodyNotification = mockNotification({
-  id: 'gallery-success-body',
-  title: 'Order #10023 shipped',
-  body: 'Carrier picked up 3 parcels. Tracking numbers were emailed to the customer.',
-  severity: 'success',
-  status: 'read',
-  sourceModule: 'sales',
-  createdAt: minutesAgo(35),
-})
-
-const actionRequiredNotification = mockNotification({
-  id: 'gallery-action-required',
-  title: 'Price list awaiting approval',
-  body: 'Wholesale EU price list changes 214 products.',
-  severity: 'warning',
-  status: 'unread',
-  sourceModule: 'pricing',
-  actions: [
-    { id: 'review', label: 'Review changes', variant: 'outline' },
-    { id: 'approve', label: 'Approve', variant: 'default' },
-  ],
-  createdAt: minutesAgo(90),
-})
-
-const panelNotifications: NotificationDto[] = [
-  unreadInfoNotification,
-  actionRequiredNotification,
-  successWithBodyNotification,
+const unreadInfoNotification = (t: ReturnType<typeof useT>) =>
+  mockNotification({
+    id: 'gallery-unread-info',
+    title: t('design_system.gallery.samples.content.nightlyImportFinished'),
+    severity: 'info',
+    status: 'unread',
+    sourceModule: 'catalog',
+    createdAt: minutesAgo(4),
+  })
+const successWithBodyNotification = (t: ReturnType<typeof useT>) =>
+  mockNotification({
+    id: 'gallery-success-body',
+    title: t('design_system.gallery.samples.content.order10023Shipped'),
+    body: t('design_system.gallery.samples.content.carrierPickedUp3ParcelsTrackingNumbersWereEmailedToTheCustomer'),
+    severity: 'success',
+    status: 'read',
+    sourceModule: 'sales',
+    createdAt: minutesAgo(35),
+  })
+const actionRequiredNotification = (t: ReturnType<typeof useT>) =>
+  mockNotification({
+    id: 'gallery-action-required',
+    title: t('design_system.gallery.samples.content.priceListAwaitingApproval'),
+    body: t('design_system.gallery.samples.content.wholesaleEuPriceListChanges214Products'),
+    severity: 'warning',
+    status: 'unread',
+    sourceModule: 'pricing',
+    actions: [
+      {
+        id: 'review',
+        label: t('design_system.gallery.samples.content.reviewChanges'),
+        variant: 'outline',
+      },
+      {
+        id: 'approve',
+        label: t('design_system.gallery.samples.content.approve'),
+        variant: 'default',
+      },
+    ],
+    createdAt: minutesAgo(90),
+  })
+const panelNotifications = (t: ReturnType<typeof useT>): NotificationDto[] => [
+  unreadInfoNotification(t),
+  actionRequiredNotification(t),
+  successWithBodyNotification(t),
 ]
-
 function DemoNotificationPanel() {
+  const t = useT()
   const [open, setOpen] = React.useState(false)
   return (
     <>
       <Button variant="outline" onClick={() => setOpen(true)}>
-        Open notification panel
+        {t('design_system.gallery.samples.content.openNotificationPanel')}
       </Button>
       <NotificationPanel
         open={open}
         onOpenChange={setOpen}
-        notifications={panelNotifications}
+        notifications={panelNotifications(t)}
         unreadCount={2}
         onMarkAsRead={noopMarkAsRead}
         onExecuteAction={noopExecuteAction}
         onDismiss={noopDismiss}
         onMarkAllRead={noopMarkAsRead}
-        t={galleryT}
+        t={t}
       />
     </>
   )
 }
-
 const notificationBellEntry: GalleryEntry = {
   id: 'notification-bell',
   title: 'NotificationBell',
@@ -118,12 +197,7 @@ const notificationBellEntry: GalleryEntry = {
     {
       id: 'presentational-mock',
       title: 'Presentational mock (live bell is SSE-wired)',
-      render: () => (
-        <IconButton variant="ghost" size="sm" className="relative" aria-label="3 unread notifications">
-          <Bell className="h-5 w-5" />
-          <NotificationCountBadge count={3} />
-        </IconButton>
-      ),
+      render: () => <NotificationBellEntryPresentationalMockPreview />,
       code: `import { NotificationBell } from '@open-mercato/ui/backend/notifications'
 
 // Wired to the notifications API + SSE — AppShell renders one in the topbar.
@@ -131,7 +205,6 @@ const notificationBellEntry: GalleryEntry = {
     },
   ],
 }
-
 const notificationCountBadgeEntry: GalleryEntry = {
   id: 'notification-count-badge',
   title: 'NotificationCountBadge',
@@ -140,22 +213,7 @@ const notificationCountBadgeEntry: GalleryEntry = {
     {
       id: 'counts',
       title: 'Counts (caps at 99+)',
-      render: () => (
-        <>
-          <IconButton variant="ghost" size="sm" className="relative" aria-label="3 unread notifications">
-            <Bell className="h-5 w-5" />
-            <NotificationCountBadge count={3} />
-          </IconButton>
-          <IconButton variant="ghost" size="sm" className="relative" aria-label="12 unread notifications">
-            <Bell className="h-5 w-5" />
-            <NotificationCountBadge count={12} />
-          </IconButton>
-          <IconButton variant="ghost" size="sm" className="relative" aria-label="120 unread notifications">
-            <Bell className="h-5 w-5" />
-            <NotificationCountBadge count={120} />
-          </IconButton>
-        </>
-      ),
+      render: () => <NotificationCountBadgeEntryCountsPreview />,
       code: `import { NotificationCountBadge } from '@open-mercato/ui/backend/notifications'
 
 // Renders nothing for count <= 0; anchors to the nearest relative parent.
@@ -166,7 +224,6 @@ const notificationCountBadgeEntry: GalleryEntry = {
     },
   ],
 }
-
 const notificationItemEntry: GalleryEntry = {
   id: 'notification-item',
   title: 'NotificationItem',
@@ -175,17 +232,7 @@ const notificationItemEntry: GalleryEntry = {
     {
       id: 'unread-info',
       title: 'Unread (mocked data)',
-      render: () => (
-        <div className="w-full max-w-md">
-          <NotificationItem
-            notification={unreadInfoNotification}
-            onMarkAsRead={noopMarkAsRead}
-            onExecuteAction={noopExecuteAction}
-            onDismiss={noopDismiss}
-            t={galleryT}
-          />
-        </div>
-      ),
+      render: () => <NotificationItemEntryUnreadInfoPreview />,
       code: `import { NotificationItem } from '@open-mercato/ui/backend/notifications'
 
 <NotificationItem
@@ -199,17 +246,7 @@ const notificationItemEntry: GalleryEntry = {
     {
       id: 'with-body',
       title: 'Read with body bubble (mocked data)',
-      render: () => (
-        <div className="w-full max-w-md">
-          <NotificationItem
-            notification={successWithBodyNotification}
-            onMarkAsRead={noopMarkAsRead}
-            onExecuteAction={noopExecuteAction}
-            onDismiss={noopDismiss}
-            t={galleryT}
-          />
-        </div>
-      ),
+      render: () => <NotificationItemEntryWithBodyPreview />,
       code: `import { NotificationItem } from '@open-mercato/ui/backend/notifications'
 
 // A notification with a body renders it as a speech-bubble under the title.
@@ -224,17 +261,7 @@ const notificationItemEntry: GalleryEntry = {
     {
       id: 'with-actions',
       title: 'Action required (mocked data)',
-      render: () => (
-        <div className="w-full max-w-md">
-          <NotificationItem
-            notification={actionRequiredNotification}
-            onMarkAsRead={noopMarkAsRead}
-            onExecuteAction={noopExecuteAction}
-            onDismiss={noopDismiss}
-            t={galleryT}
-          />
-        </div>
-      ),
+      render: () => <NotificationItemEntryWithActionsPreview />,
       code: `import { NotificationItem } from '@open-mercato/ui/backend/notifications'
 
 // Actions come from notification.actions; the last one renders as primary.
@@ -248,7 +275,6 @@ const notificationItemEntry: GalleryEntry = {
     },
   ],
 }
-
 const notificationPanelEntry: GalleryEntry = {
   id: 'notification-panel',
   title: 'NotificationPanel',
@@ -276,7 +302,6 @@ const [open, setOpen] = React.useState(false)
     },
   ],
 }
-
 export const entries: GalleryEntry[] = [
   notificationBellEntry,
   notificationCountBadgeEntry,

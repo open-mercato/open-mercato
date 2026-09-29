@@ -66,6 +66,11 @@ export type CustomFieldDefinition = {
   formEditable?: boolean
   indexed?: boolean
   listVisible?: boolean
+  // Store the value encrypted with the tenant key. Declaring it here keeps the
+  // flag idempotent across `entities install` runs; an admin-enabled flag is
+  // never downgraded by an install that omits it (turn it off explicitly with
+  // `encrypted: false`).
+  encrypted?: boolean
   // Display order within a form/card; lower renders first. When omitted, the
   // installer derives it from the declaration order of the field set.
   priority?: number
