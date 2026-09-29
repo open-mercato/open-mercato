@@ -601,6 +601,117 @@ describe('messages /api/messages/[id] PATCH', () => {
   })
 })
 
+// #6432 review: a draft is filed on its parent's thread and skips the compose
+// route's channel gate, so a `messages.compose`-only caller could save a draft
+// onto a shared channel thread and then send it publicly through PATCH.
+describe('messages /api/messages/[id] PATCH send on a channel thread (#6432)', () => {
+  const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+  const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+  const userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const messageId = '22222222-2222-4222-8222-222222222222'
+  const channelThreadId = '33333333-3333-4333-8333-333333333333'
+
+  function setup(options: { hasView: boolean; channelThread: boolean; visibility?: 'public' | 'internal' | null }) {
+    const draftMessage = {
+      id: messageId,
+      threadId: channelThreadId,
+      tenantId,
+      organizationId,
+      senderUserId: userId,
+      isDraft: true,
+      visibility: options.visibility === undefined ? 'internal' : options.visibility,
+      deletedAt: null,
+    }
+    const em = {
+      fork: jest.fn().mockReturnThis(),
+      findOne: jest.fn().mockResolvedValue(draftMessage),
+    }
+    const commandBus = {
+      execute: jest.fn().mockResolvedValue({ result: { ok: true, id: messageId }, logEntry: null }),
+    }
+    const rbacService = { userHasAllFeatures: jest.fn(async () => options.hasView) }
+    const resolveChannelThreadAccess = jest.fn(async () => (options.channelThread
+      ? {
+        messageThreadId: channelThreadId,
+        externalConversationId: '44444444-4444-4444-8444-444444444444',
+        channelId: '55555555-5555-4555-8555-555555555555',
+        channelType: 'discord',
+        canAccess: true,
+      }
+      : null))
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'commandBus') return commandBus
+        if (name === 'rbacService') return rbacService
+        if (name === 'communicationChannelsResolveChannelThreadAccess') return resolveChannelThreadAccess
+        return null
+      },
+    }
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: { container, auth: null },
+      scope: { tenantId, organizationId, userId },
+    })
+    return { commandBus, rbacService, resolveChannelThreadAccess }
+  }
+
+  function sendRequest(body: Record<string, unknown>) {
+    return new Request(`https://example.test/api/messages/${messageId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ subject: 'Re: order', body: 'Sending now', isDraft: false, ...body }),
+    })
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('refuses a public send onto a shared channel thread without messages.view', async () => {
+    const { commandBus, rbacService } = setup({ hasView: false, channelThread: true })
+
+    const response = await PATCH(sendRequest({ visibility: 'public' }), { params: { id: messageId } })
+
+    expect(response.status).toBe(403)
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect(rbacService.userHasAllFeatures).toHaveBeenCalledWith(userId, ['messages.view'], {
+      tenantId,
+      organizationId,
+    })
+  })
+
+  it('refuses a draft stored public when it is sent without messages.view', async () => {
+    const { commandBus } = setup({ hasView: false, channelThread: true, visibility: 'public' })
+
+    const response = await PATCH(sendRequest({}), { params: { id: messageId } })
+
+    expect(response.status).toBe(403)
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('sends publicly for a caller who may read the channel thread', async () => {
+    const { commandBus } = setup({ hasView: true, channelThread: true })
+
+    const response = await PATCH(sendRequest({ visibility: 'public' }), { params: { id: messageId } })
+
+    expect(response.status).toBe(200)
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves an internal send and a public send on an internal thread alone', async () => {
+    const internal = setup({ hasView: false, channelThread: true })
+    const internalResponse = await PATCH(
+      sendRequest({ recipients: [{ userId: '11111111-1111-4111-8111-111111111111', type: 'to' }] }),
+      { params: { id: messageId } },
+    )
+    expect(internalResponse.status).toBe(200)
+    expect(internal.resolveChannelThreadAccess).not.toHaveBeenCalled()
+
+    setup({ hasView: false, channelThread: false })
+    const publicResponse = await PATCH(sendRequest({ visibility: 'public' }), { params: { id: messageId } })
+    expect(publicResponse.status).toBe(200)
+  })
+})
+
 describe('messages /api/messages/[id] DELETE authorization', () => {
   beforeEach(() => {
     jest.clearAllMocks()

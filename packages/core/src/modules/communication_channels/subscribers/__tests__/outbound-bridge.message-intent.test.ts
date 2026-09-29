@@ -111,8 +111,20 @@ describe('outbound bridge — delivery intent across the messages seam (#5645 re
       transactional: jest.fn(async (callback: (em: typeof trx) => Promise<void>) => callback(trx)),
       fork: jest.fn(),
     }
+    // The hub resolves this thread as channel-mapped, as it is in production.
+    const resolveChannelThreadAccess = jest.fn(async () => ({
+      messageThreadId: threadId,
+      externalConversationId,
+      channelId: 'ch-1',
+      channelType: 'discord',
+      canAccess: true,
+    }))
     const container = {
-      resolve: (name: string) => (name === 'em' ? { fork: () => emFork } : null),
+      resolve: (name: string) => {
+        if (name === 'em') return { fork: () => emFork }
+        if (name === 'communicationChannelsResolveChannelThreadAccess') return resolveChannelThreadAccess
+        return null
+      },
     }
     return { container, created }
   }
@@ -173,8 +185,10 @@ describe('outbound bridge — delivery intent across the messages seam (#5645 re
     expect(enqueueMock).not.toHaveBeenCalled()
   })
 
-  async function forwardInboundToColleague(): Promise<Record<string, unknown>> {
-    const { container, created } = makeMessagesContainer(inboundMessage())
+  async function forwardInboundToColleague(
+    original: Record<string, unknown> = inboundMessage(),
+  ): Promise<Record<string, unknown>> {
+    const { container, created } = makeMessagesContainer(original)
     await commandRegistry.get('messages.messages.forward')!.execute(
       {
         messageId: inboundMessageId,
@@ -228,6 +242,39 @@ describe('outbound bridge — delivery intent across the messages seam (#5645 re
       makeBridgeContainer(replyRow) as never,
     )
 
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  // The bridge routes on the thread, not the source type: an AI auto-reply or a
+  // parented compose is public on the channel thread with no source type, and a
+  // forward of it must stay internal just the same.
+  it('does not deliver a reply under a forward of a channel-thread message that has no source type', async () => {
+    const forwardRow = await forwardInboundToColleague(
+      inboundMessage({ senderUserId: operatorUserId, sourceEntityType: null, sourceEntityId: null }),
+    )
+    expect(forwardRow.visibility).toBe('internal')
+    expect(forwardRow.externalName).toBeNull()
+
+    const { container, created } = makeMessagesContainer(forwardRow, [colleagueUserId])
+    await commandRegistry.get('messages.messages.reply')!.execute(
+      {
+        messageId: forwardRow.id,
+        body: 'The bot promised a refund; we should walk that back.',
+        bodyFormat: 'text',
+        sendViaEmail: false,
+        replyAll: false,
+        tenantId,
+        organizationId,
+        userId: colleagueUserId,
+      },
+      { container, auth: { features: ['messages.compose'] } } as never,
+    )
+
+    expect(created[0].visibility).toBe('internal')
+    await bridgeHandler(
+      sentEventPayload() as never,
+      makeBridgeContainer(created[0]) as never,
+    )
     expect(enqueueMock).not.toHaveBeenCalled()
   })
 

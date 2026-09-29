@@ -116,6 +116,31 @@ export async function hasChannelThreadReadAccess(
   return channelThread?.canAccess === true
 }
 
+/**
+ * Whether the caller may post a message meant to leave the platform onto
+ * `messageThreadId` (#5645 review, #6432).
+ *
+ * An internal thread, a thread outside the caller's scope and an absent hub all
+ * resolve to `null` and allow, keeping the pre-existing rule. A channel thread
+ * needs both the hub's access rule and `messages.view`, because the hub grants
+ * every shared channel regardless of features. Shared by the compose route and
+ * the draft send transition so a draft cannot be used to skip the gate.
+ */
+export async function canPostToChannelThread(
+  ctx: Awaited<ReturnType<typeof resolveRequestContext>>['ctx'],
+  scope: MessageScope,
+  messageThreadId: string,
+): Promise<boolean> {
+  const channelThread = await resolveMessageChannelThreadAccess(
+    ctx.container,
+    { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
+    { messageThreadId },
+    { userId: scope.userId, features: resolveActorFeatures(ctx.auth) },
+  )
+  if (!channelThread) return true
+  return channelThread.canAccess && (await canUseChannelThreadFallback(ctx, scope))
+}
+
 export async function canUseMessageEmailFeature(
   ctx: Awaited<ReturnType<typeof resolveRequestContext>>['ctx'],
   scope: MessageScope,

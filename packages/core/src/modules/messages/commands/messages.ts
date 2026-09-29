@@ -739,6 +739,21 @@ async function canActOnChannelThreadMessage(
   return channelThread?.canAccess === true
 }
 
+async function isOnChannelThread(
+  ctx: CommandRuntimeContext,
+  input: { tenantId: string; organizationId?: string | null; userId: string },
+  original: Message,
+): Promise<boolean> {
+  if (original.sourceEntityType === EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE) return true
+  const channelThread = await resolveMessageChannelThreadAccess(
+    ctx.container,
+    { tenantId: input.tenantId, organizationId: input.organizationId ?? null },
+    { messageThreadId: original.threadId ?? original.id },
+    { userId: input.userId, features: resolveActorFeatures(ctx.auth) },
+  )
+  return channelThread !== null
+}
+
 const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: string | null; recipientUserIds: string[] }> = {
   id: 'messages.messages.reply',
   async execute(rawInput, ctx) {
@@ -954,8 +969,10 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
     // `sendViaEmail` — so the customer's address is not carried onto it.
     // It is also filed as internal: replies copy their parent's visibility and
     // carry no `forwardedFrom`, so a public forward made every reply under it
-    // deliverable to the correspondent (#6431, #6428).
-    const keepsExternalCorrespondent = original.sourceEntityType !== EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE
+    // deliverable to the correspondent (#6431, #6428). The bridge routes on the
+    // thread, not the source, and some public messages on a channel thread
+    // carry no source type (an AI or parented compose), so the thread decides.
+    const keepsExternalCorrespondent = !(await isOnChannelThread(ctx, input, original))
     let newMessageId = ''
     let responseExternalEmail: string | null = null
     await em.transactional(async (trx) => {

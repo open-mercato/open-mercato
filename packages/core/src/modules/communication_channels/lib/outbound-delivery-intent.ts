@@ -34,11 +34,10 @@ type OutboundDeliveryIntentInput = {
  *      therefore stores `null` on a channel-linked thread, and reading that as
  *      public would deliver an internal note to the correspondent.
  *   2. **`forwardedFromMessageId`** — a forward. `forwardMessageCommand` files a
- *      forward of a channel message as internal, which also keeps every reply
- *      under it internal (#6431); this signal still refuses a forward that
- *      reaches the bridge public, e.g. one stored before that change, whose
- *      body is the quoted conversation plus the operator's own commentary
- *      about the correspondent.
+ *      forward on a channel thread as internal, which also keeps every reply
+ *      under it internal (#6431). This signal is the backstop for the forward
+ *      row itself if it ever reaches the bridge public; it cannot see replies
+ *      under such a forward, which carry no `forwardedFrom`.
  *
  * Signal 2 reads the event payload rather than the `messages` row on purpose:
  * nothing persisted distinguishes a forward from a reply — both set

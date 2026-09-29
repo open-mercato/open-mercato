@@ -32,7 +32,12 @@ import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
 import { getMessageType } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
 import { attachOperationMetadataHeader } from '../lib/operationMetadata'
-import { canUseChannelThreadFallback, canUseMessageEmailFeature, resolveMessageContext } from '../lib/routeHelpers'
+import {
+  canPostToChannelThread,
+  canUseChannelThreadFallback,
+  canUseMessageEmailFeature,
+  resolveMessageContext,
+} from '../lib/routeHelpers'
 import { applyMessageParticipantScope } from '../lib/participantScope'
 import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from './guards'
 import { findMessageIdsBySearchTokens } from '../lib/searchLookup'
@@ -570,13 +575,7 @@ export async function POST(req: Request) {
       { tenantId: scope.tenantId, organizationId: scope.organizationId },
     )
     const parentThreadId = parentMessage?.threadId ?? input.parentMessageId
-    const channelThread = await resolveMessageChannelThreadAccess(
-      ctx.container,
-      { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
-      { messageThreadId: parentThreadId },
-      { userId: scope.userId, features: resolveUserFeatures(ctx.auth) },
-    )
-    if (channelThread && (!channelThread.canAccess || !(await canUseChannelThreadFallback(ctx, scope)))) {
+    if (!(await canPostToChannelThread(ctx, scope, parentThreadId))) {
       return Response.json({ error: 'Access denied' }, { status: 403 })
     }
   }

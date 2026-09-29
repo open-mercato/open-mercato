@@ -13,7 +13,12 @@ import { MESSAGE_OPTIMISTIC_LOCK_RESOURCE_KIND } from '../../lib/constants'
 import { getMessageObjectType } from '../../lib/message-objects-registry'
 import { getMessageTypeOrDefault } from '../../lib/message-types-registry'
 import { attachOperationMetadataHeader } from '../../lib/operationMetadata'
-import { hasChannelThreadReadAccess, hasOrganizationAccess, resolveMessageContext } from '../../lib/routeHelpers'
+import {
+  canPostToChannelThread,
+  hasChannelThreadReadAccess,
+  hasOrganizationAccess,
+  resolveMessageContext,
+} from '../../lib/routeHelpers'
 import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from '../guards'
 import {
   errorResponseSchema,
@@ -396,6 +401,17 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   if (!message.isDraft) {
     return Response.json({ error: 'Only draft messages can be edited' }, { status: 409 })
+  }
+
+  // A draft is filed on its parent's thread and skips the compose route's
+  // channel gate, so sending it publicly must pass the same gate (#6432).
+  const finalVisibility = input.visibility !== undefined ? input.visibility : message.visibility
+  if (
+    input.isDraft === false &&
+    finalVisibility === 'public' &&
+    !(await canPostToChannelThread(ctx, scope, message.threadId ?? message.id))
+  ) {
+    return Response.json({ error: 'Access denied' }, { status: 403 })
   }
 
   const guardResult = await runMessageMutationGuards(
