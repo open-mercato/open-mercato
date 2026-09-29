@@ -59,8 +59,8 @@ Make sure agents and developers who add an encryption map entry to a module that
 
 ### Phase 3: Warn-only check in db:generate
 
-- [ ] 3.1 Add encryption backfill check with unit tests
-- [ ] 3.2 Wire the check into dbGenerate as warn-only
+- [x] 3.1 Add encryption backfill check with unit tests — 860bfd08f
+- [x] 3.2 Wire the check into dbGenerate as warn-only — 9a83549f4
 
 ### Phase 4: Guidance
 
