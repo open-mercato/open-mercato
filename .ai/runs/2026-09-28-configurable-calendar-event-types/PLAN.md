@@ -20,17 +20,45 @@ The source PR was revised on 2026-09-29 after the original execution plan and St
 | 1 | 1.2 | Generate and bootstrap module event-type contributions | group:A:capable | done | 16873badc |
 | 1 | 1.3 | Persist activity-type behavior through dictionary commands and APIs | group:B:capable | done | fc4e475c6 |
 | 1 | 1.4 | Expose the scoped effective activity-type catalog | group:B:capable | done | 98aa7096f |
-| 1 | 1.4a | Replace superseded generator architecture with widget, module, and DI composition | group:A:capable | todo | — |
-| 1 | 1.5 | Enforce applicability and reversible destructive type switches | group:B:capable | todo | — |
-| 2 | 2.1 | Add a CrudForm custom-fieldset allowlist contract | group:C:capable | todo | — |
-| 2 | 2.2 | Drive the calendar editor from resolved types and the UMES panel host | group:C:capable | todo | — |
-| 2 | 2.3 | Add the authoritative activity-type behavior editor and calendar link | group:C:capable | todo | — |
-| 2 | 2.4 | Demonstrate Visit widget add, Meeting patch, and Note tombstone in the example module | group:D:capable | todo | — |
-| 2 | 2.5 | Add selected-type widget validation and scoped Visit availability preview/server rule | group:D:capable | todo | — |
-| 2 | 2.6 | Add the Visit React panel and dual-runtime UMES override paths | group:C:capable | todo | — |
+| 1 | 1.4a | Replace superseded generator architecture with widget, module, and DI composition | group:A:capable | done | 33035d525 |
+| 1 | 1.5 | Enforce applicability and reversible destructive type switches | group:B:capable | done | 33035d525 |
+| 2 | 2.1 | Add a CrudForm custom-fieldset allowlist contract | group:C:capable | done | 33035d525 |
+| 2 | 2.2 | Drive the calendar editor from resolved types and the UMES panel host | group:C:capable | done | 33035d525 |
+| 2 | 2.3 | Add the authoritative activity-type behavior editor and calendar link | group:C:capable | done | 33035d525 |
+| 2 | 2.4 | Demonstrate Visit widget add, Meeting patch, and Note tombstone in the example module | group:D:capable | done | 33035d525 |
+| 2 | 2.5 | Add selected-type widget validation and scoped Visit availability preview/server rule | group:D:capable | done | 33035d525 |
+| 2 | 2.6 | Add the Visit React panel and dual-runtime UMES override paths | group:C:capable | done | 33035d525 |
 | 3 | 3.1 | Add self-contained event-type and custom-panel integration coverage | group:D:capable | todo | — |
 | 3 | 3.2 | Document the frozen extension contract and refresh standalone coverage | group:D:capable | todo | — |
 | 3 | 3.3 | Verify live UI flows and publish screenshot evidence to the PR | group:D:capable | todo | — |
+
+## Progress
+
+> Resume checklist for `om-auto-continue-pr`; the Tasks table above carries the same status and commit references.
+
+### Phase 1: Runtime contracts and enforcement
+
+- [x] 1.1 Add the public event-type behavior contract and deterministic registry — 1e3ed8d3c
+- [x] 1.2 Generate and bootstrap module event-type contributions — 16873badc
+- [x] 1.3 Persist activity-type behavior through dictionary commands and APIs — fc4e475c6
+- [x] 1.4 Expose the scoped effective activity-type catalog — 98aa7096f
+- [x] 1.4a Replace superseded generator architecture with widget, module, and DI composition — 33035d525
+- [x] 1.5 Enforce applicability and reversible destructive type switches — 33035d525
+
+### Phase 2: Shared and application UI
+
+- [x] 2.1 Add a CrudForm custom-fieldset allowlist contract — 33035d525
+- [x] 2.2 Drive the calendar editor from resolved types and the UMES panel host — 33035d525
+- [x] 2.3 Add the authoritative activity-type behavior editor and calendar link — 33035d525
+- [x] 2.4 Demonstrate Visit widget add, Meeting patch, and Note tombstone in the example module — 33035d525
+- [x] 2.5 Add selected-type widget validation and scoped Visit availability preview/server rule — 33035d525
+- [x] 2.6 Add the Visit React panel and dual-runtime UMES override paths — 33035d525
+
+### Phase 3: End-to-end evidence and durable contracts
+
+- [ ] 3.1 Add self-contained event-type and custom-panel integration coverage
+- [ ] 3.2 Document the frozen extension contract and refresh standalone coverage
+- [ ] 3.3 Verify live UI flows and publish screenshot evidence to the PR
 
 ## Goal
 
