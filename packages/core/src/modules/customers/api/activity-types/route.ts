@@ -77,7 +77,7 @@ export async function GET(req: Request) {
     const hierarchy = context.container.resolve('organizationHierarchyService') as OrganizationHierarchyService
     const ancestors = await hierarchy.resolveAncestorIds({ tenantId: context.tenantId, organizationId })
     if (ancestors === null) {
-      throw new CrudHttpError(404, { error: context.translate('customers.errors.organization_not_found', 'Organization not found') })
+      throw new CrudHttpError(403, { error: context.translate('customers.errors.organization_forbidden', 'Organization not accessible') })
     }
     const scopeIds = Array.from(new Set([organizationId, ...ancestors.slice().reverse()]))
     const cacheKey = `customers:activity-types:${context.tenantId}:org=${organizationId}:scope=${scopeIds.join('|')}:widgets=${getInjectionRegistryVersion()}:registry=${getCalendarEventTypeRegistryVersion()}`

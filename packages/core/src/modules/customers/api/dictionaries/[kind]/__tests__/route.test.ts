@@ -181,6 +181,17 @@ describe('customer dictionary route', () => {
     })
   })
 
+  it('fails closed for activity types when the selected organization is missing', async () => {
+    jest.mocked(mapDictionaryKind).mockReturnValueOnce({ kind: 'activity-types', mappedKind: 'activity_type' })
+    resolveAncestorIdsMock.mockResolvedValueOnce(null)
+    const response = await GET(
+      new Request('http://localhost/api/customers/dictionaries/activity-types'),
+      { params: { kind: 'activity-types' } },
+    )
+    expect(response.status).toBe(403)
+    expect(em.find).not.toHaveBeenCalled()
+  })
+
   it('returns a stable error code when organization context is unavailable', async () => {
     jest.mocked(resolveDictionaryRouteContext).mockResolvedValueOnce({
       translate: (_key: string, fallback?: string) => fallback ?? 'error',

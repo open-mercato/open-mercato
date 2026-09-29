@@ -72,7 +72,7 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
       const hierarchy = container.resolve('organizationHierarchyService') as OrganizationHierarchyService
       const ancestors = await hierarchy.resolveAncestorIds({ tenantId, organizationId })
       if (ancestors === null) {
-        throw new CrudHttpError(404, { error: translate('customers.errors.organization_not_found', 'Organization not found') })
+        throw new CrudHttpError(403, { error: translate('customers.errors.organization_forbidden', 'Organization not accessible') })
       }
       scopedOrganizationIds = Array.from(new Set([organizationId, ...ancestors.slice().reverse()]))
     }

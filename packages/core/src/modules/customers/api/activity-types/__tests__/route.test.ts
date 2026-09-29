@@ -106,6 +106,13 @@ describe('activity type catalog route', () => {
     )
   })
 
+  test('fails closed when the selected organization has no hierarchy record', async () => {
+    resolveAncestorIdsMock.mockResolvedValueOnce(null)
+    const response = await GET(new Request('http://localhost/api/customers/activity-types'))
+    expect(response.status).toBe(403)
+    expect(resolveScopedCalendarEventTypesMock).not.toHaveBeenCalled()
+  })
+
   test('dictionary invalidation removes the local tag used by catalog cache entries', async () => {
     await invalidateDictionaryCache(cache as never, {
       tenantId,
