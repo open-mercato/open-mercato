@@ -150,12 +150,23 @@ export function toDefaultGroupConflict(err: unknown, translate: Translate): unkn
 // inserted with `isDefault: false` and promoted here, after the insert committed, in its
 // own transaction: clear the previous default first, then set the new one, so the
 // partial unique index is never violated and a failed create never touches the old
-// default.
+// default. The group row is already committed at this point, so a concurrent promotion
+// that wins the unique index is retried rather than reported: a fresh transaction sees
+// the winner committed and replaces it, exactly as two sequential creates would.
+const DEFAULT_PROMOTION_ATTEMPTS = 3
+
 export async function promoteDefaultGroup(em: EntityManager, tenantId: string, groupId: string, now: Date): Promise<void> {
-  await em.transactional(async (tem) => {
-    await clearOtherDefaultGroups(tem, tenantId, groupId)
-    await tem.nativeUpdate(CustomerGroup, { id: groupId, tenantId, deletedAt: null }, { isDefault: true, updatedAt: now })
-  })
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await em.transactional(async (tem) => {
+        await clearOtherDefaultGroups(tem, tenantId, groupId)
+        await tem.nativeUpdate(CustomerGroup, { id: groupId, tenantId, deletedAt: null }, { isDefault: true, updatedAt: now })
+      })
+      return
+    } catch (err) {
+      if (attempt >= DEFAULT_PROMOTION_ATTEMPTS || !isUniqueViolation(err, CUSTOMER_GROUP_DEFAULT_UNIQUE_CONSTRAINT)) throw err
+    }
+  }
 }
 
 // The update path's counterpart of `promoteDefaultGroup`: runs inside the factory's
