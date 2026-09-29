@@ -6,15 +6,27 @@
 // paths judged highest-risk/highest-value within the time available —
 // Invariant 3 (never react to the engine's own output), zespół-4 detection,
 // the MPK (cost centre) priority hybrid's all three paths (explicit tag >
-// rule default > sentinel), and the two "cannot resolve where to post"
-// rejections (missing clearing account, missing target account). The
-// contra-side (reversal/mirror) path (`findOriginalReclassification` and
-// its mirror-posting logic) is NOT covered here and is left as a disclosed
-// gap — it needs its own fixture set (an original reclassification entry
-// plus its own reversal) that didn't fit this pass's time budget.
+// rule default > sentinel), the two "cannot resolve where to post"
+// rejections (missing clearing account, missing target account), and the
+// contra-side (reversal/mirror) path: `findOriginalReclassification`'s
+// happy path, its cost-centre tag reuse (with a sentinel fallback when the
+// original line was untagged), both reversal-specific rejections (missing
+// `referenceId`, no matching reclassification found), and its amount-based
+// disambiguation when more than one reclassification entry references the
+// same original entry.
+//
+// **Still a disclosed gap**: `findOriginalReclassification`'s third
+// disambiguation tier — falling back to the candidate whose debit account
+// matches the *current* `DefaultAccountPostingRule` resolution when amount
+// alone doesn't disambiguate — isn't exercised here, nor is the final
+// "still ambiguous, take the first candidate" fallback. Both are narrow,
+// same-risk-class extensions of the amount-disambiguation test already
+// here, left for a follow-up.
 export {}
 
 import {
+  JournalEntry,
+  JournalEntryLine,
   LedgerAccount,
   LedgerAccountGroup,
   LedgerAccountType,
@@ -337,6 +349,161 @@ describe('reclassifyLine — MPK (cost centre) priority hybrid', () => {
     )
     expect(commandBus.setDimensionCalls).toEqual([
       expect.objectContaining({ dimensionIds: [SENTINEL_COST_CENTER_ID] }),
+    ])
+  })
+})
+describe('reclassifyLine — reversal/mirror path', () => {
+  const ORIGINAL_ENTRY_ID = 'entry-original-1'
+  const RECLASS_JE_ID = 'je-reclass-original'
+  const RECLASS_DEBIT_LINE_ID = 'je-reclass-original-debit'
+  const RECLASS_CREDIT_LINE_ID = 'je-reclass-original-credit'
+
+  function seedOriginalReclassification(
+    em: FakeEm,
+    overrides: { debitLineId?: string; taggedCostCenterId?: string | null } = {},
+  ) {
+    const debitLineId = overrides.debitLineId ?? RECLASS_DEBIT_LINE_ID
+    em.seed(JournalEntry, {
+      id: RECLASS_JE_ID,
+      organizationId: ORG,
+      tenantId: TENANT,
+      referenceType: RECLASSIFICATION_REFERENCE_TYPE,
+      referenceId: ORIGINAL_ENTRY_ID,
+    })
+    em.seed(JournalEntryLine, {
+      id: debitLineId,
+      journalEntryId: RECLASS_JE_ID,
+      organizationId: ORG,
+      tenantId: TENANT,
+      accountId: TARGET_ACCOUNT_ID,
+      debit: '100.00',
+      credit: '0',
+    })
+    em.seed(JournalEntryLine, {
+      id: RECLASS_CREDIT_LINE_ID,
+      journalEntryId: RECLASS_JE_ID,
+      organizationId: ORG,
+      tenantId: TENANT,
+      accountId: CLEARING_ACCOUNT_ID,
+      debit: '0',
+      credit: '100.00',
+    })
+    if (overrides.taggedCostCenterId !== null) {
+      em.seed(JournalEntryLineDimension, {
+        id: 'jeld-reclass-tag',
+        organizationId: ORG,
+        tenantId: TENANT,
+        journalEntryLineId: debitLineId,
+        dimensionType: 'CostCenter',
+        dimensionId: overrides.taggedCostCenterId ?? EXPLICIT_COST_CENTER_ID,
+      })
+    }
+  }
+
+  function buildReversalCandidate(lineOverrides: Partial<ReclassifyCandidate['line']> = {}) {
+    return buildCandidate(
+      { referenceId: ORIGINAL_ENTRY_ID, type: 'REVERSAL' },
+      { accountId: SOURCE_ACCOUNT_ID, debit: '0', credit: '100.00', ...lineOverrides },
+    )
+  }
+
+  it('mirrors the original reclassification: debits clearing, credits the original target account, and reuses its cost-centre tag', async () => {
+    const em = buildFakeEm()
+    seedZespol4Account(em, SOURCE_ACCOUNT_ID)
+    seedSettings(em)
+    seedOriginalReclassification(em)
+    const commandBus = buildFakeCommandBus()
+
+    const result = await reclassifyLine(buildDeps(em, commandBus), buildReversalCandidate())
+
+    expect(result.reclassified).toBe(true)
+    const postCall = commandBus.execute.mock.calls.find(([commandId]) => commandId === 'ledger.postJournalEntry')
+    expect(postCall?.[1].input.lines).toEqual([
+      expect.objectContaining({ accountId: CLEARING_ACCOUNT_ID, debit: '100.00' }),
+      expect.objectContaining({ accountId: TARGET_ACCOUNT_ID, credit: '100.00' }),
+    ])
+    // The mirror's target-account (credit) line is tagged, not the debit
+    // line — Design Decisions, "Tag the mirror's target-account line".
+    expect(commandBus.setDimensionCalls).toEqual([
+      expect.objectContaining({ dimensionIds: [EXPLICIT_COST_CENTER_ID] }),
+    ])
+  })
+
+  it('falls back to the sentinel cost centre when the original reclassification line carries no tag', async () => {
+    const em = buildFakeEm()
+    seedZespol4Account(em, SOURCE_ACCOUNT_ID)
+    seedSettings(em)
+    seedSentinelCostCenter(em)
+    seedOriginalReclassification(em, { taggedCostCenterId: null })
+    const commandBus = buildFakeCommandBus()
+
+    const result = await reclassifyLine(buildDeps(em, commandBus), buildReversalCandidate())
+
+    expect(result.reclassified).toBe(true)
+    expect(commandBus.setDimensionCalls).toEqual([
+      expect.objectContaining({ dimensionIds: [SENTINEL_COST_CENTER_ID] }),
+    ])
+  })
+
+  it('rejects with 422 when the reversal entry carries no referenceId back to the entry it reverses', async () => {
+    const em = buildFakeEm()
+    seedZespol4Account(em, SOURCE_ACCOUNT_ID)
+    seedSettings(em)
+    const commandBus = buildFakeCommandBus()
+    const candidate = buildCandidate(
+      { referenceId: null, type: 'REVERSAL' },
+      { accountId: SOURCE_ACCOUNT_ID, debit: '0', credit: '100.00' },
+    )
+
+    await expect(reclassifyLine(buildDeps(em, commandBus), candidate)).rejects.toMatchObject({ status: 422 })
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('rejects with 422 when no prior reclassification can be found for the reversed entry', async () => {
+    const em = buildFakeEm()
+    seedZespol4Account(em, SOURCE_ACCOUNT_ID)
+    seedSettings(em)
+    // No JournalEntry seeded with `referenceType: RECLASSIFICATION_REFERENCE_TYPE,
+    // referenceId: ORIGINAL_ENTRY_ID` — the lookup finds nothing.
+    const commandBus = buildFakeCommandBus()
+
+    await expect(reclassifyLine(buildDeps(em, commandBus), buildReversalCandidate())).rejects.toMatchObject({ status: 422 })
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('disambiguates multiple reclassification candidates by matching the reversed amount', async () => {
+    const em = buildFakeEm()
+    seedZespol4Account(em, SOURCE_ACCOUNT_ID)
+    seedSettings(em)
+    // A decoy reclassification for the same original entry, different
+    // amount — exercises `findOriginalReclassification`'s multi-candidate
+    // path (see lib/reclassify.ts).
+    em.seed(JournalEntry, {
+      id: 'je-reclass-decoy',
+      organizationId: ORG,
+      tenantId: TENANT,
+      referenceType: RECLASSIFICATION_REFERENCE_TYPE,
+      referenceId: ORIGINAL_ENTRY_ID,
+    })
+    em.seed(JournalEntryLine, {
+      id: 'je-reclass-decoy-debit',
+      journalEntryId: 'je-reclass-decoy',
+      organizationId: ORG,
+      tenantId: TENANT,
+      accountId: UNALLOCATED_TARGET_ACCOUNT_ID,
+      debit: '999.00',
+      credit: '0',
+    })
+    seedOriginalReclassification(em) // the real match, amount 100.00
+    const commandBus = buildFakeCommandBus()
+
+    const result = await reclassifyLine(buildDeps(em, commandBus), buildReversalCandidate())
+
+    expect(result.reclassified).toBe(true)
+    const postCall = commandBus.execute.mock.calls.find(([commandId]) => commandId === 'ledger.postJournalEntry')
+    expect(postCall?.[1].input.lines).toEqual([
+      expect.objectContaining({ accountId: CLEARING_ACCOUNT_ID, debit: '100.00' }),
+      expect.objectContaining({ accountId: TARGET_ACCOUNT_ID, credit: '100.00' }),
     ])
   })
 })
