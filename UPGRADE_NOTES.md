@@ -24,6 +24,14 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### Customers calendar event-type extension contract (#6684)
+
+Customers now exposes the scoped `GET /api/customers/activity-types` catalog and the additive `calendar:customers.event-types` headless widget spot. Apps can use `ModuleEntry.overrides.calendar` to replace, patch, or hide event types, and use the Customers-owned `calendarEventTypeRegistry` service for process-local contributions. React panels use the new `section:customers.calendar-event-editor.type-panel` UMES handle. The six existing keys and persisted `interactionType` values remain unchanged; the existing `KIND_CONFIG`, `EDITOR_KINDS`, `EditorKindConfig`, and `editorKindOfInteractionType()` exports remain available.
+
+**Action for module authors:** declare new types in an ordinary `widgets/injection/<name>/widget.ts` mapped through `widgets/injection-table.ts`, then run `yarn generate`. No calendar-specific convention file or generated registry is supported. A custom panel must receive the versioned capability-only props and leave submission with the host `CrudForm`. When adding a selected-type widget, use `calendarEventTypeKeys` and keep an authoritative server rule for direct API writes. New interaction types must use the scoped catalog and applicable-field rules; callers changing type with values that would be cleared must handle the typed `calendar_type_change_confirmation_required` 409 and retry with `confirmDiscardInapplicableValues: true` after user confirmation. Existing interactions retain their exact stored keys and can use the historical fallback when a contributor is disabled.
+
+The optional `example` module demonstrates a `visit` type, a Meeting label patch, and a Note selection tombstone. See the [calendar event-type guide](apps/docs/docs/framework/modules/calendar-event-types.mdx) and the [source specification PR](https://github.com/open-mercato/open-mercato/pull/6687).
+
 ### `loadDictionary` now lets a host app's own locale file override a module-defined translation key (#5995)
 
 `loadDictionary` (`@open-mercato/shared/lib/i18n/server`) used to merge the host app's dictionary

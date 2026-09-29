@@ -1,15 +1,23 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { waitForAsyncRegistration } from '@open-mercato/shared/lib/bootstrap/factory'
+import {
+  getInjectionRegistryVersion,
+  loadInjectionDataWidgetsForSpot,
+} from '@open-mercato/shared/modules/widgets/injection-loader'
 import {
   calendarEventTypeBehaviorSchema,
   calendarEventTypes,
   getCalendarEventTypes,
+  getCalendarEventTypeTombstones,
   resolveCalendarEventType,
+  registerWidgetCalendarEventTypeContributions,
   type CalendarEventTypeBehavior,
   type CalendarEventTypeProvenance,
   type EffectiveCalendarEventType,
 } from '../../calendar-event-types'
 import { CustomerDictionaryEntry } from '../../data/entities'
+import { extensionPoints } from '../../extension-points'
 
 export type ScopedCalendarEventType = Readonly<{
   key: string
@@ -29,6 +37,7 @@ export type ScopedCalendarEventType = Readonly<{
   isLocalOverride: boolean
   updatedAt: string | null
   missingCustomFieldsetIds: readonly string[]
+  inactiveDictionaryOverride?: boolean
 }>
 
 export type CalendarEventTypeCatalog = Readonly<{
@@ -75,17 +84,41 @@ function serializeStaticType(type: EffectiveCalendarEventType): ScopedCalendarEv
 }
 
 export function resolveBaselineCalendarEventTypes(): CalendarEventTypeCatalog {
-  let types: readonly EffectiveCalendarEventType[]
-  try {
-    types = getCalendarEventTypes()
-  } catch {
-    types = calendarEventTypes.map((definition) => ({
-      ...definition,
-      provenance: {},
-      historical: false,
-    }))
-  }
+  const types: readonly EffectiveCalendarEventType[] = getCalendarEventTypes()
   return deepFreeze({ items: types.map(serializeStaticType), fallbackKey: 'meeting' })
+}
+
+let loadedWidgetVersion = -1
+let loadingWidgets: Promise<void> | null = null
+
+async function ensureCalendarEventTypeWidgetsLoaded(): Promise<void> {
+  await waitForAsyncRegistration()
+  const version = getInjectionRegistryVersion()
+  if (loadedWidgetVersion === version) return
+  if (loadingWidgets) return loadingWidgets
+  const pending = (async () => {
+    const widgets = await loadInjectionDataWidgetsForSpot(extensionPoints.hosts.calendarEventTypes.spotId)
+    registerWidgetCalendarEventTypeContributions(widgets.map((widget) => {
+      if (!('eventTypes' in widget)) {
+        throw new Error(`[internal] Calendar event type widget ${widget.metadata.id} has no eventTypes payload`)
+      }
+      return {
+        moduleId: widget.moduleId,
+        widgetId: widget.metadata.id,
+        priority: typeof widget.placement?.priority === 'number' ? widget.placement.priority : 0,
+        definitions: widget.eventTypes,
+        overrides: 'eventTypeOverrides' in widget ? widget.eventTypeOverrides : undefined,
+        patches: 'eventTypePatches' in widget ? widget.eventTypePatches : undefined,
+      }
+    }))
+    loadedWidgetVersion = version
+  })()
+  loadingWidgets = pending
+  try {
+    await pending
+  } finally {
+    if (loadingWidgets === pending) loadingWidgets = null
+  }
 }
 
 function selectDictionaryRows(
@@ -108,9 +141,16 @@ function selectDictionaryRows(
   return selected
 }
 
+function isUnchangedShippedDictionaryRow(row: CustomerDictionaryEntry, key: string): boolean {
+  const shipped = calendarEventTypes.find((entry) => entry.key === key)
+  return !!shipped && !row.activityTypeBehavior && row.label === shipped.label &&
+    row.icon === shipped.icon && row.color === shipped.color
+}
+
 export async function resolveScopedCalendarEventTypes(
   input: ResolveCalendarEventTypesInput,
 ): Promise<CalendarEventTypeCatalog> {
+  await ensureCalendarEventTypeWidgetsLoaded()
   const scopeOrganizationIds = Array.from(new Set([input.organizationId, ...input.readableOrganizationIds]))
   const rows = await findWithDecryption(
     input.em,
@@ -124,12 +164,16 @@ export async function resolveScopedCalendarEventTypes(
     { tenantId: input.tenantId, organizationId: input.organizationId },
   )
   const dictionaryRows = selectDictionaryRows(rows, input.organizationId, scopeOrganizationIds)
+  for (const [key, row] of dictionaryRows) {
+    if (isUnchangedShippedDictionaryRow(row, key)) dictionaryRows.delete(key)
+  }
   const staticCatalog = resolveBaselineCalendarEventTypes()
   const availableFieldsets = input.availableCustomFieldsetIdsFromEntitiesBoundary
     ? new Set(input.availableCustomFieldsetIdsFromEntitiesBoundary)
     : null
   const staticByKey = new Map(staticCatalog.items.map((item) => [item.key, item]))
-  const keys = new Set([...staticByKey.keys(), ...dictionaryRows.keys()])
+  const tombstonedKeys = new Set(getCalendarEventTypeTombstones().map((entry) => entry.key))
+  const keys = new Set([...staticByKey.keys(), ...[...dictionaryRows.keys()].filter((key) => !tombstonedKeys.has(key))])
   const fallbackBehavior = calendarEventTypes[0]!.behavior
   const items = [...keys].map((key): ScopedCalendarEventType => {
     const base = staticByKey.get(key)
@@ -139,6 +183,12 @@ export async function resolveScopedCalendarEventTypes(
       return deepFreeze({
         ...base!,
         missingCustomFieldsetIds: base!.behavior.customFieldsetIds.filter((id) => !availableFieldsets.has(id)),
+      })
+    }
+    if (base?.adminConfigurable === false) {
+      return deepFreeze({
+        ...base,
+        inactiveDictionaryOverride: true,
       })
     }
     const parsedBehavior = row.activityTypeBehavior
@@ -160,7 +210,7 @@ export async function resolveScopedCalendarEventTypes(
       source: base?.source ?? 'dictionary',
       provenance: base?.provenance ?? {},
       historical: false,
-      adminConfigurable: base?.adminConfigurable !== false,
+      adminConfigurable: true,
       isInherited: !isLocalOverride,
       isLocalOverride,
       updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,

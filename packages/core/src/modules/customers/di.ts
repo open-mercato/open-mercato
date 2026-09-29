@@ -3,6 +3,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { OptimisticLockCurrentReader } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { registerOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
+import { registerModuleOverrideApplier, type CalendarOverridesShape } from '@open-mercato/shared/modules/overrides'
+import { createCalendarEventTypeRegistry, registerCalendarModuleOverrides, type CalendarModuleOverrideEntry } from './calendar-event-types'
+import { resolveCatalogEventType, resolveScopedCalendarEventTypes } from './lib/calendar/eventTypeResolver'
+import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
 import { CustomerEntity, CustomerAddress, CustomerInteraction } from './data/entities'
 
 const RESOURCE_KIND_COMPANY = 'customers.company'
@@ -64,11 +68,33 @@ registerOptimisticLockReaders({
   [RESOURCE_KIND_PEOPLE]: readCustomerPersonUpdatedAt,
 })
 
+registerModuleOverrideApplier<CalendarOverridesShape>('calendar', (entries) => {
+  registerCalendarModuleOverrides(entries as CalendarModuleOverrideEntry[])
+})
+
+const calendarEventTypeRegistry = createCalendarEventTypeRegistry()
+
 export function register(container: AppContainer) {
   container.register({
     CustomerEntity: asValue(CustomerEntity),
     CustomerAddress: asValue(CustomerAddress),
     CustomerInteraction: asValue(CustomerInteraction),
+    calendarEventTypeRegistry: asValue(calendarEventTypeRegistry),
+    calendarEventTypeCatalogService: asValue({
+      async resolveBehavior(input: { tenantId: string; organizationId: string; key: string }) {
+        const hierarchy = container.resolve('organizationHierarchyService') as OrganizationHierarchyService
+        const ancestors = await hierarchy.resolveAncestorIds({ tenantId: input.tenantId, organizationId: input.organizationId })
+        if (ancestors === null) throw new Error('[internal] Calendar organization not found')
+        const em = container.resolve('em') as EntityManager
+        const catalog = await resolveScopedCalendarEventTypes({
+          em,
+          tenantId: input.tenantId,
+          organizationId: input.organizationId,
+          readableOrganizationIds: [input.organizationId, ...ancestors.slice().reverse()],
+        })
+        return resolveCatalogEventType(catalog, input.key)?.behavior ?? null
+      },
+    }),
   })
   // `crudMutationGuardService` is registered platform-wide in the shared
   // DI bootstrap (`packages/shared/src/lib/di/container.ts`). It already

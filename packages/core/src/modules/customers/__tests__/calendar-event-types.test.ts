@@ -1,116 +1,156 @@
 import {
   calendarEventTypeBehaviorSchema,
   calendarEventTypeDefinitionSchema,
+  calendarEventTypePatchSchema,
   calendarEventTypes,
+  createCalendarEventTypeRegistry,
   getCalendarEventTypeDiagnostics,
+  getCalendarEventTypeRegistryVersion,
   getCalendarEventTypes,
-  getCalendarEventTypeTombstones,
-  registerCalendarEventTypeEntries,
-  registerProgrammaticCalendarEventTypeEntries,
+  registerCalendarModuleOverrides,
+  registerWidgetCalendarEventTypeContributions,
   resetCalendarEventTypeRegistryForTests,
   resolveCalendarEventType,
   type CalendarEventTypeDefinition,
-  type NormalizedCalendarEventTypeEntry,
 } from '../calendar-event-types'
 import { editorKindOfInteractionType } from '../lib/calendar/editorPayload'
 
 const meeting = calendarEventTypes[0] as CalendarEventTypeDefinition
-
-function entry(
-  moduleId: string,
-  moduleOrder: number,
-  definitions: CalendarEventTypeDefinition[] = [],
-  overrides: NormalizedCalendarEventTypeEntry['overrides'] = {},
-): NormalizedCalendarEventTypeEntry {
-  return { moduleId, sourcePath: `${moduleId}/calendar-event-types.ts`, moduleOrder, definitions, overrides }
+const visit: CalendarEventTypeDefinition = {
+  ...meeting,
+  key: 'visit',
+  label: 'Visit',
+  behavior: { ...meeting.behavior, baseKind: 'event', order: 50 },
 }
 
 beforeEach(resetCalendarEventTypeRegistryForTests)
 
 describe('calendar event type contracts', () => {
-  it('keeps the six shipped behaviors immutable and rejects unknown properties', () => {
+  it('keeps the six shipped behaviors immutable and uses closed schemas', () => {
     expect(calendarEventTypes.map((definition) => definition.key)).toEqual(['meeting', 'call', 'email', 'note', 'event', 'task'])
-    expect(Object.isFrozen(calendarEventTypes)).toBe(true)
     expect(Object.isFrozen(calendarEventTypes[0]?.behavior.fields)).toBe(true)
     expect(() => calendarEventTypeBehaviorSchema.parse({ ...meeting.behavior, unexpected: true })).toThrow()
     expect(() => calendarEventTypeDefinitionSchema.parse({ ...meeting, unexpected: true })).toThrow()
+    expect(() => calendarEventTypePatchSchema.parse({ targetEventTypeKey: 'meeting', replaceKey: 'other' })).toThrow()
   })
 
-  it('composes additions, property patches, replacement arrays, and programmatic overrides deterministically', () => {
-    registerCalendarEventTypeEntries([
-      entry('later', 20, [], { meeting: { color: 'later', behavior: { fields: { allDay: false }, customFieldsetIds: ['later'] } } }),
-      entry('earlier', 10, [{ ...meeting, key: 'site-visit', label: 'Site visit', behavior: { ...meeting.behavior, baseKind: 'event', order: 50 } }], {
-        meeting: { label: 'Patched meeting', behavior: { fields: { recurrence: false }, customFieldsetIds: ['earlier', 'shared'] } },
-      }),
+  it('composes widgets, module configuration and DI patches in tier order', () => {
+    registerWidgetCalendarEventTypeContributions([
+      { moduleId: 'example', widgetId: 'calendar-visit', definitions: [visit], patches: [{ targetEventTypeKey: 'meeting', replaceLabel: 'Widget meeting', replaceCustomFieldsetIds: ['first', 'shared'] }] },
+      { moduleId: 'later', widgetId: 'calendar-patch', patches: [{ targetEventTypeKey: 'meeting', replaceColor: 'later', replaceFields: { allDay: false }, deleteCustomFieldsetIds: ['first'], appendCustomFieldsetIds: ['later', 'shared'] }] },
     ])
-    registerProgrammaticCalendarEventTypeEntries([
-      entry('app', 0, [], { meeting: { icon: 'app-icon' } }),
-    ])
+    registerCalendarModuleOverrides([{
+      moduleId: 'example',
+      overrides: { patches: [{ targetEventTypeKey: 'meeting', replaceLabel: 'Customer meeting', replaceFields: { recurrence: false } }] },
+    }])
+    createCalendarEventTypeRegistry().patch('app', { targetEventTypeKey: 'meeting', replaceIcon: 'app-icon' })
 
-    expect(getCalendarEventTypes().map((definition) => definition.key).slice(0, 3)).toEqual(['meeting', 'site-visit', 'call'])
+    expect(getCalendarEventTypes().map((definition) => definition.key).slice(0, 3)).toEqual(['meeting', 'visit', 'call'])
     const resolved = resolveCalendarEventType('meeting')
     expect(resolved).toMatchObject({
-      label: 'Patched meeting',
-      color: 'later',
-      icon: 'app-icon',
-      behavior: { fields: { allDay: false, recurrence: false }, customFieldsetIds: ['later'] },
+      label: 'Customer meeting', color: 'later', icon: 'app-icon',
+      behavior: { fields: { allDay: false, recurrence: false }, customFieldsetIds: ['shared', 'later'] },
     })
-    expect(resolved?.provenance.label.moduleId).toBe('earlier')
+    expect(resolved?.provenance.label.phase).toBe('module')
     expect(resolved?.provenance.color.moduleId).toBe('later')
     expect(resolved?.provenance.icon.phase).toBe('programmatic')
-    expect(Object.isFrozen(resolved)).toBe(true)
     expect(Object.isFrozen(resolved?.behavior.fields)).toBe(true)
-    expect(editorKindOfInteractionType('site-visit')).toBe('event')
+    expect(editorKindOfInteractionType('visit')).toBe('event')
   })
 
-  it('rejects duplicate definitions and reports unknown patches', () => {
-    expect(() => registerCalendarEventTypeEntries([
-      entry('first', 0, [{ ...meeting, key: 'duplicate', label: 'First' }]),
-      entry('second', 1, [{ ...meeting, key: 'duplicate', label: 'Second' }]),
-    ])).toThrow('modules "first" and "second"')
+  it('rejects a duplicate base key but preserves the first widget', () => {
+    registerWidgetCalendarEventTypeContributions([
+      { moduleId: 'first', widgetId: 'first', definitions: [visit] },
+      { moduleId: 'second', widgetId: 'second', definitions: [{ ...visit, label: 'Second visit' }] },
+    ])
+    expect(resolveCalendarEventType('visit')?.label).toBe('Visit')
+    expect(getCalendarEventTypeDiagnostics()).toContainEqual({
+      code: 'duplicate-definition', key: 'visit', moduleId: 'second', widgetId: 'second', owner: 'first',
+    })
+  })
+
+  it('rejects malformed widget sources atomically', () => {
+    registerWidgetCalendarEventTypeContributions([
+      { moduleId: 'bad', widgetId: 'invalid', definitions: [visit], patches: [{ targetEventTypeKey: 'meeting', replaceOrder: -1 }] },
+      { moduleId: 'good', widgetId: 'valid', definitions: [visit] },
+    ])
+    expect(resolveCalendarEventType('visit')?.provenance.key.moduleId).toBe('good')
+    expect(getCalendarEventTypeDiagnostics()).toContainEqual({ code: 'invalid-source', moduleId: 'bad', widgetId: 'invalid' })
+  })
+
+  it('replaces parse diagnostics on repeated source registration', () => {
+    const invalidModule = [{ moduleId: 'app', overrides: { patches: [{ targetEventTypeKey: 'meeting', replaceOrder: -1 }] } }]
+    registerCalendarModuleOverrides(invalidModule)
+    const initial = getCalendarEventTypeDiagnostics()
+    registerCalendarModuleOverrides(invalidModule)
+    expect(getCalendarEventTypeDiagnostics()).toEqual(initial)
+    registerCalendarModuleOverrides([])
+    expect(getCalendarEventTypeDiagnostics()).toEqual([])
+  })
+
+  it('drops an entire source when a schema-valid patch makes composition invalid', () => {
+    const overflow = {
+      targetEventTypeKey: 'meeting',
+      replaceCustomFieldsetIds: Array.from({ length: 32 }, (_, index) => `fieldset_${index}`),
+      appendCustomFieldsetIds: ['overflow'],
+    }
+    registerWidgetCalendarEventTypeContributions([
+      { moduleId: 'bad', widgetId: 'bad-widget', definitions: [visit], overrides: { meeting: { ...meeting, label: 'Bad meeting' } }, patches: [overflow] },
+      { moduleId: 'good', widgetId: 'good-widget', patches: [{ targetEventTypeKey: 'meeting', replaceLabel: 'Good meeting' }] },
+    ])
+    expect(resolveCalendarEventType('visit')).toBeUndefined()
+    expect(resolveCalendarEventType('meeting')?.label).toBe('Good meeting')
+    expect(getCalendarEventTypeDiagnostics()).toContainEqual({ code: 'invalid-source', key: 'meeting', moduleId: 'bad', widgetId: 'bad-widget' })
+    const replacement = createCalendarEventTypeRegistry()
+    replacement.upsert('replacement', visit)
+    expect(resolveCalendarEventType('visit')?.provenance.key.moduleId).toBe('replacement')
+    replacement.removeSource('replacement')
+
+    registerCalendarModuleOverrides([{
+      moduleId: 'bad-module', overrides: { eventTypes: { note: null }, patches: [overflow] },
+    }])
+    expect(resolveCalendarEventType('note')).toBeDefined()
+    expect(getCalendarEventTypeDiagnostics()).toContainEqual({ code: 'invalid-source', key: 'meeting', moduleId: 'bad-module' })
 
     resetCalendarEventTypeRegistryForTests()
-    registerCalendarEventTypeEntries([entry('unknown-patcher', 0, [], { missing: { label: 'Missing' } })])
-    expect(getCalendarEventTypeDiagnostics()).toEqual([
-      { code: 'unknown-override', key: 'missing', moduleId: 'unknown-patcher' },
-    ])
+    const registry = createCalendarEventTypeRegistry()
+    registry.upsert('bad-di', visit)
+    registry.patch('bad-di', overflow)
+    expect(resolveCalendarEventType('visit')).toBeUndefined()
+    expect(getCalendarEventTypeDiagnostics()).toContainEqual({ code: 'invalid-source', key: 'meeting', moduleId: 'bad-di' })
   })
 
-  it('uses tombstones only for selection and preserves historical semantics', () => {
-    registerCalendarEventTypeEntries([entry('hide', 0, [], { task: null })])
-    expect(resolveCalendarEventType('task')).toBeUndefined()
-    expect(getCalendarEventTypeTombstones()).toMatchObject([{ key: 'task' }])
-    expect(resolveCalendarEventType('task', { includeHistorical: true })).toMatchObject({
-      key: 'task',
-      historical: true,
-      fallbackReason: 'tombstoned',
-      behavior: { baseKind: 'task', selectable: false },
+  it('supports tombstones and historical fallback without rewriting keys', () => {
+    registerCalendarModuleOverrides([{ moduleId: 'example', overrides: { eventTypes: { note: null } } }])
+    expect(resolveCalendarEventType('note')).toBeUndefined()
+    expect(resolveCalendarEventType('note', { includeHistorical: true })).toMatchObject({
+      key: 'note', historical: true, fallbackReason: 'tombstoned', behavior: { baseKind: 'note', selectable: false },
+    })
+    registerCalendarModuleOverrides([])
+    expect(resolveCalendarEventType('note')?.behavior.selectable).toBe(true)
+    registerWidgetCalendarEventTypeContributions([{ moduleId: 'example', widgetId: 'visit', definitions: [visit] }])
+    registerWidgetCalendarEventTypeContributions([])
+    expect(resolveCalendarEventType('visit', { includeHistorical: true })).toMatchObject({
+      key: 'visit', fallbackReason: 'module-unavailable', behavior: { baseKind: 'event', selectable: false },
     })
   })
 
-  it('retains a disappeared module definition and falls back safely for an unknown historical key', () => {
-    registerCalendarEventTypeEntries([
-      entry('visits', 0, [{ ...meeting, key: 'site-visit', label: 'Site visit', behavior: { ...meeting.behavior, baseKind: 'event' } }]),
-    ])
-    registerCalendarEventTypeEntries([])
-    expect(resolveCalendarEventType('site-visit')).toBeUndefined()
-    expect(resolveCalendarEventType('site-visit', { includeHistorical: true })).toMatchObject({
-      key: 'site-visit',
-      label: 'Site visit',
-      fallbackReason: 'module-unavailable',
-      behavior: { baseKind: 'event', selectable: false },
-    })
-    expect(resolveCalendarEventType('legacy-type', { includeHistorical: true })).toMatchObject({
-      key: 'legacy-type',
-      label: 'legacy-type',
-      fallbackReason: 'unknown',
-      behavior: { baseKind: 'meeting', selectable: false },
-    })
-  })
-
-  it('replaces the same generated module entry idempotently', () => {
-    registerCalendarEventTypeEntries([entry('patcher', 0, [], { meeting: { label: 'First' } })])
-    registerCalendarEventTypeEntries([entry('patcher', 0, [], { meeting: { label: 'Second' } })])
-    expect(resolveCalendarEventType('meeting')?.label).toBe('Second')
+  it('uses source-owned, idempotent DI operations and reveals lower tiers on removal', () => {
+    const registry = createCalendarEventTypeRegistry()
+    registerCalendarModuleOverrides([{ moduleId: 'example', overrides: { eventTypes: { note: null } } }])
+    registry.replace('app', 'note', { ...meeting, key: 'note' })
+    expect(resolveCalendarEventType('note')).toBeDefined()
+    registry.remove('app', 'note')
+    expect(resolveCalendarEventType('note')).toBeUndefined()
+    registry.upsert('app', visit)
+    const version = getCalendarEventTypeRegistryVersion()
+    registry.upsert('app', visit)
+    expect(getCalendarEventTypeRegistryVersion()).toBe(version)
+    registry.patch('app', { targetEventTypeKey: 'visit', replaceLabel: 'Field visit' })
+    expect(resolveCalendarEventType('visit')?.label).toBe('Field visit')
+    registry.removeSource('app')
+    expect(resolveCalendarEventType('visit')).toBeUndefined()
+    expect(registry.snapshot().version).toBeGreaterThan(version)
+    expect(() => registry.upsert('app', meeting)).toThrow('owned by')
   })
 })

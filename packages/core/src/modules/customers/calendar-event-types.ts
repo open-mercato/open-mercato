@@ -62,19 +62,28 @@ export const calendarEventTypeDefinitionOverrideSchema = z.strictObject({
   panelKey: z.string().trim().min(1).max(150).optional(),
 })
 
+export const calendarEventTypePatchSchema = z.strictObject({
+  targetEventTypeKey: calendarEventTypeKeySchema,
+  replaceLabel: z.string().trim().min(1).max(150).optional(),
+  replaceLabelKey: z.string().trim().min(1).max(200).nullable().optional(),
+  replaceIcon: z.string().trim().max(100).nullable().optional(),
+  replaceColor: z.string().trim().max(100).nullable().optional(),
+  replaceBaseKind: calendarEventBaseKindSchema.optional(),
+  replaceSelectable: z.boolean().optional(),
+  replaceOrder: z.number().int().min(0).max(10_000).optional(),
+  replaceFields: calendarEventTypeFieldsSchema.partial().strict().optional(),
+  replaceAdminConfigurable: z.boolean().optional(),
+  replacePanelKey: z.string().trim().min(1).max(150).nullable().optional(),
+  replaceCustomFieldsetIds: calendarEventTypeBehaviorSchema.shape.customFieldsetIds.optional(),
+  deleteCustomFieldsetIds: calendarEventTypeBehaviorSchema.shape.customFieldsetIds.optional(),
+  appendCustomFieldsetIds: calendarEventTypeBehaviorSchema.shape.customFieldsetIds.optional(),
+})
+
 export const calendarEventTypeProvenanceSchema = z.strictObject({
   moduleId: z.string().trim().min(1).max(100),
   sourcePath: z.string().trim().min(1).max(500),
   moduleOrder: z.number().int().min(0),
-  phase: z.enum(['core', 'definition', 'override', 'programmatic', 'fallback']),
-})
-
-export const normalizedCalendarEventTypeEntrySchema = z.strictObject({
-  moduleId: z.string().trim().min(1).max(100),
-  sourcePath: z.string().trim().min(1).max(500),
-  moduleOrder: z.number().int().min(0),
-  definitions: z.array(calendarEventTypeDefinitionSchema),
-  overrides: z.record(z.string(), calendarEventTypeDefinitionOverrideSchema.nullable()),
+  phase: z.enum(['core', 'widget', 'module', 'programmatic', 'fallback']),
 })
 
 export const calendarEventTypeTombstoneSchema = z.strictObject({
@@ -94,8 +103,8 @@ export type CalendarEventTypeBehavior = z.infer<typeof calendarEventTypeBehavior
 export type CalendarEventTypeDefinition = z.infer<typeof calendarEventTypeDefinitionSchema>
 export type CalendarEventTypeBehaviorOverride = z.infer<typeof calendarEventTypeBehaviorOverrideSchema>
 export type CalendarEventTypeDefinitionOverride = z.infer<typeof calendarEventTypeDefinitionOverrideSchema>
+export type CalendarEventTypePatch = z.infer<typeof calendarEventTypePatchSchema>
 export type CalendarEventTypeProvenance = z.infer<typeof calendarEventTypeProvenanceSchema>
-export type NormalizedCalendarEventTypeEntry = z.infer<typeof normalizedCalendarEventTypeEntrySchema>
 export type CalendarEventTypeTombstone = z.infer<typeof calendarEventTypeTombstoneSchema>
 export type CalendarEventTypeHistoricalFallback = z.infer<typeof calendarEventTypeHistoricalFallbackSchema>
 
@@ -105,10 +114,28 @@ export type EffectiveCalendarEventType = Readonly<CalendarEventTypeDefinition & 
   fallbackReason?: CalendarEventTypeHistoricalFallback['reason']
 }>
 
+export type CalendarEventPanelCapabilities = Readonly<{
+  resourcesEnabled: boolean
+  staffEnabled: boolean
+}>
+
+export type CalendarEventTypePanelProps = {
+  definition: EffectiveCalendarEventType
+  panelKey?: string
+  mode: 'create' | 'edit'
+  values: Readonly<Record<string, unknown>>
+  errors: Readonly<Record<string, string | undefined>>
+  disabled: boolean
+  capabilities: CalendarEventPanelCapabilities
+  setValue: (fieldId: string, value: unknown) => void
+}
+
 export type CalendarEventTypeDiagnostic = Readonly<{
-  code: 'unknown-override'
-  key: string
+  code: 'invalid-source' | 'duplicate-definition' | 'unknown-override' | 'unknown-patch'
+  key?: string
   moduleId: string
+  widgetId?: string
+  owner?: string
 }>
 
 const behavior = (
@@ -137,10 +164,38 @@ export const calendarEventTypes: readonly CalendarEventTypeDefinition[] = deepFr
 
 export const calendarEventTypeOverrides: Readonly<Record<string, CalendarEventTypeDefinitionOverride | null>> = Object.freeze({})
 
+export type CalendarEventTypeWidgetContribution = Readonly<{
+  moduleId: string
+  widgetId: string
+  priority?: number
+  definitions?: unknown
+  overrides?: unknown
+  patches?: unknown
+}>
+
+export type CalendarOverrides = Readonly<{
+  eventTypes?: Readonly<Record<string, CalendarEventTypeDefinition | null>>
+  patches?: readonly CalendarEventTypePatch[]
+}>
+
+export type CalendarModuleOverrideEntry = Readonly<{
+  moduleId: string
+  overrides: CalendarOverrides
+}>
+
+type ProgrammaticSource = {
+  definitions: Map<string, CalendarEventTypeDefinition>
+  overrides: Map<string, CalendarEventTypeDefinition | null>
+  patches: Map<string, CalendarEventTypePatch>
+}
+
 type RegistryState = {
-  generatedEntries: readonly NormalizedCalendarEventTypeEntry[]
-  programmaticEntries: readonly NormalizedCalendarEventTypeEntry[]
+  widgets: readonly ParsedWidgetContribution[]
+  modules: readonly CalendarModuleOverrideEntry[]
+  sources: Map<string, ProgrammaticSource>
   historicalDefinitions: Map<string, CalendarEventTypeDefinition>
+  version: number
+  diagnostics: readonly CalendarEventTypeDiagnostic[]
 }
 
 const REGISTRY_KEY = Symbol.for('open-mercato.customers.calendar-event-types.v1')
@@ -148,9 +203,12 @@ const REGISTRY_KEY = Symbol.for('open-mercato.customers.calendar-event-types.v1'
 function getRegistryState(): RegistryState {
   const globalRegistry = globalThis as typeof globalThis & { [REGISTRY_KEY]?: RegistryState }
   globalRegistry[REGISTRY_KEY] ??= {
-    generatedEntries: Object.freeze([]),
-    programmaticEntries: Object.freeze([]),
+    widgets: Object.freeze([]),
+    modules: Object.freeze([]),
+    sources: new Map(),
     historicalDefinitions: new Map(),
+    version: 0,
+    diagnostics: Object.freeze([]),
   }
   return globalRegistry[REGISTRY_KEY]
 }
@@ -163,8 +221,8 @@ function deepFreeze<T>(value: T): T {
   return value
 }
 
-function sourceOf(entry: NormalizedCalendarEventTypeEntry, phase: CalendarEventTypeProvenance['phase']): CalendarEventTypeProvenance {
-  return Object.freeze({ moduleId: entry.moduleId, sourcePath: entry.sourcePath, moduleOrder: entry.moduleOrder, phase })
+function sourceOf(moduleId: string, sourcePath: string, moduleOrder: number, phase: CalendarEventTypeProvenance['phase']): CalendarEventTypeProvenance {
+  return Object.freeze({ moduleId, sourcePath, moduleOrder, phase })
 }
 
 function allPropertyPaths(definition: CalendarEventTypeDefinition): string[] {
@@ -179,52 +237,107 @@ function allPropertyPaths(definition: CalendarEventTypeDefinition): string[] {
   return paths
 }
 
-function normalizeEntry(entry: NormalizedCalendarEventTypeEntry): NormalizedCalendarEventTypeEntry {
-  const parsed = normalizedCalendarEventTypeEntrySchema.parse(entry)
-  const overrides: Record<string, CalendarEventTypeDefinitionOverride | null> = {}
-  for (const [rawKey, override] of Object.entries(parsed.overrides)) {
-    overrides[calendarEventTypeKeySchema.parse(rawKey)] = override
+const widgetContributionSchema = z.strictObject({
+  moduleId: z.string().trim().min(1).max(100),
+  widgetId: z.string().trim().min(1).max(200),
+  priority: z.number().int().optional(),
+  definitions: z.array(calendarEventTypeDefinitionSchema).optional(),
+  overrides: z.record(calendarEventTypeKeySchema, calendarEventTypeDefinitionSchema.nullable()).optional(),
+  patches: z.array(calendarEventTypePatchSchema).optional(),
+}).superRefine((entry, context) => {
+  const keys = new Set<string>()
+  for (const definition of entry.definitions ?? []) {
+    if (keys.has(definition.key)) {
+      context.addIssue({ code: 'custom', message: 'Duplicate source definition', path: ['definitions'] })
+    }
+    keys.add(definition.key)
   }
-  return deepFreeze({ ...parsed, overrides })
+  for (const [key, definition] of Object.entries(entry.overrides ?? {})) {
+    if (definition !== null && definition.key !== key) {
+      context.addIssue({ code: 'custom', message: 'Replacement key must match target key', path: ['overrides', key] })
+    }
+  }
+})
+
+type ParsedWidgetContribution = z.infer<typeof widgetContributionSchema>
+
+const moduleOverrideEntrySchema = z.strictObject({
+  moduleId: z.string().trim().min(1).max(100),
+  overrides: z.strictObject({
+    eventTypes: z.record(calendarEventTypeKeySchema, calendarEventTypeDefinitionSchema.nullable()).optional(),
+    patches: z.array(calendarEventTypePatchSchema).optional(),
+  }),
+}).superRefine((entry, context) => {
+  for (const [key, definition] of Object.entries(entry.overrides.eventTypes ?? {})) {
+    if (definition !== null && definition.key !== key) {
+      context.addIssue({ code: 'custom', message: 'Replacement key must match target key', path: ['overrides', 'eventTypes', key] })
+    }
+  }
+})
+
+function copyDefinition(definition: CalendarEventTypeDefinition): CalendarEventTypeDefinition {
+  return calendarEventTypeDefinitionSchema.parse(definition)
 }
 
-function normalizeEntries(entries: readonly NormalizedCalendarEventTypeEntry[]): readonly NormalizedCalendarEventTypeEntry[] {
-  const normalized = entries.map(normalizeEntry)
-  normalized.sort((left, right) => left.moduleOrder - right.moduleOrder || left.moduleId.localeCompare(right.moduleId))
-  return deepFreeze(normalized)
+function copyPatch(patch: CalendarEventTypePatch): CalendarEventTypePatch {
+  return calendarEventTypePatchSchema.parse(patch)
 }
 
-function applyOverride(
+function programmaticSource(sourceId: string): ProgrammaticSource {
+  return getRegistryState().sources.get(sourceId) ?? {
+    definitions: new Map(),
+    overrides: new Map(),
+    patches: new Map(),
+  }
+}
+
+function replaceProgrammaticSource(sourceId: string, source: ProgrammaticSource): void {
+  const state = getRegistryState()
+  archiveCurrentDefinitions()
+  state.sources.set(sourceId, source)
+  state.version += 1
+}
+
+function markDefinitionProvenance(
   definition: CalendarEventTypeDefinition,
+  source: CalendarEventTypeProvenance,
+): Record<string, CalendarEventTypeProvenance> {
+  return Object.fromEntries(allPropertyPaths(definition).map((path) => [path, source]))
+}
+
+function applyPatch(
+  definition: CalendarEventTypeDefinition,
+  patch: CalendarEventTypePatch,
   provenance: Record<string, CalendarEventTypeProvenance>,
-  override: CalendarEventTypeDefinitionOverride,
   source: CalendarEventTypeProvenance,
 ): CalendarEventTypeDefinition {
   const next: CalendarEventTypeDefinition = {
     ...definition,
-    ...override,
-    behavior: {
-      ...definition.behavior,
-      ...override.behavior,
-      fields: {
-        ...definition.behavior.fields,
-        ...override.behavior?.fields,
-      },
-    },
+    behavior: { ...definition.behavior, fields: { ...definition.behavior.fields }, customFieldsetIds: [...definition.behavior.customFieldsetIds] },
   }
-  for (const key of ['label', 'labelKey', 'icon', 'color', 'adminConfigurable', 'panelKey'] as const) {
-    if (key in override) provenance[key] = source
+  if (patch.replaceLabel !== undefined) { next.label = patch.replaceLabel; provenance.label = source }
+  if (patch.replaceLabelKey !== undefined) { next.labelKey = patch.replaceLabelKey ?? undefined; provenance.labelKey = source }
+  if (patch.replaceIcon !== undefined) { next.icon = patch.replaceIcon; provenance.icon = source }
+  if (patch.replaceColor !== undefined) { next.color = patch.replaceColor; provenance.color = source }
+  if (patch.replaceAdminConfigurable !== undefined) { next.adminConfigurable = patch.replaceAdminConfigurable; provenance.adminConfigurable = source }
+  if (patch.replacePanelKey !== undefined) { next.panelKey = patch.replacePanelKey ?? undefined; provenance.panelKey = source }
+  if (patch.replaceBaseKind !== undefined) { next.behavior.baseKind = patch.replaceBaseKind; provenance['behavior.baseKind'] = source }
+  if (patch.replaceSelectable !== undefined) { next.behavior.selectable = patch.replaceSelectable; provenance['behavior.selectable'] = source }
+  if (patch.replaceOrder !== undefined) { next.behavior.order = patch.replaceOrder; provenance['behavior.order'] = source }
+  if (patch.replaceFields) {
+    next.behavior.fields = { ...next.behavior.fields, ...patch.replaceFields }
+    for (const field of Object.keys(patch.replaceFields)) provenance[`behavior.fields.${field}`] = source
   }
-  if (override.behavior) {
-    for (const key of ['schemaVersion', 'baseKind', 'selectable', 'order', 'customFieldsetIds'] as const) {
-      if (key in override.behavior) provenance[`behavior.${key}`] = source
-    }
-    for (const key of Object.keys(override.behavior.fields ?? {})) provenance[`behavior.fields.${key}`] = source
+  if (patch.replaceCustomFieldsetIds || patch.deleteCustomFieldsetIds || patch.appendCustomFieldsetIds) {
+    const fieldsets = patch.replaceCustomFieldsetIds ?? next.behavior.customFieldsetIds
+    const deleted = new Set(patch.deleteCustomFieldsetIds ?? [])
+    next.behavior.customFieldsetIds = [...new Set([...fieldsets.filter((id) => !deleted.has(id)), ...(patch.appendCustomFieldsetIds ?? [])])]
+    provenance['behavior.customFieldsetIds'] = source
   }
   return calendarEventTypeDefinitionSchema.parse(next)
 }
 
-function compose(): {
+function compose(excludedSources: ReadonlySet<object> = new Set(), rejectedSources: readonly CalendarEventTypeDiagnostic[] = []): {
   items: readonly EffectiveCalendarEventType[]
   tombstones: readonly CalendarEventTypeTombstone[]
   diagnostics: readonly CalendarEventTypeDiagnostic[]
@@ -233,52 +346,109 @@ function compose(): {
   const owners = new Map<string, CalendarEventTypeProvenance>()
   const provenance = new Map<string, Record<string, CalendarEventTypeProvenance>>()
   const tombstones = new Map<string, CalendarEventTypeTombstone>()
-  const diagnostics: CalendarEventTypeDiagnostic[] = []
+  const diagnostics: CalendarEventTypeDiagnostic[] = [...getRegistryState().diagnostics, ...rejectedSources]
   const coreSource = Object.freeze({ moduleId: 'customers', sourcePath: 'calendar-event-types.ts', moduleOrder: 0, phase: 'core' as const })
 
   for (const definition of calendarEventTypes) {
     definitions.set(definition.key, definition)
     owners.set(definition.key, coreSource)
-    provenance.set(definition.key, Object.fromEntries(allPropertyPaths(definition).map((path) => [path, coreSource])))
+    provenance.set(definition.key, markDefinitionProvenance(definition, coreSource))
+  }
+  const state = getRegistryState()
+  const widgets = state.widgets.map((entry, moduleOrder) => ({ entry, moduleOrder })).filter(({ entry }) => !excludedSources.has(entry))
+  const modules = state.modules.map((entry, moduleOrder) => ({ entry, moduleOrder })).filter(({ entry }) => !excludedSources.has(entry))
+  const programmatic = [...state.sources.entries()].filter(([, contribution]) => !excludedSources.has(contribution))
+
+  for (const { entry, moduleOrder } of widgets) {
+    const source = sourceOf(entry.moduleId, `widgets/injection/${entry.widgetId}/widget.ts`, moduleOrder, 'widget')
+    for (const definition of entry.definitions ?? []) {
+      const existing = owners.get(definition.key)
+      if (existing) {
+        diagnostics.push({ code: 'duplicate-definition', key: definition.key, moduleId: entry.moduleId, widgetId: entry.widgetId, owner: existing.moduleId })
+        continue
+      }
+      definitions.set(definition.key, definition)
+      owners.set(definition.key, source)
+      provenance.set(definition.key, markDefinitionProvenance(definition, source))
+    }
+  }
+  for (const [sourceId, contribution] of programmatic) {
+    const source = sourceOf(sourceId, `di:${sourceId}`, 0, 'programmatic')
+    for (const definition of contribution.definitions.values()) {
+      const existing = owners.get(definition.key)
+      if (existing && existing.moduleId !== sourceId) {
+        diagnostics.push({ code: 'duplicate-definition', key: definition.key, moduleId: sourceId, owner: existing.moduleId })
+        continue
+      }
+      definitions.set(definition.key, definition)
+      owners.set(definition.key, source)
+      provenance.set(definition.key, markDefinitionProvenance(definition, source))
+    }
   }
 
-  const generated = getRegistryState().generatedEntries
-  const programmatic = getRegistryState().programmaticEntries
-  const phases: Array<{ entries: readonly NormalizedCalendarEventTypeEntry[]; programmatic: boolean }> = [
-    { entries: generated, programmatic: false },
-    { entries: programmatic, programmatic: true },
-  ]
-  for (const phase of phases) {
-    for (const entry of phase.entries) {
-      const source = sourceOf(entry, phase.programmatic ? 'programmatic' : 'definition')
-      for (const definition of entry.definitions) {
-        const existing = owners.get(definition.key)
-        if (existing) {
-          throw new Error(`[internal] Duplicate calendar event type "${definition.key}" from modules "${existing.moduleId}" and "${entry.moduleId}"`)
-        }
-        definitions.set(definition.key, definition)
-        owners.set(definition.key, source)
-        provenance.set(definition.key, Object.fromEntries(allPropertyPaths(definition).map((path) => [path, source])))
-      }
-    }
-    for (const entry of phase.entries) {
-      const source = sourceOf(entry, phase.programmatic ? 'programmatic' : 'override')
-      for (const [key, override] of Object.entries(entry.overrides)) {
-        const definition = definitions.get(key)
-        if (!definition) {
-          diagnostics.push(Object.freeze({ code: 'unknown-override', key, moduleId: entry.moduleId }))
-          continue
-        }
+  const applyOverrides = (
+    overrides: Readonly<Record<string, CalendarEventTypeDefinition | null>>,
+    source: CalendarEventTypeProvenance,
+    widgetId?: string,
+  ): void => {
+    for (const [key, override] of Object.entries(overrides)) {
+      if (!definitions.has(key)) {
         if (override === null) {
-          tombstones.set(key, deepFreeze({ key, provenance: source }))
+          diagnostics.push({ code: 'unknown-override', key, moduleId: source.moduleId, widgetId })
           continue
         }
-        const propertyProvenance = provenance.get(key) ?? {}
-        definitions.set(key, applyOverride(definition, propertyProvenance, override, source))
-        provenance.set(key, propertyProvenance)
+        diagnostics.push({ code: 'unknown-override', key, moduleId: source.moduleId, widgetId })
+      }
+      if (override === null) {
+        tombstones.set(key, deepFreeze({ key, provenance: source }))
+      } else {
+        definitions.set(key, override)
+        owners.set(key, source)
+        provenance.set(key, markDefinitionProvenance(override, source))
         tombstones.delete(key)
       }
     }
+  }
+  for (const { entry, moduleOrder } of widgets) {
+    applyOverrides(entry.overrides ?? {}, sourceOf(entry.moduleId, `widgets/injection/${entry.widgetId}/widget.ts`, moduleOrder, 'widget'), entry.widgetId)
+  }
+  for (const { entry, moduleOrder } of modules) {
+    applyOverrides(entry.overrides.eventTypes ?? {}, sourceOf(entry.moduleId, 'modules.ts', moduleOrder, 'module'))
+  }
+  for (const [sourceId, contribution] of programmatic) {
+    applyOverrides(Object.fromEntries(contribution.overrides), sourceOf(sourceId, `di:${sourceId}`, 0, 'programmatic'))
+  }
+
+  const applyPatches = (patches: readonly CalendarEventTypePatch[], source: CalendarEventTypeProvenance, widgetId?: string): CalendarEventTypeDiagnostic | null => {
+    for (const patch of patches) {
+      const key = patch.targetEventTypeKey
+      const definition = definitions.get(key)
+      if (!definition || tombstones.has(key)) {
+        diagnostics.push({ code: 'unknown-patch', key, moduleId: source.moduleId, widgetId })
+        continue
+      }
+      const propertyProvenance = { ...provenance.get(key) }
+      try {
+        const patched = applyPatch(definition, patch, propertyProvenance, source)
+        definitions.set(key, patched)
+        provenance.set(key, propertyProvenance)
+      } catch {
+        return { code: 'invalid-source', key, moduleId: source.moduleId, widgetId }
+      }
+    }
+    return null
+  }
+  for (const { entry, moduleOrder } of widgets) {
+    const failure = applyPatches(entry.patches ?? [], sourceOf(entry.moduleId, `widgets/injection/${entry.widgetId}/widget.ts`, moduleOrder, 'widget'), entry.widgetId)
+    if (failure) return compose(new Set([...excludedSources, entry]), [...rejectedSources, failure])
+  }
+  for (const { entry, moduleOrder } of modules) {
+    const failure = applyPatches(entry.overrides.patches ?? [], sourceOf(entry.moduleId, 'modules.ts', moduleOrder, 'module'))
+    if (failure) return compose(new Set([...excludedSources, entry]), [...rejectedSources, failure])
+  }
+  for (const [sourceId, contribution] of programmatic) {
+    const failure = applyPatches([...contribution.patches.values()], sourceOf(sourceId, `di:${sourceId}`, 0, 'programmatic'))
+    if (failure) return compose(new Set([...excludedSources, contribution]), [...rejectedSources, failure])
   }
 
   const items = [...definitions.values()]
@@ -300,30 +470,137 @@ function archiveCurrentDefinitions(): void {
   }
 }
 
-export function registerCalendarEventTypeEntries(entries: readonly NormalizedCalendarEventTypeEntry[]): void {
-  archiveCurrentDefinitions()
+export function registerWidgetCalendarEventTypeContributions(entries: readonly CalendarEventTypeWidgetContribution[]): void {
   const state = getRegistryState()
-  const previous = state.generatedEntries
-  state.generatedEntries = normalizeEntries(entries)
-  try {
-    compose()
-  } catch (error) {
-    state.generatedEntries = previous
-    throw error
+  const diagnostics: CalendarEventTypeDiagnostic[] = []
+  const parsed: ParsedWidgetContribution[] = []
+  for (const entry of entries) {
+    const result = widgetContributionSchema.safeParse(entry)
+    if (result.success) parsed.push(result.data)
+    else diagnostics.push({ code: 'invalid-source', moduleId: entry.moduleId, widgetId: entry.widgetId })
+  }
+  const moduleOrder = new Map<string, number>()
+  entries.forEach((entry) => { if (!moduleOrder.has(entry.moduleId)) moduleOrder.set(entry.moduleId, moduleOrder.size) })
+  parsed.sort((left, right) => (moduleOrder.get(left.moduleId) ?? 0) - (moduleOrder.get(right.moduleId) ?? 0)
+    || (left.priority ?? 0) - (right.priority ?? 0) || left.widgetId.localeCompare(right.widgetId))
+  const moduleDiagnostics = state.diagnostics.filter((diagnostic) => !diagnostic.widgetId)
+  if (JSON.stringify(state.widgets) === JSON.stringify(parsed)
+    && JSON.stringify(state.diagnostics.filter((diagnostic) => diagnostic.widgetId)) === JSON.stringify(diagnostics)) return
+  archiveCurrentDefinitions()
+  state.widgets = deepFreeze(parsed)
+  state.diagnostics = deepFreeze([...diagnostics, ...moduleDiagnostics])
+  state.version += 1
+}
+
+export function registerCalendarModuleOverrides(entries: readonly CalendarModuleOverrideEntry[]): void {
+  const state = getRegistryState()
+  const diagnostics: CalendarEventTypeDiagnostic[] = []
+  const parsed: CalendarModuleOverrideEntry[] = []
+  for (const entry of entries) {
+    const result = moduleOverrideEntrySchema.safeParse(entry)
+    if (result.success) parsed.push(result.data)
+    else diagnostics.push({ code: 'invalid-source', moduleId: entry.moduleId })
+  }
+  const widgetDiagnostics = state.diagnostics.filter((diagnostic) => diagnostic.widgetId)
+  if (JSON.stringify(state.modules) === JSON.stringify(parsed)
+    && JSON.stringify(state.diagnostics.filter((diagnostic) => !diagnostic.widgetId)) === JSON.stringify(diagnostics)) return
+  archiveCurrentDefinitions()
+  state.modules = deepFreeze(parsed)
+  state.diagnostics = deepFreeze([...widgetDiagnostics, ...diagnostics])
+  state.version += 1
+}
+
+export type CalendarEventTypeRegistrySnapshot = Readonly<{
+  version: number
+  items: readonly EffectiveCalendarEventType[]
+  tombstones: readonly CalendarEventTypeTombstone[]
+  diagnostics: readonly CalendarEventTypeDiagnostic[]
+}>
+
+export interface CalendarEventTypeRegistry {
+  upsert(sourceId: string, definition: CalendarEventTypeDefinition): void
+  replace(sourceId: string, key: string, definition: CalendarEventTypeDefinition | null): void
+  patch(sourceId: string, patch: CalendarEventTypePatch): void
+  remove(sourceId: string, key: string): void
+  removeSource(sourceId: string): void
+  snapshot(): CalendarEventTypeRegistrySnapshot
+}
+
+function validatedSourceId(sourceId: string): string {
+  return z.string().trim().min(1).max(100).parse(sourceId)
+}
+
+function baseOwnerOf(key: string): string | undefined {
+  if (calendarEventTypes.some((definition) => definition.key === key)) return 'customers'
+  const invalidSources = compose().diagnostics.filter((diagnostic) => diagnostic.code === 'invalid-source')
+  for (const widget of getRegistryState().widgets) {
+    if (invalidSources.some((diagnostic) => diagnostic.moduleId === widget.moduleId && diagnostic.widgetId === widget.widgetId)) continue
+    if (widget.definitions?.some((definition) => definition.key === key)) return widget.moduleId
+  }
+  for (const [sourceId, contribution] of getRegistryState().sources) {
+    if (invalidSources.some((diagnostic) => diagnostic.moduleId === sourceId && !diagnostic.widgetId)) continue
+    if (contribution.definitions.has(key)) return sourceId
+  }
+  return compose().items.find((definition) => definition.key === key)?.provenance.key?.moduleId
+}
+
+export function createCalendarEventTypeRegistry(): CalendarEventTypeRegistry {
+  return {
+    upsert(sourceId, definition) {
+      const id = validatedSourceId(sourceId)
+      const nextDefinition = copyDefinition(definition)
+      const owner = baseOwnerOf(nextDefinition.key)
+      if (owner && owner !== id) {
+        throw new Error(`[internal] Calendar event type "${nextDefinition.key}" is owned by "${owner}"`)
+      }
+      const current = programmaticSource(id)
+      if (JSON.stringify(current.definitions.get(nextDefinition.key)) === JSON.stringify(nextDefinition)) return
+      replaceProgrammaticSource(id, { ...current, definitions: new Map(current.definitions).set(nextDefinition.key, nextDefinition) })
+    },
+    replace(sourceId, key, definition) {
+      const id = validatedSourceId(sourceId)
+      const parsedKey = calendarEventTypeKeySchema.parse(key)
+      const nextDefinition = definition === null ? null : copyDefinition(definition)
+      if (nextDefinition && nextDefinition.key !== parsedKey) throw new Error('[internal] Replacement key must match target key')
+      const current = programmaticSource(id)
+      if (JSON.stringify(current.overrides.get(parsedKey)) === JSON.stringify(nextDefinition)) return
+      replaceProgrammaticSource(id, { ...current, overrides: new Map(current.overrides).set(parsedKey, nextDefinition) })
+    },
+    patch(sourceId, patch) {
+      const id = validatedSourceId(sourceId)
+      const nextPatch = copyPatch(patch)
+      const current = programmaticSource(id)
+      if (JSON.stringify(current.patches.get(nextPatch.targetEventTypeKey)) === JSON.stringify(nextPatch)) return
+      replaceProgrammaticSource(id, { ...current, patches: new Map(current.patches).set(nextPatch.targetEventTypeKey, nextPatch) })
+    },
+    remove(sourceId, key) {
+      const id = validatedSourceId(sourceId)
+      const parsedKey = calendarEventTypeKeySchema.parse(key)
+      const current = getRegistryState().sources.get(id)
+      if (!current || !(current.definitions.has(parsedKey) || current.overrides.has(parsedKey) || current.patches.has(parsedKey))) return
+      const next = { definitions: new Map(current.definitions), overrides: new Map(current.overrides), patches: new Map(current.patches) }
+      next.definitions.delete(parsedKey)
+      next.overrides.delete(parsedKey)
+      next.patches.delete(parsedKey)
+      replaceProgrammaticSource(id, next)
+    },
+    removeSource(sourceId) {
+      const id = validatedSourceId(sourceId)
+      const state = getRegistryState()
+      if (!state.sources.has(id)) return
+      archiveCurrentDefinitions()
+      state.sources.delete(id)
+      state.version += 1
+    },
+    snapshot() {
+      const state = getRegistryState()
+      return deepFreeze({ version: state.version, ...compose() })
+    },
   }
 }
 
-export function registerProgrammaticCalendarEventTypeEntries(entries: readonly NormalizedCalendarEventTypeEntry[]): void {
-  archiveCurrentDefinitions()
-  const state = getRegistryState()
-  const previous = state.programmaticEntries
-  state.programmaticEntries = normalizeEntries(entries)
-  try {
-    compose()
-  } catch (error) {
-    state.programmaticEntries = previous
-    throw error
-  }
+export function getCalendarEventTypeRegistryVersion(): number {
+  return getRegistryState().version
 }
 
 export function getCalendarEventTypes(): readonly EffectiveCalendarEventType[] {
@@ -375,7 +652,10 @@ export function resolveCalendarEventType(
 
 export function resetCalendarEventTypeRegistryForTests(): void {
   const state = getRegistryState()
-  state.generatedEntries = Object.freeze([])
-  state.programmaticEntries = Object.freeze([])
+  state.widgets = Object.freeze([])
+  state.modules = Object.freeze([])
+  state.sources.clear()
   state.historicalDefinitions.clear()
+  state.version = 0
+  state.diagnostics = Object.freeze([])
 }

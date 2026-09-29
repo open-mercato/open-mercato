@@ -36,6 +36,7 @@ import {
   type ComponentOverride,
 } from '@open-mercato/shared/modules/widgets/component-registry'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
+import { calendarEventTypes, type CalendarEventTypePanelProps } from '@open-mercato/core/modules/customers/calendar-event-types'
 import englishCatalog from '../../i18n/en.json'
 import {
   ComponentOverrideShowcase,
@@ -43,9 +44,41 @@ import {
   OverrideShowcaseBase,
   withOverridingModule,
 } from '../../components/ComponentOverrideShowcase'
-import { componentOverrides, OVERRIDING_MODULE_ID, stampOverridingModule } from '../components'
+import { componentOverrides, OVERRIDING_MODULE_ID, stampOverridingModule, withExampleCalendarEventTypePanel } from '../components'
 
 const catalog = englishCatalog as Record<string, string>
+
+describe('example Visit panel wrapper', () => {
+  const DefaultPanel = () => React.createElement('div', { 'data-testid': 'default-calendar-panel' })
+  const Wrapped = withExampleCalendarEventTypePanel(DefaultPanel)
+  const baseProps: CalendarEventTypePanelProps = {
+    definition: { ...calendarEventTypes[0]!, provenance: {}, historical: false },
+    mode: 'create',
+    values: {},
+    errors: {},
+    disabled: false,
+    capabilities: { resourcesEnabled: true, staffEnabled: true },
+    setValue: jest.fn(),
+  }
+
+  it('delegates other event types and renders the Visit availability panel for Visit', () => {
+    const meeting = renderToStaticMarkup(React.createElement(Wrapped, baseProps))
+    expect(meeting).toContain('default-calendar-panel')
+
+    const visit = renderToStaticMarkup(React.createElement(
+      I18nProvider,
+      { locale: 'en', dict: catalog },
+      React.createElement(Wrapped, {
+        ...baseProps,
+        definition: { ...baseProps.definition, key: 'visit', panelKey: 'example.visit' },
+        panelKey: 'example.visit',
+      }),
+    ))
+    expect(visit).toContain('Visit availability')
+    expect(visit).not.toContain('default-calendar-panel')
+    expect(visit).not.toContain('type="submit"')
+  })
+})
 
 const HostFallback = (props: unknown) =>
   React.createElement(

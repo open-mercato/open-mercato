@@ -585,6 +585,7 @@ const interactionUpdateBaseSchema = z
     scopedSchema
       .extend({
         interactionType: z.string().trim().min(1).max(100).optional(),
+        confirmDiscardInapplicableValues: z.boolean().optional(),
         title: z.string().trim().max(500).optional().nullable(),
         body: z.string().trim().max(10000).optional().nullable(),
         status: z.string().max(50).optional(),

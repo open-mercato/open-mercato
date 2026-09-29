@@ -240,6 +240,7 @@ export class CommandBus {
         auth: options.ctx.auth ?? null,
         selectedOrganizationId: options.ctx.selectedOrganizationId ?? options.ctx.auth?.orgId ?? null,
         container: options.ctx.container,
+        request: options.ctx.request ?? null,
       }
       const beforeResult = await runCommandInterceptorsBefore(
         allInterceptors, commandId, options.input, interceptorCtx, userFeatures,

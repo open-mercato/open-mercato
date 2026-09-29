@@ -363,6 +363,29 @@ describe('CommandBus', () => {
   })
 
   describe('interceptor rejections', () => {
+    it('passes the original request to beforeExecute for preflight version checks', async () => {
+      registerCommand({ id: 'test.request-context', execute: jest.fn(async () => ({ ok: true })) })
+      const beforeExecute = jest.fn(async (_input: unknown, context: { request?: Request | null }) => {
+        expect(context.request?.headers.get('x-om-ext-optimistic-lock-expected-updated-at')).toBe('2026-09-29T11:00:00.000Z')
+        return { ok: false, status: 422 }
+      })
+      registerCommandInterceptors([{ moduleId: 'test', interceptors: [{
+        id: 'test.request-context-interceptor', targetCommand: 'test.request-context', beforeExecute,
+      }] }])
+      const request = new Request('http://localhost/test', { headers: { 'x-om-ext-optimistic-lock-expected-updated-at': '2026-09-29T11:00:00.000Z' } })
+      const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+      const bus = new CommandBus()
+      await expect(bus.execute('test.request-context', { input: {}, ctx: {
+        container,
+        auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: null },
+        organizationScope: null,
+        selectedOrganizationId: null,
+        organizationIds: null,
+        request,
+      } })).rejects.toMatchObject({ status: 422 })
+      expect(beforeExecute).toHaveBeenCalledTimes(1)
+    })
+
     const blockingInterceptor = (result: Record<string, unknown>): CommandInterceptor => ({
       id: 'test.block',
       targetCommand: 'test.*',

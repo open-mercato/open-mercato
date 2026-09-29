@@ -49,6 +49,8 @@ export interface CommandInterceptorContext {
   selectedOrganizationId: string | null
   /** DI container (read-only usage recommended) */
   container: AwilixContainer
+  /** Original request, when the command was called through HTTP. */
+  request?: Request | null
   /** Metadata passthrough from beforeExecute to afterExecute (or beforeUndo to afterUndo) */
   metadata?: Record<string, unknown>
 }

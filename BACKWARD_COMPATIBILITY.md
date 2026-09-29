@@ -178,6 +178,8 @@ Spot IDs are the addresses where external modules inject UI. Renaming or removin
 - MAY add new optional context fields to existing spots
 - Wildcard spots (`crud-form:*`, `data-table:*`) MUST continue to match as documented
 
+The Customers calendar declares the additive exact headless widget spot `calendar:customers.event-types`. Its serializable event-type payload, optional `calendarEventTypeKeys` metadata on interaction form widgets, and exact UMES handle `section:customers.calendar-event-editor.type-panel` with `customers.calendar.event-type-panel.v1` props are public contracts. Preserve their IDs and capability meanings when extending the calendar. The `ModuleOverrides.calendar` dispatcher domain and Customers `calendarEventTypeRegistry` DI key are likewise stable additive extension surfaces; composition order and source-owned removal semantics must remain compatible. See the [calendar event-type guide](apps/docs/docs/framework/modules/calendar-event-types.mdx) and [source spec PR #6687](https://github.com/open-mercato/open-mercato/pull/6687).
+
 ### 7. API Route URLs (STABLE)
 
 External tools, frontends, and integrations depend on API URL patterns.

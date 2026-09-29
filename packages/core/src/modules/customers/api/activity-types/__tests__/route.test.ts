@@ -9,6 +9,7 @@ const cache = {
 }
 const resolveScopedCalendarEventTypesMock = jest.fn()
 const reportError = jest.fn()
+const userHasAllFeaturesMock = jest.fn()
 
 jest.mock('../../dictionaries/context', () => ({
   resolveDictionaryRouteContext: jest.fn(async () => ({
@@ -18,12 +19,13 @@ jest.mock('../../dictionaries/context', () => ({
     tenantId,
     readableOrganizationIds: [organizationId, ancestorId],
     cache,
+    auth: { sub: 'user-1', tenantId, orgId: organizationId },
+    container: { resolve: (key: string) => key === 'rbacService' ? { userHasAllFeatures: userHasAllFeaturesMock } : undefined },
   })),
 }))
 
 jest.mock('../../../lib/calendar/eventTypeResolver', () => ({
   resolveScopedCalendarEventTypes: (...args: unknown[]) => resolveScopedCalendarEventTypesMock(...args),
-  resolveBaselineCalendarEventTypes: jest.fn(() => ({ items: [], fallbackKey: 'meeting' })),
 }))
 
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
@@ -44,10 +46,23 @@ describe('activity type catalog route', () => {
     cache.set.mockResolvedValue(undefined)
     cache.deleteByTags.mockResolvedValue(undefined)
     resolveScopedCalendarEventTypesMock.mockResolvedValue({ items: [], fallbackKey: 'meeting' })
+    userHasAllFeaturesMock.mockResolvedValue(true)
   })
 
-  test('requires the interaction view feature', () => {
-    expect(metadata.GET).toEqual({ requireAuth: true, requireFeatures: ['customers.interactions.view'] })
+  test('requires authentication and checks either interaction view or settings management in scope', async () => {
+    expect(metadata.GET).toEqual({ requireAuth: true })
+    userHasAllFeaturesMock.mockImplementation(async (_actor: string, features: string[]) => features[0] === 'customers.settings.manage')
+    const response = await GET(new Request('http://localhost/api/customers/activity-types'))
+    expect(response.status).toBe(200)
+    expect(userHasAllFeaturesMock).toHaveBeenCalledWith('user-1', ['customers.interactions.view'], { tenantId, organizationId })
+    expect(userHasAllFeaturesMock).toHaveBeenCalledWith('user-1', ['customers.settings.manage'], { tenantId, organizationId })
+  })
+
+  test('denies a caller without either feature before resolving the catalog', async () => {
+    userHasAllFeaturesMock.mockResolvedValue(false)
+    const response = await GET(new Request('http://localhost/api/customers/activity-types'))
+    expect(response.status).toBe(403)
+    expect(resolveScopedCalendarEventTypesMock).not.toHaveBeenCalled()
   })
 
   test('resolves the tenant, local organization, and ancestor scope and caches with matching tags', async () => {
@@ -81,11 +96,12 @@ describe('activity type catalog route', () => {
     ])
   })
 
-  test('reports resolver failure and returns the immutable baseline', async () => {
+  test('reports resolver failure, fails closed, and never caches the baseline', async () => {
     resolveScopedCalendarEventTypesMock.mockRejectedValueOnce(new Error('database unavailable'))
     const response = await GET(new Request('http://localhost/api/customers/activity-types'))
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ items: [], fallbackKey: 'meeting' })
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toMatchObject({ code: 'activity_type_catalog_unavailable' })
+    expect(cache.set).not.toHaveBeenCalled()
     expect(reportError).toHaveBeenCalledWith(
       expect.any(Error),
       expect.objectContaining({

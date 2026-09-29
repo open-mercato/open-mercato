@@ -1,12 +1,14 @@
 import * as React from 'react'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import type { ComponentOverride } from '@open-mercato/shared/modules/widgets/component-registry'
+import type { CalendarEventTypePanelProps } from '@open-mercato/core/modules/customers/calendar-event-types'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 import {
   OverrideShowcaseReplacement,
   overrideShowcasePropsSchema,
   withOverridingModule,
 } from '../components/ComponentOverrideShowcase'
+import { VisitPanel } from '../components/VisitPanel'
 
 const checkoutTestInjectionsEnabled = parseBooleanWithDefault(
   process.env.NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED,
@@ -71,6 +73,18 @@ export const OVERRIDING_MODULE_ID = 'example'
  * pins the two spellings to each other.
  */
 const SHOWCASE_HANDLE = ComponentReplacementHandles.section('example.overrides', 'showcase')
+const VISIT_PANEL_HANDLE = ComponentReplacementHandles.section('customers.calendar-event-editor', 'type-panel')
+
+export function withExampleCalendarEventTypePanel(
+  Original: React.ComponentType<CalendarEventTypePanelProps>,
+): React.ComponentType<CalendarEventTypePanelProps> {
+  function ExampleCalendarEventTypePanel(props: CalendarEventTypePanelProps) {
+    return props.definition.key === 'visit' && props.panelKey === 'example.visit'
+      ? React.createElement(VisitPanel, props)
+      : React.createElement(Original, props)
+  }
+  return ExampleCalendarEventTypePanel
+}
 
 /**
  * `props`-mode transform for the showcase section.
@@ -97,6 +111,14 @@ export function stampOverridingModule(props: unknown): unknown {
  * contributing no component override at all.
  */
 export const componentOverrides: ComponentOverride[] = [
+  {
+    target: { componentId: VISIT_PANEL_HANDLE },
+    priority: 50,
+    metadata: { module: 'example' },
+    wrapper: (Original) => withExampleCalendarEventTypePanel(
+      Original as React.ComponentType<CalendarEventTypePanelProps>,
+    ) as React.ComponentType<unknown>,
+  },
   /**
    * The one entry with no `applyWhenEnabled` gate, and the deliberate exception to the rule the
    * `replace`-mode entry below states. Naming it here because a reader who takes that rule at face

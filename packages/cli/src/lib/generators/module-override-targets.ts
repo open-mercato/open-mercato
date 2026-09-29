@@ -802,6 +802,14 @@ const navAdapter: InternalAdapter = {
   },
 }
 
+const calendarAdapter: InternalAdapter = {
+  domain: 'calendar',
+  frameworkOnly: true,
+  run() {
+    return { targets: [], diagnostics: [] }
+  },
+}
+
 const INTERNAL_ADAPTERS: InternalAdapter[] = [
   aiAdapter,
   routesAdapter,
@@ -819,6 +827,7 @@ const INTERNAL_ADAPTERS: InternalAdapter[] = [
   diAdapter,
   encryptionAdapter,
   navAdapter,
+  calendarAdapter,
 ]
 
 /**
@@ -845,6 +854,7 @@ const OVERRIDE_DOMAIN_PRESENCE: Record<ModuleOverrideDomain, true> = {
   di: true,
   encryption: true,
   nav: true,
+  calendar: true,
 }
 
 export const ALL_OVERRIDE_DOMAINS = Object.keys(OVERRIDE_DOMAIN_PRESENCE) as ModuleOverrideDomain[]

@@ -393,6 +393,10 @@ None.
 - [x] Phase 7 — 2026-06-13 Figma revision: Customization modal (`1788:3701`) + week-view states (`1786:2934`) — peek popover, inline conflict badge, drag-to-create, enriched empty state, four wired preference toggles; new unit tests (preferences, grid) green; TC-CAL-007/008 added; preview-verified (settings modal, 5-day-week default, peek + selected ring, conflict badges)
 
 ## Changelog
+### 2026-09-29 — Issue #6684: configurable calendar event types
+- The linked [configurable behavior](./2026-09-28-configurable-calendar-event-types.md), [module extensions](./2026-09-28-calendar-event-type-extensions.md), and [React panels](./2026-09-28-calendar-event-type-react-panels.md) specs on PR #6687 supersede the editor's fixed six-type morphology and the display-only Customization inputs. The original six stored keys, calendar views, and single interaction form remain.
+- The editor reads the scoped effective catalog, applies bounded field and fieldset rules, requires confirmation before a type change clears values, and routes type UI through one UMES panel handle. The authoritative behavior editor belongs to Customers → Dictionaries → Activity types.
+
 ### 2026-08-07 — Issue #4735: recurring masters outside the visible window
 - Added the backward-compatible `recurrenceMasters=true` interactions-list filter and a parallel calendar fetch for recurring series that can overlap the visible range.
 - Regular and recurring results are deduplicated before client-side expansion, preserving the existing 500-item safety cap. Recurring candidates receive cap priority while duplicate ids retain the regular-window payload.

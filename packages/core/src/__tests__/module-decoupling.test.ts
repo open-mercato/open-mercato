@@ -94,7 +94,7 @@ import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import {
   calendarEventTypes,
   getCalendarEventTypes,
-  registerCalendarEventTypeEntries,
+  registerWidgetCalendarEventTypeContributions,
   resetCalendarEventTypeRegistryForTests,
   resolveCalendarEventType,
 } from '@open-mercato/core/modules/customers/calendar-event-types'
@@ -389,21 +389,19 @@ describe('Module Decoupling', () => {
   describe('6. Calendar event types exclude disabled module contributions', () => {
     it('removes contributed types from selection without importing the contributor', () => {
       const meeting = calendarEventTypes[0]!
-      registerCalendarEventTypeEntries([{
+      registerWidgetCalendarEventTypeContributions([{
         moduleId: 'optional_calendar_module',
-        sourcePath: 'optional_calendar_module/calendar-event-types.ts',
-        moduleOrder: 1,
+        widgetId: 'optional-visit',
         definitions: [{
           ...meeting,
           key: 'optional-visit',
           label: 'Optional visit',
           behavior: { ...meeting.behavior, baseKind: 'event' },
         }],
-        overrides: {},
       }])
       expect(getCalendarEventTypes().some((definition) => definition.key === 'optional-visit')).toBe(true)
 
-      registerCalendarEventTypeEntries([])
+      registerWidgetCalendarEventTypeContributions([])
 
       expect(getCalendarEventTypes().some((definition) => definition.key === 'optional-visit')).toBe(false)
       expect(resolveCalendarEventType('optional-visit', { includeHistorical: true })).toMatchObject({

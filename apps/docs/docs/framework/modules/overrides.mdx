@@ -66,6 +66,9 @@ The default app and `create-mercato-app` template also export a non-applied `mod
 | DI bindings | `di` | container key |
 | Encryption maps | `encryption.maps` | entity id |
 | Sidebar nav ordering | `nav.groupOrder` | nav group id |
+| Calendar event types | `calendar.eventTypes`, `calendar.patches` | stable event-type key |
+
+For Customers calendar behavior, `calendar.eventTypes` replaces a complete definition or hides new selection with `null`; `calendar.patches` makes bounded edits to surviving definitions. See [Calendar event types](./calendar-event-types.mdx) for composition, scoped dictionary behavior, and optional module examples.
 
 ## Examples
 

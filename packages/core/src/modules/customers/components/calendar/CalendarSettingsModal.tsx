@@ -1,22 +1,16 @@
 "use client"
 
 import * as React from 'react'
-import { Info, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Switch } from '@open-mercato/ui/primitives/switch'
-import { TagInput } from '@open-mercato/ui/primitives/tag-input'
-import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
-import {
-  CalendarPreferences,
-  ConflictScope,
-  MAX_ACTIVITY_TYPES,
-  MAX_EVENT_CATEGORIES,
-} from '../../lib/calendar/preferences'
+import { CalendarPreferences, ConflictScope } from '../../lib/calendar/preferences'
+import { getCustomerDictionaryManageHref } from '../../lib/dictionaries'
 import { SegmentGroup } from './editor/SegmentGroup'
 
 export type CalendarSettingsModalProps = {
@@ -29,37 +23,20 @@ export type CalendarSettingsModalProps = {
 
 type ToggleKey = 'showCrmActivities' | 'aiSummaries' | 'conflictWarnings' | 'showWeekends'
 
-// An empty Activity Types list is an intentional floor meaning "surface all
-// dictionary types" rather than "surface none". When the stored list is empty
-// the modal seeds the dictionary types for display. NOTE: since the editor's
-// Category quick-pick was removed (owner feedback, #3552) these lists no longer
-// affect the event editor — the type switcher always shows the full dictionary.
-function buildDraft(preferences: CalendarPreferences, seedActivityTypes: string[]): CalendarPreferences {
-  return {
-    ...preferences,
-    eventCategories: [...preferences.eventCategories],
-    activityTypes:
-      preferences.activityTypes.length > 0
-        ? [...preferences.activityTypes]
-        : seedActivityTypes.slice(0, MAX_ACTIVITY_TYPES),
-  }
-}
-
 export function CalendarSettingsModal({
   open,
   preferences,
-  seedActivityTypes,
   onOpenChange,
   onSave,
 }: CalendarSettingsModalProps) {
   const t = useT()
-  const [draft, setDraft] = React.useState<CalendarPreferences>(() => buildDraft(preferences, seedActivityTypes))
+  const [draft, setDraft] = React.useState<CalendarPreferences>(preferences)
   const openRef = React.useRef(false)
 
   React.useEffect(() => {
-    if (open && !openRef.current) setDraft(buildDraft(preferences, seedActivityTypes))
+    if (open && !openRef.current) setDraft(preferences)
     openRef.current = open
-  }, [open, preferences, seedActivityTypes])
+  }, [open, preferences])
 
   const handleSave = React.useCallback(() => {
     onSave(draft)
@@ -78,11 +55,6 @@ export function CalendarSettingsModal({
   ]
 
   const title = t('customers.calendar.settings.title', 'Customization')
-  const removeTagLabel = React.useCallback(
-    (tag: string) => t('customers.calendar.settings.removeTag', 'Remove {tag}', { tag }),
-    [t],
-  )
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -113,32 +85,16 @@ export function CalendarSettingsModal({
         </div>
 
         <div className="flex flex-col gap-4 p-5">
-          <SettingsTagInput
-            label={t('customers.calendar.settings.eventCategories', 'Event Categories')}
-            maxLabel={t('customers.calendar.settings.max', '(max. {count})', { count: MAX_EVENT_CATEGORIES })}
-            hint={t(
-              'customers.calendar.settings.eventCategoriesHint',
-              'Your own grouping labels (e.g. Team Meeting, Sales Call). Offered when creating an event.',
-            )}
-            placeholder={t('customers.calendar.settings.addCategory', 'Add a category…')}
-            value={draft.eventCategories}
-            maxTags={MAX_EVENT_CATEGORIES}
-            removeTagLabel={removeTagLabel}
-            onChange={(eventCategories) => setDraft((current) => ({ ...current, eventCategories }))}
-          />
-          <SettingsTagInput
-            label={t('customers.calendar.settings.activityTypes', 'Activity Types')}
-            maxLabel={t('customers.calendar.settings.max', '(max. {count})', { count: MAX_ACTIVITY_TYPES })}
-            hint={t(
-              'customers.calendar.settings.activityTypesHint',
-              'The activity types your calendar surfaces when creating an event. Seeded from your workspace dictionary.',
-            )}
-            placeholder={t('customers.calendar.settings.addType', 'Add a type…')}
-            value={draft.activityTypes}
-            maxTags={MAX_ACTIVITY_TYPES}
-            removeTagLabel={removeTagLabel}
-            onChange={(activityTypes) => setDraft((current) => ({ ...current, activityTypes }))}
-          />
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-foreground">
+              {t('customers.calendar.settings.activityTypes', 'Activity Types')}
+            </span>
+            <Button type="button" variant="outline" size="sm" asChild>
+              <a href={getCustomerDictionaryManageHref('activity-types')}>
+                {t('customers.calendar.settings.manageActivityTypes', 'Manage activity types')}
+              </a>
+            </Button>
+          </div>
           {toggleRows.map((row) => (
             <React.Fragment key={row.key}>
               <div className="flex items-center gap-2">
@@ -182,40 +138,5 @@ export function CalendarSettingsModal({
         </div>
       </DialogContent>
     </Dialog>
-  )
-}
-
-type SettingsTagInputProps = {
-  label: string
-  maxLabel: string
-  hint: string
-  placeholder: string
-  value: string[]
-  maxTags: number
-  removeTagLabel: (tag: string) => string
-  onChange(value: string[]): void
-}
-
-function SettingsTagInput({ label, maxLabel, hint, placeholder, value, maxTags, removeTagLabel, onChange }: SettingsTagInputProps) {
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-1">
-        <span className="text-sm font-medium leading-5 text-foreground">{label}</span>
-        <span className="text-sm leading-5 text-muted-foreground">{maxLabel}</span>
-        <SimpleTooltip content={hint}>
-          <span className="inline-flex text-muted-foreground" tabIndex={0} role="img" aria-label={hint}>
-            <Info aria-hidden className="size-4" />
-          </span>
-        </SimpleTooltip>
-      </div>
-      <TagInput
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        maxTags={maxTags}
-        aria-label={label}
-        removeTagLabel={removeTagLabel}
-      />
-    </div>
   )
 }

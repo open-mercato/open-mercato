@@ -1,0 +1,49 @@
+---
+title: Calendar event types
+description: Configure Customers calendar behavior and extend it from optional modules.
+---
+
+# Calendar event types
+
+Customers owns six baseline types: `meeting`, `call`, `email`, `note`, `event`, and `task`. Each interaction stores its exact `interactionType` key. The effective type catalog combines those definitions with enabled module contributions, app overrides, programmatic contributions, and organization dictionary entries. Read it through the authenticated `GET /api/customers/activity-types` route. A missing or disabled type remains readable on an existing interaction through the meeting-shaped historical fallback; it is unavailable for new selection.
+
+The public types and registry interface live at `@open-mercato/core/modules/customers/calendar-event-types`. A definition has a stable `key`, label or translation key, optional appearance and `panelKey`, and a versioned `behavior`. Behavior fixes the base kind, selectability, order, applicability of `endTime`, `allDay`, `recurrence`, `location`, `people`, `priority`, and `resources`, plus a bounded list of custom fieldset IDs. Use the exported Zod schemas to validate contributions. Dictionary behavior may change these bounded fields for configurable types; it cannot execute code.
+
+## Add a type from an optional module
+
+Declare a serializable headless widget under `widgets/injection/<name>/widget.ts` and map its widget ID to the exact spot `calendar:customers.event-types` in `widgets/injection-table.ts`. The generic widget loader loads only enabled contributions to that spot. This is a widget contribution, so no calendar-specific generator file is needed. Run `yarn generate` after changing module discovery files.
+
+The shipped `example` module shows a complete `visit` definition in `widgets/injection/calendar-visit/widget.ts`. Its `baseKind` is `event`; its behavior enables an end time, recipients, location, and resources while disabling all-day and recurrence. The module remains independently loadable when Customers is disabled. Customers never imports the example module.
+
+The application can alter enabled definitions through `ModuleEntry.overrides.calendar`:
+
+```ts
+{
+  id: 'example',
+  from: '@app',
+  overrides: {
+    calendar: {
+      eventTypes: { note: null },
+      patches: [
+        { targetEventTypeKey: 'meeting', replaceLabelKey: 'example.calendar.customerMeeting' },
+      ],
+    },
+  },
+}
+```
+
+The `null` override hides Note from new selection; it does not remove existing Note interactions. Removing the override restores the lower-tier definition. Patches can change only the exported bounded fields and cannot change a key or revive an absent definition. Custom fieldset operations run replace, then delete, then append, with duplicate IDs removed.
+
+Composition starts with the six Customers definitions. Enabled widget definitions run in module, priority, and widget-ID order. Complete replacements from widgets, then `modules.ts`, then the DI registry are applied next. Patches from those three sources follow in the same tier order. Inherited and local dictionary behavior overlays apply last to types with `adminConfigurable !== false`. Duplicate base definitions and invalid declarations are rejected per source; a contributor must use an explicit replacement or patch to alter another owner's type. The catalog reports source and property provenance.
+
+Bootstrap code can resolve the Customers-owned `calendarEventTypeRegistry` from Awilix and call `upsert(sourceId, definition)`, `replace(sourceId, key, definitionOrNull)`, `patch(sourceId, patch)`, `remove(sourceId, key)`, or `removeSource(sourceId)`. Use a stable source ID and remove it on teardown. Changes are local to the current process; register the same declarations in each worker. An optional module should use `tryResolve` so absent Customers leaves its other behavior available.
+
+## Form validation and custom panels
+
+The calendar keeps one Customers-owned `CrudForm`. `customFieldsetAllowlist` limits which custom fieldsets render for the selected type while preserving hidden initial values on an unchanged type. A selected-type interaction widget can set `calendarEventTypeKeys` in its metadata and use `onBeforeSave` to return inline field errors. The host mounts and dispatches that widget only for matching keys. Every write is also checked by server commands; browser validation is a preview, not write authority. A destructive type change needs explicit confirmation, and its field clearing happens atomically with the interaction update and undo snapshot.
+
+React presentation uses the stable UMES handle `section:customers.calendar-event-editor.type-panel` and the `customers.calendar.event-type-panel.v1` props contract. The props expose the effective definition, mode, values, errors, disabled state, capabilities, and `setValue`. They provide no submit or delete callback. Modules may contribute a wrapper through `widgets/components.ts`; apps may set an inline `overrides.widgets.components` descriptor; bootstrap code may call `applyComponentOverrides()`. The existing file, inline, then programmatic precedence and `null` fallback rules apply. A disabled or broken panel falls back to the default presentation while the host retains the draft and its form lifecycle.
+
+The example Visit type uses a selected-type widget and server rule to check its half-open schedule interval against scoped staff and resource availability. Unknown lookup results block save and invite retry. Its React panel previews the same rule through the authenticated example API; it cannot submit an interaction itself.
+
+See the [module overrides guide](./overrides.mdx) for the general dispatcher and the [concurrent editing guide](../data-integrity/concurrency-locking.mdx) for optimistic locking.

@@ -50,6 +50,11 @@ import {
 } from '../lib/interactionStatus'
 import { canChangeEmailVisibility } from '../lib/visibilityFilter'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { loadCustomFieldDefinitionIndex } from '@open-mercato/shared/lib/crud/custom-fields'
+import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
+import { resolveCatalogEventType, resolveScopedCalendarEventTypes, type ScopedCalendarEventType } from '../lib/calendar/eventTypeResolver'
+import { clearInapplicableCoreFields, findInapplicableCoreFields, preserveHiddenCoreValuesOnSameTypeEdit } from '../lib/calendar/interactionApplicability'
+import { calendarEventTypes, type CalendarEventTypeBehavior } from '../calendar-event-types'
 
 const logger = createLogger('customers')
 
@@ -192,6 +197,70 @@ async function setInteractionCustomFields(
     tenantId,
     values,
     notify: false,
+  })
+}
+
+async function resolveInteractionTypeBehavior(
+  ctx: CommandRuntimeContext,
+  em: EntityManager,
+  tenantId: string,
+  organizationId: string,
+  key: string,
+  unchangedType: boolean,
+): Promise<{ behavior: CalendarEventTypeBehavior; organizationIds: string[] }> {
+  const hierarchy = ctx.container.resolve('organizationHierarchyService') as OrganizationHierarchyService
+  const ancestors = await hierarchy.resolveAncestorIds({ tenantId, organizationId })
+  if (ancestors === null) throw notFound('Organization not found')
+  const organizationIds = [organizationId, ...ancestors.slice().reverse()]
+  const catalog = await resolveScopedCalendarEventTypes({
+    em,
+    tenantId,
+    organizationId,
+    readableOrganizationIds: organizationIds,
+  })
+  const selected = resolveCatalogEventType(catalog, key)
+  if (selected?.selectable) return { behavior: selected.behavior, organizationIds }
+  if (unchangedType) return { behavior: calendarEventTypes[0]!.behavior, organizationIds }
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(400, {
+    error: translate('customers.calendar.activityTypes.errors.unavailable', 'Activity type is unavailable'),
+    code: 'activity_type_unavailable',
+  })
+}
+
+async function loadApplicableCustomFieldKeys(
+  em: EntityManager,
+  tenantId: string,
+  organizationIds: string[],
+  behavior: CalendarEventTypeBehavior,
+): Promise<{ defined: ReadonlySet<string>; allowed: ReadonlySet<string> }> {
+  const options = { em, entityIds: [INTERACTION_ENTITY_ID], tenantId, organizationIds }
+  const all = await loadCustomFieldDefinitionIndex(options)
+  const fieldsets = behavior.customFieldsetIds.map((id) => id === '__general__' ? '' : id)
+  const applicable = fieldsets.length
+    ? await loadCustomFieldDefinitionIndex({ ...options, fieldset: fieldsets })
+    : new Map<string, unknown>()
+  return {
+    defined: new Set([...all.keys()].map((key) => key.toLowerCase())),
+    allowed: new Set([...applicable.keys()].map((key) => key.toLowerCase())),
+  }
+}
+
+function inapplicableCustomFieldKeys(
+  values: Readonly<Record<string, unknown>>,
+  keys: { defined: ReadonlySet<string>; allowed: ReadonlySet<string> },
+): string[] {
+  return Object.entries(values)
+    .filter(([key, value]) => keys.defined.has(key.toLowerCase()) && !keys.allowed.has(key.toLowerCase())
+      && value !== null && value !== undefined && value !== '' && (!Array.isArray(value) || value.length > 0))
+    .map(([key]) => key)
+}
+
+function inapplicableFieldError(fields: string[], message: string): CrudHttpError {
+  return new CrudHttpError(400, {
+    error: message,
+    code: 'activity_type_field_not_applicable',
+    fields,
   })
 }
 
@@ -388,6 +457,22 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
 
       if (parsed.dealId) {
         await requireDealInScope(trx, parsed.dealId, entity.tenantId, entity.organizationId)
+      }
+
+      const { behavior, organizationIds } = await resolveInteractionTypeBehavior(
+        ctx, trx, entity.tenantId, entity.organizationId, parsed.interactionType, false,
+      )
+      const inapplicableCore = findInapplicableCoreFields(behavior, parsed)
+      const customKeys = Object.keys(custom).length
+        ? await loadApplicableCustomFieldKeys(trx, entity.tenantId, organizationIds, behavior)
+        : null
+      const inapplicableCustom = customKeys ? inapplicableCustomFieldKeys(custom, customKeys) : []
+      if (inapplicableCore.length || inapplicableCustom.length) {
+        const { translate } = await resolveTranslations()
+        throw inapplicableFieldError(
+          [...inapplicableCore, ...inapplicableCustom.map((key) => `cf_${key}`)],
+          translate('customers.calendar.activityTypes.errors.fieldNotApplicable', 'Field is not applicable to this activity type'),
+        )
       }
 
       const interaction = buildInteractionGraph(trx, {
@@ -659,6 +744,63 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         request: ctx.request ?? null,
       })
 
+      const nextType = parsed.interactionType ?? interaction.interactionType
+      const changingType = nextType !== interaction.interactionType
+      const { behavior, organizationIds } = await resolveInteractionTypeBehavior(
+        ctx, trx, interaction.tenantId, interaction.organizationId, nextType, !changingType,
+      )
+      const currentCoreValues = {
+        durationMinutes: interaction.durationMinutes,
+        allDay: interaction.allDay,
+        recurrenceRule: interaction.recurrenceRule,
+        recurrenceEnd: interaction.recurrenceEnd,
+        location: interaction.location,
+        participants: interaction.participants,
+        priority: interaction.priority,
+        linkedEntities: interaction.linkedEntities,
+      }
+      const coreValues = { ...currentCoreValues, ...parsed }
+      const inapplicableCore = findInapplicableCoreFields(behavior, changingType ? coreValues : parsed)
+      const currentCustom = changingType
+        ? await loadCustomFieldSnapshot(trx, {
+          entityId: INTERACTION_ENTITY_ID,
+          recordId: interaction.id,
+          tenantId: interaction.tenantId,
+          organizationId: interaction.organizationId,
+        })
+        : {}
+      const customValues = changingType ? { ...currentCustom, ...custom } : custom
+      const customKeys = Object.keys(customValues).length
+        ? await loadApplicableCustomFieldKeys(trx, interaction.tenantId, organizationIds, behavior)
+        : null
+      const inapplicableCustom = customKeys ? inapplicableCustomFieldKeys(customValues, customKeys) : []
+      if (!changingType && (inapplicableCore.length || inapplicableCustom.length)) {
+        const { translate } = await resolveTranslations()
+        throw inapplicableFieldError(
+          [...inapplicableCore, ...inapplicableCustom.map((key) => `cf_${key}`)],
+          translate('customers.calendar.activityTypes.errors.fieldNotApplicable', 'Field is not applicable to this activity type'),
+        )
+      }
+      if (changingType && (inapplicableCore.length || inapplicableCustom.length) && !parsed.confirmDiscardInapplicableValues) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(409, {
+          error: translate('customers.calendar.activityTypes.errors.changeConfirmationRequired', 'Changing type will clear existing values'),
+          code: 'calendar_type_change_confirmation_required',
+          fields: [...inapplicableCore, ...inapplicableCustom.map((key) => `cf_${key}`)],
+        })
+      }
+      const clearedCore = changingType && parsed.confirmDiscardInapplicableValues
+        ? clearInapplicableCoreFields(behavior, coreValues)
+        : {}
+      const clearedCustom = changingType && parsed.confirmDiscardInapplicableValues
+        ? Object.fromEntries(inapplicableCustom.map((key) => [key, Array.isArray(customValues[key]) ? [] : null]))
+        : {}
+      const sameTypeFields = changingType ? parsed : preserveHiddenCoreValuesOnSameTypeEdit(behavior, currentCoreValues, parsed)
+      const sameTypeCustom = changingType || !customKeys
+        ? custom
+        : Object.fromEntries(Object.entries(custom).filter(([key]) =>
+          !customKeys.defined.has(key.toLowerCase()) || customKeys.allowed.has(key.toLowerCase())))
+
       // Email visibility is an access-controlled field: only the interaction's
       // author may change a
       // private email's visibility (mirrors the dedicated PATCH .../visibility
@@ -700,22 +842,33 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       if (parsed.status !== undefined) interaction.status = parsed.status
       if (parsed.scheduledAt !== undefined) interaction.scheduledAt = parsed.scheduledAt ?? null
       if (parsed.occurredAt !== undefined) interaction.occurredAt = parsed.occurredAt ?? null
-      if (parsed.priority !== undefined) interaction.priority = parsed.priority ?? null
+      if (sameTypeFields.priority !== undefined) interaction.priority = sameTypeFields.priority as number | null
       if (parsed.authorUserId !== undefined) interaction.authorUserId = parsed.authorUserId ?? null
       if (parsed.ownerUserId !== undefined) interaction.ownerUserId = parsed.ownerUserId ?? null
       if (parsed.appearanceIcon !== undefined) interaction.appearanceIcon = parsed.appearanceIcon ?? null
       if (parsed.appearanceColor !== undefined) interaction.appearanceColor = parsed.appearanceColor ?? null
       if (parsed.pinned !== undefined) interaction.pinned = parsed.pinned
-      if (parsed.durationMinutes !== undefined) interaction.durationMinutes = parsed.durationMinutes ?? null
-      if (parsed.location !== undefined) interaction.location = parsed.location ?? null
-      if (parsed.allDay !== undefined) interaction.allDay = parsed.allDay ?? null
-      if (parsed.recurrenceRule !== undefined) interaction.recurrenceRule = parsed.recurrenceRule ?? null
-      if (parsed.recurrenceEnd !== undefined) interaction.recurrenceEnd = parsed.recurrenceEnd ?? null
-      if (parsed.participants !== undefined) interaction.participants = parsed.participants ?? null
+      if (sameTypeFields.durationMinutes !== undefined) interaction.durationMinutes = sameTypeFields.durationMinutes as number | null
+      if (sameTypeFields.location !== undefined) interaction.location = sameTypeFields.location as string | null
+      if (sameTypeFields.allDay !== undefined) interaction.allDay = sameTypeFields.allDay as boolean | null
+      if (sameTypeFields.recurrenceRule !== undefined) interaction.recurrenceRule = sameTypeFields.recurrenceRule as string | null
+      if (sameTypeFields.recurrenceEnd !== undefined) interaction.recurrenceEnd = sameTypeFields.recurrenceEnd as Date | null
+      if (sameTypeFields.participants !== undefined) interaction.participants = sameTypeFields.participants as InteractionSnapshot['interaction']['participants']
       if (parsed.reminderMinutes !== undefined) interaction.reminderMinutes = parsed.reminderMinutes ?? null
       if (parsed.visibility !== undefined) interaction.visibility = parsed.visibility ?? null
-      if (parsed.linkedEntities !== undefined) interaction.linkedEntities = parsed.linkedEntities ?? null
+      if (sameTypeFields.linkedEntities !== undefined) interaction.linkedEntities = sameTypeFields.linkedEntities as InteractionSnapshot['interaction']['linkedEntities']
       if (parsed.guestPermissions !== undefined) interaction.guestPermissions = parsed.guestPermissions ?? null
+
+      for (const [field, value] of Object.entries(clearedCore)) {
+        if (field === 'linkedEntities') interaction.linkedEntities = value as InteractionSnapshot['interaction']['linkedEntities']
+        else if (field === 'durationMinutes') interaction.durationMinutes = null
+        else if (field === 'allDay') interaction.allDay = null
+        else if (field === 'recurrenceRule') interaction.recurrenceRule = null
+        else if (field === 'recurrenceEnd') interaction.recurrenceEnd = null
+        else if (field === 'location') interaction.location = null
+        else if (field === 'participants') interaction.participants = null
+        else if (field === 'priority') interaction.priority = null
+      }
 
       await trx.flush()
 
@@ -725,7 +878,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         interaction.id,
         interaction.organizationId,
         interaction.tenantId,
-        custom,
+        { ...sameTypeCustom, ...clearedCustom },
       )
 
       const projection = await recomputeNextInteraction(trx, entityId)

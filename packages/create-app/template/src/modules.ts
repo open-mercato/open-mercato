@@ -8,7 +8,25 @@
 //   `apps/docs/docs/framework/modules/overrides.mdx`.
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import type { ModuleOverrides } from '@open-mercato/shared/modules/overrides'
+import { applyComponentOverrides } from '@open-mercato/shared/modules/overrides'
 import { officialModuleEntries } from './official-modules.generated'
+
+export const exampleCalendarOverrides: NonNullable<ModuleOverrides['calendar']> = {
+  eventTypes: { note: null },
+  patches: [{ targetEventTypeKey: 'meeting', replaceLabelKey: 'example.calendar.customerMeeting' }],
+}
+
+export function applyProgrammaticComponentOverrides(): void {
+  if (process.env.NEXT_PUBLIC_OM_EXAMPLE_DISABLE_VISIT_PANEL === 'true') {
+    applyComponentOverrides({ 'section:customers.calendar-event-editor.type-panel': null })
+  }
+}
+
+export const exampleModuleEntry: ModuleEntry = {
+  id: 'example',
+  from: '@app',
+  overrides: { calendar: exampleCalendarOverrides },
+}
 
 export type ModuleEntry = {
   id: string

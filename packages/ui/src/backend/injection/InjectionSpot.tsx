@@ -82,6 +82,19 @@ function filterWidgetsByGrantedFeatures(
   return widgets.filter((widget) => hasGrantedWidgetFeatures(widget, grantedFeatures, hasBackendChromePayload))
 }
 
+function calendarEventTypeKeyOf(context: unknown): string | undefined {
+  if (!context || typeof context !== 'object' || Array.isArray(context)) return undefined
+  const key = (context as Record<string, unknown>).calendarEventTypeKey
+  return typeof key === 'string' ? key : undefined
+}
+
+function filterWidgetsByCalendarEventType(widgets: LoadedWidget[], key: string | undefined): LoadedWidget[] {
+  return widgets.filter((widget) => {
+    const keys = widget.module.metadata.calendarEventTypeKeys
+    return keys === undefined || (key !== undefined && keys.includes(key))
+  })
+}
+
 function areSameLoadedWidgets(current: LoadedWidget[], next: LoadedWidget[]): boolean {
   if (current.length !== next.length) return false
   return current.every((widget, index) => {
@@ -128,6 +141,7 @@ export function useInjectionWidgets<TContext = unknown>(
   const [widgets, setWidgets] = React.useState<LoadedWidget[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [loadedForCalendarEventTypeKey, setLoadedForCalendarEventTypeKey] = React.useState<string | undefined>()
   const [registryVersion, setRegistryVersion] = React.useState(() => getInjectionRegistryVersion())
   const loadedWidgetIdsRef = React.useRef(new Set<string>())
   const contextRef = React.useRef(options?.context)
@@ -139,6 +153,7 @@ export function useInjectionWidgets<TContext = unknown>(
     [payload?.grantedFeatures],
   )
   const hasBackendChromePayload = payload !== null
+  const calendarEventTypeKey = calendarEventTypeKeyOf(options?.context)
   React.useEffect(() => {
     contextRef.current = options?.context
     triggerOnLoadRef.current = options?.triggerOnLoad
@@ -154,6 +169,7 @@ export function useInjectionWidgets<TContext = unknown>(
   React.useEffect(() => {
     if (!spotId) {
       setWidgets([])
+      setLoadedForCalendarEventTypeKey(calendarEventTypeKey)
       setLoading(false)
       setError(null)
       return
@@ -170,12 +186,12 @@ export function useInjectionWidgets<TContext = unknown>(
         setError(null)
         const loaded = await loadInjectionWidgetsForSpot(spotId)
         if (!mounted) return
-        const widgetList = filterWidgetsByGrantedFeatures(
-          loaded.map(toLoadedWidget),
-          grantedFeatureList,
-          hasBackendChromePayload,
+        const widgetList = filterWidgetsByCalendarEventType(
+          filterWidgetsByGrantedFeatures(loaded.map(toLoadedWidget), grantedFeatureList, hasBackendChromePayload),
+          calendarEventTypeKey,
         )
         setWidgets(widgetList)
+        setLoadedForCalendarEventTypeKey(calendarEventTypeKey)
 
         // Trigger onLoad for all widgets
         if (triggerOnLoadRef.current) {
@@ -197,6 +213,7 @@ export function useInjectionWidgets<TContext = unknown>(
         if (!mounted) return
         logger.error('Failed to load widgets for spot', { spotId, err })
         setError(err instanceof Error ? err.message : String(err))
+        setLoadedForCalendarEventTypeKey(calendarEventTypeKey)
       } finally {
         if (mounted) setLoading(false)
       }
@@ -205,11 +222,13 @@ export function useInjectionWidgets<TContext = unknown>(
     return () => {
       mounted = false
     }
-    // context/triggerOnLoad/onEvent are read from refs so only a real registry-version bump reloads the spot
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spotId, registryVersion, backendChromeReady, grantedFeatureList, hasBackendChromePayload])
+  }, [spotId, registryVersion, backendChromeReady, grantedFeatureList, hasBackendChromePayload, calendarEventTypeKey])
 
-  return { widgets, loading, error }
+  return {
+    widgets: filterWidgetsByCalendarEventType(widgets, calendarEventTypeKey),
+    loading: loading || loadedForCalendarEventTypeKey !== calendarEventTypeKey,
+    error,
+  }
 }
 
 export function InjectionSpot<TContext = unknown, TData = unknown>({
@@ -255,7 +274,7 @@ export function InjectionSpot<TContext = unknown, TData = unknown>({
     [widgetsOverride, overrideGrantedFeatureList, overrideHasBackendChromePayload],
   )
   const effectiveWidgets = hasWidgetsOverride
-    ? (overrideBackendChromeReady ? filteredWidgetsOverride ?? [] : [])
+    ? (overrideBackendChromeReady ? filterWidgetsByCalendarEventType(filteredWidgetsOverride ?? [], calendarEventTypeKeyOf(context)) : [])
     : widgets
   const effectiveLoading = hasWidgetsOverride ? !overrideBackendChromeReady : loading
   const effectiveError = hasWidgetsOverride ? null : error
