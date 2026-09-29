@@ -16,7 +16,7 @@ The profile is a diagnostic starting point, not a production observability backe
 
 ## Quick start with the Docker collector
 
-Add these values to the `.env` file beside `docker-compose.fullapp.yml`:
+Add these values to the `.env` file at the repository root (the one `--project-directory .` reads):
 
 ```dotenv
 TELEMETRY_BACKEND=otlp
@@ -28,23 +28,23 @@ OTEL_RESOURCE_ATTRIBUTES=deployment.environment=local
 Start the full app and the opt-in collector:
 
 ```bash
-docker compose -f docker-compose.fullapp.yml \
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml \
   --profile telemetry up --build
 ```
 
-The same command works from a generated create-app project. With the bundled Traefik overlay, include both files:
+In a generated create-app project the Compose file sits at the project root, so run `docker compose -f docker-compose.fullapp.yml --profile telemetry up --build` there. With the monorepo's Traefik overlay, include both files:
 
 ```bash
-docker compose \
-  -f docker-compose.fullapp.yml \
-  -f docker-compose.fullapp.traefik.yml \
+docker compose --project-directory . \
+  -f starters/docker/compose.fullapp.yml \
+  -f starters/docker/compose.fullapp.traefik.yml \
   --profile telemetry up --build
 ```
 
 Make an application request, exercise a database-backed path, and inspect the collector:
 
 ```bash
-docker compose -f docker-compose.fullapp.yml \
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml \
   --profile telemetry logs -f otel-collector
 ```
 
@@ -74,7 +74,7 @@ OTEL_RESOURCE_ATTRIBUTES=deployment.environment=production
 ```
 
 ```bash
-docker compose -f docker-compose.fullapp.yml up -d
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml up -d
 ```
 
 `otlp`, `signoz`, and `newrelic` select the same OTLP provider. Endpoint and header values choose the destination; there is no provider-specific application code path.
@@ -85,7 +85,7 @@ Inside the app container, `localhost` refers to the app container itself. Use `h
 
 ## Configuration reference
 
-The supported full-app, Traefik overlay, and create-app Compose files forward the same runtime values:
+`starters/docker/compose.fullapp.yml` and the create-app `docker-compose.fullapp.yml` forward the same runtime values. The Traefik overlay inherits them, because Compose merges the `app` service's `environment` across every `-f` file:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -122,14 +122,14 @@ The original module-loading failure is retained as the error cause for diagnosti
 1. Confirm that the profile is active:
 
    ```bash
-   docker compose -f docker-compose.fullapp.yml --profile telemetry ps
+   docker compose --project-directory . -f starters/docker/compose.fullapp.yml --profile telemetry ps
    ```
 
 2. Check only the non-secret values inside the app container:
 
    ```bash
-   docker compose -f docker-compose.fullapp.yml exec app printenv TELEMETRY_BACKEND
-   docker compose -f docker-compose.fullapp.yml exec app printenv OTEL_EXPORTER_OTLP_ENDPOINT
+   docker compose --project-directory . -f starters/docker/compose.fullapp.yml exec app printenv TELEMETRY_BACKEND
+   docker compose --project-directory . -f starters/docker/compose.fullapp.yml exec app printenv OTEL_EXPORTER_OTLP_ENDPOINT
    ```
 
 3. Confirm the endpoint is `http://otel-collector:4318`, not `localhost`.

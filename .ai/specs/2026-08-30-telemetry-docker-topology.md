@@ -43,10 +43,10 @@ The 2026-08 production-topology benchmark exposed the operational consequence: q
 ### In scope
 
 - Pass the complete documented telemetry configuration from the host environment into the `app` service in:
-  - `docker-compose.fullapp.yml`;
-  - `docker-compose.fullapp.traefik.yml`;
+  - `starters/docker/compose.fullapp.yml` (canonical; the repo-root `docker-compose.fullapp.yml` is its generated back-compat copy);
   - `packages/create-app/template/docker-compose.fullapp.yml`.
-- Add a `telemetry` Compose profile containing an OpenTelemetry Collector service to the root and standalone-app templates.
+- The `starters/docker/compose.fullapp.traefik.yml` overlay inherits that mapping through Compose's `-f` merge and is not modified.
+- Add a `telemetry` Compose profile containing an OpenTelemetry Collector service to the canonical monorepo stack and the standalone-app template.
 - Add byte-equivalent minimal collector configuration files for the monorepo topology and the standalone template.
 - Add deployment documentation, Compose contract tests, and template parity coverage.
 
@@ -92,7 +92,7 @@ Each app service passes these values without secrets or production defaults:
 
 The standard OTEL endpoint and headers are passed verbatim. Compose files do not contain vendor credentials, example secrets, or an enabled backend default.
 
-The Traefik file is an overlay and normally merges with `docker-compose.fullapp.yml`; it repeats the telemetry environment mapping under its `app` fragment because issue #5783 explicitly treats every supported topology file as a contract. A contract test locks the variable set across both root files and the standalone template so the duplication cannot drift silently.
+The Traefik file is an overlay that is only ever layered on top of `starters/docker/compose.fullapp.yml` with a second `-f`. Compose merges the `environment` mapping of a service across every `-f` file, and the overlay's `app` fragment carries only Traefik labels, so the base file's telemetry mapping reaches the merged `app` service unchanged. Repeating the mapping in the overlay would be inert duplication and a second place to drift, so the overlay carries none. A contract test locks the variable set across the canonical fullapp file and the standalone template; `docker compose config` on the base+overlay pair confirms the merged result.
 
 ### Collector profile
 
@@ -100,7 +100,7 @@ Both production-style Compose trees add an `otel-collector` service with:
 
 - `profiles: [telemetry]`, so ordinary `docker compose up` does not create it;
 - a version-pinned official OpenTelemetry Collector image;
-- a read-only mount of `docker/otel-collector-config.yaml`;
+- a read-only mount of `docker/otel-collector-config.yaml` (resolved against the repository root by `--project-directory .`, like the existing `./docker/redis/redis.conf` mount);
 - the existing `mercato-network-fullapp` network;
 - no host-published ports;
 - an OTLP receiver bound to the container network on `0.0.0.0:4318`;
@@ -113,7 +113,7 @@ Operators start the diagnostic pipeline with an explicit command such as:
 ```bash
 TELEMETRY_BACKEND=otlp \
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 \
-docker compose -f docker-compose.fullapp.yml --profile telemetry up --build
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml --profile telemetry up --build
 ```
 
 The app does not declare a hard `depends_on` edge to the profiled collector. Such an edge would make the default profile invalid or couple startup to an optional diagnostic component. OTLP exporter retry behavior absorbs collector start order, and an unavailable collector must not prevent an otherwise valid app from running.
@@ -176,7 +176,7 @@ Rollback is a normal code/config rollback: remove the environment mappings and c
 
 ### Deployment contract tests
 
-- Add a root Node test that asserts the app environment contains the exact telemetry variable set in the base, Traefik overlay, and standalone template Compose files.
+- Add a root Node test that asserts the app environment contains the exact telemetry variable set in the canonical `starters/docker/compose.fullapp.yml` and the standalone template Compose file. The repo-root back-compat copies are covered by the existing `scripts/__tests__/root-compose-backcompat.test.mjs` byte-equality check.
 - Assert the collector is profile-gated, mounts the expected config read-only, joins the app network, and publishes no host ports.
 - Assert the monorepo and standalone collector configs are byte-identical and define OTLP/HTTP receiver, batch processor, debug exporter, and trace/metric/log pipelines.
 - Run `docker compose ... config` for the base and base+Traefik combinations when the CLI is available; the deterministic source assertions remain the CI-safe gate when Docker is unavailable.
@@ -200,10 +200,10 @@ Rollback is a normal code/config rollback: remove the environment mappings and c
 
 ### Compose duplication drifts
 
-- **Scenario**: A telemetry variable or collector setting is updated in the root topology but omitted from the Traefik overlay or standalone template.
+- **Scenario**: A telemetry variable or collector setting is updated in `starters/docker/compose.fullapp.yml` but omitted from the standalone template or the repo-root back-compat copy.
 - **Severity**: Medium.
 - **Affected area**: Monorepo and generated standalone deployments.
-- **Mitigation**: Lock the exact environment set and byte-identical collector configs with a deterministic test; include the create-app template in the same implementation step.
+- **Mitigation**: Lock the exact environment set and byte-identical collector configs with a deterministic test; include the create-app template in the same implementation step; `root-compose-backcompat.test.mjs` fails on any root-copy drift.
 - **Residual risk**: Comments may still differ intentionally, but runtime keys and collector behavior are guarded.
 
 ### Collector or backend is unreachable
@@ -238,8 +238,8 @@ Both phases ship together because environment pass-through without a documented/
 
 ### Phase 1 — Standard topology wiring
 
-1. Add the exact telemetry environment mapping to the `app` services in `docker-compose.fullapp.yml`, `docker-compose.fullapp.traefik.yml`, and `packages/create-app/template/docker-compose.fullapp.yml`.
-2. Add the `otel-collector` service under `profiles: [telemetry]` to the root and standalone Compose files, using the shared service name, internal network, version-pinned image, read-only config mount, and no published ports.
+1. Add the exact telemetry environment mapping to the `app` services in `starters/docker/compose.fullapp.yml` and `packages/create-app/template/docker-compose.fullapp.yml`, then regenerate the repo-root `docker-compose.fullapp.yml` back-compat copy (header + canonical content).
+2. Add the `otel-collector` service under `profiles: [telemetry]` to `starters/docker/compose.fullapp.yml` and the standalone Compose file, using the shared service name, internal network, version-pinned image, read-only config mount, and no published ports.
 3. Add byte-identical `docker/otel-collector-config.yaml` and `packages/create-app/template/docker/otel-collector-config.yaml` files with OTLP/HTTP, batch, and debug pipelines for traces, metrics, and logs.
 4. Add a deterministic topology contract test under `scripts/__tests__/` covering environment parity, opt-in profile semantics, collector network/ports/mounts, and config parity.
 5. Run the topology test, Compose configuration validation, and targeted create-app/template checks.
@@ -254,8 +254,8 @@ Both phases ship together because environment pass-through without a documented/
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `docker-compose.fullapp.yml` | Modify | Pass telemetry env and add the opt-in collector. |
-| `docker-compose.fullapp.traefik.yml` | Modify | Keep overlay app environment contract explicit and in parity. |
+| `starters/docker/compose.fullapp.yml` | Modify | Pass telemetry env and add the opt-in collector (canonical monorepo stack). |
+| `docker-compose.fullapp.yml` | Regenerate | Back-compat copy of the canonical file; byte equality enforced by `root-compose-backcompat.test.mjs`. |
 | `docker/otel-collector-config.yaml` | Add | Root diagnostic collector pipeline. |
 | `packages/create-app/template/docker-compose.fullapp.yml` | Modify | Give generated standalone apps the same opt-in topology. |
 | `packages/create-app/template/docker/otel-collector-config.yaml` | Add | Standalone diagnostic collector pipeline. |
@@ -336,3 +336,9 @@ None.
 - Added the opt-in `telemetry` profile, pinned private collector service, and byte-identical root/template collector configurations without host-published ports or app startup coupling.
 - Added the operator telemetry guide, sidebar entry, logging cross-link, source-contract tests, and disabled/profile Compose graph validation.
 - Validation evidence: `yarn build:packages`, `yarn generate`, `yarn typecheck`, `yarn lint`, `yarn build:app`, 97 telemetry tests, 47 combined Compose tests, 16 docs checks, and Docker Compose v5.4 config validation all passed. `yarn template:sync` reports only the pre-existing `modules.ts` drift. The local full `yarn test` gate is blocked solely by existing create-app live-harness host/sandbox failures; focused affected suites pass and the prior PR-head GitHub test check passed.
+
+### Review follow-up — 2026-09-30
+
+- Moved the Compose wiring to the canonical `starters/docker/compose.fullapp.yml` after `develop` made the repo-root `docker-compose.fullapp*.yml` files generated back-compat copies; regenerated the root copy and pointed `fullapp-compose-telemetry.test.mjs` at the canonical file.
+- Dropped the telemetry `environment` block from the Traefik overlay: Compose merges `environment` across `-f` files, so the overlay inherits the base mapping and the duplicate was inert.
+- Updated `telemetry.mdx` commands to `docker compose --project-directory . -f starters/docker/…` and disclosed the host bootstrap behavior change in `UPGRADE_NOTES.md`.

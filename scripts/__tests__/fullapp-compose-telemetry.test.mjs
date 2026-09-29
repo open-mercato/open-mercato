@@ -6,8 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { parse } from 'yaml'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
-const ROOT_COMPOSE = 'docker-compose.fullapp.yml'
-const TRAEFIK_COMPOSE = 'docker-compose.fullapp.traefik.yml'
+const FULLAPP_COMPOSE = 'starters/docker/compose.fullapp.yml'
 const TEMPLATE_COMPOSE = 'packages/create-app/template/docker-compose.fullapp.yml'
 const ROOT_COLLECTOR_CONFIG = 'docker/otel-collector-config.yaml'
 const TEMPLATE_COLLECTOR_CONFIG = 'packages/create-app/template/docker/otel-collector-config.yaml'
@@ -30,7 +29,7 @@ function readYaml(relativePath) {
   return parse(read(relativePath))
 }
 
-for (const relativePath of [ROOT_COMPOSE, TRAEFIK_COMPOSE, TEMPLATE_COMPOSE]) {
+for (const relativePath of [FULLAPP_COMPOSE, TEMPLATE_COMPOSE]) {
   test(`${relativePath} forwards the complete telemetry environment contract`, () => {
     const compose = readYaml(relativePath)
     const environment = compose.services.app.environment
@@ -42,7 +41,7 @@ for (const relativePath of [ROOT_COMPOSE, TRAEFIK_COMPOSE, TEMPLATE_COMPOSE]) {
 }
 
 for (const [relativePath, expectedMount] of [
-  [ROOT_COMPOSE, './docker/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro'],
+  [FULLAPP_COMPOSE, './docker/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro'],
   [TEMPLATE_COMPOSE, './docker/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro'],
 ]) {
   test(`${relativePath} keeps the diagnostic collector private and opt-in`, () => {
