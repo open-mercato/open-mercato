@@ -33,11 +33,12 @@ type OutboundDeliveryIntentInput = {
  *      asks `raw.visibility !== 'public'`. A caller that omits the field
  *      therefore stores `null` on a channel-linked thread, and reading that as
  *      public would deliver an internal note to the correspondent.
- *   2. **`forwardedFromMessageId`** — a forward. `forwardMessageCommand` copies
- *      `visibility` from the message it forwards, so forwarding a *public*
- *      inbound message produces a public forward whose body is the quoted
- *      conversation plus the operator's own commentary about the correspondent.
- *      Signal 1 cannot see it.
+ *   2. **`forwardedFromMessageId`** — a forward. `forwardMessageCommand` files a
+ *      forward of a channel message as internal, which also keeps every reply
+ *      under it internal (#6431); this signal still refuses a forward that
+ *      reaches the bridge public, e.g. one stored before that change, whose
+ *      body is the quoted conversation plus the operator's own commentary
+ *      about the correspondent.
  *
  * Signal 2 reads the event payload rather than the `messages` row on purpose:
  * nothing persisted distinguishes a forward from a reply — both set

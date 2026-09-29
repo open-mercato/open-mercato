@@ -31,6 +31,7 @@ import {
  *      back to the channel rather than filed as an internal message.
  *   4. `POST /api/messages/{id}/forward` — forwarding the customer's message to
  *      a colleague (#6355).
+ *   5. a reply under that forward is not delivered to the channel (#6431).
  *
  * Driven via the env-gated test-seed fixture (`OM_ENABLE_TEST_CHANNEL_SEEDING`)
  * and the REAL `ingest_inbound_message` command, so nothing about the message
@@ -201,6 +202,24 @@ test.describe('TC-CHANNEL-REPLY-001: answering an inbound channel message', () =
         forwardResponse.status(),
         'an operator who may answer an inbound channel message must be able to forward it',
       ).toBe(201)
+
+      // (5) Nothing written under that forward reaches the customer (#6431): the
+      // owner's reply to their own forward stays on the platform, while the
+      // same drain still delivers a direct answer in (3).
+      const forward = await readJsonSafe<{ id?: string }>(forwardResponse)
+      expect(forward?.id, 'the forward must return its id').toBeTruthy()
+      const replyToForwardResponse = await apiRequest(
+        request,
+        'POST',
+        `/api/messages/${forward?.id}/reply`,
+        { token, data: { body: 'Internal: I think they are fishing for a refund.' } },
+      )
+      expect(replyToForwardResponse.status(), 'replying to a forward must succeed').toBe(201)
+      const totalAfterReplyToForward = await drainUntilOutbound(request, token, channelId, total + 1)
+      expect(
+        totalAfterReplyToForward,
+        'a reply under a forward must not be delivered to the external correspondent',
+      ).toBe(total)
     } finally {
       await deleteChannelIfExists(request, token, channelId)
     }

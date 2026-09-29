@@ -952,13 +952,16 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
     // the correspondent. The channels bridge already refuses `forwardedFrom`, but
     // the messages email path would still mail `externalEmail` on
     // `sendViaEmail` — so the customer's address is not carried onto it.
+    // It is also filed as internal: replies copy their parent's visibility and
+    // carry no `forwardedFrom`, so a public forward made every reply under it
+    // deliverable to the correspondent (#6431, #6428).
     const keepsExternalCorrespondent = original.sourceEntityType !== EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE
     let newMessageId = ''
     let responseExternalEmail: string | null = null
     await em.transactional(async (trx) => {
       const newMessage = trx.create(Message, {
         type: original.type,
-        visibility: original.visibility ?? null,
+        visibility: keepsExternalCorrespondent ? original.visibility ?? null : 'internal',
         sourceEntityType: original.sourceEntityType,
         sourceEntityId: original.sourceEntityId,
         externalEmail: keepsExternalCorrespondent ? original.externalEmail : null,

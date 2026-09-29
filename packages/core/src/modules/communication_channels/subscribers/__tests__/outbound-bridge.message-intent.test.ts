@@ -75,7 +75,10 @@ describe('outbound bridge — delivery intent across the messages seam (#5645 re
   }
 
   /** Container the `messages` commands run against — records what they compose. */
-  function makeMessagesContainer(original: Record<string, unknown>) {
+  function makeMessagesContainer(
+    original: Record<string, unknown>,
+    recipientUserIds: string[] = [operatorUserId],
+  ) {
     const created: Record<string, unknown>[] = []
     const trx = {
       create: jest.fn((entity: unknown, data: Record<string, unknown>) => {
@@ -99,8 +102,8 @@ describe('outbound bridge — delivery intent across the messages seam (#5645 re
       // reply without the channel-thread fallback — the review's own scenario.
       findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
         if (entity === Message) return where.id === original.id ? original : null
-        if (entity === MessageRecipient && where.recipientUserId === operatorUserId) {
-          return { messageId: inboundMessageId, recipientUserId: operatorUserId, status: 'read', deletedAt: null }
+        if (entity === MessageRecipient && recipientUserIds.includes(where.recipientUserId as string)) {
+          return { messageId: original.id, recipientUserId: where.recipientUserId, status: 'read', deletedAt: null }
         }
         return null
       }),
@@ -160,11 +163,69 @@ describe('outbound bridge — delivery intent across the messages seam (#5645 re
     expect(forwardRow.sourceEntityType).toBe('communication_channels.external_conversation')
     expect(forwardRow.threadId).toBe(threadId)
     expect(forwardRow.senderUserId).toBe(operatorUserId)
-    expect(forwardRow.visibility).toBe('public')
+    expect(forwardRow.visibility).toBe('internal')
 
     await bridgeHandler(
       sentEventPayload() as never,
       makeBridgeContainer(forwardRow) as never,
+    )
+
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  async function forwardInboundToColleague(): Promise<Record<string, unknown>> {
+    const { container, created } = makeMessagesContainer(inboundMessage())
+    await commandRegistry.get('messages.messages.forward')!.execute(
+      {
+        messageId: inboundMessageId,
+        recipients: [{ userId: colleagueUserId, type: 'to' }],
+        additionalBody: 'Fishing for a refund, I think.',
+        sendViaEmail: false,
+        includeAttachments: false,
+        tenantId,
+        organizationId,
+        userId: operatorUserId,
+      },
+      { container, auth: { features: ['messages.compose'] } } as never,
+    )
+    jest.clearAllMocks()
+    return { ...created[0], id: '88888888-8888-4888-8888-888888888888' }
+  }
+
+  /**
+   * #6431: replies copy their parent's visibility and carry no `forwardedFrom`,
+   * so a public forward made every reply written under it deliverable — the
+   * operators' discussion of the customer reached the customer's chat.
+   */
+  it.each([
+    ['the forwarding owner', operatorUserId, [] as string[]],
+    ['the colleague the forward was addressed to', colleagueUserId, [colleagueUserId]],
+  ])('does not deliver a reply by %s under a forward of a channel message', async (_label, replierUserId, recipientUserIds) => {
+    const forwardRow = await forwardInboundToColleague()
+    const { container, created } = makeMessagesContainer(forwardRow, recipientUserIds)
+
+    await commandRegistry.get('messages.messages.reply')!.execute(
+      {
+        messageId: forwardRow.id,
+        body: 'I think they are lying. Stall them.',
+        bodyFormat: 'text',
+        sendViaEmail: false,
+        replyAll: false,
+        tenantId,
+        organizationId,
+        userId: replierUserId,
+      },
+      { container, auth: { features: ['messages.compose'] } } as never,
+    )
+
+    const replyRow = created[0]
+    expect(replyRow.threadId).toBe(threadId)
+    expect(replyRow.sourceEntityType).toBe('communication_channels.external_conversation')
+    expect(replyRow.visibility).toBe('internal')
+
+    await bridgeHandler(
+      sentEventPayload() as never,
+      makeBridgeContainer(replyRow) as never,
     )
 
     expect(enqueueMock).not.toHaveBeenCalled()
