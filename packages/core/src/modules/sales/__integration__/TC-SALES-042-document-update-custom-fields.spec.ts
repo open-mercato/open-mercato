@@ -40,12 +40,11 @@ async function deleteDefinition(
   entityId: string,
   key: string,
 ): Promise<void> {
-  await apiRequest(
-    request,
-    'DELETE',
-    `${DEFINITIONS}?entityId=${encodeURIComponent(entityId)}&key=${encodeURIComponent(key)}`,
-    { token },
-  ).catch(() => {})
+  const response = await apiRequest(request, 'DELETE', DEFINITIONS, {
+    token,
+    data: { entityId, key },
+  })
+  expect(response.ok(), `custom field definition delete failed (${response.status()})`).toBeTruthy()
 }
 
 async function readDocument(
