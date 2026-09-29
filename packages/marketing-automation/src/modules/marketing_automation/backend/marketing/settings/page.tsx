@@ -15,6 +15,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { readApiErrorField } from '../../../components/apiError'
 
 const SETTINGS_PATH = '/api/marketing_automation/settings'
 
@@ -121,10 +122,10 @@ export default function MarketingSettingsPage() {
       if (saved.result) setSettings(saved.result)
       flash(t('marketing_automation.settings.saved', 'Settings saved.'), 'success')
     } catch (error) {
-      const body = (error as { body?: { error?: unknown } } | null)?.body
+      const message = readApiErrorField(error, 'error')
       flash(
-        typeof body?.error === 'string'
-          ? body.error
+        message
+          ? message
           : t('marketing_automation.settings.saveFailed', 'Could not save the settings.'),
         'error',
       )
@@ -386,7 +387,9 @@ export default function MarketingSettingsPage() {
             </div>
             <div className="space-y-2">
               {settings.loyaltyTiers.map((tier, index) => (
-                <div key={`${tier.key}-${index}`} className="flex items-end gap-2">
+                // Keyed by position only: the name is what is being typed, so a key built from it remounted the input
+                // on every keystroke and the field lost focus after one character. The row holds no state of its own.
+                <div key={`tier-${index}`} className="flex items-end gap-2">
                   <div className="flex-1 space-y-1">
                     <Label htmlFor={`tier-key-${index}`}>{t('marketing_automation.settings.tierKey', 'Tier')}</Label>
                     <Input

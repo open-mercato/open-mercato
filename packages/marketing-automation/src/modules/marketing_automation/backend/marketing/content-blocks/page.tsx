@@ -19,6 +19,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { readApiErrorField } from '../../../components/apiError'
 
 type BlockRow = { id: string; key: string; name: string; html: string; updatedAt: string }
 
@@ -89,9 +90,8 @@ export default function ContentBlocksPage() {
       await load()
     } catch (error) {
       if (!surfaceRecordConflict(error, t)) {
-        const body = (error as { body?: { code?: unknown; error?: unknown } } | null)?.body
-        const code = typeof body?.code === 'string' ? body.code : null
-        flash(code ? t(code, String(body?.error ?? code)) : t('marketing_automation.blocks.saveFailed', 'Could not save the block.'), 'error')
+        const code = readApiErrorField(error, 'code')
+        flash(code ? t(code, readApiErrorField(error, 'error') ?? code) : t('marketing_automation.blocks.saveFailed', 'Could not save the block.'), 'error')
       }
     } finally {
       setSaving(false)

@@ -23,6 +23,7 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
 import { useUnsavedGuard } from '../../../components/useUnsavedGuard'
 import type { GroupCondition } from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
+import { readApiErrorField } from '../../../components/apiError'
 
 const SEGMENTS_PATH = '/api/marketing_automation/segments'
 
@@ -211,8 +212,7 @@ export default function SegmentsPage() {
       await load()
     } catch (error) {
       if (!surfaceRecordConflict(error, t)) {
-        const body = (error as { body?: { code?: unknown } } | null)?.body
-        const code = typeof body?.code === 'string' ? body.code : null
+        const code = readApiErrorField(error, 'code')
         flash(
           code === 'marketing_automation.errors.segmentSelfReference'
             ? t('marketing_automation.errors.segmentSelfReference', 'A segment cannot be defined in terms of other segments.')
@@ -298,9 +298,8 @@ export default function SegmentsPage() {
       })
       flash(t('marketing_automation.segments.actionQueued', 'Started. Watch it in the progress bar at the top.'), 'success')
     } catch (error) {
-      const body = (error as { body?: { code?: unknown } } | null)?.body
       flash(
-        typeof body?.code === 'string' && body.code === 'marketing_automation.errors.progressUnavailable'
+        readApiErrorField(error, 'code') === 'marketing_automation.errors.progressUnavailable'
           ? t('marketing_automation.errors.progressUnavailable', 'This installation cannot track background work, so bulk actions are unavailable.')
           : t('marketing_automation.segments.actionFailed', 'Could not start the action.'),
         'error',

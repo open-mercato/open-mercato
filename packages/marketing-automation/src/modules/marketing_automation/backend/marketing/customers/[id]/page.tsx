@@ -15,6 +15,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { readApiErrorField } from '../../../../components/apiError'
 
 /** The run statuses this module produces, mapped to the design system's own status vocabulary. */
 const RUN_STATUS_VARIANTS: Record<string, StatusBadgeVariant> = {
@@ -203,7 +204,7 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
       )
       setRefreshToken((token) => token + 1)
     } catch (error) {
-      const code = (error as { body?: { code?: unknown } } | null)?.body?.code
+      const code = readApiErrorField(error, 'code')
       flash(
         code === 'marketing_automation.errors.subjectErased'
           ? t('marketing_automation.errors.subjectErased', 'This customer\'s marketing data was erased, so score rules no longer apply to them.')

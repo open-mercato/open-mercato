@@ -210,6 +210,8 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
           </div>
         ) : null}
 
+        {/* Not rendered after a failure: an empty table under the error would still say "has not run yet". */}
+        {loadError ? null : (
         <DataTable
           columns={columns}
           data={rows}
@@ -224,6 +226,7 @@ export default function CampaignRunsPage({ params }: { params?: { id?: string } 
             />
           )}
         />
+        )}
 
         {openRun ? (
           <div className="mt-4 rounded-md border border-border bg-card p-3">

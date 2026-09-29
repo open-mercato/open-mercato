@@ -23,6 +23,7 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
 import type { GroupCondition } from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
 import { useUnsavedGuard } from '../../../components/useUnsavedGuard'
+import { readApiErrorField } from '../../../components/apiError'
 
 const RULES_PATH = '/api/marketing_automation/score-rules'
 
@@ -182,8 +183,7 @@ export default function ScoreRulesPage() {
       await load()
     } catch (error) {
       if (!surfaceRecordConflict(error, t)) {
-        const body = (error as { body?: { code?: unknown } } | null)?.body
-        const code = typeof body?.code === 'string' ? body.code : null
+        const code = readApiErrorField(error, 'code')
         flash(
           code === 'marketing_automation.errors.scoreRuleSelfReference'
             ? t('marketing_automation.errors.scoreRuleSelfReference', 'A score rule cannot use the score or segments in its condition.')

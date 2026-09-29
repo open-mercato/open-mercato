@@ -38,6 +38,7 @@ import type { StepLocation } from '../../../../lib/canvas/step-tree'
 import { makeSplitStep, readVariants, SPLIT_STEP_TYPE } from '../../../../lib/engine/split'
 import type { CampaignDefinition, CampaignStep } from '../../../../lib/engine/types'
 import type { CampaignTriggerInput } from '../../../../data/validators'
+import { readApiErrorField } from '../../../../components/apiError'
 
 type PaletteTrigger = {
   eventId: string
@@ -132,10 +133,9 @@ function summarizeAudience(audience: CampaignDefinition['audience']): string[] {
  * everything into "could not save" is what made the localized validation strings dead weight.
  */
 function describeSaveError(error: unknown, t: (key: string, fallback?: string) => string): string {
-  const body = (error as { body?: { code?: unknown; detail?: unknown } } | null)?.body
-  const code = typeof body?.code === 'string' ? body.code : null
+  const code = readApiErrorField(error, 'code')
   if (!code) return t('marketing_automation.errors.saveFailed', 'Could not save the campaign.')
-  const detail = typeof body?.detail === 'string' ? body.detail : ''
+  const detail = readApiErrorField(error, 'detail') ?? ''
   const message = t(code, code)
   return detail ? `${message} (${detail})` : message
 }
@@ -741,8 +741,7 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
       )
       if (response.result) setDraft(response.result)
     } catch (error) {
-      const body = (error as { body?: { code?: unknown } } | null)?.body
-      const code = typeof body?.code === 'string' ? body.code : null
+      const code = readApiErrorField(error, 'code')
       flash(
         code === 'marketing_automation.errors.aiNotConfigured'
           ? t('marketing_automation.errors.aiNotConfigured', 'No AI model is configured for this installation.')

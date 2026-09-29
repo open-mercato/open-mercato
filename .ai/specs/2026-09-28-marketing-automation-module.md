@@ -887,6 +887,12 @@ rather than worked around silently:
 
 ## Changelog
 
+- **2026-09-29** — Playwright UI coverage for every screen of the module (TC-MA-042..047: campaign authoring on the
+  canvas, publish dialog, templates, results and runs, segments, content blocks, customer profile, demand, inbound
+  hooks, jobs, lead routing, referrals, settings, setup, portal preferences), and the five defects it found: no
+  screen ever showed a server's specific error (they read `error.body.code`; `apiCallOrThrow` puts it on the error,
+  now read through `components/apiError.ts`), the runs list said "has not run yet" under a load error, a tier name
+  lost focus on every keystroke, and `KpiCard` dropped its footer when there was no value. 253 integration tests.
 - **2026-09-29** — Score rules (Ordo parity A1): points for standing facts about a customer, with a segment
   expression as the condition; kept in the ledger as `rule` entries holding only the difference, ordered by a
   per-subject `rule_sequence` so overlapping evaluations cannot double-count; re-evaluated on customer and tag
