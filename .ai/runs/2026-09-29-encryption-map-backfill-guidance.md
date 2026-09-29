@@ -47,6 +47,8 @@ Make sure agents and developers who add an encryption map entry to a module that
 
 ## Progress
 
+PR: #6702
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Backfill SQL helper
