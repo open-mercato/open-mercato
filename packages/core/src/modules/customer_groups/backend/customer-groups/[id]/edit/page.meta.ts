@@ -1,6 +1,6 @@
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['customer_groups.groups.manage'],
+  requireFeatures: ['customer_groups.groups.view'],
   pageTitle: 'Edit Customer Group',
   pageTitleKey: 'customer_groups.groups.form.editTitle',
   pageGroup: 'Customers',

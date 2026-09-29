@@ -25,6 +25,7 @@ import {
   type CustomerGroupTermsDTO,
 } from '../../../../components/CustomerGroupTermsSection'
 
+const GROUPS_MANAGE_FEATURE = 'customer_groups.groups.manage'
 const TERMS_MANAGE_FEATURE = 'customer_groups.terms.manage'
 
 type CustomerGroupListResponse = {
@@ -102,6 +103,9 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
   const groupId = params?.id ?? ''
   const t = useT()
   const { payload: backendChromePayload, isReady: backendChromeReady } = useBackendChrome()
+  // The page is reachable with `groups.view`; without `groups.manage` it renders read-only
+  // so view-only staff can still see the group and its commercial terms.
+  const canManageGroup = backendChromeReady && hasFeature(backendChromePayload?.grantedFeatures, GROUPS_MANAGE_FEATURE)
   const canManageTerms = backendChromeReady && hasFeature(backendChromePayload?.grantedFeatures, TERMS_MANAGE_FEATURE)
   const [initialValues, setInitialValues] = React.useState<CustomerGroupFormValues | null>(null)
   const [defaultGroups, setDefaultGroups] = React.useState<CustomerGroupSummary[]>([])
@@ -344,6 +348,7 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
             }
           }
           optimisticLockUpdatedAt={initialValues?.updatedAt}
+          readOnly={!canManageGroup}
           isLoading={loading}
           loadingMessage={t('customer_groups.groups.form.loading', 'Loading customer group...')}
           submitLabel={t('customer_groups.groups.form.action.save', 'Save')}
