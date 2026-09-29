@@ -773,6 +773,69 @@ first failure at two, skipping the first backoff; a renamed variant key committe
 stranded the results of every intermediate spelling; `hasActiveRun` was a read-then-write behind an
 eight-way concurrent worker and is now backed by a partial unique index on the active statuses.
 
+## Second review pass — 2026-09-29
+
+A second code review and security review, both over the whole branch, produced 25 accepted findings. Every
+one was verified in the source before being accepted and every one is fixed, across six commits. What is
+worth recording is not the list but the five shapes they fell into.
+
+**A green gate that could not see the most-used screen.** Six hooks added with the revision history sat
+below the campaign editor's `if (loading)` early return, so React threw on every open: the module's central
+screen was completely broken while typecheck, 782 unit tests and 148 integration tests all passed. Nothing
+in the gate renders a React tree, and the lint rule that exists for exactly this cannot run here —
+typescript-eslint refuses the installed TypeScript. A structural test now compares the position of the last
+hook against the first early return in every page, and was verified to fail against the broken file. The
+lesson is narrower than "add tests": a gate has blind spots that are properties of the toolchain, and they
+need naming rather than assuming.
+
+**Records that were confidently wrong rather than missing.** An A/B test that divided per-run numerators by
+per-message denominators, so a lane holding two emails lost every comparison regardless of its copy. A
+truncation sentinel destroyed by the live-person filter it passed through, so every segment cut off at its
+ceiling reported itself complete — on five screens. A job-run row that stayed `running` forever because the
+work had legitimately called `em.clear()`. A learned send hour resting on a single open, because the
+minimum-evidence gate summed across hours. None of these failed; each produced a number somebody would act
+on.
+
+**State that changed on a GET.** Every URL in a marketing email is fetched by things that are not the
+recipient — SafeLinks, antivirus gateways, proxies, chat unfurlers. The unsubscribe endpoint opted people
+out on GET, and the survey endpoint recorded an NPS score, which is worse: the score is what `survey.nps <= 6`
+audiences target, so a prefetch could hide a detractor or mail an apology to somebody perfectly happy. GET
+asks, POST acts, and RFC 8058 one-click still POSTs so the one-click promise is kept where it is made.
+
+**A lenient decoder behind an escaping bug.** The survey page echoed the raw `?t=` token into an HTML
+attribute, which should have been harmless because an invalid token never reaches the page — except
+`Buffer.from(s, 'base64')` stops at `=` and skips characters outside the alphabet, so a valid signature
+followed by `="><svg onload=…>` verified. Both halves are closed, in both token families: canonical-form and
+round-trip checks in the verifier, and the page re-mints the token from the verified claims. A page must not
+depend on a verifier for its escaping.
+
+**Work saved with a piece of state quietly dropped.** Triggers are written by delete-and-reinsert, and
+`lastSweptAt` was the one per-row value that had to survive it. An absent clock means "due now", so every save
+of a scheduled campaign swept it again immediately — three edits in an afternoon, three extra sends to the
+same people. The same shape as the defaulted `updatedAt` from the first pass: a value that looks harmless and
+turns a guard off.
+
+### Roadmap proposals for the platform
+
+Three findings have their real fix in core, which this module deliberately does not touch. Written down here
+rather than worked around silently:
+
+1. **`TenantSetupContext` should carry the container.** Schedules can only be registered through the
+   `schedulerService` DI registration, and the tenant-created hook receives an entity manager and the scope but
+   no container — so schedules could only be registered from `seedDefaults`, which runs during `mercato init`.
+   A tenant created later through onboarding therefore never got them, and its scheduled campaigns silently
+   never swept. This module now builds a request container inside that hook to close the hole; the right fix is
+   for the hook's context to expose the one it already has.
+2. **A blind-index column for encrypted contact fields** (platform issue #5515). `primary_email` is encrypted
+   with a random IV, so there is no `where primary_email = ?`: the platform helper decrypts the 500 most recent
+   person rows and compares in memory. An inbound hook that identifies a customer by address therefore cannot
+   find an older one on a large installation. Documented at the call site, and callers that can are told to send
+   `customerId`.
+3. **`yarn db:migrate` cannot read reindex declarations from a workspace-package migration.** It resolves them
+   relative to `packages/cli/dist`, which produces `packages/cli/dist/packages/<pkg>/…` and warns on every
+   module migration outside `packages/core`. Harmless today because this module declares none, but it means a
+   provider package cannot declare one at all.
+
 ## Changelog
 
 - **2026-09-29** — X-02: birthday campaigns, which were recorded as blocked and turned out not to be. The

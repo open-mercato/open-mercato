@@ -378,7 +378,6 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 
 - `storefront.cart.abandoned` — no cart entity exists in the platform. It is in the catalog as
   unavailable with a reason so the palette explains itself; blocked on `SPEC-029`.
-- Funnel analytics, segments, and SMS/WhatsApp/push. Consent and unsubscribe now exist; GDPR export and
-  erasure do not.
-  See the spec's phase backlog. A/B splits exist, but picking a winner does not — that needs
-  click-through attribution first.
+- SMS, WhatsApp and push: a channel provider belongs in its own `packages/channel-*`, not here.
+- Funnel analytics. Consent, unsubscribe, segments, GDPR export/erasure and A/B winner selection all exist
+  now; see the spec's phase backlog for what remains.
