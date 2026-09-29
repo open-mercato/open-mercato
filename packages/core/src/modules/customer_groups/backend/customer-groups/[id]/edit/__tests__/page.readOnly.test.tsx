@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import EditCustomerGroupPage from '../page'
 import { metadata } from '../page.meta'
 
@@ -113,6 +113,10 @@ describe('customer group edit page — access', () => {
     await waitFor(() => expect(crudFormPropsCapture.current?.isLoading).toBe(false))
     expect(crudFormPropsCapture.current?.readOnly).toBe(true)
     expect(termsPropsCapture.current?.canManage).toBe(false)
+    render(<>{crudFormPropsCapture.current?.readOnlyOverlay as React.ReactNode}</>)
+    expect(
+      screen.getByText('This group is view-only. You do not have permission to change it.'),
+    ).toBeInTheDocument()
   })
 
   it('keeps the form editable for managers', async () => {

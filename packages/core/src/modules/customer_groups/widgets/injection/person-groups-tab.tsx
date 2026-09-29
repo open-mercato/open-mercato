@@ -483,7 +483,9 @@ export function PersonGroupsTabWidget({
 
   if (!customerId) return null
 
-  const countLabel = t('customer_groups.groups.personTab.count', '{count} groups', { count: memberships.length })
+  const countLabel = memberships.length === 1
+    ? t('customer_groups.groups.personTab.countOne', '1 group')
+    : t('customer_groups.groups.personTab.count', '{count} groups', { count: memberships.length })
 
   return (
     <div className="space-y-3">

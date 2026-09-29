@@ -349,6 +349,14 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
           }
           optimisticLockUpdatedAt={initialValues?.updatedAt}
           readOnly={!canManageGroup}
+          readOnlyOverlay={(
+            <div className="rounded-xl border border-border/70 bg-background/95 px-4 py-3 text-sm text-muted-foreground shadow-sm">
+              {t(
+                'customer_groups.groups.form.readOnly',
+                'This group is view-only. You do not have permission to change it.',
+              )}
+            </div>
+          )}
           isLoading={loading}
           loadingMessage={t('customer_groups.groups.form.loading', 'Loading customer group...')}
           submitLabel={t('customer_groups.groups.form.action.save', 'Save')}
