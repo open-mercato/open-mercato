@@ -8,6 +8,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -20,6 +21,7 @@ type Settings = {
   productUrlTemplate: string
   brandVoice: string
   referralUrlTemplate: string
+  leadRoutingUserIds: string[]
   loyaltyTiers: Array<{ key: string; minPoints: number }>
 }
 
@@ -37,14 +39,21 @@ export default function MarketingSettingsPage() {
   const [loading, setLoading] = React.useState(true)
   const [loadFailed, setLoadFailed] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
+  /** The staff directory, so the pool is picked from real people rather than typed as uuids. */
+  const [staff, setStaff] = React.useState<Array<{ userId: string; displayName: string }>>([])
 
   const load = React.useCallback(async () => {
     setLoading(true)
     setLoadFailed(false)
     try {
-      const result = await apiCall<Settings>(SETTINGS_PATH)
+      const [result, people] = await Promise.all([
+        apiCall<Settings>(SETTINGS_PATH),
+        apiCall<{ items?: Array<{ userId?: string; displayName?: string }> }>('/api/staff/team-members/assignable?pageSize=100'),
+      ])
       if (result.ok && result.result) setSettings(result.result)
       else setLoadFailed(true)
+      setStaff((people.ok && Array.isArray(people.result?.items) ? people.result.items : [])
+        .flatMap((member) => (member.userId ? [{ userId: member.userId, displayName: member.displayName ?? member.userId }] : [])))
     } catch {
       setLoadFailed(true)
     } finally {
@@ -116,6 +125,34 @@ export default function MarketingSettingsPage() {
                 'Must contain {sku}. Recommended products link through it; without it they render as plain names.',
               )}
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <SectionHeader title={t('marketing_automation.settings.routing', 'Lead routing')} />
+            <div className="text-xs text-muted-foreground">
+              {t('marketing_automation.settings.routingHint', 'The "Assign to a sales rep" step gives each new lead to whoever in this pool currently has the fewest.')}
+            </div>
+            {staff.length === 0 ? (
+              <div className="text-sm text-muted-foreground">
+                {t('marketing_automation.settings.routingNoStaff', 'No assignable staff found in this organization.')}
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {staff.map((member) => (
+                  <CheckboxField
+                    key={member.userId}
+                    label={member.displayName}
+                    checked={(settings.leadRoutingUserIds ?? []).includes(member.userId)}
+                    onCheckedChange={(checked) => setSettings({
+                      ...settings,
+                      leadRoutingUserIds: checked
+                        ? [...new Set([...(settings.leadRoutingUserIds ?? []), member.userId])]
+                        : (settings.leadRoutingUserIds ?? []).filter((id) => id !== member.userId),
+                    })}
+                  />
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">

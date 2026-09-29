@@ -137,6 +137,15 @@ its own. Spec:
   which lane a subject takes is decided by the engine, not by an edge somebody drew — an author who
   can draw an edge has been promised a topology it cannot run. Edges are derived; order lives in the
   definition arrays.
+- Never reassign a lead that already has an owner unless explicitly asked. Taking a customer away from the rep
+  who has been talking to them is the most damaging thing routing can do, and a re-entry would do it on every
+  pass if the default were the other way.
+- Never route with a stored round-robin cursor. Least-loaded-wins is stateless, self-correcting when the pool
+  changes, and deterministic on ties — a cursor needs resetting and keeps feeding a rep who has been away.
+- Never store a colleague's name or email in module config. Keep the user id and let the staff directory answer
+  both; a copy goes stale the day they change either.
+- Never send a digest that says nothing happened. It is the notification that teaches people to ignore
+  notifications.
 - Never read a shopper's price from a targeted price row. A watch compares the UNTARGETED list price — regular
   kind, quantity one, no channel, user, group or customer dimension, inside its window — because a contract
   price for a different buyer is not this customer's price.
@@ -279,6 +288,7 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | daily segment sizes and their retention | `lib/segment-snapshots.ts` |
 | a queued bulk action with real progress | `workers/segment-action.ts`, `api/segments/[id]/actions/` |
 | price watches, the drop rules and the scan | `lib/engine/price-watch.ts`, `lib/product-watches.ts` |
+| lead routing and the weekly rep digest | `lib/engine/lead-routing.ts`, `lib/lead-digest.ts` |
 | a step that writes into the run context | `steps/issue-referral-code.ts` |
 | enrolment shared by events and sweeps | `lib/dispatcher.ts` → `startCampaignForSubject` |
 | trigger context hydration | `lib/trigger-catalog.ts` |

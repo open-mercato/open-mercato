@@ -18,6 +18,7 @@ import { isSweepDue } from '../lib/sweep-interval.js'
 import { pruneJobRuns, recordJobRun } from '../lib/job-runs.js'
 import { pruneSegmentSnapshots, takeSegmentSnapshots } from '../lib/segment-snapshots.js'
 import { scanPriceWatches } from '../lib/product-watches.js'
+import { sendWeeklyLeadDigests, DIGEST_JOB_KIND } from '../lib/lead-digest.js'
 import { emitMarketingAutomationEvent } from '../events.js'
 import { MarketingCampaignTrigger as TriggerEntity } from '../data/entities.js'
 import type { MarketingCampaign, MarketingCampaignTrigger } from '../data/entities.js'
@@ -324,6 +325,26 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
         attributes: { campaignId: campaign.id },
       })
     }
+  }
+
+  /**
+   * The weekly lead digest, which decides for itself whether it is due.
+   *
+   * Recorded as a job run so the operator can see it happened — and so the record IS the "already sent this
+   * week" answer, rather than a second flag that can disagree with it.
+   */
+  try {
+    const due = await sendWeeklyLeadDigests(deps.em, deps.container, scope, deps.now)
+    if (due.dueNow) {
+      await recordJobRun(deps.em, scope, { kind: DIGEST_JOB_KIND }, async () => ({
+        counters: { sent: due.sent, skipped: due.skipped },
+      }))
+      if (due.sent > 0) logger.info('marketing lead digests sent', { sent: due.sent })
+    }
+  } catch (error) {
+    logger.warn('[internal] marketing lead digest failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
   }
 
   /**

@@ -7,6 +7,7 @@ import { TIER_CONFIG_NAME } from '../../lib/tiers.js'
 import { PRODUCT_URL_TEMPLATE_CONFIG } from '../../lib/recommendations.js'
 import { BRAND_VOICE_CONFIG } from '../../lib/ai-copy.js'
 import { REFERRAL_URL_TEMPLATE_CONFIG } from '../../lib/referrals.js'
+import { LEAD_ROUTING_CONFIG } from '../../lib/lead-routing.js'
 
 /**
  * The module's per-tenant settings.
@@ -45,6 +46,13 @@ const bodySchema = z.object({
     (value) => value === '' || value.includes('{code}'),
     { message: 'must contain {code}' },
   ).optional(),
+  /**
+   * The sales reps new leads are shared between, as user ids.
+   *
+   * Ids only: a name or an address copied in here would go stale the day somebody changes theirs, and the
+   * staff directory already answers both questions from the id.
+   */
+  leadRoutingUserIds: z.array(z.string().uuid()).max(100).optional(),
   loyaltyTiers: z.array(z.object({
     key: z.string().trim().min(1).max(50),
     minPoints: z.coerce.number().int().min(0),
@@ -83,17 +91,21 @@ export async function GET(req: Request) {
   if ('error' in resolved) return resolved.error
   const { service, scope } = resolved
 
-  const [template, tiers, brandVoice, referralTemplate] = await Promise.all([
+  const [template, tiers, brandVoice, referralTemplate, routingPool] = await Promise.all([
     service.getValue<unknown>(MODULE_ID, PRODUCT_URL_TEMPLATE_CONFIG, { scope }),
     service.getValue<unknown>(MODULE_ID, TIER_CONFIG_NAME, { scope }),
     service.getValue<unknown>(MODULE_ID, BRAND_VOICE_CONFIG, { scope }),
     service.getValue<unknown>(MODULE_ID, REFERRAL_URL_TEMPLATE_CONFIG, { scope }),
+    service.getValue<unknown>(MODULE_ID, LEAD_ROUTING_CONFIG, { scope }),
   ])
 
   return NextResponse.json({
     productUrlTemplate: typeof template === 'string' ? template : '',
     brandVoice: typeof brandVoice === 'string' ? brandVoice : '',
     referralUrlTemplate: typeof referralTemplate === 'string' ? referralTemplate : '',
+    leadRoutingUserIds: Array.isArray(routingPool)
+      ? routingPool.filter((entry): entry is string => typeof entry === 'string')
+      : [],
     // Normalised on the way out as well as in, so the screen shows the ladder the engine will use
     // rather than whatever shape happens to be stored.
     loyaltyTiers: normalizeTierThresholds(tiers),
@@ -125,6 +137,10 @@ export async function PUT(req: Request) {
   }
   if (parsed.data.referralUrlTemplate !== undefined) {
     await service.setValue(MODULE_ID, REFERRAL_URL_TEMPLATE_CONFIG, parsed.data.referralUrlTemplate, scope)
+  }
+  if (parsed.data.leadRoutingUserIds !== undefined) {
+    // De-duplicated on the way in: the same rep twice in the pool would halve everybody else's share.
+    await service.setValue(MODULE_ID, LEAD_ROUTING_CONFIG, [...new Set(parsed.data.leadRoutingUserIds)], scope)
   }
   if (parsed.data.loyaltyTiers !== undefined) {
     // Stored normalised: the ladder is read on every profile and every tier comparison, and sorting it

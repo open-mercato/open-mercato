@@ -3,12 +3,22 @@ import type { StepDeps } from './deps.js'
 import { addPointsStep } from './add-points.js'
 import { npsSurveyStep } from './nps-survey.js'
 import { addTagStep } from './add-tag.js'
+import { assignOwnerStep } from './assign-owner.js'
 import { issueReferralCodeStep } from './issue-referral-code.js'
 import { sendEmailStep } from './send-email.js'
 import { splitStep } from './split.js'
 import { waitStep } from './wait.js'
 
 /** Step types this module ships. Other modules add their own through the registry. */
-export const builtInSteps: StepHandler<StepDeps>[] = [waitStep, splitStep, addTagStep, addPointsStep, sendEmailStep, npsSurveyStep, issueReferralCodeStep]
+export const builtInSteps: StepHandler<StepDeps>[] = [waitStep, splitStep, addTagStep, addPointsStep, sendEmailStep, npsSurveyStep, issueReferralCodeStep, assignOwnerStep]
 
-export { addPointsStep, addTagStep, issueReferralCodeStep, npsSurveyStep, sendEmailStep, splitStep, waitStep }
+export {
+  addPointsStep,
+  addTagStep,
+  assignOwnerStep,
+  issueReferralCodeStep,
+  npsSurveyStep,
+  sendEmailStep,
+  splitStep,
+  waitStep,
+}

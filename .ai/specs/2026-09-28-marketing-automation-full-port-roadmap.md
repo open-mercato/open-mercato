@@ -187,7 +187,7 @@ built to be extended, so breadth is additive by construction.
 | B-23 | Product/shopping feeds: Google Merchant and Meta catalogue, cached per store | Table stakes for paid acquisition | L | new provider package | catalogue |
 | B-24 | AI content generation step: LLM writes subject and body into the run context | Removes the blank-page problem that stops campaigns being written at all — ✅ 2026-09-29, **as an authoring-time draft rather than a step**: a Draft button in the message inspector returns a subject and body for the author to edit, grounded in the campaign, its triggers, the tenant brand voice and the placeholders and blocks that actually exist. Per-recipient generation was rejected — copy nobody read would reach customers (the module's rule is AI authors, humans publish), cost would scale with the audience, and a slow model at send time would block or skip messages. Personalisation per customer is already interpolation's and the recommendation block's job | M | step registry + ai-assistant | — |
 | B-25 | Operational observability: job-run log, admin audit trail of campaign changes, email template versioning with restore | What you need the morning after a campaign went wrong — ✅ 2026-09-29 — one revisions table serves BOTH the audit trail and the restorable versions (they are the same data); a restore replays the ordinary save command, so it is validated, version-checked and becomes a new version rather than rewriting history. The job log records the start before the work, so a job killed mid-flight is visible as `running` rather than as nothing | M | workers + admin screens | — |
-| B-26 | Lead routing: round-robin assignment to sales reps, weekly rep digest | B2B: a lead with no owner is a lead nobody calls | M | new tables + admin CRUD | B-01 |
+| B-26 | Lead routing: round-robin assignment to sales reps, weekly rep digest | B2B: a lead with no owner is a lead nobody calls — ✅ 2026-09-29 — **least-loaded wins, not round robin**: a stored cursor needs a table, has to be reset when the pool changes, and keeps feeding a rep who has been away. Counting current work is stateless, self-correcting and answers the question an operator actually has. The digest is an IN-APP notification rather than email, because emailing a rep means reading the auth module's users or copying their address into marketing config, while the notifications module delivers to a user id and respects their own channel preferences. **No new table:** the owner is the customers module's field, written through `customers.people.update` | M | new tables + admin CRUD | B-01 |
 | B-27 | Setup wizard: guided first run | The difference between an installed module and a used one | S | onboarding module | — |
 | B-28 | Push subscription management: admin grid, register/unregister endpoints, service worker | Operability for the push channel | M | public routes + new table | 6.2 |
 
@@ -258,8 +258,8 @@ Value per unit of effort, given what already exists:
 5. **B-13, X-01** — product-level and geographic targeting. The two dimensions authors reach for next.
 6. **X-04, X-05, X-06** — agent authoring, MCP tools, charts. Each one is small here and each one is impossible in the original.
 7. **B-27, X-03, X-08** — setup wizard, per-channel targeting, portal preference centre. All
-   unblocked, all additive. (B-06 price drops landed 2026-09-29; its back-in-stock half is blocked on
-   the availability contract.) (X-07 progress arrived with B-11: bulk segment actions are
+   unblocked, all additive. (B-06 price drops and B-26 lead routing landed 2026-09-29; B-06's
+   back-in-stock half is blocked on the availability contract.) (X-07 progress arrived with B-11: bulk segment actions are
    `ProgressJob`s on the shared top bar.)
    (B-07 NPS, B-15 GDPR, B-17 content blocks, B-08 recommendations, B-18 inbound hooks, B-24 AI copy
    drafting, B-25 observability and B-09 referrals landed on 2026-09-28/29.)

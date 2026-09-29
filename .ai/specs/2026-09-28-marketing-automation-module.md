@@ -775,6 +775,24 @@ eight-way concurrent worker and is now backed by a partial unique index on the a
 
 ## Changelog
 
+- **2026-09-29** — Backlog B-26: lead routing. An `assign_owner` step gives a new lead to the rep in the
+  configured pool who currently carries the fewest — **least-loaded wins rather than round robin**: a stored
+  cursor needs a table, has to be reset whenever the pool changes, keeps feeding a rep who has been away for a
+  fortnight, and answers a different question from the one an operator has. Counting live work is stateless,
+  self-correcting and deterministic on ties, so a re-run assigns the same person. A lead that already has an
+  owner is left alone unless the step is explicitly told otherwise, because taking a customer away from the rep
+  who has been talking to them is the most damaging thing routing can do — and a campaign re-entry would do it
+  on every pass if the default were reversed. **No new table:** the owner is the customers module's own field,
+  written through `customers.people.update` so the audit entry, the event and the cache invalidation all hold.
+  The weekly digest is an **in-app notification, not email**: emailing a rep means either reading the auth
+  module's user table or copying their address into marketing config — a cross-module read or a stale duplicate
+  — while the notifications module delivers to a user id, localises the copy and respects that person's own
+  channel preferences, including email if that is what they want. It sends only when something arrived, decides
+  for itself whether a week has passed (from the job log, which is already the operator's record of it), and
+  the module stores rep IDS only, so a name or address change needs nothing here. What reads it: a lead-routing
+  screen showing each rep's load and their week, names resolved live from the staff directory. 687 unit tests,
+  138 integration tests.
+
 - **2026-09-29** — Backlog B-06, price-drop half: product watches. A customer can be registered as waiting for
   a SKU to get cheaper; the periodic pass compares today's untargeted list price against the price they last
   saw and fires `marketing_automation.product.price_dropped` with the drop percentage, so an audience can
