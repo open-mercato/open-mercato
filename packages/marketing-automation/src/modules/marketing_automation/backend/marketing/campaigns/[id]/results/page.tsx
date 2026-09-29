@@ -45,6 +45,19 @@ type Winner = {
 
 type DailyPoint = { date: string; sent: number; opened: number; clicked: number }
 
+type JourneyStep = {
+  stepId: string
+  type: string
+  variantKey: string | null
+  previousStepId: string | null
+  people: number
+  done: number
+  skipped: number
+  failed: number
+  reachedFromPrevious: number | null
+  shareOfFirst: number | null
+}
+
 type LinkRow = {
   url: string
   people: number
@@ -69,6 +82,7 @@ type Results = {
   splits: SplitResult[]
   daily: DailyPoint[]
   links: { links: LinkRow[]; clickers: number; truncated: boolean }
+  stepFunnel: JourneyStep[]
   winners: Winner[]
   attribution: Array<{ campaignId: string; currencyCode: string | null; orders: number; revenue: number }>
   settings: { windowDays: number; minimumSends: number; winnerMetric: 'clicks' | 'revenue' }
@@ -306,6 +320,63 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
                 </li>
               ))}
             </ul>
+          </div>
+        ) : null}
+
+        {/*
+          * The journey step by step, which is the question the five-stage funnel above cannot answer.
+          *
+          * "Forty people were sent something" says nothing about where a six-step sequence loses them. Shown only
+          * once somebody has walked it, and in AUTHORED order — sorted by volume it would stop being a funnel.
+          */}
+        {results.stepFunnel.some((step) => step.people > 0) ? (
+          <div className="mb-6">
+            <SectionHeader title={t('marketing_automation.results.stepFunnel', 'Step by step')} />
+            <div className="mb-2 text-xs text-muted-foreground">
+              {t(
+                'marketing_automation.results.stepFunnelHint',
+                'In the order the campaign runs, so it reads the way a customer experiences it. A step inside an A/B lane is measured against the split rather than against the trunk, because only a share of people enter each lane — and so is the first step after one, since which lane somebody walked differs per person.',
+              )}
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('marketing_automation.results.column.step', 'Step')}</TableHead>
+                  <TableHead>{t('marketing_automation.results.column.people', 'People')}</TableHead>
+                  <TableHead>{t('marketing_automation.results.column.fromPrevious', 'Of the step before')}</TableHead>
+                  <TableHead>{t('marketing_automation.results.column.ofFirst', 'Of the first step')}</TableHead>
+                  <TableHead>{t('marketing_automation.results.column.skipped', 'Skipped')}</TableHead>
+                  <TableHead>{t('marketing_automation.results.column.failed', 'Failed')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {results.stepFunnel.map((step) => (
+                  <TableRow key={`${step.variantKey ?? 'trunk'}-${step.stepId}`}>
+                    <TableCell>
+                      {/* Indented and labelled, because a flat list hides that two of these rows are alternatives
+                          somebody's audience was split between rather than steps everybody took. */}
+                      <span className={step.variantKey ? 'ml-4' : undefined}>
+                        <span className="font-mono text-xs">{step.stepId}</span>
+                        <span className="ml-2 text-xs text-muted-foreground">{step.type}</span>
+                        {step.variantKey ? (
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {t('marketing_automation.results.inLane', 'in lane {key}').replace('{key}', step.variantKey)}
+                          </span>
+                        ) : null}
+                      </span>
+                    </TableCell>
+                    <TableCell className="tabular-nums">{step.people}</TableCell>
+                    <TableCell className="tabular-nums text-muted-foreground">{formatRate(step.reachedFromPrevious)}</TableCell>
+                    <TableCell className="tabular-nums text-muted-foreground">{formatRate(step.shareOfFirst)}</TableCell>
+                    {/* A skip is a gate doing its job; a failure is not. They are never added together. */}
+                    <TableCell className="tabular-nums text-muted-foreground">{step.skipped}</TableCell>
+                    <TableCell className={step.failed > 0 ? 'tabular-nums text-status-error-text' : 'tabular-nums text-muted-foreground'}>
+                      {step.failed}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
         ) : null}
 

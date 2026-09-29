@@ -40,6 +40,8 @@ test.describe('TC-MA-011 results and winner promotion', () => {
       expect(body.attribution).toEqual([])
       // The link ranking is reported EMPTY rather than absent, like every other block on this response.
       expect(body.links).toMatchObject({ links: [], clickers: 0, truncated: false })
+      // The step funnel lists the campaign's steps with zeroes — a step nobody reached is a zero, not a gap.
+      expect(Array.isArray(body.stepFunnel)).toBe(true)
       expect(body.sends).toMatchObject({ sent: 0, suppressed: 0 })
       // The settings are reported so the screen can say what "not enough data" means, and what a verdict
       // would be judged on — clicks until a tenant chooses otherwise.
@@ -48,6 +50,51 @@ test.describe('TC-MA-011 results and winner promotion', () => {
         minimumSends: expect.any(Number),
         winnerMetric: 'clicks',
       })
+    } finally {
+      await deleteCampaignIfExists(request, token, campaignId)
+    }
+  })
+
+  /**
+   * The journey funnel reads in AUTHORED order, including inside a lane.
+   *
+   * Asserted end to end because the value of the block is the order, and the order comes from the definition on
+   * the server rather than from the counts — a sort by volume would still return five plausible rows.
+   */
+  test('the step funnel lists every step in authored order, lanes included', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    let campaignId: string | null = null
+    try {
+      campaignId = await createCampaign(request, token, `QA step funnel ${Date.now()}`)
+      const campaign = await getCampaign(request, token, campaignId)
+      // The save status is asserted: a refused save would leave the definition empty and the funnel would then
+      // report an empty list for a reason that has nothing to do with the order being tested.
+      const saved = await saveGraph(request, token, campaignId, {
+        updatedAt: campaign.updatedAt,
+        name: campaign.name,
+        triggers: [{ kind: 'event', eventId: 'sales.order.created' }],
+        definition: {
+          version: 1,
+          audience: null,
+          steps: [
+            email('s1', 'first'),
+            splitStep('sp1', [
+              { key: 'a', steps: [email('a1', 'lane a')] },
+              { key: 'b', steps: [email('b1', 'lane b')] },
+            ]),
+            email('s2', 'after the split'),
+          ],
+        },
+      })
+      expect(saved.status()).toBe(200)
+      const body = await results(request, token, campaignId)
+      const funnel = body.stepFunnel as Array<{ stepId: string; variantKey: string | null; previousStepId: string | null; people: number }>
+      expect(funnel.map((step) => step.stepId)).toEqual(['s1', 'sp1', 'a1', 'b1', 's2'])
+      // Nobody has entered, so every count is a reported zero rather than a missing row.
+      expect(funnel.every((step) => step.people === 0)).toBe(true)
+      // The two rules the walk exists for: a lane step hangs off the split, and so does the step after it.
+      expect(funnel.find((step) => step.stepId === 'a1')).toMatchObject({ previousStepId: 'sp1', variantKey: 'a' })
+      expect(funnel.find((step) => step.stepId === 's2')).toMatchObject({ previousStepId: 'sp1', variantKey: null })
     } finally {
       await deleteCampaignIfExists(request, token, campaignId)
     }

@@ -97,6 +97,13 @@ its own. Spec:
 - Never project a customer's value from one order. One purchase is not a rate, and projecting from it ranks a
   one-off big spender above somebody who buys steadily every month. The cadence window is first order → NOW, never
   first → last, or two orders in one week followed by two years of silence reads as a hundred a year forever.
+- Never measure a step inside a split lane against the trunk step before the split. Only a share of the people
+  who reach a split enter each lane, so the comparison would report the split's own weights as a drop-off and
+  make every A/B test read as a catastrophe on the screen meant to evaluate it. A lane step's predecessor is the
+  SPLIT — and so is the predecessor of the first step after one, because which lane somebody walked is
+  path-dependent and the split is the last point all of them shared.
+- Never sort the step funnel by volume. Its value is the AUTHORED order, which is the order the customer
+  experiences; sorted by counts it stops being a funnel and becomes a list.
 - Never count a funnel in messages. A journey with three emails would report three times the "sent" of a
   one-email journey and look like it reached three times as many people. And never add a `delivered` stage while
   the platform has no provider feedback: it could only be the sent count wearing a more confident name.
@@ -344,6 +351,7 @@ there, whereas a detached `yarn dev` exits instead of restarting.
 | agent/MCP authoring tools and their invariants | `ai-tools/authoring-pack.ts` |
 | daily series behind the results chart | `lib/analytics/daily-series.ts` |
 | which links were clicked, and its overlap rule | `lib/analytics/links.ts` |
+| drop-off INSIDE a journey, and the split rule | `lib/analytics/step-funnel.ts` |
 | journey preview, and why it reuses the engine | `lib/preview.ts` |
 | learned send hour, and its minimum evidence | `lib/analytics/send-time.ts` |
 | A/B results, winner rules, the two metrics | `lib/analytics/split-results.ts`, `lib/winner-metric.ts` |

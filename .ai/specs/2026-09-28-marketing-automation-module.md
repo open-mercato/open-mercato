@@ -850,6 +850,13 @@ rather than worked around silently:
 
 ## Changelog
 
+- **2026-09-29** — a per-STEP funnel, aggregated from the `step_log` every run already carries, so a
+  six-step journey can finally say where people stop. Read in authored order, never sorted by volume; a
+  step inside a split lane is measured against the SPLIT rather than the trunk (otherwise the lane weights
+  read as a drop-off), and so is the first step after one, because which lane somebody walked is
+  path-dependent. Skips and failures are reported separately: a gate doing its job is not an error. 986
+  unit tests, 194 integration tests.
+
 - **2026-09-29** — `link_url` stops being write-only: the results screen ranks which links were clicked,
   counted in PEOPLE with the raw clicks beside them (the two diverging is how "came back to it" becomes
   visible) and with the steps each link appeared in. Shares are of everyone who clicked anything and
