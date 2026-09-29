@@ -1,4 +1,5 @@
 import type { GeneratorExtension } from '../extension'
+import { createAgentFilesExtension, type AgentFilesResolver } from './agent-files'
 import { createAiAgentsExtension } from './ai-agents'
 import { createAiToolsExtension } from './ai-tools'
 import { createAnalyticsExtension } from './analytics'
@@ -18,13 +19,19 @@ import { createSearchExtension } from './search'
 import { createTranslatableFieldsExtension } from './translatable-fields'
 import { createWorkflowsExtension } from './workflows'
 
-export function loadGeneratorExtensions(): GeneratorExtension[] {
+/**
+ * `resolver` is optional so existing callers and unit tests keep working; the
+ * agent-files extension uses it to tell a monorepo checkout from a standalone
+ * app when choosing where to write its artifacts.
+ */
+export function loadGeneratorExtensions(resolver?: AgentFilesResolver): GeneratorExtension[] {
   return [
     createSearchExtension(),
     createNotificationsExtension(),
     createMessagesExtension(),
     createAiToolsExtension(),
     createAiAgentsExtension(),
+    createAgentFilesExtension(resolver),
     createEventsExtension(),
     createAnalyticsExtension(),
     createTranslatableFieldsExtension(),

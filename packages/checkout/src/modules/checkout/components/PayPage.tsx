@@ -4,8 +4,9 @@ import * as React from 'react'
 import { extensionPoints } from '@open-mercato/checkout/modules/checkout/extension-points'
 import Link from 'next/link'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
-import { locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
+import { useLocale, useSupportedLocales, useT } from '@open-mercato/shared/lib/i18n/context'
+import type { Locale } from '@open-mercato/shared/lib/i18n/config'
+import { resolveLocaleLabel } from '@open-mercato/shared/lib/i18n/locale-label'
 import type { CustomFieldDisplayEntry } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveLocaleFromCandidates } from '@open-mercato/shared/lib/i18n/locale'
 import { getPaymentGatewayRenderer } from '@open-mercato/shared/modules/payment_gateways/client'
@@ -1360,17 +1361,10 @@ export function PayPageHelp({ payload, preview, themeTokens }: PayPageHelpProps)
 export function PayPageFooter({ payload, themeTokens }: PayPageFooterProps) {
   const t = useT()
   const locale = useLocale()
+  const supportedLocales = useSupportedLocales()
   const router = useRouter()
   const selectId = React.useId()
   const [pending, startTransition] = React.useTransition()
-
-  const languageLabels = React.useMemo<Record<Locale, string>>(() => ({
-    en: t('common.languages.english', 'English'),
-    pl: t('common.languages.polish', 'Polski'),
-    es: t('common.languages.spanish', 'Español'),
-    de: t('common.languages.german', 'Deutsch'),
-    ko: t('common.languages.korean', '한국어'),
-  }), [t])
 
   const setLocale = React.useCallback(async (nextLocale: Locale) => {
     if (nextLocale === locale) return
@@ -1448,9 +1442,9 @@ export function PayPageFooter({ payload, themeTokens }: PayPageFooterProps) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {locales.map((entry) => (
+                {supportedLocales.map((entry) => (
                   <SelectItem key={entry} value={entry}>
-                    {languageLabels[entry]}
+                    {resolveLocaleLabel(entry, t)}
                   </SelectItem>
                 ))}
               </SelectContent>

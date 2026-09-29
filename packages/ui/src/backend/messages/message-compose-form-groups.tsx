@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from '../../primitives/select'
 import { Switch } from '../../primitives/switch'
+import { SwitchField } from '../../primitives/switch-field'
 import { AttachmentsSection } from '../detail/AttachmentsSection'
 import { SwitchableMarkdownInput } from '../inputs/SwitchableMarkdownInput'
 import { TagsInput } from '../inputs/TagsInput'
@@ -319,13 +320,13 @@ function EmailDeliverySection({ compose }: ComposeProps) {
   }
 
   return (
-    <div className="flex items-center justify-between rounded border px-3 py-2">
-      <div>
-        <p className="text-sm font-medium">{compose.t('messages.sendViaEmail', 'Also send via email')}</p>
-        <p className="text-xs text-muted-foreground">{compose.t('messages.sendViaEmailHint', 'Recipients will receive an email copy with a secure link.')}</p>
-      </div>
-      <Switch checked={compose.sendViaEmail} onCheckedChange={compose.setSendViaEmail} />
-    </div>
+    <SwitchField
+      containerClassName="rounded border px-3 py-2"
+      label={compose.t('messages.sendViaEmail', 'Also send via email')}
+      description={compose.t('messages.sendViaEmailHint', 'Recipients will receive an email copy with a secure link.')}
+      checked={compose.sendViaEmail}
+      onCheckedChange={compose.setSendViaEmail}
+    />
   )
 }
 
@@ -337,29 +338,29 @@ function ReplyForwardOptionsRow({ compose }: ComposeProps) {
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       {compose.variant === 'forward' ? (
-        <div className="flex items-center justify-between rounded border px-3 py-2">
-          <div>
-            <p className="text-sm font-medium">{compose.t('messages.includeAttachments', 'Include attachments')}</p>
-            <p className="text-xs text-muted-foreground">{compose.t('messages.includeAttachmentsHint', 'Carry over attachments from the original message.')}</p>
-          </div>
-          <Switch checked={compose.includeAttachments} onCheckedChange={compose.setIncludeAttachments} />
-        </div>
+        <SwitchField
+          containerClassName="rounded border px-3 py-2"
+          label={compose.t('messages.includeAttachments', 'Include attachments')}
+          description={compose.t('messages.includeAttachmentsHint', 'Carry over attachments from the original message.')}
+          checked={compose.includeAttachments}
+          onCheckedChange={compose.setIncludeAttachments}
+        />
       ) : (
-        <div className="flex items-center justify-between rounded border px-3 py-2">
-          <div>
-            <p className="text-sm font-medium">{compose.t('messages.replyAll', 'Reply all')}</p>
-            <p className="text-xs text-muted-foreground">{compose.t('messages.replyAllHint', 'Include all original recipients.')}</p>
-          </div>
-          <Switch checked={compose.replyAll} onCheckedChange={compose.setReplyAll} />
-        </div>
+        <SwitchField
+          containerClassName="rounded border px-3 py-2"
+          label={compose.t('messages.replyAll', 'Reply all')}
+          description={compose.t('messages.replyAllHint', 'Include all original recipients.')}
+          checked={compose.replyAll}
+          onCheckedChange={compose.setReplyAll}
+        />
       )}
-      <div className="flex items-center justify-between rounded border px-3 py-2">
-        <div>
-          <p className="text-sm font-medium">{compose.t('messages.sendViaEmail', 'Also send via email')}</p>
-          <p className="text-xs text-muted-foreground">{compose.t('messages.sendViaEmailHint', 'Recipients will receive an email copy with a secure link.')}</p>
-        </div>
-        <Switch checked={compose.sendViaEmail} onCheckedChange={compose.setSendViaEmail} />
-      </div>
+      <SwitchField
+        containerClassName="rounded border px-3 py-2"
+        label={compose.t('messages.sendViaEmail', 'Also send via email')}
+        description={compose.t('messages.sendViaEmailHint', 'Recipients will receive an email copy with a secure link.')}
+        checked={compose.sendViaEmail}
+        onCheckedChange={compose.setSendViaEmail}
+      />
     </div>
   )
 }

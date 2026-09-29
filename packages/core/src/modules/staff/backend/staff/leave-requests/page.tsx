@@ -148,7 +148,8 @@ export default function StaffLeaveRequestsPage() {
     <Page>
       <PageBody>
         <DataTable<LeaveRequestRow>
-          title={labels.title}
+        title={labels.title}
+        titleHeadingLevel={1}
           data={rows}
           columns={columns}
           isLoading={isLoading}

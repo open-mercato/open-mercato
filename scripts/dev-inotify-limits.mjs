@@ -24,6 +24,32 @@ export const VSCODE_WATCHER_EXCLUDES = {
   'apps/mercato/.mercato/**': true,
 }
 
+const DEV_BUNDLER_MODES = ['auto', 'webpack', 'turbopack']
+
+export function resolveRequestedDevBundler(environment = process.env) {
+  const raw = String(environment.OM_DEV_BUNDLER ?? '').trim().toLowerCase()
+  if (raw === 'webpack' || raw === 'turbopack') return raw
+  return 'auto'
+}
+
+export function resolveDevBundlerDecision({ requestedBundler = 'auto', inotifyResult } = {}) {
+  const requested = DEV_BUNDLER_MODES.includes(requestedBundler) ? requestedBundler : 'auto'
+
+  if (requested === 'webpack') {
+    return { bundler: 'webpack', fallback: false, shouldCheckInotify: false }
+  }
+
+  if (inotifyResult?.ok !== false) {
+    return { bundler: 'turbopack', fallback: false, shouldCheckInotify: true }
+  }
+
+  if (requested === 'auto') {
+    return { bundler: 'webpack', fallback: true, shouldCheckInotify: true }
+  }
+
+  return { bundler: 'turbopack', fallback: false, shouldCheckInotify: true }
+}
+
 function parseInteger(value) {
   const parsed = Number.parseInt(String(value ?? '').trim(), 10)
   return Number.isInteger(parsed) ? parsed : null

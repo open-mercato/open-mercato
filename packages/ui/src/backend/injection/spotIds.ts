@@ -16,6 +16,14 @@ export const BACKEND_TOPBAR_ACTIONS_INJECTION_SPOT_ID: InjectionSpotId = 'backen
 export const BACKEND_SIDEBAR_NAV_INJECTION_SPOT_ID: InjectionSpotId = 'backend:sidebar:nav'
 export const BACKEND_SIDEBAR_NAV_FOOTER_INJECTION_SPOT_ID: InjectionSpotId = 'backend:sidebar:nav:footer'
 
+/**
+ * Headless mount point for modules that publish live counts onto sidebar nav
+ * items through `setNavBadge`. Rendered once per shell and always — a feeder
+ * must keep counting while the sidebar is collapsed or off-screen on mobile —
+ * and its widgets are expected to render nothing.
+ */
+export const BACKEND_NAV_BADGES_INJECTION_SPOT_ID: InjectionSpotId = 'backend:nav:badges'
+
 // Standardized global status spot ids
 export const GLOBAL_SIDEBAR_STATUS_BADGES_INJECTION_SPOT_ID: InjectionSpotId = 'global:sidebar:status-badges'
 export const GLOBAL_HEADER_STATUS_INDICATORS_INJECTION_SPOT_ID: InjectionSpotId = 'global:header:status-indicators'

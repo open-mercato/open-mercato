@@ -18,14 +18,15 @@ type AppProvidersProps = {
   locale: Locale
   dict: Dict
   localeLocked: boolean
+  supportedLocales: readonly Locale[]
   demoModeEnabled: boolean
   noticeBarsEnabled: boolean
 }
 
-export function AppProviders({ children, locale, dict, localeLocked, demoModeEnabled, noticeBarsEnabled }: AppProvidersProps) {
+export function AppProviders({ children, locale, dict, localeLocked, supportedLocales, demoModeEnabled, noticeBarsEnabled }: AppProvidersProps) {
   const profile = resolveClientBootstrapProfile(usePathname())
   return (
-    <I18nProvider locale={locale} dict={dict} localeLocked={localeLocked}>
+    <I18nProvider locale={locale} dict={dict} localeLocked={localeLocked} supportedLocales={supportedLocales}>
       <ClientBootstrapProvider profile={profile}>
         <ComponentOverridesBootstrap profile={profile}>
           <ThemeProvider>

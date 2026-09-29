@@ -8,6 +8,9 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { ChevronDown, Plus, Trash2 } from 'lucide-react'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
+import type { LedgerEntry } from '../../lib/context-ledger'
+import { VariablePickerButton } from './VariablePickerButton'
+import { ledgerDropTargetProps } from './ledgerDropTarget'
 
 /**
  * Mapping definition structure for SubWorkflow input/output
@@ -21,13 +24,24 @@ interface MappingArrayEditorProps extends CrudCustomFieldRenderProps {
   value: Mapping[]
   label?: string
   description?: string
+  variablePicker?: boolean
+  ledgerEntries?: LedgerEntry[]
 }
 
 /**
  * MappingArrayEditor - Custom field component for managing SubWorkflow input/output mappings
  *
  * Provides an interface to add, edit, and remove key-value pair mappings.
- * Values support template expressions like {{context.foo}} for dynamic data binding.
+ *
+ * INPUT mapping values are bare parent-context dot paths — `mapInputData` in
+ * `lib/step-handler.ts` resolves each value with `getNestedValue` against the
+ * parent context, with no `{{}}` interpolation. Hosts that edit input mappings
+ * opt into the ledger-fed variable picker with `variablePicker` +
+ * `ledgerEntries`; the picker inserts bare paths (`insertMode="bare"`).
+ *
+ * OUTPUT mapping values reference the CHILD workflow's context, which the
+ * parent ledger cannot describe — hosts MUST NOT enable the picker there (a
+ * wrong picker is worse than none), so output rows stay plain inputs.
  *
  * Used by NodeEditDialog (SubWorkflow type only)
  */
@@ -39,6 +53,8 @@ export function MappingArrayEditor({
   disabled,
   label: labelProp,
   description: descriptionProp,
+  variablePicker = false,
+  ledgerEntries,
 }: MappingArrayEditorProps) {
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -182,25 +198,43 @@ export function MappingArrayEditor({
                       <Label htmlFor={`${id}-${index}-value`} className="text-xs font-medium mb-1">
                         {t('workflows.fieldEditors.mappings.value')} *
                       </Label>
-                      <Input
-                        id={`${id}-${index}-value`}
-                        type="text"
-                        value={mapping.value}
-                        onChange={(e) => updateMapping(index, 'value', e.target.value)}
-                        placeholder={t('workflows.fieldEditors.mappings.valuePlaceholder')}
-                        className="text-xs font-mono"
-                        disabled={disabled}
-                      />
+                      <div className="flex items-center gap-1">
+                        <Input
+                          id={`${id}-${index}-value`}
+                          type="text"
+                          value={mapping.value}
+                          onChange={(e) => updateMapping(index, 'value', e.target.value)}
+                          placeholder={t('workflows.fieldEditors.mappings.valuePlaceholder')}
+                          className="flex-1 text-xs font-mono"
+                          disabled={disabled}
+                          {...ledgerDropTargetProps({
+                            value: mapping.value,
+                            onValueChange: (nextValue) => updateMapping(index, 'value', nextValue),
+                            insertMode: variablePicker ? 'bare' : 'template',
+                            disabled,
+                          })}
+                        />
+                        {variablePicker && (
+                          <VariablePickerButton
+                            targetId={`${id}-${index}-value`}
+                            value={mapping.value}
+                            onValueChange={(nextValue) => updateMapping(index, 'value', nextValue)}
+                            ledgerEntries={ledgerEntries}
+                            insertMode="bare"
+                            disabled={disabled}
+                          />
+                        )}
+                      </div>
                       <p className="text-xs text-muted-foreground mt-0.5">
                         {t('workflows.fieldEditors.mappings.valueHint')}
                       </p>
                     </div>
 
                     {/* Delete Button */}
-                    <div className="border-t border-gray-200 pt-3">
+                    <div className="border-t border-border pt-3">
                       <Button
                         type="button"
-                        variant="destructive"
+                        variant="destructive-outline"
                         size="sm"
                         onClick={() => removeMapping(index)}
                         disabled={disabled}

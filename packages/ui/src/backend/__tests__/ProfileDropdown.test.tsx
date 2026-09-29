@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { fireEvent, screen } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 
 jest.mock('next/link', () => {
@@ -55,5 +55,23 @@ describe('ProfileDropdown', () => {
 
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByTestId('profile-dropdown')).not.toBeInTheDocument()
+  })
+
+  it('offers exactly the served locale set, not every locale the platform ships', () => {
+    // The tenant's Settings → Translations selection is resolved on the server and
+    // handed down through the provider. Rendering the process-wide set here is what
+    // made the operations-level control look like it did nothing (UX finding 1).
+    renderWithProviders(<ProfileDropdown email="user@example.com" />, {
+      supportedLocales: ['en', 'pl', 'de'],
+    })
+
+    fireEvent.click(screen.getByTestId('profile-dropdown-trigger'))
+    const languageTrigger = screen.getByText('Language').closest('button') as HTMLElement
+    fireEvent.click(languageTrigger)
+
+    const options = languageTrigger.nextElementSibling as HTMLElement
+    const rendered = within(options).getAllByRole('button').map((button) => button.textContent?.trim())
+
+    expect(rendered).toEqual(['English', 'Polski', 'Deutsch'])
   })
 })

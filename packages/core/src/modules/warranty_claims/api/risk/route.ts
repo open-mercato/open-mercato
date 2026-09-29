@@ -4,7 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError, translateCrudErrorBody } from '@open-mercato/shared/lib/crud/errors'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -39,6 +39,7 @@ type RiskRouteContext = {
   tenantId: string
   organizationId: string
   scope: WarrantyClaimScope
+  translate: (key: string, fallback?: string) => string
   em: EntityManager
 }
 
@@ -63,6 +64,7 @@ async function resolveRiskContext(req: Request): Promise<RiskRouteContext> {
     tenantId: auth.tenantId,
     organizationId,
     scope: { tenantId: auth.tenantId, organizationId },
+    translate,
     em,
   }
 }
@@ -72,7 +74,7 @@ export async function GET(req: Request) {
     const context = await resolveRiskContext(req)
     const url = new URL(req.url)
     const query = querySchema.parse(Object.fromEntries(url.searchParams))
-    const claim = await requireScopedClaim(context.em, query.claimId, context.scope)
+    const claim = await requireScopedClaim(context.em, query.claimId, context.scope, {}, context.translate('warranty_claims.errors.notFound', 'Claim not found.'))
     const lines = await findWithDecryption(
       context.em,
       WarrantyClaimLine,
@@ -83,8 +85,8 @@ export async function GET(req: Request) {
     const result = await evaluateClaimRisk(context.em, claim, lines)
     return NextResponse.json({ ok: true, result })
   } catch (err) {
-    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     const { translate } = await resolveTranslations()
+    if (isCrudHttpError(err)) return NextResponse.json(translateCrudErrorBody(err.body, translate), { status: err.status })
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
