@@ -23,7 +23,7 @@ Source repo: `open-mercato/official-modules@d694a75`, `packages/forms/src/module
 | 3 | 3.1 | Author the P0 forms integration suite from the test plan and make it green | dispatch | todo | |
 | 3 | 3.2 | Open the PR against `develop` with pipeline labels | inline | todo | |
 | 3 | 3.3 | `om-auto-qa-pr` — exploratory browser QA of the Form Studio, public runner, distributions/invitations and portal pages; fix what it finds | dispatch | todo | |
-| 3 | 3.4 | `om-code-review` pass over the whole branch; fix findings | dispatch | todo | |
+| 3 | 3.4 | `om-code-review` pass over the whole branch; fix findings (dispatched b094bf65, --kind review) | dispatch | todo | |
 | 3 | 3.5 | Final full validation gate (`--continue`, raised heap) + QA evidence | inline | todo | |
 
 ## Goal
