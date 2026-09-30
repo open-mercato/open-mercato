@@ -393,6 +393,13 @@ node --require ./scripts/typescript-js-require-hook.cjs node_modules/eslint/bin/
   --config eslint.ds.config.mjs packages/marketing-automation
 ```
 
+**The module is opt-in and OFF by default.** `apps/mercato/src/modules.ts` registers it only when
+`OM_ENABLE_MARKETING_AUTOMATION` is true, so an app started without it in `.env` serves no marketing
+routes at all — every request 404s and every integration spec fails for a reason that looks nothing
+like its cause. Set it in `apps/mercato/.env`, and re-run `yarn generate` after changing it: the route
+shards are emitted from the enabled-module list, so a stale registry keeps serving (or keeps hiding)
+the module whatever the flag says.
+
 Integration tests need a running app plus workers:
 `yarn dev` and `yarn mercato queue worker --all --with-scheduler`.
 
