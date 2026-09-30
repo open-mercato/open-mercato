@@ -104,9 +104,49 @@ Read more on the [Open Mercato Architecture](https://docs.openmercato.com/archit
 
 ## Getting Started
 
-### ⚡ Quick start
+Building your own product, or trying Open Mercato for the first time? Start with a **standalone app**. Want to change Open Mercato itself? Jump to [Contributing to the core](#-contributing-to-the-core-monorepo).
 
-**One command.** With [Node.js](https://nodejs.org/en/download) (any recent version) installed:
+### ⚡ Quick start — build your own app
+
+A standalone app pulls Open Mercato packages from npm. Your modules, overrides, and customisations live in your own repository, and the core stays untouched and upgradeable.
+
+```bash
+# macOS / Linux
+brew install node@24   # or: nvm install 24 && nvm use 24
+corepack enable && corepack prepare yarn@4.12.0 --activate
+
+npx create-mercato-app my-app
+cd my-app
+docker compose up -d                  # starts PostgreSQL, Redis, Meilisearch
+# set DATABASE_URL / JWT_SECRET / REDIS_URL in .env
+yarn setup                            # installs, seeds, starts the app
+```
+
+Open **http://localhost:3000/backend** — credentials printed in the terminal.
+
+> 🤖 **Working with an AI coding agent?** Let `create-mercato-app` set up the agent harness (the wizard asks, or pass `--agents claude-code`, `codex`, `cursor` or `all`), then ask your agent to use the **`om-help`** skill. It maps what you want to build to the right guides and skills in your app.
+
+<details>
+<summary><strong>🪟 Windows</strong></summary>
+
+```powershell
+# PowerShell as Administrator — or use Git Bash / cmd
+# 1. Install Node.js 24 MSI from https://nodejs.org/en/download, then open a new terminal
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+corepack enable; corepack prepare yarn@4.12.0 --activate
+
+npx create-mercato-app my-app
+cd my-app
+docker compose up -d                  # or use native PostgreSQL + pgAdmin: https://www.postgresql.org/download/windows/
+# set DATABASE_URL / JWT_SECRET / REDIS_URL in .env
+yarn setup
+```
+
+</details>
+
+### 🔧 Contributing to the core (monorepo)
+
+Use this path to work on Open Mercato itself: framework features, core modules, fixes, or a full local demo of the platform. It clones this repository.
 
 ```bash
 npx @open-mercato/starter
@@ -115,7 +155,7 @@ npx @open-mercato/starter
 It clones the repo if needed, audits your machine (`doctor`), handles corporate proxies/TLS interception, generates `.env` + secrets, starts the infra containers, initializes the database, and boots the supervised dev runtime — idempotently, so re-running always resumes where it stopped. Inside a clone use `yarn om`. No Node at all? Use the no-admin bootstraps in [`packages/starter/platform/`](packages/starter/platform/) (`start.cmd` double-click on Windows, `start.sh` on macOS/Linux). A container runtime ([Docker Desktop](https://www.docker.com/products/docker-desktop/) or [Rancher Desktop](https://rancherdesktop.io)) is detected and guided, never installed for you. See [`packages/starter/README.md`](packages/starter/README.md).
 
 <details>
-<summary><strong>🔧 Monorepo, manual steps</strong> — if you prefer to run each stage yourself</summary>
+<summary><strong>🔧 Manual steps</strong> — if you prefer to run each stage yourself</summary>
 
 ```bash
 # macOS / Linux
@@ -142,38 +182,6 @@ yarn infra:up                         # or use native PostgreSQL + pgAdmin: http
 Copy-Item apps\mercato\.env.example apps\mercato\.env
 # set DATABASE_URL / JWT_SECRET / REDIS_URL in apps\mercato\.env
 yarn dev:greenfield
-```
-
-Open **http://localhost:3000/backend** — credentials printed in the terminal.
-
-</details>
-
-<details>
-<summary><strong>📦 Standalone app</strong> — build on Open Mercato without touching the core</summary>
-
-```bash
-# macOS / Linux
-brew install node@24   # or: nvm install 24 && nvm use 24
-corepack enable && corepack prepare yarn@4.12.0 --activate
-
-npx create-mercato-app my-app
-cd my-app
-docker compose up -d                  # starts PostgreSQL, Redis, Meilisearch
-# set DATABASE_URL / JWT_SECRET / REDIS_URL in .env
-yarn setup                            # installs, seeds, starts the app
-```
-
-```powershell
-# Windows (PowerShell as Administrator — or use Git Bash / cmd)
-# 1. Install Node.js 24 MSI from https://nodejs.org/en/download, then open a new terminal
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-corepack enable; corepack prepare yarn@4.12.0 --activate
-
-npx create-mercato-app my-app
-cd my-app
-docker compose up -d                  # or use native PostgreSQL + pgAdmin: https://www.postgresql.org/download/windows/
-# set DATABASE_URL / JWT_SECRET / REDIS_URL in .env
-yarn setup
 ```
 
 Open **http://localhost:3000/backend** — credentials printed in the terminal.
@@ -226,8 +234,8 @@ Each guide below is self-contained and covers all prerequisites, infrastructure 
 
 | | Guide |
 |---|---|
-| 🔧 **Monorepo** — contribute to the core or demo the full platform | [🍎 macOS](https://docs.openmercato.com/installation/monorepo#macos) · [🐧 Linux](https://docs.openmercato.com/installation/monorepo#linux) · [🪟 Windows](https://docs.openmercato.com/installation/monorepo#windows) |
 | 📦 **Standalone app** — build your product without modifying the core | [🍎 macOS](https://docs.openmercato.com/installation/standalone#macos) · [🐧 Linux](https://docs.openmercato.com/installation/standalone#linux) · [🪟 Windows](https://docs.openmercato.com/installation/standalone#windows) |
+| 🔧 **Monorepo** — contribute to the core or demo the full platform | [🍎 macOS](https://docs.openmercato.com/installation/monorepo#macos) · [🐧 Linux](https://docs.openmercato.com/installation/monorepo#linux) · [🪟 Windows](https://docs.openmercato.com/installation/monorepo#windows) |
 | 🐧 **Windows with WSL2** — Ubuntu on Windows: memory config, Docker, GitHub CLI, native Postgres bridging | [WSL2 guide →](https://docs.openmercato.com/installation/wsl2) |
 | 🐳 **Docker dev** — full containerized dev with hot reload, no local toolchain | [All platforms →](https://docs.openmercato.com/installation/docker) |
 | 🚀 **VPS / production** — deploy a full stack to any Linux server | [Deploy guide →](https://docs.openmercato.com/installation/vps) |
