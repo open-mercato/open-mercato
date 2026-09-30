@@ -153,6 +153,21 @@ function findProfile(profiles: ProfileRow[], productId: string, variantId: strin
   return profiles.find((p) => p.catalog_product_id === productId && !p.catalog_variant_id) ?? null
 }
 
+/**
+ * The open policy default used when `availability` is not installed. §5.2:
+ * `is_stock_managed` defaults to `true` only when a `ProductInventoryProfile`
+ * exists for the item — an item without one is `not_tracked`, never
+ * `out_of_stock`.
+ */
+function openPolicyDefaultFor(
+  profiles: ProfileRow[],
+  productId: string,
+  variantId: string | null,
+): ResolvedPolicyOverlay {
+  const hasProfile = findProfile(profiles, productId, variantId) !== null
+  return { ...OPEN_POLICY_DEFAULT, isStockManaged: { value: hasProfile, policySourceId: null } }
+}
+
 function computeState(params: {
   sellable: number
   requested: number
@@ -272,7 +287,7 @@ export async function computeAvailability(
   }))
   const resolvedPolicies = policyService
     ? await policyService.resolveMany(em, policyScopes)
-    : policyScopes.map(() => OPEN_POLICY_DEFAULT)
+    : query.items.map((item) => openPolicyDefaultFor(profiles, item.catalogProductId, item.catalogVariantId ?? null))
 
   function sellableFor(variantId: string, productId: string): number {
     const aggregate = balances.get(variantId) ?? 0
@@ -282,7 +297,9 @@ export async function computeAvailability(
   }
 
   query.items.forEach((item, index) => {
-    const policy = resolvedPolicies[index] ?? OPEN_POLICY_DEFAULT
+    const policy =
+      resolvedPolicies[index]
+      ?? openPolicyDefaultFor(profiles, item.catalogProductId, item.catalogVariantId ?? null)
     const key = availabilityItemKey(item)
     const withinOrderQuantityRules = isWithinOrderQuantityRules(item.quantity, policy)
 
