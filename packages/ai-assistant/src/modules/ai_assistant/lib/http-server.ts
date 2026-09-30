@@ -17,6 +17,7 @@ import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { findApiKeyBySecret, findSessionApiKeyWithSecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
+import { isLoopbackHost, resolveMcpHost } from './mcp-host-resolution'
 
 const logger = createLogger('ai_assistant').child({ component: 'mcp-http' })
 
@@ -413,11 +414,9 @@ async function parseJsonBody(req: IncomingMessage): Promise<unknown> {
  * Each request creates a new MCP server instance and transport.
  * The server authenticates requests using API keys from the x-api-key header.
  */
-const DEFAULT_HOST = '127.0.0.1'
-
 export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<void> {
   const { config, container, port } = options
-  const host = options.host?.trim() || DEFAULT_HOST
+  const host = resolveMcpHost(options.host, undefined)
 
   await loadAllModuleTools()
 
@@ -604,7 +603,7 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
   logger.info('Mode: stateless (new server per request)')
   logger.info('Server auth: API key validated against database (x-api-key header)')
   logger.info('User auth: session token (_sessionToken) preferred, falls back to API key roles')
-  if (host !== DEFAULT_HOST) {
+  if (!isLoopbackHost(host)) {
     logger.warn('Binding beyond loopback — ensure a firewall and a strong, rotated MCP_SERVER_API_KEY', { host })
   }
 

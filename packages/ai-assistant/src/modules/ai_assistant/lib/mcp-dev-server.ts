@@ -11,6 +11,7 @@ import { authenticateMcpRequest, extractApiKeyFromHeaders, hasRequiredFeatures }
 import { jsonSchemaToZod } from './schema-utils'
 import { buildMcpToolAnnotations } from './mcp-tool-annotations'
 import { getApiKeyFromMcpJson } from './mcp-dev-key-resolution'
+import { isLoopbackHost, resolveMcpHost } from './mcp-host-resolution'
 import type { McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -18,7 +19,6 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 const logger = createLogger('ai_assistant')
 
 const DEFAULT_PORT = 3001
-const DEFAULT_HOST = '127.0.0.1'
 
 const log = (message: string, ...args: unknown[]) => {
   logger.info(message, args.length > 0 ? { details: args.map((arg) => String(arg)).join(' ') } : undefined)
@@ -191,7 +191,7 @@ export async function runMcpDevServer(): Promise<void> {
   // per-request ACL re-resolution), so exposing it beyond loopback turns a leaked/brute-forced
   // API key into admin-equivalent access to tenant data. Opt in explicitly if the dev port
   // genuinely needs to be reachable off-host (e.g. a Docker bridge).
-  const host = process.env.MCP_DEV_HOST?.trim() || DEFAULT_HOST
+  const host = resolveMcpHost(undefined, process.env.MCP_DEV_HOST)
   const debug = process.env.MCP_DEBUG === 'true'
 
   if (!apiKey) {
@@ -414,7 +414,7 @@ export async function runMcpDevServer(): Promise<void> {
   log(`Endpoint: http://localhost:${port}/mcp`)
   log(`Health: http://localhost:${port}/health`)
   log(`Mode: Development (API key auth, no session tokens)`)
-  if (host !== DEFAULT_HOST) {
+  if (!isLoopbackHost(host)) {
     log(`WARNING: binding to ${host} instead of loopback — this server grants admin-equivalent access to any caller who passes the single API-key check`)
   }
 

@@ -2425,7 +2425,14 @@ async function runMcpLifecycle() {
 
     const startedAt = Date.now()
     const capturedLines = []
-    const child = spawnMcpCommand(['mcp:serve-http', '--port', String(mcpPort)], 'MCP server', verbose ? null : (line) => {
+    // This server runs on the HOST but must be reachable from the OpenCode container over
+    // host.docker.internal (compose.infra.yml). On Docker Desktop that hop resolves to host
+    // loopback, but on native Linux `host-gateway` is the bridge IP (e.g. 172.17.0.1) — a
+    // socket bound to the 127.0.0.1 default (issue #2659) refuses that connection outright.
+    // Binding 0.0.0.0 here is the same trade-off already accepted for `mcp:dev` (loopback by
+    // default, opt in for a real reason) — this dev-only host process's whole purpose is to
+    // be reached from the OpenCode sidecar, on every supported Docker topology.
+    const child = spawnMcpCommand(['mcp:serve-http', '--port', String(mcpPort), '--host', '0.0.0.0'], 'MCP server', verbose ? null : (line) => {
       capturedLines.push(line)
       if (capturedLines.length > 200) capturedLines.shift()
     })

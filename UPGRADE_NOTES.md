@@ -24,6 +24,40 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### MCP HTTP servers now bind to loopback by default (#2659, #2670)
+
+`runMcpHttpServer` (`mcp:serve-http` / `yarn mcp:serve`, production) and `runMcpDevServer`
+(`mcp:dev` / `yarn mcp:dev`, Claude Code / local testing) used to call `httpServer.listen(port,
+...)` with no host, which binds every network interface (`0.0.0.0`/`::`) rather than loopback.
+Neither server's intended client needs non-loopback reachability, so this widened the API-key
+attack surface to anything with network reach to the host — worse for the dev server, which
+authenticates a single API key once at startup and reuses that same superadmin-equivalent
+context for every request afterward, with no per-request ACL re-check.
+
+**Both servers now default to `127.0.0.1`.** Override with `--host` / `MCP_HTTP_HOST` for the
+production server, `MCP_DEV_HOST` for the dev server.
+
+**Action for operators who reach either MCP server over a non-loopback address** — a reverse
+proxy, sidecar, container, or any other process connecting from outside the host's own loopback
+interface: set the corresponding host override so the server keeps listening where that caller
+expects it. Two shipped topologies already needed this and have been updated as part of this
+change, as a reference for anything else you run:
+
+- The `mcp` service in `docker-compose.fullapp.yml` / `docker-compose.fullapp.dev.yml` (and the
+  `starters/docker/compose.fullapp*.yml` canonicals, and the `create-app` template) is reached
+  by the `app` and `opencode` services over the internal compose network (`mcp:3001`), which is
+  not loopback from the `mcp` container's own point of view. Both now set `MCP_HTTP_HOST:
+  "0.0.0.0"` on that service — the network is internal and the port is not published, so this is
+  not a new exposure, just an explicit opt-in matching the new default-loopback contract.
+- `yarn dev`'s full-stack flow (`scripts/dev.mjs`) spawns this server on the **host** so the
+  Dockerized OpenCode sidecar can reach it via `host.docker.internal`. On Docker Desktop that hop
+  resolves to host loopback, but on native Linux `host-gateway` is the bridge IP (e.g.
+  `172.17.0.1`) — a loopback-only bind refuses that connection. `dev.mjs` now passes `--host
+  0.0.0.0` when spawning it, for the same reason the compose service does.
+
+No database schema, event id, or CLI command signature changes — only the two new options
+(`--host` / `MCP_DEV_HOST`) and the changed default.
+
 ### `reviveSnapshotSeed` throws on an unparsable snapshot date; `extractUndoPayload` can revive dates (#6336)
 
 `reviveSnapshotSeed` (`@open-mercato/shared/lib/commands/redo`) now delegates to the new
