@@ -11,6 +11,16 @@ export interface TenantScope {
   tenantId: string
 }
 
+/**
+ * The scope of a concrete channel row. `organizationId` is `null` for a
+ * tenant-wide channel (`communication_channels.organization_id IS NULL`); it is
+ * never replaced by the tenant id.
+ */
+export interface ChannelScope {
+  organizationId: string | null
+  tenantId: string
+}
+
 // ── Capabilities ──────────────────────────────────────────────
 
 export interface ChannelCapabilities {
@@ -261,7 +271,7 @@ export interface FetchHistoryInput {
   credentials: Record<string, unknown>
   cursor?: string
   limit?: number
-  scope: TenantScope
+  scope: ChannelScope
   /**
    * Provider-specific resumption state opaque to the hub. Provider adapters
    * encode their own incremental cursor (Gmail historyId, IMAP
