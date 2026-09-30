@@ -106,6 +106,7 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
               ),
             })
           }
+          if (typeof err.body.code === 'string') throw err
           throw new CrudHttpError(409, { error: routeContext.translate('customers.config.dictionaries.errors.duplicate', 'An entry with this value already exists') })
         }
         if (err.status === 400) {

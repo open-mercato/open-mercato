@@ -263,9 +263,14 @@ test.describe('TC-CAL-013: scoped event-type catalog and command enforcement', (
         const payload = created.request().postDataJSON() as { durationMinutes: number; scheduledAt: string }
         expect(payload.durationMinutes).toBeGreaterThan(0)
         await expect(dialog).toBeHidden()
-        const dayNumber = await page.evaluate((scheduledAt) => String(new Date(scheduledAt).getDate()).padStart(2, '0'), payload.scheduledAt)
-        await page.getByRole('button', { name: new RegExp(` ${dayNumber}$`) }).click()
-        await page.getByText(title, { exact: true }).first().click()
+        if (activityType === 'task') {
+          await page.getByRole('button', { name: /^Task \d+$/ }).click()
+          await page.getByRole('heading', { name: new RegExp(`^${title} \\(`) }).click()
+        } else {
+          const dayNumber = await page.evaluate((scheduledAt) => String(new Date(scheduledAt).getDate()).padStart(2, '0'), payload.scheduledAt)
+          await page.getByRole('button', { name: new RegExp(` ${dayNumber}$`) }).click()
+          await page.getByText(title, { exact: true }).first().click()
+        }
         const editDialog = page.getByRole('dialog', { name: 'Edit activity', exact: true })
         await expect(editDialog).toBeVisible()
         await editDialog.getByPlaceholder(/Activity title/i).fill(`${title} edited`)
