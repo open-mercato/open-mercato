@@ -4,6 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { MarketingCampaign, MarketingCampaignRun } from '../../../../data/entities.js'
 import type { StepOutcome } from '../../../../lib/engine/types.js'
 import { findTrigger } from '../../../../lib/trigger-catalog.js'
@@ -64,15 +65,33 @@ export async function GET(req: Request) {
   )
 
   /**
-   * Who these runs are ABOUT, by name.
+   * Who these runs are ABOUT, by name — and only for a reader allowed to know.
    *
    * The screen used to print the first eight characters of a subject id, which answers a question nobody
-   * asks: an operator looking at this list wants to know which customer is waiting, and `a3fa18cb` is not a
-   * customer. One decrypting query for the page — `display_name` is encrypted at rest, so a plain find hands
-   * back ciphertext, and a column of ciphertext reads as a column of broken names.
+   * asks: an operator looking at this list wants to know which customer is waiting. Adding the name and the
+   * address made this route hand out CRM data, and `display_name` and `primary_email` are GDPR-encrypted at
+   * rest precisely because `customers.people.view` is the feature that protects them. Four routes in this
+   * module already demand it alongside their own; the segment members route says why in one line — the
+   * answer NAMES people.
+   *
+   * The check is a second one inside the handler, because `requireFeatures` is all-or-nothing per method.
+   * Demanding both features outright would be simpler and would take the screen away from a marketing-only
+   * role that could use it before, so the list stays readable at `runs.view` — a run, its status and its step
+   * log are marketing facts — and only the two CRM fields are withheld. Nothing is even decrypted for a
+   * caller who may not read the result.
+   *
+   * The response already types both fields nullable, so such a caller sees exactly what a deleted customer
+   * looks like, which the screen already has words for.
    */
+  const rbac = container.resolve<RbacService>('rbacService')
+  const mayReadContactDetails = await rbac.userHasAllFeatures(
+    auth.sub,
+    ['customers.people.view'],
+    { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
+  )
+
   const subjectIds = [...new Set(runs.map((run) => run.subjectEntityId).filter((id): id is string => !!id))]
-  const subjects = subjectIds.length > 0
+  const subjects = subjectIds.length > 0 && mayReadContactDetails
     ? (await findWithDecryption(
         em,
         CustomerEntity,
@@ -82,7 +101,6 @@ export async function GET(req: Request) {
       )) as Array<{ id: string; displayName?: string | null; primaryEmail?: string | null }>
     : []
   const subjectById = new Map(subjects.map((row) => [row.id, row]))
-
   return NextResponse.json({
     campaign: { id: campaign.id, name: campaign.name, isEnabled: campaign.isEnabled },
     // A curated shape, not the stored row. The context blob holds whatever scalars a trigger
@@ -96,8 +114,12 @@ export async function GET(req: Request) {
          * Null when the customer is gone — erased under GDPR, or deleted — and the screen says so rather
          * than falling back to the id. A run outliving its subject is a real state, not a lookup failure.
          */
-        subjectName: run.subjectEntityId ? subjectById.get(run.subjectEntityId)?.displayName ?? null : null,
-        subjectEmail: run.subjectEntityId ? subjectById.get(run.subjectEntityId)?.primaryEmail ?? null : null,
+        subjectName: mayReadContactDetails && run.subjectEntityId
+          ? subjectById.get(run.subjectEntityId)?.displayName ?? null
+          : null,
+        subjectEmail: mayReadContactDetails && run.subjectEntityId
+          ? subjectById.get(run.subjectEntityId)?.primaryEmail ?? null
+          : null,
         triggerEventId: run.triggerEventId,
         /**
          * Resolved HERE rather than on the screen: the catalogue imports ORM entities, so pulling it into a

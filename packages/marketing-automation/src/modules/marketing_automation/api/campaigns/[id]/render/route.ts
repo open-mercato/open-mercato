@@ -16,6 +16,7 @@ import {
   renderRecommendationsHtml,
 } from '../../../../lib/recommendations.js'
 import { buildSubjectDocument } from '../../../../lib/subject-document.js'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { loadTierThresholds } from '../../../../lib/tiers.js'
 import type { AutomationContext } from '../../../../lib/engine/types.js'
 import { readPathUuid } from '../../../shared.js'
@@ -96,8 +97,29 @@ export async function POST(req: Request) {
     )
   }
 
+  /**
+   * Rendering FOR a named customer needs the grant that protects them.
+   *
+   * With a subject, this route interpolates their own name, address and order history into the copy and
+   * returns the result — `lib/interpolate.ts` resolves any context path, so the placeholder list is a hint
+   * rather than a fence. `campaigns.manage` says somebody may write campaigns; `customers.people.view` says
+   * they may read the CRM, and those are different permissions.
+   *
+   * Without it the subject is dropped rather than the request refused: the author still gets their copy back
+   * with the placeholders unfilled, which is what this screen is for when nobody is named. The sibling
+   * `preview` route withholds PII under this same gate and says so; this one was the inconsistency.
+   */
+  const rbac = container.resolve<RbacService>('rbacService')
+  const mayReadSubject = parsed.data.subjectEntityId
+    ? await rbac.userHasAllFeatures(
+        auth.sub,
+        ['customers.people.view'],
+        { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
+      )
+    : false
+
   const tierThresholds = await loadTierThresholds(container, scope)
-  const subject = parsed.data.subjectEntityId
+  const subject = parsed.data.subjectEntityId && mayReadSubject
     ? await buildSubjectDocument(em, parsed.data.subjectEntityId, scope, {}, now, { tierThresholds })
     : null
 
