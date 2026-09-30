@@ -32,7 +32,7 @@ test.describe('TC-CAL-014: explicit event timezone persistence and calendar rend
       for (const interactionType of ['meeting', 'visit']) {
         const response = await apiRequest(request, 'POST', '/api/customers/interactions', {
           token, data: { entityId: personId, interactionType, title: `${interactionType} timezone ${Date.now()}`,
-            scheduledAt: '2026-09-29T09:15:00+02:00', durationMinutes: 165, timezone: 'Europe/Warsaw' },
+            date: '2026-09-29', time: '09:15', durationMinutes: 165, timezone: 'Europe/Warsaw' },
         })
         expect(response.status(), await response.text()).toBe(201)
         const { id } = await response.json() as { id: string }
@@ -51,6 +51,26 @@ test.describe('TC-CAL-014: explicit event timezone persistence and calendar rend
         expect(invalidUpdate.status()).toBe(400)
         expect((await readInteraction(request, token, personId, id)).timezone).toBe('Europe/Warsaw')
       }
+      const allDayCreate = await apiRequest(request, 'POST', '/api/customers/interactions', {
+        token, data: { entityId: personId, interactionType: 'meeting', title: 'Midnight DST all-day event',
+          date: '2026-09-06', allDay: true, timezone: 'America/Santiago' },
+      })
+      expect(allDayCreate.status(), await allDayCreate.text()).toBe(201)
+      const allDayRecord = await allDayCreate.json() as { id: string }
+      interactionIds.push(allDayRecord.id)
+      expect(await readInteraction(request, token, personId, allDayRecord.id)).toMatchObject({
+        scheduledAt: '2026-09-06T04:00:00.000Z', timezone: 'America/Santiago',
+      })
+      const skippedDayCreate = await apiRequest(request, 'POST', '/api/customers/interactions', {
+        token, data: { entityId: personId, interactionType: 'meeting', title: 'Skipped civil date',
+          date: '2011-12-30', allDay: true, timezone: 'Pacific/Apia' },
+      })
+      expect(skippedDayCreate.status()).toBe(400)
+      const gapCreate = await apiRequest(request, 'POST', '/api/customers/interactions', {
+        token, data: { entityId: personId, interactionType: 'meeting', title: 'Nonexistent wall time',
+          date: '2026-03-29', time: '02:30', timezone: 'Europe/Warsaw' },
+      })
+      expect(gapCreate.status()).toBe(400)
       const invalidCreate = await apiRequest(request, 'POST', '/api/customers/interactions', {
         token, data: { entityId: personId, interactionType: 'meeting', title: 'Invalid timezone',
           scheduledAt: '2026-09-29T07:15:00Z', timezone: 'Invalid/Timezone' },

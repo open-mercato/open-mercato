@@ -11,7 +11,7 @@ import type {
 } from '../../components/calendar/types'
 import { categoryOf } from './categories'
 import { participantActorKey } from './participantIdentity'
-import { calendarDayEndInstant, calendarInstantToWallTime, calendarWallTimeToInstant, isCalendarTimezone } from './timezone'
+import { calendarDayEndInstant, calendarDayStartInstant, calendarInstantToWallTime, isCalendarTimezone } from './timezone'
 
 const DEFAULT_DURATION_MINUTES = 30
 
@@ -71,8 +71,10 @@ export function mapInteractionToCalendarItem(
   const allDay = payload.allDay === true
   const durationMinutes = payload.durationMinutes ?? DEFAULT_DURATION_MINUTES
   const eventDate = allDay && isCalendarTimezone(payload.timezone) ? calendarInstantToWallTime(parsedStart, payload.timezone).date : null
-  const start = eventDate ? calendarWallTimeToInstant(eventDate, '00:00', payload.timezone as string)! : allDay ? startOfDay(parsedStart) : parsedStart
-  const end = eventDate ? calendarDayEndInstant(eventDate, payload.timezone as string)! : allDay ? endOfDay(parsedStart) : addMinutes(parsedStart, durationMinutes)
+  const start = eventDate ? calendarDayStartInstant(eventDate, payload.timezone as string) : allDay ? startOfDay(parsedStart) : parsedStart
+  const end = eventDate ? calendarDayEndInstant(eventDate, payload.timezone as string) : allDay ? endOfDay(parsedStart) : addMinutes(parsedStart, durationMinutes)
+
+  if (!start || !end) return null
 
   const location = payload.location ?? null
   const platform = detectPlatform(location)

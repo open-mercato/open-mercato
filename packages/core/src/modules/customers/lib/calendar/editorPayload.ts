@@ -1,7 +1,7 @@
 import type { CalendarItem } from '../../components/calendar/types'
 import { calendarEventTypeKeySchema, resolveCalendarEventType } from '../../calendar-event-types'
 import { parseRecurrenceRule } from './recurrence'
-import { calendarDayEndInstant, calendarInstantToWallTime, calendarWallTimeToInstant, defaultCalendarTimezone, isCalendarTimezone } from './timezone'
+import { calendarDayEndInstant, calendarDayStartInstant, calendarInstantToWallTime, calendarWallTimeToInstant, defaultCalendarTimezone, isCalendarTimezone } from './timezone'
 
 export type EditorKind = 'meeting' | 'call' | 'email' | 'note' | 'event' | 'task'
 
@@ -301,6 +301,7 @@ export function computeDurationMinutes(state: EditorFormState): number | null {
 
 export type BuildPayloadOptions = {
   mode: 'create' | 'edit'
+  config?: EditorKindConfig
   id?: string
   /**
    * When the resources module is loaded the payload owns `linkedEntities`
@@ -317,12 +318,16 @@ export type BuildPayloadOptions = {
 }
 
 export function buildInteractionPayload(state: EditorFormState, options: BuildPayloadOptions): Record<string, unknown> {
-  const config = KIND_CONFIG[state.kind]
+  const config = options.config ?? KIND_CONFIG[state.kind]
   const time = state.allDay && config.hasAllDay ? '00:00' : state.startTime
-  const instant = state.timezone ? calendarWallTimeToInstant(state.date, time, state.timezone) : new Date(`${state.date}T${time}:00`)
+  const instant = state.timezone ? (state.allDay && config.hasAllDay ? calendarDayStartInstant(state.date, state.timezone) : calendarWallTimeToInstant(state.date, time, state.timezone)) : new Date(`${state.date}T${time}:00`)
   if (!instant || !Number.isFinite(instant.getTime())) throw new Error('[internal] Invalid calendar local time')
   const scheduledAt = instant.toISOString()
   const recurrenceRule = config.hasRepeat ? buildRecurrenceRule(state) : null
+  const recurrenceEnd = recurrenceRule && state.repeatEndType === 'date' && state.repeatUntilDate
+    ? state.timezone ? calendarDayEndInstant(state.repeatUntilDate, state.timezone) : new Date(state.repeatUntilDate)
+    : null
+  if (recurrenceRule && state.repeatEndType === 'date' && state.repeatUntilDate && !recurrenceEnd) throw new Error('[internal] Invalid calendar recurrence day')
   const payload: Record<string, unknown> = {
     ...(options.mode === 'edit' && options.id ? { id: options.id } : {}),
     entityId: state.relatedTo?.id ?? null,
@@ -339,10 +344,7 @@ export function buildInteractionPayload(state: EditorFormState, options: BuildPa
     allDay: config.hasAllDay ? state.allDay : null,
     location: config.location ? state.location.trim() || null : null,
     recurrenceRule,
-    recurrenceEnd:
-      recurrenceRule && state.repeatEndType === 'date' && state.repeatUntilDate
-        ? (state.timezone ? calendarDayEndInstant(state.repeatUntilDate, state.timezone)! : new Date(state.repeatUntilDate)).toISOString()
-        : null,
+    recurrenceEnd: recurrenceEnd?.toISOString() ?? null,
     participants:
       config.people && config.people !== 'assignee' && state.participants.length > 0
         ? state.participants.map((participant) => ({

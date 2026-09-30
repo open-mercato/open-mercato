@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogTitle } from '@open-mercato/ui/primitives/
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
-import { calendarDayEndInstant, calendarWallTimeToInstant, calendarTimezoneOptions, defaultCalendarTimezone, isCalendarTimezone } from '../../lib/calendar/timezone'
+import { calendarDayEndInstant, calendarDayStartInstant, calendarWallTimeToInstant, calendarTimezoneOptions, defaultCalendarTimezone, isCalendarTimezone } from '../../lib/calendar/timezone'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { E } from '#generated/entities.ids.generated'
@@ -344,9 +344,12 @@ export function CalendarEventEditor({
       const timezone = form.timezone ?? defaultCalendarTimezone()
       const startTime = form.allDay && config.hasAllDay ? '00:00' : form.startTime
       if (!isCalendarTimezone(timezone)) fieldErrors.timezone = t('customers.calendar.editor.validation.timezoneInvalid', 'Choose a valid time zone')
-      else if (!calendarWallTimeToInstant(form.date, startTime, timezone)) fieldErrors.timezone = t('customers.calendar.editor.validation.timezoneGap', 'This local time does not exist in the selected time zone')
+      else if (!(form.allDay && config.hasAllDay ? calendarDayStartInstant(form.date, timezone) : calendarWallTimeToInstant(form.date, startTime, timezone))) fieldErrors.timezone = t('customers.calendar.editor.validation.timezoneGap', 'This local time does not exist in the selected time zone')
       if (config.hasEnd && !form.allDay && isCalendarTimezone(timezone) && !calendarWallTimeToInstant(form.endDate, form.endTime, timezone)) {
         fieldErrors.ends = t('customers.calendar.editor.validation.timezoneGap', 'This local time does not exist in the selected time zone')
+      }
+      if (config.hasRepeat && form.repeatFreq !== 'none' && isCalendarTimezone(timezone) && form.repeatEndType === 'date' && form.repeatUntilDate && !calendarDayEndInstant(form.repeatUntilDate, timezone)) {
+        fieldErrors.timezone = t('customers.calendar.editor.validation.timezoneGap', 'This local time does not exist in the selected time zone')
       }
       if (!form.title.trim()) {
         fieldErrors.title = t('customers.calendar.editor.validation.titleRequired', 'Title is required')
@@ -373,6 +376,7 @@ export function CalendarEventEditor({
       setSaving(true)
       try {
         const payload = buildInteractionPayload({ ...form, timezone }, {
+          config,
           mode,
           id: item?.id,
           resourcesEnabled: resourcesEnabled === true,
@@ -381,7 +385,7 @@ export function CalendarEventEditor({
         const applicable = definition.behavior.fields
         const time = form.allDay && applicable.allDay ? '00:00' : form.startTime
         payload.time = time
-        payload.scheduledAt = calendarWallTimeToInstant(form.date, time, timezone)!.toISOString()
+        payload.scheduledAt = (form.allDay && applicable.allDay ? calendarDayStartInstant(form.date, timezone) : calendarWallTimeToInstant(form.date, time, timezone))!.toISOString()
         payload.timezone = timezone
         payload.allDay = applicable.allDay ? form.allDay : null
         payload.durationMinutes = applicable.endTime && !(form.allDay && applicable.allDay) ? computeDurationMinutes(form) : null

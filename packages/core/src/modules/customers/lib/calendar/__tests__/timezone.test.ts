@@ -1,4 +1,4 @@
-import { calendarDayEndInstant, calendarInstantToWallTime, calendarWallTimeToInstant, isCalendarTimezone } from '../timezone'
+import { calendarDayEndInstant, calendarDayStartInstant, calendarInstantToWallTime, calendarWallTimeToInstant, isCalendarTimezone } from '../timezone'
 import { buildInteractionPayload, computeDurationMinutes, createDefaultFormState, parseItemToFormState } from '../editorPayload'
 import { mapInteractionToCalendarItem } from '../mapItem'
 import { expandOccurrences } from '../recurrence'
@@ -35,6 +35,36 @@ describe('calendar selected time zone', () => {
     const item = mapInteractionToCalendarItem(makePayload({ timezone: 'Europe/Warsaw', scheduledAt: String(payload.scheduledAt), allDay: true }), {})!
     expect(item.start.toISOString()).toBe('2026-03-28T23:00:00.000Z')
     expect(item.end.toISOString()).toBe('2026-03-29T21:59:59.999Z')
+  })
+
+  it('maps, restores and saves all-day civil dates across a midnight DST gap', () => {
+    expect(calendarWallTimeToInstant('2026-09-06', '00:00', 'America/Santiago')).toBeNull()
+    expect(calendarDayStartInstant('2026-09-06', 'America/Santiago')?.toISOString()).toBe('2026-09-06T04:00:00.000Z')
+    expect(calendarDayEndInstant('2026-09-05', 'America/Santiago')?.toISOString()).toBe('2026-09-06T03:59:59.999Z')
+    for (const date of ['2026-09-05', '2026-09-06']) {
+      const state = { ...createDefaultFormState(), timezone: 'America/Santiago', date, startTime: '00:00', allDay: true, title: 'Midnight shift', repeatFreq: 'daily' as const, repeatEndType: 'date' as const, repeatUntilDate: date }
+      const payload = buildInteractionPayload(state, { mode: 'create' })
+      const item = mapInteractionToCalendarItem(makePayload({ timezone: state.timezone, scheduledAt: String(payload.scheduledAt), allDay: true, recurrenceEnd: String(payload.recurrenceEnd), recurrenceRule: String(payload.recurrenceRule) }), {})!
+      expect(item.start).toEqual(calendarDayStartInstant(date, state.timezone))
+      expect(item.end).toEqual(calendarDayEndInstant(date, state.timezone))
+      const restored = parseItemToFormState(item)
+      expect(restored).toMatchObject({ date, allDay: true, repeatUntilDate: date, timezone: state.timezone })
+      expect(buildInteractionPayload(restored, { mode: 'edit', id: item.id }).scheduledAt).toBe(payload.scheduledAt)
+    }
+    const series = mapInteractionToCalendarItem(makePayload({ timezone: 'America/Santiago', scheduledAt: '2026-09-05T04:00:00Z', allDay: true, recurrenceRule: 'FREQ=DAILY;COUNT=3' }), {})!
+    expect(expandOccurrences(series, { from: new Date('2026-09-05T00:00:00Z'), to: new Date('2026-09-08T00:00:00Z') }).map((item) => [item.start.toISOString(), item.end.toISOString()])).toEqual([
+      ['2026-09-05T04:00:00.000Z', '2026-09-06T03:59:59.999Z'],
+      ['2026-09-06T04:00:00.000Z', '2026-09-07T02:59:59.999Z'],
+      ['2026-09-07T03:00:00.000Z', '2026-09-08T02:59:59.999Z'],
+    ])
+  })
+
+  it('skips nonexistent whole civil dates while ending the previous day at the next real boundary', () => {
+    expect(calendarDayStartInstant('2011-12-30', 'Pacific/Apia')).toBeNull()
+    expect(calendarDayEndInstant('2011-12-30', 'Pacific/Apia')).toBeNull()
+    expect(calendarDayEndInstant('2011-12-29', 'Pacific/Apia')?.toISOString()).toBe('2011-12-30T09:59:59.999Z')
+    const state = { ...createDefaultFormState(), timezone: 'Pacific/Apia', date: '2011-12-30', allDay: true }
+    expect(() => buildInteractionPayload(state, { mode: 'create' })).toThrow('[internal] Invalid calendar local time')
   })
 
   it('keeps recurring event wall times fixed when the chosen zone crosses DST', () => {

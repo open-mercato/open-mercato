@@ -49,12 +49,32 @@ export function calendarWallTimeToInstant(date: string, time: string, timezone: 
   return candidates[0] ?? null
 }
 
+export function calendarDayStartInstant(date: string, timezone: string): Date | null {
+  if (!isCalendarTimezone(timezone) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null
+  const anchor = new Date(`${date}T00:00:00Z`)
+  if (!Number.isFinite(anchor.getTime()) || anchor.toISOString().slice(0, 10) !== date) return null
+  const midnight = calendarWallTimeToInstant(date, '00:00', timezone)
+  if (midnight) return midnight
+  let lower = anchor.getTime() - 36 * 3600000
+  let upper = anchor.getTime() + 36 * 3600000
+  while (lower < upper) {
+    const middle = lower + Math.floor((upper - lower) / 2)
+    if (calendarInstantToWallTime(new Date(middle), timezone).date < date) lower = middle + 1
+    else upper = middle
+  }
+  const boundary = new Date(lower)
+  return calendarInstantToWallTime(boundary, timezone).date === date ? boundary : null
+}
+
 export function calendarDayEndInstant(date: string, timezone: string): Date | null {
-  const start = new Date(`${date}T00:00:00Z`)
-  if (!Number.isFinite(start.getTime())) return null
-  start.setUTCDate(start.getUTCDate() + 1)
-  const nextMidnight = calendarWallTimeToInstant(start.toISOString().slice(0, 10), '00:00', timezone)
-  return nextMidnight ? new Date(nextMidnight.getTime() - 1) : null
+  if (!calendarDayStartInstant(date, timezone)) return null
+  const nextDate = new Date(`${date}T00:00:00Z`)
+  for (let skippedDays = 0; skippedDays < 3; skippedDays += 1) {
+    nextDate.setUTCDate(nextDate.getUTCDate() + 1)
+    const nextBoundary = calendarDayStartInstant(nextDate.toISOString().slice(0, 10), timezone)
+    if (nextBoundary) return new Date(nextBoundary.getTime() - 1)
+  }
+  return null
 }
 
 export function calendarTimezoneOptions(): string[] {

@@ -1,5 +1,5 @@
 import { addDays } from 'date-fns/addDays'
-import { calendarDayEndInstant, calendarInstantToWallTime, calendarWallTimeToInstant, isCalendarTimezone } from './timezone'
+import { calendarDayEndInstant, calendarDayStartInstant, calendarInstantToWallTime, calendarWallTimeToInstant, isCalendarTimezone } from './timezone'
 import type { CalendarItem, CalendarRange } from '../../components/calendar/types'
 
 const MAX_OCCURRENCES_PER_WINDOW = 100
@@ -108,13 +108,13 @@ function expandZonedOccurrences(item: CalendarItem, range: CalendarRange, rule: 
   let occurrenceIndex = 0
   while (cursor.toISOString().slice(0, 10) <= finalDate) {
     const date = cursor.toISOString().slice(0, 10)
-    const start = calendarWallTimeToInstant(date, startWall.time, timezone)
+    const start = item.allDay ? calendarDayStartInstant(date, timezone) : calendarWallTimeToInstant(date, startWall.time, timezone)
     if (start && ((rule.until && start > rule.until) || (recurrenceEnd !== null && start.getTime() > recurrenceEnd))) break
     const matches = rule.freq === 'DAILY' || (rule.byDay ?? [seriesWeekday]).includes(cursor.getUTCDay())
     if (start && matches) {
       if (rule.count !== null && occurrenceIndex >= rule.count) break
-      const end = item.allDay ? calendarDayEndInstant(date, timezone)! : new Date(start.getTime() + duration)
-      if (start <= range.to && end > range.from) {
+      const end = item.allDay ? calendarDayEndInstant(date, timezone) : new Date(start.getTime() + duration)
+      if (end && start <= range.to && end > range.from) {
         occurrences.push({ ...item, id: `${item.id}:${occurrenceIndex}`, start, end, isRecurringOccurrence: true })
         if (occurrences.length >= MAX_OCCURRENCES_PER_WINDOW) break
       }

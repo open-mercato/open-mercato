@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { calendarDayEndInstant, calendarWallTimeToInstant } from '../../../lib/calendar/timezone'
+import { calendarDayEndInstant, calendarDayStartInstant, calendarWallTimeToInstant } from '../../../lib/calendar/timezone'
 import { endOfDay } from 'date-fns/endOfDay'
 import { startOfDay } from 'date-fns/startOfDay'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -94,13 +94,15 @@ export function useConflictProbe(
     let start: Date
     let end: Date
     if (isAllDay) {
-      const dayDate = form.timezone ? calendarWallTimeToInstant(form.date, '00:00', form.timezone) : new Date(`${form.date}T00:00:00`)
+      const dayDate = form.timezone ? calendarDayStartInstant(form.date, form.timezone) : new Date(`${form.date}T00:00:00`)
       if (!dayDate || Number.isNaN(dayDate.getTime())) {
         setConflict(null)
         return
       }
       start = form.timezone ? dayDate : startOfDay(dayDate)
-      end = form.timezone ? calendarDayEndInstant(form.date, form.timezone)! : endOfDay(dayDate)
+      const dayEnd = form.timezone ? calendarDayEndInstant(form.date, form.timezone) : endOfDay(dayDate)
+      if (!dayEnd) { setConflict(null); return }
+      end = dayEnd
     } else {
       if (!form.startTime) {
         setConflict(null)

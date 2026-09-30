@@ -120,6 +120,25 @@ beforeEach(() => {
 })
 
 describe('interaction calendar-type command enforcement', () => {
+  it('persists the first instant of an all-day civil date across midnight DST', async () => {
+    const { em, context } = makeContext()
+    await registeredCommands.get('customers.interactions.create')!.execute({ tenantId: TENANT, organizationId: ORG, entityId: ENTITY, interactionType: 'meeting', date: '2026-09-06', allDay: true, timezone: 'America/Santiago' }, context)
+    expect(em.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ scheduledAt: new Date('2026-09-06T04:00:00Z'), timezone: 'America/Santiago', allDay: true }))
+  })
+
+  it('persists timezone-derived instants on create and update and rejects DST gaps before writing', async () => {
+    const { interaction, em, context } = makeContext()
+    const create = registeredCommands.get('customers.interactions.create')!
+    await create.execute({ tenantId: TENANT, organizationId: ORG, entityId: ENTITY, interactionType: 'meeting', date: '2026-09-29', time: '09:15', timezone: 'Europe/Warsaw' }, context)
+    expect(em.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ scheduledAt: new Date('2026-09-29T07:15:00Z'), timezone: 'Europe/Warsaw' }))
+    findOneWithDecryptionMock.mockResolvedValue(interaction)
+    const update = registeredCommands.get('customers.interactions.update')!
+    await update.execute({ id: INTERACTION, date: '2026-09-29', time: '09:15', timezone: 'America/New_York' }, context)
+    expect(interaction.scheduledAt).toEqual(new Date('2026-09-29T13:15:00Z'))
+    await expect(update.execute({ id: INTERACTION, date: '2026-03-29', time: '02:30', timezone: 'Europe/Warsaw' }, context)).rejects.toThrow()
+    expect(interaction.scheduledAt).toEqual(new Date('2026-09-29T13:15:00Z'))
+  })
+
   it.each(['meeting', 'call', 'email', 'note', 'event', 'task'])('persists timezone for %s independently of field applicability', async (interactionType) => {
     resolveScopedCalendarEventTypesMock.mockResolvedValue({ items: calendarEventTypes.map((type) => ({ ...type, selectable: true })) })
     const { interaction, em, context } = makeContext()
