@@ -198,7 +198,17 @@ export default function MarketingSettingsPage() {
   return (
     <Page>
       <PageBody>
-        <div className="max-w-2xl space-y-8">
+        <div className="max-w-6xl space-y-8">
+          {/*
+            Two columns from `xl` up, one below it.
+            Nine independent settings in a single 672px column left most of a wide screen empty and put the
+            last of them a long scroll below the first. Flowing columns rather than a grid, because a grid
+            aligns rows: one tall section (A/B tests, which is mostly explanation) left a screen-high hole
+            beside every short one. `break-inside-avoid` keeps each setting whole — a label in one column and
+            its field in the other would be worse than the scroll this replaces. The fields do not widen: each
+            column is a readable measure, not a monitor.
+          */}
+          <div className="space-y-8 xl:columns-2 xl:gap-8 xl:space-y-0 [&>div]:break-inside-avoid xl:[&>div]:mb-8">
           <div className="space-y-2">
             <SectionHeader title={t('marketing_automation.settings.productUrl', 'Product links in messages')} />
             <Label htmlFor="product-url-template">
@@ -474,6 +484,9 @@ export default function MarketingSettingsPage() {
             </Button>
           </div>
 
+          </div>
+
+          {/* Outside the grid: it saves the whole page, so it belongs under both columns rather than in one. */}
           <div>
             <Button disabled={saving} onClick={() => void save()}>
               {saving ? <Spinner /> : t('marketing_automation.action.save', 'Save')}
