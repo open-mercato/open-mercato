@@ -67,6 +67,8 @@ export function TagsInput({
   const [asyncOptions, setAsyncOptions] = React.useState<TagsInputOption[]>([])
   const [loading, setLoading] = React.useState(false)
   const [touched, setTouched] = React.useState(false)
+  const [suggestionsDismissed, setSuggestionsDismissed] = React.useState(false)
+  const inputRef = React.useRef<HTMLInputElement>(null)
   const suppressBlurCommitRef = React.useRef(false)
   const suppressSuggestionsOnFocusRef = React.useRef(Boolean(autoFocus && suppressInitialSuggestionsOnFocus && !disabled))
   const valueRef = React.useRef(value)
@@ -140,6 +142,22 @@ export function TagsInput({
       window.clearTimeout(handle)
     }
   }, [disabled, input, loadSuggestions, touched])
+
+  const suggestionsOpen = !suggestionsDismissed
+    && !disabled
+    && ((loading && touched) || (!loading && filteredSuggestions.length > 0))
+
+  React.useEffect(() => {
+    if (!suggestionsOpen) return
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.target !== inputRef.current) return
+      event.preventDefault()
+      event.stopPropagation()
+      setSuggestionsDismissed(true)
+    }
+    window.addEventListener('keydown', handleEscape, { capture: true })
+    return () => window.removeEventListener('keydown', handleEscape, { capture: true })
+  }, [suggestionsOpen])
 
   const addValue = React.useCallback(
     (nextValue: string) => {
@@ -226,6 +244,7 @@ export function TagsInput({
           )
         })}
         <input
+          ref={inputRef}
           className="flex-1 min-w-[80px] sm:min-w-[120px] border-0 py-1 text-sm outline-none disabled:bg-transparent"
           value={input}
           placeholder={placeholder || t('ui.inputs.tagsInput.placeholder', 'Add tag and press Enter')}
@@ -239,13 +258,16 @@ export function TagsInput({
             }
             if (showSuggestionsOnFocus) {
               setTouched(true)
+              setSuggestionsDismissed(false)
             }
           }}
           onMouseDown={() => {
             setTouched(true)
+            setSuggestionsDismissed(false)
           }}
           onChange={(event) => {
             setTouched(true)
+            setSuggestionsDismissed(false)
             setInput(event.target.value)
           }}
           onKeyDown={(event) => {
@@ -269,10 +291,10 @@ export function TagsInput({
             setInput('')
           }}
         />
-        {loading && touched ? (
+        {suggestionsOpen && loading && touched ? (
           <div className="basis-full mt-1 text-xs text-muted-foreground">Loading suggestions…</div>
         ) : null}
-        {!loading && filteredSuggestions.length ? (
+        {suggestionsOpen && !loading && filteredSuggestions.length ? (
           <div className="basis-full mt-1 flex flex-col gap-1">
             {filteredSuggestions.map((option) => (
               <Button
