@@ -201,18 +201,9 @@ const revokeActorHandler: CommandHandler<RevokeActorInput, { ok: true }> = {
   },
 }
 
-let registered = false
-export function registerSubmissionCommands(): void {
-  if (registered) return
-  registered = true
-  registerCommand(startHandler)
-  registerCommand(saveHandler)
-  registerCommand(submitHandler)
-  registerCommand(reopenHandler)
-  registerCommand(assignActorHandler)
-  registerCommand(revokeActorHandler)
-}
-
-// Eagerly register at module load — keeps command IDs discoverable as soon as
-// the forms module is imported (mirrors the customers module pattern).
-registerSubmissionCommands()
+registerCommand(startHandler)
+registerCommand(saveHandler)
+registerCommand(submitHandler)
+registerCommand(reopenHandler)
+registerCommand(assignActorHandler)
+registerCommand(revokeActorHandler)
