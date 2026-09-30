@@ -116,6 +116,7 @@
   "marketing_automation.blocks.saveFailed": "블록을 저장할 수 없습니다.",
   "marketing_automation.blocks.saved": "저장했습니다.",
   "marketing_automation.blocks.title": "콘텐츠 블록",
+  "marketing_automation.campaign.saved": "캠페인이 저장되었습니다.",
   "marketing_automation.canvas.edge.derivedHint": "단계는 위에서 아래로 실행됩니다. 순서는 드래그가 아니라 화살표로 변경하세요.",
   "marketing_automation.canvas.leaveText": "이 캠페인에 저장하지 않은 변경이 있습니다. 지금 나가면 사라집니다.",
   "marketing_automation.canvas.leaveTitle": "저장하지 않고 나갈까요?",

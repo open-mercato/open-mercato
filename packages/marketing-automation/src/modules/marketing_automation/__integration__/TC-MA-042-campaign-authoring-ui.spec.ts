@@ -36,6 +36,8 @@ async function saveAndRead(page: Page, request: APIRequestContext, token: string
     response.url().includes(`${CAMPAIGNS_PATH}/${campaignId}/save-graph`) && response.request().method() === 'PUT')
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   expect((await saved).status(), 'save-graph').toBe(200)
+  // A sentence, not the button's own label — the toast confirming a save used to read "Save".
+  await expect(page.getByText('Campaign saved.').first()).toBeVisible()
   await expect(page.getByText('Unsaved changes')).toBeHidden()
   return getCampaign(request, token, campaignId)
 }

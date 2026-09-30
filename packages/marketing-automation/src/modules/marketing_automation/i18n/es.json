@@ -116,6 +116,7 @@
   "marketing_automation.blocks.saveFailed": "No se pudo guardar el bloque.",
   "marketing_automation.blocks.saved": "Guardado.",
   "marketing_automation.blocks.title": "Bloques de contenido",
+  "marketing_automation.campaign.saved": "Campaña guardada.",
   "marketing_automation.canvas.edge.derivedHint": "Los pasos se ejecutan de arriba abajo. Cambia el orden con las flechas, no arrastrando.",
   "marketing_automation.canvas.leaveText": "Esta campaña tiene cambios sin guardar. Si sales ahora, se perderán.",
   "marketing_automation.canvas.leaveTitle": "¿Salir sin guardar?",

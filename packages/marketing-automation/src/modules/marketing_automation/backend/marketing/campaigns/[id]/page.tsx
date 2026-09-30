@@ -638,7 +638,8 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
       const saved = response.result
       setUpdatedAt(saved?.updatedAt ?? updatedAt)
       setDirty(false)
-      flash(t('marketing_automation.action.save', 'Save'), 'success')
+      // A sentence, not the button's own label: the toast that confirmed a save said "Save".
+      flash(t('marketing_automation.campaign.saved', 'Campaign saved.'), 'success')
       if ((saved?.waitingRuns ?? 0) > 0) {
         // Editing a campaign changes what customers mid-journey receive next, which is worth
         // saying out loud rather than discovering later.

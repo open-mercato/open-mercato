@@ -116,6 +116,7 @@
   "marketing_automation.blocks.saveFailed": "Nie udało się zapisać bloku.",
   "marketing_automation.blocks.saved": "Zapisano.",
   "marketing_automation.blocks.title": "Bloki treści",
+  "marketing_automation.campaign.saved": "Kampania zapisana.",
   "marketing_automation.canvas.edge.derivedHint": "Kroki wykonują się od góry do dołu. Kolejność zmieniasz strzałkami, nie przeciąganiem.",
   "marketing_automation.canvas.leaveText": "Ta kampania ma niezapisane zmiany. Wyjście teraz je utraci.",
   "marketing_automation.canvas.leaveTitle": "Wyjść bez zapisania?",

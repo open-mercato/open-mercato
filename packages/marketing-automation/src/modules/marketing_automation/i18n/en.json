@@ -116,6 +116,7 @@
   "marketing_automation.blocks.saveFailed": "Could not save the block.",
   "marketing_automation.blocks.saved": "Saved.",
   "marketing_automation.blocks.title": "Content blocks",
+  "marketing_automation.campaign.saved": "Campaign saved.",
   "marketing_automation.canvas.edge.derivedHint": "Steps run top to bottom. Reorder with the arrows, not by dragging.",
   "marketing_automation.canvas.leaveText": "This campaign has changes that have not been saved. Leaving now loses them.",
   "marketing_automation.canvas.leaveTitle": "Leave without saving?",

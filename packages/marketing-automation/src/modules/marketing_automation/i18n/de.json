@@ -116,6 +116,7 @@
   "marketing_automation.blocks.saveFailed": "Block konnte nicht gespeichert werden.",
   "marketing_automation.blocks.saved": "Gespeichert.",
   "marketing_automation.blocks.title": "Inhaltsblöcke",
+  "marketing_automation.campaign.saved": "Kampagne gespeichert.",
   "marketing_automation.canvas.edge.derivedHint": "Schritte laufen von oben nach unten. Reihenfolge mit den Pfeilen ändern, nicht durch Ziehen.",
   "marketing_automation.canvas.leaveText": "Diese Kampagne hat nicht gespeicherte Änderungen. Wenn Sie jetzt gehen, gehen sie verloren.",
   "marketing_automation.canvas.leaveTitle": "Ohne Speichern verlassen?",
