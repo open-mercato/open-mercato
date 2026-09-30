@@ -140,7 +140,7 @@
   </div>
 
   <div class="notes">
-    <div class="note"><b>1</b><span>Real download progress and a partial-download retry state aren't shown here — see spec §3.2 (manifest + delta protocol).</span></div>
+    <div class="note"><b>1</b><span>Real download progress and a partial-download retry state aren't shown here — see spec §3.2 (manifest, then a full refetch that swaps in only once complete).</span></div>
     <div class="note"><b>2</b><span>The TTL choice writes to <code class="t-mono">OfflinePackPolicy.offlineTtlHours</code> for this buyer's device only; the store-level default and hard floor are merchant-configured (§4.1).</span></div>
   </div>
 </section>
@@ -235,14 +235,10 @@
           <p class="t-section" style="margin:0 0 0.25rem">Unlock field mode</p>
           <p class="t-hint" style="margin:0;max-width:16rem">Your device is unlocked, but the priced catalog stored here needs its own passcode.</p>
         </div>
-        <div class="field-pin-dots">
-          <i class="filled"></i><i class="filled"></i><i class="filled"></i><i></i>
-        </div>
-        <div class="field-keypad">
-          <button>1</button><button>2</button><button>3</button>
-          <button>4</button><button>5</button><button>6</button>
-          <button>7</button><button>8</button><button>9</button>
-          <button></button><button data-goto="s2">0</button><button aria-label="Delete"><svg style="width:1rem;height:1rem;margin:auto"><use href="#ic-x"/></svg></button>
+        <div class="field-passcode">
+          <input class="input" type="password" autocomplete="current-password" placeholder="Field mode passcode" aria-label="Field mode passcode" value="correct-horse">
+          <p class="t-hint" style="margin:0">At least 8 characters, not only digits.</p>
+          <button class="btn btn-primary" data-goto="s2">Unlock</button>
         </div>
         <button class="btn btn-ghost" data-goto="s2"><svg><use href="#ic-shield"/></svg> Use Face ID instead</button>
       </div>
@@ -250,7 +246,7 @@
   </div>
 
   <div class="notes">
-    <div class="note"><b>1</b><span>Where no platform authenticator exists, the app falls back to this PIN prompt instead of skipping the gate (§6).</span></div>
+    <div class="note"><b>1</b><span>Where no platform authenticator exists, the app falls back to this passcode prompt instead of skipping the gate (§6). It is a passcode, never a numeric PIN: it alone protects a copy of the storage taken off the device.</span></div>
     <div class="note"><b>2</b><span>Failing or dismissing the gate blocks pack access entirely — there is no "view without unlocking" fallback.</span></div>
   </div>
 </section>
@@ -476,7 +472,7 @@
 <section class="screen" id="s7">
   <div class="screen-meta">
     <h2>7. Sync &amp; reconciliation</h2>
-    <p>Shown on reconnect. Replay reuses the cart's own <code class="t-mono">priceChanges</code>/<code class="t-mono">warnings</code>/<code class="t-mono">mergeSummary</code> surfaces — this is not a second, offline-specific screen.</p>
+    <p>Shown on reconnect. Replay reuses the cart's own <code class="t-mono">priceChanges</code>/<code class="t-mono">warnings</code> surfaces and the merge-summary visual pattern — this is not a second, offline-specific screen. A replay is a plain <code class="t-mono">bulkAdd</code>, so cart returns no <code class="t-mono">mergeSummary</code>; the per-item outcome comes from <code class="t-mono">reconcileOfflineReplay</code>.</p>
     <div class="screen-refs"><span class="ref">§2.3</span><span class="ref">§3.3</span><span class="ref">§5.8</span><span class="ref">US-F5</span></div>
   </div>
 

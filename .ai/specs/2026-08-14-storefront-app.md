@@ -424,7 +424,7 @@ Full axe sweep, manual accessibility pass, Lighthouse CI, bundle budgets, cross-
 1. **Distribution** — the roadmap decided `apps/storefront` in the monorepo. Whether it *also* ships as a `create-app` preset (per `packages/create-app` template-sync rules) is unresolved; if so, the template-sync checklist applies from Phase 1.
 2. **Image transformation** — spec 4 Open Question 4. Responsive `srcset` needs width variants; whether `storage-s3` provides them is unverified and blocks the LCP budget if it does not.
 3. **Analytics and consent** — no analytics is specified. A real storefront needs GA4 or equivalent behind a consent banner, and consent interacts with `consent_flags` in checkout and promotions. Out of scope, and a real gap before a production launch.
-4. ~~**PWA / offline** — the roadmap listed offline as a non-goal. Whether a service worker for asset caching alone is worth it is unaddressed.~~ **Resolved 2026-09-22.** This question's own premise does not hold — the word "offline" does not appear anywhere in `2026-08-14-ecommerce-suite-roadmap.md` prior to [ADR-10](./2026-08-14-ecommerce-suite-roadmap.md#adr-10--field-mode-assembles-offline-commits-online); there was no non-goal here to reverse, only an open question the roadmap had never actually foreclosed. Recorded as a discrepancy in this spec's own changelog rather than silently corrected. The resolution itself: offline is scoped as **field mode**, a client-only route subtree (`/field/*`) over a server-built, buyer-priced offline pack — not a service worker for asset caching, and not "the app works offline." Full design in [Offline Field Mode](./2026-09-22-offline-field-mode.md); see §3.3a and §5.8 below for what that adds to this spec's own surface.
+4. ~~**PWA / offline** — the roadmap listed offline as a non-goal. Whether a service worker for asset caching alone is worth it is unaddressed.~~ **Resolved 2026-09-22.** This question's own premise does not hold — the word "offline" does not appear anywhere in `2026-08-14-ecommerce-suite-roadmap.md` prior to [ADR-11](./2026-08-14-ecommerce-suite-roadmap.md#adr-11--field-mode-assembles-offline-commits-online); there was no non-goal here to reverse, only an open question the roadmap had never actually foreclosed. Recorded as a discrepancy in this spec's own changelog rather than silently corrected. The resolution itself: offline is scoped as **field mode**, a client-only route subtree (`/field/*`) over a server-built, buyer-priced offline pack — not a service worker for asset caching, and not "the app works offline." Full design in [Offline Field Mode](./2026-09-22-offline-field-mode.md); see §3.3a and §5.8 below for what that adds to this spec's own surface.
 
 ---
 
@@ -515,7 +515,7 @@ Full behavioural spec: [Offline Field Mode](./2026-09-22-offline-field-mode.md).
 - **US-F2** — As a buyer returning to an already-enabled device, I want to pass a local passcode or biometric gate every time I open field mode, so that someone else holding the unlocked device still cannot read my prices.
   - AC: the gate is presented on every app open, not once per session (offline spec §6).
   - AC: a device unlocked at the OS level is not sufficient on its own — failing or dismissing the gate blocks pack access entirely.
-  - AC: where no platform authenticator is available, an app-level PIN prompt is offered instead of silently skipping the gate.
+  - AC: where no platform authenticator is available, an app-level passcode prompt is offered instead of silently skipping the gate; the passcode is at least 8 characters and not all digits, never a numeric PIN (offline spec §6).
 
 - **US-F3** — As a buyer with no signal, I want to browse the catalogue I downloaded earlier with the same prices, tiers and quantity rules it had when I last synced, so that I can plan an order without a page pretending to be live.
   - AC: a persistent "prices as of `generatedAt`, offline" banner is visible for as long as the device has no connection (offline spec §3.2).
@@ -549,6 +549,9 @@ Full behavioural spec: [Offline Field Mode](./2026-09-22-offline-field-mode.md).
 ---
 
 ## 17) Changelog
+
+### 2026-09-30 — field mode specification review
+- US-F2's fallback gate is an app-level **passcode** of at least 8 characters, not all digits, matching offline spec §6; it previously said "PIN prompt", which the prototype had rendered as a 4-digit keypad. R10 stays **High**; the offline spec's R9 now rates the same risk High too. The OQ4 resolution links the roadmap decision under its new number, ADR-11 (renumbered because the assisted-selling spec's ADR-10 lands first).
 
 ### 2026-09-27 — field mode review fixes
 - §5.8, §12 and US-F5/US-F6 aligned with the corrected offline spec: replay produces no server `mergeSummary` (it is a plain `bulkAdd`; a queued line already in the cart sums), runs through this app's route handlers with the cookie-held token and a server-resolved scope, and replays only for the buyer who queued it; merchant-disabled field mode added to the automatic purge triggers.

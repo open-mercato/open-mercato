@@ -579,8 +579,4 @@
 .field-lock-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.25rem; padding: 2rem 1.5rem; text-align: center; }
 .field-lock-icon { width: 3.5rem; height: 3.5rem; border-radius: 9999px; background: var(--muted); display: flex; align-items: center; justify-content: center; color: var(--foreground); }
 .field-lock-icon svg { width: 1.5rem; height: 1.5rem; }
-.field-pin-dots { display: flex; gap: 0.625rem; }
-.field-pin-dots i { width: 0.75rem; height: 0.75rem; border-radius: 9999px; border: 1px solid var(--input); display: block; }
-.field-pin-dots i.filled { background: var(--foreground); border-color: var(--foreground); }
-.field-keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.625rem; width: 14rem; }
-.field-keypad button { height: 2.75rem; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--card); font-size: 1rem; cursor: pointer; }
+.field-passcode { width: 100%; max-width: 16rem; display: flex; flex-direction: column; gap: 0.5rem; }
