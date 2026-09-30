@@ -104,6 +104,7 @@ const connectCredentialChannelCommand: CommandHandler<
     const effectiveUserId = tenantScoped ? null : input.userId
 
     // Optional credential validation.
+    let adapterIdentifier: string | null = null
     if (typeof adapter.validateCredentials === 'function') {
       const validation = await adapter.validateCredentials({
         providerKey: input.providerKey,
@@ -119,6 +120,9 @@ const connectCredentialChannelCommand: CommandHandler<
           errors: validation.errors ?? { _form: 'Credential validation failed' },
           errorCodes: validation.errorCodes,
         }
+      }
+      if (typeof validation.externalIdentifier === 'string' && validation.externalIdentifier.length > 0) {
+        adapterIdentifier = validation.externalIdentifier
       }
     }
 
@@ -200,8 +204,12 @@ const connectCredentialChannelCommand: CommandHandler<
     // carry it as `fromAddress`; other credential providers may use `username` or
     // `email`. Normalize emails to lowercase so the cross-provider duplicate guard
     // and the per-(tenant,user,provider,mailbox) heal index match canonically.
+    // An identity the adapter reported during validation wins: providers such as
+    // Discord have no email-shaped key, and without it every reconnect inserted a
+    // duplicate row instead of healing the existing one (#4977).
     const credBag = input.credentials as Record<string, unknown>
     const rawIdentifier =
+      adapterIdentifier ??
       (typeof credBag.username === 'string' && credBag.username.length > 0 ? credBag.username : null) ??
       (typeof credBag.email === 'string' && credBag.email.length > 0 ? credBag.email : null) ??
       (typeof credBag.fromAddress === 'string' && credBag.fromAddress.length > 0
@@ -233,6 +241,7 @@ const connectCredentialChannelCommand: CommandHandler<
           organizationId: tenantScoped ? null : input.scope.organizationId ?? null,
         },
         pollIntervalSeconds: input.pollIntervalSeconds,
+        adoptUnidentifiedChannel: adapterIdentifier !== null,
       })
     } catch (err) {
       // Same mailbox already connected via another provider — reject so we don't
