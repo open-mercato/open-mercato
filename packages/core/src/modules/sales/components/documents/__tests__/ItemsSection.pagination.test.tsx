@@ -3,7 +3,7 @@
  */
 
 import * as React from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { SalesDocumentItemsSection } from '../ItemsSection'
 
 const mockApiCall = jest.fn()
@@ -183,5 +183,36 @@ describe('SalesDocumentItemsSection line pagination (#6460)', () => {
 
     await waitFor(() => expect(screen.getByText('Failed to load items.')).toBeInTheDocument())
     expect(screen.queryByText('Line 1')).not.toBeInTheDocument()
+  })
+
+  it('ignores a slower load for a previous document once the document changes', async () => {
+    const OTHER_DOCUMENT_ID = '33333333-3333-3333-3333-333333333333'
+    let releaseStalePage: (() => void) | null = null
+    mockApiCall.mockImplementation(async (url: string) => {
+      if (!url.startsWith('/api/sales/order-lines?')) return { ok: true, result: { items: [] } }
+      const params = new URLSearchParams(url.split('?')[1])
+      const page = Number(params.get('page'))
+      if (params.get('orderId') === DOCUMENT_ID) {
+        if (page > 1) await new Promise<void>((resolve) => { releaseStalePage = resolve })
+        const items = []
+        for (let index = 1; index <= 100; index += 1) items.push(buildLine((page - 1) * 100 + index))
+        return { ok: true, result: { items, total: 200 } }
+      }
+      return { ok: true, result: { items: [{ ...buildLine(1), id: 'other-line', name: 'Other document line' }], total: 1 } }
+    })
+
+    const { rerender } = render(<SalesDocumentItemsSection documentId={DOCUMENT_ID} kind="order" currencyCode="USD" />)
+    await waitFor(() => expect(releaseStalePage).not.toBeNull())
+
+    rerender(<SalesDocumentItemsSection documentId={OTHER_DOCUMENT_ID} kind="order" currencyCode="USD" />)
+    await waitFor(() => expect(screen.getByText('Other document line')).toBeInTheDocument())
+
+    await act(async () => {
+      releaseStalePage?.()
+    })
+
+    expect(screen.getByText('Other document line')).toBeInTheDocument()
+    expect(screen.queryByText('Line 1')).not.toBeInTheDocument()
+    expect(screen.queryByText('Line 200')).not.toBeInTheDocument()
   })
 })

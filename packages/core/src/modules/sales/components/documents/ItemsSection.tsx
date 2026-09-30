@@ -209,6 +209,7 @@ export function SalesDocumentItemsSection({
   const documentKey = kind === "order" ? "orderId" : "quoteId";
   const lineStatusesLoaded = React.useRef(false);
   const itemsLoadedForDocument = React.useRef<string | null>(null);
+  const itemsLoadSeq = React.useRef(0);
   const shipmentsLoadedForDocument = React.useRef<string | null>(null);
   const loadLineStatuses = React.useCallback(async () => {
     try {
@@ -227,12 +228,15 @@ export function SalesDocumentItemsSection({
   }, []);
 
   const loadItems = React.useCallback(async () => {
+    const loadSeq = ++itemsLoadSeq.current;
+    const isCurrentLoad = () => loadSeq === itemsLoadSeq.current;
     setLoading(true);
     setError(null);
     try {
       const collectedItems: Array<Record<string, unknown>> = [];
       const seenIds = new Set<string>();
       let loaded = false;
+      let complete = false;
       let page = 1;
       while (page <= LINES_MAX_PAGES) {
         const params = new URLSearchParams({
@@ -248,6 +252,7 @@ export function SalesDocumentItemsSection({
         });
         if (!response.ok || !Array.isArray(response.result?.items)) {
           if (page > 1) throw new Error("[internal] sales line page failed to load");
+          complete = true;
           break;
         }
         loaded = true;
@@ -265,9 +270,14 @@ export function SalesDocumentItemsSection({
           added > 0 &&
           pageItems.length >= LINES_PAGE_SIZE &&
           (!Number.isFinite(reportedTotal) || collectedItems.length < reportedTotal);
-        if (!hasMore) break;
+        if (!hasMore) {
+          complete = true;
+          break;
+        }
         page += 1;
       }
+      if (!complete) throw new Error("[internal] sales line page limit reached");
+      if (!isCurrentLoad()) return;
       if (loaded) {
         const mapped = collectedItems.flatMap<SalesLineRecord>(
           (item) => {
@@ -413,11 +423,13 @@ export function SalesDocumentItemsSection({
         if (onItemsChange) onItemsChange([]);
       }
     } catch (err) {
+      if (!isCurrentLoad()) return;
       logger.error('sales.document.items.load', { err });
       setError(t("sales.documents.items.errorLoad", "Failed to load items."));
+      setItems([]);
       if (onItemsChange) onItemsChange([]);
     } finally {
-      setLoading(false);
+      if (isCurrentLoad()) setLoading(false);
     }
   }, [currencyCode, documentId, documentKey, onItemsChange, resourcePath, t]);
 
