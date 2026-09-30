@@ -452,7 +452,7 @@ function resolveMapMeta(
 
 function requireMapMeta(
   map: EncryptionMap,
-  metaByEntityId: Map<string, any>,
+  metaByEntityId: ReturnType<typeof buildEntityMetaRegistry>,
 ): EncryptionMapMeta {
   const mapMeta = resolveMapMeta(map, metaByEntityId)
   const entityId = String(map.entityId)
