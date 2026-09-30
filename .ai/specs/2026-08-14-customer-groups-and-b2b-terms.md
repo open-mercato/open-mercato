@@ -432,6 +432,8 @@ All admin routes use `makeCrudRoute`, export `openApi`, validate with Zod, and s
 | POST | `/api/customer-groups/approvals/:id/decide` | `customer_groups.approvals.decide` |
 | GET | `/api/customer-groups/reconcile` | `customer_groups.groups.manage` |
 
+`POST /api/customer-groups` returns `{ id, isDefault }`. When `isDefault: true` was requested but the default promotion lost a concurrent race, the group is still created (201) and the response carries `isDefault: false`; the admin UI warns about it.
+
 The ledger has no update or delete route. Corrections go through `/adjust`, which appends a compensating entry.
 
 ### 9.1 ACL features (`acl.ts`)
@@ -461,13 +463,14 @@ export const features = [
 ```typescript
 'customer_groups.group.created' | '.updated' | '.deleted'
 'customer_groups.membership.added' | '.removed' | '.expired'
+'customer_groups.terms.updated'
 'customer_groups.credit.reserved' | '.released' | '.settled' | '.limit_exceeded'
 'customer_groups.credit_account.put_on_hold' | '.released_from_hold'
 'customer_groups.approval.requested' | '.approved' | '.rejected' | '.expired'
 'customer_groups.assortment_override.created' | '.updated' | '.deleted' | '.expired'
 ```
 
-`customer_groups.membership.added` and `.removed` MUST invalidate any cached buyer context and any price cache keyed on that customer — see R2.
+`customer_groups.membership.added` and `.removed` MUST invalidate any cached buyer context and any price cache keyed on that customer — see R2. `customer_groups.terms.updated` carries the same duty for every member of the group, since a terms change alters their resolved pricing.
 
 `customer_groups.assortment_override.*` carries the same duty for catalog visibility: it MUST invalidate the cached buyer context, the cached "does this customer have an override" probe (visibility spec §3.7) and any storefront cache entry keyed on that buyer's `assortmentScopeHash`. It is also a buyer-identity-class change for `cart`, which re-runs its whole-cart re-visibility pass on it exactly as it does on a membership change (`2026-08-14-cart-module.md` §5.2 trigger 2) — otherwise an override's `valid_until` would be the one buyer-side change that reaches checkout unchecked.
 
@@ -678,6 +681,10 @@ Approver/account manager reviews over-threshold purchase requests.
 ---
 
 ## 18) Changelog
+
+### 2026-09-30 (review fixes on PR #6709)
+- §9: group create returns `{ id, isDefault }` and never fails after commit when the default promotion loses a race.
+- §10: new `customer_groups.terms.updated` event, emitted on terms writes together with the group's cache-tag invalidation. Full command/undo support for terms remains tracked in #6728.
 
 ### 2026-09-29 (nullable `allow_purchase_on_account`)
 - §5.3: `allow_purchase_on_account` is now nullable. `null` means "not set on this group": the value is inherited from the parent chain, falling back to the tenant default `false`. Before, a terms row always carried an explicit `true`/`false`, so saving a child group's terms to change any other field silently switched off purchase-on-account inherited from its parent. The admin form offers Inherit / Allow / Do not allow. Migration `Migration20260929083000_customer_groups` drops the column's `NOT NULL` and default, keeping stored values.
