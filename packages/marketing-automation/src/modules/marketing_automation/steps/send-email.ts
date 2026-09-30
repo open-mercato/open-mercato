@@ -4,6 +4,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { reportError } from '@open-mercato/telemetry'
 import { interpolate } from '../lib/interpolate.js'
+import { loadRenderValues, neededRenderRoots } from '../lib/render-values.js'
 import { redactEmails } from '../lib/redact.js'
 import { applyContentBlocks, loadContentBlocks, referencedBlockKeys } from '../lib/content-blocks.js'
 import {
@@ -139,8 +140,11 @@ function withUnsubscribeFooter(html: string, url: string | null): string {
  * copy of PII in the database. One scoped read per send is the price, and it has a second benefit —
  * a customer who corrects their address mid-journey gets the remaining steps at the new one.
  */
-async function resolveRecipient(ctx: AutomationContext, deps: StepDeps): Promise<string | null> {
-  if (!ctx.subjectEntityId) return null
+async function resolveRecipient(
+  ctx: AutomationContext,
+  deps: StepDeps,
+): Promise<{ to: string | null; entity: { id: string; displayName?: string | null; primaryEmail?: string | null } | null }> {
+  if (!ctx.subjectEntityId) return { to: null, entity: null }
 
   const entity = await findOneWithDecryption(
     deps.em,
@@ -154,7 +158,13 @@ async function resolveRecipient(ctx: AutomationContext, deps: StepDeps): Promise
     undefined,
     deps.scope,
   )
-  return entity?.primaryEmail?.trim() || null
+  /**
+   * The entity travels back, not just the address.
+   *
+   * It has already been fetched and decrypted here; a message writing `{{customer.displayName}}` would
+   * otherwise pay for a second identical read to render the name it is greeting somebody by.
+   */
+  return { to: entity?.primaryEmail?.trim() || null, entity: entity ?? null }
 }
 
 /**
@@ -175,13 +185,29 @@ export function renderEmail(
    * recommendation block. Loaded by the caller because this function stays synchronous, which is what
    * lets a test render exactly what a send renders.
    */
-  resolved: { blocks?: Record<string, string>; recommendationsHtml?: string } = {},
+  resolved: {
+    blocks?: Record<string, string>
+    recommendationsHtml?: string
+    /**
+     * The customer's own values, resolved at send time.
+     *
+     * The persisted run context deliberately carries no customer record, so without these the six of eight
+     * advertised placeholders that name one could never resolve — and `interpolate` leaves an unresolved
+     * placeholder verbatim, which is how the shipped Welcome template came to mail a subject line reading
+     * `Welcome, {{customer.displayName}}`. Passed in rather than fetched because this function stays
+     * synchronous, which is what lets a test render exactly what a send renders.
+     */
+    values?: Record<string, unknown>
+  } = {},
 ): { subject: string; html: string; text?: string } {
   const unsubscribe = unsubscribeLinkFor(ctx)
+  // The customer's values first, then the run context, so nothing supplied here can shadow the ids and
+  // scope the context carries.
+  const withValues: AutomationContext = { ...(resolved.values ?? {}), ...ctx } as AutomationContext
   // Offered as a substitution so the author can place it; appended below only if they did not.
   const withUnsubscribeAvailable: AutomationContext = unsubscribe
-    ? { ...ctx, unsubscribeUrl: unsubscribe }
-    : ctx
+    ? { ...withValues, unsubscribeUrl: unsubscribe }
+    : withValues
 
   /**
    * Blocks and recommendations first, then interpolation, then tracking.
@@ -212,7 +238,7 @@ export function renderEmail(
   const tracked = withTracking(interpolated, ctx, params.track !== false, unsubscribe)
 
   return {
-    subject: interpolate(params.subject, ctx),
+    subject: interpolate(params.subject, withValues),
     html: authorPlacedUnsubscribe ? tracked : withUnsubscribeFooter(tracked, unsubscribe),
     text: params.bodyText ? interpolate(params.bodyText, withUnsubscribeAvailable) : undefined,
   }
@@ -250,7 +276,7 @@ export const sendEmailStep: StepHandler<StepDeps> = {
       ])
       recommendationsHtml = renderRecommendationsHtml(items, { urlTemplate })
     }
-    const to = await resolveRecipient(ctx, deps)
+    const { to, entity } = await resolveRecipient(ctx, deps)
     if (!to) {
       // A customer with no address is not an error: plenty of CRM records have none, and
       // failing the run would retry five times and then dead-letter a journey that can never
@@ -258,10 +284,27 @@ export const sendEmailStep: StepHandler<StepDeps> = {
       return { status: 'skipped', detail: 'no email address on the subject' }
     }
 
+    /**
+     * Loaded by what the copy ASKS for.
+     *
+     * Most messages name the customer and nothing else, and the name arrived with the address lookup above,
+     * so the common case costs no extra query. A message quoting somebody's order count or loyalty tier pays
+     * for exactly that and nothing more.
+     */
+    const values = await loadRenderValues(
+      deps.em,
+      deps.container,
+      ctx,
+      deps.scope,
+      neededRenderRoots([params.subject, params.bodyHtml, params.bodyText]),
+      entity,
+      deps.now ?? new Date(),
+    )
+
     try {
       await sendEmail({
         to,
-        ...renderEmail(params, ctx, { blocks, recommendationsHtml }),
+        ...renderEmail(params, ctx, { blocks, recommendationsHtml, values }),
         tenantId: deps.scope.tenantId,
         organizationId: deps.scope.organizationId,
       })
