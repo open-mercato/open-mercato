@@ -633,6 +633,13 @@ export default function ProfileCommunicationChannelsPage() {
           extensionTableId={extensionPoints.hosts.profileChannelsTable.tableId}
           columns={columns}
           rowActions={rowActions}
+          // Pinned because this table is wider than a laptop viewport: at 1280px
+          // the row runs out well before the actions cell, and since Primary,
+          // Team access and Push are status-only there is no other control in
+          // view. Unpinned, reaching ⋯ meant scrolling to the far end, which
+          // scrolls the Channel column away — so you could no longer see which
+          // channel the open menu belonged to (#6717).
+          stickyActionsColumn
           data={rows}
           isLoading={isLoading}
           error={errorMessage}

@@ -189,8 +189,62 @@ with a `row actions menu` suite:
 - `2026-06-19-discord-communication-channel-integration.md` — a third injected connect
   provider; context for the header work this change deliberately leaves alone.
 
+## 📝 QA Follow-ups (2026-09-30)
+
+Manual QA returned NO-GO on three points. All are fixed on this branch.
+
+### #6717 — Actions cell out of view at laptop widths (blocking)
+
+The table is wider than a laptop viewport, so at 1280px the row ran out before the
+actions cell; reaching ⋯ meant scrolling to the far end, which scrolled the `Channel`
+column away, leaving no way to tell which channel an open menu belonged to. With
+`Primary`, `Team access` and `Push` now status-only, no clickable control remained in
+the visible part of the row at all.
+
+**Fix:** `stickyActionsColumn` on the `DataTable`. The prop already existed and
+defaults to `false`; this table needs it because consolidating the actions is what
+made the trailing cell the *only* interactive one.
+
+### #6718 — Menu not operable with arrow keys (blocking)
+
+`Enter`/`Space` opened the menu and `Escape` closed it, but the arrow keys did
+nothing and focus stayed on the trigger. Because every row's trigger is in the tab
+order, reaching the first item of a six-row table took eleven `Tab` presses.
+
+**Fix:** roving focus in `RowActions` — `ArrowDown`/`ArrowUp` with wraparound,
+`Home`/`End`, and `Tab`/`Shift+Tab` trapped inside the open menu (a menu is modal for
+the keyboard; letting `Tab` escape into the next row's trigger is what produced the
+eleven presses). The first item takes focus on open, one frame after mount because the
+panel is portalled.
+
+### #6719 — Menu label overflows the panel (minor)
+
+The panel had a fixed `w-44`. `RowActionItem` labels render as `Button`s, which are
+`whitespace-nowrap`, so a label wider than the panel overhung its right border instead
+of wrapping — Polish `"Zarejestruj push ponownie"` by ~10px.
+
+**Fix:** `w-max min-w-44 max-w-xs` on the panel, and `whitespace-normal h-auto` on the
+items so a label that reaches the cap wraps rather than overflowing.
+
+This is the same defect `ActionsDropdown` carried as **#3580** (Polish
+`"Oznacz wszystko jako nieprzeczytane"` overflowing a fixed `w-52`), fixed there the
+same way. The two components now behave identically, and both are covered by tests
+asserting the absence of the fixed-width class.
+
+> `"Establecer como principal"` (es, *Set as primary*) is 25 characters — exactly as
+> long as the Polish label QA reported, and it renders on any non-primary channel. QA
+> did not test Spanish; the same fix covers it.
+
+### Blast radius
+
+#6718 and #6719 change the shared `RowActions` component, so they affect every
+backend table that uses it, not just this page. Both are strict improvements
+(keyboard access added; width floor unchanged at `min-w-44`), and the full
+`packages/ui` suite passes.
+
 ## 📝 Changelog
 
 | Date | Change |
 |---|---|
 | 2026-09-28 | Initial spec and implementation: per-row actions consolidated into a `RowActions` column. |
+| 2026-09-30 | QA follow-ups: pinned the actions cell (#6717); added arrow-key/Home/End navigation and a Tab trap to `RowActions` (#6718); made the panel size to its content and its items wrap (#6719). |
