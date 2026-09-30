@@ -1,5 +1,4 @@
 import { Migration } from '@mikro-orm/migrations';
-import { buildEncryptionMapBackfillSql } from '@open-mercato/shared/lib/encryption/migration-backfill';
 
 // Backfill the phone_calls encryption maps for every pre-existing (tenant, org) scope that already
 // has active encryption maps. Encryption maps are seeded only at tenant creation (`entities
@@ -13,15 +12,39 @@ import { buildEncryptionMapBackfillSql } from '@open-mercato/shared/lib/encrypti
 export class Migration20260822120000 extends Migration {
 
   override async up(): Promise<void> {
-    this.addSql(buildEncryptionMapBackfillSql({
-      entityId: 'phone_calls:phone_call',
-      fields: [{ field: 'raw_snapshot' }, { field: 'provider_facts' }, { field: 'recording_url' }],
-    }));
+    this.addSql(`
+      insert into "encryption_maps" ("id", "entity_id", "tenant_id", "organization_id", "fields_json", "is_active", "created_at", "updated_at")
+      select gen_random_uuid(), 'phone_calls:phone_call', src."tenant_id", src."organization_id", '[{"field":"raw_snapshot"},{"field":"provider_facts"},{"field":"recording_url"}]'::jsonb, true, now(), now()
+      from (
+        select distinct "tenant_id", "organization_id"
+        from "encryption_maps"
+        where "is_active" = true and "deleted_at" is null
+      ) src
+      where not exists (
+        select 1 from "encryption_maps" existing
+        where existing."entity_id" = 'phone_calls:phone_call'
+          and existing."tenant_id" is not distinct from src."tenant_id"
+          and existing."organization_id" is not distinct from src."organization_id"
+          and existing."deleted_at" is null
+      );
+    `);
 
-    this.addSql(buildEncryptionMapBackfillSql({
-      entityId: 'phone_calls:phone_call_participant',
-      fields: [{ field: 'phone_number' }, { field: 'display_name' }, { field: 'email' }],
-    }));
+    this.addSql(`
+      insert into "encryption_maps" ("id", "entity_id", "tenant_id", "organization_id", "fields_json", "is_active", "created_at", "updated_at")
+      select gen_random_uuid(), 'phone_calls:phone_call_participant', src."tenant_id", src."organization_id", '[{"field":"phone_number"},{"field":"display_name"},{"field":"email"}]'::jsonb, true, now(), now()
+      from (
+        select distinct "tenant_id", "organization_id"
+        from "encryption_maps"
+        where "is_active" = true and "deleted_at" is null
+      ) src
+      where not exists (
+        select 1 from "encryption_maps" existing
+        where existing."entity_id" = 'phone_calls:phone_call_participant'
+          and existing."tenant_id" is not distinct from src."tenant_id"
+          and existing."organization_id" is not distinct from src."organization_id"
+          and existing."deleted_at" is null
+      );
+    `);
   }
 
   override async down(): Promise<void> {
