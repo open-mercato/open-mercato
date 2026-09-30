@@ -36,6 +36,7 @@ import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { FormPalettePanel } from './studio/palette/FormPalettePanel'
 import { FormAppearancePanel } from './studio/palette/FormAppearancePanel'
@@ -135,6 +136,8 @@ import { ConditionBuilder, buildFieldSourceOptions } from './studio/logic/Condit
 import { JumpsEditor } from './studio/logic/JumpsEditor'
 import { ViewportFrame, type PreviewViewport } from './studio/preview/ViewportFrame'
 import type { ActiveDropTarget, StudioSelection, StudioTopTab } from './studio/types'
+
+const logger = createLogger('forms').child({ component: 'FormStudio' })
 
 type VersionDetail = {
   id: string
@@ -744,9 +747,7 @@ export function FormStudio({ formId }: { formId: string }) {
         )
       } catch (error) {
         flash(t('forms.studio.autosave.invalidSchema'), 'error')
-        if (typeof console !== 'undefined' && typeof console.warn === 'function') {
-          console.warn('[forms.studio] field-type swap failed', error)
-        }
+        logger.warn('field-type swap failed', { err: error })
       }
     },
     [updateSchemaStructural],
@@ -990,9 +991,7 @@ export function FormStudio({ formId }: { formId: string }) {
         validateSchemaExtensions(next.schema)
       } catch (error) {
         flash(t('forms.studio.autosave.invalidSchema'), 'error')
-        if (typeof console !== 'undefined' && typeof console.warn === 'function') {
-          console.warn('[forms.studio] drop validation failed', error)
-        }
+        logger.warn('drop validation failed', { err: error })
         return
       }
       // Decision 6a — DnD drops are structural mutations; push undo
@@ -1086,9 +1085,7 @@ export function FormStudio({ formId }: { formId: string }) {
           })
         } catch (error) {
           flash(t('forms.studio.autosave.invalidSchema'), 'error')
-          if (typeof console !== 'undefined' && typeof console.warn === 'function') {
-            console.warn('[forms.studio] palette drop failed', error)
-          }
+          logger.warn('palette drop failed', { err: error })
         }
         return
       }
@@ -1116,9 +1113,7 @@ export function FormStudio({ formId }: { formId: string }) {
           setFocusSectionTitleKey(result.sectionKey)
         } catch (error) {
           flash(t('forms.studio.autosave.invalidSchema'), 'error')
-          if (typeof console !== 'undefined' && typeof console.warn === 'function') {
-            console.warn('[forms.studio] layout drop failed', error)
-          }
+          logger.warn('layout drop failed', { err: error })
         }
         return
       }
@@ -1145,9 +1140,7 @@ export function FormStudio({ formId }: { formId: string }) {
         handleDrop({ schema: nextSchema })
       } catch (error) {
         flash(t('forms.studio.autosave.invalidSchema'), 'error')
-        if (typeof console !== 'undefined' && typeof console.warn === 'function') {
-          console.warn('[forms.studio] section reorder failed', error)
-        }
+        logger.warn('section reorder failed', { err: error })
       }
       return
     }
@@ -1176,9 +1169,7 @@ export function FormStudio({ formId }: { formId: string }) {
         handleDrop({ schema: nextSchema })
       } catch (error) {
         flash(t('forms.studio.autosave.invalidSchema'), 'error')
-        if (typeof console !== 'undefined' && typeof console.warn === 'function') {
-          console.warn('[forms.studio] reorder failed', error)
-        }
+        logger.warn('reorder failed', { err: error })
       }
     }
   }, [persistDraft, resolveDropPosition, undoController])

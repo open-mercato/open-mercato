@@ -11,6 +11,9 @@ import { Form, FormVersion } from '../data/entities'
 import type { FormsEventId } from '../events'
 import { emitFormsEvent } from '../events'
 import { formsEventPayloadSchemas } from '../events-payloads'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('forms').child({ component: 'commands' })
 
 export { ensureOrganizationScope, ensureSameScope, ensureTenantScope }
 export { extractUndoPayload }
@@ -142,9 +145,9 @@ export async function invalidateFormsCacheTags(
     await cacheService.deleteByTags(tags)
   } catch (error) {
     if (process.env.NODE_ENV !== 'test') {
-      console.warn('[forms.commands.shared] cache invalidation failed', {
+      logger.warn('cache invalidation failed', {
         tags,
-        error: error instanceof Error ? error.message : String(error),
+        err: error instanceof Error ? error.message : String(error),
       })
     }
   }

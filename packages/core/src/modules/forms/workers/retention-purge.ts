@@ -23,8 +23,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { Form, FormSubmission, FormVersion } from '../data/entities'
 import type { AnonymizeService } from '../services/anonymize-service'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { decideRetention } from '../lib/retention'
 import { emitFormsEvent } from '../events'
+
+const logger = createLogger('forms').child({ worker: 'retention-purge' })
 
 export const metadata: WorkerMeta = {
   queue: 'forms-retention-purge',
@@ -143,7 +146,7 @@ export default async function handle(
   }
 
   if (purged > 0) {
-    console.info('[forms:retention-purge] completed', {
+    logger.info('retention purge completed', {
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
       formsWithRetention: retentionByFormId.size,

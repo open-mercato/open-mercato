@@ -6,12 +6,15 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { createScopedApiHelpers } from '@open-mercato/shared/lib/api/scoped'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import {
   validateCrudMutationGuard,
   runCrudMutationGuardAfterSuccess,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
+
+const logger = createLogger('forms').child({ component: 'api' })
 
 const { withScopedPayload } = createScopedApiHelpers({
   messages: {
@@ -73,7 +76,7 @@ export function handleRouteError(scope: string, error: unknown): NextResponse {
   if (error instanceof z.ZodError) {
     return NextResponse.json({ error: 'forms.errors.invalid_payload', details: error.issues }, { status: 400 })
   }
-  console.error(`[forms.api.${scope}] failed`, error)
+  logger.error('forms route failed', { scope, err: error })
   return NextResponse.json({ error: 'forms.errors.internal' }, { status: 500 })
 }
 

@@ -1,4 +1,8 @@
 import {
+  registerLoggerExtension,
+  type LoggerExtensionRecord,
+} from '@open-mercato/shared/lib/logger'
+import {
   resolveRecall,
   tokenizeRecall,
 } from '../backend/forms/[id]/studio/recall'
@@ -35,10 +39,29 @@ describe('resolveRecall', () => {
   })
 
   it('warns when verbose=true on unresolved token', () => {
-    const spy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
-    resolveRecall('@{ghost}', { ...baseContext, verbose: true }, 'en')
-    expect(spy).toHaveBeenCalled()
-    spy.mockRestore()
+    // Asserted through the logger extension, not `jest.spyOn(console, 'warn')`:
+    // the facade routes through its own transport on the server, so a console
+    // spy sees nothing even when the record is emitted.
+    const records: LoggerExtensionRecord[] = []
+    const dispose = registerLoggerExtension({ emit: (record) => { records.push(record) } })
+    try {
+      resolveRecall('@{ghost}', { ...baseContext, verbose: true }, 'en')
+    } finally {
+      dispose()
+    }
+    expect(records.filter((record) => record.level === 'warn')).toHaveLength(1)
+    expect(records[0]).toMatchObject({ fields: { identifier: 'ghost' } })
+  })
+
+  it('stays silent on an unresolved token when verbose is not set', () => {
+    const records: LoggerExtensionRecord[] = []
+    const dispose = registerLoggerExtension({ emit: (record) => { records.push(record) } })
+    try {
+      resolveRecall('@{ghost}', baseContext, 'en')
+    } finally {
+      dispose()
+    }
+    expect(records).toHaveLength(0)
   })
 
   it('escapes @@{ to literal @{', () => {
