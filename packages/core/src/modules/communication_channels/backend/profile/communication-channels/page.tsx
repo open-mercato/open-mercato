@@ -212,6 +212,11 @@ export default function ProfileCommunicationChannelsPage() {
         return
       }
       if (!response.ok) {
+        if (surfaceRecordConflict(
+          { status: response.status, body: response.result },
+          t,
+          { onRefresh: () => setReloadKey((k) => k + 1) },
+        )) return
         const body = response.result as { error?: string } | undefined
         flash(
           body?.error ?? t('communication_channels.profile.share.failed', 'Failed to update sharing'),
