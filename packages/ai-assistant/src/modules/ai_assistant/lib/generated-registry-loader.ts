@@ -140,7 +140,7 @@ export async function compileAndImportGenerated(
         sourcemap: false,
         write: false,
         logLevel: 'silent',
-        alias: { '@': appRoot },
+        plugins: [createAppAliasPlugin(appRoot)],
       })
       fs.writeFileSync(jsPath, result.outputFiles[0].text)
     } else {
@@ -169,6 +169,46 @@ export async function compileAndImportGenerated(
     /* turbopackIgnore: true */
     pathToFileURL(jsPath).href
   )) as Record<string, unknown>
+}
+
+const APP_ALIAS_SUFFIXES = ['.ts', '.tsx', '/index.ts', '/index.tsx']
+
+/**
+ * Resolve an `@/<rest>` specifier the way the app's tsconfig maps it:
+ * `@/.mercato/*` to the app root, every other `@/*` to `src/` first with the
+ * app root as a fallback (apps that keep their sources at the root). Mirrors
+ * the alias resolver in `createCliBundlePlugins`
+ * (`@open-mercato/shared/lib/bootstrap/dynamicLoader`), which this module can
+ * only load lazily. Returns `null` when no file matches. Exported for unit testing.
+ */
+export function resolveAppAliasPath(appRoot: string, rest: string): string | null {
+  const bases = rest.startsWith('.mercato/')
+    ? [path.join(appRoot, rest)]
+    : [path.join(appRoot, 'src', rest), path.join(appRoot, rest)]
+  for (const base of bases) {
+    if (fs.existsSync(base) && fs.statSync(base).isFile()) return base
+    for (const suffix of APP_ALIAS_SUFFIXES) {
+      if (fs.existsSync(base + suffix)) return base + suffix
+    }
+  }
+  return null
+}
+
+/**
+ * esbuild plugin resolving `@/` through `resolveAppAliasPath`. An unmatched
+ * specifier falls back to the literal app-root mapping so esbuild reports the
+ * missing file against the path the app author wrote. Exported for unit testing.
+ */
+export function createAppAliasPlugin(appRoot: string): import('esbuild').Plugin {
+  return {
+    name: 'app-alias',
+    setup(build) {
+      build.onResolve({ filter: /^@\// }, (args) => {
+        const rest = args.path.slice('@/'.length)
+        return { path: resolveAppAliasPath(appRoot, rest) ?? path.join(appRoot, rest) }
+      })
+    },
+  }
 }
 
 function isJestRuntime(): boolean {
@@ -286,7 +326,8 @@ function toSafeJsStringLiteral(value: string): string {
  *   1. `@/...` path-alias imports (both `from "@/x"` and dynamic `import("@/x")`).
  *      The `@/` alias is a Next.js bundler convention; outside the bundler Node
  *      treats `@/...` as a bare package specifier and throws
- *      `ERR_MODULE_NOT_FOUND`. Resolved against `appRoot`.
+ *      `ERR_MODULE_NOT_FOUND`. Resolved like the app tsconfig maps the alias
+ *      (see `resolveAppAliasPath`), falling back to `appRoot`.
  *   2. `../../src/...` relative imports the generator emits for `@app` local
  *      modules (e.g. `from "../../src/modules/<id>/ai-tools"`). esbuild's
  *      transform (transpile-only) leaves these untouched, so the compiled
@@ -332,8 +373,11 @@ function rewriteGeneratedAliasImportsForRuntime(
         : target
     return toRuntimeLiteral(candidate)
   }
-  const resolveAlias = (relativePath: string): string =>
-    toResolvedLiteral(path.join(appRoot, relativePath))
+  const resolveAlias = (relativePath: string): string => {
+    const resolved = resolveAppAliasPath(appRoot, relativePath)
+    if (resolved !== null) return toRuntimeLiteral(resolved)
+    return toResolvedLiteral(path.join(appRoot, relativePath))
+  }
   const resolveRelative = (specifier: string): string => {
     const artifact = appLocalArtifacts.get(specifier)
     if (artifact !== undefined) return toRuntimeLiteral(artifact)
