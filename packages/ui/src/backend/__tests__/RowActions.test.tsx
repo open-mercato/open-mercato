@@ -135,6 +135,51 @@ describe('RowActions — keyboard navigation (#6718)', () => {
     expect(document.activeElement).toBe(itemNamed('Set as primary'))
   })
 
+  it('does not steal focus when the menu opens on hover (#6771)', () => {
+    // The menu also opens on hover. Moving focus into it on *every* open meant
+    // that brushing the mouse over ⋯ while typing in a list's search field
+    // pulled the caret out of the field and dropped the next keystrokes.
+    renderMenu(THREE_ITEMS)
+    const field = document.createElement('input')
+    document.body.appendChild(field)
+    field.focus()
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: TRIGGER_LABEL }), { pointerType: 'mouse' })
+
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+    expect(document.activeElement).toBe(field)
+    field.remove()
+  })
+
+  it('leaves typing alone while a hover-opened menu is showing (#6771)', () => {
+    // The key handler is on `document`, so without scoping it would also
+    // swallow the arrows and Home/End of someone typing in that field.
+    renderMenu(THREE_ITEMS)
+    const field = document.createElement('input')
+    document.body.appendChild(field)
+    field.focus()
+    fireEvent.pointerEnter(screen.getByRole('button', { name: TRIGGER_LABEL }), { pointerType: 'mouse' })
+
+    for (const key of ['ArrowDown', 'ArrowUp', 'Home', 'End']) {
+      fireEvent.keyDown(document, { key })
+      expect(document.activeElement).toBe(field)
+    }
+    field.remove()
+  })
+
+  it('does not reset the highlighted item when the page scrolls', () => {
+    // Repositioning on scroll updates the anchor rect; that must not be read as
+    // a fresh open and send focus back to the first item.
+    renderMenu(THREE_ITEMS)
+    openMenu()
+    fireEvent.keyDown(document, { key: 'End' })
+    expect(document.activeElement).toBe(itemNamed('Disconnect'))
+
+    fireEvent.scroll(window)
+
+    expect(document.activeElement).toBe(itemNamed('Disconnect'))
+  })
+
   it('closes on Escape and returns focus to the trigger', () => {
     renderMenu(THREE_ITEMS)
     openMenu()

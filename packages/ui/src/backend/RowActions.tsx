@@ -19,6 +19,17 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
   const btnRef = React.useRef<HTMLButtonElement>(null)
   const menuRef = React.useRef<HTMLDivElement>(null)
   const hoverTimeoutRef = React.useRef<NodeJS.Timeout | null>(null)
+  /**
+   * Whether this open should pull focus into the menu.
+   *
+   * Only a deliberate open does — a click, or Enter/Space on the trigger, which
+   * the browser also reports as a click. The menu opens on hover too, and taking
+   * focus on a hover open meant brushing the pointer over ⋯ while typing in a
+   * list's search field pulled the caret out of the field (#6771).
+   *
+   * Consumed on use, so repositioning the panel mid-scroll cannot re-trigger it.
+   */
+  const focusOnOpenRef = React.useRef(false)
   const [anchorRect, setAnchorRect] = React.useState<DOMRect | null>(null)
   const [direction, setDirection] = React.useState<'down' | 'up'>('down')
 
@@ -48,11 +59,23 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
       }
     }
     function onKey(e: KeyboardEvent) {
+      // This listener is on `document`, and the menu can be open while the user
+      // is working somewhere else entirely — it opens on hover. So every key
+      // below is scoped to "focus is actually in this menu", otherwise a
+      // hover-opened menu would swallow the arrows and Home/End of someone
+      // typing in the list's search field (#6771). The trigger counts, so
+      // ArrowDown from it still walks into the menu.
+      const active = document.activeElement
+      const focusWithin = Boolean(
+        (menuRef.current && active && menuRef.current.contains(active)) || (active && active === btnRef.current),
+      )
       if (e.key === 'Escape') {
         setOpen(false)
-        btnRef.current?.focus()
+        // Only pull focus back if it was ours to begin with.
+        if (focusWithin) btnRef.current?.focus()
         return
       }
+      if (!focusWithin) return
       // Arrow keys move between items instead of doing nothing (#6718). Without
       // this the only way to reach an item was to Tab through it — and since
       // every row's trigger sits in the tab order, reaching the first item of a
@@ -117,7 +140,12 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
   // browsers throttle rAF in a background tab, so the focus could silently never
   // happen — a timer-free dependency cannot be throttled.
   React.useEffect(() => {
-    if (!open || !anchorRect) return
+    if (!open) {
+      focusOnOpenRef.current = false
+      return
+    }
+    if (!anchorRect || !focusOnOpenRef.current) return
+    focusOnOpenRef.current = false
     const [first] = getFocusableItems()
     first?.focus()
   }, [open, anchorRect, getFocusableItems])
@@ -160,7 +188,9 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
         variant="ghost"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={(e) => { e.stopPropagation(); setOpen(true); requestAnimationFrame(updatePosition) }}
+        // A click — and Enter/Space on the trigger, which the browser reports as
+        // one — is a deliberate open, so it takes focus. Hover does not (#6771).
+        onClick={(e) => { e.stopPropagation(); focusOnOpenRef.current = true; setOpen(true); requestAnimationFrame(updatePosition) }}
       >
         <span aria-hidden="true">⋯</span>
         <span className="sr-only">{t('ui.rowActions.openActions', 'Open actions')}</span>
