@@ -78,6 +78,6 @@ _Phase 2 landed in 7593de8fb. **2.1 was descoped**: the six inline components re
 
 - [x] 3.1 Resolve the policy in the page, pass `hiddenGroupIds`, add the unknown-id and `widget:`-id diagnostics — 861105c39
 - [x] 3.2 Unit/component coverage for all ten sections plus baseline, all-hidden, cross-read and restoration cases — 861105c39
-- [ ] 3.3 Self-contained Playwright integration spec proving hidden-section data and conversions survive a save
-- [ ] 3.4 Document the catalog recipe in the CrudForm docs page
+- [x] 3.3 Self-contained Playwright integration spec proving hidden-section data and conversions survive a save — f691352e3
+- [x] 3.4 Document the catalog recipe in the CrudForm docs page — f691352e3
 - [ ] 3.5 Refresh the standalone harness with a focused case and its owner knowledge
