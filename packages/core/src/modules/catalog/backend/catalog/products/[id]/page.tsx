@@ -111,6 +111,12 @@ import {
   type ProductCategorizePickerOption,
 } from "@open-mercato/core/modules/catalog/components/products/ProductCategorizeSection";
 import { ProductUomSection } from "@open-mercato/core/modules/catalog/components/products/ProductUomSection";
+import {
+  CATALOG_PRODUCT_FORM_SECTIONS,
+  type CatalogProductSectionContext,
+  type CatalogProductSectionDerived,
+  type CatalogProductSectionWriteContext,
+} from "@open-mercato/core/modules/catalog/components/products/formSections";
 import { ProductComplianceSection } from "@open-mercato/core/modules/catalog/components/products/ProductComplianceSection";
 import { canonicalizeUnitCode } from "@open-mercato/core/modules/catalog/lib/unitCodes";
 import {
@@ -886,6 +892,14 @@ export default function EditCatalogProductPage({
     setVariants((prev) => prev.filter((variant) => variant.id !== variantId));
   }, []);
 
+  // The sections this form renders and submits. Phase 3 narrows this with the
+  // app's `overrides.forms.sections` policy; today every shipped section is
+  // visible, so the loop below is a no-op filter over all ten.
+  const visibleSections = React.useMemo(
+    () => CATALOG_PRODUCT_FORM_SECTIONS,
+    [],
+  );
+
   const groups = React.useMemo<CrudFormGroup[]>(
     () => [
       {
@@ -1219,13 +1233,6 @@ export default function EditCatalogProductPage({
       const unitPriceBaseQuantity = toPositiveNumberOrNull(
         values.unitPriceBaseQuantity,
       );
-      if (defaultSalesUnit && !defaultUnit) {
-        const message = t(
-          "catalog.products.uom.errors.baseRequired",
-          "Base unit is required when default sales unit is set.",
-        );
-        throw createCrudFormError(message, { defaultSalesUnit: message });
-      }
       const conversionInputs = normalizeProductConversionInputs(
         values.unitConversions,
         t(
@@ -1233,115 +1240,14 @@ export default function EditCatalogProductPage({
           "Duplicate conversion unit is not allowed.",
         ),
       );
-      if (conversionInputs.length && !defaultUnit) {
-        const message = t(
-          "catalog.products.uom.errors.baseRequiredForConversions",
-          "Base unit is required when conversions are configured.",
-        );
-        throw createCrudFormError(message, { defaultUnit: message });
-      }
-      const defaultUnitKey = defaultUnit?.toLowerCase() ?? null;
-      const defaultSalesUnitKey = defaultSalesUnit?.toLowerCase() ?? null;
-      if (
-        defaultUnitKey &&
-        defaultSalesUnitKey &&
-        defaultSalesUnitKey !== defaultUnitKey
-      ) {
-        const hasDefaultSalesConversion = conversionInputs.some(
-          (entry) =>
-            entry.isActive &&
-            entry.unitCode.toLowerCase() === defaultSalesUnitKey,
-        );
-        if (!hasDefaultSalesConversion) {
-          const message = t(
-            "catalog.products.uom.errors.defaultSalesConversionRequired",
-            "Active conversion for default sales unit is required when it differs from base unit.",
-          );
-          throw createCrudFormError(message, {
-            defaultSalesUnit: message,
-            unitConversions: message,
-          });
-        }
-      }
-      if (unitPriceEnabled) {
-        if (
-          !unitPriceReferenceUnit ||
-          !UNIT_PRICE_REFERENCE_UNITS.has(
-            unitPriceReferenceUnit as ProductUnitPriceReferenceUnit,
-          )
-        ) {
-          const message = t(
-            "catalog.products.unitPrice.errors.referenceUnit",
-            "Reference unit is required when unit price display is enabled.",
-          );
-          throw createCrudFormError(message, {
-            unitPriceReferenceUnit: message,
-          });
-        }
-        if (unitPriceBaseQuantity === null) {
-          const message = t(
-            "catalog.products.unitPrice.errors.baseQuantity",
-            "Base quantity is required when unit price display is enabled.",
-          );
-          throw createCrudFormError(message, {
-            unitPriceBaseQuantity: message,
-          });
-        }
-      }
-      const payload: Record<string, unknown> = {
-        id: productId,
-        title,
-        subtitle: values.subtitle?.trim() || undefined,
-        description,
-        handle,
-        sku: values.sku?.trim() || null,
-        productType: values.productType || "simple",
-        taxRateId: values.taxRateId ?? null,
-        taxRate: productTaxRateValue ?? null,
-        isConfigurable: isConfigurableProductType(
-          values.productType || "simple",
-        ),
-        metadata,
-        dimensions,
-        weightValue: weight?.value ?? null,
-        weightUnit: weight?.unit ?? null,
-        defaultMediaId: defaultMediaId ?? undefined,
-        defaultMediaUrl: defaultMediaUrl ?? undefined,
-        defaultUnit: defaultUnit ?? null,
-        defaultSalesUnit: defaultSalesUnit ?? defaultUnit ?? null,
-        defaultSalesUnitQuantity,
-        uomRoundingScale,
-        uomRoundingMode,
-        unitPriceEnabled,
-        unitPriceReferenceUnit: unitPriceEnabled
-          ? unitPriceReferenceUnit
-          : undefined,
-        unitPriceBaseQuantity: unitPriceEnabled
-          ? unitPriceBaseQuantity
-          : undefined,
-        ...buildComplianceProductPayload(values),
-        customFieldsetCode: values.customFieldsetCode?.trim().length
-          ? values.customFieldsetCode
-          : undefined,
-      };
       const categoryIds = normalizeIdList(values.categoryIds);
       const channelIds = normalizeIdList(values.channelIds);
       const tags = normalizeTagValues(values.tags);
-      payload.categoryIds = categoryIds;
-      payload.tags = tags;
       const optionSchemaDefinition = buildOptionSchemaDefinition(
         values.options,
         title,
       );
-      if (optionSchemaDefinition) {
-        payload.optionSchema = optionSchemaDefinition;
-      } else if (values.optionSchemaId) {
-        payload.optionSchemaId = null;
-      }
       const customFields = collectCustomFieldValues(values);
-      if (Object.keys(customFields).length) {
-        payload.customFields = customFields;
-      }
       const previousSnapshots = offerSnapshotsRef.current;
       const offersPayload = buildOfferPayloads({
         channelIds,
@@ -1353,38 +1259,111 @@ export default function EditCatalogProductPage({
           defaultMediaUrl: defaultMediaUrl ?? undefined,
         },
       });
-      payload.offers = offersPayload;
-      const removedOffers = previousSnapshots.filter(
-        (offer) =>
-          typeof offer.id === "string" && !channelIds.includes(offer.channelId),
-      );
-      if (removedOffers.length) {
-        try {
-          for (const offer of removedOffers) {
-            if (!offer.id) continue;
-            const offerId = offer.id;
-            // Send the offer's own version, overriding the product header the
-            // parent CrudForm submit scope put on the stack (#2055).
-            await withScopedApiRequestHeaders(
-              buildOptimisticLockHeader(offer.updatedAt),
-              () => deleteCrud("catalog/offers", offerId, {
-                errorMessage: t(
-                  "catalog.products.edit.offers.deleteError",
-                  "Failed to remove sales channel offer.",
-                ),
-              }),
-            );
-          }
-        } catch (err) {
-          logger.error('catalog.products.edit.offers.delete', { err });
-          throw createCrudFormError(
-            t(
-              "catalog.products.edit.offers.deleteError",
-              "Failed to remove sales channel offer.",
-            ),
-          );
-        }
+
+      // Everything the sections need, derived once. The arithmetic is unchanged
+      // from before the descriptor table existed — only the partition moved —
+      // which is what keeps the no-override payload byte-identical.
+      const derived: CatalogProductSectionDerived = {
+        title,
+        handle,
+        description,
+        metadata,
+        dimensions,
+        weightValue: weight?.value ?? null,
+        weightUnit: weight?.unit ?? null,
+        productType: values.productType || "simple",
+        isConfigurable: isConfigurableProductType(
+          values.productType || "simple",
+        ),
+        taxRateId: values.taxRateId ?? null,
+        productTaxRateValue,
+        defaultMediaId,
+        defaultMediaUrl,
+        defaultUnit,
+        defaultSalesUnit,
+        defaultSalesUnitQuantity,
+        uomRoundingScale,
+        uomRoundingMode,
+        unitPriceEnabled,
+        unitPriceReferenceUnit,
+        unitPriceBaseQuantity,
+        conversionInputs,
+        categoryIds,
+        channelIds,
+        tags,
+        optionSchemaDefinition,
+        previousOptionSchemaId: values.optionSchemaId ?? null,
+        customFields,
+        offersPayload,
+      };
+
+      const sectionContext: CatalogProductSectionContext = {
+        productId,
+        values,
+        derived,
+        t,
+      };
+
+      const conversionVersions = new Map<string, string | null>();
+      for (const entry of initialConversionsRef.current) {
+        const cid = toTrimmedOrNull(entry.id);
+        if (cid) conversionVersions.set(cid, entry.updatedAt ?? null);
       }
+
+      const writeContext: CatalogProductSectionWriteContext = {
+        ...sectionContext,
+        conversions: {
+          loaded: initialConversionsRef.current,
+          versions: conversionVersions,
+          onPersisted: (next) => {
+            initialConversionsRef.current =
+              next as ProductUnitConversionDraft[];
+          },
+        },
+        offers: {
+          snapshots: previousSnapshots,
+          onPersisted: (payloads) => {
+            offerSnapshotsRef.current = mergeOfferSnapshots(
+              previousSnapshots,
+              payloads as OfferPayload[],
+            );
+          },
+        },
+        io: {
+          createCrud,
+          updateCrud,
+          deleteCrud,
+          withScopedApiRequestHeaders,
+          buildOptimisticLockHeader,
+          onOfferDeleteFailed: (err) => {
+            logger.error("catalog.products.edit.offers.delete", { err });
+            throw createCrudFormError(
+              t(
+                "catalog.products.edit.offers.deleteError",
+                "Failed to remove sales channel offer.",
+              ),
+            );
+          },
+        },
+      };
+
+      // Only visible sections validate, contribute payload keys, or write. A
+      // hidden section's fields were already restored to their loaded values
+      // above, so omitting its keys preserves the stored record rather than
+      // clearing it.
+      for (const section of visibleSections) {
+        section.validate?.(sectionContext);
+      }
+
+      for (const section of visibleSections) {
+        await section.writeBefore?.(writeContext);
+      }
+
+      const payload: Record<string, unknown> = { id: productId };
+      for (const section of visibleSections) {
+        Object.assign(payload, section.buildPayload?.(sectionContext) ?? {});
+      }
+
       await updateCrud("catalog/products", payload);
       // The update route only returns `{ ok: true }`, so re-fetch the record to pick
       // up the server-bumped updatedAt and refresh the optimistic-lock token — without
@@ -1416,93 +1395,11 @@ export default function EditCatalogProductPage({
             }
           : prev,
       );
-      const previousConversionIds = new Set(
-        initialConversionsRef.current
-          .map((entry) => toTrimmedOrNull(entry.id))
-          .filter((id): id is string => Boolean(id)),
-      );
-      // Loaded conversion id → version, so the sync sends each row's own
-      // optimistic-lock version (overriding the product header leaked by the
-      // parent CrudForm submit scope onto the catalog/product-unit-conversions
-      // guard) (#2055).
-      const conversionVersions = new Map<string, string | null>();
-      for (const entry of initialConversionsRef.current) {
-        const cid = toTrimmedOrNull(entry.id);
-        if (cid) conversionVersions.set(cid, entry.updatedAt ?? null);
+
+      for (const section of visibleSections) {
+        await section.writeAfter?.(writeContext);
       }
-      const nextConversionIds = new Set(
-        conversionInputs
-          .map((entry) =>
-            entry.id && entry.id.trim().length ? entry.id : null,
-          )
-          .filter((id): id is string => Boolean(id)),
-      );
-      const removedConversionIds = Array.from(previousConversionIds).filter(
-        (id) => !nextConversionIds.has(id),
-      );
-      for (const conversionId of removedConversionIds) {
-        await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(conversionVersions.get(conversionId) ?? null),
-          () => deleteCrud("catalog/product-unit-conversions", conversionId, {
-            errorMessage: t(
-              "catalog.products.uom.errors.sync",
-              "Failed to synchronize product conversions.",
-            ),
-          }),
-        );
-      }
-      const persistedConversions: ProductUnitConversionDraft[] = [];
-      for (const conversion of conversionInputs) {
-        if (conversion.id) {
-          const conversionId = conversion.id;
-          await withScopedApiRequestHeaders(
-            buildOptimisticLockHeader(conversionVersions.get(conversionId) ?? null),
-            () => updateCrud("catalog/product-unit-conversions", {
-              id: conversionId,
-              unitCode: conversion.unitCode,
-              toBaseFactor: conversion.toBaseFactor,
-              sortOrder: conversion.sortOrder,
-              isActive: conversion.isActive,
-            }),
-          );
-          persistedConversions.push({
-            id: conversion.id,
-            unitCode: conversion.unitCode,
-            toBaseFactor: String(conversion.toBaseFactor),
-            sortOrder: String(conversion.sortOrder),
-            isActive: conversion.isActive,
-          });
-          continue;
-        }
-        const created = await createCrud<{ id?: string }>(
-          "catalog/product-unit-conversions",
-          {
-            productId,
-            unitCode: conversion.unitCode,
-            toBaseFactor: conversion.toBaseFactor,
-            sortOrder: conversion.sortOrder,
-            isActive: conversion.isActive,
-          },
-        );
-        const createdId =
-          created.result &&
-          typeof created.result === "object" &&
-          typeof (created.result as { id?: unknown }).id === "string"
-            ? (created.result as { id: string }).id
-            : null;
-        persistedConversions.push({
-          id: createdId,
-          unitCode: conversion.unitCode,
-          toBaseFactor: String(conversion.toBaseFactor),
-          sortOrder: String(conversion.sortOrder),
-          isActive: conversion.isActive,
-        });
-      }
-      initialConversionsRef.current = persistedConversions;
-      offerSnapshotsRef.current = mergeOfferSnapshots(
-        previousSnapshots,
-        offersPayload,
-      );
+
       flash(t("catalog.products.edit.success", "Product updated."), "success");
       if (fallbackVariantName) {
         flash(
@@ -1514,7 +1411,7 @@ export default function EditCatalogProductPage({
         );
       }
     },
-    [productId, t, taxRates, variants],
+    [productId, t, taxRates, variants, visibleSections],
   );
 
   if (!productId) {

@@ -21,6 +21,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { BASE_INITIAL_VALUES } from '@open-mercato/core/modules/catalog/components/products/productForm'
 import type { ProductFormValues } from '@open-mercato/core/modules/catalog/components/products/productForm'
+import { CATALOG_PRODUCT_FORM_SECTION_IDS } from '@open-mercato/core/modules/catalog/components/products/formSections'
 import EditCatalogProductPage from '../page'
 
 let latestCrudFormProps: Record<string, unknown> | null = null
@@ -383,5 +384,29 @@ describe('EditCatalogProductPage — no-override submit baseline', () => {
 
     expect(order[0]).toBe('update:catalog/products')
     expect(order.slice(1).every((entry) => entry.endsWith('catalog/product-unit-conversions'))).toBe(true)
+  })
+})
+
+describe('EditCatalogProductPage — rendered groups match the section table', () => {
+  it('renders exactly the sections the descriptor table declares, in order', async () => {
+    render(<EditCatalogProductPage params={{ id: PRODUCT_ID }} />)
+    await waitFor(() => expect(latestCrudFormProps?.isLoading).toBe(false))
+
+    // The descriptor table is what the policy addresses and what submit iterates.
+    // A card rendered without a matching descriptor would be un-hideable and
+    // would contribute nothing to validation or payload; a descriptor without a
+    // card would be addressable but invisible. Either way the ids must match.
+    const renderedIds = (latestCrudFormProps?.groups as Array<{ id: string }>).map(
+      (group) => group.id,
+    )
+    expect(renderedIds).toEqual([...CATALOG_PRODUCT_FORM_SECTION_IDS])
+  })
+
+  it('passes no hiddenGroupIds when no policy is configured', async () => {
+    render(<EditCatalogProductPage params={{ id: PRODUCT_ID }} />)
+    await waitFor(() => expect(latestCrudFormProps?.isLoading).toBe(false))
+
+    const hidden = latestCrudFormProps?.hiddenGroupIds as readonly string[] | undefined
+    expect(hidden === undefined || hidden.length === 0).toBe(true)
   })
 })
