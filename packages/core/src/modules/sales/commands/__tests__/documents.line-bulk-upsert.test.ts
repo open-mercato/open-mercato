@@ -486,6 +486,17 @@ describe('sales.orders.lines.upsert_many', () => {
     expect(world.lines.find((line) => line.id === existingId)?.name).toBe('Renamed')
   })
 
+  it('refuses an entry whose id is not a line of this order instead of creating it', async () => {
+    const world = makeWorld(2)
+    const { caught, em } = await runBulk(world, {
+      lines: [{ id: '5f0c6a3e-9d2b-4c1e-8a7f-2b3c4d5e6f70', ...newLineBody(5, { name: 'Stale' }) }],
+    })
+
+    expect(caught).toMatchObject({ status: 404 })
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(lineNames(world)).toEqual(['Line 1', 'Line 2'])
+  })
+
   it('deletes the listed lines while upserting the others in the same call', async () => {
     const world = makeWorld(3)
     const deletedId = world.lines[1].id

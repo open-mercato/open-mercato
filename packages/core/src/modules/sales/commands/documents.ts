@@ -7786,8 +7786,15 @@ const orderLineBulkUpsertCommand: CommandHandler<
       existingLines.map((line) => [line.id, mapOrderLineEntityToSnapshot(line)]),
     );
 
+    // An entry id names a line to update. One this order does not have is
+    // refused rather than created: it is a line deleted since the caller read
+    // the order, or one belonging to another order.
     const deleteIds = new Set(parsed.deleteIds);
-    for (const id of deleteIds) {
+    const referencedIds = [
+      ...deleteIds,
+      ...parsed.lines.flatMap((line) => (line.id ? [line.id] : [])),
+    ];
+    for (const id of referencedIds) {
       if (existingSnapshotsById.has(id)) continue;
       throw notFound(
         translate(
