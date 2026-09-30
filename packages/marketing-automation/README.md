@@ -8,6 +8,20 @@ Open Mercato had no marketing automation. Two analyses in this repository name t
 `ANALYSIS-002` ("Mercato has no marketing automation module"). This is an optional package that fills it without
 changing how any existing module behaves.
 
+## Enabling it
+
+Off by default, on purpose: it migrates 23 tables and serves six public unauthenticated routes
+(open/click tracking, unsubscribe, the survey answer page and inbound hooks), which a shop should
+switch on deliberately rather than inherit.
+
+```bash
+# apps/mercato/.env
+OM_ENABLE_MARKETING_AUTOMATION=true
+```
+
+Then `yarn generate` — the app's route registry is emitted from the enabled-module list, so a stale
+registry keeps the module hidden however the flag reads.
+
 ## What a merchant can do
 
 - **Author a journey visually** — triggers, an audience built with the platform's existing condition builder, and
