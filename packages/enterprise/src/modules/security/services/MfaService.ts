@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { compare, hash } from 'bcryptjs'
+import { ZodError } from 'zod'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { EnforcementScope, MfaEnforcementPolicy, MfaRecoveryCode, UserMfaMethod } from '../data/entities'
@@ -120,7 +121,18 @@ export class MfaService {
 
     await this.ensureProviderCanBeConfigured(userId, method.type, provider.allowMultiple)
 
-    const confirmation = await provider.confirmSetup(userId, setupId, payload, context)
+    let confirmation: Awaited<ReturnType<typeof provider.confirmSetup>>
+    try {
+      confirmation = await provider.confirmSetup(userId, setupId, payload, context)
+    } catch (error) {
+      // A provider's confirmSetup schema.parse() throws a raw ZodError on a malformed
+      // payload (e.g. #5296's removed passkey shape) — surface that as the client's own
+      // 400, not the generic 500 mapMfaError falls back to for an unrecognised error.
+      if (error instanceof ZodError) {
+        throw new MfaServiceError('Invalid MFA setup confirmation payload', 400)
+      }
+      throw error
+    }
     const resolvedLabel = this.getLabelFromMetadata(confirmation.metadata) ?? method.label ?? null
 
     if (resolvedLabel && provider.allowMultiple) {

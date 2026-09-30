@@ -235,9 +235,11 @@ the reset-and-re-enroll guidance in that entry still applies to anything enrolle
   enrollments.
 
 `MfaVerificationService.findMethod` also gains a deterministic `orderBy: createdAt ASC` when more
-than one active method of a given type exists for a user, so credential selection is no longer
-left to database storage order in that (now unreachable through normal enrollment) edge case. No
-action required — this only resolves previously-undefined behavior.
+than one active method of a given type exists for a user — the ordinary case for passkeys, which
+allow enrolling several (`PasskeyProvider.allowMultiple`) — so credential selection is no longer
+left to database storage order. No action required — this only resolves previously-undefined
+behavior; the oldest enrolled credential of a type now wins ties deterministically instead of
+whichever row the database happened to return first.
 
 Also, for clarity on a question the original issue raised: a session that has only cleared a
 password but not a second factor (`mfa_pending: true`) **cannot** reach the enrollment route at

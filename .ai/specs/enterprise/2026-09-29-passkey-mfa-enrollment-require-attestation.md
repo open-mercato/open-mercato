@@ -12,7 +12,7 @@
 - `PasskeyProvider.confirmSetup` still accepts a legacy enrollment shape — `{ credentialId, publicKey, challenge, transports?, label? }` — that stores a **client-supplied public key with no attestation**, approved by comparing only the disclosed `challenge` value. This is the enrollment-side twin of the verify-side bypass #3852 closed.
 - The issue's reachability analysis (written 2026-08-14) assumed a stolen-password `mfa_pending` session could reach `PUT /api/security/mfa/provider/passkey`. It could, **at the time the issue was filed**. Ten days later, issue #5212's central MFA-pending gate (`isMfaPendingAccessAllowed`, enforced in `resolveAuthFromRequestDetailed`) started rejecting pending tokens on every route except an explicit allowlist, and the enrollment route was never added to it. **That specific attack chain is already closed** on `develop` — verified below.
 - The underlying weakness is still real independent of that reachability question: any session that can reach the enrollment route — including a fully-authenticated one, e.g. via a stolen session cookie — can plant an unattested credential for the account it operates as, with no proof a browser WebAuthn ceremony ever ran. That is what this spec removes.
-- `MfaVerificationService.findMethod` selects a method row with no `orderBy`, so if more than one active credential of the same type ever exists for a user (a state this fix should make unreachable through normal enrollment, but which an existing forged row or a data-repair script could still produce), selection is undefined.
+- `MfaVerificationService.findMethod` selects a method row with no `orderBy`. More than one active credential of the same type is the *ordinary* case for passkeys (`allowMultiple = true`, not a forged-row edge case), so selection has been undefined all along whenever a user enrolls a second security key.
 
 **Scope:**
 - Collapse `setupConfirmationPayloadSchema` from a union to the single `{ response, label? }` shape; delete the `{ credentialId, publicKey, challenge }` branch in `confirmSetup`, so a verified `verifyRegistrationResponse` is the only route to a stored credential.
@@ -84,7 +84,9 @@ So a request bearing a pending token now gets `401` from the auth layer before `
 const method = await this.em.findOne(UserMfaMethod, { userId, type: methodType, isActive: true, deletedAt: null })
 ```
 
-If two active rows of the same `type` ever exist for one user, selection is database-defined, not application-defined. This fix should make that state unreachable through normal enrollment (the UI only ever creates one active method per type at a time, per `MfaService.setupMethod`), but a forged row planted before this fix ships, or any future data-repair path, could still leave two. A deterministic tiebreak removes the ambiguity regardless of how the duplicate arose.
+Two active rows of the same `type` for one user is not an edge case for passkeys: `PasskeyProvider.allowMultiple = true`, so a user enrolling a second security key is the ordinary path, not a forged or repaired row. Without an `orderBy`, which of those rows `findMethod` returns is database-defined, not application-defined. A deterministic tiebreak removes that ambiguity regardless of how the duplicate arose — normal multi-key enrollment, a forged row from before this fix shipped, or a future data-repair path.
+
+**Pre-existing limitation this does not fix, filed separately:** `prepareChallenge` resolves exactly one method via `findMethod(userId, 'passkey')` and puts only that credential in `allowCredentials`, so a user with several enrolled passkeys can currently only authenticate with the one `findMethod` happens to return — after this change, deterministically the oldest. Letting `prepareChallenge` offer every enrolled credential is out of scope here; it is a UX/completeness gap in multi-key support, not part of the attestation vulnerability this spec closes, and is being tracked as its own follow-up per review.
 
 ## Proposed Solution
 
@@ -113,11 +115,13 @@ The `if (parsed.challenge !== pending.challenge) { ... } return { metadata: { cr
 | Path | Change |
 |------|--------|
 | `lib/providers/PasskeyProvider.ts` | `setupConfirmationPayloadSchema` narrowed to `{ response, label? }`; the non-`response` branch of `confirmSetup` removed |
+| `services/MfaService.ts` | `confirmMethod` catches a `ZodError` from `provider.confirmSetup` and rethrows `MfaServiceError(…, 400)`, so a malformed payload (the removed legacy shape, or any other provider's schema failure) answers the documented `400` instead of `mapMfaError`'s generic `500` (review finding on this PR) |
 | `services/MfaVerificationService.ts` | `findMethod` gains `orderBy: { createdAt: 'ASC' }` |
-| `lib/__tests__/PasskeyProvider.test.ts` | New regression cases: the legacy shape is refused even with a correctly prepared setup session; a well-formed `{ response }` still confirms |
-| `services/__tests__/MfaVerificationService.test.ts` | New case: two active methods of the same type resolve to the older one |
+| `lib/__tests__/PasskeyProvider.test.ts` | New regression case: the legacy shape is refused even with a correctly prepared setup session, `verifyRegistrationResponse` never reached |
+| `services/__tests__/MfaService.test.ts` | New cases: a provider `ZodError` maps to `MfaServiceError` `400`; a non-schema provider error is not swallowed |
+| `services/__tests__/MfaVerificationService.test.ts` | New case: `findMethod` is called with the deterministic `orderBy` |
 | `__tests__/mfaCompletionRoutes.test.ts` | New case: `/api/security/mfa/provider/passkey` stays off the pending allowlist for both `POST` and `PUT` |
-| `__integration__/helpers/securityFixtures.ts` | `enrollPasskey` seeds the row directly via `em` instead of the removed HTTP shape |
+| `__integration__/helpers/securityFixtures.ts` | `enrollPasskey` now drives the real WebAuthn ceremony via a Chrome DevTools Protocol virtual authenticator on the caller's own page, instead of the removed HTTP shortcut |
 | `BACKWARD_COMPATIBILITY.md`, `UPGRADE_NOTES.md` | Contract break record; closes the operator warning #5291 left open under "this release does not close it" |
 
 ## Test Plan
@@ -186,3 +190,4 @@ _None blocking._ The one genuine open question from the issue — whether `mfa_p
 ## Changelog
 
 - 2026-09-29 — Initial spec, written from issue #5296 and the implementation on `fix/issue-5296-passkey-enrollment-attestation`. Corrects the issue's reachability analysis against the since-landed central MFA-pending gate (#5212), scopes the fix to the still-open attestation gap, and records the Emergency Security Exception classification, client/operator migration, and the #5307 test-coverage boundary.
+- 2026-09-30 — Addressed @wojciechszyjka's review of PR #6710: merged `develop` to resolve a `UPGRADE_NOTES.md` conflict; fixed the rejected-legacy-payload response (`MfaService.confirmMethod` now maps a provider `ZodError` to `400`, matching what `BACKWARD_COMPATIBILITY.md`/`UPGRADE_NOTES.md` already documented — it previously fell through to a generic `500`); corrected the "unreachable through normal enrollment" wording for multiple active passkeys, which is the ordinary case (`allowMultiple = true`), and filed the resulting `prepareChallenge` single-credential limitation as an explicit out-of-scope note rather than leaving it implied.

@@ -7,6 +7,7 @@ import {
   defaultSecurityModuleConfig,
   type SecurityModuleConfig,
 } from '../../lib/security-config'
+import { ZodError } from 'zod'
 import { MfaService } from '../MfaService'
 
 jest.mock('bcryptjs', () => ({
@@ -205,6 +206,42 @@ describe('MfaService', () => {
       userId: 'user-1',
       methodType: 'totp',
     }))
+  })
+
+  test('confirmMethod maps a provider schema-validation failure to 400, not a raw 500 (#5296 review)', async () => {
+    const { service, registry } = createServiceContext()
+    registry.register(createProvider({
+      type: 'passkey',
+      confirmSetup: jest.fn(async () => {
+        throw new ZodError([])
+      }),
+    }))
+
+    await service.setupMethod('user-1', 'passkey', {})
+
+    await expect(service.confirmMethod('user-1', 'setup-1', {
+      credentialId: 'attacker-credential',
+      publicKey: 'forged',
+      challenge: 'irrelevant',
+    }, 'passkey')).rejects.toMatchObject({
+      name: 'MfaServiceError',
+      statusCode: 400,
+    })
+  })
+
+  test('confirmMethod does not swallow a non-schema provider error', async () => {
+    const { service, registry } = createServiceContext()
+    registry.register(createProvider({
+      type: 'passkey',
+      confirmSetup: jest.fn(async () => {
+        throw new Error('Passkey registration verification failed')
+      }),
+    }))
+
+    await service.setupMethod('user-1', 'passkey', {})
+
+    await expect(service.confirmMethod('user-1', 'setup-1', { response: {} }, 'passkey'))
+      .rejects.toMatchObject({ message: 'Passkey registration verification failed' })
   })
 
   test('setupMethod rejects duplicate single-instance provider enrollment', async () => {
