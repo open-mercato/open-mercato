@@ -1,6 +1,7 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ConditionExpression } from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
+import type { SubjectDocument } from './engine/types.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { matchesAudience } from './engine/audience.js'
@@ -8,6 +9,7 @@ import { describeNarrowing, planNarrowing } from './engine/narrowing.js'
 import { createSqlCandidateSource, resolveCandidates } from './audience/set-resolver.js'
 import { buildSubjectDocument } from './subject-document.js'
 import { loadTierThresholds } from './tiers.js'
+import { loadValueBoundaries } from './value-boundaries.js'
 
 /**
  * Resolving who is in a segment, in ONE place.
@@ -44,7 +46,23 @@ export async function resolveSegmentMembers(
   container: AwilixContainer,
   scope: MemberScope,
   expression: ConditionExpression | null,
-  options: { maxChecked: number; maxMatches?: number; now?: Date },
+  options: {
+    maxChecked: number
+    maxMatches?: number
+    now?: Date
+    /**
+     * Documents already built during THIS pass, shared across several resolutions.
+     *
+     * A segment whose expression narrows in SQL never touches this. One that does not has to describe each
+     * candidate, and the snapshot pass resolves every segment over the same population on the same tick — so
+     * without a cache, twenty un-narrowable segments describe the same two thousand people twenty times.
+     *
+     * Supplied by the caller and never created here, because the lifetime is the caller's question: a single
+     * resolution has nothing to share, and a cache that outlived one pass would answer with yesterday's
+     * customer.
+     */
+    documents?: Map<string, SubjectDocument>
+  },
 ): Promise<MemberResolution> {
   const now = options.now ?? new Date()
   const plan = planNarrowing(expression)
@@ -84,7 +102,18 @@ export async function resolveSegmentMembers(
   }
 
   const checkedIds = candidateIds.slice(0, options.maxChecked)
-  const tierThresholds = await loadTierThresholds(container, scope)
+  /**
+   * Both of these are constants for the whole pass, so both are read once.
+   *
+   * `tierThresholds` always was. `valueBoundaries` was not: without it `buildSubjectDocument` falls back to
+   * reading the tenant's cut points itself, which is one extra query per candidate — up to 50,000 of them in
+   * a segment-action job, for an answer that cannot change while the loop runs. The sweep and the score-rules
+   * worker already pass it; this call site was the one that did not.
+   */
+  const [tierThresholds, valueBoundaries] = await Promise.all([
+    loadTierThresholds(container, scope),
+    loadValueBoundaries(em, scope),
+  ])
   const matches: string[] = []
   const maxMatches = options.maxMatches ?? Number.POSITIVE_INFINITY
   let truncatedMatches = false
@@ -100,7 +129,10 @@ export async function resolveSegmentMembers(
      * The segment being resolved is evaluated directly, so nothing here may depend on the `segments` key —
      * which is also the rule that makes a segment-of-segments impossible rather than merely refused.
      */
-    const subject = await buildSubjectDocument(em, id, scope, {}, now, { tierThresholds, segments: [] })
+    const cached = options.documents?.get(id)
+    const subject = cached
+      ?? await buildSubjectDocument(em, id, scope, {}, now, { tierThresholds, valueBoundaries, segments: [] })
+    if (!cached) options.documents?.set(id, subject)
     if (!subject.customer) continue
     if (!matchesAudience(expression, subject, { now, logger })) continue
     matches.push(subject.customer.id)

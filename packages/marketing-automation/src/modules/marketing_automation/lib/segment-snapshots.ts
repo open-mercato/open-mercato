@@ -4,6 +4,7 @@ import type { ConditionExpression } from '@open-mercato/core/modules/business_ru
 import { MarketingSegmentSnapshot } from '../data/entities.js'
 import { loadSegmentDefinitions } from './segments.js'
 import { resolveSegmentMembers, SCREEN_MAX_CHECKED } from './segment-members.js'
+import type { SubjectDocument } from './engine/types.js'
 import type { MemberScope } from './segment-members.js'
 
 /**
@@ -50,6 +51,16 @@ export async function takeSegmentSnapshots(
   let taken = 0
   let skipped = 0
 
+  /**
+   * One cache for the whole pass, and the reason it is here rather than inside the resolver.
+   *
+   * Every segment is resolved over the same population on the same tick. A segment whose expression narrows
+   * in SQL never builds a document at all and is unaffected; one that cannot narrow describes each candidate
+   * in eleven queries, and without this the second such segment describes exactly the same people again.
+   * Dropped when this function returns, so nothing here can answer a later tick with a stale customer.
+   */
+  const documents = new Map<string, SubjectDocument>()
+
   for (const definition of definitions) {
     if (done.has(definition.id)) {
       skipped += 1
@@ -61,7 +72,7 @@ export async function takeSegmentSnapshots(
         container,
         scope,
         definition.expression as ConditionExpression | null,
-        { maxChecked: SCREEN_MAX_CHECKED, now },
+        { maxChecked: SCREEN_MAX_CHECKED, now, documents },
       )
       const snapshot = em.create(MarketingSegmentSnapshot, {
         ...scope,

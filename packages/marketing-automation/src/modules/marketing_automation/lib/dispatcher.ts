@@ -253,6 +253,59 @@ export type StartOutcome = 'started' | 'audience' | 'guard' | 'duplicate'
  * must apply the same re-entry guard and the same audience, or a sweep would quietly bypass
  * protections the event path has.
  */
+/**
+ * The guards that need only a customer's ID, separated from the ones that need to know anything about them.
+ *
+ * Every check in here — erasure, an active run, the dispatch budget, the re-entry policy — reads
+ * `subjectEntityId` and nothing else. They used to run inside `startCampaignForSubject`, AFTER the caller had
+ * built a subject document: eleven queries describing somebody in order to discover that they are already
+ * mid-journey and will not be enrolled. On a mature campaign under a `once` policy that describes the majority
+ * of the population, every pass.
+ *
+ * Exported so a sweep can ask first and skip the projection entirely. `startCampaignForSubject` still runs
+ * them, because a sweep is not the only caller and two passes racing is exactly what these guard against; the
+ * second call is four indexed reads against rows the first call just touched.
+ *
+ * Returns true when enrolment may proceed.
+ */
+export async function subjectGuardsAllow(
+  campaign: MarketingCampaign,
+  subjectEntityId: string,
+  reentryPolicy: ReentryPolicy,
+  deps: DispatchDeps,
+): Promise<boolean> {
+  /**
+   * Before every other guard: somebody who asked to be forgotten is never enrolled again.
+   *
+   * Erasure unlinks their runs, sends and points, and a new run would simply start writing all three again —
+   * for a birthday, a reorder reminder or any event that still names their customer id.
+   */
+  if (await isErasedSubject(deps.em, subjectEntityId, deps.scope)) return false
+
+  // Already mid-journey here; a second concurrent entry would double every remaining step.
+  if (await hasActiveRun(deps.em, campaign.id, subjectEntityId, deps.scope)) return false
+
+  const budgetSince = new Date(deps.now.getTime() - RUN_BUDGET_WINDOW_MINUTES * 60_000)
+  const recentRuns = await countRunsStartedSince(deps.em, subjectEntityId, deps.scope, budgetSince)
+  if (recentRuns >= MAX_RUNS_PER_SUBJECT) {
+    deps.logger.warn('[internal] marketing run budget exhausted for subject, refusing to enrol', {
+      campaignId: campaign.id,
+      subjectEntityId,
+      recentRuns,
+    })
+    return false
+  }
+
+  if (reentryPolicy.kind !== 'unlimited') {
+    const since = reentryPolicy.kind === 'once'
+      ? null
+      : new Date(deps.now.getTime() - reentryPolicy.afterDays * 86_400_000)
+    if (await hasRecentRun(deps.em, campaign.id, subjectEntityId, deps.scope, since)) return false
+  }
+
+  return true
+}
+
 export async function startCampaignForSubject(
   campaign: MarketingCampaign,
   input: {
@@ -267,36 +320,8 @@ export async function startCampaignForSubject(
   },
   deps: DispatchDeps,
 ): Promise<StartOutcome> {
-  if (input.subjectEntityId) {
-    /**
-     * Before every other guard: somebody who asked to be forgotten is never enrolled again.
-     *
-     * Erasure unlinks their runs, sends and points, and a new run would simply start writing all three again —
-     * for a birthday, a reorder reminder or any event that still names their customer id.
-     */
-    if (await isErasedSubject(deps.em, input.subjectEntityId, deps.scope)) return 'guard'
-
-    if (await hasActiveRun(deps.em, campaign.id, input.subjectEntityId, deps.scope)) {
-      // Already mid-journey here; a second concurrent entry would double every remaining step.
-      return 'guard'
-    }
-
-    const budgetSince = new Date(deps.now.getTime() - RUN_BUDGET_WINDOW_MINUTES * 60_000)
-    const recentRuns = await countRunsStartedSince(deps.em, input.subjectEntityId, deps.scope, budgetSince)
-    if (recentRuns >= MAX_RUNS_PER_SUBJECT) {
-      deps.logger.warn('[internal] marketing run budget exhausted for subject, refusing to enrol', {
-        campaignId: campaign.id,
-        subjectEntityId: input.subjectEntityId,
-        recentRuns,
-      })
-      return 'guard'
-    }
-    if (input.reentryPolicy.kind !== 'unlimited') {
-      const since = input.reentryPolicy.kind === 'once'
-        ? null
-        : new Date(deps.now.getTime() - input.reentryPolicy.afterDays * 86_400_000)
-      if (await hasRecentRun(deps.em, campaign.id, input.subjectEntityId, deps.scope, since)) return 'guard'
-    }
+  if (input.subjectEntityId && !(await subjectGuardsAllow(campaign, input.subjectEntityId, input.reentryPolicy, deps))) {
+    return 'guard'
   }
 
   const definition = readDefinition(campaign)

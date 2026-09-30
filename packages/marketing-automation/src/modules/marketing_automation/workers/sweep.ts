@@ -3,7 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { findScheduledCampaigns } from '../lib/campaign-lookup.js'
-import { readDefinition, startCampaignForSubject } from '../lib/dispatcher.js'
+import { readDefinition, startCampaignForSubject, subjectGuardsAllow } from '../lib/dispatcher.js'
 import type { DispatchDeps, ReentryPolicy } from '../lib/dispatcher.js'
 import { buildSubjectDocument } from '../lib/subject-document.js'
 import { describeNarrowing, planNarrowing } from '../lib/engine/narrowing.js'
@@ -103,6 +103,15 @@ async function startForCandidate(
   projection: ProjectionOptions,
 ): Promise<boolean> {
   try {
+  /**
+   * Asked BEFORE the projection, because none of these guards reads it.
+   *
+   * Describing a customer costs eleven queries. Discovering that they are already mid-journey, or that a
+   * `once` policy enrolled them months ago, costs four indexed reads and does not need a single one of those
+   * eleven. On a mature campaign the already-enrolled are most of the population, so this is the difference
+   * between the sweep paying for everybody and paying for the people it can actually start.
+   */
+  if (!(await subjectGuardsAllow(campaign, subjectEntityId, policy, deps))) return false
   const subject = await buildSubjectDocument(deps.em, subjectEntityId, scope, {}, deps.now, projection)
   const outcome = await startCampaignForSubject(
     campaign,
@@ -291,6 +300,8 @@ async function startRowCandidate(
   projection: ProjectionOptions,
 ): Promise<boolean> {
   try {
+    // Same reason as the population sweep: the guards need an id, not a description.
+    if (!(await subjectGuardsAllow(campaign, candidate.subjectEntityId, policy, deps))) return false
     const subject = await buildSubjectDocument(
       deps.em,
       candidate.subjectEntityId,
