@@ -13,8 +13,10 @@ const logger = createLogger('customers')
 type UseDealClosureOptions = {
   currentDealId: string | null
   dealUpdatedAt: string | null
+  preCloseStatus?: string | null
   runMutationWithContext: GuardedMutationRunner
   confirmDiscardIfDirty: () => Promise<boolean>
+  confirmNoDecision?: () => Promise<boolean>
   onClosed: () => Promise<void>
 }
 
@@ -29,14 +31,18 @@ type UseDealClosureResult = {
   closeWonPopup: () => void
   closeLostPopup: () => void
   handleWon: () => Promise<void>
+  handleNoDecision: () => Promise<void>
+  handleReopenNoDecision: () => Promise<void>
   handleLostConfirm: (input: { lossReasonId: string; lossNotes?: string }) => Promise<void>
 }
 
 export function useDealClosure({
   currentDealId,
   dealUpdatedAt,
+  preCloseStatus,
   runMutationWithContext,
   confirmDiscardIfDirty,
+  confirmNoDecision,
   onClosed,
 }: UseDealClosureOptions): UseDealClosureResult {
   const t = useT()
@@ -118,6 +124,44 @@ export function useDealClosure({
     [confirmDiscardIfDirty, currentDealId, dealUpdatedAt, fetchDealStats, onClosed, runMutationWithContext, t],
   )
 
+  const handleNoDecision = React.useCallback(async () => {
+    if (!currentDealId || !(await confirmDiscardIfDirty())) return
+    if (confirmNoDecision && !(await confirmNoDecision())) return
+    try {
+      await runMutationWithContext(
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(dealUpdatedAt),
+          () => updateCrud('customers/deals', { id: currentDealId, status: 'no_decision', closureOutcome: null }),
+        ),
+        { id: currentDealId, status: 'no_decision', closureOutcome: null, operation: 'closeNoDecision' },
+      )
+      await onClosed()
+    } catch (err) {
+      if (!surfaceRecordConflict(err, t, { onRefresh: () => { void onClosed() } })) {
+        flash(t('customers.deals.detail.closeNoDecisionError', 'Failed to close deal without a decision.'), 'error')
+      }
+    }
+  }, [confirmDiscardIfDirty, confirmNoDecision, currentDealId, dealUpdatedAt, onClosed, runMutationWithContext, t])
+
+  const handleReopenNoDecision = React.useCallback(async () => {
+    if (!currentDealId || !(await confirmDiscardIfDirty())) return
+    const status = preCloseStatus || 'open'
+    try {
+      await runMutationWithContext(
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(dealUpdatedAt),
+          () => updateCrud('customers/deals', { id: currentDealId, status, closureOutcome: null }),
+        ),
+        { id: currentDealId, status, closureOutcome: null, operation: 'reopenNoDecision' },
+      )
+      await onClosed()
+    } catch (err) {
+      if (!surfaceRecordConflict(err, t, { onRefresh: () => { void onClosed() } })) {
+        flash(t('customers.deals.detail.reopenError', 'Failed to reopen deal.'), 'error')
+      }
+    }
+  }, [confirmDiscardIfDirty, currentDealId, dealUpdatedAt, onClosed, preCloseStatus, runMutationWithContext, t])
+
   const openLostDialog = React.useCallback(() => setLostDialogOpen(true), [])
   const closeLostDialog = React.useCallback(() => setLostDialogOpen(false), [])
   const closeWonPopup = React.useCallback(() => setWonPopupOpen(false), [])
@@ -134,6 +178,8 @@ export function useDealClosure({
     closeWonPopup,
     closeLostPopup,
     handleWon,
+    handleNoDecision,
+    handleReopenNoDecision,
     handleLostConfirm,
   }
 }

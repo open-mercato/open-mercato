@@ -10,8 +10,9 @@ import { Dialog, DialogContent, DialogTitle } from '@open-mercato/ui/primitives/
 type DealStatsPayload = {
   dealValue: number | null
   dealCurrency: string | null
-  closureOutcome: 'won' | 'lost'
+  closureOutcome: 'won' | 'lost' | null
   closedAt: string
+  actualClosedAt?: string | null
   pipelineName: string | null
   dealsClosedThisPeriod: number
   salesCycleDays: number | null

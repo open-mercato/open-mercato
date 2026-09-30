@@ -60,6 +60,7 @@ export const DEAL_STATUS_DEFAULTS: DictionaryDefault[] = [
   { value: 'closed', label: 'Closed', color: '#6b7280', icon: 'lucide:check-circle' },
   { value: 'win', label: 'Win', color: '#22c55e', icon: 'lucide:trophy' },
   { value: 'lost', label: 'Lost', color: '#ef4444', icon: 'lucide:flag' },
+  { value: 'no_decision', label: 'No decision', color: '#6b7280', icon: 'lucide:circle-minus' },
   { value: 'in_progress', label: 'In progress', color: '#f59e0b', icon: 'lucide:activity' },
 ]
 

@@ -64,6 +64,8 @@ export const dealListQuerySchema = z
     ownerUserId: stringOrStringArray.optional(),
     expectedCloseAtFrom: z.string().optional(),
     expectedCloseAtTo: z.string().optional(),
+    closedAtFrom: z.string().optional(),
+    closedAtTo: z.string().optional(),
     isStuck: booleanQueryParam,
     isOverdue: booleanQueryParam,
     needsAttention: booleanQueryParam,
@@ -393,6 +395,15 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
     filters.expected_close_at = range
   }
 
+  const closedFrom = parseDateInput(query.closedAtFrom)
+  const closedTo = parseDateInput(query.closedAtTo)
+  if (closedFrom || closedTo) {
+    const range: Record<string, Date> = {}
+    if (closedFrom) range.$gte = closedFrom
+    if (closedTo) range.$lte = closedTo
+    filters.closed_at = range
+  }
+
   if (query.isOverdue && !query.needsAttention) {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
@@ -515,6 +526,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       'owner_user_id',
       'source',
       'closure_outcome',
+      'closed_at',
       'loss_reason_id',
       'loss_notes',
       'organization_id',
@@ -532,6 +544,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       value: 'value_amount',
       probability: 'probability',
       expectedCloseAt: 'expected_close_at',
+      closedAt: 'closed_at',
     },
     buildFilters: buildDealListFilters,
   },
@@ -744,6 +757,7 @@ const dealListItemSchema = z
     value_currency: z.string().nullable().optional(),
     probability: z.number().nullable().optional(),
     expected_close_at: z.string().nullable().optional(),
+    closed_at: z.string().nullable().optional(),
     owner_user_id: z.string().uuid().nullable().optional(),
     source: z.string().nullable().optional(),
     organization_id: z.string().uuid().nullable().optional(),

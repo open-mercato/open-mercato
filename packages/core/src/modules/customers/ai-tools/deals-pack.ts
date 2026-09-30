@@ -451,7 +451,7 @@ const updateDealStageTool: CustomersAiToolDefinition = {
   name: 'customers.update_deal_stage',
   displayName: 'Update deal stage',
   description:
-    'Move a deal to a different pipeline stage (by stage id) or change its top-level status (e.g. "open", "won", "lost"). Mutation tool — flows through the AI pending-action approval gate.',
+    'Move a deal to a different pipeline stage (by stage id) or change its top-level status (e.g. "open", "won", "lost", "no_decision"). Mutation tool — flows through the AI pending-action approval gate.',
   inputSchema: updateDealStageInput as z.ZodType<unknown>,
   requiredFeatures: ['customers.deals.manage'],
   tags: ['write', 'customers'],
@@ -505,17 +505,18 @@ const updateDealStageTool: CustomersAiToolDefinition = {
     // command does the same, and the two must stay in lockstep or the approval card would
     // preview a different write than the one that lands.
     const requestedOutcome = dealClosureOutcomeFromStatus(input.toStage)
+    const noDecision = input.toStage !== undefined && canonicalDealStatus(input.toStage) === 'no_decision'
     const clearsClosure =
       input.toPipelineStageId === undefined &&
       input.toStage !== undefined &&
       !requestedOutcome &&
       !isClosedDealStatus(canonicalDealStatus(input.toStage))
-    const afterClosureOutcome = clearsClosure
+    const afterClosureOutcome = clearsClosure || noDecision
       ? null
       : requestedOutcome ?? beforeClosureOutcome
     const closureOutcomeCleared = beforeClosureOutcome !== null && afterClosureOutcome === null
-    const afterLossReasonId = closureOutcomeCleared ? null : beforeLossReasonId
-    const afterLossNotes = closureOutcomeCleared ? null : beforeLossNotes
+    const afterLossReasonId = closureOutcomeCleared || noDecision ? null : beforeLossReasonId
+    const afterLossNotes = closureOutcomeCleared || noDecision ? null : beforeLossNotes
     return {
       recordId: deal.id,
       entityType: 'customers.deal',

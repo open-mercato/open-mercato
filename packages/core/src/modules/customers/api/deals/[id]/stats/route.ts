@@ -10,6 +10,7 @@ import { DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/en
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
+import { isClosedDealStatus } from '../../../../lib/dealStatus'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.deals.view'] },
@@ -87,19 +88,23 @@ export async function GET(request: Request, context: { params?: Record<string, u
     return notFound(translate('customers.errors.deal_not_found', 'Deal not found'))
   }
 
-  if (!deal.closureOutcome) {
+  if (!isClosedDealStatus(deal.status) && !deal.closureOutcome) {
     return badRequest(translate('customers.errors.deal_not_closed', 'Deal is not closed'), 'DEAL_NOT_CLOSED')
   }
 
   const now = new Date()
   const weekStart = startOfIsoWeek(now)
   const quarterStart = startOfQuarter(now)
+  const closedAt = deal.closedAt ?? null
+  const outcomeFilter = deal.closureOutcome
+    ? { closureOutcome: deal.closureOutcome }
+    : { status: deal.status, closureOutcome: null }
   const dealsClosedThisPeriod = await em.count(CustomerDeal, {
     organizationId: deal.organizationId,
     tenantId: deal.tenantId,
-    closureOutcome: deal.closureOutcome,
+    ...outcomeFilter,
     deletedAt: null,
-    updatedAt: { $gte: weekStart },
+    closedAt: { $gte: weekStart },
   })
 
   let dealRankInQuarter: number | null = null
@@ -109,7 +114,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
       tenantId: deal.tenantId,
       closureOutcome: 'won',
       deletedAt: null,
-      updatedAt: { $gte: quarterStart },
+      closedAt: { $gte: quarterStart },
       valueAmount: { $gt: deal.valueAmount },
     })
     dealRankInQuarter = higherValueDeals + 1
@@ -151,11 +156,12 @@ export async function GET(request: Request, context: { params?: Record<string, u
   return NextResponse.json({
     dealValue: deal.valueAmount !== null ? Number(deal.valueAmount) : null,
     dealCurrency: deal.valueCurrency ?? null,
-    closureOutcome: deal.closureOutcome,
+    closureOutcome: deal.closureOutcome ?? null,
     closedAt: deal.updatedAt.toISOString(),
+    actualClosedAt: closedAt?.toISOString() ?? null,
     pipelineName: pipeline?.name ?? null,
     dealsClosedThisPeriod,
-    salesCycleDays: calculateSalesCycleDays(deal.createdAt, deal.updatedAt),
+    salesCycleDays: closedAt ? calculateSalesCycleDays(deal.createdAt, closedAt) : null,
     dealRankInQuarter,
     lossReason: lossReasonLabel,
   })
@@ -164,8 +170,9 @@ export async function GET(request: Request, context: { params?: Record<string, u
 const dealStatsResponseSchema = z.object({
   dealValue: z.number().nullable(),
   dealCurrency: z.string().nullable(),
-  closureOutcome: z.enum(['won', 'lost']),
-  closedAt: z.string(),
+  closureOutcome: z.enum(['won', 'lost']).nullable(),
+  closedAt: z.string().describe('Deprecated legacy value derived from updatedAt; use actualClosedAt'),
+  actualClosedAt: z.string().nullable(),
   pipelineName: z.string().nullable(),
   dealsClosedThisPeriod: z.number().int(),
   salesCycleDays: z.number().int().nullable(),

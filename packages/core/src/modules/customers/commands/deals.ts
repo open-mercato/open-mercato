@@ -282,6 +282,8 @@ type DealSnapshot = {
     ownerUserId: string | null
     source: string | null
     closureOutcome: string | null
+    closedAt?: Date | string | null
+    preCloseStatus?: string | null
     lossReasonId: string | null
     lossNotes: string | null
   }
@@ -357,6 +359,8 @@ async function loadDealSnapshot(em: EntityManager, id: string): Promise<DealSnap
       ownerUserId: deal.ownerUserId ?? null,
       source: deal.source ?? null,
       closureOutcome: deal.closureOutcome ?? null,
+      closedAt: deal.closedAt ?? null,
+      preCloseStatus: deal.preCloseStatus ?? null,
       lossReasonId: deal.lossReasonId ?? null,
       lossNotes: deal.lossNotes ?? null,
     },
@@ -590,9 +594,11 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
           expectedCloseAt: parsed.expectedCloseAt ?? null,
           ownerUserId: parsed.ownerUserId ?? null,
           source: parsed.source ?? null,
-          closureOutcome: parsed.closureOutcome ?? null,
-          lossReasonId: parsed.lossReasonId ?? null,
-          lossNotes: parsed.lossNotes ?? null,
+          closureOutcome: canonicalDealStatus(parsed.status ?? 'open') === 'no_decision' ? null : parsed.closureOutcome ?? null,
+          closedAt: isClosedDealStatus(parsed.status ?? 'open') || parsed.closureOutcome != null ? new Date() : null,
+          preCloseStatus: null,
+          lossReasonId: canonicalDealStatus(parsed.status ?? 'open') === 'no_decision' ? null : parsed.lossReasonId ?? null,
+          lossNotes: canonicalDealStatus(parsed.status ?? 'open') === 'no_decision' ? null : parsed.lossNotes ?? null,
         })
         em.persist(deal)
         await em.flush()
@@ -773,6 +779,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     let resolvedCurrentPipelineStageLabel: string | null = null
     let pipelineStageAssignmentChanged = false
     let requestedClosureOutcome: DealClosureOutcome | null = null
+    const wasTerminal = isClosedDealStatus(record.status) || record.closureOutcome != null
 
     await runCrudCommandWrite({
       ctx,
@@ -885,6 +892,20 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
           }
           if (parsed.lossReasonId !== undefined) record.lossReasonId = parsed.lossReasonId ?? null
           if (parsed.lossNotes !== undefined) record.lossNotes = parsed.lossNotes ?? null
+          if (canonicalDealStatus(record.status) === 'no_decision') {
+            record.closureOutcome = null
+            record.lossReasonId = null
+            record.lossNotes = null
+          }
+          const isTerminal = isClosedDealStatus(record.status) || record.closureOutcome != null
+          if (!wasTerminal && isTerminal) {
+            record.closedAt = new Date()
+            record.preCloseStatus = previousStatus
+          }
+          if (wasTerminal && !isTerminal) {
+            record.closedAt = null
+            record.preCloseStatus = null
+          }
         },
         async () => {
           // CRITICAL: persist the scalar mutations above before any further `em.findOne` / sync
@@ -1009,6 +1030,8 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         ownerUserId: before.deal.ownerUserId,
         source: before.deal.source,
         closureOutcome: before.deal.closureOutcome,
+        closedAt: coerceSnapshotDate(before.deal.closedAt, 'closedAt'),
+        preCloseStatus: before.deal.preCloseStatus ?? null,
         lossReasonId: before.deal.lossReasonId,
         lossNotes: before.deal.lossNotes,
       })
@@ -1041,6 +1064,8 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         deal.ownerUserId = before.deal.ownerUserId
         deal.source = before.deal.source
         deal.closureOutcome = before.deal.closureOutcome
+        deal.closedAt = coerceSnapshotDate(before.deal.closedAt, 'closedAt')
+        deal.preCloseStatus = before.deal.preCloseStatus ?? null
         deal.lossReasonId = before.deal.lossReasonId
         deal.lossNotes = before.deal.lossNotes
       },

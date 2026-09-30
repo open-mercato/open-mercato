@@ -84,6 +84,11 @@ describe('loadDealsSummaryQueryRows', () => {
     }
     expect(normalizedSql(executeMock.mock.calls[5])).toContain('status IN (?) AND closure_outcome IS NULL')
     expect(normalizedSql(executeMock.mock.calls[2])).toContain("status = 'win' OR closure_outcome = 'won'")
+    // A later edit must not shift a completed Deal into a different reporting period.
+    for (const queryIndex of [2, 3, 4]) {
+      expect(normalizedSql(executeMock.mock.calls[queryIndex])).toContain('closed_at')
+      expect(normalizedSql(executeMock.mock.calls[queryIndex])).not.toContain('updated_at')
+    }
     // calls[3] is winLossRows, the one statement carrying BOTH terminal predicates (calls[2]
     // above is wonRows, the currency-totals query, which carries only the won half).
     // The lost half must keep matching BOTH spellings: writers persist `lost` from 0.7.1, so

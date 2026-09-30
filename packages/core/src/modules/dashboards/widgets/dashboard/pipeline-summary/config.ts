@@ -14,7 +14,7 @@ import type { WidgetDataRequest } from '../../../services/widgetDataService'
 //     free-form `toStage` is passed straight through to `status`.
 //   - `closed` is a seeded `deal_status` dictionary value, persisted by the dashboards
 //     analytics seed and treated as terminal by the demo-data generator.
-export const CLOSED_DEAL_STATUSES = ['win', 'loose', 'won', 'lost', 'closed'] as const
+export const CLOSED_DEAL_STATUSES = ['win', 'loose', 'won', 'lost', 'closed', 'no_decision'] as const
 
 // A deal is also closed when `closure_outcome` records the outcome, which the deals-summary
 // KPI already treats as terminal: `api/deals/summary/route.ts` counts a deal as won or lost

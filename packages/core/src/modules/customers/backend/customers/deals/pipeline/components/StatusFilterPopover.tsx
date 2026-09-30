@@ -23,7 +23,7 @@ import { FilterPopoverShell } from './FilterPopoverShell'
  * Filter options exposed to the operator.
  *
  * The deal `status` column is dictionary-driven (`deal-statuses`); the seeded dictionary
- * carries five values (`open`, `closed`, `win`, `lost`, `in_progress`) plus any
+ * carries six values (`open`, `closed`, `win`, `lost`, `no_decision`, `in_progress`) plus any
  * tenant-custom entries. We render every dictionary entry de-duplicated by canonical
  * spelling so the kanban Status pill stays aligned with the list page's advanced filter
  * (which also uses the dictionary). A hard-coded fallback keeps the popover usable while
@@ -66,6 +66,12 @@ const FALLBACK_STATUS_OPTIONS: Array<{
     value: 'closed',
     labelKey: 'customers.deals.kanban.filter.status.closed',
     labelFallback: 'Closed',
+    dotClass: 'bg-status-neutral-icon',
+  },
+  {
+    value: 'no_decision',
+    labelKey: 'customers.deals.kanban.filter.status.noDecision',
+    labelFallback: 'No decision',
     dotClass: 'bg-status-neutral-icon',
   },
   {

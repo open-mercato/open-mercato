@@ -27,6 +27,7 @@ type PipelineStepperProps = {
   currentStageId: string | null
   pipelineName?: string | null
   closureOutcome?: 'won' | 'lost' | null
+  status?: string | null
   footer?: React.ReactNode
 }
 
@@ -62,6 +63,7 @@ export function PipelineStepper({
   currentStageId,
   pipelineName,
   closureOutcome = null,
+  status = null,
   footer = null,
 }: PipelineStepperProps) {
   const t = useT()
@@ -94,12 +96,24 @@ export function PipelineStepper({
   }, [allStages, currentStageId, lastVisibleTransitionStage, sortedStages])
   const currentIndex = currentVisibleStage ? sortedStages.findIndex((stage) => stage.id === currentVisibleStage.id) : -1
   const compactStage = currentVisibleStage ?? sortedStages[0] ?? null
-  const renderClosedProgress = closureOutcome !== null
+  const renderClosedProgress = closureOutcome !== null || status === 'no_decision'
+  const closedStepClass = closureOutcome === 'won'
+    ? 'border-status-success-icon bg-status-success-icon text-white'
+    : closureOutcome === 'lost'
+      ? 'border-status-error-icon bg-status-error-icon text-white'
+      : 'border-status-neutral-icon bg-status-neutral-icon text-white'
+  const closedLineClass = closureOutcome === 'won'
+    ? 'bg-status-success-icon'
+    : closureOutcome === 'lost'
+      ? 'bg-status-error-icon'
+      : status === 'no_decision' ? 'bg-status-neutral-icon' : 'bg-status-success-icon'
   const progressValue = currentIndex >= 0 ? currentIndex + 1 : 0
   const progressValueText = renderClosedProgress
     ? closureOutcome === 'won'
       ? t('customers.deals.detail.pipeline.ariaClosedWon', 'Pipeline closed — deal won.')
-      : t('customers.deals.detail.pipeline.ariaClosedLost', 'Pipeline closed — deal lost.')
+      : closureOutcome === 'lost'
+        ? t('customers.deals.detail.pipeline.ariaClosedLost', 'Pipeline closed — deal lost.')
+        : t('customers.deals.detail.pipeline.ariaClosedNoDecision', 'Pipeline closed — no decision.')
     : t('customers.deals.detail.pipeline.ariaValueText', 'Stage {{current}} of {{total}}: {{label}}', {
         current: progressValue,
         total: sortedStages.length,
@@ -148,7 +162,7 @@ export function PipelineStepper({
               <div
                 className={cn(
                   'flex size-9 items-center justify-center rounded-full border-2 bg-background text-foreground',
-                  renderClosedProgress ? 'border-status-success-icon bg-status-success-icon text-white' : 'border-foreground',
+                  renderClosedProgress ? closedStepClass : 'border-foreground',
                 )}
               >
                 {renderClosedProgress ? (
@@ -193,14 +207,14 @@ export function PipelineStepper({
                 <div
                   className={cn(
                     'h-[2px] flex-1',
-                    isFirst ? 'bg-transparent' : beforeFilled ? 'bg-status-success-icon' : 'bg-border/60',
+                    isFirst ? 'bg-transparent' : beforeFilled ? closedLineClass : 'bg-border/60',
                   )}
                 />
                 <div
                   className={cn(
                     'mx-0 flex size-9 items-center justify-center rounded-full border-2 text-sm leading-none transition-colors',
                     isCurrent && 'border-foreground bg-background font-bold text-foreground',
-                    isCompleted && !isCurrent && 'border-status-success-icon bg-status-success-icon text-white',
+                    isCompleted && !isCurrent && closedStepClass,
                     isFuture && 'border-border bg-background font-medium text-muted-foreground',
                   )}
                 >
@@ -213,7 +227,7 @@ export function PipelineStepper({
                 <div
                   className={cn(
                     'h-[2px] flex-1',
-                    isLast ? 'bg-transparent' : afterFilled ? 'bg-status-success-icon' : 'bg-border/60',
+                    isLast ? 'bg-transparent' : afterFilled ? closedLineClass : 'bg-border/60',
                   )}
                 />
               </div>

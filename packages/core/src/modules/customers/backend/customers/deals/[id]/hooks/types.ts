@@ -37,6 +37,8 @@ export type DealDetailPayload = {
     ownerUserId: string | null
     source: string | null
     closureOutcome: 'won' | 'lost' | null
+    closedAt?: string | null
+    preCloseStatus?: string | null
     lossReasonId: string | null
     lossNotes: string | null
     organizationId: string | null
@@ -67,8 +69,9 @@ export type DealDetailPayload = {
 export type DealStatsPayload = {
   dealValue: number | null
   dealCurrency: string | null
-  closureOutcome: 'won' | 'lost'
+  closureOutcome: 'won' | 'lost' | null
   closedAt: string
+  actualClosedAt?: string | null
   pipelineName: string | null
   dealsClosedThisPeriod: number
   salesCycleDays: number | null

@@ -2125,6 +2125,23 @@
       "name": "customer_deals",
       "schema": "public",
       "columns": {
+        "closed_at": {
+          "name": "closed_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
         "closure_outcome": {
           "name": "closure_outcome",
           "type": "text",
@@ -2345,6 +2362,23 @@
           "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
+        },
+        "pre_close_status": {
+          "name": "pre_close_status",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
         },
         "probability": {
           "name": "probability",

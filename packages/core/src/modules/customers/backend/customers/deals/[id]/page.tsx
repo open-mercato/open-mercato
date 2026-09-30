@@ -35,6 +35,7 @@ import { createCustomerNotesAdapter } from '../../../../components/detail/notesA
 import type { InteractionSummary } from '../../../../components/detail/types'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
 import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
+import { isClosedDealStatus } from '../../../../lib/dealStatus'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 
 import { formatCurrency, startOfNextQuarter } from './hooks/formatters'
@@ -184,6 +185,13 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     })
   }, [confirm, isDirty, t])
 
+  const confirmNoDecision = React.useCallback(() => confirm({
+    title: t('customers.deals.detail.noDecisionTitle', 'Close without a decision?'),
+    description: t('customers.deals.detail.noDecisionDescription', 'Use this only when the buying process has ended without selecting a supplier. If there is a meaningful next action, keep the deal open.'),
+    confirmText: t('customers.deals.detail.noDecisionConfirm', 'Close as No decision'),
+    cancelText: t('customers.deals.detail.noDecisionCancel', 'Keep open'),
+  }), [confirm, t])
+
   const {
     peopleEditorIds,
     companiesEditorIds,
@@ -220,12 +228,16 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     closeWonPopup,
     closeLostPopup,
     handleWon,
+    handleNoDecision,
+    handleReopenNoDecision,
     handleLostConfirm,
   } = useDealClosure({
     currentDealId,
     dealUpdatedAt: data?.deal.updatedAt ?? null,
+    preCloseStatus: data?.deal.preCloseStatus ?? null,
     runMutationWithContext,
     confirmDiscardIfDirty,
+    confirmNoDecision,
     onClosed: loadData,
   })
 
@@ -652,12 +664,16 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             currentStageId={data.deal.pipelineStageId}
             pipelineName={currentPipelineName}
             closureOutcome={data.deal.closureOutcome}
-            footer={data.deal.closureOutcome ? null : (
+            status={data.deal.status}
+            footer={data.deal.closureOutcome || (isClosedDealStatus(data.deal.status) && data.deal.status !== 'no_decision') ? null : (
               <DealClosureActionBar
                 embedded
                 closureOutcome={data.deal.closureOutcome}
+                status={data.deal.status}
                 onWon={() => { void handleWon() }}
                 onLost={openLostDialog}
+                onNoDecision={() => { void handleNoDecision() }}
+                onReopen={() => { void handleReopenNoDecision() }}
               />
             )}
           />

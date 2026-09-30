@@ -101,4 +101,17 @@ describe('PipelineStepper', () => {
     const progressbar = screen.getByRole('progressbar')
     expect(progressbar.getAttribute('aria-valuetext')).toMatch(/won/i)
   })
+
+  it('announces No decision as closed without calling it lost', () => {
+    renderWithProviders(
+      <PipelineStepper
+        stages={[{ id: 'stage-1', label: 'Qualification', order: 1 }]}
+        transitions={[]}
+        currentStageId="stage-1"
+        status="no_decision"
+        closureOutcome={null}
+      />,
+    )
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuetext', 'Pipeline closed — no decision.')
+  })
 })

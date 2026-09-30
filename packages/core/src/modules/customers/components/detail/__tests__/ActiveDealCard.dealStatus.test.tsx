@@ -45,7 +45,22 @@ const OPEN_DEAL: DealSummary = {
   createdAt: '2026-01-12T10:00:00.000Z',
 }
 
+const NO_DECISION_DEAL: DealSummary = {
+  id: 'deal-no-decision',
+  title: 'Buying process ended',
+  status: 'no_decision',
+  closureOutcome: null,
+  valueAmount: 10000,
+  valueCurrency: 'PLN',
+  createdAt: '2026-01-14T10:00:00.000Z',
+}
+
 describe('ActiveDealCard — deal status vocabulary (#4667)', () => {
+  it('does not highlight a No decision deal as active', () => {
+    renderWithProviders(<ActiveDealCard deals={[NO_DECISION_DEAL, OPEN_DEAL]} />)
+    expect(screen.getByText('Still negotiating')).toBeInTheDocument()
+    expect(screen.queryByText('Buying process ended')).not.toBeInTheDocument()
+  })
   beforeEach(() => {
     readApiResultOrThrowMock.mockReset()
     readApiResultOrThrowMock.mockResolvedValue({ items: [] })

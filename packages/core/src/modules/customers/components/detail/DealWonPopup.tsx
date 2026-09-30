@@ -10,8 +10,9 @@ import { Dialog, DialogContent, DialogTitle } from '@open-mercato/ui/primitives/
 type DealStatsPayload = {
   dealValue: number | null
   dealCurrency: string | null
-  closureOutcome: 'won' | 'lost'
+  closureOutcome: 'won' | 'lost' | null
   closedAt: string
+  actualClosedAt?: string | null
   pipelineName: string | null
   dealsClosedThisPeriod: number
   salesCycleDays: number | null
@@ -38,7 +39,8 @@ function formatCurrency(value: number | null, currency: string | null): string {
   }
 }
 
-function formatClosedDate(value: string, t: ReturnType<typeof useT>): string {
+function formatClosedDate(value: string | null, t: ReturnType<typeof useT>): string {
+  if (!value) return '—'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return t('customers.deals.detail.won.closed', 'Closed')
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
@@ -115,7 +117,7 @@ export function DealWonPopup({
                 {stats ? formatCurrency(stats.dealValue, stats.dealCurrency) : '—'}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                {t('customers.deals.detail.won.closed', 'Won')} · {stats ? formatClosedDate(stats.closedAt, t) : '—'}
+                {t('customers.deals.detail.won.closed', 'Won')} · {stats ? formatClosedDate(stats.actualClosedAt ?? null, t) : '—'}
               </p>
             </div>
 

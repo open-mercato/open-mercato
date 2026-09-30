@@ -24,6 +24,22 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### Deal close dates and No decision status
+
+The customers module adds nullable `closed_at` and `pre_close_status` columns. Run the
+customers migration before using the updated module. New closures set `closed_at` once;
+reopening clears it. Historical closed Deals have no reliable close timestamp and remain
+null. Reports that group closures by period now use this actual date, so historical rows
+without one do not appear in a period until reviewed and populated from reliable evidence.
+
+`no_decision` is a terminal Deal status with `closureOutcome: null`. Consumers that equate
+null `closureOutcome` with an open Deal should also classify `status`. The Deal stats API
+keeps its legacy `closedAt` string for compatibility, but that value is derived from
+`updatedAt` and may change after an edit. Use the new nullable `actualClosedAt` for actual
+close-date reporting. Existing Won/Lost responses retain their prior outcome values.
+
+See [the design and migration notes](.ai/specs/2026-09-30-terminal-deal-no-decision.md).
+
 ### `reviveSnapshotSeed` throws on an unparsable snapshot date; `extractUndoPayload` can revive dates (#6336)
 
 `reviveSnapshotSeed` (`@open-mercato/shared/lib/commands/redo`) now delegates to the new

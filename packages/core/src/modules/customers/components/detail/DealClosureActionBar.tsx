@@ -1,28 +1,41 @@
 "use client"
 
 import * as React from 'react'
-import { ArrowRight, Check, Info, Trophy, X } from 'lucide-react'
+import { ArrowRight, Check, CircleMinus, Info, RotateCcw, Trophy, X } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { isClosedDealStatus } from '../../lib/dealStatus'
 
 type DealClosureActionBarProps = {
   closureOutcome: string | null
+  status?: string | null
   onWon: () => void
   onLost: () => void
+  onNoDecision?: () => void
+  onReopen?: () => void
   disabled?: boolean
   embedded?: boolean
 }
 
 export function DealClosureActionBar({
   closureOutcome,
+  status,
   onWon,
   onLost,
+  onNoDecision,
+  onReopen,
   disabled = false,
   embedded = false,
 }: DealClosureActionBarProps) {
   const t = useT()
 
-  if (closureOutcome) return null
+  if (closureOutcome || isClosedDealStatus(status)) {
+    if (status !== 'no_decision' || !onReopen) return null
+    return <Button type="button" size="sm" variant="outline" onClick={onReopen} disabled={disabled}>
+      <RotateCcw className="size-4" />
+      {t('customers.deals.detail.closure.reopen', 'Reopen deal')}
+    </Button>
+  }
 
   return (
     <div className={embedded ? '' : 'rounded-2xl border bg-card px-5 py-4'}>
@@ -56,6 +69,12 @@ export function DealClosureActionBar({
             {t('customers.deals.detail.closure.lost', 'Lost')}
             <ArrowRight className="size-4" />
           </Button>
+          {onNoDecision ? (
+            <Button type="button" size="sm" variant="outline" onClick={onNoDecision} disabled={disabled}>
+              <CircleMinus className="size-4" />
+              {t('customers.deals.detail.closure.noDecision', 'No decision')}
+            </Button>
+          ) : null}
         </div>
       </div>
     </div>

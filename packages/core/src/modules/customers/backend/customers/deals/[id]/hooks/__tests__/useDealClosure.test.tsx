@@ -84,4 +84,51 @@ describe('useDealClosure', () => {
       lossNotes: 'Too expensive',
     })
   })
+
+  it('only closes without a decision after confirmation and preserves the guarded mutation', async () => {
+    const runMutationWithContext = jest.fn(async (operation: () => Promise<unknown>) => operation())
+    const confirmNoDecision = jest.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+    const onClosed = jest.fn()
+    const { result } = renderHook(() =>
+      useDealClosure({
+        currentDealId: 'deal-1',
+        dealUpdatedAt: '2026-09-30T10:00:00.000Z',
+        runMutationWithContext,
+        confirmDiscardIfDirty: async () => true,
+        confirmNoDecision,
+        onClosed,
+      }),
+    )
+
+    await act(async () => { await result.current.handleNoDecision() })
+    expect(updateCrudMock).not.toHaveBeenCalled()
+
+    await act(async () => { await result.current.handleNoDecision() })
+    expect(updateCrudMock).toHaveBeenCalledWith('customers/deals', {
+      id: 'deal-1', status: 'no_decision', closureOutcome: null,
+    })
+    expect(runMutationWithContext).toHaveBeenCalledWith(expect.any(Function), {
+      id: 'deal-1', status: 'no_decision', closureOutcome: null, operation: 'closeNoDecision',
+    })
+    expect(onClosed).toHaveBeenCalledTimes(1)
+  })
+
+  it('reopens to the status from before closing', async () => {
+    const runMutationWithContext = jest.fn(async (operation: () => Promise<unknown>) => operation())
+    const { result } = renderHook(() =>
+      useDealClosure({
+        currentDealId: 'deal-1',
+        dealUpdatedAt: '2026-09-30T10:00:00.000Z',
+        preCloseStatus: 'question',
+        runMutationWithContext,
+        confirmDiscardIfDirty: async () => true,
+        onClosed: async () => {},
+      }),
+    )
+
+    await act(async () => { await result.current.handleReopenNoDecision() })
+    expect(updateCrudMock).toHaveBeenCalledWith('customers/deals', {
+      id: 'deal-1', status: 'question', closureOutcome: null,
+    })
+  })
 })

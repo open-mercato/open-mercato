@@ -16,7 +16,7 @@ import {
 
 describe('deal status semantics', () => {
   describe('isClosedDealStatus', () => {
-    it.each(['win', 'won', 'loose', 'lost', 'closed'])('treats %s as closed', (value) => {
+    it.each(['win', 'won', 'loose', 'lost', 'closed', 'no_decision'])('treats %s as closed', (value) => {
       expect(isClosedDealStatus(value)).toBe(true)
     })
 
@@ -42,7 +42,7 @@ describe('deal status semantics', () => {
       expect(isOpenDealStatus(value)).toBe(true)
     })
 
-    it.each(['win', 'won', 'loose', 'lost', 'closed'])('treats closed status %s as not open', (value) => {
+    it.each(['win', 'won', 'loose', 'lost', 'closed', 'no_decision'])('treats closed status %s as not open', (value) => {
       expect(isOpenDealStatus(value)).toBe(false)
     })
 
@@ -86,7 +86,7 @@ describe('deal status semantics', () => {
   it('covers both spellings every writer persists', () => {
     expect([...WON_DEAL_STATUS_LIST].sort()).toEqual(['win', 'won'])
     expect([...LOST_DEAL_STATUS_LIST].sort()).toEqual(['loose', 'lost'])
-    expect([...CLOSED_DEAL_STATUS_LIST].sort()).toEqual(['closed', 'loose', 'lost', 'win', 'won'])
+    expect([...CLOSED_DEAL_STATUS_LIST].sort()).toEqual(['closed', 'loose', 'lost', 'no_decision', 'win', 'won'])
   })
 
   it('keeps won and lost disjoint', () => {

@@ -123,10 +123,10 @@ export async function loadDealsSummaryQueryRows(input: DealsSummaryQueryInput): 
   const wonRows = await connection.execute<WindowSumRow[]>(
     `SELECT
         UPPER(COALESCE(value_currency, '')) AS currency,
-        COALESCE(SUM(value_amount) FILTER (WHERE updated_at >= ? AND updated_at < ?), 0) AS current_total,
-        COUNT(*) FILTER (WHERE updated_at >= ? AND updated_at < ?) AS current_count,
-        COALESCE(SUM(value_amount) FILTER (WHERE updated_at >= ? AND updated_at < ?), 0) AS previous_total,
-        COUNT(*) FILTER (WHERE updated_at >= ? AND updated_at < ?) AS previous_count
+        COALESCE(SUM(value_amount) FILTER (WHERE closed_at >= ? AND closed_at < ?), 0) AS current_total,
+        COUNT(*) FILTER (WHERE closed_at >= ? AND closed_at < ?) AS current_count,
+        COALESCE(SUM(value_amount) FILTER (WHERE closed_at >= ? AND closed_at < ?), 0) AS previous_total,
+        COUNT(*) FILTER (WHERE closed_at >= ? AND closed_at < ?) AS previous_count
       FROM customer_deals
       WHERE ${scopeWhere} AND (status = 'win' OR closure_outcome = 'won')
       GROUP BY UPPER(COALESCE(value_currency, ''))`,
@@ -145,10 +145,10 @@ export async function loadDealsSummaryQueryRows(input: DealsSummaryQueryInput): 
 
   const winLossRows = await connection.execute<WinLossRow[]>(
     `SELECT
-        COUNT(*) FILTER (WHERE (status = 'win' OR closure_outcome = 'won') AND updated_at >= ? AND updated_at < ?) AS current_won,
-        COUNT(*) FILTER (WHERE (status IN ('lost', 'loose') OR closure_outcome = 'lost') AND updated_at >= ? AND updated_at < ?) AS current_lost,
-        COUNT(*) FILTER (WHERE (status = 'win' OR closure_outcome = 'won') AND updated_at >= ? AND updated_at < ?) AS previous_won,
-        COUNT(*) FILTER (WHERE (status IN ('lost', 'loose') OR closure_outcome = 'lost') AND updated_at >= ? AND updated_at < ?) AS previous_lost
+        COUNT(*) FILTER (WHERE (status = 'win' OR closure_outcome = 'won') AND closed_at >= ? AND closed_at < ?) AS current_won,
+        COUNT(*) FILTER (WHERE (status IN ('lost', 'loose') OR closure_outcome = 'lost') AND closed_at >= ? AND closed_at < ?) AS current_lost,
+        COUNT(*) FILTER (WHERE (status = 'win' OR closure_outcome = 'won') AND closed_at >= ? AND closed_at < ?) AS previous_won,
+        COUNT(*) FILTER (WHERE (status IN ('lost', 'loose') OR closure_outcome = 'lost') AND closed_at >= ? AND closed_at < ?) AS previous_lost
       FROM customer_deals
       WHERE ${scopeWhere}`,
     [
@@ -166,11 +166,11 @@ export async function loadDealsSummaryQueryRows(input: DealsSummaryQueryInput): 
 
   const seriesRows = await connection.execute<WinRateMonthRow[]>(
     `SELECT
-        to_char(date_trunc('month', updated_at AT TIME ZONE 'UTC'), 'YYYY-MM') AS period,
+        to_char(date_trunc('month', closed_at AT TIME ZONE 'UTC'), 'YYYY-MM') AS period,
         COUNT(*) FILTER (WHERE status = 'win' OR closure_outcome = 'won') AS won,
         COUNT(*) FILTER (WHERE status IN ('lost', 'loose') OR closure_outcome = 'lost') AS lost
       FROM customer_deals
-      WHERE ${scopeWhere} AND updated_at >= ?
+      WHERE ${scopeWhere} AND closed_at >= ?
       GROUP BY 1`,
     [...scopeValues, input.seriesStart.toISOString()],
   )

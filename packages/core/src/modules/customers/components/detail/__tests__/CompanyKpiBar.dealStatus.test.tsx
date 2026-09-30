@@ -50,6 +50,16 @@ const OPEN_DEAL: DealSummary = {
   createdAt: '2026-01-12T10:00:00.000Z',
 }
 
+const NO_DECISION_DEAL: DealSummary = {
+  id: 'deal-no-decision',
+  title: 'Buying process ended',
+  status: 'no_decision',
+  closureOutcome: null,
+  valueAmount: 3000,
+  valueCurrency: 'PLN',
+  createdAt: '2026-01-14T10:00:00.000Z',
+}
+
 const TENANT_STAGE_DEAL: DealSummary = {
   id: 'deal-tenant-stage',
   title: 'Awaiting legal sign-off',
@@ -93,6 +103,11 @@ function renderBar(deals: DealSummary[], locale = EN) {
 }
 
 describe('CompanyKpiBar — deal status vocabulary (#4667)', () => {
+  it('excludes No decision from active value without treating it as a win', () => {
+    renderBar([OPEN_DEAL, NO_DECISION_DEAL])
+    expect(within(tile(ACTIVE_DEALS)).getByText('PLN 1,000')).toBeInTheDocument()
+    expect(within(tile(LTV)).getByText('--')).toBeInTheDocument()
+  })
   it('keeps a win deal out of the active total and counts it as won', () => {
     renderBar([CLOSED_WON_DEAL, OPEN_DEAL])
 

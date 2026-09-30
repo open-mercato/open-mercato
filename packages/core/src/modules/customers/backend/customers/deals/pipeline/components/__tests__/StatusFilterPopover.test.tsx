@@ -69,6 +69,7 @@ describe('StatusFilterPopover', () => {
     expect(await screen.findByText('Open')).toBeInTheDocument()
     expect(screen.getByText('Won')).toBeInTheDocument()
     expect(screen.getByText('Lost')).toBeInTheDocument()
+    expect(screen.getByText('No decision')).toBeInTheDocument()
   })
 
   it('marks Won as selected when values contains alias won', async () => {

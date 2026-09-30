@@ -355,6 +355,12 @@ export class CustomerDeal {
   @Property({ name: 'closure_outcome', type: 'text', nullable: true })
   closureOutcome?: string | null
 
+  @Property({ name: 'closed_at', type: Date, nullable: true })
+  closedAt?: Date | null
+
+  @Property({ name: 'pre_close_status', type: 'text', nullable: true })
+  preCloseStatus?: string | null
+
   @Property({ name: 'loss_reason_id', type: 'uuid', nullable: true })
   lossReasonId?: string | null
 

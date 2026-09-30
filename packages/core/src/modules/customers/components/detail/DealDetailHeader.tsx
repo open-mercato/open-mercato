@@ -12,6 +12,7 @@ import { ObjectHistoryButton } from './ObjectHistoryButton'
 import { useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { formatFallbackLabel } from './utils'
 import { isTerminalPipelineOutcomeLabel } from './pipelineStageUtils'
+import { isClosedDealStatus } from '../../lib/dealStatus'
 
 type DealAssociation = {
   id: string
@@ -230,7 +231,7 @@ export function DealDetailHeader({
   const statusLabel = statusEntry?.label ?? (deal.status ? formatFallbackLabel(deal.status) : null)
   const showStatusChip = statusLabel && (!deal.closureOutcome || !isTerminalPipelineOutcomeLabel(deal.status))
   const pipelineBadgeLabel = pipelineName ?? null
-  const canMoveStage = stageOptions.length > 0 && !deal.closureOutcome && typeof onStageChange === 'function'
+  const canMoveStage = stageOptions.length > 0 && !deal.closureOutcome && !isClosedDealStatus(deal.status) && typeof onStageChange === 'function'
   const messageSubtitle = React.useMemo(() => (
     [companyLabel, amountLabel].filter(Boolean).join(' · ') || statusLabel || undefined
   ), [amountLabel, companyLabel, statusLabel])
@@ -269,11 +270,11 @@ export function DealDetailHeader({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {showStatusChip ? (
-              <HeaderChip variant="info">
+              <HeaderChip variant={deal.status === 'no_decision' ? 'neutral' : 'info'}>
                 {statusLabel}
               </HeaderChip>
             ) : null}
-            {deal.pipelineStage && !isTerminalPipelineOutcomeLabel(deal.pipelineStage) ? (
+            {deal.pipelineStage && !isClosedDealStatus(deal.status) && !isTerminalPipelineOutcomeLabel(deal.pipelineStage) ? (
               <HeaderChip variant="warning">
                 {deal.pipelineStage}
               </HeaderChip>

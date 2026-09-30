@@ -15,6 +15,7 @@
 export const DEAL_STATUS_WIN = 'win' as const
 export const DEAL_STATUS_LOST = 'lost' as const
 export const DEAL_STATUS_CLOSED = 'closed' as const
+export const DEAL_STATUS_NO_DECISION = 'no_decision' as const
 
 /**
  * @deprecated Misspelling of the lost-deal status, canonical until 0.7.0. Writers now
@@ -36,6 +37,7 @@ export const CLOSED_DEAL_STATUS_LIST: readonly string[] = [
   ...WON_DEAL_STATUS_LIST,
   ...LOST_DEAL_STATUS_LIST,
   DEAL_STATUS_CLOSED,
+  DEAL_STATUS_NO_DECISION,
 ]
 
 const WON_DEAL_STATUSES = new Set<string>(WON_DEAL_STATUS_LIST)
@@ -64,7 +66,7 @@ export function canonicalDealStatus(value: string): string {
   if (lower === 'loose') return DEAL_STATUS_LOST
   // Canonical spellings normalize to lower-case too, so an upper-case selection still
   // matches the lower-case persisted values and dictionary options.
-  if (lower === 'win' || lower === 'lost' || lower === 'open' || lower === 'closed') return lower
+  if (lower === 'win' || lower === 'lost' || lower === 'open' || lower === 'closed' || lower === 'no_decision') return lower
   return value
 }
 

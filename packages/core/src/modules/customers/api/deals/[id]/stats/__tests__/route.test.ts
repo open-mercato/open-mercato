@@ -100,9 +100,10 @@ describe('GET /api/customers/deals/[id]/stats', () => {
         valueAmount: '12000',
         valueCurrency: 'USD',
         closureOutcome: 'won',
+        closedAt: new Date('2026-04-14T16:30:00.000Z'),
         lossReasonId: null,
         createdAt: new Date('2026-04-01T08:00:00.000Z'),
-        updatedAt: new Date('2026-04-14T16:30:00.000Z'),
+        updatedAt: new Date('2026-04-20T16:30:00.000Z'),
         deletedAt: null,
       })
       .mockResolvedValueOnce({
@@ -126,13 +127,17 @@ describe('GET /api/customers/deals/[id]/stats', () => {
       dealValue: 12000,
       dealCurrency: 'USD',
       closureOutcome: 'won',
-      closedAt: '2026-04-14T16:30:00.000Z',
+      closedAt: '2026-04-20T16:30:00.000Z',
+      actualClosedAt: '2026-04-14T16:30:00.000Z',
       pipelineName: 'Enterprise pipeline',
       dealsClosedThisPeriod: 4,
       salesCycleDays: 13,
       dealRankInQuarter: 3,
       lossReason: null,
     })
+    expect(mockEm.count.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
+      closedAt: expect.objectContaining({ $gte: expect.any(Date) }),
+    }))
   })
 
   it('returns the loss reason label for a lost deal', async () => {
@@ -145,6 +150,7 @@ describe('GET /api/customers/deals/[id]/stats', () => {
         valueAmount: '9000',
         valueCurrency: 'EUR',
         closureOutcome: 'lost',
+        closedAt: new Date('2026-04-12T08:00:00.000Z'),
         lossReasonId: 'loss-reason-1',
         createdAt: new Date('2026-04-05T10:00:00.000Z'),
         updatedAt: new Date('2026-04-12T08:00:00.000Z'),
@@ -178,11 +184,39 @@ describe('GET /api/customers/deals/[id]/stats', () => {
       dealCurrency: 'EUR',
       closureOutcome: 'lost',
       closedAt: '2026-04-12T08:00:00.000Z',
+      actualClosedAt: '2026-04-12T08:00:00.000Z',
       pipelineName: 'Mid-market pipeline',
       dealsClosedThisPeriod: 2,
       salesCycleDays: 6,
       dealRankInQuarter: null,
       lossReason: 'Pricing',
     })
+  })
+
+  it('does not fabricate a close date for a historical No decision deal', async () => {
+    mockFindOneWithDecryption.mockResolvedValue({
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      status: 'no_decision',
+      closureOutcome: null,
+      closedAt: null,
+      valueAmount: null,
+      lossReasonId: null,
+      createdAt: new Date('2026-04-01T08:00:00.000Z'),
+      updatedAt: new Date('2026-04-20T16:30:00.000Z'),
+      deletedAt: null,
+    })
+    mockEm.count.mockResolvedValue(0)
+    const { GET } = await import('../route')
+    const response = await GET(
+      new Request('http://localhost/api/customers/deals/550e8400-e29b-41d4-a716-446655440000/stats'),
+      { params: { id: '550e8400-e29b-41d4-a716-446655440000' } },
+    )
+    const body = await response.json()
+    expect(response.status).toBe(200)
+    expect(body.closureOutcome).toBeNull()
+    expect(body.actualClosedAt).toBeNull()
+    expect(body.salesCycleDays).toBeNull()
   })
 })

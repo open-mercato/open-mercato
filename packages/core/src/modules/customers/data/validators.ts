@@ -183,9 +183,9 @@ export const dealCreateSchema = scopedSchema.extend({
   // ZodError "expected string, received null" inside the queue worker (TC-CRM-069).
   ownerUserId: uuid().optional().nullable(),
   source: z.string().max(150).optional(),
-  closureOutcome: z.enum(['won', 'lost']).optional(),
-  lossReasonId: uuid().optional(),
-  lossNotes: z.string().max(4000).optional(),
+  closureOutcome: z.enum(['won', 'lost']).optional().nullable(),
+  lossReasonId: uuid().optional().nullable(),
+  lossNotes: z.string().max(4000).optional().nullable(),
   companyIds: z.array(uuid()).optional(),
   personIds: z.array(uuid()).optional(),
   primaryPersonEntityId: uuid().nullable().optional(),

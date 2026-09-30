@@ -53,7 +53,7 @@ describe('pipeline summary settings', () => {
     // Spelled out rather than derived from the constant: a test that maps over
     // CLOSED_DEAL_STATUSES passes no matter which terminal statuses are missing from it.
     it('covers every terminal status the supported write paths persist', () => {
-      expect([...CLOSED_DEAL_STATUSES].sort()).toEqual(['closed', 'loose', 'lost', 'win', 'won'])
+      expect([...CLOSED_DEAL_STATUSES].sort()).toEqual(['closed', 'loose', 'lost', 'no_decision', 'win', 'won'])
     })
 
     // The literal above is deliberate (see its comment), but a literal alone cannot notice

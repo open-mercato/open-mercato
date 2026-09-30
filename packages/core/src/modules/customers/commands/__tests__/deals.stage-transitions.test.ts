@@ -380,6 +380,8 @@ describe('customers.deals.update stage transitions', () => {
 
       expect(existingDeal.status).toBe(status)
       expect(existingDeal.closureOutcome).toBe(closureOutcome)
+      expect(existingDeal.closedAt).toBeInstanceOf(Date)
+      expect(existingDeal.preCloseStatus).toBe('open')
       expect(existingDeal.pipelineStageId).toBe(terminalStageId)
       expect(existingDeal.pipelineStage).toBe(terminalStageLabel)
       expect(existingDeal.lossReasonId).toBe(lossReasonId ?? null)
@@ -540,6 +542,8 @@ describe('customers.deals.update stage transitions', () => {
       ownerUserId: null,
       source: 'Referral',
       closureOutcome: 'won',
+      closedAt: new Date('2026-04-10T09:00:00.000Z'),
+      preCloseStatus: 'open',
       lossReasonId: '550e8400-e29b-41d4-a716-446655440021',
       lossNotes: 'Pricing objection',
       createdAt: new Date('2026-04-10T08:00:00.000Z'),
@@ -591,8 +595,70 @@ describe('customers.deals.update stage transitions', () => {
 
     expect(existingDeal.status).toBe('open')
     expect(existingDeal.closureOutcome).toBeNull()
+    expect(existingDeal.closedAt).toBeNull()
+    expect(existingDeal.preCloseStatus).toBeNull()
     expect(existingDeal.lossReasonId).toBeNull()
     expect(existingDeal.lossNotes).toBeNull()
+  })
+
+  it('closes without a decision, preserves the first close date, then reopens', async () => {
+    const handler = commandRegistry.get('customers.deals.update') as CommandHandler
+    const existingDeal = {
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      title: 'Waiting for a decision',
+      description: null,
+      status: 'in_progress',
+      pipelineStage: 'Question',
+      pipelineId: '550e8400-e29b-41d4-a716-446655440010',
+      pipelineStageId: '550e8400-e29b-41d4-a716-446655440011',
+      closureOutcome: null,
+      closedAt: null,
+      preCloseStatus: null,
+      lossReasonId: null,
+      lossNotes: null,
+      createdAt: new Date('2026-04-10T08:00:00.000Z'),
+      updatedAt: new Date('2026-04-10T08:00:00.000Z'),
+      deletedAt: null,
+    } as CustomerDeal
+    const em = {
+      fork: () => em,
+      findOne: jest.fn(async (ctor: unknown, where: Record<string, unknown>) =>
+        ctor === CustomerDeal && where.id === existingDeal.id ? existingDeal : null),
+      find: jest.fn(async () => []),
+      nativeDelete: jest.fn(async () => {}),
+      create: jest.fn((ctor: unknown, payload: Record<string, unknown>) => ({ __entity: ctor, ...payload })),
+      persist: jest.fn(() => {}),
+      flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: (inner: typeof em) => Promise<unknown>) => fn(em)),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
+      getReference: jest.fn(),
+      remove: jest.fn(),
+    }
+    const dataEngine: Pick<DataEngine, 'setCustomFields' | 'emitOrmEntityEvent'> = {
+      setCustomFields: jest.fn(async () => {}),
+      emitOrmEntityEvent: jest.fn(async () => {}),
+    }
+    const ctx = createMockContext({ em, dataEngine })
+
+    await handler.execute!({ id: existingDeal.id, status: 'no_decision', closureOutcome: null }, ctx)
+    expect(existingDeal.closureOutcome).toBeNull()
+    expect(existingDeal.closedAt).toBeInstanceOf(Date)
+    expect(existingDeal.preCloseStatus).toBe('in_progress')
+    expect(existingDeal.pipelineStageId).toBe('550e8400-e29b-41d4-a716-446655440011')
+    const firstClosedAt = existingDeal.closedAt
+
+    await handler.execute!({ id: existingDeal.id, title: 'Updated after closure' }, ctx)
+    await handler.execute!({ id: existingDeal.id, status: 'no_decision', closureOutcome: null }, ctx)
+    expect(existingDeal.closedAt).toBe(firstClosedAt)
+
+    await handler.execute!({ id: existingDeal.id, status: 'in_progress', closureOutcome: null }, ctx)
+    expect(existingDeal.closedAt).toBeNull()
+    expect(existingDeal.preCloseStatus).toBeNull()
+    expect(existingDeal.status).toBe('in_progress')
   })
 
   it('keeps closure state when a closed deal is saved with the seeded closed status', async () => {
