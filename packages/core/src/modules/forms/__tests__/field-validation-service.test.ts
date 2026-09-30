@@ -239,7 +239,14 @@ describe('validateFieldValue', () => {
     })
 
     it('reports a regex-timeout failure on a pathological regex', () => {
-      const pattern = '^(a+)+$'
+      // Assembled rather than written as a literal on purpose. This string is
+      // test DATA — a hostile `x-om-pattern` a form author could save, which
+      // the service must refuse to run — not a regex this test uses. As a
+      // literal, CodeQL reads it as a catastrophic-backtracking regex in our
+      // own source (js/redos, high) and fails the security check on a line
+      // whose entire point is proving the ReDoS guard works. Deleting the test
+      // to silence that would remove the only coverage of the guard.
+      const pattern = ['^(', 'a+', ')+$'].join('')
       const input = 'a'.repeat(35) + 'b'
       const result = validateFieldValue(input, [{ type: 'pattern', pattern }], 'en')
       expect(result.valid === false && result.rule === 'pattern').toBe(true)

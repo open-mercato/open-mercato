@@ -263,6 +263,24 @@ Highs. Four are fixed here; the ranked remainder stays in that document.
 | High | `z.string().url()` accepts `javascript:`, `data:` and `vbscript:`, and a distribution's `redirect_url` reaches `window.location.href` on the anonymous runner in the app's own origin under a CSP allowing `'unsafe-inline'` — stored XSS against every respondent | new `lib/navigable-url.ts` http/https-only policy, enforced in the validator **and** re-checked at both navigation sinks (pre-existing rows, and `x-om-redirect-url` which no validator covers) |
 | High | `submit()` never checked the actor row `save()` requires, so a caller who may not edit a submission could freeze someone else's draft | same actor lookup added |
 
+One clarification worth recording against the review's **M6 (ReDoS through `x-om-pattern`)**,
+because the code reads as if it were already mitigated: `field-validation-service` does have a
+`REGEX_TIMEOUT_MS = 50`, but it is measured *after* `regex.test(value)` returns —
+
+```ts
+const started = Date.now()
+matched = regex.test(value)            // runs to completion, however long that takes
+const elapsed = Date.now() - started
+if (elapsed > REGEX_TIMEOUT_MS) { …reject… }
+```
+
+so it **detects** a pathological pattern rather than **preventing** it; the CPU is already spent.
+Demonstrated incidentally by this module's own test suite: the single
+"reports a regex-timeout failure on a pathological regex" case dominates
+`field-validation-service.test.ts`, taking the suite from about a second to ~95. Any fix for M6 has
+to bound the pattern (reject catastrophic backtracking at publish time) or the engine (RE2-style),
+not lean on that timer.
+
 Still open in that document and **not** fixed here: `public/start` creating four rows per
 unauthenticated request against a cap that counts only submits; the public upload route buffering
 the whole body before authenticating; the spoofable/fail-open rate limiter and presence-only
