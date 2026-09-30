@@ -1,5 +1,13 @@
 /**
- * Public runner — POST /api/forms/:id/run/submissions.
+ * In-app runner — POST /api/forms/:id/run/submissions.
+ *
+ * Authenticated and tenant-scoped, for the same reason as the sibling
+ * `run/context` route: it is addressed by FORM id rather than by a distribution
+ * slug or invitation token, so it carries no capability a tenant deliberately
+ * handed out, and served anonymously it let any caller holding a form UUID
+ * confirm that form's existence and drive the logic evaluator against another
+ * tenant's schema — outside the CAPTCHA and rate limiter that
+ * `/api/forms/public/*` enforces.
  *
  * @deprecated Phase 2d superseded this validation-only stub with the
  * persisting public runtime flow under `/api/forms/public/*`
@@ -16,13 +24,14 @@
  * (R-3 tamper-resistance).
  */
 
-import { NextResponse, type NextRequest } from 'next/server'
+import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/core'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { Form, FormVersion } from '../../../../data/entities'
 import { checkSubmissionTamper } from '../../../../runner/tamper-check'
+import { buildFormsRouteContext, jsonError } from '../../../helpers'
 
 const bodySchema = z.object({
   formVersionId: z.string().uuid(),
@@ -33,11 +42,11 @@ const bodySchema = z.object({
 })
 
 export const metadata = {
-  POST: { requireAuth: false },
+  POST: { requireAuth: true },
 }
 
 export async function POST(
-  req: NextRequest,
+  req: Request,
   context: { params: { id: string } | Promise<{ id: string }> },
 ) {
   const params = await Promise.resolve(context.params)
@@ -51,11 +60,21 @@ export async function POST(
     return NextResponse.json({ error: 'INVALID_BODY', message }, { status: 400 })
   }
 
-  const container = await createRequestContainer()
-  const emFactory = container.resolve('emFactory') as () => EntityManager
-  const em = emFactory()
+  let scoped: Awaited<ReturnType<typeof buildFormsRouteContext>>
+  try {
+    scoped = await buildFormsRouteContext(req)
+  } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
+    throw error
+  }
+  const { ctx, organizationId, tenantId } = scoped
+  if (!organizationId || !tenantId) {
+    return jsonError(400, 'forms.errors.organization_required')
+  }
 
-  const form = await em.findOne(Form, { id: formId, deletedAt: null })
+  const em = ctx.container.resolve('em') as EntityManager
+
+  const form = await em.findOne(Form, { id: formId, tenantId, organizationId, deletedAt: null })
   if (!form) {
     return NextResponse.json({ error: 'NOT_FOUND', message: 'Form not found.' }, { status: 404 })
   }
@@ -110,18 +129,19 @@ const errorSchema = z.object({
 })
 
 const postMethodDoc: OpenApiMethodDoc = {
-  summary: 'Submit answers via the public runner with tamper validation.',
-  description: 'Server-side re-runs the evaluator against the posted answers and asserts the claimed ending is reachable. 422 on mismatch.',
+  summary: 'Submit answers via the in-app runner with tamper validation.',
+  description: 'Server-side re-runs the evaluator against the posted answers and asserts the claimed ending is reachable. 422 on mismatch. Authenticated and scoped to the caller\'s tenant and organization; deprecated in favour of POST /api/forms/public/submissions/:id/submit.',
   tags: ['Forms Runtime'],
   responses: [{ status: 200, description: 'Submission accepted (validation only — persistence in phase 1d).', schema: responseSchema }],
   errors: [
-    { status: 400, description: 'Malformed body', schema: errorSchema },
+    { status: 400, description: 'Malformed body, or missing tenant/organization context', schema: errorSchema },
+    { status: 401, description: 'Unauthenticated', schema: errorSchema },
     { status: 404, description: 'Form or version not found', schema: errorSchema },
     { status: 422, description: 'Form inactive or tamper detected', schema: errorSchema },
   ],
 }
 
 export const openApi: OpenApiRouteDoc = {
-  summary: 'Public form submission',
+  summary: 'In-app form submission',
   methods: { POST: postMethodDoc },
 }

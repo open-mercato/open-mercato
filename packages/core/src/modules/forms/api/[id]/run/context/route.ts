@@ -1,40 +1,56 @@
 /**
- * Public runner — GET /api/forms/:id/run/context.
+ * In-app runner — GET /api/forms/:id/run/context.
  *
  * Returns the currently published `FormVersion` for the form id so the
- * minimal public runner can render. Auth is not required (matches the
- * parent spec — customer-facing forms support unauthenticated runs). Forms
- * that require authenticated customers should be served through the
- * existing portal route; this endpoint is purposefully scoped to the
- * minimal runner introduced in `2026-05-12-forms-reactive-core.md`.
+ * in-app runner at `/forms/:id/run` can render.
+ *
+ * Authenticated and tenant-scoped. This route is addressed by FORM id, not by
+ * a distribution slug or an invitation token, so it carries no capability a
+ * tenant deliberately handed out. Served anonymously it would return the full
+ * `schema` + `uiSchema` of ANY active published form in ANY tenant to anyone
+ * holding the form UUID — bypassing the distribution gate, the availability and
+ * cap checks, the CAPTCHA and the rate limiter that `/api/forms/public/*`
+ * enforces. Anonymous traffic belongs on that flow (`/f/:slug`, `/i/:token`),
+ * which is what the render-surfaces spec assigns it to.
  */
 
-import { NextResponse, type NextRequest } from 'next/server'
+import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/core'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { Form } from '../../../../data/entities'
 import { FormVersion } from '../../../../data/entities'
 import { FormVersionCompiler } from '../../../../services/form-version-compiler'
+import { buildFormsRouteContext, jsonError } from '../../../helpers'
 
 export const metadata = {
-  GET: { requireAuth: false },
+  GET: { requireAuth: true },
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: Request,
   context: { params: { id: string } | Promise<{ id: string }> },
 ) {
   const params = await Promise.resolve(context.params)
   const formId = String(params.id)
 
-  const container = await createRequestContainer()
-  const emFactory = container.resolve('emFactory') as () => EntityManager
-  const compiler = container.resolve('formVersionCompiler') as FormVersionCompiler
-  const em = emFactory()
+  let scoped: Awaited<ReturnType<typeof buildFormsRouteContext>>
+  try {
+    scoped = await buildFormsRouteContext(req)
+  } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
+    throw error
+  }
+  const { ctx, organizationId, tenantId } = scoped
+  if (!organizationId || !tenantId) {
+    return jsonError(400, 'forms.errors.organization_required')
+  }
 
-  const form = await em.findOne(Form, { id: formId, deletedAt: null })
+  const compiler = ctx.container.resolve('formVersionCompiler') as FormVersionCompiler
+  const em = ctx.container.resolve('em') as EntityManager
+
+  const form = await em.findOne(Form, { id: formId, tenantId, organizationId, deletedAt: null })
   if (!form) {
     return NextResponse.json({ error: 'NOT_FOUND', message: 'Form not found.' }, { status: 404 })
   }
@@ -108,11 +124,13 @@ const errorSchema = z.object({
 })
 
 const getMethodDoc: OpenApiMethodDoc = {
-  summary: 'Get the published form version for the minimal public runner.',
-  description: 'Returns the schema + uiSchema for the form\'s currently published version. No auth — exposed for the minimal public runner.',
+  summary: 'Get the published form version for the in-app runner.',
+  description: 'Returns the schema + uiSchema for the form\'s currently published version. Authenticated and scoped to the caller\'s tenant and organization — anonymous runs go through POST /api/forms/public/start instead.',
   tags: ['Forms Runtime'],
   responses: [{ status: 200, description: 'Published form version', schema: responseSchema }],
   errors: [
+    { status: 400, description: 'Missing tenant or organization context', schema: errorSchema },
+    { status: 401, description: 'Unauthenticated', schema: errorSchema },
     { status: 404, description: 'Form or version not found', schema: errorSchema },
     { status: 422, description: 'Form not active or unpublished', schema: errorSchema },
   ],
