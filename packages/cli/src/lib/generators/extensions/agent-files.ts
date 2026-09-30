@@ -1320,6 +1320,7 @@ export function createAgentFilesExtension(resolver?: AgentFilesResolver): Genera
   return {
     id: 'registry.agent-files',
     outputFiles: [],
+    usesSharedImportIds: false,
     scanModule(ctx: ModuleScanContext) {
       if (ctx.moduleId === ORCHESTRATOR_MODULE_ID) sawOrchestratorModule = true
       if (!repoRoot) {

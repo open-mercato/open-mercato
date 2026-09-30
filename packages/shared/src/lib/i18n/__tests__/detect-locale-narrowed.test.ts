@@ -1,7 +1,7 @@
 import type { Locale } from '../config'
 
-// `detectLocale` reaches for `next/headers` through a dynamic import, so the
-// mock has to be in place before the module under test is loaded.
+// Mock the installed Next module, not a virtual specifier: other suites resolve
+// the same module through Jest's shared resolver cache.
 const cookieStore = { value: undefined as string | undefined }
 const headerStore = { acceptLanguage: '' }
 
@@ -17,7 +17,6 @@ jest.mock(
         name.toLowerCase() === 'accept-language' ? headerStore.acceptLanguage : null,
     }),
   }),
-  { virtual: true },
 )
 
 import { detectLocale } from '../server'
