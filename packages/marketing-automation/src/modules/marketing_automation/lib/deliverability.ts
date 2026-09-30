@@ -2,6 +2,7 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import { MarketingCampaign } from '../data/entities.js'
+import { buildCampaignCommandContext } from './command-context.js'
 import { evaluateBreaker } from './engine/deliverability.js'
 import type { BreakerDecision } from './engine/deliverability.js'
 
@@ -70,16 +71,25 @@ export async function applyDeliverabilityGuardrails(
     })
     if (!campaign) continue
 
+    /**
+     * Through the shared context helper, and carrying the scope in the input.
+     *
+     * Written inline, this passed `auth: null` and no `systemActor`, so `requireScope` had nothing to read
+     * from either side and threw 400 on every trip. The throw escaped before `tripped.push`, so no campaign
+     * was ever paused and no notification was ever sent — and the sweep logged the failure at `warn` without
+     * reporting it, which is why a guardrail that never once fired looked like a guardrail that never needed
+     * to. `lib/auto-winner.ts` calls the same command correctly, fifty lines away.
+     */
     const commandBus = container.resolve<CommandBus>('commandBus')
     await commandBus.execute('marketing_automation.campaigns.set_enabled', {
-      input: { id: campaign.id, isEnabled: false, updatedAt: campaign.updatedAt.toISOString() },
-      ctx: {
-        container,
-        auth: null,
-        organizationScope: null,
-        selectedOrganizationId: scope.organizationId,
-        organizationIds: [scope.organizationId],
+      input: {
+        id: campaign.id,
+        isEnabled: false,
+        updatedAt: campaign.updatedAt.toISOString(),
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
       },
+      ctx: buildCampaignCommandContext(container, scope),
     })
 
     tripped.push({ campaignId: campaign.id, campaignName: campaign.name, decision })

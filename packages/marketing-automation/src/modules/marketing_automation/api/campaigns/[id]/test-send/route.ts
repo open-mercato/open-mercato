@@ -18,6 +18,7 @@ import {
   renderRecommendationsHtml,
 } from '../../../../lib/recommendations.js'
 import { buildSubjectDocument } from '../../../../lib/subject-document.js'
+import { renderValuesFromDocument } from '../../../../lib/render-values.js'
 import { loadTierThresholds } from '../../../../lib/tiers.js'
 import { redactEmails } from '../../../../lib/redact.js'
 import { applyContentBlocks, loadContentBlocks, referencedBlockKeys } from '../../../../lib/content-blocks.js'
@@ -149,7 +150,15 @@ export async function POST(req: Request) {
     // `track: false` regardless of the step's own setting: a test send has no run to attribute opens to.
     { ...stepParams, track: false },
     context,
-    { blocks, recommendationsHtml },
+    /**
+     * The customer's own values, from the document already built above.
+     *
+     * Without them a test send renders `{{customer.displayName}}` literally — the same defect a real send had
+     * until the values were loaded at send time. This route's whole purpose is that what the author sees is
+     * what the customer gets, so the two paths take their values from one shared mapper rather than each
+     * assembling a shape of its own.
+     */
+    { blocks, recommendationsHtml, values: renderValuesFromDocument(subject) },
   )
 
   try {

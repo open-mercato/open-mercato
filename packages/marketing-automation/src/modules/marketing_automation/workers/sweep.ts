@@ -468,8 +468,20 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
       await announceBreaker(deps.container, scope, outcome)
     }
   } catch (error) {
+    /**
+     * Reported, not just logged.
+     *
+     * This catch swallowed a guardrail that could not work at all: the command it calls threw on every trip,
+     * and a `warn` with no error report is invisible in exactly the way that let it stay broken. A pass that
+     * cannot pause a campaign is worth knowing about — the whole point of the breaker is that nobody is
+     * watching when it matters.
+     */
     logger.warn('[internal] marketing deliverability guardrail failed', {
       error: error instanceof Error ? error.message : String(error),
+    })
+    reportError(error, {
+      module: 'marketing_automation',
+      code: 'marketing_automation.deliverability_guardrail_failed',
     })
   }
 

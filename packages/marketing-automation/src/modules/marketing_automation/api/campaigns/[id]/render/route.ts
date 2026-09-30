@@ -16,6 +16,7 @@ import {
   renderRecommendationsHtml,
 } from '../../../../lib/recommendations.js'
 import { buildSubjectDocument } from '../../../../lib/subject-document.js'
+import { renderValuesFromDocument } from '../../../../lib/render-values.js'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { loadTierThresholds } from '../../../../lib/tiers.js'
 import type { AutomationContext } from '../../../../lib/engine/types.js'
@@ -132,8 +133,7 @@ export async function POST(req: Request) {
     subjectEntityId: subject?.customer?.id ?? null,
     campaignId: campaign.id,
     trigger: {},
-    ...(subject ? { customer: subject.customer, orders: subject.orders, score: subject.score, survey: subject.survey } : {}),
-  } as AutomationContext
+  }
 
   const stepParams = params.data as { subject: string; bodyHtml: string; bodyText?: string }
   const blocks = await loadContentBlocks(em, scope, referencedBlockKeys(stepParams.bodyHtml))
@@ -148,7 +148,22 @@ export async function POST(req: Request) {
     recommendationsHtml = renderRecommendationsHtml(items, { urlTemplate })
   }
 
-  const rendered = renderEmail({ ...stepParams, track: false }, context, { blocks, recommendationsHtml })
+  /**
+   * The customer's values, through the same mapper the send and the test send use.
+   *
+   * This route used to spread the WHOLE subject document into the context — every key, including ones no
+   * placeholder advertises — which made the preview show more than a send could produce. Since
+   * `lib/interpolate.ts` resolves any path it is handed, that turned `COPY_PLACEHOLDERS` into a hint rather
+   * than a fence, and the preview was the optimistic one: it rendered "Welcome, Ada" for copy that went out
+   * reading `Welcome, {{customer.displayName}}`.
+   *
+   * One mapper now, so a preview and a send cannot disagree in either direction.
+   */
+  const rendered = renderEmail(
+    { ...stepParams, track: false },
+    context,
+    { blocks, recommendationsHtml, values: renderValuesFromDocument(subject) },
+  )
 
   return NextResponse.json({
     stepId: located.step.id,

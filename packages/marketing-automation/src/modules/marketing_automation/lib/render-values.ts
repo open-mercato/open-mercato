@@ -88,3 +88,35 @@ export async function loadRenderValues(
 
   return values
 }
+
+/**
+ * The same values, from a subject document somebody has already built.
+ *
+ * A test send and the render preview both build the whole document for other reasons, so they must not pay
+ * for the targeted reads above — but they must produce the IDENTICAL shape, or the author is shown something
+ * their customer will not receive. That is the one thing a test send exists not to do, and it is written in
+ * the route's own docblock.
+ *
+ * One function defines the shape; three callers use it.
+ */
+export function renderValuesFromDocument(document: {
+  customer: { displayName?: string | null; email?: string | null } | null
+  orders: { count: number; totalGross: number; daysSinceLast?: number }
+  score: { points: number; tier: string | null }
+  survey: { nps: number | null; answeredAt: string | null }
+} | null): RenderValues {
+  if (!document) return {}
+  return {
+    ...(document.customer
+      ? { customer: { displayName: document.customer.displayName ?? null, email: document.customer.email ?? null } }
+      : {}),
+    orders: {
+      count: document.orders.count,
+      totalGross: document.orders.totalGross,
+      // Absent, not null, for a never-buyer — the same rule the targeted loader follows.
+      ...(document.orders.daysSinceLast === undefined ? {} : { daysSinceLast: document.orders.daysSinceLast }),
+    },
+    score: { points: document.score.points, tier: document.score.tier },
+    ...(document.survey.nps === null ? {} : { survey: { nps: document.survey.nps, answeredAt: document.survey.answeredAt } }),
+  }
+}
