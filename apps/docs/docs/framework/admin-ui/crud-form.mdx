@@ -153,6 +153,51 @@ An injected widget's handlers belong to the injection spot, not to its card. Hid
 
 Because hosts address groups by id, a built-in group's `id` is a contract surface: see [`BACKWARD_COMPATIBILITY.md`](https://github.com/open-mercato/open-mercato/blob/develop/BACKWARD_COMPATIBILITY.md) before renaming one, and pin a builder's ids with a guard test.
 
+## Hiding sections
+
+`hiddenGroupIds` is a **host** prop: only the page that owns the form can pass it, and it changes rendering only. Those are two different limits, and an app module hitting either one needs the next layer up.
+
+There are three distinct operations here. Picking the wrong one is how data gets lost, so they are worth keeping apart:
+
+| You want to… | Use | What it touches |
+|---|---|---|
+| Drop a card from a form **you own** | `hiddenGroupIds` | Rendering only. Fields keep their values and are still submitted. |
+| Drop a built-in section from a form **you don't own**, including its validation and writes | `overrides.forms.sections` | Whatever the host's own contract says — for catalog products, rendering **and** validation, payload and secondary writes. |
+| Remove an injected widget entirely | `overrides.widgets.injection['<widgetId>'] = null` | The card **and** its `onBeforeSave` / `transformFormData` handlers. |
+
+### The catalog product edit form
+
+`/backend/catalog/products/[id]` is the reference implementation of a host that consumes a section policy. Declare one in the app's `src/modules.ts`:
+
+```ts
+overrides: {
+  forms: {
+    sections: {
+      'crud-form:catalog.product': { hidden: ['compliance', 'product-uom', 'dimensions'] },
+    },
+  },
+}
+```
+
+The ten stable section ids are `details`, `dimensions`, `metadata`, `options`, `product-uom`, `compliance`, `variants`, `meta`, `categorize`, and `custom-fields`.
+
+For this form, hiding a section is **behavioural, not just visual**:
+
+- the card does not render;
+- the client validation that section owns does not run, so it cannot block a save from a control that is not on screen;
+- its keys are **omitted** from the `catalog/products` update payload — never sent as defaults or nulls;
+- the secondary writes it owns do not fire: `product-uom` owns the product-unit-conversion synchronisation, `categorize` owns deleting offers for de-selected channels.
+
+Every field the hidden section owns is **restored to its loaded value** before validation, which is what makes those four consistent — and it means visible sections that read a hidden section's fields still see real stored data rather than blanks.
+
+:::caution Why visual hiding alone would be unsafe here
+`buildComplianceProductPayload` emits **all 23** compliance/SEO keys on every save, substituting `null` for blanks. `catalog.product.update` treats an omitted key as *preserve* but an explicit `null` as *clear*. So a compliance card hidden with `hiddenGroupIds` alone would wipe the stored PKWiU, CN, HS, GTU and SEO values the next time a user saved an unrelated field. The section policy omits the keys instead, which is why it exists.
+:::
+
+Server validators, mutation guards, ACL and optimistic locking are untouched by a policy and stay authoritative for everything that is actually mutated. A policy narrows what the **client** sends; it never narrows what the server checks.
+
+Bad input fails safely: an unknown section id is ignored with a development warning, and a `widget:<widgetId>` id is **refused** — hiding a widget card would leave its handlers running, so the diagnostic points at `overrides.widgets.injection` instead. With no policy configured the page renders and submits byte-identically to before.
+
 ## Mobile UX
 - On small screens the form is fullscreen with a sticky header that shows the `title` and a `backHref` link.
 - On desktop it renders as a standard card with border and padding.
