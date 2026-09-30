@@ -18,8 +18,8 @@ Source repo: `open-mercato/official-modules@d694a75`, `packages/forms/src/module
 | 1 | 1.7 | Regenerate `packages/ui`'s committed lucide registry for the 12 Form Studio palette icons | inline | done | ad2ba4b48 |
 | 1 | 1.8 | Spec + this run folder | inline | done | 80bdc5945 |
 | 2 | 2.1 | Apply the MUST/SHOULD items from the host-wiring audit + the test-plan findings (command registration, cross-tenant read, subject-route URL, nav-group key, ZodError 400, embed docs) | inline | done | 3cd1d19be |
-| 2 | 2.2 | Apply the Critical/High items from the security review of the anonymous surface | inline | todo | |
-| 2 | 2.3 | Apply the MUST-fix items from the design-system / UI-reuse review | dispatch | todo | |
+| 2 | 2.2 | Apply the Critical/High items from the security review (C1 cross-tenant anonymize, C2 unsliced submission reads, H1 javascript: redirect XSS, H2 submit actor gate) | inline | done | af6ce65af |
+| 2 | 2.3 | Apply the DS-review findings that are real defects (21 no-op status tokens, 55 raw-key flash toasts); structural reuse deferred to follow-up | inline | done | 0cd51a9fb |
 | 3 | 3.1 | Author the P0 forms integration suite from the test plan and make it green | dispatch | todo | |
 | 3 | 3.2 | Open the PR against `develop` with pipeline labels | inline | todo | |
 | 3 | 3.3 | `om-auto-qa-pr` — exploratory browser QA of the Form Studio, public runner, distributions/invitations and portal pages; fix what it finds | dispatch | todo | |

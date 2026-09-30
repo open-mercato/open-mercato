@@ -250,6 +250,31 @@ and download headers, embed/CSP policy, the JSONLogic evaluator and Ajv configur
 and log redaction, anonymisation completeness, and module-wide tenant scoping. Findings and their
 disposition live in [`.ai/analysis/forms-security-review.md`](../analysis/forms-security-review.md).
 
+## Security findings fixed during the migration
+
+A dedicated review of the module's anonymous surface
+([`forms-security-review.md`](../analysis/forms-security-review.md)) raised two Criticals and four
+Highs. Four are fixed here; the ranked remainder stays in that document.
+
+| Sev | Finding | Fix |
+|---|---|---|
+| Critical | `AnonymizeService.anonymize(submissionId)` took no scope and the route validated the caller's tenant/org then dropped them, so any holder of `forms.submissions.anonymize` could irreversibly tombstone **any** tenant's submission by UUID — with the audit row written under the attacker's org, leaving the victim's trail empty | scope is now a required parameter, so the compiler rejects an unscoped call site, and the lookup filters on it |
+| Critical | `getCurrent` guarded slicing with `if (args.viewerRole)`, so a null role meant "do not slice" rather than "no access"; `resolveRuntimePrincipal` emitted `role: null` for **every** customer session, so a portal customer needed only a submission UUID to read another customer's answers fully decrypted, plus its PDF and attachments | slicing is unconditional and resolves a sentinel no field can declare when no role is named; the customer branch resolves the caller's active actor row — the same authorization `save()` requires — and denies when there is none |
+| High | `z.string().url()` accepts `javascript:`, `data:` and `vbscript:`, and a distribution's `redirect_url` reaches `window.location.href` on the anonymous runner in the app's own origin under a CSP allowing `'unsafe-inline'` — stored XSS against every respondent | new `lib/navigable-url.ts` http/https-only policy, enforced in the validator **and** re-checked at both navigation sinks (pre-existing rows, and `x-om-redirect-url` which no validator covers) |
+| High | `submit()` never checked the actor row `save()` requires, so a caller who may not edit a submission could freeze someone else's draft | same actor lookup added |
+
+Still open in that document and **not** fixed here: `public/start` creating four rows per
+unauthenticated request against a cap that counts only submits; the public upload route buffering
+the whole body before authenticating; the spoofable/fail-open rate limiter and presence-only
+CAPTCHA; attachment downloads missing the sandbox CSP the platform gives
+`/api/attachments/file/*`; incomplete GDPR erasure (attachments, PDF snapshots and invitation PII
+survive anonymize + retention); and `allErrors: true` on Ajv over an uncapped patch. Each needs its
+own change with integration coverage.
+
+One finding generalises beyond this module and deserves its own sweep:
+**`z.string().url()` accepting script schemes is a repo-wide trap.** Any other module whose
+`.url()` value reaches an `href` or `window.location` has the same hole.
+
 ## Known limitations
 
 ### The `/embed/:slug` surface is inert (follow-up, not a regression)
