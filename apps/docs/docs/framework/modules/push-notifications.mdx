@@ -137,7 +137,7 @@ To lengthen a per-send wait, raise `OM_PUSH_STUCK_RECLAIM_MINUTES` first.
 
 ## Setting it up end to end
 
-1. Enable `devices`, `notifications`, `communication_channels`, `integrations`, `push_notifications`, and install one provider package.
+1. Enable `devices`, `notifications`, `progress`, `communication_channels`, `integrations`, `push_notifications`, and install one provider package.
 2. Connect a tenant-scoped push channel for that provider.
 3. Grant `devices.*` and `push_notifications.*`, then `yarn mercato auth sync-role-acls` for existing tenants.
 4. Have the client app register its device with a `pushToken` **and** a matching `pushProvider`.

@@ -4,11 +4,9 @@
  * Called from within a Next.js app directory as: yarn mercato <command>
  * Uses dynamic app resolution to find generated files at .mercato/generated/
  */
-import {
-  getTelemetryRuntime,
-  isTelemetryBackendEnabled,
-} from '@open-mercato/shared/lib/telemetry/runtime'
+import { isTelemetryBackendEnabled } from '@open-mercato/shared/lib/telemetry/runtime'
 import { resolveCliBootstrapMode, type CliBootstrapMode } from './lib/cli-bootstrap-mode.js'
+import { flushTelemetry } from './lib/flush-telemetry.js'
 // `run` is imported dynamically inside `main()` so telemetry can initialize
 // before the mercato entry (and its Postgres driver) loads — see main().
 
@@ -118,7 +116,7 @@ async function main(): Promise<void> {
   const code = await run(process.argv)
   // Flush spans/logs for commands that return (workers block forever and flush via
   // their own shutdown handler instead).
-  await getTelemetryRuntime()?.shutdown()
+  await flushTelemetry()
   process.exit(code ?? 0)
 }
 
