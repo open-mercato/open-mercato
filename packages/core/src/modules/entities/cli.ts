@@ -356,6 +356,12 @@ function normalizeKeyInput(value: string): string {
   return value.trim().replace(/(?:^['"]|['"]$)/g, '')
 }
 
+const OLD_ENCRYPTION_KEY_ENV = 'TENANT_DATA_ENCRYPTION_OLD_KEY'
+
+function failCli(message: string): never {
+  throw new Error(message)
+}
+
 class DerivedKeyKmsService implements KmsService {
   private root: Buffer
   constructor(secret: string) {
@@ -381,11 +387,6 @@ class DerivedKeyKmsService implements KmsService {
   async createTenantDek(tenantId: string): Promise<TenantDek | null> {
     return this.getTenantDek(tenantId)
   }
-}
-
-function fingerprintDek(dek: TenantDek | null): string | null {
-  if (!dek?.key) return null
-  return crypto.createHash('sha256').update(dek.key).digest('hex').slice(0, 12)
 }
 
 function decryptWithOldKey(
@@ -449,6 +450,31 @@ function resolveMapMeta(
   return { entityId, meta, fields, tenantId }
 }
 
+function requireMapMeta(
+  map: EncryptionMap,
+  metaByEntityId: Map<string, any>,
+): EncryptionMapMeta {
+  const mapMeta = resolveMapMeta(map, metaByEntityId)
+  const entityId = String(map.entityId)
+  if (!mapMeta) {
+    return failCli(
+      `Cannot process encryption map ${entityId}: entity metadata, tenant scope, or mapped fields are missing. No rows were changed.`,
+    )
+  }
+  if (!mapMeta.meta?.tableName) {
+    return failCli(`Cannot process encryption map ${entityId}: table metadata is missing. No rows were changed.`)
+  }
+  for (const rule of mapMeta.fields) {
+    if (!resolveProperty(mapMeta.meta, rule.field).columnName) {
+      return failCli(`Cannot process encryption map ${entityId}: mapped field "${rule.field}" was not found. No rows were changed.`)
+    }
+    if (rule.hashField && !resolveProperty(mapMeta.meta, rule.hashField).columnName) {
+      return failCli(`Cannot process encryption map ${entityId}: hash field "${rule.hashField}" was not found. No rows were changed.`)
+    }
+  }
+  return mapMeta
+}
+
 function formatValueForColumn(prop: any, value: unknown): unknown {
   if (value === null || value === undefined) return value
   const types = Array.isArray(prop?.columnTypes) ? prop.columnTypes : []
@@ -464,33 +490,46 @@ const rotateEncryptionKey: ModuleCli = {
     const args = parseArgs(rest)
     const tenantIdArg = (args.tenant as string) || (args.tenantId as string) || null
     const organizationIdArg = (args.org as string) || (args.organization as string) || (args.organizationId as string) || null
-    const oldKey = (args['old-key'] as string) || (args.oldKey as string) || null
+    const oldKeyArgument = (args['old-key'] as string) || (args.oldKey as string) || null
+    const oldKeyEnvironment = process.env[OLD_ENCRYPTION_KEY_ENV]
+      ? normalizeKeyInput(process.env[OLD_ENCRYPTION_KEY_ENV]!)
+      : null
+    if (
+      oldKeyArgument
+      && oldKeyEnvironment
+      && normalizeKeyInput(oldKeyArgument) !== oldKeyEnvironment
+    ) {
+      failCli(`--old-key and ${OLD_ENCRYPTION_KEY_ENV} contain different values. Remove --old-key and retry.`)
+    }
+    if (oldKeyArgument) {
+      console.warn(
+        `Passing key material through --old-key can expose it in shell history and process listings. Set ${OLD_ENCRYPTION_KEY_ENV} through your secret manager instead.`,
+      )
+    }
+    const oldKey = oldKeyEnvironment || oldKeyArgument
     const dryRun = Boolean(args['dry-run'] || args.dry)
     const debug = Boolean(args.debug)
     const rotate = Boolean(oldKey)
     if (rotate && !tenantIdArg) {
       console.warn(
-        '⚠️  Rotating with --old-key across all tenants. A single old key should normally target one tenant; consider --tenant.',
+        '⚠️  Rotating with one previous key across all tenants. A single previous key should normally target one tenant; consider --tenant.',
       )
     }
     if (!isTenantDataEncryptionEnabled()) {
-      console.error('TENANT_DATA_ENCRYPTION is disabled; aborting.')
-      return
+      failCli('TENANT_DATA_ENCRYPTION is disabled; aborting.')
     }
 
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
     const conn: any = em?.getConnection?.()
     if (!conn || typeof conn.execute !== 'function') {
-      console.error('Unable to access raw connection; aborting.')
-      return
+      failCli('Unable to access raw connection; aborting.')
     }
 
     const encryptionService = new TenantDataEncryptionService(em as any, { kms: createKmsService() })
     const oldKms = rotate && oldKey ? new DerivedKeyKmsService(oldKey) : null
     if (!encryptionService.isEnabled()) {
-      console.error('Encryption service is not enabled (KMS unhealthy or no DEK). Aborting.')
-      return
+      failCli('Encryption service is not enabled (KMS unhealthy or no DEK). Aborting.')
     }
 
     if (debug) {
@@ -500,18 +539,6 @@ const rotateEncryptionKey: ModuleCli = {
         tenantId: tenantIdArg ?? null,
         organizationId: organizationIdArg ?? null,
       })
-      if (tenantIdArg) {
-        const [oldDek, newDek] = await Promise.all([
-          oldKms?.getTenantDek(tenantIdArg) ?? Promise.resolve(null),
-          encryptionService.getDek(tenantIdArg),
-        ])
-        console.log('[rotate-encryption-key] dek fingerprints', {
-          oldKey: fingerprintDek(oldDek),
-          currentKey: fingerprintDek(newDek),
-        })
-      } else {
-        console.log('[rotate-encryption-key] dek fingerprints skipped (no tenantId)')
-      }
     }
 
     const metaByEntityId = buildEntityMetaRegistry(em)
@@ -532,6 +559,10 @@ const rotateEncryptionKey: ModuleCli = {
       console.log('No encryption maps found for the selected scope.')
       return
     }
+    const resolvedMaps = maps.map((map: EncryptionMap) => ({
+      map,
+      mapMeta: requireMapMeta(map, metaByEntityId),
+    }))
 
     const resolveScopes = async (tenantId: string, organizationId: string | null) => {
       if (organizationId) return [{ tenantId, organizationId }]
@@ -546,7 +577,7 @@ const rotateEncryptionKey: ModuleCli = {
 
     const oldDekCache = new Map<string, TenantDek | null>()
     // Rows this run could not rotate because their ciphertext opens under neither
-    // --old-key nor the current tenant key — surfaced in the closing summary so an
+    // the previous nor the current tenant key — surfaced in the closing summary so an
     // operator does not have to grep console.warn output for a batch of thousands.
     const unrecoverableRows: Array<{ entityId: string; field: string; rowId: unknown }> = []
     // A dry run must not provision key material. `encryptEntityPayload` creates and
@@ -651,7 +682,7 @@ const rotateEncryptionKey: ModuleCli = {
             if (rule.hashField) delete payload[rule.hashField]
             unrecoverableRows.push({ entityId, field: rule.field, rowId: row[pk] })
             console.warn(
-              `Skipping ${entityId}.${rule.field} for row ${row[pk]}: its ciphertext opens under neither --old-key nor the current tenant key. Re-run with the key that sealed it.`,
+              `Skipping ${entityId}.${rule.field} for row ${row[pk]}: its ciphertext opens under neither the previous nor the current tenant key. Re-run with the key that sealed it.`,
             )
           }
         }
@@ -709,9 +740,7 @@ const rotateEncryptionKey: ModuleCli = {
     }
 
     let total = 0
-    for (const map of maps) {
-      const mapMeta = resolveMapMeta(map, metaByEntityId, console.warn)
-      if (!mapMeta) continue
+    for (const { map, mapMeta } of resolvedMaps) {
       const { entityId, meta, fields, tenantId } = mapMeta
       const scopes = await resolveScopes(tenantId, map.organizationId ? String(map.organizationId) : null)
       for (const scope of scopes) {
@@ -734,7 +763,7 @@ const rotateEncryptionKey: ModuleCli = {
       const maxListed = 20
       console.log(
         `\n⚠️  ${unrecoverableRows.length} field(s) could not be rotated — their ciphertext opens under neither `
-          + '--old-key nor the current tenant key, so they were left untouched. See '
+          + 'the previous nor the current tenant key, so they were left untouched. See '
           + '"Key management" in apps/docs/docs/architecture/data-encryption.mdx for how to resolve these manually.',
       )
       for (const row of unrecoverableRows.slice(0, maxListed)) {
@@ -743,6 +772,9 @@ const rotateEncryptionKey: ModuleCli = {
       if (unrecoverableRows.length > maxListed) {
         console.log(`  ... and ${unrecoverableRows.length - maxListed} more`)
       }
+      failCli(
+        `${unrecoverableRows.length} encrypted field(s) could not be rotated. The command left them untouched and did not complete successfully.`,
+      )
     }
   },
 }
@@ -763,18 +795,15 @@ const decryptDatabase: ModuleCli = {
     const debug = Boolean(args.debug)
 
     if (!tenantIdArg) {
-      console.error('--tenant <uuid> is required.')
-      return
+      failCli('--tenant <uuid> is required.')
     }
 
     if (!checkMode) {
       if (!confirm) {
-        console.error('--confirm <tenantUuid> is required (safety gate). Pass the exact tenant UUID to confirm the operation.')
-        return
+        failCli('--confirm <tenantUuid> is required (safety gate). Pass the exact tenant UUID to confirm the operation.')
       }
       if (confirm !== tenantIdArg) {
-        console.error(`--confirm value "${confirm}" does not match --tenant "${tenantIdArg}". Aborting.`)
-        return
+        failCli(`--confirm value "${confirm}" does not match --tenant "${tenantIdArg}". Aborting.`)
       }
     }
 
@@ -782,13 +811,11 @@ const decryptDatabase: ModuleCli = {
     const em = resolve('em') as any
     const conn: any = em?.getConnection?.()
     if (!conn || typeof conn.execute !== 'function') {
-      console.error('Unable to access raw database connection; aborting.')
-      return
+      failCli('Unable to access raw database connection; aborting.')
     }
 
     if (!checkMode && !isTenantDataEncryptionEnabled()) {
-      console.error('TENANT_DATA_ENCRYPTION is disabled; aborting. Data may already be decrypted.')
-      return
+      failCli('TENANT_DATA_ENCRYPTION is disabled; aborting. Data may already be decrypted.')
     }
 
     const metaByEntityId = buildEntityMetaRegistry(em)
@@ -827,6 +854,10 @@ const decryptDatabase: ModuleCli = {
       console.log('No active encryption maps found for the selected scope.')
       return
     }
+    const resolvedMaps = maps.map((map: EncryptionMap) => ({
+      map,
+      mapMeta: requireMapMeta(map, metaByEntityId),
+    }))
 
     const kms = createKmsService()
     const dekCache = new Map<string, TenantDek | null>()
@@ -843,16 +874,13 @@ const decryptDatabase: ModuleCli = {
       console.log(`Active EncryptionMap records for scope: ${maps.length}`)
       let encryptedCandidatesSampled = 0
       let malformedPayloadCountSampled = 0
-      for (const map of maps) {
-        const mapMeta = resolveMapMeta(map, metaByEntityId)
-        if (!mapMeta) continue
+      for (const { map, mapMeta } of resolvedMaps) {
         const { entityId, meta, fields, tenantId } = mapMeta
         const dek = await getDek(tenantId).catch(() => null)
-        if (!dek) continue
+        if (!dek) failCli(`No DEK available for tenant ${tenantId}; cannot inspect ${entityId}.`)
         const scopes = await resolveDecryptScopes(tenantId, map.organizationId ? String(map.organizationId) : null)
         const pk = Array.isArray(meta?.primaryKeys) && meta.primaryKeys.length ? meta.primaryKeys[0] : 'id'
-        const tableName = meta?.tableName
-        if (!tableName) continue
+        const tableName = meta.tableName
         const schema = meta?.schema
         const qualifiedTable = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`
         const fieldCols = fields.flatMap((f: any) => {
@@ -904,21 +932,21 @@ const decryptDatabase: ModuleCli = {
     const malformedByLocation = new Map<string, number>()
     let totalEntitiesProcessed = 0
 
-    for (const map of maps) {
-      const mapMeta = resolveMapMeta(map, metaByEntityId, console.warn)
-      if (!mapMeta) continue
-      const { entityId, meta, fields, tenantId } = mapMeta
-      const dek = await getDek(tenantId)
+    const deksByTenantId = new Map<string, TenantDek>()
+    for (const { mapMeta } of resolvedMaps) {
+      if (deksByTenantId.has(mapMeta.tenantId)) continue
+      const dek = await getDek(mapMeta.tenantId)
       if (!dek) {
-        console.warn(`No DEK available for tenant ${tenantId}; skipping ${entityId}.`)
-        continue
+        failCli(`No DEK available for tenant ${mapMeta.tenantId}. No rows were changed.`)
       }
+      deksByTenantId.set(mapMeta.tenantId, dek)
+    }
+
+    for (const { map, mapMeta } of resolvedMaps) {
+      const { entityId, meta, fields, tenantId } = mapMeta
+      const dek = deksByTenantId.get(tenantId)!
       const pk = Array.isArray(meta?.primaryKeys) && meta.primaryKeys.length ? meta.primaryKeys[0] : 'id'
-      const tableName = meta?.tableName
-      if (!tableName) {
-        console.warn(`Skipping ${entityId}: table name not found.`)
-        continue
-      }
+      const tableName = meta.tableName
       const schema = meta?.schema
       const qualifiedTable = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`
       const fieldCols = fields.flatMap((f: any) => {

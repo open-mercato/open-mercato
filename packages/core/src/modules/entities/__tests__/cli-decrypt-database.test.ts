@@ -15,6 +15,7 @@ registerEntityIds({
 
 const execute = jest.fn()
 const find = jest.fn()
+const getAllMetadata = jest.fn()
 
 jest.mock('@open-mercato/core/modules/entities/lib/install-from-ce', () => ({
   installCustomEntitiesFromModules: jest.fn(async () => ({ processed: 0, synchronized: 0, fieldChanges: 0, skipped: 0 })),
@@ -47,37 +48,39 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
     resolve: () => ({
       getConnection: () => ({ execute }),
       getMetadata: () => ({
-        getAll: () => ([{
-          className: 'AccessLog',
-          name: 'AccessLog',
-          tableName: 'access_logs',
-          primaryKeys: ['id'],
-          properties: {
-            id: {
-              name: 'id',
-              fieldNames: ['id'],
-              columnTypes: ['uuid'],
-              type: 'uuid',
-            },
-            resourceId: {
-              name: 'resourceId',
-              fieldNames: ['resource_id'],
-              columnTypes: ['text'],
-              type: 'text',
-            },
-            emailHash: {
-              name: 'emailHash',
-              fieldNames: ['email_hash'],
-              columnTypes: ['text'],
-              type: 'text',
-            },
-          },
-        }]),
+        getAll: () => getAllMetadata(),
       }),
       find: (...args: any[]) => find(...args),
     }),
   }),
 }))
+
+const accessLogMetadata = {
+  className: 'AccessLog',
+  name: 'AccessLog',
+  tableName: 'access_logs',
+  primaryKeys: ['id'],
+  properties: {
+    id: {
+      name: 'id',
+      fieldNames: ['id'],
+      columnTypes: ['uuid'],
+      type: 'uuid',
+    },
+    resourceId: {
+      name: 'resourceId',
+      fieldNames: ['resource_id'],
+      columnTypes: ['text'],
+      type: 'text',
+    },
+    emailHash: {
+      name: 'emailHash',
+      fieldNames: ['email_hash'],
+      columnTypes: ['text'],
+      type: 'text',
+    },
+  },
+}
 
 describe('entities decrypt-database CLI', () => {
   let cli: Array<{ command: string; run: (args: string[]) => Promise<void> }>
@@ -85,6 +88,7 @@ describe('entities decrypt-database CLI', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    getAllMetadata.mockReturnValue([accessLogMetadata])
     process.env.TENANT_DATA_ENCRYPTION = 'yes'
     execute.mockResolvedValue([])
     // Reset isTenantDataEncryptionEnabled to true so tests that mock it false don't pollute subsequent tests
@@ -128,36 +132,39 @@ describe('entities decrypt-database CLI', () => {
   }
 
   it('aborts when --tenant is missing', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
-    await getCmd().run(['--confirm', 'tenant-1'])
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('--tenant'))
+    await expect(getCmd().run(['--confirm', 'tenant-1'])).rejects.toThrow('--tenant')
     expect(find).not.toHaveBeenCalled()
-    consoleSpy.mockRestore()
   })
 
   it('aborts when --confirm is missing', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
-    await getCmd().run(['--tenant', 'tenant-1'])
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('--confirm'))
+    await expect(getCmd().run(['--tenant', 'tenant-1'])).rejects.toThrow('--confirm')
     expect(find).not.toHaveBeenCalled()
-    consoleSpy.mockRestore()
   })
 
   it('aborts when --confirm does not match --tenant', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
-    await getCmd().run(['--tenant', 'tenant-1', '--confirm', 'wrong-tenant'])
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('does not match'))
+    await expect(
+      getCmd().run(['--tenant', 'tenant-1', '--confirm', 'wrong-tenant']),
+    ).rejects.toThrow('does not match')
     expect(find).not.toHaveBeenCalled()
-    consoleSpy.mockRestore()
   })
 
   it('aborts when TENANT_DATA_ENCRYPTION is disabled', async () => {
     const { isTenantDataEncryptionEnabled } = require('@open-mercato/shared/lib/encryption/toggles')
     isTenantDataEncryptionEnabled.mockReturnValue(false)
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
-    await getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1'])
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('disabled'))
-    consoleSpy.mockRestore()
+    await expect(
+      getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1']),
+    ).rejects.toThrow('disabled')
+  })
+
+  it('fails before querying mapped rows when entity metadata is missing', async () => {
+    setupDefaultMapFind()
+    getAllMetadata.mockReturnValue(new Map())
+
+    await expect(
+      getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1']),
+    ).rejects.toThrow('Cannot process encryption map audit_logs:access_log')
+
+    expect(execute).not.toHaveBeenCalled()
   })
 
   it('--check mode: prints env value, map count, and sampling estimate without writes', async () => {
@@ -336,20 +343,14 @@ describe('entities decrypt-database CLI', () => {
     expect(execute).toHaveBeenCalledWith('ROLLBACK')
   })
 
-  it('missing hashField column: warns and skips, lists in summary', async () => {
+  it('missing hashField column: fails before reading or updating rows', async () => {
     setupDefaultMapFind([makeMap({ fieldsJson: [{ field: 'resource_id', hashField: 'nonexistent_hash' }] })])
-    setupScopesAndRows([{ id: 'row-1', resource_id: 'iv:cipher:tag:v1' }])
-    mockDecrypt.mockReturnValueOnce('decrypted-value')
 
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
-    const logSpy = jest.spyOn(console, 'log').mockImplementation()
-    await getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1'])
+    await expect(
+      getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1']),
+    ).rejects.toThrow('hash field "nonexistent_hash" was not found')
 
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('nonexistent_hash'))
-    const logText = logSpy.mock.calls.map((c) => String(c[0])).join('\n')
-    expect(logText).toMatch(/skipped.*missing columns/)
-    warnSpy.mockRestore()
-    logSpy.mockRestore()
+    expect(execute).not.toHaveBeenCalled()
   })
 
   it('--deactivate-maps: deactivates maps after decryption', async () => {

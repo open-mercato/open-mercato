@@ -388,17 +388,12 @@ export class HashicorpVaultKmsService implements KmsService {
 
 let loggedDerivedKeyFallbackBanner = false
 
-function fingerprintSecret(secret: string): string {
-  return crypto.createHash('sha256').update(secret, 'utf8').digest('hex').slice(0, 16)
-}
-
 export function buildDerivedKeyFallbackBannerLines(opts: DerivedSecret): string[] {
   const sourceLine =
     opts.source === 'explicit' ? `Source: ${opts.envName}` : 'Source: dev default secret (do NOT use in production)'
   return [
     '🚨 Using derived tenant encryption keys (Vault unavailable / no DEK)',
     sourceLine,
-    `Secret fingerprint (sha256, truncated): ${fingerprintSecret(opts.secret)}`,
     'Persist this secret securely. Without it, encrypted tenant data cannot be recovered after restart.',
   ]
 }
@@ -418,9 +413,7 @@ function logDerivedKeyFallbackBanner(opts: DerivedSecret): void {
     border,
   ]
   process.stderr.write(bannerLines.join('\n') + '\n')
-  logger.warn('Using derived tenant encryption keys (Vault unavailable / no DEK)', {
-    secretFingerprint: fingerprintSecret(opts.secret),
-  })
+  logger.warn('Using derived tenant encryption keys (Vault unavailable / no DEK)')
 }
 
 /**
