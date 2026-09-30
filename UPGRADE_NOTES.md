@@ -200,6 +200,71 @@ in create mode and renders its empty state. The bridge also keeps the shipped `e
 `example.injection.customer-priority-field` field widget rendering on this page exactly as before,
 via the dual-published `:fields` child.
 
+### An explicit OTLP telemetry backend now fails startup when OpenTelemetry is not installed (#5799)
+
+Only relevant if `TELEMETRY_BACKEND` is set to `otlp`, `signoz`, or `newrelic`. `initTelemetry()`
+(`@open-mercato/telemetry`) used to catch a failed import of the optional `@opentelemetry/*`
+packages, log one warning, and start the console provider instead, so the deployment reported
+`Telemetry initialized` while exporting nothing to the configured endpoint. That fallback is gone:
+`initTelemetry()` now rejects with an `OtlpDependencyUnavailableError` that names the selected
+backend and the remediations below, with the original import failure kept as `cause`.
+`registerTelemetryForNextjs()` (`@open-mercato/telemetry/nextjs`) was documented as never letting a
+rejection escape Next's `register()`; it now rethrows this one error. Every other init failure still
+degrades to "no telemetry" with a warning, and function signatures and import paths are unchanged.
+
+**Who is affected:** deployments that select one of those three backends **and** run without the
+optional dependencies installed (for example, an image or install that omits optional
+dependencies). Telemetry-off (`TELEMETRY_BACKEND` unset, blank, `noop`, or unknown), `console`, and
+registered custom providers behave exactly as before. Standard Open Mercato images install optional
+dependencies and are unaffected.
+
+**What stops working:** those hosts no longer start. The `mercato` CLI, workers, and the scheduler
+print the message and exit with code 1. The Next.js web host depends on its `src/instrumentation.ts`:
+
+- `apps/mercato` and newly scaffolded create-app projects wrap the call, write the one-line message
+  to stderr, and exit with code 1;
+- a standalone app scaffolded earlier still has a bare `await registerTelemetryForNextjs()` in
+  `register()`, so the rejection escapes it and Next.js rethrows it as `An error occurred while
+  loading instrumentation hook: …` while preparing the server. There is no longer a warning and
+  console fallback.
+
+**Action for operators:** choose one:
+
+1. Rebuild or reinstall with optional dependencies included.
+2. Set `TELEMETRY_BACKEND=console` if local diagnostic output is what you want.
+3. Unset `TELEMETRY_BACKEND`, or set it to `noop`, to disable telemetry.
+
+No stored data or credentials are affected.
+
+**Action for standalone app authors:** after upgrading, re-run `yarn mercato telemetry init`. It
+upgrades both previously generated bootstrap shapes (the `NEXT_RUNTIME === 'nodejs'`-only guard and
+the `isTelemetryBackendEnabled()` guard) to the wrapped form below and is idempotent. If you
+customized `register()` so the shape no longer matches, it leaves the file alone, reports `manual`,
+and prints the canonical snippet for you to apply:
+
+```ts
+if (process.env.NEXT_RUNTIME === 'nodejs' && isTelemetryBackendEnabled()) {
+  const { registerTelemetryForNextjs } = await import('@open-mercato/telemetry/nextjs')
+  try {
+    await registerTelemetryForNextjs()
+  } catch (err) {
+    const nodeProcess = process
+    nodeProcess.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+    nodeProcess.exit(1)
+  }
+}
+```
+
+**Docker Compose (additive):** `starters/docker/compose.fullapp.yml` (and its repo-root copy
+`docker-compose.fullapp.yml`) and the create-app `docker-compose.fullapp.yml` now forward
+`TELEMETRY_BACKEND`, `TELEMETRY_SAMPLING_RATIO`, `TELEMETRY_TRUST_INBOUND_TRACE`,
+`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_SERVICE_NAME`, and
+`OTEL_RESOURCE_ATTRIBUTES` into the `app` container. They also add an opt-in `telemetry` profile
+that runs a diagnostic OpenTelemetry Collector. Before this change the `app` container never saw
+these variables, so if your `.env` already sets `TELEMETRY_BACKEND` to an enabled backend,
+telemetry now starts inside the container. Check that value before upgrading. See
+[`apps/docs/docs/framework/runtime/telemetry.mdx`](apps/docs/docs/framework/runtime/telemetry.mdx).
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).
