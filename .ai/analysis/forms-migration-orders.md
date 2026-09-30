@@ -123,3 +123,60 @@ command that does (check each package's own `lint` script and
 Rank findings **MUST fix before merge** / **SHOULD fix** / **nit**, and order each group by how
 many sites it touches. Group by file. Give the exact replacement for each site — the parent will
 apply them, so a finding without a concrete fix is not useful. Commit the one file.
+
+---
+
+## ORDER: author the P0 forms integration suite
+
+**Output scope (the only paths you may create or modify):**
+`packages/core/src/modules/forms/__integration__/**` and
+`packages/core/src/helpers/integration/formsFixtures.ts`.
+**Mode:** implement. Do not touch any other file — in particular no file under
+`packages/core/src/modules/forms/` outside `__integration__/`, and no existing helper.
+
+### Why this is urgent
+
+`.ai/analysis/forms-integration-test-plan.md` established that
+`OM_INTEGRATION_MODULES=forms` currently matches **zero** specs, so the Playwright config falls back
+to a `__no_tests__` sentinel that asserts `expect(true).toBe(true)`. The PR therefore reports
+`ephemeral-integration` **green while testing nothing**, with ~50 new API routes landing behind a
+placeholder pass. Your job is to restore that signal.
+
+### What to do
+
+1. **Read `.ai/analysis/forms-integration-test-plan.md` end to end first.** Part 1 is an exhaustive,
+   verified map of the harness: the 69 `__integration__` directories, the discovery module, every
+   command, how the ephemeral lane provisions (testcontainers Postgres → `mercato init` → builds →
+   app on :5001 → Playwright), the CI shard matrix, and an export-by-export inventory of all 38
+   helper files under `packages/core/src/helpers/integration/`. Part 2 is a 93-case design
+   (42 P0 / 41 P1 / 10 P2) with routes, fixtures, steps and assertions per case. **Author the 42 P0
+   cases.** Do not redesign them; if a case turns out to be wrong against the real API, fix the test
+   and say so in your report.
+2. **Build the shared `formsFixtures.ts`** the plan proposes, in the house style of the existing
+   `crmFixtures` / `catalogFixtures` / `salesFixtures`: API-first fixture creation, everything it
+   creates cleaned up in teardown, no reliance on seeded or demo data.
+3. **Make them pass.** A red suite is not the deliverable. If a test fails because the module is
+   genuinely broken, do NOT weaken the test and do NOT fix the module — that is outside your scope.
+   Report the defect precisely (route, inputs, expected vs actual) and mark that case skipped with a
+   comment naming the defect, so the parent can fix the module and unskip it.
+
+### Environment — the plan's section 1.7 has the verified recipe; these bite hardest
+
+- `export TMPDIR=/tmp` before anything. Under cezar the default TMPDIR cannot host a unix socket,
+  `tsx` dies with `listen EINVAL`, and the yarn wrapper can swallow it into a false exit 0.
+- Run `yarn build:packages` before `yarn test:integration:ephemeral`, which otherwise fails
+  `MODULE_NOT_FOUND` **while exiting 0**. Never trust its exit code alone — read the output.
+- `apps/mercato/.env` ships `JWT_SECRET=change-me-dev-secret` and the ephemeral app runs under
+  `NODE_ENV=production`, where `jwt.ts` fails closed on that placeholder. Export a real secret.
+- Turbo's cache is shared across sibling worktrees and will replay another worktree's result. Verify
+  `dist/` contents rather than trusting a green line.
+- An unauthenticated `page.request` is the classic trap here — use the house pattern the plan
+  documents.
+
+### Deliverable
+
+Commit the suite. In your report: how many of the 42 P0 cases are passing, how many skipped and why
+(one line per skip, naming the module defect), the verbatim command and output of the full forms
+integration run, and the `OM_INTEGRATION_MODULES=forms playwright --list` count proving the sentinel
+is gone. Be honest about anything you could not get green — a `done` that hides a red case costs the
+parent a full round trip.
