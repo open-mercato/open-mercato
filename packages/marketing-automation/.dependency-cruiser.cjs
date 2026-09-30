@@ -14,8 +14,9 @@
  * A directory argument collects zero modules here and reports "no violations found", which is the most
  * dangerous output a gate can produce — hence the glob, and hence this note.
  *
- * The tool is deliberately NOT a dependency of this package. It runs through `npx` in the fork's own quality
- * workflow, so the rules travel with the module while the toolchain stays out of `package.json`.
+ * The tool is deliberately NOT a dependency of this package — it runs through `npx`, so these rules travel with
+ * the module while the toolchain stays out of `package.json`. Wire it into whatever pipeline you prefer, or run
+ * it by hand; the rules are the contribution, the runner is not.
  */
 module.exports = {
   forbidden: [
