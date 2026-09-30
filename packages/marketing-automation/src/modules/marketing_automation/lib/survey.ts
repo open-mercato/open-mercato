@@ -1,7 +1,7 @@
 import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { MarketingSurveyPrompt } from '../data/entities.js'
-import type { SubjectScope } from './subject-document.js'
+import type { SubjectScope } from './scope.js'
 
 /**
  * Net Promoter Score: one question, an answer between 0 and 10.

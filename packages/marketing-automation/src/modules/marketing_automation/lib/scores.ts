@@ -1,7 +1,7 @@
 import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { MarketingCustomerScoreEntry } from '../data/entities.js'
-import type { SubjectScope } from './subject-document.js'
+import type { SubjectScope } from './scope.js'
 
 /**
  * Lead score: a signed points total per customer, stored as a ledger.

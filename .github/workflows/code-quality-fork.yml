@@ -1,0 +1,119 @@
+# Architecture and dead-code scanners for `packages/marketing-automation`.
+#
+# THIS FILE IS FORK-ONLY AND MUST NOT GO INTO THE PULL REQUEST UPSTREAM, for the same reason as
+# `marketing-automation-fork.yml`: adding a pipeline to somebody's repository is a change to their CI that nobody
+# asked for. The RULES it enforces do travel with the contribution — they live in
+# `packages/marketing-automation/.dependency-cruiser.cjs` and `packages/marketing-automation/knip.json`, where a
+# reviewer can read them beside the code they describe.
+#
+# Separate from the test gate on purpose. That one answers "does it work"; this one answers "is it still the shape
+# it says it is", and the two fail for different reasons and get read by different people. It is also fast —
+# under five minutes — so it can stay noisy-free and be required on every push.
+#
+# ── Why these two, and what was tried ───────────────────────────────────────────────────────────────────────
+#
+# **dependency-cruiser** turns the module's own AGENTS.md sentences into checks. "Keep `lib/engine/` pure — no
+# React, no ORM, no container" was prose until now: true because everybody had read it. It found two real
+# circular imports the first time it ran, both through a type three files shared.
+#
+# **knip** reports exports and types nothing uses. A write-only export is this module's recorded failure mode —
+# `link_url` was written on every click for two phases and no screen read it — so a scanner that names them is
+# worth having. Its "duplicate exports" category is switched off: `export const x` beside `export default x` is
+# how every auto-discovery convention file in this repository declares itself.
+#
+# Deliberately absent, with reasons, so nobody spends an hour rediscovering them:
+#
+#   * **type-coverage** — needs `ts.createProgram`, which TypeScript 7 does not export. It offers a dependency
+#     override as a workaround; taking it would put a tool into `package.json` that the upstream PR would then
+#     carry.
+#   * **typescript-eslint type-aware rules** — blocked by the same TypeScript 7 gap that already forces the
+#     design-system lint through `scripts/typescript-js-require-hook.cjs`. Worth revisiting when the plugin
+#     catches up; it is the single biggest remaining win here.
+#   * **StrykerJS mutation testing** — the repository already runs it, in `mutation-tests.yml`.
+#   * **semgrep / dependency audit** — already covered by `audit.yml`.
+#
+# Neither tool is a dependency of anything. They run through `npx`, so the toolchain stays out of `package.json`
+# and out of the diff a maintainer reviews.
+name: Code quality (fork gate)
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - feat/marketing-automation
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ma-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: Architecture and dead code
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
+
+      - name: Module boundaries and import cycles
+        # A GLOB, not a directory. Pointed at `packages/marketing-automation/src` the tool collects zero modules
+        # and reports "no violations found" — a gate that passes over nothing, which is worse than no gate.
+        # The config's own header says the same thing, because this is exactly the mistake to repeat.
+        run: |
+          npx --yes dependency-cruiser@16 \
+            --config packages/marketing-automation/.dependency-cruiser.cjs \
+            "packages/marketing-automation/src/**/*.ts"
+
+      - name: Exports and types nothing uses
+        run: |
+          npx --yes knip@5 \
+            --config packages/marketing-automation/knip.json \
+            --workspace packages/marketing-automation \
+            --no-progress
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Code quality"
+            echo
+            echo "| Scanner | Checks |"
+            echo "|---|---|"
+            echo "| dependency-cruiser | engine purity, no ORM entities in the engine, no import cycles, no reach into \`packages/enterprise\`, orphan files (warning) |"
+            echo "| knip | exports and types nothing imports |"
+            echo
+            echo "Rules live in \`packages/marketing-automation/.dependency-cruiser.cjs\` and \`knip.json\`, beside the code they describe."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,3 +1,4 @@
+import type { SubjectScope } from './scope.js'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerAddress, CustomerEntity, CustomerPersonProfile } from '@open-mercato/core/modules/customers/data/entities'
@@ -20,7 +21,7 @@ import type { TierThreshold } from './engine/tiers.js'
 export { PLACED_ORDER_FILTER_SQL, PLACED_ORDER_FILTER_SQL_ALIASED } from './order-filter.js'
 import { PLACED_ORDER_FILTER_SQL, PLACED_ORDER_FILTER_SQL_ALIASED } from './order-filter.js'
 
-export type SubjectScope = { tenantId: string; organizationId: string }
+export type { SubjectScope } from './scope.js'
 
 
 const ORDER_AGGREGATE_SQL = `

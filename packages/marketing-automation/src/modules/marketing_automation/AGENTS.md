@@ -179,6 +179,13 @@ already at parity. Items A5–A7 change `sales` — ask before building them.
   subject documents and killed the jest worker under the repo-wide heap cap — reporting no failing test, just
   "Jest worker ran out of memory and crashed" and 111 tests quietly absent from the run. Yield them, and cross only
   the dimensions the code under test actually reads together.
+- Never let `lib/engine/` reach for React, an ORM, the container or an entity — and do not rely on remembering
+  it. `.dependency-cruiser.cjs` in the package root turns that sentence, and three others beside it, into a check
+  the fork's quality workflow runs. Rules live there rather than in CI so a reviewer reads them next to the code.
+- Never leave a type shared across files in a module that also imports from them. Two circular imports lived here
+  for weeks that way: `scores.ts` and `survey.ts` took `SubjectScope` from `subject-document.ts`, which imports
+  functions from both. Type-only cycles are erased at runtime, so nothing breaks until somebody needs a VALUE
+  across the same edge. The type now lives alone in `lib/scope.ts`.
 - Never put anything but a subscriber in `subscribers/`. The generator registers every file in that folder, so a
   helper living there becomes a subscriber for the empty-string event.
 - Never make a reorder reminder once-ever or daily. The cycle NUMBER goes in the claim key: without it a durable
