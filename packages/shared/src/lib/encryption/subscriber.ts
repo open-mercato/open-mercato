@@ -228,7 +228,7 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
   private async encrypt(
     target: Record<string, unknown>,
     meta: EntityMetadata<any> | undefined,
-    em?: { getMetadata?: () => any; getComparator?: () => any },
+    em?: { getMetadata?: () => any; getComparator?: () => any; getTransactionContext?: () => unknown },
     changeSet?: { payload?: Record<string, unknown> },
   ) {
     const encryptionConfigured = isTenantDataEncryptionEnabled()
@@ -247,7 +247,7 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
       return
     }
     const { tenantId, organizationId } = resolveScope(target)
-    const encrypted = await this.service.encryptEntityPayload(entityId, target, tenantId, organizationId)
+    const encrypted = await this.service.encryptEntityPayload(entityId, target, tenantId, organizationId, { em })
     const metaProps: Record<string, unknown> = resolvedMeta?.properties && typeof resolvedMeta.properties === 'object'
       ? resolvedMeta.properties
       : {}
@@ -315,7 +315,7 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
   async decryptEntityGraph(
     target: Record<string, unknown>,
     meta: EntityMetadata<any> | undefined,
-    em?: { getMetadata?: () => any; getComparator?: () => any },
+    em?: { getMetadata?: () => any; getComparator?: () => any; getTransactionContext?: () => unknown },
     opts: { syncOriginal?: boolean; seen?: WeakSet<object>; fallbackScope?: Scope } = {},
   ) {
     await this.decrypt(target, meta, em, opts)
@@ -324,7 +324,7 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
   private async decrypt(
     target: Record<string, unknown>,
     meta: EntityMetadata<any> | undefined,
-    em?: { getMetadata?: () => any; getComparator?: () => any },
+    em?: { getMetadata?: () => any; getComparator?: () => any; getTransactionContext?: () => unknown },
     {
       syncOriginal = false,
       seen,
@@ -349,7 +349,7 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     // drop the pending write (e.g. an undo handler that mutates an entity, then loads a related
     // encrypted entity whose deep-decrypt recurses back into the still-dirty entity before flush).
     const hadPendingChanges = syncOriginal ? this.hasPendingChanges(target, resolvedMeta, em as any) : false
-    const decrypted = await this.service.decryptEntityPayload(entityId, target, scopedTenantId, scopedOrgId)
+    const decrypted = await this.service.decryptEntityPayload(entityId, target, scopedTenantId, scopedOrgId, { em })
     Object.assign(target, decrypted)
     this.restoreDecryptedJsonColumns(target, resolvedMeta)
     if (syncOriginal && !hadPendingChanges) {
