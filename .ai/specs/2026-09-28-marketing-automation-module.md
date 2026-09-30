@@ -887,6 +887,17 @@ rather than worked around silently:
 
 ## Changelog
 
+- **2026-09-30** — the rest of the UX audit, all of it the same complaint: the screens spoke the engine's
+  language. The results screen led every funnel row with the step's id in monospace and listed which
+  messages carried a link the same way — both print the step's own label now, with the id kept in a tooltip
+  for support. The referrals list showed "Open profile" in every cell of the "Referrer" column, so the
+  column could not answer the question the screen exists for; it names the person, gated on
+  `customers.people.view` and decrypted only with that grant, exactly as the runs list is. The toast
+  confirming a save said "Save" — the button's own label reused as a message. And the settings screen put
+  nine independent sections in one 672px column; they flow into two columns from `xl` up and the page now
+  fits on one screen. Flowing columns rather than a grid, because a grid aligns rows and the one tall
+  section left a screen-high hole beside every short one.
+
 - **2026-09-30** — **erasure never completed.** A subject-access erase hung for forty seconds and answered
   nothing for any customer holding a consent record: the two raw statements inside the erasure transaction
   went through `em.getConnection().execute`, which takes a fresh connection from the pool, so they ran
