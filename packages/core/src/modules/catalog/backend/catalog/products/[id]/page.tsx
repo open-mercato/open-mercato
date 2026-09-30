@@ -47,7 +47,7 @@ import {
   buildRecordInjectionContext,
   useSetCurrentRecordInjectionContext,
 } from "@open-mercato/ui/backend/injection/recordContext";
-import { useT } from "@open-mercato/shared/lib/i18n/context";
+import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
 import { useConfirmDialog } from "@open-mercato/ui/backend/confirm-dialog";
 import { E } from "#generated/entities.ids.generated";
 import {
@@ -73,6 +73,7 @@ import {
   type ProductUnitPriceReferenceUnit,
   type ProductUnitRoundingMode,
   productFormSchema,
+  withCanonicalUomFields,
   BASE_INITIAL_VALUES,
   createLocalId,
   slugify,
@@ -323,6 +324,7 @@ export default function EditCatalogProductPage({
 }) {
   const productId = params?.id ? String(params.id) : null;
   const t = useT();
+  const locale = useLocale();
   const pathname = usePathname();
   const productSubpathPrefix = productId
     ? `/backend/catalog/products/${productId}/`
@@ -933,6 +935,7 @@ export default function EditCatalogProductPage({
             values={values as ProductFormValues}
             setValue={setValue}
             errors={errors}
+            variantCount={variants.length}
           />
         ),
       },
@@ -1049,7 +1052,9 @@ export default function EditCatalogProductPage({
           ),
         );
       }
-      const parsed = productFormSchema.safeParse(formValues);
+      const parsed = productFormSchema.safeParse(
+        withCanonicalUomFields(formValues, locale),
+      );
       if (!parsed.success) {
         const issues = parsed.error.issues;
         const fieldErrors: Record<string, string> = {};
@@ -1624,6 +1629,10 @@ type ProductVariantsSectionProps = Omit<
 
 type ProductDimensionsSectionProps = ProductFormGroupProps;
 
+type ProductOptionsSectionProps = ProductFormGroupProps & {
+  variantCount?: number;
+};
+
 function ProductDetailsSection({
   values,
   setValue,
@@ -1919,7 +1928,11 @@ function ProductMetadataSection({ values, setValue }: ProductFormGroupProps) {
   );
 }
 
-function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
+function ProductOptionsSection({
+  values,
+  setValue,
+  variantCount = 0,
+}: ProductOptionsSectionProps) {
   const t = useT();
   const [schemaDialogOpen, setSchemaDialogOpen] = React.useState(false);
   const [schemaTemplates, setSchemaTemplates] = React.useState<
@@ -2182,10 +2195,15 @@ function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
         ))}
         {!values.options?.length ? (
           <p className="text-sm text-muted-foreground">
-            {t(
-              "catalog.products.create.optionsBuilder.empty",
-              "No options yet. Add your first option to generate variants.",
-            )}
+            {variantCount > 0
+              ? t(
+                  "catalog.products.edit.optionsBuilder.emptyWithVariants",
+                  "This product has variants without an option schema. Options are optional.",
+                )
+              : t(
+                  "catalog.products.create.optionsBuilder.empty",
+                  "No options yet. Add your first option to generate variants.",
+                )}
           </p>
         ) : null}
       </div>
