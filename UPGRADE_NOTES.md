@@ -24,6 +24,19 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.8.0 → 0.8.1 (unreleased)
 
+### `reviveSnapshotSeed` throws on an unparsable snapshot date; `extractUndoPayload` can revive dates (#6336)
+
+`reviveSnapshotSeed` (`@open-mercato/shared/lib/commands/redo`) now delegates to the new
+`reviveSnapshotDates` helper and throws `[internal] Invalid <field> snapshot date` for a date
+field holding an unparsable string, instead of seeding an `Invalid Date` that failed later on
+flush. Valid ISO strings, `null` and `Date` values behave as before.
+
+`extractUndoPayload(logEntry, options?)` gained an optional second argument. Undo snapshots
+round-trip through `jsonb`, so `Date` fields come back as ISO strings; pass
+`{ datePaths: ['before.<entity>.<field>'] }` (exact paths) or `{ dateFields: ['<field>'] }`
+(key name at any depth) before assigning snapshot dates to entities. Without options the
+payload is returned unchanged.
+
 ### `loadDictionary` now lets a host app's own locale file override a module-defined translation key (#5995)
 
 `loadDictionary` (`@open-mercato/shared/lib/i18n/server`) used to merge the host app's dictionary
@@ -51,7 +64,7 @@ precedence change landed. If you maintain a fork with its own `apps/<host>/src/i
 it the same way before upgrading: a key that duplicates a module key with a different value now
 silently wins, for better or for worse.
 
-### `CrudForm` now submits injected fields that reuse a host field id (PR #6338)
+### `CrudForm` now submits injected fields that reuse a host field id (PR #6709)
 
 A `crud-form:<entityId>:fields` injected field whose `id` matches a field the host form already
 declares replaces the host's input for that field (the injected entry wins the id lookup). Until
@@ -69,6 +82,27 @@ a widget deliberately reuses a host field id, the host's `onSubmit` now receives
 value — make sure the value matches what the host schema expects. If a widget reused a host id
 only by accident and persists the value itself in `onSave`, rename the injected field id so the
 host does not also submit it.
+
+### `ChannelAdapter.fetchHistory` receives `scope.organizationId: null` for a channel with no organization (#6331)
+
+The `communication_channels` poll worker used to hand `adapter.fetchHistory` a scope in which a
+channel's missing organization (`communication_channels.organization_id IS NULL` — tenant-wide
+channels and channels created before organization scoping) was replaced by the tenant id. An
+adapter that scoped its own storage or provider queries by `input.scope.organizationId` therefore
+looked in a bucket that does not exist.
+
+`FetchHistoryInput.scope` is now typed as the new exported `ChannelScope`
+(`{ tenantId: string; organizationId: string | null }`), and the poll worker passes the channel's
+own organization — `null` when it has none. The Gmail push path (`gmail-history-sync` →
+`applyPushNotification`, which forwards its scope into `fetchHistory`) still substitutes the tenant
+id and is tracked in #6634, so adapters should keep handling both shapes for now. `TenantScope` and every other adapter input are unchanged,
+and the hub still resolves channel credentials under the key they are written with (the tenant id
+for an organization-less channel).
+
+**Action for adapter authors:** if your `fetchHistory` reads `input.scope.organizationId`, handle
+`null` (a tenant-wide channel). TypeScript now flags code that passes it where a `string` is
+required. If you previously worked around the substitution by resolving the channel's real
+organization yourself, that workaround keeps working and can be dropped.
 
 ### `customers` now requires `progress` to be enabled (#6302)
 
@@ -97,6 +131,28 @@ Module dependency check failed:
 and the `create-app` template already enable `progress`, so this repo's own apps and freshly
 scaffolded `classic`/`crm` apps are unaffected; the `wms` starter preset has been updated to add
 `progress` alongside `customers` for the same reason.
+
+### `ai_assistant` now ships its own encryption map (#6332)
+
+`@open-mercato/ai-assistant` previously declared no `encryption.ts`, so AI chat messages
+(`content`, `ui_parts`, `files_metadata`, `metadata`), conversation titles and pending-action
+payloads (`normalized_input`, `field_diff`, `records`) were stored in plaintext even with tenant
+data encryption enabled. The module now exports `defaultEncryptionMaps` for
+`ai_assistant:ai_chat_message`, `ai_assistant:ai_chat_conversation` and
+`ai_assistant:ai_pending_action`.
+
+`getDefaultEncryptionMaps` rejects two modules declaring a map for the same entity id, and the
+app bootstrap rethrows that error when encryption is enabled. An app that worked around the gap by
+declaring these maps in one of its own modules' `encryption.ts` will now fail to start with
+`Duplicate default encryption map for "ai_assistant:…"`.
+
+**Action for app authors:** delete any app-side `defaultEncryptionMaps` entries for the three
+`ai_assistant:*` entity ids. To keep a different field set, replace the shipped map through
+`overrides.encryption.maps['ai_assistant:ai_chat_message']` (and the other two ids) on a
+`src/modules.ts` entry instead of redeclaring it. Existing tenants pick the new maps up with
+`yarn mercato entities seed-encryption --tenant <tenantId> [--organization <orgId>]`; rows written
+before that stay plaintext (still readable) until rewritten, or until
+`yarn mercato entities rotate-encryption-key --tenant <tenantId>` encrypts them.
 
 ### `encryptEntityPayload`/`encryptFields` can now throw `TenantDataEncryptionError` (`WRONG_KEY`) instead of silently corrupting data (#5951)
 
@@ -162,6 +218,71 @@ company creation — including the `customer_accounts` portal-users group, which
 in create mode and renders its empty state. The bridge also keeps the shipped `example` module's
 `example.injection.customer-priority-field` field widget rendering on this page exactly as before,
 via the dual-published `:fields` child.
+
+### An explicit OTLP telemetry backend now fails startup when OpenTelemetry is not installed (#5799)
+
+Only relevant if `TELEMETRY_BACKEND` is set to `otlp`, `signoz`, or `newrelic`. `initTelemetry()`
+(`@open-mercato/telemetry`) used to catch a failed import of the optional `@opentelemetry/*`
+packages, log one warning, and start the console provider instead, so the deployment reported
+`Telemetry initialized` while exporting nothing to the configured endpoint. That fallback is gone:
+`initTelemetry()` now rejects with an `OtlpDependencyUnavailableError` that names the selected
+backend and the remediations below, with the original import failure kept as `cause`.
+`registerTelemetryForNextjs()` (`@open-mercato/telemetry/nextjs`) was documented as never letting a
+rejection escape Next's `register()`; it now rethrows this one error. Every other init failure still
+degrades to "no telemetry" with a warning, and function signatures and import paths are unchanged.
+
+**Who is affected:** deployments that select one of those three backends **and** run without the
+optional dependencies installed (for example, an image or install that omits optional
+dependencies). Telemetry-off (`TELEMETRY_BACKEND` unset, blank, `noop`, or unknown), `console`, and
+registered custom providers behave exactly as before. Standard Open Mercato images install optional
+dependencies and are unaffected.
+
+**What stops working:** those hosts no longer start. The `mercato` CLI, workers, and the scheduler
+print the message and exit with code 1. The Next.js web host depends on its `src/instrumentation.ts`:
+
+- `apps/mercato` and newly scaffolded create-app projects wrap the call, write the one-line message
+  to stderr, and exit with code 1;
+- a standalone app scaffolded earlier still has a bare `await registerTelemetryForNextjs()` in
+  `register()`, so the rejection escapes it and Next.js rethrows it as `An error occurred while
+  loading instrumentation hook: …` while preparing the server. There is no longer a warning and
+  console fallback.
+
+**Action for operators:** choose one:
+
+1. Rebuild or reinstall with optional dependencies included.
+2. Set `TELEMETRY_BACKEND=console` if local diagnostic output is what you want.
+3. Unset `TELEMETRY_BACKEND`, or set it to `noop`, to disable telemetry.
+
+No stored data or credentials are affected.
+
+**Action for standalone app authors:** after upgrading, re-run `yarn mercato telemetry init`. It
+upgrades both previously generated bootstrap shapes (the `NEXT_RUNTIME === 'nodejs'`-only guard and
+the `isTelemetryBackendEnabled()` guard) to the wrapped form below and is idempotent. If you
+customized `register()` so the shape no longer matches, it leaves the file alone, reports `manual`,
+and prints the canonical snippet for you to apply:
+
+```ts
+if (process.env.NEXT_RUNTIME === 'nodejs' && isTelemetryBackendEnabled()) {
+  const { registerTelemetryForNextjs } = await import('@open-mercato/telemetry/nextjs')
+  try {
+    await registerTelemetryForNextjs()
+  } catch (err) {
+    const nodeProcess = process
+    nodeProcess.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+    nodeProcess.exit(1)
+  }
+}
+```
+
+**Docker Compose (additive):** `starters/docker/compose.fullapp.yml` (and its repo-root copy
+`docker-compose.fullapp.yml`) and the create-app `docker-compose.fullapp.yml` now forward
+`TELEMETRY_BACKEND`, `TELEMETRY_SAMPLING_RATIO`, `TELEMETRY_TRUST_INBOUND_TRACE`,
+`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_SERVICE_NAME`, and
+`OTEL_RESOURCE_ATTRIBUTES` into the `app` container. They also add an opt-in `telemetry` profile
+that runs a diagnostic OpenTelemetry Collector. Before this change the `app` container never saw
+these variables, so if your `.env` already sets `TELEMETRY_BACKEND` to an enabled backend,
+telemetry now starts inside the container. Check that value before upgrading. See
+[`apps/docs/docs/framework/runtime/telemetry.mdx`](apps/docs/docs/framework/runtime/telemetry.mdx).
 
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
