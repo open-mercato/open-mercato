@@ -17,7 +17,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { AnonymizeService, AnonymizeServiceError } from '../../../../services/anonymize-service'
+import { AnonymizeService, AnonymizeServiceError, isAnonymizeServiceError } from '../../../../services/anonymize-service'
 import {
   FormsAccessAuditLogger,
   type AccessAuditLogger,
@@ -101,7 +101,7 @@ export async function POST(
       anonymizedAt: result.submissionAnonymizedAt.toISOString(),
     })
   } catch (error) {
-    if (error instanceof AnonymizeServiceError) {
+    if (isAnonymizeServiceError(error)) {
       const status = error.code === 'SUBMISSION_NOT_FOUND' ? 404 : 422
       return NextResponse.json({ error: error.code, message: error.message }, { status })
     }

@@ -43,7 +43,17 @@ export type DistributionServiceErrorCode =
   | 'GONE'
   | 'INVALID_STATUS'
 
+/**
+ * `Symbol.for` so the brand survives module duplication across bundle
+ * boundaries. `instanceof` does NOT: Next can load this module in more than
+ * one chunk, and once a second copy of the class exists an error thrown
+ * through one copy fails `instanceof` against the other — silently
+ * downgrading a mapped domain error to a 500. Mirrors `CrudHttpError`.
+ */
+const DISTRIBUTION_SERVICE_ERROR_MARKER = Symbol.for('@open-mercato/forms/DistributionServiceError')
+
 export class DistributionServiceError extends Error {
+  readonly [DISTRIBUTION_SERVICE_ERROR_MARKER] = true
   readonly code: DistributionServiceErrorCode
   readonly httpStatus: number
   readonly details?: Record<string, unknown>
@@ -493,3 +503,7 @@ export class DistributionService {
   }
 }
 
+/** Brand check for DistributionServiceError — use instead of `instanceof`. */
+export function isDistributionServiceError(error: unknown): error is DistributionServiceError {
+  return typeof error === 'object' && error !== null && (DISTRIBUTION_SERVICE_ERROR_MARKER in error)
+}

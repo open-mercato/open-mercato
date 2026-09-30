@@ -10,7 +10,17 @@ import type { FormVersionCompiler } from './form-version-compiler'
 
 const ANONYMIZED_TOKEN = '__anonymized__'
 
+/**
+ * `Symbol.for` so the brand survives module duplication across bundle
+ * boundaries. `instanceof` does NOT: Next can load this module in more than
+ * one chunk, and once a second copy of the class exists an error thrown
+ * through one copy fails `instanceof` against the other — silently
+ * downgrading a mapped domain error to a 500. Mirrors `CrudHttpError`.
+ */
+const ANONYMIZE_SERVICE_ERROR_MARKER = Symbol.for('@open-mercato/forms/AnonymizeServiceError')
+
 export class AnonymizeServiceError extends Error {
+  readonly [ANONYMIZE_SERVICE_ERROR_MARKER] = true
   readonly code: string
   constructor(code: string, message: string) {
     super(message)
@@ -132,3 +142,8 @@ function applyTombstone(
 }
 
 export const ANONYMIZED_FIELD_TOKEN = ANONYMIZED_TOKEN
+
+/** Brand check for AnonymizeServiceError — use instead of `instanceof`. */
+export function isAnonymizeServiceError(error: unknown): error is AnonymizeServiceError {
+  return typeof error === 'object' && error !== null && (ANONYMIZE_SERVICE_ERROR_MARKER in error)
+}

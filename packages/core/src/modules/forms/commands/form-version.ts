@@ -30,7 +30,7 @@ import {
 } from './shared'
 import type { FormVersionCompiler } from '../services/form-version-compiler'
 import type { FieldTypeRegistry } from '../schema/field-type-registry'
-import { FormCompilationError } from '../services/form-version-compiler'
+import { FormCompilationError, isFormCompilationError } from '../services/form-version-compiler'
 
 // ----------------------------------------------------------------------------
 // Undo payloads
@@ -135,7 +135,7 @@ async function compileOrThrowValidation(
       uiSchema: version.uiSchema,
     })
   } catch (error) {
-    if (error instanceof FormCompilationError) {
+    if (isFormCompilationError(error)) {
       throw new CrudHttpError(422, {
         error: 'forms.errors.schema_invalid',
         code: error.code,
@@ -360,7 +360,7 @@ const updateDraftCommand: CommandHandler<FormVersionUpdateDraftCommandInput, { v
         version.schemaHash = compiled.schemaHash
         version.registryVersion = compiled.registryVersion
       } catch (error) {
-        if (error instanceof FormCompilationError) {
+        if (isFormCompilationError(error)) {
           throw new CrudHttpError(422, {
             error: 'forms.errors.schema_invalid',
             code: error.code,
@@ -368,7 +368,13 @@ const updateDraftCommand: CommandHandler<FormVersionUpdateDraftCommandInput, { v
             message: error.message,
           })
         }
-        version.registryVersion = registry.getRegistryVersion()
+        // Fail CLOSED. This arm used to stamp the registry version and carry on,
+        // so any compile failure that was not a recognised
+        // `FormCompilationError` persisted an unvalidated schema and answered
+        // 200 — the invalid draft only surfaced later as an opaque 500 from
+        // publish. The other two compile sites in this file (`create` and
+        // `publish`) already `throw error` here; this one was the outlier.
+        throw error
       }
       version.updatedAt = new Date()
       await em.flush()
@@ -512,7 +518,7 @@ const publishVersionCommand: CommandHandler<FormVersionPublishCommandInput, {
           uiSchema: version.uiSchema,
         })
       } catch (error) {
-        if (error instanceof FormCompilationError) {
+        if (isFormCompilationError(error)) {
           throw new CrudHttpError(422, {
             error: 'forms.errors.schema_invalid',
             code: error.code,

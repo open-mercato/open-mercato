@@ -13,7 +13,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { ExportService, ExportServiceError } from '../../../../services/export-service'
+import { ExportService, ExportServiceError, isExportServiceError } from '../../../../services/export-service'
 import {
   FormsAccessAuditLogger,
   type AccessAuditLogger,
@@ -76,7 +76,7 @@ export async function GET(
       },
     })
   } catch (error) {
-    if (error instanceof ExportServiceError) {
+    if (isExportServiceError(error)) {
       return NextResponse.json({ error: error.code, message: error.message }, { status: 404 })
     }
     return NextResponse.json(

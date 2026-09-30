@@ -3,8 +3,8 @@
  */
 
 import { NextResponse, type NextRequest } from 'next/server'
-import { SubmissionServiceError } from '../services/submission-service'
-import { DistributionServiceError } from '../services/distribution-service'
+import { SubmissionServiceError, isSubmissionServiceError } from '../services/submission-service'
+import { DistributionServiceError, isDistributionServiceError } from '../services/distribution-service'
 import { readEmbedSettings } from '../lib/embed-frame-policy'
 import type { CompiledFormVersion } from '../services/form-version-compiler'
 import type {
@@ -17,7 +17,7 @@ import type {
 } from '../data/entities'
 
 export function mapSubmissionError(error: unknown): NextResponse {
-  if (error instanceof SubmissionServiceError) {
+  if (isSubmissionServiceError(error)) {
     return NextResponse.json(
       { error: error.code, message: error.message, details: error.details ?? null },
       { status: error.httpStatus },
@@ -28,13 +28,13 @@ export function mapSubmissionError(error: unknown): NextResponse {
 }
 
 export function mapDistributionError(error: unknown): NextResponse {
-  if (error instanceof DistributionServiceError) {
+  if (isDistributionServiceError(error)) {
     return NextResponse.json(
       { error: error.code, message: error.message, details: error.details ?? null },
       { status: error.httpStatus },
     )
   }
-  if (error instanceof SubmissionServiceError) {
+  if (isSubmissionServiceError(error)) {
     return mapSubmissionError(error)
   }
   const message = error instanceof Error ? error.message : 'Unknown error'

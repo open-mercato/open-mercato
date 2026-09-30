@@ -15,7 +15,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
-import { SubmissionService, SubmissionServiceError } from '../../../../services/submission-service'
+import { SubmissionService, SubmissionServiceError, isSubmissionServiceError } from '../../../../services/submission-service'
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -101,7 +101,7 @@ function resolveCallerRoles(features: string[]): string[] {
 }
 
 function mapError(error: unknown): NextResponse {
-  if (error instanceof SubmissionServiceError) {
+  if (isSubmissionServiceError(error)) {
     return NextResponse.json(
       { error: error.code, message: error.message, details: error.details ?? null },
       { status: error.httpStatus },

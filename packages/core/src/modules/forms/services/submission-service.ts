@@ -66,7 +66,17 @@ export type SubmissionServiceErrorCode =
   | 'FORM_INACTIVE'
   | 'FORM_VERSION_NOT_PUBLISHED'
 
+/**
+ * `Symbol.for` so the brand survives module duplication across bundle
+ * boundaries. `instanceof` does NOT: Next can load this module in more than
+ * one chunk, and once a second copy of the class exists an error thrown
+ * through one copy fails `instanceof` against the other — silently
+ * downgrading a mapped domain error to a 500. Mirrors `CrudHttpError`.
+ */
+const SUBMISSION_SERVICE_ERROR_MARKER = Symbol.for('@open-mercato/forms/SubmissionServiceError')
+
 export class SubmissionServiceError extends Error {
+  readonly [SUBMISSION_SERVICE_ERROR_MARKER] = true
   readonly code: SubmissionServiceErrorCode
   readonly httpStatus: number
   readonly details?: Record<string, unknown>
@@ -1177,4 +1187,9 @@ function sliceForRole(args: {
     data: args.decodedFull,
   })
   return sliceByVisibility(roleSliced, visible)
+}
+
+/** Brand check for SubmissionServiceError — use instead of `instanceof`. */
+export function isSubmissionServiceError(error: unknown): error is SubmissionServiceError {
+  return typeof error === 'object' && error !== null && (SUBMISSION_SERVICE_ERROR_MARKER in error)
 }

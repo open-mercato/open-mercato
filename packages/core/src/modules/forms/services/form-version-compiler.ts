@@ -133,7 +133,17 @@ export type FormCompilationErrorCode =
   | 'AJV_COMPILE_FAILED'
   | 'INVALID_SCHEMA_SHAPE'
 
+/**
+ * `Symbol.for` so the brand survives module duplication across bundle
+ * boundaries. `instanceof` does NOT: Next can load this module in more than
+ * one chunk, and once a second copy of the class exists an error thrown
+ * through one copy fails `instanceof` against the other — silently
+ * downgrading a mapped domain error to a 500. Mirrors `CrudHttpError`.
+ */
+const FORM_COMPILATION_ERROR_MARKER = Symbol.for('@open-mercato/forms/FormCompilationError')
+
 export class FormCompilationError extends Error {
+  readonly [FORM_COMPILATION_ERROR_MARKER] = true
   readonly code: FormCompilationErrorCode
   readonly path: string[]
 
@@ -814,4 +824,9 @@ function buildRolePolicyLookup(fieldIndex: Record<string, FieldDescriptor>): Rol
     const canRead = canWrite || descriptor.visibleTo.includes(role)
     return { canRead, canWrite }
   }
+}
+
+/** Brand check for FormCompilationError — use instead of `instanceof`. */
+export function isFormCompilationError(error: unknown): error is FormCompilationError {
+  return typeof error === 'object' && error !== null && (FORM_COMPILATION_ERROR_MARKER in error)
 }

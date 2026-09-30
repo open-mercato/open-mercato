@@ -9,7 +9,7 @@
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { FormSubmission, FormVersion } from '../data/entities'
-import { AttachmentServiceError } from '../services/attachment-service'
+import { AttachmentServiceError, isAttachmentServiceError } from '../services/attachment-service'
 
 export type FieldUploadConfig = {
   fieldKey: string
@@ -19,7 +19,7 @@ export type FieldUploadConfig = {
 }
 
 export function mapAttachmentError(error: unknown): NextResponse {
-  if (error instanceof AttachmentServiceError) {
+  if (isAttachmentServiceError(error)) {
     return NextResponse.json({ error: error.code, message: error.message }, { status: error.httpStatus })
   }
   const message = error instanceof Error ? error.message : 'Unknown error'

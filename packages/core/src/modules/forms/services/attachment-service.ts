@@ -31,7 +31,17 @@ export type AttachmentServiceErrorCode =
   | 'DISALLOWED_TYPE'
   | 'SCAN_REJECTED'
 
+/**
+ * `Symbol.for` so the brand survives module duplication across bundle
+ * boundaries. `instanceof` does NOT: Next can load this module in more than
+ * one chunk, and once a second copy of the class exists an error thrown
+ * through one copy fails `instanceof` against the other — silently
+ * downgrading a mapped domain error to a 500. Mirrors `CrudHttpError`.
+ */
+const ATTACHMENT_SERVICE_ERROR_MARKER = Symbol.for('@open-mercato/forms/AttachmentServiceError')
+
 export class AttachmentServiceError extends Error {
+  readonly [ATTACHMENT_SERVICE_ERROR_MARKER] = true
   readonly code: AttachmentServiceErrorCode
   readonly httpStatus: number
 
@@ -205,4 +215,9 @@ export class AttachmentService {
     }
     return submission
   }
+}
+
+/** Brand check for AttachmentServiceError — use instead of `instanceof`. */
+export function isAttachmentServiceError(error: unknown): error is AttachmentServiceError {
+  return typeof error === 'object' && error !== null && (ATTACHMENT_SERVICE_ERROR_MARKER in error)
 }

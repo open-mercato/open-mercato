@@ -35,7 +35,17 @@ type Scope = {
   tenantId: string
 }
 
+/**
+ * `Symbol.for` so the brand survives module duplication across bundle
+ * boundaries. `instanceof` does NOT: Next can load this module in more than
+ * one chunk, and once a second copy of the class exists an error thrown
+ * through one copy fails `instanceof` against the other — silently
+ * downgrading a mapped domain error to a 500. Mirrors `CrudHttpError`.
+ */
+const EXPORT_SERVICE_ERROR_MARKER = Symbol.for('@open-mercato/forms/ExportServiceError')
+
 export class ExportServiceError extends Error {
+  readonly [EXPORT_SERVICE_ERROR_MARKER] = true
   readonly code: 'SUBMISSION_NOT_FOUND'
   constructor(message: string) {
     super(message)
@@ -342,4 +352,9 @@ function redactSignatureValue(value: unknown): unknown {
   if (!('image' in candidate)) return value
   const { image: _image, ...rest } = candidate
   return rest
+}
+
+/** Brand check for ExportServiceError — use instead of `instanceof`. */
+export function isExportServiceError(error: unknown): error is ExportServiceError {
+  return typeof error === 'object' && error !== null && (EXPORT_SERVICE_ERROR_MARKER in error)
 }
