@@ -113,7 +113,7 @@ export function WmsLowStockRenderer({
               e.stopPropagation()
               handleView()
             }}
-            disabled={executing || (!viewAction && !notification.linkHref)}
+            disabled={executing || (!viewAction && !notification.linkHref) || (notification.status === 'actioned' && !notification.linkHref)}
           >
             <ExternalLink className="size-3.5" aria-hidden="true" />
             {t('wms.notifications.lowStock.renderer.viewSku', 'View SKU')}

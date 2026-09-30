@@ -140,7 +140,7 @@ export function WmsReservationShortfallRenderer({
               event.stopPropagation()
               void handleAction('view-order', notification.linkHref ?? undefined)
             }}
-            disabled={executing !== null}
+            disabled={executing !== null || (notification.status === 'actioned' && !notification.linkHref)}
           >
             <ExternalLink className="size-3.5" aria-hidden="true" />
             {t('wms.notifications.reservationShortfall.renderer.viewOrder', 'View order')}

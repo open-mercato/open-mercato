@@ -82,7 +82,7 @@ export function ConversationSharedRenderer({
               e.stopPropagation()
               handleView()
             }}
-            disabled={executing || (!viewAction && !notification.linkHref)}
+            disabled={executing || (!viewAction && !notification.linkHref) || (notification.status === 'actioned' && !notification.linkHref)}
           >
             <ExternalLink className="size-3.5" aria-hidden="true" />
             {t('ai_assistant.notifications.conversation_shared.view_button', 'View Conversation')}

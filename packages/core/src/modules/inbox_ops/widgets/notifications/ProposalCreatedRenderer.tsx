@@ -89,7 +89,7 @@ export function ProposalCreatedRenderer({
                 event.stopPropagation()
                 handleReview()
               }}
-              disabled={executing || (!reviewAction && !notification.linkHref)}
+              disabled={executing || (!reviewAction && !notification.linkHref) || (notification.status === 'actioned' && !notification.linkHref)}
               className="gap-1"
             >
               <ExternalLink className="h-3 w-3" />
