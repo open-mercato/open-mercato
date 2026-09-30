@@ -66,10 +66,7 @@ import {
  * persisted, which is the half a status-only assertion would miss.
  */
 test.describe('TC-FORMS-VER-002: uncompilable schemas cannot be published', () => {
-  test.skip(
-    true,
-    'MODULE DEFECT: update_draft swallows a compilation error it cannot classify and persists the invalid schema with 200; publishing it then answers an opaque 500. See the file docstring.',
-  )
+  // Unskipped: update_draft now rethrows an unclassified compile failure instead of persisting the schema.
 
   test('rejects a broken schema on draft update and never persists it', async ({ request }) => {
     test.slow()

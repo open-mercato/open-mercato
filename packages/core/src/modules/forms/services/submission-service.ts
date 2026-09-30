@@ -166,6 +166,14 @@ export type GetCurrentArgs = Scope & {
    */
   viewerUserId?: string | null
   /**
+   * Which surface is reading, for the access-audit row. `getCurrent` used to
+   * hard-code `'runtime'`, so the admin submission-detail read — the primary
+   * staff read of a submission's answers — was recorded as runtime traffic or,
+   * for an auditor filtering on `'admin'`, not visibly recorded at all.
+   * Defaults to `'runtime'` so the public and portal call sites are unchanged.
+   */
+  surface?: 'admin' | 'runtime'
+  /**
    * TRUSTED INTERNAL CALLERS ONLY: return the full decoded payload with no role
    * slice.
    *
@@ -965,7 +973,7 @@ export class SubmissionService {
       tenantId: args.tenantId,
       viewerUserId: args.viewerUserId ?? null,
       viewerRole: args.viewerRole ?? null,
-      surface: 'runtime',
+      surface: args.surface ?? 'runtime',
       scope: 'submission',
     })
 

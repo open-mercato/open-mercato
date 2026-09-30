@@ -54,10 +54,7 @@ import {
  * behaviour and needs no other change.
  */
 test.describe('TC-FORMS-PUB-006: autosave after submit', () => {
-  test.skip(
-    true,
-    'MODULE DEFECT: SubmissionService.save() has no `submitted` guard, so a post-submit autosave returns 200 and rewrites a submitted submission. See the file docstring.',
-  )
+  // Unskipped: save() now rejects a post-submit autosave with 422 INVALID_STATUS.
 
   test('refuses an autosave once the submission is submitted', async ({ request }) => {
     test.setTimeout(120_000)

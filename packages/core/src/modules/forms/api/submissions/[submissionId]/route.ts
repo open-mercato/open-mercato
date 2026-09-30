@@ -42,6 +42,10 @@ export async function GET(
       tenantId: auth.tenantId,
       viewerRole: 'admin',
       viewerUserId: auth.sub,
+      // Staff read of a submission's answers — recorded as an admin access, not
+      // runtime traffic. `getCurrent` defaults to 'runtime' for the public and
+      // portal call sites.
+      surface: 'admin',
     })
     return NextResponse.json({
       submission: serializeSubmission(view.submission),

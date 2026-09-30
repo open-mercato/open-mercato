@@ -58,10 +58,7 @@ import {
  * restore the detail-read assertion in TC-FORMS-SUB-007's comment.
  */
 test.describe('TC-FORMS-SUB-018: admin submission detail is audited', () => {
-  test.skip(
-    true,
-    "MODULE DEFECT: SubmissionService.getCurrent() reports surface 'runtime' even for the admin detail route, so the primary staff read of a submission writes no access-audit row. See the file docstring.",
-  )
+  // Unskipped: getCurrent now takes an explicit `surface`, and the admin detail route passes 'admin'.
 
   test('appends one view row when a staff user opens the submission detail', async ({ request }) => {
     test.setTimeout(150_000)

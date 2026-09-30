@@ -68,10 +68,7 @@ import {
  * revision 1 and the typed answer is silently lost.
  */
 test.describe('TC-FORMS-PORTAL-002: signed-in customer submits the portal form', () => {
-  test.skip(
-    true,
-    'MODULE DEFECT: the portal form page reads its route params with useParams(), which returns nothing under the frontend catch-all, so formKey is empty and the page can never load a form. See the file docstring.',
-  )
+  // Unskipped: the portal page now reads route params from the `params` prop.
 
   test('renders the published form, submits it, and the answer lands in the admin inbox', async ({ page, request }) => {
     test.setTimeout(180_000)
