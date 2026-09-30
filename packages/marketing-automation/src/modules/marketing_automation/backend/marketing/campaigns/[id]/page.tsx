@@ -795,6 +795,19 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
   }
 
   const restoreRevision = async (version: number) => {
+    /**
+     * Asked first, because the button is one click away from a list of versions and the page reloads
+     * immediately afterwards. Nothing is lost — the restore is an ordinary save, so the current content
+     * becomes a version of its own — and the sentence says so, which is the part somebody needs to read
+     * before deciding rather than after.
+     */
+    const confirmed = await confirm({
+      text: t(
+        'marketing_automation.history.confirmRestore',
+        'Put version {version} back? What the campaign says now is kept as a version you can return to.',
+      ).replace('{version}', String(version)),
+    })
+    if (!confirmed) return
     setRestoring(true)
     try {
       /**

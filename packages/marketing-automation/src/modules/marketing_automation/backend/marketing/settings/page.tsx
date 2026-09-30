@@ -12,6 +12,7 @@ import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useMarketingMutation } from '../../../components/useMarketingMutation'
@@ -50,6 +51,7 @@ type ImportResult = {
 export default function MarketingSettingsPage() {
   const t = useT()
   const runMutation = useMarketingMutation('settings')
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const scopeVersion = useOrganizationScopeVersion()
 
   const [settings, setSettings] = React.useState<Settings | null>(null)
@@ -74,6 +76,21 @@ export default function MarketingSettingsPage() {
       flash(t('marketing_automation.settings.suppressionNeedsReason', 'Say where this list came from first — it is recorded on every customer it unsubscribes.'), 'error')
       return
     }
+    /**
+     * Asked between choosing the file and applying it, because a file chooser is one mis-click and this
+     * import has no undo: every address it matches is unsubscribed, and nothing in the module can put
+     * somebody back on a list they were taken off. The file's name is in the question so a wrong pick is
+     * visible at the moment it still costs nothing.
+     */
+    const confirmed = await confirm({
+      text: t(
+        'marketing_automation.settings.confirmSuppressionImport',
+        'Unsubscribe everybody in {file}? This cannot be undone — nothing here can put somebody back on a list.',
+      ).replace('{file}', file.name),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+
     setImporting(true)
     setImportResult(null)
     try {
@@ -463,6 +480,7 @@ export default function MarketingSettingsPage() {
             </Button>
           </div>
         </div>
+        {ConfirmDialogElement}
       </PageBody>
     </Page>
   )

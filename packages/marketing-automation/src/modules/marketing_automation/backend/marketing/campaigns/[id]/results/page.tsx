@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useMarketingMutation } from '../../../../../components/useMarketingMutation'
 import { FunnelChart } from '../../../../../components/FunnelChart.js'
@@ -115,6 +116,7 @@ function formatMoney(amount: number | null, currencyCode: string | null): string
 export default function CampaignResultsPage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const runMutation = useMarketingMutation('campaign_results')
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const campaignId = typeof params?.id === 'string' ? params.id : ''
 
   const [results, setResults] = React.useState<Results | null>(null)
@@ -147,6 +149,19 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
   }, [campaignId, load])
 
   const applyWinner = async (winner: Winner) => {
+    /**
+     * Asked first, because this button edits the campaign rather than the report it sits in. The losing
+     * lanes stop being walked and the test stops collecting evidence, so the sentence names both — and
+     * says the previous shape is kept as a version, which is the reassurance that makes it a decision
+     * somebody is willing to take.
+     */
+    const confirmed = await confirm({
+      text: t(
+        'marketing_automation.results.confirmApplyWinner',
+        'Keep variant {key} and end this test? Everybody from now on gets that one, the other variants stop being used, and the campaign as it stands now is kept as a version you can return to.',
+      ).replace('{key}', winner.variant),
+    })
+    if (!confirmed) return
     setApplying(winner.stepId)
     try {
       await runMutation(
@@ -553,6 +568,7 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
             })}
           </div>
         )}
+        {ConfirmDialogElement}
       </PageBody>
     </Page>
   )
