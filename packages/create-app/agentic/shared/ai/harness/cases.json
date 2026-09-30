@@ -21584,12 +21584,12 @@
   },
   {
     "id": "OMH-238",
-    "title": "Add, remove and modify Customers calendar event types without coupling shared components",
+    "title": "Add and modify Customers calendar event types while preserving every built-in type",
     "family": "umes",
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "In a fresh standalone Open Mercato app, add a Visit type to the Customers calendar, remove Note from new-event selection, and change the Meeting label without losing existing records. Follow the shipped app-local example and identify the exact contribution, panel, and server-validation seams. The Visit panel must work with staff and resources disabled or not installed, show a translated warning, and retain checks for enabled dependencies. Keep CrudForm, InjectionSpot, shared widget metadata, shared loaders, and installed package source independent of calendar business rules. Explain historical fallback, scoped persistence, and the smallest meaningful verification.",
+    "prompt": "In a fresh standalone Open Mercato app, add a Visit type to the Customers calendar and change the Meeting label while keeping all six built-in types available and preserving existing records. Follow the shipped app-local example and identify the exact contribution, panel, and server-validation seams. The Visit panel must work with staff and resources disabled or not installed, show a translated warning, and retain checks for enabled dependencies. Name each blocked staff member or resource and distinguish working-hour restrictions from overlapping bookings of any Customers type, including recurrence; exclude the current edited interaction, canceled/deleted bookings, and touching boundaries within tenant/organization scope. Keep CrudForm, InjectionSpot, shared widget metadata, shared loaders, and installed package source independent of calendar business rules. Explain historical fallback, scoped persistence, and the smallest meaningful verification.",
     "tags": [
       "umes",
       "customers",
@@ -21655,9 +21655,10 @@
     },
     "requiredDecisions": [
       "calendar-module-owned",
-      "calendar-add-remove-patch",
+      "calendar-add-patch-preserve",
       "calendar-historical-fallback",
-      "optional-staff-resources"
+      "optional-staff-resources",
+      "named-booking-conflicts"
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",

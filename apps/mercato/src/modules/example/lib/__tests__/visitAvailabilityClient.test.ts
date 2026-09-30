@@ -1,4 +1,6 @@
-import { visitAvailabilityRequestUrl } from '../visitAvailabilityClient'
+import { createTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import dictionary from '../../i18n/en.json'
+import { visitAvailabilityRequestUrl, visitAvailabilitySubjectMessage } from '../visitAvailabilityClient'
 
 const values = { date: '2026-09-29', startTime: '09:15', endDate: '2026-09-29', endTime: '12:00', participants: [], resources: [] }
 
@@ -24,4 +26,24 @@ describe('Visit preview interval timezone', () => {
     expect(url.searchParams.get('startAt')).toBe(new Date('2026-09-29T09:15:00').toISOString())
     expect(url.searchParams.get('endAt')).toBe(new Date('2026-09-29T12:00:00').toISOString())
   })
+  it('excludes the edited interaction and its recurring occurrence from booking checks', () => {
+    const id = '11111111-1111-4111-8111-111111111111'
+    for (const value of [id, `${id}:3`]) {
+      const url = new URL(visitAvailabilityRequestUrl({ ...values, id: value })!, 'http://localhost')
+      expect(url.searchParams.get('excludeInteractionId')).toBe(id)
+    }
+    for (const id of ['', 'new', undefined]) {
+      const url = new URL(visitAvailabilityRequestUrl({ ...values, id })!, 'http://localhost')
+      expect(url.searchParams.has('excludeInteractionId')).toBe(false)
+    }
+  })
+
+  it('uses a localized unnamed label rather than a UUID or exposing the selection id', () => {
+    const id = '11111111-1111-4111-8111-111111111111'
+    const message = visitAvailabilitySubjectMessage({ type: 'staff', id, displayName: id, status: 'unknown', reasonKey: null },
+      { participants: [{ userId: id, name: id }] }, createTranslator(dictionary))
+    expect(message).toBe('Selected staff member: Availability could not be confirmed.')
+    expect(message).not.toContain(id)
+  })
+
 })

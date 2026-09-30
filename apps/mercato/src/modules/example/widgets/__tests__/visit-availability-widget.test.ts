@@ -1,3 +1,5 @@
+import { createTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import dictionary from '../../i18n/en.json'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import widget from '../injection/visit-availability/widget'
 
@@ -61,6 +63,23 @@ describe('selected Visit availability widget', () => {
   it('blocks when the selected type catalog cannot be read', async () => {
     jest.mocked(apiCall).mockReset().mockResolvedValue({ ok: false, status: 503, result: null, response: {} as Response, cacheStatus: null })
     expect(await widget.eventHandlers?.onBeforeSave?.(values, {})).toEqual({ ok: false, fieldErrors: { ends: 'example.calendar.visitAvailability.retry' } })
+  })
+
+  it('returns translated field errors for every blocked subject, including its name and cause', async () => {
+    const secondStaff = '11111111-1111-4111-8111-111111111111'
+    jest.mocked(apiCall).mockResolvedValue({ ok: true, status: 200, result: { subjects: [
+      { type: 'staff', id: values.participants[0].userId, displayName: 'Alex server', status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.unavailable' },
+      { type: 'staff', id: secondStaff, displayName: 'Sam', status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.booked' },
+      { type: 'resource', id: values.resources[0].id, displayName: null, status: 'unknown', reasonKey: 'example.calendar.visitAvailability.noSchedule' },
+    ] }, response: {} as Response, cacheStatus: null })
+    const id = '22222222-2222-4222-8222-222222222222'
+    const result = await widget.eventHandlers?.onBeforeSave?.({ ...values, id }, { sharedState: { get: () => createTranslator(dictionary) } })
+    expect(result).toEqual({ ok: false, fieldErrors: {
+      participants: 'Alex server: Outside available working hours.\nSam: Already booked during this visit.',
+      resources: 'Room: No availability schedule covers the visit.',
+    } })
+    const url = new URL(String(jest.mocked(apiCall).mock.calls[1]?.[0]), 'http://localhost')
+    expect(url.searchParams.get('excludeInteractionId')).toBe(id)
   })
 
 })

@@ -39,13 +39,21 @@ function setup(overrides: {
   recordOrganizationId?: string
   allowedOrganizationIds?: string[]
   missingRecord?: boolean
+  bookings?: Array<Record<string, unknown>>
+  bookingFailure?: boolean
+  subjectNames?: boolean
+  inactiveRecords?: boolean
 } = {}) {
   const query = jest.fn(async (entity: string, options: { tenantId: string; organizationId?: string; organizationIds?: string[] }) => {
     expect(options.tenantId).toBe(scope.tenantId)
-    if (entity.startsWith('customers:')) expect(options.organizationIds).toEqual(overrides.allowedOrganizationIds ?? [scope.organizationId])
+    if (entity.startsWith('customers:') && options.organizationIds) expect(options.organizationIds).toEqual(overrides.allowedOrganizationIds ?? [scope.organizationId])
     else expect(options.organizationId).toBe(overrides.recordOrganizationId ?? scope.organizationId)
-    if (entity === 'staff:staff_team_member') return { items: overrides.inactive ? [] : [{ id: MEMBER_ID, user_id: USER_ID, is_active: true, availability_rule_set_id: RULE_ID }], total: overrides.inactive ? 0 : 1 }
-    if (entity === 'resources:resources_resource') return { items: [{ id: RESOURCE_ID, is_active: true }], total: 1 }
+    if (entity === 'customers:customer_interaction' && !options.organizationIds) {
+      if (overrides.bookingFailure) throw new Error('booking source failed')
+      return { items: overrides.bookings ?? [], total: overrides.bookings?.length ?? 0 }
+    }
+    if (entity === 'staff:staff_team_member') return { items: overrides.inactive ? [] : [{ id: MEMBER_ID, user_id: USER_ID, is_active: !overrides.inactiveRecords, availability_rule_set_id: RULE_ID, ...(overrides.subjectNames ? { display_name: 'Alex Chen' } : {}) }], total: overrides.inactive ? 0 : 1 }
+    if (entity === 'resources:resources_resource') return { items: [{ id: RESOURCE_ID, is_active: !overrides.inactiveRecords, ...(overrides.subjectNames ? { name: 'Conference room' } : {}) }], total: 1 }
     if (entity === 'planner:planner_availability_rule_set') return { items: [{ id: RULE_ID }], total: 1 }
     if (entity === 'planner:planner_availability_rule') return { items: overrides.noRules ? [] : [{ id: RULE_ID, rrule: 'DTSTART:20261005T090000Z\nRRULE:FREQ=WEEKLY\nDURATION:PT2H', kind: 'availability', timezone: overrides.invalidZone ? 'Mars/Olympus' : overrides.nonUtc ? 'Europe/Warsaw' : 'UTC' }], total: overrides.noRules ? 0 : 1 }
     if (entity.startsWith('customers:') && (overrides.missingRecord || !options.organizationIds?.includes(overrides.recordOrganizationId ?? scope.organizationId))) return { items: [], total: 0 }
@@ -70,7 +78,7 @@ describe('Visit availability', () => {
     const { container, query, planner } = setup()
     const subjects = await evaluateVisitAvailability({ container: container as never, actorUserId: USER_ID, scope, input })
     expect(subjects.map((subject) => subject.status)).toEqual(['available', 'available'])
-    expect(query).toHaveBeenCalledWith('staff:staff_team_member', expect.objectContaining({ filters: { user_id: { $in: [USER_ID] }, is_active: true } }))
+    expect(query).toHaveBeenCalledWith('staff:staff_team_member', expect.objectContaining({ filters: { user_id: { $in: [USER_ID] } } }))
     expect(query).toHaveBeenCalledWith('planner:planner_availability_rule', expect.objectContaining({ filters: { $or: expect.arrayContaining([{ subject_type: 'member', subject_id: MEMBER_ID }, { subject_type: 'ruleset', subject_id: RULE_ID }]) } }))
     expect(planner.getMergedAvailabilityWindows).toHaveBeenCalledWith(expect.objectContaining({ range: { start: new Date(input.startAt), end: new Date(input.endAt) } }))
   })
@@ -164,7 +172,7 @@ describe('Visit availability', () => {
       expect(options.tenantId).toBe(scope.tenantId)
       expect(options.organizationId).toBe(scope.organizationId)
       if (entity === 'staff:staff_team_member') {
-        expect(options.filters).toEqual({ user_id: { $in: [USER_ID] }, is_active: true })
+        expect(options.filters).toEqual({ user_id: { $in: [USER_ID] } })
         return { items: [{ id: MEMBER_ID, user_id: USER_ID, is_active: true }], total: 1 }
       }
       if (entity === 'planner:planner_availability_rule') {
@@ -173,6 +181,7 @@ describe('Visit availability', () => {
           timezone: 'Europe/Warsaw', kind: 'availability', exdates: [],
         }], total: 1 }
       }
+      if (entity === 'customers:customer_interaction') return { items: [], total: 0 }
       throw new Error('unexpected availability query')
     })
     const services: Record<string, unknown> = { queryEngine: { query }, plannerAvailabilityService: new DefaultPlannerAvailabilityService(),
@@ -409,5 +418,61 @@ describe('Visit availability', () => {
     })).rejects.toMatchObject({ status: 409, body: { code: 'optimistic_lock_conflict' } })
     expect(query).toHaveBeenCalledTimes(1)
     expect(planner.getMergedAvailabilityWindows).not.toHaveBeenCalled()
+  })
+
+  it('returns scoped subject names and distinguishes existing bookings from schedule coverage', async () => {
+    const { container } = setup({ subjectNames: true, bookings: [{
+      id: RULE_ID, interaction_type: 'call', status: 'planned', scheduled_at: input.startAt, duration_minutes: 60,
+      participants: [{ userId: USER_ID }], linked_entities: [{ type: 'resource', id: RESOURCE_ID }],
+      title: 'Private event title',
+    }] })
+    const subjects = await evaluateVisitAvailability({ container: container as never, actorUserId: USER_ID, scope, input })
+    expect(subjects).toEqual([
+      { type: 'staff', id: USER_ID, displayName: 'Alex Chen', status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.booked' },
+      { type: 'resource', id: RESOURCE_ID, displayName: 'Conference room', status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.booked' },
+    ])
+    expect(JSON.stringify(subjects)).not.toContain('Private event title')
+    const uncovered = setup({ gap: true, subjectNames: true })
+    expect(await evaluateVisitAvailability({ container: uncovered.container as never, actorUserId: USER_ID, scope, input }))
+      .toEqual(expect.arrayContaining([expect.objectContaining({ displayName: 'Alex Chen', reasonKey: 'example.calendar.visitAvailability.unavailable' })]))
+  })
+
+  it('fails closed when the Customers booking source fails', async () => {
+    const { container } = setup({ bookingFailure: true })
+    expect(await evaluateVisitAvailability({ container: container as never, actorUserId: USER_ID, scope, input }))
+      .toEqual(expect.arrayContaining([expect.objectContaining({ status: 'unknown', reasonKey: 'example.calendar.visitAvailability.retry' })]))
+  })
+
+  it('retains authorized display names for inactive subjects without checking their schedules', async () => {
+    const { container, planner } = setup({ inactiveRecords: true, subjectNames: true })
+    expect(await evaluateVisitAvailability({ container: container as never, actorUserId: USER_ID, scope, input })).toEqual([
+      { type: 'staff', id: USER_ID, displayName: 'Alex Chen', status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.inactiveSubject' },
+      { type: 'resource', id: RESOURCE_ID, displayName: 'Conference room', status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.inactiveSubject' },
+    ])
+    expect(planner.getMergedAvailabilityWindows).not.toHaveBeenCalled()
+  })
+
+  it('blocks direct creates with every named conflict and excludes the current event on updates', async () => {
+    const { container, query } = setup({ subjectNames: true, bookings: [{
+      id: RULE_ID, interaction_type: 'meeting', status: 'planned', scheduled_at: input.startAt, duration_minutes: 60,
+      participants: [{ userId: USER_ID }], linked_entities: [{ type: 'resource', id: RESOURCE_ID }],
+    }] })
+    const context = { commandId: 'customers.interactions.create', auth: { sub: USER_ID, tenantId: scope.tenantId } as never,
+      selectedOrganizationId: scope.organizationId, container: container as never }
+    const create = visitAvailabilityInterceptors.find((item) => item.targetCommand === 'customers.interactions.create')!
+    expect(await create.beforeExecute!({ interactionType: 'visit', entityId: RULE_ID, scheduledAt: input.startAt,
+      durationMinutes: 60, participants: [{ userId: USER_ID }], linkedEntities: [{ type: 'resource', id: RESOURCE_ID }],
+    }, context)).toMatchObject({ ok: false, status: 422, body: {
+      fields: ['participants', 'linkedEntities'], subjects: [
+        { displayName: 'Alex Chen', reasonKey: 'example.calendar.visitAvailability.booked' },
+        { displayName: 'Conference room', reasonKey: 'example.calendar.visitAvailability.booked' },
+      ],
+    } })
+    const update = visitAvailabilityInterceptors.find((item) => item.targetCommand === 'customers.interactions.update')!
+    expect(await update.beforeExecute!({ id: RULE_ID, durationMinutes: 61 }, { ...context, commandId: 'customers.interactions.update' }))
+      .toMatchObject({ ok: true })
+    expect(query).toHaveBeenCalledWith('customers:customer_interaction', expect.objectContaining({
+      organizationId: scope.organizationId, filters: expect.objectContaining({ id: { $ne: RULE_ID } }),
+    }))
   })
 })

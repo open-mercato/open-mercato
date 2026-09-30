@@ -4,7 +4,7 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { getEnabledModuleIds, hasEnabledModulesRegistry } from '@open-mercato/shared/security/enabledModulesRegistry'
 import type { CalendarEventTypeBehavior } from '@open-mercato/core/modules/customers/calendar-event-types'
-import { evaluateVisitAvailability, resolveVisitService, visitAvailabilityInputSchema } from './visitAvailability'
+import { evaluateVisitAvailability, resolveVisitService, visitAvailabilityInputSchema, type VisitAvailabilitySubject } from './visitAvailability'
 
 type Row = Record<string, unknown>
 
@@ -56,7 +56,7 @@ async function resolveVisitBehavior(context: CommandInterceptorContext, tenantId
   return service.resolveBehavior({ tenantId, organizationId, key: 'visit' })
 }
 
-function blocked(reasonKey: string, status = 422, fields: string[] = []): CommandInterceptorBeforeResult {
+function blocked(reasonKey: string, status = 422, fields: string[] = [], subjects?: VisitAvailabilitySubject[]): CommandInterceptorBeforeResult {
   return {
     ok: false,
     status,
@@ -64,6 +64,7 @@ function blocked(reasonKey: string, status = 422, fields: string[] = []): Comman
       error: reasonKey,
       code: 'visit_availability_unavailable',
       fields,
+      ...(subjects ? { subjects } : {}),
       fieldErrors: Object.fromEntries(fields.map((field) => [field, reasonKey])),
     },
   }
@@ -172,6 +173,7 @@ async function beforeVisitWrite(rawInput: unknown, context: CommandInterceptorCo
     endAt: new Date(start.getTime() + durationMinutes * 60000).toISOString(),
     staffUserIds: selected.staffUserIds,
     resourceIds: selected.resourceIds,
+    ...(existing?.id ? { excludeInteractionId: existing.id } : {}),
   })
   if (!parsed.success) return blocked('example.calendar.visitAvailability.invalidInterval', 422, ['scheduledAt', 'durationMinutes'])
   const selectedCount = parsed.data.staffUserIds.length + parsed.data.resourceIds.length
@@ -184,11 +186,12 @@ async function beforeVisitWrite(rawInput: unknown, context: CommandInterceptorCo
     scope: { tenantId, organizationId },
     input: parsed.data,
   })
-  const failure = results.find((subject) => subject.status !== 'available')
+  const failure = results.find((subject) => subject.status === 'unknown') ?? results.find((subject) => subject.status === 'unavailable')
   if (failure) return blocked(
     failure.reasonKey ?? 'example.calendar.visitAvailability.retry',
     failure.status === 'unknown' ? 503 : 422,
-    [failure.type === 'staff' ? 'participants' : 'linkedEntities'],
+    [...new Set(results.filter((subject) => subject.status !== 'available').map((subject) => subject.type === 'staff' ? 'participants' : 'linkedEntities'))],
+    results.filter((subject) => subject.status !== 'available'),
   )
   return { ok: true }
 }

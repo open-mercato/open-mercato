@@ -6,7 +6,7 @@ import type { CalendarEventTypePanelProps } from '@open-mercato/core/modules/cus
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { visitAvailabilityRequestUrl, type VisitAvailabilityResponse, type VisitAvailabilitySubject } from '../lib/visitAvailabilityClient'
+import { visitAvailabilityRequestUrl, visitAvailabilitySubjectMessage, type VisitAvailabilityResponse, type VisitAvailabilitySubject } from '../lib/visitAvailabilityClient'
 
 type Preview = { state: 'idle' | 'pending' | 'available' | 'unavailable' | 'retry'; subjects: VisitAvailabilitySubject[]; warnings?: string[] }
 
@@ -42,7 +42,7 @@ export function VisitPanel({ definition, values, errors, disabled, capabilities,
     ...(!capabilities.resourcesEnabled && definition.behavior.fields.resources ? ['example.calendar.visitAvailability.resourcesDisabled'] : []),
     ...(preview.warnings ?? []),
   ])]
-  const reason = preview.subjects.find((subject) => subject.status !== 'available')?.reasonKey
+  const blocked = preview.subjects.filter((subject) => subject.status !== 'available')
   const description = preview.state === 'idle'
     ? t('example.calendar.visitAvailability.invalidInterval', 'Choose a valid visit start and end time.')
     : preview.state === 'pending'
@@ -53,8 +53,7 @@ export function VisitPanel({ definition, values, errors, disabled, capabilities,
         ? t('example.calendar.visitAvailability.available', 'Selected staff and resources are available.')
         : preview.state === 'retry'
           ? t('example.calendar.visitAvailability.retry', 'Availability could not be checked. Try again.')
-          : reason ? t(reason, t('example.calendar.visitAvailability.unavailable', 'A selected person or resource is unavailable.'))
-            : t('example.calendar.visitAvailability.unavailable', 'A selected person or resource is unavailable.')
+          : t('example.calendar.visitAvailability.unavailable', 'A selected person or resource is unavailable.')
 
   return <div className="space-y-4" data-testid="example-visit-panel">
     {children}
@@ -66,7 +65,12 @@ export function VisitPanel({ definition, values, errors, disabled, capabilities,
     </Alert> : null}
     <Alert status={preview.state === 'available' ? (warnings.length && !preview.subjects.length ? 'information' : 'success') : preview.state === 'unavailable' ? 'warning' : 'information'}>
       <AlertTitle>{t('example.calendar.visitAvailability.title', 'Visit availability')}</AlertTitle>
-      <AlertDescription>{description}</AlertDescription>
+      <AlertDescription>
+        {description}
+        {blocked.length ? <ul className="mt-2 list-disc space-y-1 pl-5" data-testid="example-visit-unavailable-subjects">
+          {blocked.map((subject) => <li key={`${subject.type}:${subject.id}`}>{visitAvailabilitySubjectMessage(subject, values, t)}</li>)}
+        </ul> : null}
+      </AlertDescription>
       {preview.state === 'retry' ? <Button type="button" variant="outline" disabled={disabled}
         onClick={() => setRetry((value) => value + 1)}>{t('example.calendar.visitAvailability.retryAction', 'Retry availability')}</Button> : null}
     </Alert>

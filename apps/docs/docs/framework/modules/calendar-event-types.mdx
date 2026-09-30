@@ -15,23 +15,22 @@ Declare a `CalendarEventTypeWidget` with serializable declarations and a headles
 
 The shipped `example` module shows a complete `visit` definition in `widgets/injection/calendar-visit/widget.ts`. Its `baseKind` is `event`; its behavior enables an end time, recipients, location, and resources while disabling all-day and recurrence. The module remains independently loadable when Customers is disabled. Customers never imports the example module.
 
-The same module-owned widget can modify or remove existing types through its payload:
+The shipped Example adds Visit and can modify Meeting through its payload while retaining all six baseline types:
 
 ```ts
 const widget: CalendarEventTypeWidget = {
   metadata: { id: 'example.injection.calendar-visit', title: 'Visit calendar type', requiredModules: ['customers'] },
   Widget: () => null,
   eventTypes: [visit],
-  eventTypeOverrides: { note: null },
   eventTypePatches: [
     { targetEventTypeKey: 'meeting', replaceLabelKey: 'example.calendar.customerMeeting' },
   ],
 }
 ```
 
-The example gates its Note tombstone and Meeting patch behind `OM_EXAMPLE_CALENDAR_DEMO_OVERRIDES=true`; ordinary applications keep their shipped types available. Visit uses `adminConfigurable: false` because its availability rule requires fixed interval semantics. See `src/modules/example/widgets/injection/calendar-visit/widget.ts` and `src/modules/example/di.ts` in a generated app. The DI registrar softly resolves `calendarEventTypeRegistry` and registers the same declarations for API/worker execution, without importing the visual widget registry into API-only bootstrap.
+The example gates only its Meeting label patch behind `OM_EXAMPLE_CALENDAR_DEMO_OVERRIDES=true`. It never removes or disables any built-in calendar type, even when the flag is enabled. Visit uses `adminConfigurable: false` because its availability rule requires fixed interval semantics. See `src/modules/example/widgets/injection/calendar-visit/widget.ts` and `src/modules/example/di.ts` in a generated app. The DI registrar softly resolves `calendarEventTypeRegistry` and registers the same declarations for API/worker execution, without importing the visual widget registry into API-only bootstrap.
 
-The `null` override hides Note from new selection; it does not remove existing Note interactions. Removing the override restores the lower-tier definition. Patches can change only the exported bounded fields and cannot change a key or revive an absent definition. Custom fieldset operations run replace, then delete, then append, with duplicate IDs removed.
+For removal in your own app module, declare `eventTypeOverrides: { note: null }` on your own Customers-typed widget. This customization is separate from the shipped Example. The `null` override hides Note from new selection; it does not remove existing Note interactions. Removing the override restores the lower-tier definition. Patches can change only the exported bounded fields and cannot change a key or revive an absent definition. Custom fieldset operations run replace, then delete, then append, with duplicate IDs removed.
 
 Composition starts with the six Customers definitions. Enabled widget definitions run in module, priority, and widget-ID order. Complete replacements from widgets and then the DI registry are applied next. Patches from those sources follow in the same tier order. Inherited and local dictionary behavior overlays apply last to types with `adminConfigurable !== false`. An unchanged shipped dictionary seed row is treated as a baseline value, so it does not mask a module patch; a changed row remains an organization override. A code tombstone keeps the type out of new selection even when an old dictionary row remains stored. Duplicate base definitions and invalid declarations are rejected per source; a contributor must use an explicit replacement or patch to alter another owner's type. The catalog reports source and property provenance.
 
@@ -60,3 +59,7 @@ Availability is a separate planner schedule. Visit opts into `respectTimezone: t
 Staff availability resolves each selected auth user to its active staff member ID before reading planner rules. The preview and save guard share the evaluator, and save checks use the interaction or parent customer's authorized organization. Unresolved or inactive subjects are unavailable; transient lookup failures remain retryable. Metadata-only edits preserve existing visits even if a schedule later changes, while changed intervals or assignments trigger fresh validation.
 
 See the [module overrides guide](./overrides.mdx) for the general dispatcher and the [concurrent editing guide](../data-integrity/concurrency-locking.mdx) for optimistic locking.
+
+## Named availability and existing bookings
+
+Visit reports each selected staff member or resource by display name and distinguishes missing schedules or intervals outside working hours from an existing booking (`example.calendar.visitAvailability.booked`). Booking checks include overlapping Customers interactions of every event type, including recurrence occurrences, in the authorized tenant and organization. Use half-open intervals: touching boundaries do not overlap. Canceled and deleted interactions do not reserve subjects. On edit, pass the validated current `excludeInteractionId` to preview; the command guard excludes that same existing interaction automatically, while retaining other collisions. Preview and rejected writes return the blocked subject names and reason keys without disclosing other event titles or IDs. Booking reads and recurrence expansion are bounded; failed, incomplete, or unsupported booking checks fail closed rather than reporting an available subject. These guards protect Visit scheduling against bookings from any type; they do not impose Visit rules on other event-type writes.

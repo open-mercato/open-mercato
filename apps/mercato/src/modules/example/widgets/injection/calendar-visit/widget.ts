@@ -30,7 +30,6 @@ const widget: CalendarEventTypeWidget = {
   metadata: { id: 'example.injection.calendar-visit', title: 'Visit calendar type', requiredModules: ['customers'] },
   Widget: () => null,
   eventTypes: [visit],
-  eventTypeOverrides: parseBooleanWithDefault(process.env.OM_EXAMPLE_CALENDAR_DEMO_OVERRIDES, false) ? { note: null } : {},
   eventTypePatches: parseBooleanWithDefault(process.env.OM_EXAMPLE_CALENDAR_DEMO_OVERRIDES, false)
     ? [{ targetEventTypeKey: 'meeting', replaceLabelKey: 'example.calendar.customerMeeting' }] : [],
 }

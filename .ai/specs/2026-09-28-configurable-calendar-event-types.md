@@ -332,3 +332,12 @@ Approved for review. The original combined brief was split by capability with th
 - Added optional nullable interaction `timezone` with IANA validation, API read/write support, undo snapshot preservation, and editor restoration. Existing null-zone records preserve legacy browser-local behavior.
 - Zoned weekly event recurrence keeps its wall time through daylight-saving changes, and module previews use the same chosen-zone conversion as submission. Visit keeps its fixed code-owned behavior and wraps standard Customers fields.
 - Added TC-CAL-014 coverage for normal/Visit zone persistence, invalid-zone 400s, editing a chosen zone, and DST recurrence rendering; execution awaits the timezone migration and live test gate.
+
+### 2026-09-30 — Preserve shipped calendar types
+
+- Example adds Visit and optionally patches Meeting without removing or disabling any built-in type, regardless of the demo flag. Generic app-owned removal instructions and Customers tombstone support remain available.
+
+### 2026-09-30 — Named availability and calendar booking conflicts
+
+- Visit reports each selected staff member or resource by display name and distinguishes missing schedules or intervals outside working hours from an existing booking (`example.calendar.visitAvailability.booked`). Booking checks include overlapping Customers interactions of every event type, including recurrence occurrences, in the authorized tenant and organization. Use half-open intervals: touching boundaries do not overlap. Canceled and deleted interactions do not reserve subjects. On edit, pass the validated current `excludeInteractionId` to preview; the command guard excludes that same existing interaction automatically, while retaining other collisions. Preview and rejected writes return the blocked subject names and reason keys without disclosing other event titles or IDs. Booking reads and recurrence expansion are bounded; failed, incomplete, or unsupported booking checks fail closed rather than reporting an available subject. These guards protect Visit scheduling against bookings from any type; they do not impose Visit rules on other event-type writes.
+- TC-EXAMPLE-018 creates its own staff/resource, availability, normal Meeting and recurring Event fixtures; asserts named preview/POST/PUT conflicts, self-edit exclusion, boundary contact, cancellation and deletion release, and preserved failed-update data. Frontend unit coverage checks the named booking messages. Live integration execution remains part of the QA gate.

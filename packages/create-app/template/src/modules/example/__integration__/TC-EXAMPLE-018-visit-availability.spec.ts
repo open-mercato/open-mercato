@@ -57,7 +57,7 @@ test.describe('TC-EXAMPLE-018: Visit availability API and direct write guard', (
       const preview = await apiRequest(request, 'GET', `/api/example/visit-availability?${query.toString()}`, { token })
       expect(preview.status(), await preview.text()).toBe(200)
       expect(await preview.json()).toEqual({ subjects: [{
-        type: 'resource', id: resourceId, status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.noSchedule',
+        type: 'resource', id: resourceId, displayName: `Visit QA room ${stamp}`, status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.noSchedule',
       }], warnings: [] })
 
       const visitInput = { entityId: personId, interactionType: 'visit', title: `Visit QA ${stamp}`, scheduledAt: START, durationMinutes: 60 }
@@ -200,6 +200,117 @@ for (const schedule of scheduleCases) {
       await deleteEntityIfExists(request, token, '/api/customers/interactions', visitId)
       await deleteEntityIfExists(request, token, '/api/planner/availability', ruleId)
       await deleteEntityIfExists(request, token, schedule.kind === 'staff' ? '/api/staff/team-members' : '/api/resources/resources', subjectId)
+      await deleteUserIfExists(request, token, staffUserId)
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+    }
+  })
+}
+
+
+for (const subjectType of ['staff', 'resource'] as const) {
+  test(`TC-EXAMPLE-018: named ${subjectType} bookings block Visit across normal and recurring event types`, async ({ request }) => {
+    let token: string | null = null
+    let personId: string | null = null
+    let staffUserId: string | null = null
+    let subjectId: string | null = null
+    let ruleId: string | null = null
+    const interactionIds: string[] = []
+    try {
+      token = await getAuthToken(request, 'admin')
+      const stamp = `${Date.now()}-${subjectType}-bookings`
+      const subjectName = `QA booked ${subjectType} ${stamp}`
+      personId = await createPersonFixture(request, token, { firstName: 'Bookings', lastName: stamp, displayName: `QA bookings ${stamp}` })
+      if (subjectType === 'staff') {
+        staffUserId = await createUserFixture(request, token, {
+          email: `visit-bookings-${stamp}@example.com`, password: `QA-${stamp}-Secret9!`,
+          organizationId: getTokenScope(token).organizationId, roles: [], name: subjectName,
+        })
+        const member = await apiRequest(request, 'POST', '/api/staff/team-members', {
+          token, data: { displayName: subjectName, userId: staffUserId, isActive: true },
+        })
+        expect(member.status(), await member.text()).toBe(201)
+        subjectId = (await member.json() as { id: string }).id
+      } else {
+        const resource = await apiRequest(request, 'POST', '/api/resources/resources', {
+          token, data: { name: subjectName, isActive: true },
+        })
+        expect(resource.status(), await resource.text()).toBe(201)
+        subjectId = (await resource.json() as { id: string }).id
+      }
+      const rule = await apiRequest(request, 'POST', '/api/planner/availability', {
+        token, data: { subjectType: subjectType === 'staff' ? 'member' : 'resource', subjectId,
+          timezone: 'UTC', rrule: 'DTSTART:20261005T090000Z\nDURATION:PT8H\nRRULE:FREQ=WEEKLY;BYDAY=MO',
+          kind: 'availability', exdates: [] },
+      })
+      expect(rule.status(), await rule.text()).toBe(201)
+      ruleId = (await rule.json() as { id: string }).id
+      const selectedId = subjectType === 'staff' ? staffUserId! : subjectId!
+      const selection = subjectType === 'staff'
+        ? { participants: [{ userId: staffUserId, name: subjectName }] }
+        : { linkedEntities: [{ type: 'resource', id: subjectId, label: subjectName }] }
+      const authToken = token
+      const createInteraction = async (interactionType: string, scheduledAt: string, extra: Record<string, unknown> = {}) => {
+        const response = await apiRequest(request, 'POST', '/api/customers/interactions', {
+          token: authToken, data: { entityId: personId, interactionType, title: `QA ${interactionType} ${stamp}`,
+            scheduledAt, durationMinutes: 60, timezone: 'UTC', ...selection, ...extra },
+        })
+        expect(response.status(), await response.text()).toBe(201)
+        const id = (await response.json() as { id: string }).id
+        interactionIds.push(id)
+        return id
+      }
+      const preview = async (startAt: string, endAt: string, status: string, reasonKey: string | null, excludeInteractionId?: string) => {
+        const query = new URLSearchParams({ startAt, endAt, [subjectType === 'staff' ? 'staffUserIds' : 'resourceIds']: selectedId })
+        if (excludeInteractionId) query.set('excludeInteractionId', excludeInteractionId)
+        const response = await apiRequest(request, 'GET', `/api/example/visit-availability?${query}`, { token: authToken })
+        expect(response.status(), await response.text()).toBe(200)
+        expect(await response.json()).toMatchObject({ subjects: [{ type: subjectType, id: selectedId, displayName: subjectName, status, reasonKey }], warnings: [] })
+      }
+      const visitId = await createInteraction('visit', '2026-10-05T13:00:00Z')
+      await preview('2026-10-05T13:15:00Z', '2026-10-05T14:00:00Z', 'unavailable', 'example.calendar.visitAvailability.booked')
+      await preview('2026-10-05T13:15:00Z', '2026-10-05T14:00:00Z', 'available', null, visitId)
+      const ownUpdate = await apiRequest(request, 'PUT', '/api/customers/interactions', {
+        token, data: { id: visitId, scheduledAt: '2026-10-05T13:15:00Z', durationMinutes: 45 },
+      })
+      expect(ownUpdate.status(), await ownUpdate.text()).toBe(200)
+
+      for (const [interactionType, scheduledAt, extra] of [
+        ['meeting', '2026-10-05T09:30:00Z', {}],
+        ['event', '2026-09-28T09:30:00Z', { recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO;COUNT=3' }],
+      ] as const) {
+        let bookingId = await createInteraction(interactionType, scheduledAt, extra)
+        await preview('2026-10-05T10:00:00Z', '2026-10-05T11:00:00Z', 'unavailable', 'example.calendar.visitAvailability.booked')
+        const blockedSubject = { type: subjectType, id: selectedId, displayName: subjectName, status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.booked' }
+        const rejectedCreate = await apiRequest(request, 'POST', '/api/customers/interactions', {
+          token, data: { entityId: personId, interactionType: 'visit', title: `Blocked Visit ${stamp}`,
+            scheduledAt: '2026-10-05T10:00:00Z', durationMinutes: 60, timezone: 'UTC', ...selection },
+        })
+        expect(rejectedCreate.status(), await rejectedCreate.text()).toBe(422)
+        expect(await rejectedCreate.json()).toMatchObject({ code: 'visit_availability_unavailable',
+          fields: [subjectType === 'staff' ? 'participants' : 'linkedEntities'], subjects: [blockedSubject] })
+        const rejectedUpdate = await apiRequest(request, 'PUT', '/api/customers/interactions', {
+          token, data: { id: visitId, scheduledAt: '2026-10-05T10:00:00Z', durationMinutes: 60 },
+        })
+        expect(rejectedUpdate.status(), await rejectedUpdate.text()).toBe(422)
+        expect(await rejectedUpdate.json()).toMatchObject({ code: 'visit_availability_unavailable', subjects: [blockedSubject] })
+        await preview('2026-10-05T10:30:00Z', '2026-10-05T11:30:00Z', 'available', null)
+        const canceled = await apiRequest(request, 'PUT', '/api/customers/interactions', { token, data: { id: bookingId, status: 'canceled' } })
+        expect(canceled.status(), await canceled.text()).toBe(200)
+        await preview('2026-10-05T10:00:00Z', '2026-10-05T11:00:00Z', 'available', null)
+        await deleteEntityIfExists(request, token, '/api/customers/interactions', bookingId)
+        bookingId = await createInteraction(interactionType, scheduledAt, extra)
+        await preview('2026-10-05T10:00:00Z', '2026-10-05T11:00:00Z', 'unavailable', 'example.calendar.visitAvailability.booked')
+        await deleteEntityIfExists(request, token, '/api/customers/interactions', bookingId)
+        await preview('2026-10-05T10:00:00Z', '2026-10-05T11:00:00Z', 'available', null)
+      }
+      const stored = await apiRequest(request, 'GET', `/api/customers/interactions?entityId=${personId}&limit=100`, { token })
+      expect(stored.status(), await stored.text()).toBe(200)
+      const storedItems = await stored.json() as { items: Array<{ id: string; scheduledAt: string; durationMinutes: number }> }
+      expect(storedItems.items.find((item) => item.id === visitId)).toMatchObject({ scheduledAt: '2026-10-05T13:15:00.000Z', durationMinutes: 45 })
+    } finally {
+      for (const id of interactionIds) await deleteEntityIfExists(request, token, '/api/customers/interactions', id)
+      await deleteEntityIfExists(request, token, '/api/planner/availability', ruleId)
+      await deleteEntityIfExists(request, token, subjectType === 'staff' ? '/api/staff/team-members' : '/api/resources/resources', subjectId)
       await deleteUserIfExists(request, token, staffUserId)
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
     }

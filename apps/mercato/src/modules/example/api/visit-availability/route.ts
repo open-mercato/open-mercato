@@ -12,6 +12,7 @@ const querySchema = z.object({
   endAt: z.string(),
   staffUserIds: z.string().optional(),
   resourceIds: z.string().optional(),
+  excludeInteractionId: z.string().uuid().optional(),
 })
 
 export const metadata = {
@@ -26,6 +27,7 @@ export async function GET(request: Request) {
       endAt: query.endAt,
       staffUserIds: query.staffUserIds ? query.staffUserIds.split(',') : [],
       resourceIds: query.resourceIds ? query.resourceIds.split(',') : [],
+      excludeInteractionId: query.excludeInteractionId,
     })
     const auth = await getAuthFromRequest(request)
     if (!auth?.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -65,6 +67,7 @@ export const openApi: OpenApiRouteDoc = {
       query: querySchema,
       responses: [{ status: 200, description: 'Availability preview', schema: z.object({ warnings: z.array(z.string()), subjects: z.array(z.object({
         type: z.enum(['staff', 'resource']), id: z.string().uuid(), status: z.enum(['available', 'unavailable', 'unknown']), reasonKey: z.string().nullable(),
+        displayName: z.string().optional(),
       })) }) }],
       errors: [
         { status: 400, description: 'Invalid interval or subject IDs', schema: z.object({ error: z.string() }) },

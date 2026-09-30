@@ -2506,7 +2506,7 @@
     {
       "capabilityId": "umes.customers.calendar-event-types",
       "title": "Customers calendar event types and optional Visit availability",
-      "description": "Add Visit, optionally tombstone Note and patch Meeting, register the same server definitions through soft Customers DI, and keep Visit-only panel and command validation operational with unavailable staff/resources warnings. Calendar policy stays in Customers and the contributing app module.",
+      "description": "Add Visit and optionally patch Meeting while preserving every baseline type, register the same definitions through soft Customers DI, and keep Visit-only validation operational with unavailable staff/resources warnings and named scoped booking conflicts. Calendar policy stays module-owned.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",

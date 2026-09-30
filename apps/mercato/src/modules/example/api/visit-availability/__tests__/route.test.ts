@@ -55,6 +55,17 @@ describe('GET visit availability', () => {
     expect(await response.json()).toEqual({ subjects: [], warnings: ['example.calendar.visitAvailability.staffDisabled', 'example.calendar.visitAvailability.resourcesDisabled'] })
   })
 
+  it('accepts a validated edit exclusion and returns named booking failures', async () => {
+    evaluateVisitAvailability.mockResolvedValue([{ type: 'resource', id: RESOURCE_ID, displayName: 'Conference room',
+      status: 'unavailable', reasonKey: 'example.calendar.visitAvailability.booked' }])
+    const response = await GET(new Request(`http://localhost/api/example/visit-availability?startAt=2026-10-05T09%3A00%3A00Z&endAt=2026-10-05T10%3A00%3A00Z&excludeInteractionId=${RESOURCE_ID}`))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ subjects: [{ displayName: 'Conference room', reasonKey: 'example.calendar.visitAvailability.booked' }] })
+    expect(evaluateVisitAvailability).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({ excludeInteractionId: RESOURCE_ID }) }))
+    const invalid = await GET(new Request('http://localhost/api/example/visit-availability?startAt=2026-10-05T09%3A00%3A00Z&endAt=2026-10-05T10%3A00%3A00Z&excludeInteractionId=invalid'))
+    expect(invalid.status).toBe(400)
+  })
+
   it('rejects a user without interaction management access', async () => {
     createRequestContainer.mockResolvedValue({ hasRegistration: () => true, resolve: () => ({ userHasAllFeatures: async () => false }) })
     const response = await GET(new Request('http://localhost/api/example/visit-availability?startAt=2026-10-05T09%3A00%3A00Z&endAt=2026-10-05T10%3A00%3A00Z'))

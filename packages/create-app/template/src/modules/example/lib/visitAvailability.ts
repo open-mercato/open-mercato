@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { AwilixContainer } from 'awilix'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { getEnabledModuleIds, hasEnabledModulesRegistry } from '@open-mercato/shared/security/enabledModulesRegistry'
+import { bookedVisitSubjects } from './visitBookings'
 
 const uuid = z.string().uuid()
 const ids = z.array(uuid).max(20).refine((value) => new Set(value).size === value.length)
@@ -10,6 +11,7 @@ export const visitAvailabilityInputSchema = z.object({
   endAt: z.string().datetime({ offset: true }),
   staffUserIds: ids.default([]),
   resourceIds: ids.default([]),
+  excludeInteractionId: uuid.optional(),
 }).refine((value) => new Date(value.endAt).getTime() > new Date(value.startAt).getTime(), {
   path: ['endAt'],
   message: 'example.calendar.visitAvailability.invalidInterval',
@@ -21,6 +23,7 @@ export type VisitAvailabilitySubject = {
   id: string
   status: 'available' | 'unavailable' | 'unknown'
   reasonKey: string | null
+  displayName?: string
 }
 
 export function visitAvailabilityWarnings(): string[] {
@@ -113,12 +116,20 @@ export async function evaluateVisitAvailability(args: {
       const records = await list(queryEngine,
         type === 'staff' ? 'staff:staff_team_member' : 'resources:resources_resource',
         scope,
-        type === 'staff' ? { user_id: { $in: selected.map((subject) => subject.id) }, is_active: true } : { id: { $in: selected.map((subject) => subject.id) }, is_active: true },
-        type === 'staff' ? ['id', 'user_id', 'is_active', 'availability_rule_set_id'] : ['id', 'is_active', 'availability_rule_set_id'],
+        type === 'staff' ? { user_id: { $in: selected.map((subject) => subject.id) } } : { id: { $in: selected.map((subject) => subject.id) } },
+        type === 'staff' ? ['id', 'user_id', 'display_name', 'is_active', 'availability_rule_set_id'] : ['id', 'name', 'is_active', 'availability_rule_set_id'],
       )
       for (const subject of selected) {
-        const record = records.find((row) => value(row, type === 'staff' ? 'userId' : 'id', type === 'staff' ? 'user_id' : 'id') === subject.id)
+        const matchingRecords = records.filter((row) => value(row, type === 'staff' ? 'userId' : 'id', type === 'staff' ? 'user_id' : 'id') === subject.id)
+        const record = matchingRecords.find((row) => value(row, 'isActive', 'is_active') === true) ?? matchingRecords[0]
         if (!record) {
+          subject.status = 'unavailable'
+          subject.reasonKey = 'example.calendar.visitAvailability.inactiveSubject'
+          continue
+        }
+        const displayName = type === 'staff' ? value(record, 'displayName', 'display_name') : record.name
+        if (typeof displayName === 'string' && displayName.trim()) subject.displayName = displayName.trim()
+        if (value(record, 'isActive', 'is_active') !== true) {
           subject.status = 'unavailable'
           subject.reasonKey = 'example.calendar.visitAvailability.inactiveSubject'
           continue
@@ -157,6 +168,21 @@ export async function evaluateVisitAvailability(args: {
       }
     } catch {
       selected.filter((subject) => subject.status === 'unknown').forEach((subject) => {
+        subject.reasonKey = 'example.calendar.visitAvailability.retry'
+      })
+    }
+  }
+  const available = subjects.filter((subject) => subject.status === 'available')
+  if (available.length) {
+    try {
+      const booked = await bookedVisitSubjects({ queryEngine, scope, input, subjects: available })
+      available.filter((subject) => booked.has(`${subject.type}:${subject.id}`)).forEach((subject) => {
+        subject.status = 'unavailable'
+        subject.reasonKey = 'example.calendar.visitAvailability.booked'
+      })
+    } catch {
+      available.forEach((subject) => {
+        subject.status = 'unknown'
         subject.reasonKey = 'example.calendar.visitAvailability.retry'
       })
     }
