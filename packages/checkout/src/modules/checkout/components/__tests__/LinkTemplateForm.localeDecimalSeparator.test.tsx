@@ -54,7 +54,7 @@ jest.mock('../LogoUploadField', () => ({
   LogoUploadField: () => null,
 }))
 
-import { PricingSection, PriceListEditor } from '../LinkTemplateForm'
+import { PricingSection, PriceListEditor, toSubmittedAmount } from '../LinkTemplateForm'
 
 function renderPricingSection(initialValues: Record<string, unknown>) {
   const setValue = jest.fn()
@@ -76,57 +76,87 @@ function renderPricingSection(initialValues: Record<string, unknown>) {
   return setValue
 }
 
+// Fires one `change` event per character, re-reading the input's own DOM value between
+// keystrokes — a single `fireEvent.change(input, { value: 'full string' })` does not exercise
+// the eager re-parse-and-re-serialize path that used to corrupt a value typed character by
+// character (issue #5828: typing "110,70" ended up submitted as "11070").
+function typeSequentially(input: HTMLInputElement, text: string) {
+  for (const char of text) {
+    fireEvent.change(input, { target: { value: input.value + char } })
+  }
+}
+
 describe('LinkTemplateForm locale decimal separator (issue #5828)', () => {
-  it('accepts a comma-decimal fixed price amount', () => {
-    const setValue = renderPricingSection({ pricingMode: 'fixed' })
-    const amountInput = screen.getByPlaceholderText('150')
-    fireEvent.change(amountInput, { target: { value: '110,70' } })
-    expect(setValue).toHaveBeenLastCalledWith('fixedPriceAmount', 110.7)
+  it('keeps a comma-decimal fixed price amount intact while typing it character by character', () => {
+    renderPricingSection({ pricingMode: 'fixed' })
+    const amountInput = screen.getByPlaceholderText('150') as HTMLInputElement
+    typeSequentially(amountInput, '110,70')
+    // Before the fix, the field eagerly re-parsed and re-serialized the number on every
+    // keystroke, which dropped the in-progress comma and left "11070" once typing finished.
+    expect(amountInput.value).toBe('110,70')
   })
 
-  it('accepts a comma-decimal compare-at price', () => {
-    const setValue = renderPricingSection({ pricingMode: 'fixed' })
-    const compareInput = screen.getByPlaceholderText('200')
-    fireEvent.change(compareInput, { target: { value: '150,50' } })
-    expect(setValue).toHaveBeenLastCalledWith('fixedPriceOriginalAmount', 150.5)
+  it('keeps a comma-decimal compare-at price intact while typing it character by character', () => {
+    renderPricingSection({ pricingMode: 'fixed' })
+    const compareInput = screen.getByPlaceholderText('200') as HTMLInputElement
+    typeSequentially(compareInput, '150,50')
+    expect(compareInput.value).toBe('150,50')
   })
 
-  it('accepts comma-decimal custom-amount min/max', () => {
-    const setValue = renderPricingSection({ pricingMode: 'custom_amount' })
-    const minInput = screen.getByPlaceholderText('10')
-    fireEvent.change(minInput, { target: { value: '10,50' } })
-    expect(setValue).toHaveBeenLastCalledWith('customAmountMin', 10.5)
+  it('keeps comma-decimal custom-amount min/max intact while typing them character by character', () => {
+    renderPricingSection({ pricingMode: 'custom_amount' })
+    const minInput = screen.getByPlaceholderText('10') as HTMLInputElement
+    typeSequentially(minInput, '10,50')
+    expect(minInput.value).toBe('10,50')
 
-    const maxInput = screen.getByPlaceholderText('500')
-    fireEvent.change(maxInput, { target: { value: '500,25' } })
-    expect(setValue).toHaveBeenLastCalledWith('customAmountMax', 500.25)
+    const maxInput = screen.getByPlaceholderText('500') as HTMLInputElement
+    typeSequentially(maxInput, '500,25')
+    expect(maxInput.value).toBe('500,25')
   })
 
-  it('still accepts a dot, so the workaround users learned keeps working', () => {
-    const setValue = renderPricingSection({ pricingMode: 'fixed' })
-    const amountInput = screen.getByPlaceholderText('150')
-    fireEvent.change(amountInput, { target: { value: '110.70' } })
-    expect(setValue).toHaveBeenLastCalledWith('fixedPriceAmount', 110.7)
+  it('still accepts a dot typed character by character, so the workaround users learned keeps working', () => {
+    renderPricingSection({ pricingMode: 'fixed' })
+    const amountInput = screen.getByPlaceholderText('150') as HTMLInputElement
+    typeSequentially(amountInput, '110.70')
+    expect(amountInput.value).toBe('110.70')
   })
 
-  it('reports an unparseable fixed amount as null rather than NaN', () => {
-    const setValue = renderPricingSection({ pricingMode: 'fixed' })
-    const amountInput = screen.getByPlaceholderText('150')
-    fireEvent.change(amountInput, { target: { value: 'abc' } })
-    expect(setValue).toHaveBeenLastCalledWith('fixedPriceAmount', null)
-  })
-
-  it('parses a comma-decimal amount in a price list row', () => {
+  it('keeps a comma-decimal amount intact while typing it character by character in a price list row', () => {
     const onChange = jest.fn()
-    render(
+    const { rerender } = render(
       <PriceListEditor
-        value={[{ id: 'item-1', description: 'Item', amount: 0, currencyCode: 'USD' }]}
+        value={[{ id: 'item-1', description: 'Item', amount: '', currencyCode: 'USD' }]}
         onChange={onChange}
       />,
     )
-    const amountInput = screen.getByLabelText('checkout.linkTemplateForm.priceList.aria.amount')
-    fireEvent.change(amountInput, { target: { value: '25,99' } })
-    const lastCall = onChange.mock.calls.at(-1)?.[0]
-    expect(lastCall?.[0]?.amount).toBe(25.99)
+    const amountInput = screen.getByLabelText(
+      'checkout.linkTemplateForm.priceList.aria.amount',
+    ) as HTMLInputElement
+    for (const char of '25,99') {
+      fireEvent.change(amountInput, { target: { value: amountInput.value + char } })
+      const lastItems = onChange.mock.calls.at(-1)?.[0]
+      rerender(<PriceListEditor value={lastItems} onChange={onChange} />)
+    }
+    expect(amountInput.value).toBe('25,99')
+  })
+
+  describe('toSubmittedAmount (converts the raw typed text to a number at submit time)', () => {
+    it('parses a comma-decimal value', () => {
+      expect(toSubmittedAmount('110,70', 'pl-PL')).toBe(110.7)
+    })
+
+    it('still parses a dot-decimal value', () => {
+      expect(toSubmittedAmount('110.70', 'pl-PL')).toBe(110.7)
+    })
+
+    it('passes an already-numeric value through unchanged', () => {
+      expect(toSubmittedAmount(150, 'pl-PL')).toBe(150)
+    })
+
+    it('returns null for unparseable or blank input, never a silent 0 or NaN', () => {
+      expect(toSubmittedAmount('abc', 'pl-PL')).toBeNull()
+      expect(toSubmittedAmount('', 'pl-PL')).toBeNull()
+      expect(toSubmittedAmount(null, 'pl-PL')).toBeNull()
+    })
   })
 })

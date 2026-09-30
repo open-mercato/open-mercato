@@ -259,18 +259,18 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
     async function loadPersonName() {
       if (!data!.personEntityId) return
       try {
-        const call = await apiCall<{ id?: string; firstName?: string; lastName?: string }>(`/api/customers/people/${encodeURIComponent(data!.personEntityId)}`)
-        if (!cancelled && call.ok && call.result) {
-          setPersonName([call.result.firstName, call.result.lastName].filter(Boolean).join(' ') || call.result.id || null)
+        const call = await apiCall<{ person?: { id?: string; displayName?: string | null } }>(`/api/customers/people/${encodeURIComponent(data!.personEntityId)}`)
+        if (!cancelled && call.ok && call.result?.person) {
+          setPersonName(call.result.person.displayName || call.result.person.id || null)
         }
       } catch { /* ignore */ }
     }
     async function loadCompanyName() {
       if (!data!.customerEntityId) return
       try {
-        const call = await apiCall<{ id?: string; name?: string }>(`/api/customers/${encodeURIComponent(data!.customerEntityId)}`)
-        if (!cancelled && call.ok && call.result) {
-          setCompanyName(call.result.name || call.result.id || null)
+        const call = await apiCall<{ company?: { id?: string; displayName?: string | null } }>(`/api/customers/companies/${encodeURIComponent(data!.customerEntityId)}`)
+        if (!cancelled && call.ok && call.result?.company) {
+          setCompanyName(call.result.company.displayName || call.result.company.id || null)
         }
       } catch { /* ignore */ }
     }
@@ -282,13 +282,13 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
     setPersonSearchQuery(query)
     if (query.trim().length < 2) { setPersonResults([]); return }
     try {
-      const call = await apiCall<{ items?: Array<{ id: string; firstName?: string; lastName?: string; email?: string }> }>(
+      const call = await apiCall<{ items?: Array<{ id: string; first_name?: string; last_name?: string; primary_email?: string }> }>(
         `/api/customers/people?search=${encodeURIComponent(query.trim())}&pageSize=10`,
       )
       if (call.ok && Array.isArray(call.result?.items)) {
         setPersonResults(call.result!.items.map((person) => ({
           id: person.id,
-          label: [person.firstName, person.lastName].filter(Boolean).join(' ') || person.email || person.id,
+          label: [person.first_name, person.last_name].filter(Boolean).join(' ') || person.primary_email || person.id,
         })))
       }
     } catch { /* ignore */ }
@@ -298,13 +298,13 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
     setCompanySearchQuery(query)
     if (query.trim().length < 2) { setCompanyResults([]); return }
     try {
-      const call = await apiCall<{ items?: Array<{ id: string; name?: string }> }>(
-        `/api/customers?search=${encodeURIComponent(query.trim())}&pageSize=10`,
+      const call = await apiCall<{ items?: Array<{ id: string; display_name?: string }> }>(
+        `/api/customers/companies?search=${encodeURIComponent(query.trim())}&pageSize=10`,
       )
       if (call.ok && Array.isArray(call.result?.items)) {
         setCompanyResults(call.result!.items.map((company) => ({
           id: company.id,
-          label: company.name || company.id,
+          label: company.display_name || company.id,
         })))
       }
     } catch { /* ignore */ }
