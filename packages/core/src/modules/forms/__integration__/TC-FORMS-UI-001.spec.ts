@@ -18,9 +18,9 @@ import {
  *
  * The unauthorized user is the seeded `employee`, not a throwaway role: `setup.ts`
  * grants the six forms features to `admin` only, so `employee` is the real
- * out-of-the-box unauthorized staff account (verified independently — its
- * `GET /api/forms` answers 403). Using it also means the gate is tested on the
- * same ACL shape a fresh tenant actually ships with.
+ * out-of-the-box unauthorized staff account (asserted below against the API too).
+ * Using it also means the gate is tested on the same ACL shape a fresh tenant
+ * actually ships with.
  *
  * The render half asserts an API-created form appears by name, so it proves the
  * page is bound to `/api/forms` rather than merely mounting.
@@ -65,8 +65,17 @@ test.describe('TC-FORMS-UI-001: backend forms list page', () => {
       const employeeApi = await apiRequest(request, 'GET', '/api/forms', { token: employeeToken })
       expect(employeeApi.status(), 'the employee role holds no forms feature').toBe(403)
 
+      // The employee session is established through the login API rather than the
+      // `login()` helper: that helper asserts it reached `/backend`, and an
+      // employee cannot — the backend shell bounces them to `/login`. Driving the
+      // cookie directly is what lets the page-level gate be observed at all.
       await page.context().clearCookies()
-      await login(page, 'employee')
+      const employeeLogin = await page.request.post('/api/auth/login', {
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        data: new URLSearchParams({ email: 'employee@acme.com', password: 'secret' }).toString(),
+      })
+      expect(employeeLogin.ok(), 'the employee should be able to sign in').toBeTruthy()
+
       await page.goto('/backend/forms', { waitUntil: 'domcontentloaded' })
 
       await expect(
@@ -76,6 +85,17 @@ test.describe('TC-FORMS-UI-001: backend forms list page', () => {
       await expect(
         page.getByText(form.key, { exact: false }),
         'a user without forms.view must never see a form key either',
+      ).toHaveCount(0)
+      // The shell keeps them on the route and renders an explicit denied state
+      // rather than redirecting, so assert that state exists — "no form name on
+      // screen" alone would also be satisfied by a blank page or a crash.
+      await expect(
+        page.getByText('Access Denied', { exact: false }),
+        'the employee gets an explicit access-denied state',
+      ).toBeVisible({ timeout: 30_000 })
+      await expect(
+        page.getByRole('heading', { name: 'Forms' }),
+        'the forms list itself is never rendered for them',
       ).toHaveCount(0)
     } finally {
       await deleteFormIfExists(request, adminToken, formId)

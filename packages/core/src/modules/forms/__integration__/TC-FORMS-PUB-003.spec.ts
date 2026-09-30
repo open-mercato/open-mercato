@@ -27,6 +27,11 @@ import {
  * route's before trusting anything — so submission B's token must not move
  * submission A. The no-bearer case is the one that needs the isolated context: a
  * shared jar would replay a session and the assertion would pass vacuously.
+ *
+ * All three rejections are 401 rather than 403: `resolveRuntimePrincipal` returns
+ * `null` for a present-but-invalid bearer and deliberately does NOT fall through
+ * to customer-session auth, so the route cannot tell "wrong credential" from "no
+ * credential" — and should not, since either way nothing is authorized.
  */
 test.describe('TC-FORMS-PUB-003: access token presence and scope', () => {
   test('rejects a missing, garbage and foreign access token on every write route', async ({ request }) => {
@@ -81,7 +86,7 @@ test.describe('TC-FORMS-PUB-003: access token presence and scope', () => {
           })
           expect(
             saveRes.status(),
-            `autosave with ${label} must be 401 or 403 (got ${saveRes.status()}: ${await saveRes.text()})`,
+            `autosave with ${label} must be 401 (got ${saveRes.status()}: ${await saveRes.text()})`,
           ).toBe(401)
 
           const submitRes = await publicSubmit(anonymous, {

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
+import { fillControlledInput } from '@open-mercato/core/helpers/integration/ui'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   deleteFormIfExists,
@@ -26,6 +27,15 @@ import {
  * for screen-reader users, but out of scope here). They are therefore located
  * through `data-crud-field-id`, which `CrudForm` emits on every field wrapper
  * specifically as a stable hook, rather than through incidental class names.
+ *
+ * Every field goes through `fillControlledInput`, not a bare `fill`. These are
+ * React-controlled inputs: a fill that lands before hydration writes the DOM and
+ * the hydration render then restores the initial state, so the field empties
+ * again a few dozen milliseconds later. A plain `fill` plus an immediate
+ * `toHaveValue` reads the window before that happens and reports success on a
+ * value the app is about to discard — which is exactly how the first draft of
+ * this spec submitted a blank form and timed out waiting for a redirect that
+ * could never come.
  */
 test.describe('TC-FORMS-UI-002: create a form through the UI', () => {
   test('submits the create form and persists the reshaped payload', async ({ page, request }) => {
@@ -50,15 +60,17 @@ test.describe('TC-FORMS-UI-002: create a form through the UI', () => {
       const nameInput = page.locator('[data-crud-field-id="name"] input')
       const localesInput = page.locator('[data-crud-field-id="supportedLocales"] input')
 
-      await keyInput.fill(key)
-      await nameInput.fill(name)
+      await fillControlledInput(keyInput, key)
+      await fillControlledInput(nameInput, name)
       // Overwrite the prefilled 'en' so the comma-splitting transform is exercised.
-      await localesInput.fill('en, pl')
-      await expect(
-        localesInput,
-        'the controlled input holds the typed locale list',
-      ).toHaveValue('en, pl')
-      await expect(nameInput, 'the controlled input holds the typed name').toHaveValue(name)
+      await fillControlledInput(localesInput, 'en, pl')
+
+      // Re-read every field after the last fill: the settle window inside
+      // `fillControlledInput` guards each field individually, but a late
+      // hydration pass could still have reset an earlier one.
+      await expect(keyInput, 'the key survived hydration').toHaveValue(key)
+      await expect(nameInput, 'the name survived hydration').toHaveValue(name)
+      await expect(localesInput, 'the locale list survived hydration').toHaveValue('en, pl')
 
       // `CrudForm` renders its submit control twice (an in-form button plus a
       // portalled footer one that targets the form by id), so the role locator is
