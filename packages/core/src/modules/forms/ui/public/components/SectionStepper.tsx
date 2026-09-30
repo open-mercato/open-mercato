@@ -43,7 +43,7 @@ export function SectionStepper({
           const tone = active
             ? 'border-primary bg-primary text-primary-foreground'
             : completed
-              ? 'border-status-success-border bg-status-success text-status-success-foreground'
+              ? 'border-status-success-border bg-status-success-solid text-status-success-solid-foreground'
               : visited
                 ? 'border-border bg-muted text-foreground'
                 : 'border-border bg-background text-muted-foreground'

@@ -81,12 +81,12 @@ export function CreateDistributionDialog({
     if (submitting) return
     const trimmedLocale = defaultLocale.trim()
     if (!trimmedLocale) {
-      flash('forms.distribution.errors.locale_required', 'error')
+      flash(t('forms.distribution.errors.locale_required'), 'error')
       return
     }
     const parsedMax = maxResponses.trim() ? Number.parseInt(maxResponses.trim(), 10) : null
     if (parsedMax != null && (!Number.isFinite(parsedMax) || parsedMax <= 0)) {
-      flash('forms.distribution.errors.max_invalid', 'error')
+      flash(t('forms.distribution.errors.max_invalid'), 'error')
       return
     }
     const completionTitleValue = completionTitle.trim() ? completionTitle.trim() : null
@@ -121,10 +121,10 @@ export function CreateDistributionDialog({
             },
           )
           if (!resp.ok || !resp.result?.id) {
-            flash('forms.distribution.create.failed', 'error')
+            flash(t('forms.distribution.create.failed'), 'error')
             throw new Error('forms.distribution.create.failed')
           }
-          flash('forms.distribution.create.success', 'success')
+          flash(t('forms.distribution.create.success'), 'success')
           if (mode === 'open') {
             const detail = await apiCall<DistributionDetailResponse>(
               `/api/forms/distributions/${encodeURIComponent(resp.result.id)}`,
@@ -179,13 +179,13 @@ export function CreateDistributionDialog({
     try {
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
         await navigator.clipboard.writeText(createdLink)
-        flash('forms.distribution.copy.success', 'success')
+        flash(t('forms.distribution.copy.success'), 'success')
         return
       }
     } catch {
       // fall through to error flash
     }
-    flash('forms.distribution.copy.failed', 'error')
+    flash(t('forms.distribution.copy.failed'), 'error')
   }, [createdLink])
 
   return (

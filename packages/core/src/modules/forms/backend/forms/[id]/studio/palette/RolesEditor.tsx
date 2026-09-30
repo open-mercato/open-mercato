@@ -95,7 +95,7 @@ function RoleRow({
         </IconButton>
       </div>
       {error ? (
-        <p className="text-xs text-status-danger-foreground">{error}</p>
+        <p className="text-xs text-status-error-text">{error}</p>
       ) : null}
     </li>
   )
@@ -217,7 +217,7 @@ export function RolesEditor({
           </Button>
         </div>
         {error ? (
-          <p className="text-xs text-status-danger-foreground">{error}</p>
+          <p className="text-xs text-status-error-text">{error}</p>
         ) : null}
       </div>
     </div>

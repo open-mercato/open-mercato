@@ -222,6 +222,7 @@
   "forms.invitation.status.submitted": "Wysłane",
   "forms.invitation.title": "Odbiorcy",
   "forms.list.actions.archive": "Archiwizuj",
+  "forms.list.actions.archiveSuccess": "Formularz zarchiwizowany.",
   "forms.list.actions.create": "Nowy formularz",
   "forms.list.actions.edit": "Edytuj",
   "forms.list.actions.history": "Historia",

@@ -103,7 +103,7 @@ export function EmbedSettingsDialog({
         )
         if (cancelled) return
         if (!resp.ok || !resp.result) {
-          flash('forms.distribution.errors.load', 'error')
+          flash(t('forms.distribution.errors.load'), 'error')
           onClose()
           return
         }
@@ -126,7 +126,7 @@ export function EmbedSettingsDialog({
   const addDomain = React.useCallback(() => {
     const normalized = normalizeEmbedOrigin(domainDraft)
     if (!normalized) {
-      flash('forms.distribution.embed.domain_invalid', 'error')
+      flash(t('forms.distribution.embed.domain_invalid'), 'error')
       return
     }
     setDomains((current) => (current.includes(normalized) ? current : [...current, normalized]))
@@ -140,7 +140,7 @@ export function EmbedSettingsDialog({
   const handleSubmit = React.useCallback(async () => {
     if (submitting || loading) return
     if (enabled && domains.length === 0) {
-      flash('forms.distribution.embed.allowlist_required', 'error')
+      flash(t('forms.distribution.embed.allowlist_required'), 'error')
       return
     }
     const nextSettings: Record<string, unknown> = { ...(baseSettings ?? {}) }
@@ -157,10 +157,10 @@ export function EmbedSettingsDialog({
             body: JSON.stringify(body),
           })
           if (!resp.ok) {
-            flash('forms.distribution.embed.save_failed', 'error')
+            flash(t('forms.distribution.embed.save_failed'), 'error')
             throw new Error('forms.distribution.embed.save_failed')
           }
-          flash('forms.distribution.embed.save_success', 'success')
+          flash(t('forms.distribution.embed.save_success'), 'success')
           onSaved()
         },
         context: { distributionId },
@@ -187,13 +187,13 @@ export function EmbedSettingsDialog({
     try {
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
         await navigator.clipboard.writeText(embedSnippet(publicSlug))
-        flash('forms.distribution.copy.success', 'success')
+        flash(t('forms.distribution.copy.success'), 'success')
         return
       }
     } catch {
       // fall through
     }
-    flash('forms.distribution.copy.failed', 'error')
+    flash(t('forms.distribution.copy.failed'), 'error')
   }, [publicSlug])
 
   return (

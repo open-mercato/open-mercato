@@ -145,14 +145,14 @@ export function RecipientsTable({
         )
         if (cancelled) return
         if (!resp.ok || !resp.result) {
-          flash('forms.invitation.errors.load', 'error')
+          flash(t('forms.invitation.errors.load'), 'error')
           return
         }
         setRows(resp.result.items)
         setTotal(resp.result.total)
       } catch (error) {
         if (!cancelled) {
-          flash(error instanceof Error ? error.message : 'forms.invitation.errors.load', 'error')
+          flash(error instanceof Error ? error.message : t('forms.invitation.errors.load'), 'error')
         }
       } finally {
         if (!cancelled) setIsLoading(false)
@@ -179,7 +179,7 @@ export function RecipientsTable({
     if (submitting) return
     const recipients = parseRecipients(bulkValue)
     if (recipients.length === 0) {
-      flash('forms.invitation.add.empty', 'error')
+      flash(t('forms.invitation.add.empty'), 'error')
       return
     }
     setSubmitting(true)
@@ -195,7 +195,7 @@ export function RecipientsTable({
             },
           )
           if (!resp.ok || !resp.result) {
-            flash('forms.invitation.add.failed', 'error')
+            flash(t('forms.invitation.add.failed'), 'error')
             throw new Error('forms.invitation.add.failed')
           }
           const links = resp.result.invitations
@@ -203,7 +203,7 @@ export function RecipientsTable({
             .filter((link): link is string => Boolean(link))
           setCreatedLinks(links)
           setBulkValue('')
-          flash('forms.invitation.add.success', 'success')
+          flash(t('forms.invitation.add.success'), 'success')
           onMutated?.()
           reload()
         },
@@ -236,10 +236,10 @@ export function RecipientsTable({
             { method: 'POST' },
           )
           if (!resp.ok) {
-            flash('forms.invitation.send.failed', 'error')
+            flash(t('forms.invitation.send.failed'), 'error')
             throw new Error('forms.invitation.send.failed')
           }
-          flash('forms.invitation.send.success', 'success')
+          flash(t('forms.invitation.send.success'), 'success')
           onMutated?.()
           reload()
         },
@@ -267,10 +267,10 @@ export function RecipientsTable({
             { method: 'DELETE' },
           )
           if (!resp.ok) {
-            flash('forms.invitation.revoke.failed', 'error')
+            flash(t('forms.invitation.revoke.failed'), 'error')
             throw new Error('forms.invitation.revoke.failed')
           }
-          flash('forms.invitation.revoke.success', 'success')
+          flash(t('forms.invitation.revoke.success'), 'success')
           onMutated?.()
           reload()
         },
@@ -284,7 +284,7 @@ export function RecipientsTable({
   const handleCopyAll = React.useCallback(async () => {
     if (createdLinks.length === 0) return
     const copied = await copyToClipboard(createdLinks.join('\n'))
-    flash(copied ? 'forms.invitation.links.copied' : 'forms.invitation.links.copy_failed', copied ? 'success' : 'error')
+    flash(t(copied ? 'forms.invitation.links.copied' : 'forms.invitation.links.copy_failed'), copied ? 'success' : 'error')
   }, [createdLinks])
 
   const columns = React.useMemo<ColumnDef<InvitationRow>[]>(
@@ -440,7 +440,7 @@ export function RecipientsTable({
                     onClick={async () => {
                       const copied = await copyToClipboard(link)
                       flash(
-                        copied ? 'forms.invitation.links.copied' : 'forms.invitation.links.copy_failed',
+                        t(copied ? 'forms.invitation.links.copied' : 'forms.invitation.links.copy_failed'),
                         copied ? 'success' : 'error',
                       )
                     }}

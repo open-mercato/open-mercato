@@ -441,7 +441,7 @@ export function FormStudio({ formId }: { formId: string }) {
     if (!call.ok) {
       setAutosaveState('error')
       const errPayload = call.result as { error?: string } | undefined
-      flash(errPayload?.error ?? 'forms.studio.autosave.error', 'error')
+      flash(t(errPayload?.error ?? 'forms.studio.autosave.error'), 'error')
       return
     }
     setAutosaveState('idle')
@@ -459,7 +459,7 @@ export function FormStudio({ formId }: { formId: string }) {
         patch: persistDraftRaw,
         onInvalid: () => {
           setAutosaveState('error')
-          flash('forms.studio.autosave.invalidSchema', 'error')
+          flash(t('forms.studio.autosave.invalidSchema'), 'error')
         },
       }),
     [persistDraftRaw],
@@ -743,7 +743,7 @@ export function FormStudio({ formId }: { formId: string }) {
           swapFieldType({ schema: current, fieldKey, targetType }),
         )
       } catch (error) {
-        flash('forms.studio.autosave.invalidSchema', 'error')
+        flash(t('forms.studio.autosave.invalidSchema'), 'error')
         if (typeof console !== 'undefined' && typeof console.warn === 'function') {
           console.warn('[forms.studio] field-type swap failed', error)
         }
@@ -800,7 +800,7 @@ export function FormStudio({ formId }: { formId: string }) {
     dirtyFlagRef.current = true
     persistDraft(previous.schema)
     setUndoNonce((current) => current + 1)
-    flash('forms.studio.undo.toast.undone', 'success')
+    flash(t('forms.studio.undo.toast.undone'), 'success')
   }, [persistDraft, undoController])
 
   const handleRedo = React.useCallback(() => {
@@ -814,7 +814,7 @@ export function FormStudio({ formId }: { formId: string }) {
     dirtyFlagRef.current = true
     persistDraft(next.schema)
     setUndoNonce((current) => current + 1)
-    flash('forms.studio.undo.toast.redone', 'success')
+    flash(t('forms.studio.undo.toast.redone'), 'success')
   }, [persistDraft, undoController])
 
   React.useEffect(() => {
@@ -989,7 +989,7 @@ export function FormStudio({ formId }: { formId: string }) {
       try {
         validateSchemaExtensions(next.schema)
       } catch (error) {
-        flash('forms.studio.autosave.invalidSchema', 'error')
+        flash(t('forms.studio.autosave.invalidSchema'), 'error')
         if (typeof console !== 'undefined' && typeof console.warn === 'function') {
           console.warn('[forms.studio] drop validation failed', error)
         }
@@ -1071,7 +1071,7 @@ export function FormStudio({ formId }: { formId: string }) {
           (entry: SectionNode) => entry.key === target.sectionKey,
         )
         if (targetSection?.kind === 'ending' && resolved.typeKey !== 'info_block') {
-          flash('forms.studio.canvas.ending.dropRejected', 'error')
+          flash(t('forms.studio.canvas.ending.dropRejected'), 'error')
           return
         }
         try {
@@ -1085,7 +1085,7 @@ export function FormStudio({ formId }: { formId: string }) {
             selection: { kind: 'field', key: result.fieldKey },
           })
         } catch (error) {
-          flash('forms.studio.autosave.invalidSchema', 'error')
+          flash(t('forms.studio.autosave.invalidSchema'), 'error')
           if (typeof console !== 'undefined' && typeof console.warn === 'function') {
             console.warn('[forms.studio] palette drop failed', error)
           }
@@ -1115,7 +1115,7 @@ export function FormStudio({ formId }: { formId: string }) {
           })
           setFocusSectionTitleKey(result.sectionKey)
         } catch (error) {
-          flash('forms.studio.autosave.invalidSchema', 'error')
+          flash(t('forms.studio.autosave.invalidSchema'), 'error')
           if (typeof console !== 'undefined' && typeof console.warn === 'function') {
             console.warn('[forms.studio] layout drop failed', error)
           }
@@ -1144,7 +1144,7 @@ export function FormStudio({ formId }: { formId: string }) {
         const nextSchema = moveSection({ schema: schemaRef.current, sectionKey, beforeKey })
         handleDrop({ schema: nextSchema })
       } catch (error) {
-        flash('forms.studio.autosave.invalidSchema', 'error')
+        flash(t('forms.studio.autosave.invalidSchema'), 'error')
         if (typeof console !== 'undefined' && typeof console.warn === 'function') {
           console.warn('[forms.studio] section reorder failed', error)
         }
@@ -1175,7 +1175,7 @@ export function FormStudio({ formId }: { formId: string }) {
         })
         handleDrop({ schema: nextSchema })
       } catch (error) {
-        flash('forms.studio.autosave.invalidSchema', 'error')
+        flash(t('forms.studio.autosave.invalidSchema'), 'error')
         if (typeof console !== 'undefined' && typeof console.warn === 'function') {
           console.warn('[forms.studio] reorder failed', error)
         }
@@ -1303,7 +1303,7 @@ export function FormStudio({ formId }: { formId: string }) {
         })
         if (!call.ok) {
           const errPayload = call.result as { error?: string } | undefined
-          flash(errPayload?.error ?? 'forms.studio.autosave.error', 'error')
+          flash(t(errPayload?.error ?? 'forms.studio.autosave.error'), 'error')
         }
       }, 1000),
     [formId],
@@ -1339,7 +1339,7 @@ export function FormStudio({ formId }: { formId: string }) {
       })
       if (!call.ok) {
         const errPayload = call.result as { error?: string } | undefined
-        flash(errPayload?.error ?? 'forms.studio.autosave.error', 'error')
+        flash(t(errPayload?.error ?? 'forms.studio.autosave.error'), 'error')
         await reload()
       }
     },
@@ -3166,7 +3166,7 @@ function PublishDialog({ formId, versionId, onClose, onPublished, t }: PublishDi
     setBusy(false)
     if (!call.ok) {
       const errPayload = call.result as { error?: string } | undefined
-      flash(errPayload?.error ?? 'forms.errors.internal', 'error')
+      flash(t(errPayload?.error ?? 'forms.errors.internal'), 'error')
       return
     }
     onPublished()

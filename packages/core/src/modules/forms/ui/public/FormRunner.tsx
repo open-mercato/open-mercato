@@ -421,7 +421,7 @@ export function FormRunner(props: FormRunnerProps) {
       </section>
 
       {sectionMissing.length > 0 ? (
-        <p className="text-xs text-status-warning-foreground">
+        <p className="text-xs text-status-warning-text">
           {t('forms.runner.section.required_missing', {
             fallback: 'Please fill in all required fields before continuing.',
           })}

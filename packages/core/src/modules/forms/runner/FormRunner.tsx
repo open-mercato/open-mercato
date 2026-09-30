@@ -647,12 +647,12 @@ type NpsRunnerInputProps = {
 
 function npsRunnerBandClass(entry: number): string {
   if (entry <= 6) {
-    return 'bg-status-error-surface text-status-error-text border-status-error-border'
+    return 'bg-status-error-bg text-status-error-text border-status-error-border'
   }
   if (entry <= 8) {
-    return 'bg-status-warning-surface text-status-warning-text border-status-warning-border'
+    return 'bg-status-warning-bg text-status-warning-text border-status-warning-border'
   }
-  return 'bg-status-success-surface text-status-success-text border-status-success-border'
+  return 'bg-status-success-bg text-status-success-text border-status-success-border'
 }
 
 function resolveNpsAnchorRunner(

@@ -112,7 +112,7 @@ export function AnonymizeButtonWidget({ context }: AnonymizeButtonProps) {
         onClick={() => setOpen(true)}
         data-forms-anonymize-trigger=""
       >
-        <Trash2 className="mr-1 h-4 w-4 text-status-error-foreground" aria-hidden="true" />
+        <Trash2 className="mr-1 h-4 w-4 text-status-error-text" aria-hidden="true" />
         {t('forms.compliance.anonymize.action', { fallback: 'Anonymize' })}
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>

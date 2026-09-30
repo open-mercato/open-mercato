@@ -35,24 +35,24 @@ export function SaveIndicator({ state }: SaveIndicatorProps) {
       label = t('forms.runner.save_indicator.saving', { fallback: 'Saving…' })
       break
     case 'saved':
-      icon = <Check aria-hidden="true" className="h-3 w-3 text-status-success-foreground" />
+      icon = <Check aria-hidden="true" className="h-3 w-3 text-status-success-text" />
       label = t('forms.runner.save_indicator.saved_at', {
         fallback: 'Saved at {time}',
         time: formatTime(state.savedAt),
       })
-      tone = 'text-status-success-foreground'
+      tone = 'text-status-success-text'
       break
     case 'conflict':
-      icon = <RefreshCw aria-hidden="true" className="h-3 w-3 text-status-warning-foreground" />
+      icon = <RefreshCw aria-hidden="true" className="h-3 w-3 text-status-warning-text" />
       label = t('forms.runner.save_indicator.conflict', {
         fallback: 'We refreshed the form to merge a change made elsewhere.',
       })
-      tone = 'text-status-warning-foreground'
+      tone = 'text-status-warning-text'
       break
     case 'error':
-      icon = <AlertCircle aria-hidden="true" className="h-3 w-3 text-status-error-foreground" />
+      icon = <AlertCircle aria-hidden="true" className="h-3 w-3 text-status-error-text" />
       label = state.message
-      tone = 'text-status-error-foreground'
+      tone = 'text-status-error-text'
       break
   }
 

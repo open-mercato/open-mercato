@@ -106,7 +106,7 @@ export default function FormsListPage() {
         )
         if (!call.ok) {
           const errPayload = call.result as { error?: string } | undefined
-          flash(errPayload?.error ?? 'forms.errors.internal', 'error')
+          flash(t(errPayload?.error ?? 'forms.errors.internal'), 'error')
           return
         }
         const payload = call.result ?? fallback
@@ -117,7 +117,7 @@ export default function FormsListPage() {
         }
       } catch (error) {
         if (!cancelled) {
-          flash(error instanceof Error ? error.message : 'forms.errors.internal', 'error')
+          flash(error instanceof Error ? error.message : t('forms.errors.internal'), 'error')
         }
       } finally {
         if (!cancelled) setIsLoading(false)
@@ -146,10 +146,10 @@ export default function FormsListPage() {
     const call = await apiCall(`/api/forms/${encodeURIComponent(row.id)}`, { method: 'DELETE' })
     if (!call.ok) {
       const errPayload = call.result as { error?: string } | undefined
-      flash(errPayload?.error ?? 'forms.errors.internal', 'error')
+      flash(t(errPayload?.error ?? 'forms.errors.internal'), 'error')
       return
     }
-    flash('forms.list.actions.archive', 'success')
+    flash(t('forms.list.actions.archiveSuccess'), 'success')
     reload()
   }, [confirm, reload, t])
 

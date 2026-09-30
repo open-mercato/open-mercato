@@ -104,7 +104,7 @@ export default function FormSubmissionInboxPage({ params }: { params?: { id?: st
         ])
         if (cancelled) return
         if (!listResp.ok || !listResp.result) {
-          flash('forms.errors.internal', 'error')
+          flash(t('forms.errors.internal'), 'error')
           return
         }
         setRows(listResp.result.items)
@@ -115,7 +115,7 @@ export default function FormSubmissionInboxPage({ params }: { params?: { id?: st
         }
       } catch (error) {
         if (!cancelled) {
-          flash(error instanceof Error ? error.message : 'forms.errors.internal', 'error')
+          flash(error instanceof Error ? error.message : t('forms.errors.internal'), 'error')
         }
       } finally {
         if (!cancelled) setIsLoading(false)

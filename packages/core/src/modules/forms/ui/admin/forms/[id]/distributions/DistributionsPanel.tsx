@@ -112,7 +112,7 @@ export function DistributionsPanel({ formId }: { formId: string }) {
         ])
         if (cancelled) return
         if (!listResp.ok || !listResp.result) {
-          flash('forms.distribution.errors.load', 'error')
+          flash(t('forms.distribution.errors.load'), 'error')
           return
         }
         setRows(listResp.result.items)
@@ -122,7 +122,7 @@ export function DistributionsPanel({ formId }: { formId: string }) {
         }
       } catch (error) {
         if (!cancelled) {
-          flash(error instanceof Error ? error.message : 'forms.distribution.errors.load', 'error')
+          flash(error instanceof Error ? error.message : t('forms.distribution.errors.load'), 'error')
         }
       } finally {
         if (!cancelled) setIsLoading(false)
@@ -138,11 +138,11 @@ export function DistributionsPanel({ formId }: { formId: string }) {
     async (row: DistributionRow) => {
       const link = publicLinkFor(row.publicSlug)
       if (!link) {
-        flash('forms.distribution.copy.unavailable', 'error')
+        flash(t('forms.distribution.copy.unavailable'), 'error')
         return
       }
       const copied = await copyToClipboard(link)
-      flash(copied ? 'forms.distribution.copy.success' : 'forms.distribution.copy.failed', copied ? 'success' : 'error')
+      flash(t(copied ? 'forms.distribution.copy.success' : 'forms.distribution.copy.failed'), copied ? 'success' : 'error')
     },
     [],
   )
@@ -157,10 +157,10 @@ export function DistributionsPanel({ formId }: { formId: string }) {
             body: JSON.stringify({ status: nextStatus }),
           })
           if (!resp.ok) {
-            flash('forms.distribution.status.failed', 'error')
+            flash(t('forms.distribution.status.failed'), 'error')
             throw new Error('forms.distribution.status.failed')
           }
-          flash('forms.distribution.status.success', 'success')
+          flash(t('forms.distribution.status.success'), 'success')
           reload()
         },
         context: { distributionId: row.id, nextStatus },

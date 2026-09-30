@@ -162,10 +162,10 @@ export function SubmissionDrawer({
       { method: 'POST' },
     )
     if (!resp.ok) {
-      flash('forms.drawer.reopen.failed', 'error')
+      flash(t('forms.drawer.reopen.failed'), 'error')
       return
     }
-    flash('forms.drawer.reopen.success', 'success')
+    flash(t('forms.drawer.reopen.success'), 'success')
     onMutated?.()
     void reload()
   }, [confirm, detail, onMutated, reload, t])
@@ -188,10 +188,10 @@ export function SubmissionDrawer({
         { method: 'DELETE' },
       )
       if (!resp.ok) {
-        flash('forms.actor.revoke.failed', 'error')
+        flash(t('forms.actor.revoke.failed'), 'error')
         return
       }
-      flash('forms.actor.revoke.success', 'success')
+      flash(t('forms.actor.revoke.success'), 'success')
       onMutated?.()
       void reload()
     },
@@ -416,11 +416,11 @@ function RevisionTimeline({
                     tone === 'primary'
                       ? 'bg-primary'
                       : tone === 'success'
-                        ? 'bg-status-success-foreground'
+                        ? 'bg-status-success-solid'
                         : tone === 'info'
-                          ? 'bg-status-info-foreground'
+                          ? 'bg-status-info-solid'
                           : tone === 'warning'
-                            ? 'bg-status-warning-foreground'
+                            ? 'bg-status-warning-solid'
                             : 'bg-muted-foreground'
                   }`}
                 />
@@ -503,10 +503,10 @@ function ActorPanel({
         },
       )
       if (!resp.ok) {
-        flash('forms.actor.assign.failed', 'error')
+        flash(t('forms.actor.assign.failed'), 'error')
         return
       }
-      flash('forms.actor.assign.success', 'success')
+      flash(t('forms.actor.assign.success'), 'success')
       setUserId('')
       onAssigned()
     } finally {
@@ -559,7 +559,7 @@ function ActorPanel({
               aria-label={t('forms.actor.revoke', { fallback: 'Revoke actor' })}
               onClick={() => onRevoke(actor)}
             >
-              <Trash2 className="h-4 w-4 text-status-error-foreground" aria-hidden="true" />
+              <Trash2 className="h-4 w-4 text-status-error-text" aria-hidden="true" />
             </IconButton>
           </li>
         ))}
