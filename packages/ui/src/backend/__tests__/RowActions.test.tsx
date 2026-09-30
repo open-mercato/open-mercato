@@ -3,7 +3,7 @@
  */
 
 import * as React from 'react'
-import { screen, fireEvent, act } from '@testing-library/react'
+import { screen, fireEvent } from '@testing-library/react'
 import { RowActions, type RowActionItem } from '../RowActions'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 
@@ -22,12 +22,10 @@ function renderMenu(items: RowActionItem[]) {
 }
 
 function openMenu() {
+  // The panel needs two renders: the click opens the menu, and measuring the
+  // trigger sets the anchor that actually renders the portal. Focus lands as
+  // part of that second commit — no timer involved, so nothing to advance here.
   fireEvent.click(screen.getByRole('button', { name: TRIGGER_LABEL }))
-  // The panel mounts through a portal and focuses its first item on the next
-  // frame, so let that frame run before asserting on focus.
-  act(() => {
-    jest.advanceTimersByTime(32)
-  })
 }
 
 const THREE_ITEMS: RowActionItem[] = [
@@ -41,8 +39,6 @@ function itemNamed(name: string) {
 }
 
 describe('RowActions — panel width (#6719)', () => {
-  beforeEach(() => { jest.useFakeTimers() })
-  afterEach(() => { jest.useRealTimers() })
 
   it('grows to fit a long label instead of clipping it with a fixed width', () => {
     renderMenu([{ id: 'register-push', label: LONG_POLISH_LABEL, onSelect: jest.fn() }])
@@ -71,8 +67,6 @@ describe('RowActions — panel width (#6719)', () => {
 })
 
 describe('RowActions — keyboard navigation (#6718)', () => {
-  beforeEach(() => { jest.useFakeTimers() })
-  afterEach(() => { jest.useRealTimers() })
 
   it('focuses the first item when the menu opens', () => {
     renderMenu(THREE_ITEMS)

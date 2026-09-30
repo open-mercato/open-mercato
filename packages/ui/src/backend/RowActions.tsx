@@ -94,25 +94,33 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
     function onScrollOrResize() {
       updatePosition()
     }
-    // Move focus into the menu so the arrow keys have somewhere to start and a
-    // screen reader announces the item rather than the still-focused trigger.
-    // Deferred a frame: the portal content mounts after this effect runs.
-    const focusFrame = requestAnimationFrame(() => {
-      const [first] = getFocusableItems()
-      first?.focus()
-    })
     document.addEventListener('mousedown', onDocClick)
     document.addEventListener('keydown', onKey)
     window.addEventListener('scroll', onScrollOrResize, true)
     window.addEventListener('resize', onScrollOrResize)
     return () => {
-      cancelAnimationFrame(focusFrame)
       document.removeEventListener('mousedown', onDocClick)
       document.removeEventListener('keydown', onKey)
       window.removeEventListener('scroll', onScrollOrResize, true)
       window.removeEventListener('resize', onScrollOrResize)
     }
   }, [open, updatePosition, getFocusableItems])
+
+  // Move focus into the menu so the arrow keys have somewhere to start, and so a
+  // screen reader announces the item rather than the still-focused trigger.
+  //
+  // Keyed on `anchorRect` rather than deferred with a timer: the panel only
+  // renders once `updatePosition` has measured the trigger, which is a second
+  // render, so on the first pass there is nothing to focus yet. This effect
+  // re-runs when that measurement lands, by which point the portal has
+  // committed. A `requestAnimationFrame` would also have waited for it, but
+  // browsers throttle rAF in a background tab, so the focus could silently never
+  // happen — a timer-free dependency cannot be throttled.
+  React.useEffect(() => {
+    if (!open || !anchorRect) return
+    const [first] = getFocusableItems()
+    first?.focus()
+  }, [open, anchorRect, getFocusableItems])
 
   // Cleanup timeout on unmount
   React.useEffect(() => {
