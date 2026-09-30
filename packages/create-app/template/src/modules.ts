@@ -117,20 +117,6 @@ export const enabledModules: ModuleEntry[] = [
   // OM_ENABLE_ENTERPRISE_MODULES + OM_ENABLE_ENTERPRISE_MODULES_AGENTS.
   { id: 'translations', from: '@open-mercato/core' },
   { id: 'scheduler', from: '@open-mercato/scheduler' },
-  // Marketing automation — campaigns as trigger -> audience expression -> ordered steps.
-  // The package ships with the scaffold but stays disabled by default, for two reasons.
-  //
-  // It messages real customers. A scaffolded app is somebody's first five minutes with the
-  // platform, and a module whose steps send email is not something to switch on for them.
-  //
-  // And enabling it is not a one-line edit: a module the scaffold ENABLES must ship a
-  // generated fact sheet, and every shipped fact sheet has to be required by at least one
-  // case in the standalone agent-harness catalog
-  // (packages/create-app/src/lib/module-facts-build.test.ts). Adding that case is a
-  // maintainer call — the catalog's counts and its schema coverage are derived, so a case
-  // appended by hand fails a dozen sibling tests. Use the om-refresh-standalone-harness
-  // skill for it rather than editing cases.json.
-  // { id: 'marketing_automation', from: '@open-mercato/marketing-automation' },
   { id: 'inbox_ops', from: '@open-mercato/core' },
   { id: 'payment_gateways', from: '@open-mercato/core' },
   { id: 'checkout', from: '@open-mercato/checkout' },
@@ -185,6 +171,18 @@ if (enabledModules.some((entry) => entry.id === 'example')) {
 
 if (parseBooleanWithDefault(process.env.OM_ENABLE_STORAGE_S3, false)) {
   enabledModules.push({ id: 'storage_s3', from: '@open-mercato/storage-s3' })
+}
+
+/**
+ * Marketing automation: a trigger, an audience expression and an ordered list of steps.
+ *
+ * Opt-in, and deliberately so. It is a large optional vertical: 23 tables to migrate and six public
+ * unauthenticated routes (tracking, unsubscribe, survey, inbound hooks) that a reference app has no reason to
+ * serve unless somebody asked for them. Audience expressions reuse the `business_rules` condition evaluator,
+ * sends go through the shared email transport, and tagging goes through the `customers` commands.
+ */
+if (parseBooleanWithDefault(process.env.OM_ENABLE_MARKETING_AUTOMATION, false)) {
+  enabledModules.push({ id: 'marketing_automation', from: '@open-mercato/marketing-automation' })
 }
 
 const enterpriseModulesEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)

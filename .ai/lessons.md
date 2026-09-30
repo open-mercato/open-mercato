@@ -20,7 +20,6 @@ This catalog indexes 144 focused lessons. Route the task first, then read only r
 
 ### architecture
 
-- [A guard you cannot make fire is not a guard](lessons/a-guard-you-cannot-make-fire-is-not-a-guard.md) — area:architecture,testing,backend-ui; module:marketing_automation,auth,platform; topic:access-control,command-pattern,testing
 - [Durable quota reservations need fenced leases, conditional creates, and bounded sizes](lessons/durable-quota-reservations-need-fenced-leases.md) — area:architecture,module-data; module:attachments,storage_s3; topic:data-scoping,command-pattern,database-migrations
 - [Encode untrusted Markdown fragments as data, not chained escapes](lessons/encode-untrusted-markdown-fragments-as-data.md) — area:architecture,testing; module:platform; topic:network-security,testing
 
@@ -91,6 +90,7 @@ This catalog indexes 144 focused lessons. Route the task first, then read only r
 
 ### umes
 
+- [Declared extension hosts need real mount tests](lessons/declared-extension-hosts-need-real-mount-tests.md) — area:umes,backend-ui,debugging; module:ui,core,catalog,customers; topic:component-overrides,api-interceptors,optional-modules,testing
 - [Client injection hooks must tolerate late registry registration](lessons/client-injection-hooks-must-tolerate-late-registry.md) — area:umes,architecture,integration; module:cli,cache,ui; topic:generated-files,database-migrations,provider-lifecycle
 - [Custom-field detail UIs must accept canonical bare keys](lessons/custom-field-detail-uis-must-accept-canonical-bare-keys.md) — area:umes,backend-ui,debugging; module:entities,ui,customers; topic:custom-fields,generated-files,ui-components
 - [Prefer canonical route paths over alias lists for custom APIs](lessons/prefer-canonical-route-paths-over-alias-lists-for.md) — area:umes,architecture; module:cli,create_app; topic:generated-files,package-runtime,testing
