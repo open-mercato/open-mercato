@@ -16,9 +16,9 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
-import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useMarketingMutation } from '../../../components/useMarketingMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 
@@ -47,6 +47,7 @@ type HookRow = {
  */
 export default function InboundHooksPage() {
   const t = useT()
+  const runMutation = useMarketingMutation('inbound_hooks')
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
@@ -83,11 +84,13 @@ export default function InboundHooksPage() {
   const create = async () => {
     setCreating(true)
     try {
-      await apiCallOrThrow(HOOKS_PATH, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(draft),
-      })
+      await runMutation(
+        () => apiCallOrThrow(HOOKS_PATH, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(draft),
+        }),
+      )
       setDraft({ campaignId: '', name: '' })
       await load()
     } catch {
@@ -106,17 +109,19 @@ export default function InboundHooksPage() {
       if (!confirmed) return
     }
     try {
-      await withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(row.updatedAt),
-        () => apiCallOrThrow(`${HOOKS_PATH}/${row.id}`, {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ updatedAt: row.updatedAt, revoked }),
-        }),
+      await runMutation(
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(row.updatedAt),
+          () => apiCallOrThrow(`${HOOKS_PATH}/${row.id}`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ updatedAt: row.updatedAt, revoked }),
+          }),
+        ),
       )
       await load()
     } catch (error) {
-      if (!surfaceRecordConflict(error, t)) {
+      if (!extractOptimisticLockConflict(error)) {
         flash(t('marketing_automation.hooks.saveFailed', 'Could not update the hook.'), 'error')
       }
     }

@@ -16,9 +16,9 @@ import { Switch } from '@open-mercato/ui/primitives/switch'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
-import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useMarketingMutation } from '../../../components/useMarketingMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
 import type { GroupCondition } from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
@@ -79,6 +79,7 @@ function formatPoints(points: number): string {
  */
 export default function ScoreRulesPage() {
   const t = useT()
+  const runMutation = useMarketingMutation('score_rules')
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
@@ -163,26 +164,30 @@ export default function ScoreRulesPage() {
         isEnabled: draft.isEnabled,
       }
       if (selected) {
-        await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(selected.updatedAt),
-          () => apiCallOrThrow(`${RULES_PATH}/${selected.id}`, {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ ...payload, description: draft.description.trim() || null, updatedAt: selected.updatedAt }),
-          }),
+        await runMutation(
+          () => withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(selected.updatedAt),
+            () => apiCallOrThrow(`${RULES_PATH}/${selected.id}`, {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ ...payload, description: draft.description.trim() || null, updatedAt: selected.updatedAt }),
+            }),
+          ),
         )
       } else {
-        await apiCallOrThrow(RULES_PATH, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ ...payload, description: draft.description.trim() || undefined }),
-        })
+        await runMutation(
+          () => apiCallOrThrow(RULES_PATH, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ ...payload, description: draft.description.trim() || undefined }),
+          }),
+        )
       }
       flash(t('marketing_automation.scoreRules.saved', 'Rule saved. Scores are being recalculated in the background.'), 'success')
       resetDraft()
       await load()
     } catch (error) {
-      if (!surfaceRecordConflict(error, t)) {
+      if (!extractOptimisticLockConflict(error)) {
         const code = readApiErrorField(error, 'code')
         flash(
           code === 'marketing_automation.errors.scoreRuleSelfReference'
@@ -203,14 +208,16 @@ export default function ScoreRulesPage() {
     })
     if (!confirmed) return
     try {
-      await withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(row.updatedAt),
-        () => apiCallOrThrow(`${RULES_PATH}/${row.id}`, { method: 'DELETE' }),
+      await runMutation(
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(row.updatedAt),
+          () => apiCallOrThrow(`${RULES_PATH}/${row.id}`, { method: 'DELETE' }),
+        ),
       )
       if (selected?.id === row.id) resetDraft()
       await load()
     } catch (error) {
-      if (!surfaceRecordConflict(error, t)) {
+      if (!extractOptimisticLockConflict(error)) {
         flash(t('marketing_automation.scoreRules.deleteFailed', 'Could not remove the rule.'), 'error')
       }
     }

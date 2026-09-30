@@ -16,9 +16,9 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
-import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useMarketingMutation } from '../../../components/useMarketingMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
 import { useUnsavedGuard } from '../../../components/useUnsavedGuard'
@@ -64,6 +64,7 @@ type MembersAnswer = {
  */
 export default function SegmentsPage() {
   const t = useT()
+  const runMutation = useMarketingMutation('segments')
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
@@ -192,26 +193,30 @@ export default function SegmentsPage() {
         expression: draft.expression,
       }
       if (selected) {
-        await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(selected.updatedAt),
-          () => apiCallOrThrow(`${SEGMENTS_PATH}/${selected.id}`, {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ ...payload, description: draft.description.trim() || null, updatedAt: selected.updatedAt }),
-          }),
+        await runMutation(
+          () => withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(selected.updatedAt),
+            () => apiCallOrThrow(`${SEGMENTS_PATH}/${selected.id}`, {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ ...payload, description: draft.description.trim() || null, updatedAt: selected.updatedAt }),
+            }),
+          ),
         )
       } else {
-        await apiCallOrThrow(SEGMENTS_PATH, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
+        await runMutation(
+          () => apiCallOrThrow(SEGMENTS_PATH, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          }),
+        )
       }
       flash(t('marketing_automation.segments.saved', 'Segment saved.'), 'success')
       resetDraft()
       await load()
     } catch (error) {
-      if (!surfaceRecordConflict(error, t)) {
+      if (!extractOptimisticLockConflict(error)) {
         const code = readApiErrorField(error, 'code')
         flash(
           code === 'marketing_automation.errors.segmentSelfReference'
@@ -232,14 +237,16 @@ export default function SegmentsPage() {
     })
     if (!confirmed) return
     try {
-      await withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(row.updatedAt),
-        () => apiCallOrThrow(`${SEGMENTS_PATH}/${row.id}`, { method: 'DELETE' }),
+      await runMutation(
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(row.updatedAt),
+          () => apiCallOrThrow(`${SEGMENTS_PATH}/${row.id}`, { method: 'DELETE' }),
+        ),
       )
       if (selected?.id === row.id) resetDraft()
       await load()
     } catch (error) {
-      if (!surfaceRecordConflict(error, t)) {
+      if (!extractOptimisticLockConflict(error)) {
         flash(t('marketing_automation.segments.deleteFailed', 'Could not remove the segment.'), 'error')
       }
     }
@@ -291,11 +298,13 @@ export default function SegmentsPage() {
     if (!confirmed) return
     setActing(true)
     try {
-      await apiCallOrThrow(`${SEGMENTS_PATH}/${row.id}/actions`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(action),
-      })
+      await runMutation(
+        () => apiCallOrThrow(`${SEGMENTS_PATH}/${row.id}/actions`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(action),
+        }),
+      )
       flash(t('marketing_automation.segments.actionQueued', 'Started. Watch it in the progress bar at the top.'), 'success')
     } catch (error) {
       flash(

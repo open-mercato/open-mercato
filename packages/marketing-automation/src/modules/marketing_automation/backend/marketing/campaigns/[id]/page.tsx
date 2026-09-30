@@ -10,10 +10,10 @@ import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
-import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useMarketingMutation } from '../../../../components/useMarketingMutation'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useUnsavedGuard } from '../../../../components/useUnsavedGuard'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
@@ -175,6 +175,7 @@ function describeSaveError(error: unknown, t: (key: string, fallback?: string) =
 
 export default function CampaignEditorPage({ params }: { params?: { id?: string } }) {
   const t = useT()
+  const runMutation = useMarketingMutation('campaigns')
   const campaignId = typeof params?.id === 'string' ? params.id : ''
 
   const [loading, setLoading] = React.useState(true)
@@ -589,15 +590,17 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
     if (!isEnabled && !(await confirmPublish())) return
     setSaving(true)
     try {
-      const response = await withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(updatedAt),
-        () => apiCallOrThrow<{ isEnabled: boolean; updatedAt: string }>(
-          `/api/marketing_automation/campaigns/${campaignId}/enabled`,
-          {
-            method: 'PUT',
-            body: JSON.stringify({ updatedAt, isEnabled: !isEnabled }),
-            headers: { 'content-type': 'application/json' },
-          },
+      const response = await runMutation(
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(updatedAt),
+          () => apiCallOrThrow<{ isEnabled: boolean; updatedAt: string }>(
+            `/api/marketing_automation/campaigns/${campaignId}/enabled`,
+            {
+              method: 'PUT',
+              body: JSON.stringify({ updatedAt, isEnabled: !isEnabled }),
+              headers: { 'content-type': 'application/json' },
+            },
+          ),
         ),
       )
       const next = response.result
@@ -606,7 +609,7 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
         setUpdatedAt(next.updatedAt)
       }
     } catch (toggleError) {
-      if (!surfaceRecordConflict(toggleError, t)) {
+      if (!extractOptimisticLockConflict(toggleError)) {
         flash(describeSaveError(toggleError, t), 'error')
       }
     } finally {
@@ -619,15 +622,17 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
     try {
       // The expected version travels as the platform's extension header, which is what the
       // command guard reads and what makes a conflict surface through the shared conflict bar.
-      const response = await withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(updatedAt),
-        () => apiCallOrThrow<{ updatedAt: string; waitingRuns: number }>(
-          `/api/marketing_automation/campaigns/${campaignId}/save-graph`,
-          {
-            method: 'PUT',
-            body: JSON.stringify({ updatedAt, name, description, triggers, definition }),
-            headers: { 'content-type': 'application/json' },
-          },
+      const response = await runMutation(
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(updatedAt),
+          () => apiCallOrThrow<{ updatedAt: string; waitingRuns: number }>(
+            `/api/marketing_automation/campaigns/${campaignId}/save-graph`,
+            {
+              method: 'PUT',
+              body: JSON.stringify({ updatedAt, name, description, triggers, definition }),
+              headers: { 'content-type': 'application/json' },
+            },
+          ),
         ),
       )
       const saved = response.result
@@ -646,7 +651,7 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
     } catch (saveError) {
       // One conflict surface for the whole app: this renders the shared bar (or defers to a merge
       // dialog when one is registered) and only falls through for non-conflict failures.
-      if (!surfaceRecordConflict(saveError, t)) {
+      if (!extractOptimisticLockConflict(saveError)) {
         flash(describeSaveError(saveError, t), 'error')
       }
     } finally {
@@ -799,20 +804,22 @@ export default function CampaignEditorPage({ params }: { params?: { id?: string 
        * from a history list somebody else had already moved on from silently discarded their work — and
        * `surfaceRecordConflict` below was unreachable code.
        */
-      await apiCallOrThrow(
-        `/api/marketing_automation/campaigns/${campaignId}/revisions/${version}/restore`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ updatedAt }),
-        },
+      await runMutation(
+        () => apiCallOrThrow(
+          `/api/marketing_automation/campaigns/${campaignId}/revisions/${version}/restore`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ updatedAt }),
+          },
+        ),
       )
       flash(t('marketing_automation.history.restored', 'Version restored.'), 'success')
       // Reloaded rather than patched in: the restore went through the ordinary save, so the canvas has to
       // come back from the server exactly as it would after somebody else's edit.
       window.location.reload()
     } catch (error) {
-      if (!surfaceRecordConflict(error, t)) {
+      if (!extractOptimisticLockConflict(error)) {
         flash(t('marketing_automation.history.restoreFailed', 'Could not restore that version.'), 'error')
       }
     } finally {

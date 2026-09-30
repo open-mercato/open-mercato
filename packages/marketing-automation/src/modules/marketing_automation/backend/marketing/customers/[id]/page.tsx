@@ -15,6 +15,7 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useMarketingMutation } from '../../../../components/useMarketingMutation'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { readApiErrorField } from '../../../../components/apiError'
 
@@ -116,6 +117,7 @@ type Profile = {
  */
 export default function CustomerProfilePage({ params }: { params?: { id?: string } }) {
   const t = useT()
+  const runMutation = useMarketingMutation('customers')
   const customerId = typeof params?.id === 'string' ? params.id : ''
 
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -180,11 +182,13 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
       // state, and when they disagree the consent TRAIL keeps both entries with who did which, which is the
       // answer a version token could not give. The other calls on this page are POST actions (export, erase,
       // explain), which cannot lose an update because they overwrite no field.
-      await apiCallOrThrow(`/api/marketing_automation/customers/${customerId}/consent`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ channel: 'email', state, reason: consentReason.trim() }),
-      })
+      await runMutation(
+        () => apiCallOrThrow(`/api/marketing_automation/customers/${customerId}/consent`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ channel: 'email', state, reason: consentReason.trim() }),
+        }),
+      )
       setConsentReason('')
       flash(t('marketing_automation.profile.consent.recorded', 'Recorded, with your name against it.'), 'success')
       setRefreshToken((token) => token + 1)
@@ -277,11 +281,13 @@ export default function CustomerProfilePage({ params }: { params?: { id?: string
     if (!confirmed) return
     setBusy(true)
     try {
-      await apiCallOrThrow(`/api/marketing_automation/customers/${customerId}/gdpr`, {
-        method: 'POST',
-        body: JSON.stringify({ confirm: 'erase' }),
-        headers: { 'content-type': 'application/json' },
-      })
+      await runMutation(
+        () => apiCallOrThrow(`/api/marketing_automation/customers/${customerId}/gdpr`, {
+          method: 'POST',
+          body: JSON.stringify({ confirm: 'erase' }),
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
       flash(t('marketing_automation.gdpr.erased', 'The marketing data has been erased.'), 'success')
       // Reloaded rather than patched: the profile is now a different thing and showing the old numbers
       // beside a success message would suggest the erasure did not work.

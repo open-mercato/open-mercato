@@ -14,6 +14,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useMarketingMutation } from '../../../components/useMarketingMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { readApiErrorField } from '../../../components/apiError'
 
@@ -48,6 +49,7 @@ type ImportResult = {
 
 export default function MarketingSettingsPage() {
   const t = useT()
+  const runMutation = useMarketingMutation('settings')
   const scopeVersion = useOrganizationScopeVersion()
 
   const [settings, setSettings] = React.useState<Settings | null>(null)
@@ -76,11 +78,13 @@ export default function MarketingSettingsPage() {
     setImportResult(null)
     try {
       const csv = await file.text()
-      const response = await apiCallOrThrow<ImportResult>('/api/marketing_automation/consent/import', {
-        method: 'POST',
-        body: JSON.stringify({ csv, reason }),
-        headers: { 'content-type': 'application/json' },
-      })
+      const response = await runMutation(
+        () => apiCallOrThrow<ImportResult>('/api/marketing_automation/consent/import', {
+          method: 'POST',
+          body: JSON.stringify({ csv, reason }),
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
       setImportResult(response.result ?? null)
     } catch {
       flash(t('marketing_automation.settings.suppressionFailed', 'Could not import that file.'), 'error')
@@ -131,11 +135,13 @@ export default function MarketingSettingsPage() {
       // optimistic-lock-exempt: per-tenant CONFIG, not a record — there is no row and no `updatedAt` to hold a
       // version against, which is the same reason this screen is not a `CrudForm`. Last write wins deliberately:
       // a concurrent edit of a tier ladder is not a conflict worth a dialogue about.
-      const saved = await apiCallOrThrow<Settings>(SETTINGS_PATH, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(settings),
-      })
+      const saved = await runMutation(
+        () => apiCallOrThrow<Settings>(SETTINGS_PATH, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(settings),
+        }),
+      )
       if (saved.result) {
         lastLoaded.current = JSON.stringify(saved.result)
         setSettings(saved.result)

@@ -15,9 +15,9 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
-import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useMarketingMutation } from '../../../components/useMarketingMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { readApiErrorField } from '../../../components/apiError'
 
@@ -31,6 +31,7 @@ type BlockRow = { id: string; key: string; name: string; html: string; updatedAt
  */
 export default function ContentBlocksPage() {
   const t = useT()
+  const runMutation = useMarketingMutation('content_blocks')
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
@@ -70,26 +71,32 @@ export default function ContentBlocksPage() {
     setSaving(true)
     try {
       if (selected) {
-        await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(selected.updatedAt),
-          () => apiCallOrThrow(`/api/marketing_automation/content-blocks/${selected.id}`, {
-            method: 'PUT',
-            body: JSON.stringify({ updatedAt: selected.updatedAt, name: draft.name, html: draft.html }),
-            headers: { 'content-type': 'application/json' },
-          }),
+        await runMutation(
+          () => withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(selected.updatedAt),
+            () => apiCallOrThrow(`/api/marketing_automation/content-blocks/${selected.id}`, {
+              method: 'PUT',
+              body: JSON.stringify({ updatedAt: selected.updatedAt, name: draft.name, html: draft.html }),
+              headers: { 'content-type': 'application/json' },
+            }),
+          ),
+          { id: selected.id, ...draft },
         )
       } else {
-        await apiCallOrThrow('/api/marketing_automation/content-blocks', {
-          method: 'POST',
-          body: JSON.stringify(draft),
-          headers: { 'content-type': 'application/json' },
-        })
+        await runMutation(
+          () => apiCallOrThrow('/api/marketing_automation/content-blocks', {
+            method: 'POST',
+            body: JSON.stringify(draft),
+            headers: { 'content-type': 'application/json' },
+          }),
+          { ...draft },
+        )
       }
       flash(t('marketing_automation.blocks.saved', 'Saved.'), 'success')
       startNew()
       await load()
     } catch (error) {
-      if (!surfaceRecordConflict(error, t)) {
+      if (!extractOptimisticLockConflict(error)) {
         const code = readApiErrorField(error, 'code')
         flash(code ? t(code, readApiErrorField(error, 'error') ?? code) : t('marketing_automation.blocks.saveFailed', 'Could not save the block.'), 'error')
       }
@@ -105,14 +112,17 @@ export default function ContentBlocksPage() {
     })
     if (!confirmed) return
     try {
-      await withScopedApiRequestHeaders(
-        buildOptimisticLockHeader(row.updatedAt),
-        () => apiCallOrThrow(`/api/marketing_automation/content-blocks/${row.id}`, { method: 'DELETE' }),
+      await runMutation(
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(row.updatedAt),
+          () => apiCallOrThrow(`/api/marketing_automation/content-blocks/${row.id}`, { method: 'DELETE' }),
+        ),
+        { id: row.id },
       )
       if (selected?.id === row.id) startNew()
       await load()
     } catch (error) {
-      if (!surfaceRecordConflict(error, t)) {
+      if (!extractOptimisticLockConflict(error)) {
         flash(t('marketing_automation.blocks.deleteFailed', 'Could not remove the block.'), 'error')
       }
     }
