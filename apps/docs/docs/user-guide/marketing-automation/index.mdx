@@ -1,0 +1,131 @@
+---
+title: Marketing Automation Overview
+description: Build campaigns that react to what happens in your shop, decide who they apply to, and send a sequence of emails — then report who received what, and why.
+sidebar_label: Overview
+---
+
+# Marketing Automation Overview
+
+Marketing Automation lets you build **campaigns**: automated journeys that start when something happens in your shop, decide which customers they apply to, and then run a series of steps — usually emails, sometimes a tag, a loyalty-point award, or a nudge to a colleague.
+
+Everything lives under the **Marketing** section of the admin sidebar. You author a campaign on a canvas, publish it, and afterwards you can answer the two questions that matter: what did it earn, and why did this particular customer not receive it.
+
+:::tip Start here
+If this is a fresh installation, open **Marketing → Getting started** first. It checks whether your shop can actually deliver a message and lists what is still missing. See [Getting started](./getting-started).
+:::
+
+## How a campaign is put together
+
+Every campaign has exactly three parts, in this order:
+
+1. **A trigger** — what starts the campaign. Either something that happens (an order is placed, a tag is added) or a schedule that looks for matching customers every so often. See [Triggers](./triggers).
+2. **An audience** — which of those customers the campaign applies to. Conditions about their orders, their spending, their engagement, the lists they are on. See [Audiences and segments](./audiences).
+3. **An ordered list of steps** — what happens to each customer who gets in, one step after another. See [Campaign steps](./steps).
+
+### It is a spine, not a flowchart
+
+This is the most important thing to understand about the canvas, and the thing most likely to surprise you if you have used a drag-and-anything builder before.
+
+**Steps run top to bottom, in the order you put them.** You cannot draw your own connections between steps, and the canvas will not let you try. Use the up and down arrows on a step to reorder it.
+
+**The only branch is an A/B split.** A split sends different variants to different people so you can compare them. Each customer is assigned one variant and stays in it for the whole journey — including across a wait that pauses them for days. There is no "if this, then that" branch: if you need two different journeys for two different kinds of customer, that is two campaigns with two audiences.
+
+## One customer, one run
+
+A **run** is one customer going through one campaign once. It is the unit everything else counts in.
+
+A run records which step it is on, what each step did, and — if there was an A/B split — which variant that person was given. Open **Campaigns → (a campaign) → Runs** to see one row per customer, with its status:
+
+| Status | What it means |
+|---|---|
+| Running | The engine is working through the steps now |
+| Waiting | Paused — either on a wait step, or held back by the send rules |
+| Completed | Every step finished |
+| Failed | A step threw an error; it will be retried |
+| Given up | Retried the maximum number of times and abandoned |
+| In progress | Claimed by a background worker right now |
+
+The variant a customer was given is recorded on their run and never recalculated. That is deliberate: if it were recalculated, editing an A/B split would silently re-file every past customer into a lane they never actually walked, and every historical result would become fiction.
+
+## The two kinds of pause, and why they are not the same
+
+A campaign can stop mid-journey for two completely different reasons, and the difference decides where it picks up again.
+
+**A wait has done its job.** You added a "Wait 2 days" step; two days pass; the run resumes at the **step after** the wait.
+
+**A send rule has not let the message out.** It is 3 a.m. for the recipient and you set quiet hours, so the message has not been sent at all. The run resumes **at the same step**, so the message still goes — just later.
+
+:::warning Why the distinction matters
+If those two were treated the same, one of two things would happen: either a message would be skipped entirely (resuming after a step that never sent), or a customer would receive the same message twice (resuming at a wait that had already elapsed). The engine keeps them strictly apart.
+:::
+
+## Permission is checked before timing
+
+When a campaign reaches a step that sends something, the checks happen in a fixed order, and the order carries a meaning:
+
+- **Consent comes first.** If the customer has unsubscribed, the message is **dropped** and recorded as held back. It is never rescheduled, because "no" is not "not yet" — delaying a message somebody asked not to receive only sends it later.
+- **Everything after consent is scheduling.** A customer pause, your fixed send hour, quiet hours: these **defer** the message to a later moment.
+- **Volume limits drop.** A frequency cap means this particular message does not go out at all. Deferring it would just move the flood later.
+
+The full list, with what each one does, is in [Send rules](./send-rules).
+
+## What is on the Marketing menu
+
+| Screen | What it is for |
+|---|---|
+| **Campaigns** | The list, and the canvas where you author one |
+| **Segments** | Audiences you name once and reuse across campaigns |
+| **Content blocks** | Pieces of HTML — a footer, a banner — you write once and reference from any message |
+| **Score rules** | Award or deduct loyalty points based on who a customer is, independently of any campaign |
+| **Referrals** | Every referral code issued, who used it, and who went on to buy |
+| **Price watches** | Products customers have asked to be told about when the price drops |
+| **Lead routing** | Which sales reps are receiving new leads, and how many each carries |
+| **Inbound hooks** | Signed URLs another system can post to in order to start a campaign |
+| **Background jobs** | Every scheduled pass the module has run, and what it did |
+| **Getting started** | The readiness checklist for this installation |
+| **Marketing settings** | Brand voice, loyalty tiers, the rep pool, A/B test rules, suppression import |
+
+Two more screens open from a link rather than the menu:
+
+- **Results** — per campaign, from the campaign list or the canvas. See [Results and A/B tests](./results).
+- **Customer profile** — everything marketing knows about one person, reached from a run row or from the Referrals screen.
+
+## Who can do what
+
+Access is granted per role. Ask your administrator for the ones you need.
+
+| Permission | What it allows |
+|---|---|
+| View campaigns | Open the campaign list and the canvas, read-only |
+| Manage campaigns | Create, edit and delete campaigns, segments, content blocks and settings |
+| Enable or disable campaigns | Take a campaign live, or switch it off |
+| Test-fire a campaign | Send a test message (this sends a real email, to your own address) |
+| View campaign runs | Open Runs, Results, customer profiles and the reporting screens |
+| Record a customer consent decision | Mark a customer as subscribed or unsubscribed on their behalf |
+
+:::note Publishing is separate on purpose
+"Manage campaigns" lets somebody build a campaign; "Enable or disable campaigns" lets them start messaging real customers. Those are different levels of trust, so they are different permissions. The AI drafting assistant is held to the same line — it can write copy, but it cannot publish.
+:::
+
+## What this module deliberately does not do
+
+Email is the only channel that reaches a customer today. The following are absent for a stated reason, not by oversight:
+
+| Missing | Why |
+|---|---|
+| **Abandoned cart**, browse abandonment, build-a-cart | The platform has no shopping cart to abandon. Orders and quotes are submitted documents; there is no cart session to watch. The trigger appears in the palette greyed out, with the reason, so you are not left wondering where the most famous marketing trigger went |
+| **SMS and WhatsApp** | Each needs a channel provider with a verified sender number or an approved template set — an account, not code — and a provider belongs in its own package rather than inside this one |
+| **Push notifications to customers** | The platform's push machinery reaches *staff* devices. There is no customer device registry and no browser push, so there is nowhere to send to |
+| **Back-in-stock alerts** | Stock levels live behind a contract the platform does not have yet. Price-drop watches, which need no such contract, do work |
+| **Per-customer coupon codes** | There is no promotions engine to redeem them. A code that nothing at checkout will honour is a promise your shop cannot keep |
+| **Delivered / bounced status** | Those are reported by your email provider through feedback the platform has no contract for. Showing a "delivered" figure would only be the "sent" figure wearing a more confident name, so the funnel does not have that stage |
+
+## Where to go next
+
+1. [**Getting started**](./getting-started) — the readiness checklist, then your first campaign
+2. [**Triggers**](./triggers) — what can start a campaign
+3. [**Audiences and segments**](./audiences) — who it applies to
+4. [**Campaign steps**](./steps) — what it does to them
+5. [**Send rules**](./send-rules) — when a message is allowed out
+6. [**Results and A/B tests**](./results) — what it earned
+7. [**Consent and personal data**](./consent-and-privacy) — unsubscribes, exports, erasure
