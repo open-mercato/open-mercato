@@ -363,6 +363,27 @@ expected-version header is genuinely the wrong mechanism for a debounced autosav
 raised mid-typing has no sensible recovery), so this needs a signal designed for that shape rather
 than the standard header — which is exactly why it is deferred rather than bolted on.
 
+### A service-resolution failure answers an empty 500 (follow-up)
+
+`FORMS_ENCRYPTION_MASTER_KEY` is now wired everywhere it is needed — the `ephemeral-integration` job,
+both defaults in the integration harness, and `.env.example` in the app and the create-app template —
+so the functional problem is fixed. One diagnosability weakness remains.
+
+Thirty routes call `createRequestContainer()` / `container.resolve(...)` **before** entering their own
+`try`. When a service fails to construct — the encryption service refusing its dev KMS adapter under
+`NODE_ENV=production` is the case that exposed this — the throw escapes the handler and Next answers
+a bare 500 with an empty body. The thrown message is actually excellent ("Refusing to encrypt forms
+PHI with the DEV-ONLY deterministic KMS adapter in production. Set `FORMS_ENCRYPTION_MASTER_KEY`
+to…"), but it reaches the server log only, never the response — so an operator sees an
+undifferentiated outage across the whole public runtime, the portal, the submissions inbox, audit,
+anonymize, export, PDF and analytics, while admin CRUD keeps working.
+
+Moving each resolve inside its route's `try` would surface it as a mapped error instead. Deliberately
+not done here: it is a control-flow restructuring of thirty handlers for a message rather than a
+behaviour, each one carrying its own regression risk, and it wants the integration suite green first
+so the change is verifiable. A startup-time check would be the stronger design — the misconfiguration
+is static, so failing the boot with one clear message beats thirty runtime 500s.
+
 ## Open Questions
 
 1. ~~**Are the copied migrations and `.snapshot-open-mercato.json` valid here?**~~ **Resolved:
