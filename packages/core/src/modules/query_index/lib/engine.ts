@@ -1382,7 +1382,7 @@ export class HybridQueryEngine implements QueryEngine {
             // organization-specific definition can never type another organization's value.
             const cfScope = {
               tenantId: decision.tenantId,
-              organizationId: (next?.organization_id ?? next?.organizationId ?? fallbackOrgId ?? null) as string | null,
+              organizationId: decision.organizationId,
             }
             const resolveKinds = await resolveCustomFieldKinds()
             next = await decryptIndexDocCustomFields(
