@@ -66,6 +66,7 @@ describe('sales command registration', () => {
         'sales.orders.create',
         'sales.orders.delete',
         'sales.orders.lines.upsert',
+        'sales.orders.lines.upsert_many',
         'sales.orders.lines.delete',
         'sales.quotes.lines.upsert',
         'sales.quotes.lines.delete',
