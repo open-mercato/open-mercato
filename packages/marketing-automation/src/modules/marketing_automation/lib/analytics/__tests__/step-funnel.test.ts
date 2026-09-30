@@ -103,3 +103,46 @@ describe('buildStepFunnel', () => {
     expect(buildStepFunnel(describeJourney([]), counts([]))).toEqual([])
   })
 })
+
+/**
+ * The split's own count, which nothing could supply until it was read from the right place.
+ *
+ * `flattenSteps` replaces a split with the chosen lane's steps and never plans the split itself, so no
+ * `stepLog` entry ever carries its id — and every count above is derived from that log. So every split read
+ * zero, and since the split is the `previousStepId` of both its lanes AND of whatever follows them, the
+ * conversion into each was `ratio(x, 0)` — null. A campaign starting with a split had a null share for its
+ * whole journey.
+ *
+ * The reach was recorded all along, on `marketing_campaign_runs.variant_choices`, one key per split the
+ * subject passed. `loadStepFunnel` now reads it and merges it in; these tests cover the shape that merge
+ * produces, which is what the screen renders.
+ */
+describe('a journey with a split', () => {
+  const journey = [split('sp1', [
+    { key: 'a', steps: [email('a1')] },
+    { key: 'b', steps: [email('b1')] },
+  ]), email('after')]
+
+  it('was unanswerable without the split count, and is not a zero', () => {
+    // What the screen showed before: the split at zero drags every conversion after it to null.
+    const broken = buildStepFunnel(describeJourney(journey), counts([['a1', 6], ['b1', 4], ['after', 9]]))
+    expect(broken.find((step) => step.stepId === 'sp1')?.people).toBe(0)
+    expect(broken.find((step) => step.stepId === 'a1')?.reachedFromPrevious).toBeNull()
+    expect(broken.find((step) => step.stepId === 'after')?.reachedFromPrevious).toBeNull()
+  })
+
+  it('reads as a journey once the split carries its reach', () => {
+    const funnel = buildStepFunnel(
+      describeJourney(journey),
+      counts([['sp1', 10], ['a1', 6], ['b1', 4], ['after', 9]]),
+    )
+    expect(funnel.find((step) => step.stepId === 'sp1')?.people).toBe(10)
+    // Six of the ten went down lane a, four down lane b — and both are measured against the split, not
+    // against each other or against the first step.
+    expect(funnel.find((step) => step.stepId === 'a1')?.reachedFromPrevious).toBeCloseTo(0.6)
+    expect(funnel.find((step) => step.stepId === 'b1')?.reachedFromPrevious).toBeCloseTo(0.4)
+    // And the trunk step after the split is measured against the split too, because that is where the
+    // lanes rejoin — nine of the ten got past it.
+    expect(funnel.find((step) => step.stepId === 'after')?.reachedFromPrevious).toBeCloseTo(0.9)
+  })
+})

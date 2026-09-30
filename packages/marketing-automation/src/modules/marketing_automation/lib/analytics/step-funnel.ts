@@ -134,6 +134,28 @@ const STEP_COUNTS_SQL = `
    group by 1
 `
 
+/**
+ * How many people reached each SPLIT, which the step log cannot answer.
+ *
+ * `flattenSteps` replaces a split with the chosen lane's steps and never pushes the split itself, so the
+ * executor never plans it and no `stepLog` entry ever carries its id. Everything above is derived from that
+ * log, so every split counted zero — and because the split is the `previousStepId` of both its lanes and of
+ * whatever follows them, `ratio(x, 0)` made the conversion into each lane null. A campaign that STARTED with
+ * a split had a null share for its whole journey.
+ *
+ * The reach was recorded all along, on the run rather than in the log: `variant_choices` is written at
+ * enrolment with one entry per split the subject passed. A run holding a key for this split is a person who
+ * reached it, which is exactly what the column means.
+ */
+const SPLIT_REACH_SQL = `
+  select key as step_id, count(distinct r.id)::int as people
+    from marketing_campaign_runs r
+    cross join lateral jsonb_object_keys(r.variant_choices) as key
+   where r.campaign_id = ? and r.tenant_id = ? and r.organization_id = ?
+     and r.variant_choices is not null
+   group by 1
+`
+
 export async function loadStepFunnel(
   em: EntityManager,
   campaignId: string,
@@ -142,9 +164,18 @@ export async function loadStepFunnel(
 ): Promise<JourneyStep[]> {
   const positions = describeJourney(steps)
   if (positions.length === 0) return []
-  const rows = await em.getConnection().execute<StepCountRow[]>(
-    STEP_COUNTS_SQL,
-    [campaignId, scope.tenantId, scope.organizationId],
-  )
-  return buildStepFunnel(positions, new Map(rows.map((row) => [row.step_id, row])))
+  const params = [campaignId, scope.tenantId, scope.organizationId]
+  const [rows, splitRows] = await Promise.all([
+    em.getConnection().execute<StepCountRow[]>(STEP_COUNTS_SQL, params),
+    em.getConnection().execute<Array<{ step_id: string; people: number }>>(SPLIT_REACH_SQL, params),
+  ])
+
+  const counts = new Map(rows.map((row) => [row.step_id, row]))
+  for (const row of splitRows) {
+    // Only where the log has nothing. A split cannot appear in both, but if it ever did the log — written by
+    // the executor as it ran — is the one that describes what happened rather than what was decided.
+    if (counts.has(row.step_id)) continue
+    counts.set(row.step_id, { step_id: row.step_id, people: row.people, done: row.people, skipped: 0, failed: 0 })
+  }
+  return buildStepFunnel(positions, counts)
 }

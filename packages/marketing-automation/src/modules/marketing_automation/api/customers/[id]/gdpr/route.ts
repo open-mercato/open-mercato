@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { eraseSubjectData, exportSubjectData } from '../../../../lib/gdpr.js'
 import { readPathUuid } from '../../../shared.js'
@@ -48,6 +49,24 @@ export async function GET(req: Request) {
   const em = container.resolve<EntityManager>('em')
   const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
 
+  /**
+   * The customer is looked up in scope FIRST, and an unknown id answers 404.
+   *
+   * Tenant isolation was never in question — every query inside `lib/gdpr.ts` carries both columns, so no
+   * other organization's data could leak. What was wrong is the answer: any uuid at all got a 200 with an
+   * export of nothing, or an erasure report of all zeros plus a row written to `marketing_subject_erasures`
+   * for somebody who was never in this organization. That report is somebody's answer to a legal request, and
+   * "we erased everything" about a person who does not exist here is not a true one.
+   *
+   * The three sibling routes on this same customer — consent, rescore and profile — have always done this.
+   */
+  const customer = await em.findOne(
+    CustomerEntity,
+    { id: customerId, ...scope, deletedAt: null },
+    { fields: ['id'] },
+  )
+  if (!customer) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
   const data = await exportSubjectData(em, customerId, scope, new Date())
   return NextResponse.json(data, {
     // Not cacheable by anything: this is one person's complete marketing record.
@@ -72,6 +91,14 @@ export async function POST(req: Request) {
   const container = await createRequestContainer()
   const em = container.resolve<EntityManager>('em')
   const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
+
+  // Same guard as the export, and it matters more here: erasing writes a row claiming it happened.
+  const customer = await em.findOne(
+    CustomerEntity,
+    { id: customerId, ...scope, deletedAt: null },
+    { fields: ['id'] },
+  )
+  if (!customer) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const report = await eraseSubjectData(em, customerId, scope, new Date())
   // Logged deliberately: an erasure is the one operation somebody will later need to prove happened, and
