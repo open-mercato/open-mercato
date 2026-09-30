@@ -1,0 +1,1454 @@
+'use client'
+
+import * as React from 'react'
+import { cn } from '@open-mercato/shared/lib/utils'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { Alert } from '@open-mercato/ui/primitives/alert'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
+import { Input } from '@open-mercato/ui/primitives/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
+import { Separator } from '@open-mercato/ui/primitives/separator'
+import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
+import { Tag } from '@open-mercato/ui/primitives/tag'
+import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { DatePicker } from '@open-mercato/ui/backend/inputs/DatePicker'
+import { DateTimePicker } from '@open-mercato/ui/backend/inputs/DateTimePicker'
+import { resolveLucideIcon } from '../lucide-icons'
+import { RankingField } from '../../../../../runner/RankingField'
+import { MatrixField, type MatrixFieldColumn, type MatrixFieldRow } from '../../../../../runner/MatrixField'
+import { ScaleField } from '../../../../../runner/ScaleField'
+import {
+  COUNTRY_OPTIONS,
+  resolveCountryName,
+} from '../../../../../schema/address-countries'
+import {
+  compileFieldValidationRules,
+  validateFieldValue,
+} from '../../../../../services/field-validation-service'
+import {
+  partitionPages,
+  resolveFieldStyle,
+  resolveFormLabelPosition,
+  resolveFormStyle,
+  resolveFormTheme,
+  resolvePageMode,
+  resolveSectionStyle,
+  resolveSectionViews,
+  resolveShowProgress,
+  type ResolvedSectionView,
+} from '../../../../../services/form-version-compiler'
+import {
+  compileFieldStyle,
+  compileFormTheme,
+  compileSectionStyle,
+} from '../../../../../services/style-compiler'
+import { styleProps } from '../../../../../ui/public/style/applyStyle'
+import { LogoHeader } from '../../../../../ui/public/style/LogoHeader'
+import { evaluateFormLogic, type LogicState } from '../../../../../services/form-logic-evaluator'
+import type { FieldNode, FormSchema } from '../schema-helpers'
+import type { PreviewViewport } from './ViewportFrame'
+
+/**
+ * Phase E — Preview surface.
+ *
+ * Renders sections + fields read-only with role-aware visibility, viewport-
+ * aware grid collapse (Decision 3b), density / label position (Decisions
+ * 20a/20b), and paginated navigation (Decision 11a).
+ *
+ * Mode is implicit `'preview'` — drag handles, trash buttons, inline-edit
+ * affordances, and `Add Field` are all gone.
+ */
+
+export type PreviewSurfaceProps = {
+  schema: FormSchema
+  viewport: PreviewViewport
+  previewRole: string
+  t: TranslateFn
+}
+
+type FieldOption = { value: string; label?: { [locale: string]: string } }
+
+const SPACE_BY_DENSITY: Record<'default' | 'compact' | 'spacious', string> = {
+  default: 'space-y-4',
+  compact: 'space-y-2',
+  spacious: 'space-y-6',
+}
+
+const GAP_BY_DENSITY: Record<'default' | 'compact' | 'spacious', string> = {
+  default: 'gap-4',
+  compact: 'gap-2',
+  spacious: 'gap-6',
+}
+
+const COLUMNS_TO_GRID_CLASS: Record<1 | 2 | 3 | 4, string> = {
+  1: 'grid-cols-1',
+  2: 'grid-cols-2',
+  3: 'grid-cols-3',
+  4: 'grid-cols-4',
+}
+
+const SPAN_TO_CLASS: Record<1 | 2 | 3 | 4, string> = {
+  1: 'col-span-1',
+  2: 'col-span-2',
+  3: 'col-span-3',
+  4: 'col-span-4',
+}
+
+const ALIGN_TO_CLASS: Record<'start' | 'center' | 'end', string> = {
+  start: 'text-left',
+  center: 'text-center',
+  end: 'text-right',
+}
+
+function readPersistedSpan(value: unknown): 1 | 2 | 3 | 4 {
+  if (value === 2 || value === 3 || value === 4) return value
+  return 1
+}
+
+function readAlign(value: unknown): 'start' | 'center' | 'end' {
+  return value === 'center' || value === 'end' ? value : 'start'
+}
+
+const padPreview2 = (input: number): string => String(input).padStart(2, '0')
+
+// Date pickers exchange `Date`; persisted answers keep the native
+// `YYYY-MM-DD` / `YYYY-MM-DDTHH:mm` strings, so adapt without altering bytes.
+function parsePreviewDateOnly(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value)
+  if (!match) return null
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function formatPreviewDateOnly(date: Date | null): string {
+  if (!date) return ''
+  return `${date.getFullYear()}-${padPreview2(date.getMonth() + 1)}-${padPreview2(date.getDate())}`
+}
+
+function parsePreviewDateTimeLocal(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value)
+  if (!match) return null
+  const date = new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    Number(match[4]),
+    Number(match[5]),
+  )
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function formatPreviewDateTimeLocal(date: Date | null): string {
+  if (!date) return ''
+  return (
+    `${date.getFullYear()}-${padPreview2(date.getMonth() + 1)}-${padPreview2(date.getDate())}` +
+    `T${padPreview2(date.getHours())}:${padPreview2(date.getMinutes())}`
+  )
+}
+
+/**
+ * Effective render columns — Decision 3b. Mobile collapses to 1, tablet
+ * collapses to `min(2, columns)`, desktop preserves the persisted value.
+ */
+function effectiveColumns(
+  persisted: 1 | 2 | 3 | 4,
+  viewport: PreviewViewport,
+): 1 | 2 | 3 | 4 {
+  if (viewport === 'mobile') return 1
+  if (viewport === 'tablet') return persisted >= 2 ? 2 : persisted
+  return persisted
+}
+
+function effectiveSpan(persisted: 1 | 2 | 3 | 4, columns: 1 | 2 | 3 | 4): 1 | 2 | 3 | 4 {
+  return persisted <= columns ? persisted : columns
+}
+
+export function PreviewSurface({
+  schema,
+  viewport,
+  previewRole,
+  t,
+}: PreviewSurfaceProps) {
+  const sections = React.useMemo<ResolvedSectionView[]>(
+    () => resolveSectionViews(schema as Record<string, unknown>),
+    [schema],
+  )
+  const pages = React.useMemo(() => partitionPages(sections), [sections])
+  const pageMode = resolvePageMode(schema as Record<string, unknown>)
+  const [answers, setAnswers] = React.useState<Record<string, unknown>>({})
+  const logicState: LogicState = React.useMemo(
+    () => evaluateFormLogic(schema as Record<string, unknown>, {
+      answers,
+      hidden: {},
+      locale: 'en',
+    }),
+    [schema, answers],
+  )
+  const handleAnswerChange = React.useCallback((fieldKey: string, value: unknown) => {
+    setAnswers((current) => ({ ...current, [fieldKey]: value }))
+  }, [])
+  const isPaginated = pageMode === 'paginated' && pages.length >= 1
+  const density = resolveFormStyle(schema as Record<string, unknown>)
+  const persistedLabelPosition = resolveFormLabelPosition(schema as Record<string, unknown>)
+  // Decision 20b — mobile collapses 'left' → 'top'.
+  const labelPosition: 'top' | 'left' =
+    viewport === 'mobile' ? 'top' : persistedLabelPosition
+  const showProgress = resolveShowProgress(schema as Record<string, unknown>)
+  const progressActive = isPaginated && pages.length >= 2 && showProgress
+
+  const [activePageIndex, setActivePageIndex] = React.useState(0)
+  const [activeEndingKey, setActiveEndingKey] = React.useState<string | null>(null)
+  React.useEffect(() => {
+    if (!isPaginated) return
+    if (activePageIndex >= pages.length) {
+      setActivePageIndex(Math.max(0, pages.length - 1))
+    }
+  }, [pages.length, isPaginated, activePageIndex])
+  React.useEffect(() => {
+    setActiveEndingKey(null)
+  }, [pages.length])
+
+  const sectionsByKey = React.useMemo(() => {
+    const map = new Map<string, ResolvedSectionView>()
+    for (const section of sections) map.set(section.key, section)
+    return map
+  }, [sections])
+
+  // Raw section descriptors keep the `style` member that `ResolvedSectionView`
+  // drops, so the preview can resolve per-section styling at the same seam the
+  // runtime does (R-CS-7). Read-only — never mutates persisted bytes.
+  const rawSectionsByKey = React.useMemo(() => {
+    const map = new Map<string, Record<string, unknown>>()
+    const raw = (schema as Record<string, unknown>)['x-om-sections']
+    if (Array.isArray(raw)) {
+      for (const entry of raw) {
+        if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+          const candidate = entry as Record<string, unknown>
+          if (typeof candidate.key === 'string') map.set(candidate.key, candidate)
+        }
+      }
+    }
+    return map
+  }, [schema])
+
+  // Form-theme apply seam: compile the root `x-om-theme` once into scoped DS-var
+  // remaps + utility classes — the SAME resolve→compile→styleProps pipeline as
+  // FormRunner. Empty theme ⇒ empty style + no classes ⇒ unstyled preview is
+  // byte-identical to before (R-CS-6/R-CS-7).
+  const formTheme = React.useMemo(
+    () => styleProps(compileFormTheme(resolveFormTheme(schema as Record<string, unknown>))),
+    [schema],
+  )
+  const themeLogo = React.useMemo(
+    () => resolveFormTheme(schema as Record<string, unknown>)?.logo,
+    [schema],
+  )
+
+  const renderSection = (section: ResolvedSectionView, pageIndex: number | null) => {
+    const columns = effectiveColumns(section.columns, viewport)
+    return (
+      <SectionPreview
+        key={section.key}
+        section={section}
+        rawSection={rawSectionsByKey.get(section.key)}
+        schema={schema}
+        previewRole={previewRole}
+        viewport={viewport}
+        density={density}
+        labelPosition={labelPosition}
+        renderColumns={columns}
+        pageIndex={pageIndex}
+        showPageChip={pages.length > 1 && !isPaginated}
+        logicState={logicState}
+        onAnswerChange={handleAnswerChange}
+        answers={answers}
+        t={t}
+      />
+    )
+  }
+
+  // When the theme paints a form-wide background (solid color or gradient), add
+  // padding + radius so it frames the sections — otherwise the opaque `bg-card`
+  // sections cover it edge-to-edge and the change is invisible. With no theme
+  // background the wrapper stays bare so an unstyled preview is byte-identical.
+  const themeStyle = formTheme.style as Record<string, unknown>
+  const hasThemeBackground =
+    typeof themeStyle.background === 'string' || typeof themeStyle.backgroundImage === 'string'
+  const wrapInTheme = (children: React.ReactNode): React.ReactElement => (
+    <div
+      className={cn('om-form-theme', hasThemeBackground ? 'rounded-lg p-4' : undefined, formTheme.className)}
+      style={formTheme.style}
+    >
+      {themeLogo ? (
+        <div className="mb-4">
+          <LogoHeader logo={themeLogo} />
+        </div>
+      ) : null}
+      {children}
+    </div>
+  )
+
+  const visibleSections = sections.filter((section) => logicState.visibleSectionKeys.has(section.key) && section.kind !== 'ending')
+
+  const stackedBody = (
+    <div className={SPACE_BY_DENSITY[density]}>
+      {visibleSections.map((section) => {
+        const pageIndex = pages.findIndex((page) => page.sectionKeys.includes(section.key))
+        const isFirstOfPage =
+          pageIndex >= 0 && pages[pageIndex]?.sectionKeys[0] === section.key
+        return renderSection(section, isFirstOfPage ? pageIndex : null)
+      })}
+      {visibleSections.length === 0 ? (
+        <p className="rounded-md border border-dashed border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+          {t('forms.studio.canvas.empty.copy')}
+        </p>
+      ) : null}
+    </div>
+  )
+
+  if (activeEndingKey) {
+    const endingSection = sections.find((entry) => entry.key === activeEndingKey)
+    if (endingSection) {
+      const title = logicState.resolveRecall(endingSection.title, 'en')
+      const bodyFieldKeys = endingSection.fieldKeys
+      return wrapInTheme(
+        <div className="space-y-4 rounded-lg border border-border bg-card p-6">
+          <div className="space-y-2">
+            <Tag variant="neutral" dot>{t('forms.studio.canvas.ending.chip')}</Tag>
+            <h2 className="text-lg font-semibold text-foreground">{title || endingSection.key}</h2>
+          </div>
+          <div className="space-y-2">
+            {bodyFieldKeys.map((fieldKey) => {
+              const node = schema.properties[fieldKey]
+              if (!node) return null
+              const label = logicState.resolveRecall(
+                (node['x-om-label'] as Record<string, string> | undefined) ?? undefined,
+                'en',
+              )
+              const help = logicState.resolveRecall(
+                (node['x-om-help'] as Record<string, string> | undefined) ?? undefined,
+                'en',
+              )
+              return (
+                <div key={fieldKey} className="rounded-md border border-border bg-muted/30 p-3">
+                  {label ? <p className="text-sm font-medium text-foreground">{label}</p> : null}
+                  {help ? <p className="mt-1 whitespace-pre-line text-xs text-muted-foreground">{help}</p> : null}
+                </div>
+              )
+            })}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setActiveEndingKey(null)
+              setActivePageIndex(0)
+              setAnswers({})
+            }}
+          >
+            {t('forms.runner.ending.restart')}
+          </Button>
+        </div>,
+      )
+    }
+  }
+
+  if (!isPaginated) {
+    return wrapInTheme(stackedBody)
+  }
+
+  const activePage = pages[activePageIndex]
+  const activeSections = activePage
+    ? activePage.sectionKeys
+        .map((key) => sectionsByKey.get(key))
+        .filter((section): section is ResolvedSectionView =>
+          Boolean(section) && logicState.visibleSectionKeys.has(section!.key) && section!.kind !== 'ending',
+        )
+    : []
+
+  const isLastPage = activePageIndex >= pages.length - 1
+  const isFirstPage = activePageIndex === 0
+
+  return wrapInTheme(
+    <div className={SPACE_BY_DENSITY[density]}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div role="tablist" aria-label="Author preview" className="flex flex-wrap gap-1">
+          {pages.map((page, index) => {
+            const isActive = index === activePageIndex
+            const firstSectionKey = page.sectionKeys[0] ?? null
+            const firstSection = firstSectionKey ? sectionsByKey.get(firstSectionKey) : null
+            const localizedTitle = firstSection?.title?.en
+            const tabLabel = localizedTitle && localizedTitle.length > 0
+              ? localizedTitle
+              : t('forms.studio.canvas.page.chipLabel', { n: String(index + 1) })
+            return (
+              <button
+                key={firstSectionKey ?? index}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => setActivePageIndex(index)}
+                className={
+                  'rounded-md px-3 py-1 text-xs font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring '
+                  + (isActive
+                    ? 'bg-muted text-foreground'
+                    : 'border border-border bg-background text-muted-foreground hover:bg-muted/40')
+                }
+              >
+                {tabLabel}
+              </button>
+            )
+          })}
+        </div>
+        {progressActive ? (
+          <span className="text-xs text-muted-foreground">
+            {t('forms.runner.section.label', {
+              current: String(activePageIndex + 1),
+              total: String(pages.length),
+            })}
+          </span>
+        ) : null}
+      </div>
+      <div className={SPACE_BY_DENSITY[density]}>
+        {activeSections.map((section) => {
+          const isFirstOfPage = activePage?.sectionKeys[0] === section.key
+          return renderSection(section, isFirstOfPage ? activePageIndex : null)
+        })}
+        {activeSections.length === 0 ? (
+          <p className="rounded-md border border-dashed border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+            {t('forms.studio.canvas.empty.copy')}
+          </p>
+        ) : null}
+      </div>
+      <div className="flex items-center justify-between">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={isFirstPage}
+          onClick={() => setActivePageIndex((current) => Math.max(0, current - 1))}
+        >
+          {t('forms.studio.preview.paginated.back')}
+        </Button>
+        <span className="text-xs text-muted-foreground">
+          {isLastPage ? t('forms.studio.preview.paginated.submitNote') : null}
+        </span>
+        <Button
+          type="button"
+          disabled={isLastPage}
+          onClick={() => {
+            const currentPageKey = activePage?.sectionKeys.find(
+              (key) => sectionsByKey.get(key)?.kind === 'page',
+            ) ?? activePage?.sectionKeys[0]
+            if (currentPageKey) {
+              const target = logicState.nextTarget(currentPageKey)
+              if (target.type === 'ending') {
+                setActiveEndingKey(target.endingKey)
+                return
+              }
+              if (target.type === 'page') {
+                const pageIndex = pages.findIndex((page) => page.sectionKeys.includes(target.pageKey))
+                if (pageIndex >= 0) {
+                  setActivePageIndex(pageIndex)
+                  return
+                }
+              }
+              if (target.type === 'submit') {
+                setActivePageIndex(pages.length - 1)
+                return
+              }
+            }
+            setActivePageIndex((current) => Math.min(pages.length - 1, current + 1))
+          }}
+        >
+          {t('forms.studio.preview.paginated.next')}
+        </Button>
+      </div>
+    </div>,
+  )
+}
+
+type SectionPreviewProps = {
+  section: ResolvedSectionView
+  rawSection?: Record<string, unknown>
+  schema: FormSchema
+  previewRole: string
+  viewport: PreviewViewport
+  density: 'default' | 'compact' | 'spacious'
+  labelPosition: 'top' | 'left'
+  renderColumns: 1 | 2 | 3 | 4
+  pageIndex: number | null
+  showPageChip: boolean
+  logicState: LogicState
+  answers: Record<string, unknown>
+  onAnswerChange: (fieldKey: string, value: unknown) => void
+  t: TranslateFn
+}
+
+function SectionPreview({
+  section,
+  rawSection,
+  schema,
+  previewRole,
+  viewport,
+  density,
+  labelPosition,
+  renderColumns,
+  pageIndex,
+  showPageChip,
+  logicState,
+  answers,
+  onAnswerChange,
+  t,
+}: SectionPreviewProps) {
+  void answers
+  const title = section.title?.en ?? ''
+  // Section apply seam: merge the resolved section `style` (color/background +
+  // padding/border/radius/card/align classes) alongside the existing layout
+  // classes — same resolve→compile→styleProps pipeline as FormRunner (R-CS-7).
+  const sectionStyle = styleProps(
+    compileSectionStyle(rawSection ? resolveSectionStyle(rawSection) : undefined),
+    'rounded-lg border border-border bg-card p-4',
+  )
+  return (
+    <section className={sectionStyle.className} style={sectionStyle.style}>
+      {showPageChip && pageIndex !== null ? (
+        <div className="mb-2">
+          <Tag variant="neutral" dot>
+            {t('forms.studio.canvas.page.chipLabel', { n: String(pageIndex + 1) })}
+          </Tag>
+        </div>
+      ) : null}
+      {!section.hideTitle && title.length > 0 ? (
+        <h3 className="mb-3 text-sm font-semibold text-foreground">{title}</h3>
+      ) : null}
+      {section.divider ? <Separator className="mb-3" /> : null}
+      <div className={`grid ${COLUMNS_TO_GRID_CLASS[renderColumns]} ${GAP_BY_DENSITY[density]}`}>
+        {section.fieldKeys.map((fieldKey) => {
+          const node = schema.properties[fieldKey]
+          if (!node) return null
+          if (!logicState.visibleFieldKeys.has(fieldKey)) return null
+          const visibleTo = (node['x-om-visible-to'] as string[] | undefined)
+            ?? Array.from(
+              new Set([
+                ...((node['x-om-editable-by'] as string[] | undefined) ?? ['admin']),
+                'admin',
+              ]),
+            )
+          if (!visibleTo.includes(previewRole)) return null
+          const omType = String(node['x-om-type'] ?? 'text')
+          const editableBy = (node['x-om-editable-by'] as string[] | undefined) ?? ['admin']
+          const canEdit = editableBy.includes(previewRole)
+          const persistedSpan = readPersistedSpan(node['x-om-grid-span'])
+          const isInfoBlock = omType === 'info_block'
+          const renderSpan = isInfoBlock
+            ? renderColumns
+            : effectiveSpan(persistedSpan, renderColumns)
+          const align = readAlign(node['x-om-align'])
+          const hideOnMobile = node['x-om-hide-mobile'] === true
+          if (hideOnMobile && viewport === 'mobile') return null
+          const required = (schema.required ?? []).includes(fieldKey)
+          // Field apply seam: the resolved `x-om-style` (`--om-*` color vars +
+          // alignment/labelWeight classes) cascades to the field's label/inputs
+          // — same resolve→compile→styleProps pipeline as FormRunner (R-CS-7).
+          const fieldStyle = styleProps(compileFieldStyle(resolveFieldStyle(node)))
+          const fieldRow = (
+            <FieldPreviewRow
+              fieldKey={fieldKey}
+              node={node}
+              omType={omType}
+              canEdit={canEdit}
+              required={required}
+              renderSpan={renderSpan}
+              align={align}
+              labelPosition={labelPosition}
+              value={answers[fieldKey]}
+              onChange={(value) => onAnswerChange(fieldKey, value)}
+              logicState={logicState}
+              t={t}
+            />
+          )
+          // Empty field style ⇒ render the row directly (byte-identical to
+          // pre-styling, R-CS-6). When styled, wrap in a grid-item div that owns
+          // the column span so placement is preserved and the `--om-*` cascade
+          // reaches the row; the `key` moves to that outer element.
+          if (fieldStyle.className.length === 0 && Object.keys(fieldStyle.style).length === 0) {
+            return React.cloneElement(fieldRow, { key: fieldKey })
+          }
+          return (
+            <div
+              key={fieldKey}
+              className={cn(SPAN_TO_CLASS[renderSpan], fieldStyle.className)}
+              style={fieldStyle.style}
+            >
+              {fieldRow}
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+type FieldPreviewRowProps = {
+  fieldKey: string
+  node: FieldNode
+  omType: string
+  canEdit: boolean
+  required: boolean
+  renderSpan: 1 | 2 | 3 | 4
+  align: 'start' | 'center' | 'end'
+  labelPosition: 'top' | 'left'
+  value: unknown
+  onChange: (value: unknown) => void
+  t: TranslateFn
+}
+
+function FieldPreviewRow({
+  fieldKey,
+  node,
+  omType,
+  canEdit,
+  required,
+  renderSpan,
+  align,
+  labelPosition,
+  value,
+  onChange,
+  logicState,
+  t,
+}: FieldPreviewRowProps & { logicState: LogicState }) {
+  const rawLabel = node['x-om-label'] as Record<string, string> | undefined
+  const rawHelp = node['x-om-help'] as Record<string, string> | undefined
+  const label = (rawLabel ? logicState.resolveRecall(rawLabel, 'en') : '') || fieldKey
+  const help = rawHelp ? logicState.resolveRecall(rawHelp, 'en') : ''
+  if (omType === 'info_block') {
+    return (
+      <div
+        className={`${SPAN_TO_CLASS[renderSpan]} ${ALIGN_TO_CLASS[align]} rounded-md border border-border bg-muted/30 p-3`}
+      >
+        <p className="text-sm font-medium text-foreground">{label}</p>
+        {help && (
+          <p className="mt-1 whitespace-pre-line text-xs text-muted-foreground">{help}</p>
+        )}
+      </div>
+    )
+  }
+  // boolean / yes_no / yes_no_buttons carry their own inline label
+  // (label beside the control), so they bypass the label-above layout.
+  if (omType === 'boolean' || omType === 'yes_no' || omType === 'yes_no_buttons') {
+    const requiredMark = required ? (
+      <span className="ml-0.5 text-status-error-text" aria-hidden="true">*</span>
+    ) : null
+    const fieldLabel = <>{label}{requiredMark}</>
+    return (
+      <div className={`${SPAN_TO_CLASS[renderSpan]} ${ALIGN_TO_CLASS[align]}`}>
+        {omType === 'boolean' ? (
+          <CheckboxField
+            id={`preview-${fieldKey}`}
+            disabled={!canEdit}
+            checked={value === true}
+            onCheckedChange={(next) => onChange(next === true)}
+            label={fieldLabel}
+            description={help || undefined}
+          />
+        ) : omType === 'yes_no' ? (
+          <SwitchField
+            id={`preview-${fieldKey}`}
+            disabled={!canEdit}
+            checked={value === true}
+            onCheckedChange={(next) => onChange(Boolean(next))}
+            label={fieldLabel}
+            description={help || undefined}
+          />
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-start justify-between gap-3">
+              <span className="min-w-0 text-sm font-medium text-foreground">{fieldLabel}</span>
+              <div className="flex shrink-0 gap-1" role="group" aria-label={label}>
+                <Button
+                  type="button"
+                  variant={value === true ? 'default' : 'outline'}
+                  size="sm"
+                  aria-pressed={value === true}
+                  disabled={!canEdit}
+                  onClick={() => onChange(true)}
+                >
+                  {t('forms.runner.yesNo.yes', 'Yes')}
+                </Button>
+                <Button
+                  type="button"
+                  variant={value === false ? 'default' : 'outline'}
+                  size="sm"
+                  aria-pressed={value === false}
+                  disabled={!canEdit}
+                  onClick={() => onChange(false)}
+                >
+                  {t('forms.runner.yesNo.no', 'No')}
+                </Button>
+              </div>
+            </div>
+            {help ? <p className="text-xs text-muted-foreground">{help}</p> : null}
+          </div>
+        )}
+      </div>
+    )
+  }
+  const labelNode = (
+    <label className="block text-sm font-medium text-foreground" htmlFor={`preview-${fieldKey}`}>
+      {label}
+      {required ? (
+        <span className="ml-1 text-status-error-text" aria-hidden="true">
+          *
+        </span>
+      ) : null}
+    </label>
+  )
+  const helpNode = help ? (
+    <p className="text-xs text-muted-foreground">{help}</p>
+  ) : null
+  const inputNode = (
+    <FieldPreviewInput
+      fieldKey={fieldKey}
+      node={node}
+      omType={omType}
+      canEdit={canEdit}
+      label={label}
+      value={value}
+      onChange={onChange}
+      t={t}
+    />
+  )
+  const baseClass = `${SPAN_TO_CLASS[renderSpan]} ${ALIGN_TO_CLASS[align]}`
+  if (labelPosition === 'left') {
+    return (
+      <div className={`${baseClass} flex items-start gap-3`}>
+        <div className="min-w-32 pt-2">{labelNode}</div>
+        <div className="flex-1 space-y-1">
+          {helpNode}
+          {inputNode}
+          {!canEdit ? (
+            <span className="text-xs text-muted-foreground">{t('forms.runner.encrypted_label')}</span>
+          ) : null}
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className={`${baseClass} space-y-1`}>
+      {labelNode}
+      {helpNode}
+      {inputNode}
+    </div>
+  )
+}
+
+type FieldPreviewInputProps = {
+  fieldKey: string
+  node: FieldNode
+  omType: string
+  canEdit: boolean
+  label: string
+  value: unknown
+  onChange: (value: unknown) => void
+  t: TranslateFn
+}
+
+function FieldPreviewInput({
+  fieldKey,
+  node,
+  omType,
+  canEdit,
+  label,
+  value,
+  onChange,
+  t,
+}: FieldPreviewInputProps) {
+  const id = `preview-${fieldKey}`
+  const options = Array.isArray(node['x-om-options'])
+    ? (node['x-om-options'] as FieldOption[]).filter(
+        (entry) => typeof entry?.value === 'string',
+      )
+    : []
+  const optionLabel = (option: FieldOption) => option.label?.en ?? option.value
+  const stringValue = typeof value === 'string' ? value : value === undefined || value === null ? '' : String(value)
+  switch (omType) {
+    case 'textarea':
+      return (
+        <Textarea
+          id={id}
+          readOnly={!canEdit}
+          rows={3}
+          aria-label={label}
+          value={stringValue}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      )
+    case 'number':
+      return (
+        <Input
+          id={id}
+          readOnly={!canEdit}
+          type="number"
+          step="any"
+          aria-label={label}
+          value={stringValue}
+          onChange={(event) => {
+            const next = event.target.value
+            onChange(next === '' ? '' : Number(next))
+          }}
+        />
+      )
+    case 'integer':
+      return (
+        <Input
+          id={id}
+          readOnly={!canEdit}
+          type="number"
+          step={1}
+          aria-label={label}
+          value={stringValue}
+          onChange={(event) => {
+            const next = event.target.value
+            onChange(next === '' ? '' : Math.trunc(Number(next)))
+          }}
+        />
+      )
+    case 'date':
+      return (
+        <DatePicker
+          readOnly={!canEdit}
+          value={parsePreviewDateOnly(stringValue)}
+          onChange={(date) => onChange(formatPreviewDateOnly(date))}
+        />
+      )
+    case 'datetime':
+      return (
+        <DateTimePicker
+          readOnly={!canEdit}
+          value={parsePreviewDateTimeLocal(stringValue)}
+          onChange={(date) => onChange(formatPreviewDateTimeLocal(date))}
+        />
+      )
+    case 'select_one':
+      return (
+        <Select
+          disabled={!canEdit}
+          value={typeof value === 'string' ? value : undefined}
+          onValueChange={(next) => onChange(next)}
+        >
+          <SelectTrigger id={id}>
+            <SelectValue placeholder={options.length === 0 ? '— No options configured —' : 'Select…'} />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {optionLabel(option)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )
+    case 'select_many':
+      if (options.length === 0) {
+        return <p className="text-xs text-muted-foreground">— No options configured —</p>
+      }
+      return (
+        <div className="space-y-2.5">
+          {options.map((option) => {
+            const selected = Array.isArray(value) && (value as unknown[]).includes(option.value)
+            return (
+              <CheckboxField
+                key={option.value}
+                label={optionLabel(option)}
+                disabled={!canEdit}
+                checked={selected}
+                onCheckedChange={(next) => {
+                  const current = Array.isArray(value) ? [...(value as string[])] : []
+                  if (next) {
+                    if (!current.includes(option.value)) current.push(option.value)
+                  } else {
+                    const idx = current.indexOf(option.value)
+                    if (idx >= 0) current.splice(idx, 1)
+                  }
+                  onChange(current)
+                }}
+              />
+            )
+          })}
+        </div>
+      )
+    case 'scale': {
+      const minRaw = node['x-om-min']
+      const maxRaw = node['x-om-max']
+      const min = typeof minRaw === 'number' ? minRaw : 0
+      const max = typeof maxRaw === 'number' ? maxRaw : 10
+      const currentValue = typeof value === 'number' ? value : null
+      return (
+        <ScaleField
+          id={id}
+          min={min}
+          max={max}
+          value={currentValue}
+          onChange={(next) => onChange(next)}
+          disabled={!canEdit}
+          ariaLabel={label}
+        />
+      )
+    }
+    case 'nps':
+      return (
+        <NpsPreviewInput
+          node={node}
+          canEdit={canEdit}
+          value={value}
+          onChange={onChange}
+        />
+      )
+    case 'opinion_scale':
+      return (
+        <OpinionScalePreviewInput
+          node={node}
+          canEdit={canEdit}
+          value={value}
+          onChange={onChange}
+        />
+      )
+    case 'email':
+      return (
+        <FormatPreviewInput
+          id={id}
+          format="email"
+          inputType="email"
+          inputMode="email"
+          autoComplete="email"
+          autoCapitalize="off"
+          iconName="mail"
+          readOnly={!canEdit}
+          label={label}
+          value={stringValue}
+          onChange={(next) => onChange(next)}
+          node={node}
+          t={t}
+        />
+      )
+    case 'phone':
+      return (
+        <FormatPreviewInput
+          id={id}
+          format="phone"
+          inputType="tel"
+          inputMode="tel"
+          autoComplete="tel"
+          iconName="phone"
+          readOnly={!canEdit}
+          label={label}
+          value={stringValue}
+          onChange={(next) => onChange(next)}
+          node={node}
+          t={t}
+        />
+      )
+    case 'website':
+      return (
+        <FormatPreviewInput
+          id={id}
+          format="website"
+          inputType="url"
+          inputMode="url"
+          autoCapitalize="off"
+          iconName="globe"
+          readOnly={!canEdit}
+          label={label}
+          value={stringValue}
+          onChange={(next) => onChange(next)}
+          node={node}
+          t={t}
+        />
+      )
+    case 'address':
+      return (
+        <AddressPreviewInput
+          idPrefix={id}
+          canEdit={canEdit}
+          value={value}
+          onChange={onChange}
+          t={t}
+        />
+      )
+    case 'ranking': {
+      const rankingOptions = options.map((option) => ({
+        value: option.value,
+        label: optionLabel(option),
+      }))
+      const rankingValue = Array.isArray(value)
+        ? (value as unknown[]).filter((entry): entry is string => typeof entry === 'string')
+        : []
+      return (
+        <RankingField
+          idPrefix={id}
+          options={rankingOptions}
+          value={rankingValue}
+          onChange={(next) => onChange(next)}
+          canEdit={canEdit}
+          t={t}
+        />
+      )
+    }
+    case 'matrix': {
+      const rawRows = Array.isArray(node['x-om-matrix-rows'])
+        ? (node['x-om-matrix-rows'] as MatrixFieldRow[])
+        : []
+      const rawColumns = Array.isArray(node['x-om-matrix-columns'])
+        ? (node['x-om-matrix-columns'] as MatrixFieldColumn[])
+        : []
+      return (
+        <MatrixField
+          idPrefix={id}
+          rows={rawRows}
+          columns={rawColumns}
+          value={value}
+          onChange={(next) => onChange(next)}
+          locale="en"
+          readOnly={!canEdit}
+          t={t}
+        />
+      )
+    }
+    case 'group': {
+      const groupItems = node.items
+      const groupProps =
+        groupItems && typeof groupItems === 'object' && !Array.isArray(groupItems)
+          ? ((groupItems as Record<string, unknown>).properties as Record<string, FieldNode> | undefined)
+          : undefined
+      const subLabels = groupProps
+        ? Object.values(groupProps).map((subNode) => {
+            const subLabel = subNode['x-om-label'] as Record<string, string> | undefined
+            return subLabel?.en ?? (subNode['x-om-type'] as string | undefined) ?? '—'
+          })
+        : []
+      return (
+        <div className="rounded-md border border-dashed border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+          <p>{subLabels.length > 0 ? subLabels.join(' · ') : t('forms.studio.field.group.empty')}</p>
+          <p className="mt-1 text-xs">+ {t('forms.studio.field.group.addSubField')}</p>
+        </div>
+      )
+    }
+    case 'text':
+    default:
+      return (
+        <Input
+          id={id}
+          readOnly={!canEdit}
+          type="text"
+          aria-label={label}
+          value={stringValue}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      )
+  }
+}
+
+type FormatPreviewInputProps = {
+  id: string
+  format: 'email' | 'phone' | 'website'
+  inputType: 'email' | 'tel' | 'url'
+  inputMode: 'email' | 'tel' | 'url'
+  autoComplete?: string
+  autoCapitalize?: 'off' | 'none' | 'on'
+  iconName: 'mail' | 'phone' | 'globe'
+  readOnly: boolean
+  label: string
+  value: string
+  onChange: (value: string) => void
+  node: FieldNode
+  t: TranslateFn
+}
+
+function FormatPreviewInput({
+  id,
+  format,
+  inputType,
+  inputMode,
+  autoComplete,
+  autoCapitalize,
+  iconName,
+  readOnly,
+  label,
+  value,
+  onChange,
+  node,
+  t,
+}: FormatPreviewInputProps) {
+  const [error, setError] = React.useState<string | null>(null)
+  const Icon = resolveLucideIcon(iconName)
+  const rules = React.useMemo(
+    () => compileFieldValidationRules(node, format),
+    [node, format],
+  )
+  const handleBlur = React.useCallback(() => {
+    if (!value) {
+      setError(null)
+      return
+    }
+    const result = validateFieldValue(value, rules, 'en', undefined, node)
+    if (result.valid) {
+      setError(null)
+      return
+    }
+    if (result.rule === 'format' || result.rule === 'pattern') {
+      const localizedKey =
+        format === 'email'
+          ? 'forms.runner.validation.email.default'
+          : format === 'phone'
+            ? 'forms.runner.validation.phone.default'
+            : 'forms.runner.validation.website.default'
+      const localized = t(localizedKey)
+      setError(localized && localized !== localizedKey ? localized : result.message)
+      return
+    }
+    setError(result.message)
+  }, [value, rules, format, node, t])
+  return (
+    <div className="space-y-1">
+      <Input
+        id={id}
+        type={inputType}
+        inputMode={inputMode}
+        autoComplete={autoComplete}
+        autoCapitalize={autoCapitalize}
+        readOnly={readOnly}
+        aria-label={label}
+        aria-invalid={error ? true : undefined}
+        leftIcon={<Icon aria-hidden="true" />}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onFocus={() => setError(null)}
+        onBlur={handleBlur}
+      />
+      {error ? (
+        <Alert variant="destructive" className="px-3 py-2 text-xs">
+          {error}
+        </Alert>
+      ) : null}
+    </div>
+  )
+}
+
+type NpsPreviewInputProps = {
+  node: FieldNode
+  canEdit: boolean
+  value: unknown
+  onChange: (value: unknown) => void
+}
+
+function npsBandClass(entry: number): string {
+  if (entry <= 6) {
+    return 'bg-status-error-surface text-status-error-text border-status-error-border'
+  }
+  if (entry <= 8) {
+    return 'bg-status-warning-surface text-status-warning-text border-status-warning-border'
+  }
+  return 'bg-status-success-surface text-status-success-text border-status-success-border'
+}
+
+function readNpsAnchorCaption(
+  node: FieldNode,
+  anchor: 'low' | 'high',
+): string {
+  const raw = (node as Record<string, unknown>)['x-om-nps-anchors']
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return ''
+  const target = (raw as Record<string, unknown>)[anchor]
+  if (!target || typeof target !== 'object' || Array.isArray(target)) return ''
+  const map = target as Record<string, unknown>
+  const en = map.en
+  if (typeof en === 'string' && en.length > 0) return en
+  for (const value of Object.values(map)) {
+    if (typeof value === 'string' && value.length > 0) return value
+  }
+  return ''
+}
+
+function NpsPreviewInput({ node, canEdit, value, onChange }: NpsPreviewInputProps) {
+  const lowCaption = readNpsAnchorCaption(node, 'low')
+  const highCaption = readNpsAnchorCaption(node, 'high')
+  const currentValue = typeof value === 'number' && Number.isInteger(value) ? value : null
+  const entries: number[] = []
+  for (let i = 0; i <= 10; i += 1) entries.push(i)
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap gap-1">
+        {entries.map((entry) => {
+          const selected = currentValue === entry
+          const baseBand = npsBandClass(entry)
+          const ringClass = selected ? ' ring-2 ring-primary' : ''
+          return (
+            <button
+              key={entry}
+              type="button"
+              disabled={!canEdit}
+              onClick={() => onChange(entry)}
+              aria-pressed={selected}
+              className={
+                'h-11 w-11 rounded-md border text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 '
+                + 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo/50 '
+                + baseBand
+                + ringClass
+              }
+            >
+              {entry}
+            </button>
+          )
+        })}
+      </div>
+      {lowCaption || highCaption ? (
+        <div className="flex justify-between text-xs text-muted-foreground mt-1">
+          <span>{lowCaption}</span>
+          <span>{highCaption}</span>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+type OpinionScalePreviewInputProps = {
+  node: FieldNode
+  canEdit: boolean
+  value: unknown
+  onChange: (value: unknown) => void
+}
+
+function readOpinionIconChoice(node: FieldNode): 'star' | 'dot' | 'thumb' {
+  const raw = (node as Record<string, unknown>)['x-om-opinion-icon']
+  if (raw === 'star' || raw === 'thumb') return raw
+  return 'dot'
+}
+
+function OpinionScalePreviewInput({
+  node,
+  canEdit,
+  value,
+  onChange,
+}: OpinionScalePreviewInputProps) {
+  const icon = readOpinionIconChoice(node)
+  const minRaw = (node as Record<string, unknown>)['x-om-min']
+  const maxRaw = (node as Record<string, unknown>)['x-om-max']
+  const min = typeof minRaw === 'number' && Number.isInteger(minRaw) ? minRaw : 1
+  const maxResolved = typeof maxRaw === 'number' && Number.isInteger(maxRaw) ? maxRaw : 5
+  const max = maxResolved < min ? min : maxResolved
+  const entries: number[] = []
+  for (let i = min; i <= max; i += 1) entries.push(i)
+  const currentValue = typeof value === 'number' && Number.isInteger(value) ? value : null
+  const StarIcon = resolveLucideIcon('star')
+  const CircleIcon = resolveLucideIcon('circle')
+  const ThumbIcon = resolveLucideIcon('thumbs-up')
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap gap-1">
+        {entries.map((entry) => {
+          const filled = icon === 'star'
+            ? currentValue !== null && entry <= currentValue
+            : currentValue === entry
+          const iconClass = filled ? 'fill-current text-primary' : 'text-muted-foreground'
+          const IconComponent =
+            icon === 'star' ? StarIcon : icon === 'thumb' ? ThumbIcon : CircleIcon
+          return (
+            <button
+              key={entry}
+              type="button"
+              disabled={!canEdit}
+              onClick={() => onChange(entry)}
+              aria-pressed={filled}
+              className={
+                'inline-flex h-11 w-11 items-center justify-center rounded-md border border-border bg-background transition-colors disabled:cursor-not-allowed disabled:opacity-60 '
+                + 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo/50 '
+                + (filled ? 'border-primary' : 'hover:border-primary')
+              }
+            >
+              <IconComponent aria-hidden="true" className={`size-7 ${iconClass}`} />
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+type AddressPreviewInputProps = {
+  idPrefix: string
+  canEdit: boolean
+  value: unknown
+  onChange: (value: unknown) => void
+  t: TranslateFn
+}
+
+type AddressFieldValue = {
+  street1?: string
+  street2?: string
+  city?: string
+  region?: string
+  postalCode?: string
+  country?: string
+}
+
+function readAddressSubValue(value: unknown, key: keyof AddressFieldValue): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return ''
+  const entry = (value as Record<string, unknown>)[key]
+  return typeof entry === 'string' ? entry : ''
+}
+
+function AddressPreviewInput({
+  idPrefix,
+  canEdit,
+  value,
+  onChange,
+  t,
+}: AddressPreviewInputProps) {
+  const street1 = readAddressSubValue(value, 'street1')
+  const street2 = readAddressSubValue(value, 'street2')
+  const city = readAddressSubValue(value, 'city')
+  const region = readAddressSubValue(value, 'region')
+  const postalCode = readAddressSubValue(value, 'postalCode')
+  const country = readAddressSubValue(value, 'country')
+  const labels = {
+    street1: t('forms.studio.field.address.street1'),
+    street2: t('forms.studio.field.address.street2'),
+    city: t('forms.studio.field.address.city'),
+    region: t('forms.studio.field.address.region'),
+    postalCode: t('forms.studio.field.address.postalCode'),
+    country: t('forms.studio.field.address.country'),
+  }
+  const update = (key: keyof AddressFieldValue) => (next: string) => {
+    const current: AddressFieldValue =
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? { ...(value as AddressFieldValue) }
+        : {}
+    current[key] = next
+    onChange(current)
+  }
+  return (
+    <div className="space-y-2">
+      <div className="space-y-1">
+        <label
+          className="block text-xs font-medium text-muted-foreground"
+          htmlFor={`${idPrefix}-street1`}
+        >
+          {labels.street1}
+        </label>
+        <Input
+          id={`${idPrefix}-street1`}
+          readOnly={!canEdit}
+          type="text"
+          aria-label={labels.street1}
+          value={street1}
+          onChange={(event) => update('street1')(event.target.value)}
+        />
+      </div>
+      <div className="space-y-1">
+        <label
+          className="block text-xs font-medium text-muted-foreground"
+          htmlFor={`${idPrefix}-street2`}
+        >
+          {labels.street2}
+        </label>
+        <Input
+          id={`${idPrefix}-street2`}
+          readOnly={!canEdit}
+          type="text"
+          aria-label={labels.street2}
+          value={street2}
+          onChange={(event) => update('street2')(event.target.value)}
+        />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <div className="space-y-1">
+          <label
+            className="block text-xs font-medium text-muted-foreground"
+            htmlFor={`${idPrefix}-city`}
+          >
+            {labels.city}
+          </label>
+          <Input
+            id={`${idPrefix}-city`}
+            readOnly={!canEdit}
+            type="text"
+            aria-label={labels.city}
+            value={city}
+            onChange={(event) => update('city')(event.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <label
+            className="block text-xs font-medium text-muted-foreground"
+            htmlFor={`${idPrefix}-region`}
+          >
+            {labels.region}
+          </label>
+          <Input
+            id={`${idPrefix}-region`}
+            readOnly={!canEdit}
+            type="text"
+            aria-label={labels.region}
+            value={region}
+            onChange={(event) => update('region')(event.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <label
+            className="block text-xs font-medium text-muted-foreground"
+            htmlFor={`${idPrefix}-postalCode`}
+          >
+            {labels.postalCode}
+          </label>
+          <Input
+            id={`${idPrefix}-postalCode`}
+            readOnly={!canEdit}
+            type="text"
+            aria-label={labels.postalCode}
+            value={postalCode}
+            onChange={(event) => update('postalCode')(event.target.value)}
+          />
+        </div>
+      </div>
+      <div className="space-y-1">
+        <label
+          className="block text-xs font-medium text-muted-foreground"
+          htmlFor={`${idPrefix}-country`}
+        >
+          {labels.country}
+        </label>
+        {canEdit ? (
+          <Select
+            value={country.length > 0 ? country : undefined}
+            onValueChange={(next) => update('country')(next)}
+          >
+            <SelectTrigger id={`${idPrefix}-country`} aria-label={labels.country}>
+              <SelectValue placeholder={labels.country} />
+            </SelectTrigger>
+            <SelectContent>
+              {COUNTRY_OPTIONS.map((option) => (
+                <SelectItem key={option.code} value={option.code}>
+                  {option.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <span
+            id={`${idPrefix}-country`}
+            className="block rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
+            aria-label={labels.country}
+          >
+            {country ? resolveCountryName(country) : ''}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}

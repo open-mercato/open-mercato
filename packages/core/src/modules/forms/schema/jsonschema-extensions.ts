@@ -1,0 +1,1061 @@
+import type Ajv from 'ajv'
+import { validateJsonLogicGrammar } from './jsonlogic-grammar'
+import type { OmFieldStyle, OmSectionStyle, OmTheme } from './style-extensions'
+import {
+  validateOmFieldStyle,
+  validateOmSectionStyle,
+  validateOmTheme,
+} from './style-validators'
+
+/**
+ * Forms v1 JSON Schema extensions (`x-om-*`).
+ *
+ * The studio writes JSON Schema 7-shaped form definitions and decorates them
+ * with these annotation keywords to capture form-specific semantics
+ * (per-field role policy, localized labels, sections, sensitivity flag,
+ * conditional visibility, etc.). This file centralises the keyword catalog
+ * so the compiler, the studio, and the renderer all agree on the v1 surface.
+ *
+ * The catalog itself is FROZEN: removing or renaming any of these keywords
+ * is a BC break (root AGENTS.md § Backward Compatibility Contract). Adding
+ * a new `x-om-*` keyword is additive and safe.
+ */
+
+// ============================================================================
+// Root-level extensions
+// ============================================================================
+
+export const OM_ROOT_KEYWORDS = {
+  /** Array of role identifiers participating in this form. */
+  roles: 'x-om-roles',
+  /** Role auto-assigned to the actor who starts a submission. */
+  defaultActorRole: 'x-om-default-actor-role',
+  /** Ordered section list — drives the renderer's step flow. */
+  sections: 'x-om-sections',
+  /** Page rendering mode — `'stacked'` (default) renders all pages at once; `'paginated'` shows one page at a time. */
+  pageMode: 'x-om-page-mode',
+  /** Locales the form supports (additive, default `['en']`). */
+  supportedLocales: 'x-om-supported-locales',
+  /** Theme density (additive, default `'default'`). Decision 20a. */
+  formStyle: 'x-om-form-style',
+  /** Form-level label position (additive, default `'top'`; mobile collapses `'left'` → `'top'`). Decision 20b. */
+  formLabelPosition: 'x-om-form-label-position',
+  /** Show progress indicator (additive, default `false`). Active only when paginated AND pages >= 2 (Decision 20c). */
+  showProgress: 'x-om-show-progress',
+  /** Ordered jump rules — branch from a page/field to a target page, ending, or submit. Reactive-core spec. */
+  jumps: 'x-om-jumps',
+  /** Named computed variables — render-only, recomputed from answers + hidden + earlier variables. Reactive-core spec. */
+  variables: 'x-om-variables',
+  /** Declared hidden-field context names — populated from URL query params at runtime. Reactive-core spec. */
+  hiddenFields: 'x-om-hidden-fields',
+  /**
+   * Answer→target mapping (W8 / INT-5). Maps a form field key to a
+   * consumer-side logical target path, e.g. `{ "allergies": "patient.allergies" }`.
+   * Config-only — never emitted in events (DP-8: events stay id-only). A
+   * consumer reads this from the version read API and applies the mapping
+   * against answers it fetches from the authed read/export API. Additive.
+   */
+  answerMappings: 'x-om-answer-mappings',
+  /**
+   * Form-wide visual theme (`OmTheme`). Additive, optional — absent ⇒ today's
+   * appearance (byte-identical). Custom-styling spec
+   * (`.ai/specs/2026-05-22-forms-custom-styling.md`).
+   */
+  theme: 'x-om-theme',
+} as const
+
+// ============================================================================
+// Field-level extensions
+// ============================================================================
+
+export const OM_FIELD_KEYWORDS = {
+  /** Field type key (must resolve in the FieldTypeRegistry). */
+  type: 'x-om-type',
+  /** Localized field label: `{ [locale]: string }`. */
+  label: 'x-om-label',
+  /** Localized help text: `{ [locale]: string }`. */
+  help: 'x-om-help',
+  /** Roles allowed to write this field (defaults to `['admin']`). */
+  editableBy: 'x-om-editable-by',
+  /** Roles allowed to read this field (defaults to editableBy ∪ ['admin']). */
+  visibleTo: 'x-om-visible-to',
+  /** Marks the field as sensitive — triggers redaction + per-field encryption hardening. */
+  sensitive: 'x-om-sensitive',
+  /** jsonlogic expression — evaluated by the renderer (phase 2c). */
+  visibilityIf: 'x-om-visibility-if',
+  /** Choice list for select_one / select_many: `[{ value, label: { [locale]: string } }]`. */
+  options: 'x-om-options',
+  /** Lower bound for scale / number fields. */
+  min: 'x-om-min',
+  /** Upper bound for scale / number fields. */
+  max: 'x-om-max',
+  /** uiSchema widget override. */
+  widget: 'x-om-widget',
+  /**
+   * Persisted column span within the parent section's grid (1..4). Read-time
+   * clamping against the section's `columns` is the renderer's job — the
+   * validator never rewrites the persisted value (Decision 3a).
+   */
+  gridSpan: 'x-om-grid-span',
+  /** Field alignment within its grid cell. Wired by Phase D — keyword declared now for forward consistency. */
+  align: 'x-om-align',
+  /** Hide the field on mobile viewport only. Wired by Phase D — keyword declared now for forward consistency. */
+  hideMobile: 'x-om-hide-mobile',
+  /** Regex source for string-typed fields. Tier-2 spec — additive. */
+  pattern: 'x-om-pattern',
+  /** Minimum string length for string-typed fields. Tier-2 spec — additive. */
+  minLength: 'x-om-min-length',
+  /** Maximum string length for string-typed fields. Tier-2 spec — additive. */
+  maxLength: 'x-om-max-length',
+  /** Localised custom validation messages: `{ [locale]: { [ruleType]: string } }`. Tier-2 spec — additive. */
+  validationMessages: 'x-om-validation-messages',
+  /** Icon style for opinion_scale renderer: `'star' | 'dot' | 'thumb'`. Tier-2 Phase D — additive. */
+  opinionIcon: 'x-om-opinion-icon',
+  /** NPS anchor captions: `{ low: LocalizedText, high: LocalizedText }`. Tier-2 Phase D — additive. */
+  npsAnchors: 'x-om-nps-anchors',
+  /** Require every option ranked on a `ranking` field. Tier-2 Phase E — additive. */
+  rankingExhaustive: 'x-om-ranking-exhaustive',
+  /** Row descriptors for a `matrix` field: `[{ key, label, multiple?, required? }]`. Tier-2 Phase F — additive. */
+  matrixRows: 'x-om-matrix-rows',
+  /** Column descriptors for a `matrix` field: `[{ value, label }]`. Tier-2 Phase F — additive. */
+  matrixColumns: 'x-om-matrix-columns',
+  /** Accepted MIME types for a `file` field: `string[]` (empty/absent ⇒ any). W4 — additive. */
+  accept: 'x-om-accept',
+  /** Per-field maximum upload size in bytes for a `file` field. W4 — additive. */
+  maxSizeBytes: 'x-om-max-size-bytes',
+  /** Allow multiple files on a `file` field (default `false`). W4 — additive. */
+  multiple: 'x-om-multiple',
+  /** Consent clause shown above a `signature` field: `{ [locale]: string }`. W2 — additive. */
+  consentClause: 'x-om-consent-clause',
+  /** Allowed capture modes on a `signature` field: `('drawn'|'typed')[]` (default both). W2 — additive. */
+  signatureModes: 'x-om-signature-modes',
+  /** Minimum repeated-entry count for a `group` (repeatable) field. W6 — additive. */
+  minItems: 'x-om-min-items',
+  /** Maximum repeated-entry count for a `group` (repeatable) field. W6 — additive. */
+  maxItems: 'x-om-max-items',
+  /**
+   * Logical attribute key the `PrefillResolver` resolves at submission start
+   * (W8 / FD-1), e.g. `"name"`, `"email"`, `"dob"`. When set, the start route
+   * asks the injected resolver for this attribute and seeds the field's initial
+   * value (role-filtered + AJV-validated). Non-empty string. Additive.
+   */
+  prefill: 'x-om-prefill',
+  /**
+   * Per-field visual emphasis (`OmFieldStyle`). Additive, optional. Custom-styling
+   * spec (`.ai/specs/2026-05-22-forms-custom-styling.md`).
+   */
+  style: 'x-om-style',
+} as const
+
+export type OmRootKeyword = (typeof OM_ROOT_KEYWORDS)[keyof typeof OM_ROOT_KEYWORDS]
+export type OmFieldKeyword = (typeof OM_FIELD_KEYWORDS)[keyof typeof OM_FIELD_KEYWORDS]
+
+/** Flat list of every keyword the v1 grammar declares. */
+export const OM_ALL_KEYWORDS: readonly string[] = [
+  ...Object.values(OM_ROOT_KEYWORDS),
+  ...Object.values(OM_FIELD_KEYWORDS),
+]
+
+// ============================================================================
+// TypeScript shapes
+// ============================================================================
+
+export type LocalizedText = Record<string, string>
+
+export type OmSectionKind = 'page' | 'section' | 'ending'
+export type OmSectionColumns = 1 | 2 | 3 | 4
+export type OmSectionGap = 'sm' | 'md' | 'lg'
+
+export type OmSection = {
+  key: string
+  title: LocalizedText
+  fieldKeys: string[]
+  /** `'page'` marks a page boundary; `'section'` (default) is a regular group; `'ending'` is a terminal screen reached via jumps. */
+  kind?: OmSectionKind
+  /** Number of grid columns inside this section. Default `1`, applied at read time. Decision 9. */
+  columns?: OmSectionColumns
+  /** Grid gap mapping. Default `'md'`, applied at read time. Decision 9. */
+  gap?: OmSectionGap
+  /** When `true`, render a `Separator` below the section header. Decision 9. */
+  divider?: boolean
+  /** Suppress the section H2 even when `title` is non-empty. Decision 7b. */
+  hideTitle?: boolean
+  /** Section-level visibility predicate (reactive-core spec). Hidden sections cascade — their fields are treated as hidden too. Disallowed on `kind: 'ending'`. */
+  'x-om-visibility-if'?: unknown
+  /** Optional absolute or relative URL to redirect to after submit. Only valid when `kind === 'ending'`. */
+  'x-om-redirect-url'?: string | null
+  /** Per-section visual style (additive, optional). Custom-styling spec. */
+  style?: OmSectionStyle
+}
+
+export type OmJumpTarget =
+  | { type: 'page'; pageKey: string }
+  | { type: 'ending'; endingKey: string }
+  | { type: 'next' }
+  | { type: 'submit' }
+
+export type OmJumpRule = {
+  from: { type: 'page'; pageKey: string } | { type: 'field'; fieldKey: string }
+  rules: Array<{ if: unknown; goto: OmJumpTarget }>
+  otherwise?: OmJumpTarget
+}
+
+export type OmFormVariableType = 'number' | 'boolean' | 'string'
+
+export type OmFormVariable = {
+  name: string
+  type: OmFormVariableType
+  formula: unknown
+  default?: number | boolean | string
+}
+
+export type OmHiddenFieldDecl = {
+  name: string
+  defaultValue?: string
+}
+
+export type OmPageMode = 'stacked' | 'paginated'
+export type OmFormStyle = 'default' | 'compact' | 'spacious'
+export type OmFormLabelPosition = 'top' | 'left'
+
+export type OmRootExtensions = {
+  [OM_ROOT_KEYWORDS.roles]?: string[]
+  [OM_ROOT_KEYWORDS.defaultActorRole]?: string
+  [OM_ROOT_KEYWORDS.sections]?: OmSection[]
+  [OM_ROOT_KEYWORDS.pageMode]?: OmPageMode
+  [OM_ROOT_KEYWORDS.supportedLocales]?: string[]
+  [OM_ROOT_KEYWORDS.formStyle]?: OmFormStyle
+  [OM_ROOT_KEYWORDS.formLabelPosition]?: OmFormLabelPosition
+  [OM_ROOT_KEYWORDS.showProgress]?: boolean
+  [OM_ROOT_KEYWORDS.jumps]?: OmJumpRule[]
+  [OM_ROOT_KEYWORDS.variables]?: OmFormVariable[]
+  [OM_ROOT_KEYWORDS.hiddenFields]?: OmHiddenFieldDecl[]
+  [OM_ROOT_KEYWORDS.answerMappings]?: OmAnswerMappings
+  [OM_ROOT_KEYWORDS.theme]?: OmTheme
+}
+
+/** W8 / INT-5 — `{ [fieldKey]: targetPath }`. */
+export type OmAnswerMappings = Record<string, string>
+
+export type OmFieldOption = {
+  value: string
+  label: LocalizedText
+}
+
+export type OmFieldGridSpan = 1 | 2 | 3 | 4
+export type OmFieldAlign = 'start' | 'center' | 'end'
+
+export type OmFieldExtensions = {
+  [OM_FIELD_KEYWORDS.type]?: string
+  [OM_FIELD_KEYWORDS.label]?: LocalizedText
+  [OM_FIELD_KEYWORDS.help]?: LocalizedText
+  [OM_FIELD_KEYWORDS.editableBy]?: string[]
+  [OM_FIELD_KEYWORDS.visibleTo]?: string[]
+  [OM_FIELD_KEYWORDS.sensitive]?: boolean
+  [OM_FIELD_KEYWORDS.visibilityIf]?: unknown
+  [OM_FIELD_KEYWORDS.options]?: OmFieldOption[]
+  [OM_FIELD_KEYWORDS.min]?: number
+  [OM_FIELD_KEYWORDS.max]?: number
+  [OM_FIELD_KEYWORDS.widget]?: string
+  [OM_FIELD_KEYWORDS.gridSpan]?: OmFieldGridSpan
+  [OM_FIELD_KEYWORDS.align]?: OmFieldAlign
+  [OM_FIELD_KEYWORDS.hideMobile]?: boolean
+  [OM_FIELD_KEYWORDS.pattern]?: string
+  [OM_FIELD_KEYWORDS.minLength]?: number
+  [OM_FIELD_KEYWORDS.maxLength]?: number
+  [OM_FIELD_KEYWORDS.validationMessages]?: OmValidationMessages
+  [OM_FIELD_KEYWORDS.opinionIcon]?: OmOpinionIcon
+  [OM_FIELD_KEYWORDS.npsAnchors]?: OmNpsAnchors
+  [OM_FIELD_KEYWORDS.rankingExhaustive]?: boolean
+  [OM_FIELD_KEYWORDS.matrixRows]?: OmMatrixRow[]
+  [OM_FIELD_KEYWORDS.matrixColumns]?: OmMatrixColumn[]
+  [OM_FIELD_KEYWORDS.accept]?: string[]
+  [OM_FIELD_KEYWORDS.maxSizeBytes]?: number
+  [OM_FIELD_KEYWORDS.multiple]?: boolean
+  [OM_FIELD_KEYWORDS.consentClause]?: LocalizedText
+  [OM_FIELD_KEYWORDS.signatureModes]?: OmSignatureMode[]
+  [OM_FIELD_KEYWORDS.minItems]?: number
+  [OM_FIELD_KEYWORDS.maxItems]?: number
+  [OM_FIELD_KEYWORDS.prefill]?: string
+  [OM_FIELD_KEYWORDS.style]?: OmFieldStyle
+}
+
+export type OmSignatureMode = 'drawn' | 'typed'
+
+export type OmMatrixRow = {
+  key: string
+  label: LocalizedText
+  multiple?: boolean
+  required?: boolean
+}
+
+export type OmMatrixColumn = {
+  value: string
+  label: LocalizedText
+}
+
+/** R-3 soft caps — matrix grows quadratically; cap the persisted bytes early. */
+export const MATRIX_ROWS_SOFT_CAP = 30
+export const MATRIX_COLUMNS_SOFT_CAP = 10
+
+/** R-3 soft cap — a group's `x-om-max-items` ceiling (repeatable entries). W6. */
+export const GROUP_MAX_ITEMS_SOFT_CAP = 50
+
+export type OmOpinionIcon = 'star' | 'dot' | 'thumb'
+
+export type OmNpsAnchors = {
+  low: LocalizedText
+  high: LocalizedText
+}
+
+/**
+ * Allowed rule names inside `x-om-validation-messages[locale]`. The compiler
+ * surfaces matching defaults for every entry; missing locales fall back to
+ * `en` and then to the generic English defaults registered in the
+ * `field-validation-service`.
+ */
+export const OM_VALIDATION_MESSAGE_RULE_NAMES: ReadonlySet<string> = new Set([
+  'pattern',
+  'minLength',
+  'maxLength',
+  'minValue',
+  'maxValue',
+  'format',
+  'rankingExhaustive',
+  'matrixRowsRequired',
+])
+
+export type OmValidationMessages = Record<string, Record<string, string>>
+
+// ============================================================================
+// Static meta-schema fragments — used by the compiler to validate the OM
+// extension payload independently of the underlying JSON Schema rules.
+// ============================================================================
+
+/**
+ * Per-keyword type predicates. Used by `validateOmExtensions(...)` below to
+ * report `{ keyword, message }` errors without dragging in a full JSON Schema
+ * runtime — the OM grammar is small enough that explicit validators are
+ * clearer than a meta-schema.
+ */
+const localizedTextValid = (value: unknown): boolean =>
+  typeof value === 'object'
+  && value !== null
+  && !Array.isArray(value)
+  && Object.values(value as Record<string, unknown>).every((entry) => typeof entry === 'string')
+
+const stringArrayValid = (value: unknown): boolean =>
+  Array.isArray(value) && value.every((entry) => typeof entry === 'string')
+
+const VALID_SECTION_KINDS: ReadonlySet<string> = new Set(['page', 'section', 'ending'])
+const VARIABLE_NAME_PATTERN = /^[a-z][a-z0-9_]*$/
+const VALID_VARIABLE_TYPES: ReadonlySet<string> = new Set(['number', 'boolean', 'string'])
+const VALID_JUMP_TARGET_TYPES: ReadonlySet<string> = new Set(['page', 'ending', 'next', 'submit'])
+const VALID_JUMP_FROM_TYPES: ReadonlySet<string> = new Set(['page', 'field'])
+
+function isJumpTargetValid(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Record<string, unknown>
+  if (typeof candidate.type !== 'string' || !VALID_JUMP_TARGET_TYPES.has(candidate.type)) return false
+  if (candidate.type === 'page') return typeof candidate.pageKey === 'string' && candidate.pageKey.length > 0
+  if (candidate.type === 'ending') return typeof candidate.endingKey === 'string' && candidate.endingKey.length > 0
+  return true
+}
+const VALID_SECTION_COLUMNS: ReadonlySet<number> = new Set([1, 2, 3, 4])
+const VALID_SECTION_GAPS: ReadonlySet<string> = new Set(['sm', 'md', 'lg'])
+const VALID_FIELD_GRID_SPANS: ReadonlySet<number> = new Set([1, 2, 3, 4])
+const VALID_FIELD_ALIGN: ReadonlySet<string> = new Set(['start', 'center', 'end'])
+const VALID_PAGE_MODES: ReadonlySet<string> = new Set(['stacked', 'paginated'])
+const VALID_FORM_STYLES: ReadonlySet<string> = new Set(['default', 'compact', 'spacious'])
+const VALID_FORM_LABEL_POSITIONS: ReadonlySet<string> = new Set(['top', 'left'])
+
+export type OmExtensionViolation = {
+  keyword: string
+  path: string[]
+  message: string
+}
+
+export const OM_ROOT_VALIDATORS: Record<OmRootKeyword, (value: unknown) => string | null> = {
+  [OM_ROOT_KEYWORDS.roles]: (value) =>
+    stringArrayValid(value) ? null : 'x-om-roles must be an array of role identifiers (strings).',
+  [OM_ROOT_KEYWORDS.defaultActorRole]: (value) =>
+    typeof value === 'string' ? null : 'x-om-default-actor-role must be a role identifier string.',
+  [OM_ROOT_KEYWORDS.sections]: (value) => {
+    if (!Array.isArray(value)) return 'x-om-sections must be an array of section descriptors.'
+    const seenKeys = new Set<string>()
+    for (const section of value) {
+      if (!section || typeof section !== 'object') return 'Each section must be an object.'
+      const candidate = section as Record<string, unknown>
+      if (typeof candidate.key !== 'string') return 'Each section must declare a string `key`.'
+      if (seenKeys.has(candidate.key)) {
+        return `Duplicate section key "${candidate.key}" — section keys must be unique within x-om-sections.`
+      }
+      seenKeys.add(candidate.key)
+      if (!localizedTextValid(candidate.title)) return 'Each section must declare a localized `title` map.'
+      if (!stringArrayValid(candidate.fieldKeys)) return 'Each section must declare a string array `fieldKeys`.'
+      if (candidate.kind !== undefined) {
+        if (typeof candidate.kind !== 'string' || !VALID_SECTION_KINDS.has(candidate.kind)) {
+          return 'Section `kind` must be "page", "section", or "ending" when present.'
+        }
+      }
+      if (candidate.columns !== undefined) {
+        if (typeof candidate.columns !== 'number' || !VALID_SECTION_COLUMNS.has(candidate.columns)) {
+          return 'Section `columns` must be an integer in [1, 4] when present.'
+        }
+      }
+      if (candidate.gap !== undefined) {
+        if (typeof candidate.gap !== 'string' || !VALID_SECTION_GAPS.has(candidate.gap)) {
+          return 'Section `gap` must be "sm", "md", or "lg" when present.'
+        }
+      }
+      if (candidate.divider !== undefined && typeof candidate.divider !== 'boolean') {
+        return 'Section `divider` must be a boolean when present.'
+      }
+      if (candidate.hideTitle !== undefined && typeof candidate.hideTitle !== 'boolean') {
+        return 'Section `hideTitle` must be a boolean when present.'
+      }
+      if (candidate.style !== undefined) {
+        const styleMessage = validateOmSectionStyle(candidate.style)
+        if (styleMessage) return `Section "${candidate.key}" style: ${styleMessage}`
+      }
+      const redirect = candidate['x-om-redirect-url']
+      if (redirect !== undefined) {
+        if (candidate.kind !== 'ending') {
+          return `Section "${candidate.key}" declares x-om-redirect-url but kind is not "ending".`
+        }
+        if (redirect !== null && typeof redirect !== 'string') {
+          return `Section "${candidate.key}" x-om-redirect-url must be a string or null when present.`
+        }
+      }
+      if (candidate.kind === 'ending' && candidate['x-om-visibility-if'] !== undefined) {
+        return `Ending section "${candidate.key}" must not declare x-om-visibility-if — endings are reached via jumps only.`
+      }
+    }
+    return null
+  },
+  [OM_ROOT_KEYWORDS.pageMode]: (value) =>
+    typeof value === 'string' && VALID_PAGE_MODES.has(value)
+      ? null
+      : 'x-om-page-mode must be "stacked" or "paginated".',
+  [OM_ROOT_KEYWORDS.supportedLocales]: (value) =>
+    stringArrayValid(value) ? null : 'x-om-supported-locales must be an array of locale strings.',
+  [OM_ROOT_KEYWORDS.formStyle]: (value) =>
+    typeof value === 'string' && VALID_FORM_STYLES.has(value)
+      ? null
+      : 'x-om-form-style must be "default", "compact", or "spacious".',
+  [OM_ROOT_KEYWORDS.formLabelPosition]: (value) =>
+    typeof value === 'string' && VALID_FORM_LABEL_POSITIONS.has(value)
+      ? null
+      : 'x-om-form-label-position must be "top" or "left".',
+  [OM_ROOT_KEYWORDS.showProgress]: (value) =>
+    typeof value === 'boolean' ? null : 'x-om-show-progress must be a boolean.',
+  [OM_ROOT_KEYWORDS.jumps]: (value) => {
+    if (!Array.isArray(value)) return 'x-om-jumps must be an array of jump rules.'
+    for (const entry of value) {
+      if (!entry || typeof entry !== 'object') return 'Each jump rule must be an object.'
+      const candidate = entry as Record<string, unknown>
+      const from = candidate.from
+      if (!from || typeof from !== 'object') {
+        return 'Each jump rule must declare a `from` source object.'
+      }
+      const fromCandidate = from as Record<string, unknown>
+      if (typeof fromCandidate.type !== 'string' || !VALID_JUMP_FROM_TYPES.has(fromCandidate.type)) {
+        return 'Jump rule `from.type` must be "page" or "field".'
+      }
+      if (fromCandidate.type === 'page' && typeof fromCandidate.pageKey !== 'string') {
+        return 'Jump rule with `from.type` "page" must declare `from.pageKey` string.'
+      }
+      if (fromCandidate.type === 'field' && typeof fromCandidate.fieldKey !== 'string') {
+        return 'Jump rule with `from.type` "field" must declare `from.fieldKey` string.'
+      }
+      if (!Array.isArray(candidate.rules)) {
+        return 'Jump rule must declare a `rules` array.'
+      }
+      for (const rule of candidate.rules) {
+        if (!rule || typeof rule !== 'object') return 'Each jump entry must be an object.'
+        const ruleCandidate = rule as Record<string, unknown>
+        if (!('if' in ruleCandidate)) return 'Each jump entry must declare an `if` predicate.'
+        if (!isJumpTargetValid(ruleCandidate.goto)) return 'Each jump entry must declare a valid `goto` target.'
+      }
+      if (candidate.otherwise !== undefined && !isJumpTargetValid(candidate.otherwise)) {
+        return 'Jump rule `otherwise` must be a valid jump target when present.'
+      }
+    }
+    return null
+  },
+  [OM_ROOT_KEYWORDS.variables]: (value) => {
+    if (!Array.isArray(value)) return 'x-om-variables must be an array of variable declarations.'
+    const seenNames = new Set<string>()
+    for (const entry of value) {
+      if (!entry || typeof entry !== 'object') return 'Each variable must be an object.'
+      const candidate = entry as Record<string, unknown>
+      if (typeof candidate.name !== 'string' || !VARIABLE_NAME_PATTERN.test(candidate.name)) {
+        return 'Each variable must declare a `name` matching /^[a-z][a-z0-9_]*$/.'
+      }
+      if (seenNames.has(candidate.name)) {
+        return `Duplicate variable name "${candidate.name}".`
+      }
+      seenNames.add(candidate.name)
+      if (typeof candidate.type !== 'string' || !VALID_VARIABLE_TYPES.has(candidate.type)) {
+        return `Variable "${candidate.name}" type must be "number", "boolean", or "string".`
+      }
+      if (!('formula' in candidate)) {
+        return `Variable "${candidate.name}" must declare a \`formula\`.`
+      }
+      if (candidate.default !== undefined) {
+        const t = candidate.type
+        const d = candidate.default
+        if (t === 'number' && typeof d !== 'number') return `Variable "${candidate.name}" default must be a number.`
+        if (t === 'boolean' && typeof d !== 'boolean') return `Variable "${candidate.name}" default must be a boolean.`
+        if (t === 'string' && typeof d !== 'string') return `Variable "${candidate.name}" default must be a string.`
+      }
+    }
+    return null
+  },
+  [OM_ROOT_KEYWORDS.hiddenFields]: (value) => {
+    if (!Array.isArray(value)) return 'x-om-hidden-fields must be an array of declarations.'
+    const seenNames = new Set<string>()
+    for (const entry of value) {
+      if (!entry || typeof entry !== 'object') return 'Each hidden field must be an object.'
+      const candidate = entry as Record<string, unknown>
+      if (typeof candidate.name !== 'string' || !VARIABLE_NAME_PATTERN.test(candidate.name)) {
+        return 'Each hidden field must declare a `name` matching /^[a-z][a-z0-9_]*$/.'
+      }
+      if (seenNames.has(candidate.name)) {
+        return `Duplicate hidden field name "${candidate.name}".`
+      }
+      seenNames.add(candidate.name)
+      if (candidate.defaultValue !== undefined && typeof candidate.defaultValue !== 'string') {
+        return `Hidden field "${candidate.name}" defaultValue must be a string when present.`
+      }
+    }
+    return null
+  },
+  [OM_ROOT_KEYWORDS.answerMappings]: (value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return 'x-om-answer-mappings must be a `{ [fieldKey]: targetPath }` map.'
+    }
+    for (const [fieldKey, targetPath] of Object.entries(value as Record<string, unknown>)) {
+      if (fieldKey.length === 0) {
+        return 'x-om-answer-mappings field keys must be non-empty strings.'
+      }
+      if (typeof targetPath !== 'string' || targetPath.length === 0) {
+        return `x-om-answer-mappings["${fieldKey}"] must be a non-empty target-path string.`
+      }
+    }
+    return null
+  },
+  [OM_ROOT_KEYWORDS.theme]: (value) => validateOmTheme(value),
+}
+
+export const OM_FIELD_VALIDATORS: Record<OmFieldKeyword, (value: unknown) => string | null> = {
+  [OM_FIELD_KEYWORDS.type]: (value) =>
+    typeof value === 'string' && value.length > 0 ? null : 'x-om-type must be a non-empty string.',
+  [OM_FIELD_KEYWORDS.label]: (value) =>
+    localizedTextValid(value) ? null : 'x-om-label must be a `{ [locale]: string }` map.',
+  [OM_FIELD_KEYWORDS.help]: (value) =>
+    localizedTextValid(value) ? null : 'x-om-help must be a `{ [locale]: string }` map.',
+  [OM_FIELD_KEYWORDS.editableBy]: (value) =>
+    stringArrayValid(value) ? null : 'x-om-editable-by must be an array of role identifiers (strings).',
+  [OM_FIELD_KEYWORDS.visibleTo]: (value) =>
+    stringArrayValid(value) ? null : 'x-om-visible-to must be an array of role identifiers (strings).',
+  [OM_FIELD_KEYWORDS.sensitive]: (value) =>
+    typeof value === 'boolean' ? null : 'x-om-sensitive must be a boolean.',
+  [OM_FIELD_KEYWORDS.visibilityIf]: () => null, // jsonlogic — validated when phase 2c lands.
+  [OM_FIELD_KEYWORDS.options]: (value) => {
+    if (!Array.isArray(value)) return 'x-om-options must be an array of `{ value, label }` entries.'
+    for (const option of value) {
+      if (!option || typeof option !== 'object') return 'Each option must be an object.'
+      const candidate = option as Record<string, unknown>
+      if (typeof candidate.value !== 'string') return 'Each option must declare a string `value`.'
+      if (!localizedTextValid(candidate.label)) return 'Each option must declare a localized `label` map.'
+    }
+    return null
+  },
+  [OM_FIELD_KEYWORDS.min]: (value) =>
+    typeof value === 'number' && Number.isFinite(value) ? null : 'x-om-min must be a finite number.',
+  [OM_FIELD_KEYWORDS.max]: (value) =>
+    typeof value === 'number' && Number.isFinite(value) ? null : 'x-om-max must be a finite number.',
+  [OM_FIELD_KEYWORDS.widget]: (value) =>
+    typeof value === 'string' ? null : 'x-om-widget must be a widget identifier string.',
+  [OM_FIELD_KEYWORDS.gridSpan]: (value) =>
+    typeof value === 'number' && Number.isInteger(value) && VALID_FIELD_GRID_SPANS.has(value)
+      ? null
+      : 'x-om-grid-span must be an integer in [1, 4].',
+  [OM_FIELD_KEYWORDS.align]: (value) =>
+    typeof value === 'string' && VALID_FIELD_ALIGN.has(value)
+      ? null
+      : 'x-om-align must be "start", "center", or "end".',
+  [OM_FIELD_KEYWORDS.hideMobile]: (value) =>
+    typeof value === 'boolean' ? null : 'x-om-hide-mobile must be a boolean.',
+  [OM_FIELD_KEYWORDS.pattern]: (value) => {
+    if (typeof value !== 'string' || value.length === 0) {
+      return 'x-om-pattern must be a non-empty regex source string.'
+    }
+    try {
+      new RegExp(value)
+    } catch {
+      return 'x-om-pattern must compile as a JavaScript regular expression.'
+    }
+    return null
+  },
+  [OM_FIELD_KEYWORDS.minLength]: (value) =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 0
+      ? null
+      : 'x-om-min-length must be a non-negative integer.',
+  [OM_FIELD_KEYWORDS.maxLength]: (value) =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 0
+      ? null
+      : 'x-om-max-length must be a non-negative integer.',
+  [OM_FIELD_KEYWORDS.validationMessages]: (value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return 'x-om-validation-messages must be a `{ [locale]: { [rule]: string } }` map.'
+    }
+    for (const [locale, inner] of Object.entries(value as Record<string, unknown>)) {
+      if (locale.length === 0) {
+        return 'x-om-validation-messages locale keys must be non-empty strings.'
+      }
+      if (!inner || typeof inner !== 'object' || Array.isArray(inner)) {
+        return `x-om-validation-messages["${locale}"] must be a `
+          + '`{ [rule]: string }` map.'
+      }
+      for (const [rule, message] of Object.entries(inner as Record<string, unknown>)) {
+        if (!OM_VALIDATION_MESSAGE_RULE_NAMES.has(rule)) {
+          return `x-om-validation-messages["${locale}"]["${rule}"] is not a recognized rule.`
+        }
+        if (typeof message !== 'string' || message.length === 0) {
+          return `x-om-validation-messages["${locale}"]["${rule}"] must be a non-empty string.`
+        }
+      }
+    }
+    return null
+  },
+  [OM_FIELD_KEYWORDS.opinionIcon]: (value) =>
+    value === 'star' || value === 'dot' || value === 'thumb'
+      ? null
+      : 'x-om-opinion-icon must be "star", "dot", or "thumb".',
+  [OM_FIELD_KEYWORDS.npsAnchors]: (value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return 'x-om-nps-anchors must be a `{ low, high }` object.'
+    }
+    const candidate = value as Record<string, unknown>
+    if (!('low' in candidate) || !('high' in candidate)) {
+      return 'x-om-nps-anchors must declare both `low` and `high` anchor maps.'
+    }
+    if (!localizedTextValid(candidate.low)) {
+      return 'x-om-nps-anchors.low must be a `{ [locale]: string }` map.'
+    }
+    if (!localizedTextValid(candidate.high)) {
+      return 'x-om-nps-anchors.high must be a `{ [locale]: string }` map.'
+    }
+    return null
+  },
+  [OM_FIELD_KEYWORDS.rankingExhaustive]: (value) =>
+    typeof value === 'boolean' ? null : 'x-om-ranking-exhaustive must be a boolean.',
+  [OM_FIELD_KEYWORDS.matrixRows]: (value) => {
+    if (!Array.isArray(value)) return 'x-om-matrix-rows must be an array of `{ key, label }` entries.'
+    const seenKeys = new Set<string>()
+    for (const entry of value) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        return 'Each matrix row must be an object.'
+      }
+      const candidate = entry as Record<string, unknown>
+      if (typeof candidate.key !== 'string' || !MATRIX_ROW_KEY_PATTERN.test(candidate.key)) {
+        return 'Each matrix row must declare a `key` matching /^[a-z][a-z0-9_]*$/.'
+      }
+      if (seenKeys.has(candidate.key)) {
+        return `Duplicate matrix row key "${candidate.key}".`
+      }
+      seenKeys.add(candidate.key)
+      if (!localizedTextValid(candidate.label)) {
+        return `Matrix row "${candidate.key}" must declare a localized \`label\` map.`
+      }
+      if (candidate.multiple !== undefined && typeof candidate.multiple !== 'boolean') {
+        return `Matrix row "${candidate.key}" \`multiple\` must be a boolean when present.`
+      }
+      if (candidate.required !== undefined && typeof candidate.required !== 'boolean') {
+        return `Matrix row "${candidate.key}" \`required\` must be a boolean when present.`
+      }
+    }
+    return null
+  },
+  [OM_FIELD_KEYWORDS.matrixColumns]: (value) => {
+    if (!Array.isArray(value)) return 'x-om-matrix-columns must be an array of `{ value, label }` entries.'
+    const seenValues = new Set<string>()
+    for (const entry of value) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        return 'Each matrix column must be an object.'
+      }
+      const candidate = entry as Record<string, unknown>
+      if (typeof candidate.value !== 'string' || candidate.value.length === 0) {
+        return 'Each matrix column must declare a non-empty string `value`.'
+      }
+      if (seenValues.has(candidate.value)) {
+        return `Duplicate matrix column value "${candidate.value}".`
+      }
+      seenValues.add(candidate.value)
+      if (!localizedTextValid(candidate.label)) {
+        return `Matrix column "${candidate.value}" must declare a localized \`label\` map.`
+      }
+    }
+    return null
+  },
+  [OM_FIELD_KEYWORDS.accept]: (value) => {
+    if (!Array.isArray(value)) return 'x-om-accept must be an array of MIME type strings.'
+    for (const entry of value) {
+      if (typeof entry !== 'string' || entry.length === 0) {
+        return 'Each x-om-accept entry must be a non-empty MIME type string.'
+      }
+    }
+    return null
+  },
+  [OM_FIELD_KEYWORDS.maxSizeBytes]: (value) =>
+    typeof value === 'number' && Number.isInteger(value) && value > 0
+      ? null
+      : 'x-om-max-size-bytes must be a positive integer.',
+  [OM_FIELD_KEYWORDS.multiple]: (value) =>
+    typeof value === 'boolean' ? null : 'x-om-multiple must be a boolean.',
+  [OM_FIELD_KEYWORDS.consentClause]: (value) =>
+    localizedTextValid(value)
+      ? null
+      : 'x-om-consent-clause must be a `{ [locale]: string }` map.',
+  [OM_FIELD_KEYWORDS.signatureModes]: (value) => {
+    if (!Array.isArray(value) || value.length === 0) {
+      return 'x-om-signature-modes must be a non-empty array of "drawn" / "typed".'
+    }
+    const seen = new Set<string>()
+    for (const entry of value) {
+      if (entry !== 'drawn' && entry !== 'typed') {
+        return 'Each x-om-signature-modes entry must be "drawn" or "typed".'
+      }
+      if (seen.has(entry)) {
+        return `Duplicate x-om-signature-modes entry "${entry}".`
+      }
+      seen.add(entry)
+    }
+    return null
+  },
+  [OM_FIELD_KEYWORDS.minItems]: (value) =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 0
+      ? null
+      : 'x-om-min-items must be a non-negative integer.',
+  [OM_FIELD_KEYWORDS.maxItems]: (value) =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 1
+      ? null
+      : 'x-om-max-items must be a positive integer.',
+  [OM_FIELD_KEYWORDS.prefill]: (value) =>
+    typeof value === 'string' && value.length > 0
+      ? null
+      : 'x-om-prefill must be a non-empty logical attribute key string.',
+  [OM_FIELD_KEYWORDS.style]: (value) => validateOmFieldStyle(value),
+}
+
+const MATRIX_ROW_KEY_PATTERN = /^[a-z][a-z0-9_]*$/
+
+// ============================================================================
+// Cross-keyword validation — collisions between identifier namespaces and
+// jsonlogic grammar checks on persisted expressions. Returns the first
+// violation message or `null` when the schema is consistent.
+// ============================================================================
+
+export function validateOmCrossKeyword(schema: Record<string, unknown>): string | null {
+  const propertyKeys = readPropertyKeys(schema)
+  const sections = Array.isArray(schema[OM_ROOT_KEYWORDS.sections])
+    ? (schema[OM_ROOT_KEYWORDS.sections] as Array<Record<string, unknown>>)
+    : []
+  const hiddenDecls = Array.isArray(schema[OM_ROOT_KEYWORDS.hiddenFields])
+    ? (schema[OM_ROOT_KEYWORDS.hiddenFields] as Array<Record<string, unknown>>)
+    : []
+  const variableDecls = Array.isArray(schema[OM_ROOT_KEYWORDS.variables])
+    ? (schema[OM_ROOT_KEYWORDS.variables] as Array<Record<string, unknown>>)
+    : []
+  const jumps = Array.isArray(schema[OM_ROOT_KEYWORDS.jumps])
+    ? (schema[OM_ROOT_KEYWORDS.jumps] as Array<Record<string, unknown>>)
+    : []
+
+  const hiddenNames = hiddenDecls.map((entry) => entry?.name).filter((name): name is string => typeof name === 'string')
+  const variableNames = variableDecls.map((entry) => entry?.name).filter((name): name is string => typeof name === 'string')
+
+  for (const name of hiddenNames) {
+    if (propertyKeys.has(name)) {
+      return `Hidden field name "${name}" collides with a field key in properties.`
+    }
+  }
+  for (const name of variableNames) {
+    if (propertyKeys.has(name)) {
+      return `Variable name "${name}" collides with a field key in properties.`
+    }
+    if (hiddenNames.includes(name)) {
+      return `Variable name "${name}" collides with a hidden field name.`
+    }
+  }
+
+  const sectionKeys = new Set<string>()
+  const pageKeys = new Set<string>()
+  const endingKeys = new Set<string>()
+  for (const section of sections) {
+    if (typeof section.key !== 'string') continue
+    sectionKeys.add(section.key)
+    if (section.kind === 'ending') endingKeys.add(section.key)
+    else pageKeys.add(section.key)
+  }
+
+  // Validate visibility predicates (field-level + section-level) and the
+  // string-only Tier-2 validation keywords.
+  const properties = schema.properties
+  if (properties && typeof properties === 'object' && !Array.isArray(properties)) {
+    for (const [fieldKey, fieldNode] of Object.entries(properties as Record<string, unknown>)) {
+      if (!fieldNode || typeof fieldNode !== 'object') continue
+      const node = fieldNode as Record<string, unknown>
+      const predicate = node[OM_FIELD_KEYWORDS.visibilityIf]
+      if (predicate !== undefined) {
+        const message = validateJsonLogicGrammar(predicate)
+        if (message) return `Field "${fieldKey}" x-om-visibility-if: ${message}`
+      }
+      const requiresStringType =
+        node[OM_FIELD_KEYWORDS.pattern] !== undefined
+        || node[OM_FIELD_KEYWORDS.minLength] !== undefined
+        || node[OM_FIELD_KEYWORDS.maxLength] !== undefined
+      if (requiresStringType && node.type !== 'string') {
+        return `Field "${fieldKey}" declares pattern/length validation but its JSON Schema type is not "string".`
+      }
+      const minLen = node[OM_FIELD_KEYWORDS.minLength]
+      const maxLen = node[OM_FIELD_KEYWORDS.maxLength]
+      if (typeof minLen === 'number' && typeof maxLen === 'number' && minLen > maxLen) {
+        return `Field "${fieldKey}" x-om-min-length (${minLen}) must be <= x-om-max-length (${maxLen}).`
+      }
+      if (node[OM_FIELD_KEYWORDS.opinionIcon] !== undefined
+        && node[OM_FIELD_KEYWORDS.type] !== 'opinion_scale') {
+        return `Field "${fieldKey}" declares x-om-opinion-icon but its x-om-type is not "opinion_scale".`
+      }
+      if (node[OM_FIELD_KEYWORDS.npsAnchors] !== undefined
+        && node[OM_FIELD_KEYWORDS.type] !== 'nps') {
+        return `Field "${fieldKey}" declares x-om-nps-anchors but its x-om-type is not "nps".`
+      }
+      if (node[OM_FIELD_KEYWORDS.rankingExhaustive] !== undefined
+        && node[OM_FIELD_KEYWORDS.type] !== 'ranking') {
+        return `Field "${fieldKey}" declares x-om-ranking-exhaustive but its x-om-type is not "ranking".`
+      }
+      const matrixRowsValue = node[OM_FIELD_KEYWORDS.matrixRows]
+      if (matrixRowsValue !== undefined) {
+        if (node[OM_FIELD_KEYWORDS.type] !== 'matrix') {
+          return `Field "${fieldKey}" declares x-om-matrix-rows but its x-om-type is not "matrix".`
+        }
+        if (Array.isArray(matrixRowsValue) && matrixRowsValue.length > MATRIX_ROWS_SOFT_CAP) {
+          return `Matrix has too many rows (max ${MATRIX_ROWS_SOFT_CAP}).`
+        }
+      }
+      const matrixColumnsValue = node[OM_FIELD_KEYWORDS.matrixColumns]
+      if (matrixColumnsValue !== undefined) {
+        if (node[OM_FIELD_KEYWORDS.type] !== 'matrix') {
+          return `Field "${fieldKey}" declares x-om-matrix-columns but its x-om-type is not "matrix".`
+        }
+        if (Array.isArray(matrixColumnsValue) && matrixColumnsValue.length > MATRIX_COLUMNS_SOFT_CAP) {
+          return `Matrix has too many columns (max ${MATRIX_COLUMNS_SOFT_CAP}).`
+        }
+      }
+      const fileKeywords = [
+        OM_FIELD_KEYWORDS.accept,
+        OM_FIELD_KEYWORDS.maxSizeBytes,
+        OM_FIELD_KEYWORDS.multiple,
+      ]
+      for (const fileKeyword of fileKeywords) {
+        if (node[fileKeyword] !== undefined && node[OM_FIELD_KEYWORDS.type] !== 'file') {
+          return `Field "${fieldKey}" declares ${fileKeyword} but its x-om-type is not "file".`
+        }
+      }
+      const signatureKeywords = [
+        OM_FIELD_KEYWORDS.consentClause,
+        OM_FIELD_KEYWORDS.signatureModes,
+      ]
+      for (const signatureKeyword of signatureKeywords) {
+        if (node[signatureKeyword] !== undefined && node[OM_FIELD_KEYWORDS.type] !== 'signature') {
+          return `Field "${fieldKey}" declares ${signatureKeyword} but its x-om-type is not "signature".`
+        }
+      }
+      const groupKeywords = [OM_FIELD_KEYWORDS.minItems, OM_FIELD_KEYWORDS.maxItems]
+      for (const groupKeyword of groupKeywords) {
+        if (node[groupKeyword] !== undefined && node[OM_FIELD_KEYWORDS.type] !== 'group') {
+          return `Field "${fieldKey}" declares ${groupKeyword} but its x-om-type is not "group".`
+        }
+      }
+      if (node[OM_FIELD_KEYWORDS.type] === 'group') {
+        const groupViolation = validateGroupNode(fieldKey, node)
+        if (groupViolation) return groupViolation
+      }
+    }
+  }
+  for (const section of sections) {
+    const predicate = section['x-om-visibility-if']
+    if (predicate !== undefined) {
+      const message = validateJsonLogicGrammar(predicate)
+      if (message) return `Section "${section.key}" x-om-visibility-if: ${message}`
+    }
+  }
+
+  // Validate jump rules: grammar on each `if`, resolvable goto targets.
+  for (const rule of jumps) {
+    const from = rule.from as Record<string, unknown> | undefined
+    if (from?.type === 'page' && typeof from.pageKey === 'string' && !pageKeys.has(from.pageKey)) {
+      return `Jump rule references missing page "${from.pageKey}".`
+    }
+    if (from?.type === 'field' && typeof from.fieldKey === 'string' && !propertyKeys.has(from.fieldKey)) {
+      return `Jump rule references missing field "${from.fieldKey}".`
+    }
+    const rules = Array.isArray(rule.rules) ? (rule.rules as Array<Record<string, unknown>>) : []
+    for (const branch of rules) {
+      if (branch.if !== undefined) {
+        const message = validateJsonLogicGrammar(branch.if)
+        if (message) return `Jump rule predicate: ${message}`
+      }
+      const target = branch.goto as Record<string, unknown> | undefined
+      const targetMessage = validateJumpTargetReference(target, pageKeys, endingKeys)
+      if (targetMessage) return targetMessage
+    }
+    if (rule.otherwise) {
+      const targetMessage = validateJumpTargetReference(rule.otherwise as Record<string, unknown>, pageKeys, endingKeys)
+      if (targetMessage) return targetMessage
+    }
+  }
+
+  // Validate answer mappings reference real field keys (W8 / INT-5).
+  const answerMappings = schema[OM_ROOT_KEYWORDS.answerMappings]
+  if (answerMappings && typeof answerMappings === 'object' && !Array.isArray(answerMappings)) {
+    for (const fieldKey of Object.keys(answerMappings as Record<string, unknown>)) {
+      if (!propertyKeys.has(fieldKey)) {
+        return `x-om-answer-mappings references missing field "${fieldKey}".`
+      }
+    }
+  }
+
+  // Validate variable formulas.
+  for (const variable of variableDecls) {
+    const formula = (variable as Record<string, unknown>).formula
+    if (formula === undefined) continue
+    const message = validateJsonLogicGrammar(formula)
+    if (message) return `Variable "${variable.name}" formula: ${message}`
+  }
+
+  return null
+}
+
+function validateJumpTargetReference(
+  target: Record<string, unknown> | undefined,
+  pageKeys: Set<string>,
+  endingKeys: Set<string>,
+): string | null {
+  if (!target) return null
+  if (target.type === 'page' && typeof target.pageKey === 'string' && !pageKeys.has(target.pageKey)) {
+    return `Jump goto references missing page "${target.pageKey}".`
+  }
+  if (target.type === 'ending' && typeof target.endingKey === 'string' && !endingKeys.has(target.endingKey)) {
+    return `Jump goto references missing ending "${target.endingKey}".`
+  }
+  return null
+}
+
+const GROUP_SUB_FIELD_KEY_PATTERN = /^[a-z][a-z0-9_]*$/
+
+/**
+ * Validates a repeatable `group` field node (W6). A group is a JSON-Schema
+ * `type: 'array'` whose `items` is `type: 'object'` with a `properties` map of
+ * sub-fields. Each sub-field uses the same `x-om-type` grammar as a top-level
+ * field. One level of nesting is supported — a sub-field whose `x-om-type` is
+ * `group` is rejected (nested groups are explicitly out of scope).
+ *
+ * Returns the first violation message or `null` when the group is consistent.
+ */
+function validateGroupNode(fieldKey: string, node: Record<string, unknown>): string | null {
+  if (node.type !== 'array') {
+    return `Group field "${fieldKey}" must declare JSON Schema type "array".`
+  }
+  const items = node.items
+  if (!items || typeof items !== 'object' || Array.isArray(items)) {
+    return `Group field "${fieldKey}" must declare an "items" object describing one entry.`
+  }
+  const itemsNode = items as Record<string, unknown>
+  if (itemsNode.type !== 'object') {
+    return `Group field "${fieldKey}" items must declare JSON Schema type "object".`
+  }
+  const properties = itemsNode.properties
+  if (!properties || typeof properties !== 'object' || Array.isArray(properties)) {
+    return `Group field "${fieldKey}" items must declare a "properties" object of sub-fields.`
+  }
+  const subEntries = Object.entries(properties as Record<string, unknown>)
+  if (subEntries.length === 0) {
+    return `Group field "${fieldKey}" must declare at least one sub-field.`
+  }
+  const requiredRaw = itemsNode.required
+  if (requiredRaw !== undefined && (!Array.isArray(requiredRaw) || !requiredRaw.every((entry) => typeof entry === 'string'))) {
+    return `Group field "${fieldKey}" items.required must be an array of sub-field keys.`
+  }
+  const subKeys = new Set<string>()
+  for (const [subKey, rawSubNode] of subEntries) {
+    if (!GROUP_SUB_FIELD_KEY_PATTERN.test(subKey)) {
+      return `Group field "${fieldKey}" sub-field key "${subKey}" must match /^[a-z][a-z0-9_]*$/.`
+    }
+    subKeys.add(subKey)
+    if (!rawSubNode || typeof rawSubNode !== 'object' || Array.isArray(rawSubNode)) {
+      return `Group field "${fieldKey}" sub-field "${subKey}" must be an object.`
+    }
+    const subNode = rawSubNode as Record<string, unknown>
+    const subType = subNode[OM_FIELD_KEYWORDS.type]
+    if (typeof subType !== 'string' || subType.length === 0) {
+      return `Group field "${fieldKey}" sub-field "${subKey}" must declare an x-om-type.`
+    }
+    if (subType === 'group') {
+      return `Group field "${fieldKey}" sub-field "${subKey}" cannot itself be a group — nested groups are not supported.`
+    }
+    for (const keyword of Object.values(OM_FIELD_KEYWORDS)) {
+      if (!(keyword in subNode)) continue
+      const message = OM_FIELD_VALIDATORS[keyword](subNode[keyword])
+      if (message) {
+        return `Group field "${fieldKey}" sub-field "${subKey}" ${keyword}: ${message}`
+      }
+    }
+  }
+  if (Array.isArray(requiredRaw)) {
+    for (const requiredKey of requiredRaw) {
+      if (typeof requiredKey === 'string' && !subKeys.has(requiredKey)) {
+        return `Group field "${fieldKey}" items.required references unknown sub-field "${requiredKey}".`
+      }
+    }
+  }
+  const minItems = node[OM_FIELD_KEYWORDS.minItems]
+  const maxItems = node[OM_FIELD_KEYWORDS.maxItems]
+  if (typeof minItems === 'number' && typeof maxItems === 'number' && minItems > maxItems) {
+    return `Group field "${fieldKey}" x-om-min-items (${minItems}) must be <= x-om-max-items (${maxItems}).`
+  }
+  if (typeof maxItems === 'number' && maxItems > GROUP_MAX_ITEMS_SOFT_CAP) {
+    return `Group field "${fieldKey}" has too many max items (max ${GROUP_MAX_ITEMS_SOFT_CAP}).`
+  }
+  return null
+}
+
+function readPropertyKeys(schema: Record<string, unknown>): Set<string> {
+  const properties = schema.properties
+  if (!properties || typeof properties !== 'object' || Array.isArray(properties)) return new Set()
+  return new Set(Object.keys(properties as Record<string, unknown>))
+}
+
+// ============================================================================
+// AJV registration — register OM keywords as no-op annotations so AJV does
+// not treat them as unknown keywords during schema compilation.
+// ============================================================================
+
+/**
+ * Register every `x-om-*` keyword on the given AJV instance as an annotation
+ * (no validation effect). The compiler validates the extension payload
+ * separately via `OM_ROOT_VALIDATORS` / `OM_FIELD_VALIDATORS`.
+ */
+export function addOmKeywords(ajv: Ajv): void {
+  for (const keyword of OM_ALL_KEYWORDS) {
+    if (ajv.getKeyword(keyword)) continue
+    ajv.addKeyword({
+      keyword,
+      schemaType: ['string', 'number', 'boolean', 'object', 'array'],
+      // No validator — purely annotation. Returning true keeps schemas valid.
+      validate: () => true,
+    })
+  }
+}

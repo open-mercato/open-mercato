@@ -1,0 +1,3204 @@
+"use client"
+
+import * as React from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core'
+import { gridKeyboardCoordinates } from './studio/canvas/keyboard-coordinates'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { Tag } from '@open-mercato/ui/primitives/tag'
+import { Alert } from '@open-mercato/ui/primitives/alert'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@open-mercato/ui/primitives/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
+import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { FormPalettePanel } from './studio/palette/FormPalettePanel'
+import { FormAppearancePanel } from './studio/palette/FormAppearancePanel'
+import { PALETTE_DRAGGABLE_PREFIX } from './studio/palette/PaletteCard'
+import { buildPaletteEntries, resolvePaletteId } from './studio/palette/entries'
+import { ArrowDown, ArrowUp, Globe, Plus, resolveLucideIcon, Trash2, Undo2, Redo2 } from './studio/lucide-icons'
+import { resolveTypeLabel } from './studio/type-label'
+import { DragOverlayCard } from './studio/canvas/DragOverlayCard'
+import { FormCanvas, type FieldResizeState } from './studio/canvas/FormCanvas'
+import { FIELD_DRAGGABLE_PREFIX } from './studio/canvas/FieldRow'
+import { SECTION_DROP_PREFIX, parseSectionDropId } from './studio/canvas/GridSlot'
+import { gridAwareCollision } from './studio/canvas/grid-collision'
+import { computeOverlayWidthPx } from './studio/canvas/overlay-size'
+import { computeRowLayout, dropHintToLinearIndex, readSpan } from './studio/canvas/row-layout'
+import { SECTION_DRAGGABLE_PREFIX } from './studio/canvas/SectionContainer'
+import {
+  addFieldFromPalette,
+  addLayoutFromPalette,
+  addRoleToSchema,
+  adoptUngroupedAsSection,
+  deleteField,
+  disableGuestSubmissions,
+  enableGuestSubmissions,
+  isGuestSubmissionEnabled,
+  removeRoleFromSchema,
+  renameRoleInSchema,
+  deleteSection,
+  findSectionOwning,
+  indexOfFieldInSection,
+  isCompatibleFieldSwap,
+  moveField,
+  moveSection,
+  setFieldAlign,
+  setFieldGridSpan,
+  setFieldHideMobile,
+  setFieldStyle,
+  setFieldVisibilityIf,
+  setHiddenFields,
+  setJumps,
+  setRedirectUrl,
+  setSectionVisibilityIf,
+  setVariables,
+  type HiddenFieldEntry,
+  type JumpRuleEntry,
+  type VariableEntry,
+  setFormLabelPosition,
+  setFormStyle,
+  setFormTheme,
+  setPageMode,
+  setSectionColumns,
+  setSectionDivider,
+  setSectionGap,
+  setSectionHideTitle,
+  setSectionKind,
+  setSectionStyle,
+  setSectionTitle,
+  setShowProgress,
+  swapFieldType,
+  SWAP_FAMILIES,
+  validateSchemaExtensions,
+  groupNodeAddSubField,
+  groupNodeRemoveSubField,
+  groupNodeUpdateSubField,
+  type FieldNode,
+  type FormSchema,
+  type SectionNode,
+} from './studio/schema-helpers'
+import { defaultFieldTypeRegistry } from '../../../schema/field-type-registry'
+import { createAutosaveGuard } from './studio/autosave-guard'
+import { ValidationPanel } from './studio/validation/ValidationPanel'
+import {
+  partitionPages,
+  resolveFormLabelPosition,
+  resolveFormStyle,
+  resolveFormTheme,
+  resolvePageMode,
+  resolveSectionViews,
+  resolveShowProgress,
+} from '../../../services/form-version-compiler'
+import type {
+  OmBorderScale,
+  OmColor,
+  OmFieldStyle,
+  OmRadiusScale,
+  OmSectionStyle,
+  OmSpaceScale,
+  OmTextAlign,
+  OmTextWeight,
+  OmTheme,
+} from '../../../schema/style-extensions'
+import { ColorControl } from './studio/style/ColorControl'
+import { BackgroundControl } from './studio/style/BackgroundControl'
+import { YesNoRow } from './studio/YesNoRow'
+import { createUndoController } from './studio/undo-controller'
+import { PreviewSurface } from './studio/preview/PreviewSurface'
+import { ConditionBuilder, buildFieldSourceOptions } from './studio/logic/ConditionBuilder'
+import { JumpsEditor } from './studio/logic/JumpsEditor'
+import { ViewportFrame, type PreviewViewport } from './studio/preview/ViewportFrame'
+import type { ActiveDropTarget, StudioSelection, StudioTopTab } from './studio/types'
+
+type VersionDetail = {
+  id: string
+  formId: string
+  versionNumber: number
+  status: 'draft' | 'published' | 'archived'
+  schema: FormSchema
+  uiSchema: Record<string, unknown>
+  roles: string[]
+  schemaHash: string
+  registryVersion: string
+  publishedAt: string | null
+  publishedBy: string | null
+  changelog: string | null
+  archivedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+type FormDetail = {
+  id: string
+  key: string
+  name: string
+  description: string | null
+  status: 'draft' | 'active' | 'archived'
+  defaultLocale: string
+  supportedLocales: string[]
+  currentPublishedVersionId: string | null
+  versions: Array<{
+    id: string
+    versionNumber: number
+    status: 'draft' | 'published' | 'archived'
+    schemaHash: string
+    publishedAt: string | null
+    changelog: string | null
+  }>
+}
+
+type FieldOption = {
+  value: string
+  label: Record<string, string>
+}
+
+const DEFAULT_SECTION_KEY = 'default_section'
+
+/** Mirrors `roleIdentifierSchema` (validators.ts): `^[a-z][a-z0-9_-]*$`, 2-64 chars. */
+const ROLE_IDENTIFIER_PATTERN = /^[a-z][a-z0-9_-]*$/
+
+function isValidRoleIdentifier(value: string): boolean {
+  return value.length >= 2 && value.length <= 64 && ROLE_IDENTIFIER_PATTERN.test(value)
+}
+
+const DEFAULT_SCHEMA: FormSchema = {
+  type: 'object',
+  'x-om-roles': ['admin'],
+  'x-om-default-actor-role': 'admin',
+  'x-om-sections': [
+    { key: DEFAULT_SECTION_KEY, kind: 'section', title: { en: '' }, fieldKeys: [] },
+  ],
+  properties: {},
+  required: [],
+}
+
+function ensureDefaultSection(schema: FormSchema): FormSchema {
+  const sections = (schema['x-om-sections'] ?? []) as SectionNode[]
+  if (sections.length > 0) return schema
+  const next: FormSchema = {
+    ...schema,
+    'x-om-sections': [
+      { key: DEFAULT_SECTION_KEY, kind: 'section', title: { en: '' }, fieldKeys: [] },
+    ],
+  }
+  return next
+}
+
+function describeFieldForAnnouncement(schema: FormSchema, fieldKey: string): string {
+  const node = schema.properties[fieldKey]
+  if (!node) return fieldKey
+  return (node['x-om-label']?.en as string) ?? fieldKey
+}
+
+function describeSectionForAnnouncement(schema: FormSchema, sectionKey: string): string {
+  const section = (schema['x-om-sections'] ?? []).find((entry) => entry.key === sectionKey)
+  if (!section) return sectionKey
+  return section.title?.en?.length ? section.title.en : sectionKey
+}
+
+function buildAnnouncements(t: TranslateFn, schemaRef: React.MutableRefObject<FormSchema>) {
+  const labelOf = (rawId: string): string => {
+    if (rawId.startsWith(FIELD_DRAGGABLE_PREFIX)) {
+      const fieldKey = rawId.slice(FIELD_DRAGGABLE_PREFIX.length)
+      return describeFieldForAnnouncement(schemaRef.current, fieldKey)
+    }
+    if (rawId.startsWith(PALETTE_DRAGGABLE_PREFIX)) {
+      return rawId.slice(PALETTE_DRAGGABLE_PREFIX.length)
+    }
+    return rawId
+  }
+  // Phase 7 — row/column context in announcements. For grid drops we
+  // resolve the parsed drop ID into row/column hints so screen readers
+  // can describe where the active item now sits in 2-D space.
+  const describeGridTarget = (rawId: string): string | null => {
+    if (!rawId.startsWith(SECTION_DROP_PREFIX)) return null
+    const parsed = parseSectionDropId(rawId)
+    if (!parsed || parsed.kind === 'legacy') return null
+    const sectionName = describeSectionForAnnouncement(schemaRef.current, parsed.sectionKey)
+    if (parsed.kind === 'cell') {
+      return t('forms.studio.dnd.announce.movedToCell', {
+        item: '',
+        section: sectionName,
+        row: String(parsed.rowIndex + 1),
+        column: String(parsed.columnIndex + 1),
+      })
+    }
+    if (parsed.kind === 'col-gap') {
+      return t('forms.studio.dnd.announce.movedToCell', {
+        item: '',
+        section: sectionName,
+        row: String(parsed.rowIndex + 1),
+        column: String(parsed.columnIndex + 1),
+      })
+    }
+    return t('forms.studio.dnd.announce.movedToRowGap', {
+      item: '',
+      section: sectionName,
+      previous: String(parsed.rowIndex),
+      next: String(parsed.rowIndex + 1),
+    })
+  }
+  const targetOf = (rawId: string | null): string => {
+    if (!rawId) return ''
+    if (rawId.startsWith(SECTION_DROP_PREFIX)) {
+      const grid = describeGridTarget(rawId)
+      if (grid) return grid
+      const sectionKey = rawId.slice(SECTION_DROP_PREFIX.length)
+      return describeSectionForAnnouncement(schemaRef.current, sectionKey)
+    }
+    if (rawId.startsWith(FIELD_DRAGGABLE_PREFIX)) {
+      const fieldKey = rawId.slice(FIELD_DRAGGABLE_PREFIX.length)
+      return describeFieldForAnnouncement(schemaRef.current, fieldKey)
+    }
+    return String(rawId)
+  }
+  return {
+    onDragStart({ active }: { active: { id: string | number } }) {
+      return t('forms.studio.dnd.announce.pickedUp', { item: labelOf(String(active.id)) })
+    },
+    onDragOver({ active, over }: { active: { id: string | number }; over: { id: string | number } | null }) {
+      return t('forms.studio.dnd.announce.movedOver', {
+        item: labelOf(String(active.id)),
+        target: targetOf(over ? String(over.id) : null),
+      })
+    },
+    onDragEnd({ active, over }: { active: { id: string | number }; over: { id: string | number } | null }) {
+      return t('forms.studio.dnd.announce.droppedAt', {
+        item: labelOf(String(active.id)),
+        target: targetOf(over ? String(over.id) : null),
+      })
+    },
+    onDragCancel({ active }: { active: { id: string | number } }) {
+      return t('forms.studio.dnd.announce.cancelled', { item: labelOf(String(active.id)) })
+    },
+  }
+}
+
+function stableJsonStringify(value: unknown): string {
+  return JSON.stringify(value, null, 2)
+}
+
+function deepClone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T
+}
+
+function autosaveDebounce<TArgs extends unknown[]>(fn: (...args: TArgs) => void, ms: number) {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  return (...args: TArgs) => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => fn(...args), ms)
+  }
+}
+
+export function FormStudio({ formId }: { formId: string }) {
+  const t = useT()
+  const router = useRouter()
+
+  const [form, setForm] = React.useState<FormDetail | null>(null)
+  const [draftVersionId, setDraftVersionId] = React.useState<string | null>(null)
+  const [version, setVersion] = React.useState<VersionDetail | null>(null)
+  const [schema, setSchema] = React.useState<FormSchema>(DEFAULT_SCHEMA)
+  const [selection, setSelection] = React.useState<StudioSelection>(null)
+  const [previewRole, setPreviewRole] = React.useState<string>('admin')
+  const [autosaveState, setAutosaveState] = React.useState<'idle' | 'saving' | 'error'>('idle')
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [loadError, setLoadError] = React.useState<string | null>(null)
+  const [showPublishDialog, setShowPublishDialog] = React.useState(false)
+  const [topTab, setTopTab] = React.useState<StudioTopTab>('builder')
+  const [activeDragId, setActiveDragId] = React.useState<string | null>(null)
+  const [activeDropTarget, setActiveDropTarget] = React.useState<ActiveDropTarget>(null)
+  const [fieldResizeState, setFieldResizeState] = React.useState<FieldResizeState>(null)
+  // Phase 7 — aria-live region message for resize commits. Plain string keeps
+  // the polite live region scoped to a single source of truth.
+  const [resizeAnnouncement, setResizeAnnouncement] = React.useState<string>('')
+  const [focusSectionTitleKey, setFocusSectionTitleKey] = React.useState<string | null>(null)
+  const [activeLocale, setActiveLocale] = React.useState<string>('en')
+  const [previewViewport, setPreviewViewport] = React.useState<PreviewViewport>('desktop')
+  // What the Preview-tab Appearance rail edits: the whole form, or a chosen
+  // section/field — `'form' | 'section:<key>' | 'field:<key>'`.
+  const [previewStyleTarget, setPreviewStyleTarget] = React.useState<string>('form')
+  const dirtyFlagRef = React.useRef(false)
+  const schemaRef = React.useRef<FormSchema>(DEFAULT_SCHEMA)
+  const selectionRef = React.useRef<StudioSelection>(null)
+  // Phase 4 — gridRefs ownership lives here so dragOverlayContent can measure
+  // the target section's pixel rect when computing the overlay width. The
+  // canvas writes section grid nodes into this Map via the ref-prop below.
+  const gridRefs = React.useRef<Map<string, HTMLDivElement | null>>(new Map())
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const selectedFieldKey = selection?.kind === 'field' ? selection.key : null
+  const undoController = React.useMemo(() => createUndoController({ capacity: 50 }), [])
+  const [undoNonce, setUndoNonce] = React.useState(0)
+
+  React.useEffect(() => {
+    schemaRef.current = schema
+  }, [schema])
+
+  React.useEffect(() => {
+    selectionRef.current = selection
+  }, [selection])
+
+  const reload = React.useCallback(async () => {
+    setIsLoading(true)
+    setLoadError(null)
+    const formCall = await apiCall<FormDetail>(`/api/forms/${encodeURIComponent(formId)}`)
+    if (!formCall.ok || !formCall.result) {
+      setLoadError('forms.errors.form_not_found')
+      setIsLoading(false)
+      return
+    }
+    const detail = formCall.result
+    setForm(detail)
+    setActiveLocale((current) =>
+      detail.supportedLocales.includes(current) ? current : detail.defaultLocale,
+    )
+    let draft = detail.versions.find((entry) => entry.status === 'draft') ?? null
+
+    if (!draft) {
+      // No draft yet — fork one automatically so the studio always has a draft.
+      const forkCall = await apiCall<{ versionId: string }>(
+        `/api/forms/${encodeURIComponent(formId)}/versions/fork`,
+        { method: 'POST', body: JSON.stringify({}) },
+      )
+      if (forkCall.ok && forkCall.result?.versionId) {
+        const refresh = await apiCall<FormDetail>(`/api/forms/${encodeURIComponent(formId)}`)
+        if (refresh.ok && refresh.result) {
+          setForm(refresh.result)
+          draft = refresh.result.versions.find((entry) => entry.id === forkCall.result?.versionId) ?? null
+        }
+      }
+    }
+
+    if (draft) {
+      setDraftVersionId(draft.id)
+      const versionCall = await apiCall<VersionDetail>(
+        `/api/forms/${encodeURIComponent(formId)}/versions/${encodeURIComponent(draft.id)}`,
+      )
+      if (versionCall.ok && versionCall.result) {
+        setVersion(versionCall.result)
+        const loaded = versionCall.result.schema as FormSchema
+        setSchema(ensureDefaultSection(loaded && loaded.properties ? loaded : DEFAULT_SCHEMA))
+        dirtyFlagRef.current = false
+        undoController.clear()
+      }
+    } else {
+      setVersion(null)
+      setSchema(DEFAULT_SCHEMA)
+      dirtyFlagRef.current = false
+      undoController.clear()
+    }
+    setIsLoading(false)
+  }, [formId, undoController])
+
+  React.useEffect(() => {
+    void reload()
+  }, [reload])
+
+  const persistDraftRaw = React.useCallback(async (next: FormSchema) => {
+    if (!draftVersionId) return
+    setAutosaveState('saving')
+    const call = await apiCall(
+      `/api/forms/${encodeURIComponent(formId)}/versions/${encodeURIComponent(draftVersionId)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ schema: next }),
+      },
+    )
+    if (!call.ok) {
+      setAutosaveState('error')
+      const errPayload = call.result as { error?: string } | undefined
+      flash(errPayload?.error ?? 'forms.studio.autosave.error', 'error')
+      return
+    }
+    setAutosaveState('idle')
+    dirtyFlagRef.current = false
+    // Refresh schemaHash from the server response (best-effort)
+    const refreshed = await apiCall<VersionDetail>(
+      `/api/forms/${encodeURIComponent(formId)}/versions/${encodeURIComponent(draftVersionId)}`,
+    )
+    if (refreshed.ok && refreshed.result) setVersion(refreshed.result)
+  }, [draftVersionId, formId])
+
+  const autosaveGuard = React.useMemo(
+    () =>
+      createAutosaveGuard({
+        patch: persistDraftRaw,
+        onInvalid: () => {
+          setAutosaveState('error')
+          flash('forms.studio.autosave.invalidSchema', 'error')
+        },
+      }),
+    [persistDraftRaw],
+  )
+
+  const persistDraft = React.useMemo(
+    () => autosaveDebounce((next: FormSchema) => {
+      void autosaveGuard.run(next)
+    }, 2000),
+    [autosaveGuard],
+  )
+
+  const updateSchema = React.useCallback((updater: (current: FormSchema) => FormSchema) => {
+    setSchema((current) => {
+      const next = updater(current)
+      dirtyFlagRef.current = true
+      persistDraft(next)
+      return next
+    })
+  }, [persistDraft])
+
+  /**
+   * Structural mutators (Decision 6a) push an undo snapshot BEFORE applying
+   * the mutation so undo restores the pre-mutation schema + selection. The
+   * carve-out for `swapFieldType` (Decision 31b) lands here too.
+   */
+  const updateSchemaStructural = React.useCallback(
+    (updater: (current: FormSchema) => FormSchema) => {
+      undoController.push({
+        schema: schemaRef.current,
+        selection: selectionRef.current,
+      })
+      setSchema((current) => {
+        const next = updater(current)
+        dirtyFlagRef.current = true
+        persistDraft(next)
+        return next
+      })
+    },
+    [persistDraft, undoController],
+  )
+
+  const selectField = React.useCallback((fieldKey: string) => {
+    setSelection({ kind: 'field', key: fieldKey })
+  }, [])
+
+  const selectSection = React.useCallback((sectionKey: string) => {
+    setSelection({ kind: 'section', key: sectionKey })
+  }, [])
+
+  const clearSelection = React.useCallback(() => {
+    setSelection(null)
+  }, [])
+
+  const handleDeleteField = React.useCallback((fieldKey: string) => {
+    updateSchemaStructural((current) => {
+      return deleteField({ schema: current, fieldKey })
+    })
+    clearSelection()
+    flash(t('forms.studio.fields.deletedFlash'), 'info')
+  }, [updateSchemaStructural, clearSelection, t])
+
+  const handleDeleteSection = React.useCallback(async (sectionKey: string) => {
+    const sections = (schemaRef.current['x-om-sections'] ?? []) as SectionNode[]
+    const target = sections.find((entry) => entry.key === sectionKey)
+    if (!target) return
+    const fieldCount = target.fieldKeys.length
+    if (fieldCount > 0) {
+      const ok = await confirm({
+        title: t('forms.studio.canvas.section.delete.confirm.title'),
+        text: t('forms.studio.canvas.section.delete.confirm.body', {
+          name: target.title?.en?.length
+            ? target.title.en
+            : t('forms.studio.canvas.section.title.placeholder'),
+          count: String(fieldCount),
+        }),
+        confirmText: t('forms.studio.canvas.section.delete.confirm.submit'),
+        variant: 'destructive',
+      })
+      if (!ok) return
+    }
+    updateSchemaStructural((current) => deleteSection({ schema: current, sectionKey }))
+    clearSelection()
+  }, [confirm, t, updateSchemaStructural, clearSelection])
+
+  const handleSectionTitleCommit = React.useCallback((sectionKey: string, title: string) => {
+    updateSchema((current) =>
+      setSectionTitle({ schema: current, sectionKey, locale: activeLocale, title }),
+    )
+  }, [updateSchema, activeLocale])
+
+  const handleSectionColumnsChange = React.useCallback(
+    (sectionKey: string, columns: 1 | 2 | 3 | 4) => {
+      updateSchemaStructural((current) => setSectionColumns({ schema: current, sectionKey, columns }))
+    },
+    [updateSchemaStructural],
+  )
+
+  const handleSectionGapChange = React.useCallback(
+    (sectionKey: string, gap: 'sm' | 'md' | 'lg') => {
+      updateSchemaStructural((current) => setSectionGap({ schema: current, sectionKey, gap }))
+    },
+    [updateSchemaStructural],
+  )
+
+  const handleSectionDividerChange = React.useCallback(
+    (sectionKey: string, divider: boolean) => {
+      updateSchemaStructural((current) => setSectionDivider({ schema: current, sectionKey, divider }))
+    },
+    [updateSchemaStructural],
+  )
+
+  const handleSectionKindChange = React.useCallback(
+    (sectionKey: string, kind: 'page' | 'section') => {
+      updateSchemaStructural((current) => setSectionKind({ schema: current, sectionKey, kind }))
+    },
+    [updateSchemaStructural],
+  )
+
+  const handleSectionHideTitleChange = React.useCallback(
+    (sectionKey: string, hideTitle: boolean) => {
+      updateSchemaStructural((current) => setSectionHideTitle({ schema: current, sectionKey, hideTitle }))
+    },
+    [updateSchemaStructural],
+  )
+
+  const handleSectionStyleChange = React.useCallback(
+    (sectionKey: string, style: OmSectionStyle | undefined) => {
+      // Property-edit (Decision 6a) — no undo push.
+      updateSchema((current) => setSectionStyle(current, sectionKey, style))
+    },
+    [updateSchema],
+  )
+
+  const handleAdoptUngrouped = React.useCallback(() => {
+    let newSectionKey: string | null = null
+    updateSchemaStructural((current) => {
+      const result = adoptUngroupedAsSection({ schema: current })
+      newSectionKey = result.sectionKey
+      return result.schema
+    })
+    if (newSectionKey) {
+      const created: string = newSectionKey
+      setSelection({ kind: 'section', key: created })
+      setFocusSectionTitleKey(created)
+      flash(
+        t('forms.studio.canvas.ungrouped.adopt.toast', {
+          name: t('forms.studio.canvas.section.title.placeholder'),
+        }),
+        'success',
+      )
+    }
+  }, [updateSchemaStructural, t])
+
+  // Phase D — field style + form-level settings + type swap.
+  const handleFieldGridSpan = React.useCallback(
+    (fieldKey: string, span: 1 | 2 | 3 | 4) => {
+      updateSchemaStructural((current) => setFieldGridSpan({ schema: current, fieldKey, span }))
+    },
+    [updateSchemaStructural],
+  )
+
+  const handleFieldResizeStart = React.useCallback(
+    (input: { fieldKey: string; sectionKey: string; startSpan: 1 | 2 | 3 | 4 }) => {
+      setFieldResizeState({
+        fieldKey: input.fieldKey,
+        sectionKey: input.sectionKey,
+        startSpan: input.startSpan,
+        previewSpan: input.startSpan,
+      })
+      setResizeAnnouncement(
+        t('forms.studio.canvas.field.resizeStart', {
+          item: describeFieldForAnnouncement(schemaRef.current, input.fieldKey),
+        }),
+      )
+    },
+    [t],
+  )
+
+  const handleFieldResizePreview = React.useCallback(
+    (input: { fieldKey: string; previewSpan: 1 | 2 | 3 | 4 }) => {
+      setFieldResizeState((current) => {
+        if (!current || current.fieldKey !== input.fieldKey) return current
+        if (current.previewSpan === input.previewSpan) return current
+        return { ...current, previewSpan: input.previewSpan }
+      })
+    },
+    [],
+  )
+
+  const handleFieldResizeCommit = React.useCallback(
+    (input: { fieldKey: string; finalSpan: 1 | 2 | 3 | 4 }) => {
+      setFieldResizeState((current) => {
+        if (current && current.fieldKey === input.fieldKey) {
+          if (input.finalSpan !== current.startSpan) {
+            handleFieldGridSpan(input.fieldKey, input.finalSpan)
+          }
+        }
+        return null
+      })
+      setResizeAnnouncement(
+        t('forms.studio.canvas.field.resizeCommit', {
+          item: describeFieldForAnnouncement(schemaRef.current, input.fieldKey),
+          span: String(input.finalSpan),
+        }),
+      )
+    },
+    [handleFieldGridSpan, t],
+  )
+
+  const handleFieldAlign = React.useCallback(
+    (fieldKey: string, align: 'start' | 'center' | 'end') => {
+      // Property-edit (Decision 6a) — no undo push.
+      updateSchema((current) => setFieldAlign({ schema: current, fieldKey, align }))
+    },
+    [updateSchema],
+  )
+
+  const handleFieldHideMobile = React.useCallback(
+    (fieldKey: string, value: boolean) => {
+      updateSchema((current) => setFieldHideMobile({ schema: current, fieldKey, value }))
+    },
+    [updateSchema],
+  )
+
+  const handleFieldStyleChange = React.useCallback(
+    (fieldKey: string, style: OmFieldStyle | undefined) => {
+      // Property-edit (Decision 6a) — no undo push.
+      updateSchema((current) => setFieldStyle(current, fieldKey, style))
+    },
+    [updateSchema],
+  )
+
+  const handleFieldVisibilityChange = React.useCallback(
+    (fieldKey: string, predicate: unknown | null) => {
+      updateSchema((current) => setFieldVisibilityIf({ schema: current, fieldKey, predicate }))
+    },
+    [updateSchema],
+  )
+
+  const handleSectionVisibilityChange = React.useCallback(
+    (sectionKey: string, predicate: unknown | null) => {
+      updateSchema((current) => setSectionVisibilityIf({ schema: current, sectionKey, predicate }))
+    },
+    [updateSchema],
+  )
+
+  const handleHiddenFieldsChange = React.useCallback(
+    (entries: HiddenFieldEntry[]) => {
+      updateSchema((current) => setHiddenFields({ schema: current, entries }))
+    },
+    [updateSchema],
+  )
+
+  const handleVariablesChange = React.useCallback(
+    (entries: VariableEntry[]) => {
+      updateSchema((current) => setVariables({ schema: current, entries }))
+    },
+    [updateSchema],
+  )
+
+  const handleRedirectUrlChange = React.useCallback(
+    (sectionKey: string, url: string | null) => {
+      updateSchema((current) => setRedirectUrl({ schema: current, sectionKey, url }))
+    },
+    [updateSchema],
+  )
+
+  const handleJumpsChange = React.useCallback(
+    (rules: JumpRuleEntry[]) => {
+      updateSchema((current) => setJumps({ schema: current, rules }))
+    },
+    [updateSchema],
+  )
+
+  const handleFieldTypeSwap = React.useCallback(
+    (fieldKey: string, targetType: string) => {
+      try {
+        // Decision 31b — type swap pushes undo (carve-out from property-edit rule).
+        updateSchemaStructural((current) =>
+          swapFieldType({ schema: current, fieldKey, targetType }),
+        )
+      } catch (error) {
+        flash('forms.studio.autosave.invalidSchema', 'error')
+        if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+          console.warn('[forms.studio] field-type swap failed', error)
+        }
+      }
+    },
+    [updateSchemaStructural],
+  )
+
+  const handleDensityChange = React.useCallback(
+    (next: 'default' | 'compact' | 'spacious') => {
+      // Property edit — no undo push (Decision 6a).
+      updateSchema((current) => setFormStyle({ schema: current, style: next }))
+    },
+    [updateSchema],
+  )
+
+  const handleLabelPositionChange = React.useCallback(
+    (next: 'top' | 'left') => {
+      updateSchema((current) => setFormLabelPosition({ schema: current, position: next }))
+    },
+    [updateSchema],
+  )
+
+  const handlePageModeChange = React.useCallback(
+    (next: 'stacked' | 'paginated') => {
+      updateSchema((current) => setPageMode({ schema: current, mode: next }))
+    },
+    [updateSchema],
+  )
+
+  const handleShowProgressChange = React.useCallback(
+    (next: boolean) => {
+      updateSchema((current) => setShowProgress({ schema: current, value: next }))
+    },
+    [updateSchema],
+  )
+
+  const handleThemeChange = React.useCallback(
+    (next: OmTheme | undefined) => {
+      // Property edit — no undo push (Decision 6a).
+      updateSchema((current) => setFormTheme(current, next))
+    },
+    [updateSchema],
+  )
+
+  const handleUndo = React.useCallback(() => {
+    const previous = undoController.undo({
+      schema: schemaRef.current,
+      selection: selectionRef.current,
+    })
+    if (!previous) return
+    setSchema(previous.schema)
+    setSelection(previous.selection ?? null)
+    dirtyFlagRef.current = true
+    persistDraft(previous.schema)
+    setUndoNonce((current) => current + 1)
+    flash('forms.studio.undo.toast.undone', 'success')
+  }, [persistDraft, undoController])
+
+  const handleRedo = React.useCallback(() => {
+    const next = undoController.redo({
+      schema: schemaRef.current,
+      selection: selectionRef.current,
+    })
+    if (!next) return
+    setSchema(next.schema)
+    setSelection(next.selection ?? null)
+    dirtyFlagRef.current = true
+    persistDraft(next.schema)
+    setUndoNonce((current) => current + 1)
+    flash('forms.studio.undo.toast.redone', 'success')
+  }, [persistDraft, undoController])
+
+  React.useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (!(event.metaKey || event.ctrlKey)) return
+      // Decision 6c — keyboard binding only fires outside text inputs so
+      // browser-native undo handles property edits in <input> / <textarea>.
+      const target = event.target as HTMLElement | null
+      if (target) {
+        const tagName = target.tagName?.toLowerCase()
+        if (tagName === 'input' || tagName === 'textarea' || target.isContentEditable) return
+      }
+      const isRedoCombo =
+        (event.key === 'z' && event.shiftKey) || event.key === 'y'
+      const isUndoCombo = event.key === 'z' && !event.shiftKey
+      if (isRedoCombo) {
+        event.preventDefault()
+        handleRedo()
+      } else if (isUndoCombo) {
+        event.preventDefault()
+        handleUndo()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [handleUndo, handleRedo])
+
+  const handleFieldUpdate = React.useCallback((fieldKey: string, updater: (node: FieldNode) => FieldNode) => {
+    updateSchema((current) => {
+      const next = deepClone(current)
+      const node = next.properties[fieldKey]
+      if (!node) return current
+      next.properties[fieldKey] = updater(node)
+      return next
+    })
+  }, [updateSchema])
+
+  const handleRequiredToggle = React.useCallback((fieldKey: string, required: boolean) => {
+    updateSchema((current) => {
+      const next = deepClone(current)
+      const requiredList = new Set(next.required ?? [])
+      if (required) requiredList.add(fieldKey)
+      else requiredList.delete(fieldKey)
+      next.required = Array.from(requiredList)
+      return next
+    })
+  }, [updateSchema])
+
+  const handleDefaultActorRoleChange = React.useCallback((nextRole: string) => {
+    updateSchema((current) => {
+      const next = deepClone(current)
+      next['x-om-default-actor-role'] = nextRole
+      const declared = new Set(next['x-om-roles'] ?? [])
+      declared.add(nextRole)
+      declared.add('admin')
+      next['x-om-roles'] = Array.from(declared)
+      return next
+    })
+  }, [updateSchema])
+
+  const handleAddRole = React.useCallback((role: string) => {
+    if (!isValidRoleIdentifier(role) || role === 'admin') return
+    updateSchema((current) => addRoleToSchema(current, role))
+  }, [updateSchema])
+
+  const handleRenameRole = React.useCallback((oldRole: string, newRole: string) => {
+    if (oldRole === 'admin' || newRole === 'admin') return
+    if (!isValidRoleIdentifier(newRole)) return
+    updateSchema((current) => renameRoleInSchema(current, oldRole, newRole))
+  }, [updateSchema])
+
+  const handleRemoveRole = React.useCallback((role: string) => {
+    if (role === 'admin') return
+    updateSchema((current) => removeRoleFromSchema(current, role))
+  }, [updateSchema])
+
+  const handleToggleGuest = React.useCallback((enabled: boolean) => {
+    updateSchema((current) =>
+      enabled ? enableGuestSubmissions(current) : disableGuestSubmissions(current),
+    )
+  }, [updateSchema])
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: gridKeyboardCoordinates }),
+  )
+
+  const announcements = React.useMemo(() => buildAnnouncements(t, schemaRef), [t])
+
+  const paletteEntries = React.useMemo(() => buildPaletteEntries(), [])
+  const paletteEntryById = React.useMemo(() => {
+    const map = new Map<string, { displayNameKey: string; iconName: string }>()
+    for (const entry of [...paletteEntries.input, ...paletteEntries.survey, ...paletteEntries.layout]) {
+      map.set(entry.id, { displayNameKey: entry.displayNameKey, iconName: entry.iconName })
+    }
+    return map
+  }, [paletteEntries])
+
+  const handleDragStart = React.useCallback((event: DragStartEvent) => {
+    setActiveDragId(String(event.active.id))
+    setActiveDropTarget(null)
+  }, [])
+
+  const resolveDropPosition = React.useCallback((event: DragOverEvent | DragEndEvent): 'before' | 'after' => {
+    const activeTop = event.active.rect.current.translated?.top ?? event.active.rect.current.initial?.top ?? null
+    const activeHeight = event.active.rect.current.translated?.height ?? event.active.rect.current.initial?.height ?? 0
+    const overTop = event.over?.rect.top ?? null
+    const overHeight = event.over?.rect.height ?? 0
+    if (activeTop === null || overTop === null) return 'before'
+    return activeTop + activeHeight / 2 > overTop + overHeight / 2 ? 'after' : 'before'
+  }, [])
+
+  const handleDragOver = React.useCallback((event: DragOverEvent) => {
+    const overId = event.over ? String(event.over.id) : null
+    if (!overId) {
+      setActiveDropTarget(null)
+      return
+    }
+    if (overId.startsWith(FIELD_DRAGGABLE_PREFIX) || overId.startsWith(SECTION_DRAGGABLE_PREFIX)) {
+      setActiveDropTarget({ kind: 'sortable', id: overId, position: resolveDropPosition(event) })
+      return
+    }
+    if (overId.startsWith(SECTION_DROP_PREFIX)) {
+      const parsed = parseSectionDropId(overId)
+      if (!parsed || parsed.kind === 'legacy') {
+        setActiveDropTarget(null)
+        return
+      }
+      if (parsed.kind === 'cell') {
+        setActiveDropTarget({
+          kind: 'cell',
+          sectionKey: parsed.sectionKey,
+          rowIndex: parsed.rowIndex,
+          columnIndex: parsed.columnIndex,
+          dropId: overId,
+        })
+        return
+      }
+      if (parsed.kind === 'col-gap') {
+        setActiveDropTarget({
+          kind: 'col-gap',
+          sectionKey: parsed.sectionKey,
+          rowIndex: parsed.rowIndex,
+          columnIndex: parsed.columnIndex,
+          dropId: overId,
+        })
+        return
+      }
+      setActiveDropTarget({
+        kind: 'row-gap',
+        sectionKey: parsed.sectionKey,
+        rowIndex: parsed.rowIndex,
+        dropId: overId,
+      })
+      return
+    }
+    setActiveDropTarget(null)
+  }, [resolveDropPosition])
+
+  const handleDragEnd = React.useCallback((event: DragEndEvent) => {
+    setActiveDragId(null)
+    setActiveDropTarget(null)
+    const { active, over } = event
+    if (!over) return
+    const activeId = String(active.id)
+    const overId = String(over.id)
+
+    const handleDrop = (next: {
+      schema: FormSchema
+      selection?: StudioSelection | undefined
+    }) => {
+      try {
+        validateSchemaExtensions(next.schema)
+      } catch (error) {
+        flash('forms.studio.autosave.invalidSchema', 'error')
+        if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+          console.warn('[forms.studio] drop validation failed', error)
+        }
+        return
+      }
+      // Decision 6a — DnD drops are structural mutations; push undo
+      // BEFORE applying so undo restores the pre-drop schema + selection.
+      undoController.push({
+        schema: schemaRef.current,
+        selection: selectionRef.current,
+      })
+      setSchema(next.schema)
+      dirtyFlagRef.current = true
+      persistDraft(next.schema)
+      if (next.selection !== undefined) setSelection(next.selection)
+    }
+
+    const resolveTargetSection = (): { sectionKey: string; index?: number } | null => {
+      if (overId.startsWith(SECTION_DROP_PREFIX)) {
+        const parsed = parseSectionDropId(overId)
+        if (!parsed) {
+          return { sectionKey: overId.slice(SECTION_DROP_PREFIX.length) }
+        }
+        if (parsed.kind === 'legacy') {
+          return { sectionKey: parsed.sectionKey }
+        }
+        // Decision 6b — map grid drop hints to a linear index within fieldKeys.
+        const sections = (schemaRef.current['x-om-sections'] ?? []) as SectionNode[]
+        const section = sections.find((entry) => entry.key === parsed.sectionKey)
+        if (!section) return { sectionKey: parsed.sectionKey }
+        const view = resolveSectionViews(schemaRef.current as Record<string, unknown>).find(
+          (entry) => entry.key === parsed.sectionKey,
+        )
+        const columns = view?.columns ?? 1
+        const fieldKeys = section.fieldKeys.filter((key) => schemaRef.current.properties[key])
+        // Phase 5 — empty multi-column section silhouette: every grid drop
+        // hint short-circuits to the first slot (column hint is informational).
+        if (fieldKeys.length === 0) {
+          return { sectionKey: parsed.sectionKey, index: 0 }
+        }
+        const spans: Record<string, number | undefined> = {}
+        for (const key of fieldKeys) {
+          spans[key] = readSpan(schemaRef.current.properties[key]?.['x-om-grid-span'])
+        }
+        const layout = computeRowLayout({ fieldKeys, spans, columns })
+        if (parsed.kind === 'cell' || parsed.kind === 'col-gap') {
+          const index = dropHintToLinearIndex({
+            layout,
+            rowIndex: parsed.rowIndex,
+            columnIndex: parsed.columnIndex,
+          })
+          return { sectionKey: parsed.sectionKey, index }
+        }
+        let index = 0
+        for (let r = 0; r < parsed.rowIndex && r < layout.rows.length; r += 1) {
+          index += layout.rows[r].cells.filter((cell) => cell.kind === 'field').length
+        }
+        return { sectionKey: parsed.sectionKey, index }
+      }
+      if (overId.startsWith(FIELD_DRAGGABLE_PREFIX)) {
+        const overFieldKey = overId.slice(FIELD_DRAGGABLE_PREFIX.length)
+        const owning = findSectionOwning(schemaRef.current, overFieldKey)
+        if (!owning) return null
+        const overIndex = indexOfFieldInSection(schemaRef.current, owning.key, overFieldKey)
+        if (overIndex < 0) return { sectionKey: owning.key }
+        const position = resolveDropPosition(event)
+        return { sectionKey: owning.key, index: overIndex + (position === 'after' ? 1 : 0) }
+      }
+      return null
+    }
+
+    if (activeId.startsWith(PALETTE_DRAGGABLE_PREFIX)) {
+      const rawId = activeId.slice(PALETTE_DRAGGABLE_PREFIX.length)
+      const resolved = resolvePaletteId(rawId)
+      if (resolved.kind === 'input' || resolved.kind === 'layout-field') {
+        const target = resolveTargetSection()
+        if (!target) return
+        const targetSection = (schemaRef.current['x-om-sections'] ?? []).find(
+          (entry: SectionNode) => entry.key === target.sectionKey,
+        )
+        if (targetSection?.kind === 'ending' && resolved.typeKey !== 'info_block') {
+          flash('forms.studio.canvas.ending.dropRejected', 'error')
+          return
+        }
+        try {
+          const result = addFieldFromPalette({
+            schema: schemaRef.current,
+            typeKey: resolved.typeKey,
+            target,
+          })
+          handleDrop({
+            schema: result.schema,
+            selection: { kind: 'field', key: result.fieldKey },
+          })
+        } catch (error) {
+          flash('forms.studio.autosave.invalidSchema', 'error')
+          if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+            console.warn('[forms.studio] palette drop failed', error)
+          }
+        }
+        return
+      }
+      if (resolved.kind === 'layout-primitive') {
+        // Layout primitives drop at the section level — work out the target index.
+        let insertionIndex: number | undefined
+        const sections = (schemaRef.current['x-om-sections'] ?? []) as SectionNode[]
+        if (overId.startsWith(SECTION_DRAGGABLE_PREFIX)) {
+          const overSectionKey = overId.slice(SECTION_DRAGGABLE_PREFIX.length)
+          const candidate = sections.findIndex((entry) => entry.key === overSectionKey)
+          if (candidate >= 0) {
+            insertionIndex = candidate + (resolveDropPosition(event) === 'after' ? 1 : 0)
+          }
+        }
+        try {
+          const result = addLayoutFromPalette({
+            schema: schemaRef.current,
+            kind: resolved.layoutKind,
+            target: { index: insertionIndex },
+          })
+          handleDrop({
+            schema: result.schema,
+            selection: { kind: 'section', key: result.sectionKey },
+          })
+          setFocusSectionTitleKey(result.sectionKey)
+        } catch (error) {
+          flash('forms.studio.autosave.invalidSchema', 'error')
+          if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+            console.warn('[forms.studio] layout drop failed', error)
+          }
+        }
+        return
+      }
+      return
+    }
+
+    if (activeId.startsWith(SECTION_DRAGGABLE_PREFIX)) {
+      const sectionKey = activeId.slice(SECTION_DRAGGABLE_PREFIX.length)
+      let beforeKey: string | null = null
+      if (overId.startsWith(SECTION_DRAGGABLE_PREFIX)) {
+        const overKey = overId.slice(SECTION_DRAGGABLE_PREFIX.length)
+        if (overKey !== sectionKey) {
+          if (resolveDropPosition(event) === 'after') {
+            const sections = (schemaRef.current['x-om-sections'] ?? []) as SectionNode[]
+            const overIndex = sections.findIndex((entry) => entry.key === overKey)
+            beforeKey = sections[overIndex + 1]?.key ?? null
+          } else {
+            beforeKey = overKey
+          }
+        }
+      }
+      try {
+        const nextSchema = moveSection({ schema: schemaRef.current, sectionKey, beforeKey })
+        handleDrop({ schema: nextSchema })
+      } catch (error) {
+        flash('forms.studio.autosave.invalidSchema', 'error')
+        if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+          console.warn('[forms.studio] section reorder failed', error)
+        }
+      }
+      return
+    }
+
+    if (activeId.startsWith(FIELD_DRAGGABLE_PREFIX)) {
+      const fieldKey = activeId.slice(FIELD_DRAGGABLE_PREFIX.length)
+      const target = resolveTargetSection()
+      if (!target) return
+      const owning = findSectionOwning(schemaRef.current, fieldKey)
+      if (
+        owning &&
+        owning.key === target.sectionKey &&
+        typeof target.index === 'number'
+      ) {
+        const currentIndex = indexOfFieldInSection(schemaRef.current, owning.key, fieldKey)
+        if (currentIndex >= 0 && currentIndex < target.index) {
+          target.index -= 1
+        }
+      }
+      try {
+        const nextSchema = moveField({
+          schema: schemaRef.current,
+          fieldKey,
+          target,
+        })
+        handleDrop({ schema: nextSchema })
+      } catch (error) {
+        flash('forms.studio.autosave.invalidSchema', 'error')
+        if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+          console.warn('[forms.studio] reorder failed', error)
+        }
+      }
+    }
+  }, [persistDraft, resolveDropPosition, undoController])
+
+  const handleDragCancel = React.useCallback(() => {
+    setActiveDragId(null)
+    setActiveDropTarget(null)
+  }, [])
+
+  const handleMoveField = React.useCallback((fieldKey: string, direction: 'up' | 'down') => {
+    const owning = findSectionOwning(schemaRef.current, fieldKey)
+    if (!owning) return
+    const currentIndex = indexOfFieldInSection(schemaRef.current, owning.key, fieldKey)
+    const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= owning.fieldKeys.length) return
+    updateSchemaStructural((current) => moveField({
+      schema: current,
+      fieldKey,
+      target: { sectionKey: owning.key, index: nextIndex },
+    }))
+  }, [updateSchemaStructural])
+
+  const handleMoveSection = React.useCallback((sectionKey: string, direction: 'up' | 'down') => {
+    const sections = (schemaRef.current['x-om-sections'] ?? []) as SectionNode[]
+    const currentIndex = sections.findIndex((entry) => entry.key === sectionKey)
+    const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= sections.length) return
+    const beforeKey = direction === 'up'
+      ? sections[nextIndex]?.key ?? null
+      : sections[nextIndex + 1]?.key ?? null
+    updateSchemaStructural((current) => moveSection({ schema: current, sectionKey, beforeKey }))
+  }, [updateSchemaStructural])
+
+  const dragOverlayContent = React.useMemo(() => {
+    if (!activeDragId) return null
+
+    // Phase 4 — resolve the hovered section so the overlay can mirror the
+    // target cell's pixel width. Section drags keep full width; when no
+    // section is identifiable we fall back to the fixed-width pill.
+    const resolveHoveredSectionKey = (): string | null => {
+      if (!activeDropTarget) return null
+      if (activeDropTarget.kind === 'sortable') {
+        if (activeDropTarget.id.startsWith(FIELD_DRAGGABLE_PREFIX)) {
+          const overFieldKey = activeDropTarget.id.slice(FIELD_DRAGGABLE_PREFIX.length)
+          const owning = findSectionOwning(schemaRef.current, overFieldKey)
+          return owning ? owning.key : null
+        }
+        if (activeDropTarget.id.startsWith(SECTION_DRAGGABLE_PREFIX)) {
+          return activeDropTarget.id.slice(SECTION_DRAGGABLE_PREFIX.length)
+        }
+        return null
+      }
+      return activeDropTarget.sectionKey
+    }
+
+    const resolveTargetGeometry = (
+      spanIntent: 1 | 2 | 3 | 4,
+    ): { widthPx: number } | null => {
+      const sectionKey = resolveHoveredSectionKey()
+      if (!sectionKey) return null
+      const node = gridRefs.current.get(sectionKey)
+      if (!node) return null
+      const rect = node.getBoundingClientRect()
+      if (!rect || rect.width <= 0) return null
+      const view = resolveSectionViews(schemaRef.current as Record<string, unknown>).find(
+        (entry) => entry.key === sectionKey,
+      )
+      if (!view) return null
+      const widthPx = computeOverlayWidthPx({
+        sectionWidthPx: rect.width,
+        columns: view.columns,
+        span: spanIntent,
+        gap: view.gap,
+      })
+      if (!Number.isFinite(widthPx) || widthPx <= 0) return null
+      return { widthPx }
+    }
+
+    if (activeDragId.startsWith(PALETTE_DRAGGABLE_PREFIX)) {
+      const rawId = activeDragId.slice(PALETTE_DRAGGABLE_PREFIX.length)
+      const meta = paletteEntryById.get(rawId)
+      if (!meta) return null
+      const resolved = resolvePaletteId(rawId)
+      // Section primitives (page/section/ending) are full-width — leave the
+      // fixed-width pill so we don't pretend they slot into a single cell.
+      const isSectionPrimitive = resolved.kind === 'layout-primitive'
+      const geometry = isSectionPrimitive ? null : resolveTargetGeometry(1)
+      return (
+        <DragOverlayCard
+          Icon={resolveLucideIcon(meta.iconName)}
+          label={t(meta.displayNameKey)}
+          widthPx={geometry?.widthPx}
+        />
+      )
+    }
+    if (activeDragId.startsWith(SECTION_DRAGGABLE_PREFIX)) {
+      // Sections are full-width by construction — keep the fixed-width pill.
+      return null
+    }
+    if (activeDragId.startsWith(FIELD_DRAGGABLE_PREFIX)) {
+      const fieldKey = activeDragId.slice(FIELD_DRAGGABLE_PREFIX.length)
+      const node = schemaRef.current.properties[fieldKey]
+      if (!node) return null
+      const omType = String(node['x-om-type'] ?? 'text')
+      const Icon = resolveLucideIcon(
+        paletteEntryById.get(omType)?.iconName ?? paletteEntryById.get(`layout:field:${omType}`)?.iconName,
+      )
+      const label = (node['x-om-label']?.en as string) ?? fieldKey
+      const persistedSpan = readSpan(node['x-om-grid-span']) ?? 1
+      const geometry = resolveTargetGeometry(persistedSpan)
+      return <DragOverlayCard Icon={Icon} label={label} widthPx={geometry?.widthPx} />
+    }
+    return null
+  }, [activeDragId, activeDropTarget, paletteEntryById, t])
+
+  const persistFormPatch = React.useMemo(
+    () =>
+      autosaveDebounce(async (payload: { name?: string; description?: string | null }) => {
+        const call = await apiCall(`/api/forms/${encodeURIComponent(formId)}`, {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        })
+        if (!call.ok) {
+          const errPayload = call.result as { error?: string } | undefined
+          flash(errPayload?.error ?? 'forms.studio.autosave.error', 'error')
+        }
+      }, 1000),
+    [formId],
+  )
+
+  const handleNameChange = React.useCallback((nextName: string) => {
+    setForm((current) => (current ? { ...current, name: nextName } : current))
+    persistFormPatch({ name: nextName })
+  }, [persistFormPatch])
+
+  const handleDescriptionChange = React.useCallback((nextDescription: string) => {
+    setForm((current) => (current ? { ...current, description: nextDescription } : current))
+    persistFormPatch({ description: nextDescription.length > 0 ? nextDescription : null })
+  }, [persistFormPatch])
+
+  // Locale set edits persist immediately (no debounce): they change the studio's
+  // available authoring locales, so the switcher must reflect the server state
+  // right away. On success we optimistically update `form` and clamp the active
+  // locale into the new set; on failure we reload to undo the optimistic state.
+  const persistLocalePatch = React.useCallback(
+    async (payload: { supportedLocales: string[]; defaultLocale: string }) => {
+      setForm((current) =>
+        current
+          ? { ...current, supportedLocales: payload.supportedLocales, defaultLocale: payload.defaultLocale }
+          : current,
+      )
+      setActiveLocale((current) =>
+        payload.supportedLocales.includes(current) ? current : payload.defaultLocale,
+      )
+      const call = await apiCall(`/api/forms/${encodeURIComponent(formId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      })
+      if (!call.ok) {
+        const errPayload = call.result as { error?: string } | undefined
+        flash(errPayload?.error ?? 'forms.studio.autosave.error', 'error')
+        await reload()
+      }
+    },
+    [formId, reload],
+  )
+
+  const handleAddLocale = React.useCallback(
+    (locale: string) => {
+      const trimmed = locale.trim()
+      if (!trimmed) return
+      setForm((current) => {
+        if (!current || current.supportedLocales.includes(trimmed)) return current
+        const nextSupported = [...current.supportedLocales, trimmed]
+        void persistLocalePatch({ supportedLocales: nextSupported, defaultLocale: current.defaultLocale })
+        return current
+      })
+    },
+    [persistLocalePatch],
+  )
+
+  const handleRemoveLocale = React.useCallback(
+    (locale: string) => {
+      setForm((current) => {
+        if (!current) return current
+        if (locale === current.defaultLocale) return current
+        if (current.supportedLocales.length <= 1) return current
+        const nextSupported = current.supportedLocales.filter((entry) => entry !== locale)
+        void persistLocalePatch({ supportedLocales: nextSupported, defaultLocale: current.defaultLocale })
+        return current
+      })
+    },
+    [persistLocalePatch],
+  )
+
+  const handleDefaultLocaleChange = React.useCallback(
+    (locale: string) => {
+      setForm((current) => {
+        if (!current || locale === current.defaultLocale) return current
+        if (!current.supportedLocales.includes(locale)) return current
+        void persistLocalePatch({ supportedLocales: current.supportedLocales, defaultLocale: locale })
+        return current
+      })
+    },
+    [persistLocalePatch],
+  )
+
+  const declaredRoles = React.useMemo(
+    () => (schema['x-om-roles'] ?? []).filter((entry): entry is string => typeof entry === 'string'),
+    [schema],
+  )
+  const guestEnabled = React.useMemo(() => isGuestSubmissionEnabled(schema), [schema])
+  const previewRoles = React.useMemo(() => {
+    const all = new Set<string>(['admin'])
+    declaredRoles.forEach((entry) => all.add(entry))
+    return Array.from(all)
+  }, [declaredRoles])
+
+  const selectedField = selectedFieldKey ? schema.properties[selectedFieldKey] : null
+  const selectedSectionNode =
+    selection?.kind === 'section'
+      ? ((schema['x-om-sections'] ?? []) as SectionNode[]).find((entry) => entry.key === selection.key) ?? null
+      : null
+
+  const sectionsForDerivation = resolveSectionViews(schema as Record<string, unknown>)
+  const derivedPages = partitionPages(sectionsForDerivation)
+  const density = resolveFormStyle(schema as Record<string, unknown>)
+  const persistedLabelPosition = resolveFormLabelPosition(schema as Record<string, unknown>)
+  const pageMode = resolvePageMode(schema as Record<string, unknown>)
+  const persistedShowProgress = resolveShowProgress(schema as Record<string, unknown>)
+  const persistedTheme = resolveFormTheme(schema as Record<string, unknown>)
+
+  const canUndo = undoController.canUndo()
+  const canRedo = undoController.canRedo()
+  void undoNonce // re-render trigger after undo/redo
+
+  const persistedHiddenFields = React.useMemo<HiddenFieldEntry[]>(() => {
+    const raw = (schema as Record<string, unknown>)['x-om-hidden-fields']
+    if (!Array.isArray(raw)) return []
+    return raw
+      .filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object')
+      .map((entry) => ({
+        name: String(entry.name ?? ''),
+        defaultValue: typeof entry.defaultValue === 'string' ? entry.defaultValue : undefined,
+      }))
+      .filter((entry) => entry.name.length > 0)
+  }, [schema])
+
+  const persistedJumps = React.useMemo<JumpRuleEntry[]>(() => {
+    const raw = (schema as Record<string, unknown>)['x-om-jumps']
+    if (!Array.isArray(raw)) return []
+    const result: JumpRuleEntry[] = []
+    for (const entry of raw) {
+      if (!entry || typeof entry !== 'object') continue
+      const candidate = entry as Record<string, unknown>
+      if (!candidate.from || typeof candidate.from !== 'object') continue
+      if (!Array.isArray(candidate.rules)) continue
+      result.push({
+        from: candidate.from as JumpRuleEntry['from'],
+        rules: candidate.rules as JumpRuleEntry['rules'],
+        otherwise: candidate.otherwise as JumpRuleEntry['otherwise'] | undefined,
+      })
+    }
+    return result
+  }, [schema])
+
+  const persistedVariables = React.useMemo<VariableEntry[]>(() => {
+    const raw = (schema as Record<string, unknown>)['x-om-variables']
+    if (!Array.isArray(raw)) return []
+    const result: VariableEntry[] = []
+    for (const entry of raw) {
+      if (!entry || typeof entry !== 'object') continue
+      const candidate = entry as Record<string, unknown>
+      const type = candidate.type
+      if (type !== 'number' && type !== 'boolean' && type !== 'string') continue
+      const name = String(candidate.name ?? '')
+      if (name.length === 0) continue
+      const next: VariableEntry = { name, type, formula: candidate.formula }
+      if (candidate.default !== undefined) {
+        next.default = candidate.default as number | boolean | string
+      }
+      result.push(next)
+    }
+    return result
+  }, [schema])
+
+  if (isLoading) {
+    return (
+      <Page>
+        <PageBody>
+          <LoadingMessage label={t('forms.studio.title')} />
+        </PageBody>
+      </Page>
+    )
+  }
+  if (loadError || !form) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage
+            label={t(loadError ?? 'forms.errors.internal')}
+            action={(
+              <Button asChild variant="outline">
+                <Link href="/backend/forms">{t('forms.list.title')}</Link>
+              </Button>
+            )}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  const paletteParameters = {
+    formId,
+    formKey: form.key,
+    name: form.name,
+    description: form.description ?? '',
+    supportedLocales: form.supportedLocales,
+    defaultLocale: form.defaultLocale,
+    defaultActorRole: schema['x-om-default-actor-role'] ?? 'admin',
+    declaredRoles,
+    guestEnabled,
+    density,
+    labelPosition: persistedLabelPosition,
+    pageMode,
+    showProgress: persistedShowProgress,
+    pagesCount: derivedPages.length,
+    hiddenFields: persistedHiddenFields,
+    variables: persistedVariables,
+    schema,
+    onNameChange: handleNameChange,
+    onDescriptionChange: handleDescriptionChange,
+    onToggleGuest: handleToggleGuest,
+    onAddRole: handleAddRole,
+    onRenameRole: handleRenameRole,
+    onRemoveRole: handleRemoveRole,
+    onDefaultActorRoleChange: handleDefaultActorRoleChange,
+    onDensityChange: handleDensityChange,
+    onLabelPositionChange: handleLabelPositionChange,
+    onPageModeChange: handlePageModeChange,
+    onShowProgressChange: handleShowProgressChange,
+    onHiddenFieldsChange: handleHiddenFieldsChange,
+    onVariablesChange: handleVariablesChange,
+    onAddLocale: handleAddLocale,
+    onRemoveLocale: handleRemoveLocale,
+    onDefaultLocaleChange: handleDefaultLocaleChange,
+  }
+
+  return (
+    <Page>
+      <PageBody>
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="sr-only"
+        >
+          {resizeAnnouncement}
+        </div>
+        <header className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h1 className="text-xl font-semibold text-foreground">{form.name}</h1>
+            <p className="text-sm text-muted-foreground">
+              <span className="font-mono">{form.key}</span>
+              <span className="mx-2">·</span>
+              <span>{t('forms.studio.schemaHashLabel')}: <span className="font-mono">{(version?.schemaHash ?? '').slice(0, 12) || '—'}</span></span>
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            {form.supportedLocales.length > 1 ? (
+              <div className="flex items-center gap-1.5">
+                <Globe className="size-4 text-muted-foreground" aria-hidden="true" />
+                <Select value={activeLocale} onValueChange={setActiveLocale}>
+                  <SelectTrigger
+                    className="h-8 w-[88px]"
+                    aria-label={t('forms.studio.locale_switcher.label')}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {form.supportedLocales.map((locale) => (
+                      <SelectItem key={locale} value={locale}>
+                        {locale}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+            <Tag variant={version?.status === 'published' ? 'success' : 'warning'} dot>
+              {t(version?.status === 'published'
+                ? 'forms.studio.statusPublished'
+                : version?.status === 'archived'
+                  ? 'forms.studio.statusArchived'
+                  : 'forms.studio.statusDraft')}
+            </Tag>
+            <span className="text-xs text-muted-foreground">
+              {autosaveState === 'saving'
+                ? t('forms.studio.autosave.saving')
+                : autosaveState === 'error'
+                  ? t('forms.studio.autosave.error')
+                  : t('forms.studio.autosave.idle')}
+            </span>
+            <IconButton
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleUndo}
+              disabled={!canUndo}
+              aria-label={t('forms.studio.undo.button.undo')}
+              title={t('forms.studio.undo.button.undo')}
+            >
+              <Undo2 className="size-4" aria-hidden="true" />
+            </IconButton>
+            <IconButton
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleRedo}
+              disabled={!canRedo}
+              aria-label={t('forms.studio.undo.button.redo')}
+              title={t('forms.studio.undo.button.redo')}
+            >
+              <Redo2 className="size-4" aria-hidden="true" />
+            </IconButton>
+            <Button asChild variant="outline">
+              <Link href={`/backend/forms/${encodeURIComponent(formId)}/history`}>
+                {t('forms.studio.actions.history')}
+              </Link>
+            </Button>
+            <Button onClick={() => setShowPublishDialog(true)} disabled={!draftVersionId}>
+              {t('forms.studio.actions.publish')}
+            </Button>
+          </div>
+        </header>
+
+        <Tabs value={topTab} onValueChange={(next) => setTopTab(next as StudioTopTab)}>
+          <TabsList>
+            <TabsTrigger value="builder">{t('forms.studio.tabs.top.builder')}</TabsTrigger>
+            <TabsTrigger value="preview">{t('forms.studio.tabs.top.preview')}</TabsTrigger>
+          </TabsList>
+          <TabsContent value="builder">
+            <DndContext
+              sensors={sensors}
+              collisionDetection={gridAwareCollision}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDragEnd={handleDragEnd}
+              onDragCancel={handleDragCancel}
+              accessibility={{
+                announcements,
+                screenReaderInstructions: {
+                  draggable: t('forms.studio.dnd.instructions.draggable'),
+                },
+              }}
+            >
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr_320px]">
+                <FormPalettePanel parameters={paletteParameters} />
+
+                <section className="rounded-lg border border-border bg-card p-4">
+                  <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t('forms.studio.panes.tree')}
+                  </h2>
+                  <FormCanvas
+                    schema={schema}
+                    selectedKey={selection}
+                    onSelectField={selectField}
+                    onSelectSection={selectSection}
+                    onDeleteField={handleDeleteField}
+                    onDeleteSection={(key) => { void handleDeleteSection(key) }}
+                    onMoveField={handleMoveField}
+                    onMoveSection={handleMoveSection}
+                    onAdoptUngrouped={handleAdoptUngrouped}
+                    onSectionTitleCommit={handleSectionTitleCommit}
+                    focusSectionTitleKey={focusSectionTitleKey}
+                    onSectionTitleFocusConsumed={() => setFocusSectionTitleKey(null)}
+                    activeLocale={activeLocale}
+                    activeDropTarget={activeDropTarget}
+                    resizeState={fieldResizeState}
+                    onFieldResizeStart={handleFieldResizeStart}
+                    onFieldResizePreview={handleFieldResizePreview}
+                    onFieldResizeCommit={handleFieldResizeCommit}
+                    gridRefs={gridRefs}
+                    t={t}
+                  />
+                </section>
+
+                <aside className="rounded-lg border border-border bg-card p-4">
+                  <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t('forms.studio.panes.properties')}
+                  </h2>
+                  {selection?.kind === 'section' ? (
+                    <SectionPropertiesPanel
+                      schema={schema}
+                      sectionKey={selection.key}
+                      activeLocale={activeLocale}
+                      jumps={persistedJumps}
+                      onColumnsChange={handleSectionColumnsChange}
+                      onGapChange={handleSectionGapChange}
+                      onDividerChange={handleSectionDividerChange}
+                      onKindChange={handleSectionKindChange}
+                      onHideTitleChange={handleSectionHideTitleChange}
+                      onStyleChange={handleSectionStyleChange}
+                      onVisibilityChange={handleSectionVisibilityChange}
+                      onRedirectUrlChange={handleRedirectUrlChange}
+                      onJumpsChange={handleJumpsChange}
+                      t={t}
+                    />
+                  ) : !selectedField || !selectedFieldKey ? (
+                    <div className="space-y-3">
+                      <p className="text-sm text-muted-foreground">{t('forms.studio.empty')}</p>
+                      <FormAppearancePanel
+                        formId={formId}
+                        theme={persistedTheme}
+                        onThemeChange={handleThemeChange}
+                      />
+                    </div>
+                  ) : (
+                    <FieldPropertiesPanel
+                      schema={schema}
+                      fieldKey={selectedFieldKey}
+                      node={selectedField}
+                      declaredRoles={declaredRoles}
+                      required={(schema.required ?? []).includes(selectedFieldKey)}
+                      activeLocale={activeLocale}
+                      onUpdate={(updater) => handleFieldUpdate(selectedFieldKey, updater)}
+                      onRequiredChange={(value) => handleRequiredToggle(selectedFieldKey, value)}
+                      onDelete={() => handleDeleteField(selectedFieldKey)}
+                      onGridSpanChange={handleFieldGridSpan}
+                      onAlignChange={handleFieldAlign}
+                      onHideMobileChange={handleFieldHideMobile}
+                      onStyleChange={handleFieldStyleChange}
+                      onTypeSwap={handleFieldTypeSwap}
+                      onVisibilityChange={handleFieldVisibilityChange}
+                      t={t}
+                    />
+                  )}
+                  <details className="mt-4">
+                    <summary className="cursor-pointer text-xs font-medium uppercase text-muted-foreground">
+                      {t('forms.studio.compiledJson')}
+                    </summary>
+                    <pre className="mt-2 max-h-72 overflow-auto rounded-md border border-border bg-muted/40 p-2 text-xs">
+                      {selectedField
+                        ? stableJsonStringify(selectedField)
+                        : selectedSectionNode
+                          ? stableJsonStringify(selectedSectionNode)
+                          : '{}'}
+                    </pre>
+                  </details>
+                </aside>
+              </div>
+              <DragOverlay>{dragOverlayContent}</DragOverlay>
+            </DndContext>
+          </TabsContent>
+
+          <TabsContent value="preview">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
+              <section className="rounded-lg border border-border bg-card p-4">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t('forms.studio.panes.preview')}
+                  </h2>
+                  <div className="flex items-center gap-2 text-xs">
+                    <span>{t('forms.studio.previewAs')}</span>
+                    <Select value={previewRole} onValueChange={setPreviewRole}>
+                      <SelectTrigger className="h-8 w-32">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {previewRoles.map((role) => (
+                          <SelectItem key={role} value={role}>{role}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <ViewportFrame
+                  viewport={previewViewport}
+                  onViewportChange={setPreviewViewport}
+                  t={t}
+                >
+                  <PreviewSurface
+                    schema={schema}
+                    viewport={previewViewport}
+                    previewRole={previewRole}
+                    t={t}
+                  />
+                </ViewportFrame>
+              </section>
+              <aside className="space-y-3 rounded-lg border border-border bg-card p-4">
+                {(() => {
+                  const sectionNodes = ((schema['x-om-sections'] as SectionNode[] | undefined) ?? [])
+                  const fieldOptions = buildFieldSourceOptions(schema, activeLocale, t)
+                    .filter((entry) => entry.namespace === 'field')
+                  const sectionKey = previewStyleTarget.startsWith('section:')
+                    ? previewStyleTarget.slice('section:'.length)
+                    : null
+                  const fieldKey = previewStyleTarget.startsWith('field:')
+                    ? previewStyleTarget.slice('field:'.length)
+                    : null
+                  const activeSection = sectionKey ? sectionNodes.find((s) => s.key === sectionKey) ?? null : null
+                  const activeFieldNode = fieldKey ? (schema.properties[fieldKey] as FieldNode | undefined) ?? null : null
+                  // Fall back to the form theme if the chosen target was deleted.
+                  const effectiveTarget = activeSection ? previewStyleTarget : activeFieldNode ? previewStyleTarget : 'form'
+                  return (
+                    <>
+                      <div className="space-y-1">
+                        <label htmlFor="forms-studio-preview-style-target" className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          {t('forms.studio.style.target.label', 'Style')}
+                        </label>
+                        <Select value={effectiveTarget} onValueChange={setPreviewStyleTarget}>
+                          <SelectTrigger id="forms-studio-preview-style-target" className="h-8">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="form">{t('forms.studio.style.target.form', 'Whole form')}</SelectItem>
+                            {sectionNodes.map((section) => (
+                              <SelectItem key={`section:${section.key}`} value={`section:${section.key}`}>
+                                {t('forms.studio.style.target.section', 'Section')}: {section.title?.[activeLocale] ?? section.title?.en ?? section.key}
+                              </SelectItem>
+                            ))}
+                            {fieldOptions.map((option) => (
+                              <SelectItem key={`field:${option.value}`} value={`field:${option.value}`}>
+                                {t('forms.studio.style.target.field', 'Field')}: {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {activeSection ? (
+                        <SectionAppearanceTabContent
+                          style={activeSection.style}
+                          onStyleChange={(next) => handleSectionStyleChange(activeSection.key, next)}
+                          t={t}
+                        />
+                      ) : activeFieldNode && fieldKey ? (
+                        <FieldAppearanceTabContent
+                          style={activeFieldNode['x-om-style'] as OmFieldStyle | undefined}
+                          onStyleChange={(next) => handleFieldStyleChange(fieldKey, next)}
+                          formSurface={persistedTheme?.surface ?? 'surface'}
+                          t={t}
+                        />
+                      ) : (
+                        <FormAppearancePanel formId={formId} theme={persistedTheme} onThemeChange={handleThemeChange} />
+                      )}
+                    </>
+                  )
+                })()}
+              </aside>
+            </div>
+          </TabsContent>
+        </Tabs>
+
+        {showPublishDialog && draftVersionId && (
+          <PublishDialog
+            formId={formId}
+            versionId={draftVersionId}
+            onClose={() => setShowPublishDialog(false)}
+            onPublished={() => {
+              setShowPublishDialog(false)
+              flash(t('forms.studio.actions.publish'), 'success')
+              router.push(`/backend/forms/${encodeURIComponent(formId)}/history`)
+            }}
+            t={t}
+          />
+        )}
+        {ConfirmDialogElement}
+      </PageBody>
+    </Page>
+  )
+}
+
+type SectionPropertiesPanelProps = {
+  schema: FormSchema
+  sectionKey: string
+  activeLocale: string
+  jumps: JumpRuleEntry[]
+  onColumnsChange: (sectionKey: string, columns: 1 | 2 | 3 | 4) => void
+  onGapChange: (sectionKey: string, gap: 'sm' | 'md' | 'lg') => void
+  onDividerChange: (sectionKey: string, divider: boolean) => void
+  onKindChange: (sectionKey: string, kind: 'page' | 'section') => void
+  onHideTitleChange: (sectionKey: string, hideTitle: boolean) => void
+  onStyleChange: (sectionKey: string, style: OmSectionStyle | undefined) => void
+  onVisibilityChange: (sectionKey: string, predicate: unknown | null) => void
+  onRedirectUrlChange: (sectionKey: string, url: string | null) => void
+  onJumpsChange: (rules: JumpRuleEntry[]) => void
+  t: ReturnType<typeof useT>
+}
+
+function SectionPropertiesPanel(props: SectionPropertiesPanelProps) {
+  const { schema, sectionKey, activeLocale, jumps, onVisibilityChange, onJumpsChange, onStyleChange, t } = props
+  const [tab, setTab] = React.useState<'style' | 'appearance' | 'logic'>('style')
+  const sections = (schema['x-om-sections'] ?? []) as SectionNode[]
+  const section = sections.find((entry) => entry.key === sectionKey)
+  if (!section) {
+    return <p className="text-sm text-muted-foreground">{t('forms.studio.empty')}</p>
+  }
+  const isEnding = section.kind === 'ending'
+  const isPage = section.kind === 'page'
+  const sourceOptions = React.useMemo(
+    () => buildFieldSourceOptions(schema, activeLocale, t),
+    [schema, activeLocale, t],
+  )
+  return (
+    <Tabs value={tab} onValueChange={(next) => setTab(next as 'style' | 'appearance' | 'logic')}>
+      <TabsList className="w-full justify-stretch">
+        <TabsTrigger value="style" className="flex-1">
+          {t('forms.studio.style.tabs.style')}
+        </TabsTrigger>
+        <TabsTrigger value="appearance" className="flex-1">
+          {t('forms.studio.style.tabs.appearance', 'Appearance')}
+        </TabsTrigger>
+        {!isEnding ? (
+          <TabsTrigger value="logic" className="flex-1">
+            {t('forms.studio.logic.tab.label')}
+          </TabsTrigger>
+        ) : null}
+      </TabsList>
+      <TabsContent value="style">
+        <SectionStyleTabContent {...props} section={section} />
+      </TabsContent>
+      <TabsContent value="appearance">
+        <SectionAppearanceTabContent
+          style={section.style}
+          onStyleChange={(next) => onStyleChange(sectionKey, next)}
+          t={t}
+        />
+      </TabsContent>
+      {!isEnding ? (
+        <TabsContent value="logic" className="space-y-4">
+          <ConditionBuilder
+            predicate={(section as Record<string, unknown>)['x-om-visibility-if'] ?? null}
+            sources={sourceOptions}
+            onChange={(next) => onVisibilityChange(sectionKey, next)}
+          />
+          {isPage ? (
+            <JumpsEditor
+              schema={schema}
+              pageKey={sectionKey}
+              sources={sourceOptions}
+              rules={jumps}
+              onChange={onJumpsChange}
+            />
+          ) : null}
+        </TabsContent>
+      ) : null}
+    </Tabs>
+  )
+}
+
+type SectionStyleTabContentProps = SectionPropertiesPanelProps & { section: SectionNode }
+
+function SectionStyleTabContent({
+  schema,
+  sectionKey,
+  section,
+  onColumnsChange,
+  onGapChange,
+  onDividerChange,
+  onKindChange,
+  onHideTitleChange,
+  onRedirectUrlChange,
+  t,
+}: SectionStyleTabContentProps) {
+  void schema
+  const columns = section.columns ?? 1
+  const gap = section.gap ?? 'md'
+  const divider = section.divider === true
+  const kind = section.kind ?? 'section'
+  const hideTitle = section.hideTitle === true
+  const isEnding = kind === 'ending'
+  const redirectUrl = typeof section['x-om-redirect-url'] === 'string' ? section['x-om-redirect-url'] : ''
+  return (
+    <div className="space-y-3">
+      {isEnding ? (
+        <div className="space-y-1">
+          <label className="block text-xs font-medium text-muted-foreground">
+            {t('forms.studio.style.section.redirect.label')}
+          </label>
+          <Input
+            type="url"
+            placeholder="https://example.com/thanks"
+            value={redirectUrl}
+            onChange={(event) => onRedirectUrlChange(sectionKey, event.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            {t('forms.studio.style.section.redirect.helper')}
+          </p>
+        </div>
+      ) : null}
+      {!isEnding ? (
+        <div className="space-y-1">
+          <label className="block text-xs font-medium text-muted-foreground">
+            {t('forms.studio.style.section.kind.label')}
+          </label>
+          <Select
+            value={kind}
+            onValueChange={(next) => onKindChange(sectionKey, (next as 'page' | 'section'))}
+          >
+            <SelectTrigger className="h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="section">{t('forms.studio.style.section.kind.section')}</SelectItem>
+              <SelectItem value="page">{t('forms.studio.style.section.kind.page')}</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {t('forms.studio.style.section.kind.helper')}
+          </p>
+        </div>
+      ) : null}
+      <div className="space-y-1">
+        <label className="block text-xs font-medium text-muted-foreground">
+          {t('forms.studio.style.section.columns.label')}
+        </label>
+        <Select
+          value={String(columns)}
+          onValueChange={(next) => onColumnsChange(sectionKey, Number(next) as 1 | 2 | 3 | 4)}
+        >
+          <SelectTrigger className="h-8">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="1">1</SelectItem>
+            <SelectItem value="2">2</SelectItem>
+            <SelectItem value="3">3</SelectItem>
+            <SelectItem value="4">4</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1">
+        <label className="block text-xs font-medium text-muted-foreground">
+          {t('forms.studio.style.section.gap.label')}
+        </label>
+        <Select
+          value={gap}
+          onValueChange={(next) => onGapChange(sectionKey, next as 'sm' | 'md' | 'lg')}
+        >
+          <SelectTrigger className="h-8">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="sm">{t('forms.studio.style.section.gap.sm')}</SelectItem>
+            <SelectItem value="md">{t('forms.studio.style.section.gap.md')}</SelectItem>
+            <SelectItem value="lg">{t('forms.studio.style.section.gap.lg')}</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <YesNoRow
+        label={t('forms.studio.style.section.divider.label')}
+        value={divider}
+        onChange={(next) => onDividerChange(sectionKey, next)}
+      />
+      <YesNoRow
+        label={t('forms.studio.style.section.hideTitle.label')}
+        value={hideTitle}
+        onChange={(next) => onHideTitleChange(sectionKey, next)}
+      />
+    </div>
+  )
+}
+
+const SECTION_STYLE_NONE = '__none__'
+
+const SECTION_PADDING_OPTIONS: ReadonlyArray<{ value: OmSpaceScale; fallback: string }> = [
+  { value: 'none', fallback: 'None' },
+  { value: 'xs', fallback: 'XS' },
+  { value: 'sm', fallback: 'Small' },
+  { value: 'md', fallback: 'Medium' },
+  { value: 'lg', fallback: 'Large' },
+  { value: 'xl', fallback: 'XL' },
+]
+
+const SECTION_BORDER_OPTIONS: ReadonlyArray<{ value: OmBorderScale; fallback: string }> = [
+  { value: 'none', fallback: 'None' },
+  { value: 'subtle', fallback: 'Subtle' },
+  { value: 'strong', fallback: 'Strong' },
+]
+
+const SECTION_RADIUS_OPTIONS: ReadonlyArray<{ value: OmRadiusScale; fallback: string }> = [
+  { value: 'none', fallback: 'None' },
+  { value: 'sm', fallback: 'Small' },
+  { value: 'md', fallback: 'Medium' },
+  { value: 'lg', fallback: 'Large' },
+  { value: 'full', fallback: 'Full' },
+]
+
+const TEXT_ALIGN_OPTIONS: ReadonlyArray<{ value: OmTextAlign; fallback: string }> = [
+  { value: 'start', fallback: 'Start' },
+  { value: 'center', fallback: 'Center' },
+  { value: 'end', fallback: 'End' },
+]
+
+const FIELD_LABEL_WEIGHT_OPTIONS: ReadonlyArray<{ value: OmTextWeight; fallback: string }> = [
+  { value: 'normal', fallback: 'Normal' },
+  { value: 'medium', fallback: 'Medium' },
+  { value: 'semibold', fallback: 'Semibold' },
+  { value: 'bold', fallback: 'Bold' },
+]
+
+function AppearanceEnumSelect<Value extends string>({
+  id,
+  label,
+  current,
+  options,
+  labelKeyPrefix,
+  onPick,
+  t,
+}: {
+  id: string
+  label: string
+  current: Value | undefined
+  options: ReadonlyArray<{ value: Value; fallback: string }>
+  /** i18n prefix for option values: `${labelKeyPrefix}.${value}` (falls back to `option.fallback`). */
+  labelKeyPrefix: string
+  onPick: (next: Value | undefined) => void
+  t: ReturnType<typeof useT>
+}) {
+  return (
+    <div className="space-y-1">
+      <label htmlFor={id} className="block text-xs font-medium text-foreground">
+        {label}
+      </label>
+      <Select
+        value={current ?? SECTION_STYLE_NONE}
+        onValueChange={(next) => onPick(next === SECTION_STYLE_NONE ? undefined : (next as Value))}
+      >
+        <SelectTrigger id={id} className="h-8">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={SECTION_STYLE_NONE}>{t('forms.studio.style.inherit', 'Default')}</SelectItem>
+          {options.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {t(`${labelKeyPrefix}.${option.value}`, option.fallback)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
+}
+
+type SectionAppearanceTabContentProps = {
+  style: OmSectionStyle | undefined
+  onStyleChange: (style: OmSectionStyle | undefined) => void
+  t: ReturnType<typeof useT>
+}
+
+function SectionAppearanceTabContent({ style, onStyleChange, t }: SectionAppearanceTabContentProps) {
+  const patch = React.useCallback(
+    (next: Partial<OmSectionStyle>) => {
+      const merged: OmSectionStyle = { ...(style ?? {}), ...next }
+      for (const key of Object.keys(merged) as Array<keyof OmSectionStyle>) {
+        if (merged[key] === undefined) delete merged[key]
+      }
+      onStyleChange(Object.keys(merged).length === 0 ? undefined : merged)
+    },
+    [style, onStyleChange],
+  )
+  return (
+    <div className="space-y-3">
+      <BackgroundControl
+        label={t('forms.studio.style.section.background', 'Background')}
+        value={style?.background}
+        onChange={(next) => patch({ background: next })}
+      />
+      <ColorControl
+        label={t('forms.studio.style.section.foreground', 'Text')}
+        value={style?.foreground}
+        onChange={(next) => patch({ foreground: next })}
+        contrastAgainst={style?.background?.kind === 'color' ? style.background.color : undefined}
+      />
+      <AppearanceEnumSelect
+        id="forms-studio-section-padding"
+        label={t('forms.studio.style.section.padding', 'Padding')}
+        current={style?.padding}
+        options={SECTION_PADDING_OPTIONS}
+        labelKeyPrefix="forms.studio.style.padding"
+        onPick={(next) => patch({ padding: next })}
+        t={t}
+      />
+      <AppearanceEnumSelect
+        id="forms-studio-section-border"
+        label={t('forms.studio.style.section.border', 'Border')}
+        current={style?.border}
+        options={SECTION_BORDER_OPTIONS}
+        labelKeyPrefix="forms.studio.style.border"
+        onPick={(next) => patch({ border: next })}
+        t={t}
+      />
+      <AppearanceEnumSelect
+        id="forms-studio-section-radius"
+        label={t('forms.studio.style.section.radius', 'Corner radius')}
+        current={style?.radius}
+        options={SECTION_RADIUS_OPTIONS}
+        labelKeyPrefix="forms.studio.style.radius"
+        onPick={(next) => patch({ radius: next })}
+        t={t}
+      />
+      <YesNoRow
+        label={t('forms.studio.style.section.card', 'Card')}
+        value={style?.card === true}
+        onChange={(next) => patch({ card: next ? true : undefined })}
+      />
+      <AppearanceEnumSelect
+        id="forms-studio-section-align"
+        label={t('forms.studio.style.section.align', 'Alignment')}
+        current={style?.align}
+        options={TEXT_ALIGN_OPTIONS}
+        labelKeyPrefix="forms.studio.style.align"
+        onPick={(next) => patch({ align: next })}
+        t={t}
+      />
+    </div>
+  )
+}
+
+type FieldAppearanceTabContentProps = {
+  style: OmFieldStyle | undefined
+  onStyleChange: (style: OmFieldStyle | undefined) => void
+  /** Effective form surface, so label/text colors are AA-checked against it. */
+  formSurface: OmColor
+  t: ReturnType<typeof useT>
+}
+
+function FieldAppearanceTabContent({ style, onStyleChange, formSurface, t }: FieldAppearanceTabContentProps) {
+  const patch = React.useCallback(
+    (next: Partial<OmFieldStyle>) => {
+      const merged: OmFieldStyle = { ...(style ?? {}), ...next }
+      for (const key of Object.keys(merged) as Array<keyof OmFieldStyle>) {
+        if (merged[key] === undefined) delete merged[key]
+      }
+      onStyleChange(Object.keys(merged).length === 0 ? undefined : merged)
+    },
+    [style, onStyleChange],
+  )
+  return (
+    <div className="space-y-3">
+      <AppearanceEnumSelect
+        id="forms-studio-field-label-weight"
+        label={t('forms.studio.style.field.labelWeight', 'Label weight')}
+        current={style?.labelWeight}
+        options={FIELD_LABEL_WEIGHT_OPTIONS}
+        labelKeyPrefix="forms.studio.style.weight"
+        onPick={(next) => patch({ labelWeight: next })}
+        t={t}
+      />
+      <ColorControl
+        label={t('forms.studio.style.field.labelColor', 'Label color')}
+        value={style?.labelColor}
+        onChange={(next) => patch({ labelColor: next })}
+        contrastAgainst={formSurface}
+      />
+      <ColorControl
+        label={t('forms.studio.style.field.textColor', 'Text color')}
+        value={style?.textColor}
+        onChange={(next) => patch({ textColor: next })}
+        contrastAgainst={formSurface}
+      />
+      <ColorControl
+        label={t('forms.studio.style.field.accent', 'Accent')}
+        value={style?.accent}
+        onChange={(next) => patch({ accent: next })}
+      />
+      <AppearanceEnumSelect
+        id="forms-studio-field-align"
+        label={t('forms.studio.style.field.appearanceAlign', 'Alignment')}
+        current={style?.align}
+        options={TEXT_ALIGN_OPTIONS}
+        labelKeyPrefix="forms.studio.style.align"
+        onPick={(next) => patch({ align: next })}
+        t={t}
+      />
+    </div>
+  )
+}
+
+type FieldPropertiesPanelProps = {
+  schema: FormSchema
+  fieldKey: string
+  node: FieldNode
+  declaredRoles: string[]
+  required: boolean
+  activeLocale: string
+  onUpdate: (updater: (node: FieldNode) => FieldNode) => void
+  onRequiredChange: (value: boolean) => void
+  onDelete: () => void
+  onGridSpanChange: (fieldKey: string, span: 1 | 2 | 3 | 4) => void
+  onAlignChange: (fieldKey: string, align: 'start' | 'center' | 'end') => void
+  onHideMobileChange: (fieldKey: string, value: boolean) => void
+  onStyleChange: (fieldKey: string, style: OmFieldStyle | undefined) => void
+  onTypeSwap: (fieldKey: string, targetType: string) => void
+  onVisibilityChange: (fieldKey: string, predicate: unknown | null) => void
+  t: ReturnType<typeof useT>
+}
+
+function findOwningSection(schema: FormSchema, fieldKey: string): SectionNode | null {
+  const sections = (schema['x-om-sections'] ?? []) as SectionNode[]
+  for (const section of sections) {
+    if (section.fieldKeys.includes(fieldKey)) return section
+  }
+  return null
+}
+
+function FieldPropertiesPanel({
+  schema,
+  fieldKey,
+  node,
+  declaredRoles,
+  required,
+  activeLocale,
+  onUpdate,
+  onRequiredChange,
+  onDelete,
+  onGridSpanChange,
+  onAlignChange,
+  onHideMobileChange,
+  onStyleChange,
+  onTypeSwap,
+  onVisibilityChange,
+  t,
+}: FieldPropertiesPanelProps) {
+  const [tab, setTab] = React.useState<'field' | 'style' | 'appearance' | 'logic'>('field')
+  const sourceOptions = React.useMemo(
+    () => buildFieldSourceOptions(schema, activeLocale, t).filter((entry) => entry.value !== fieldKey),
+    [schema, activeLocale, t, fieldKey],
+  )
+  const visibilityPredicate = node['x-om-visibility-if'] ?? null
+  const owningSection = findOwningSection(schema, fieldKey)
+  const sectionColumns = (owningSection?.columns ?? 1) as 1 | 2 | 3 | 4
+  const omType = String(node['x-om-type'] ?? 'text')
+  const isInfoBlock = omType === 'info_block'
+  const persistedSpanRaw = node['x-om-grid-span']
+  const persistedSpan: 1 | 2 | 3 | 4 =
+    persistedSpanRaw === 2 || persistedSpanRaw === 3 || persistedSpanRaw === 4
+      ? persistedSpanRaw
+      : 1
+  const align: 'start' | 'center' | 'end' =
+    node['x-om-align'] === 'center' || node['x-om-align'] === 'end'
+      ? (node['x-om-align'] as 'center' | 'end')
+      : 'start'
+  const hideMobile = node['x-om-hide-mobile'] === true
+  const widthOptions = React.useMemo(() => {
+    const max = sectionColumns
+    const options: number[] = []
+    for (let i = 1; i <= max; i += 1) options.push(i)
+    return options
+  }, [sectionColumns])
+  const showWidth = !isInfoBlock && sectionColumns > 1
+  const swapFamily = SWAP_FAMILIES[omType]
+  const swapTargets = swapFamily ? Array.from(swapFamily) : null
+  return (
+    <Tabs value={tab} onValueChange={(next) => setTab(next as 'field' | 'style' | 'appearance' | 'logic')}>
+      <TabsList className="w-full justify-stretch">
+        <TabsTrigger value="field" className="flex-1">
+          {t('forms.studio.style.tabs.field')}
+        </TabsTrigger>
+        <TabsTrigger value="style" className="flex-1">
+          {t('forms.studio.style.tabs.style')}
+        </TabsTrigger>
+        <TabsTrigger value="appearance" className="flex-1">
+          {t('forms.studio.style.tabs.appearance', 'Appearance')}
+        </TabsTrigger>
+        <TabsTrigger value="logic" className="flex-1">
+          {t('forms.studio.logic.tab.label')}
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent value="field">
+        <FieldTabContent
+          fieldKey={fieldKey}
+          node={node}
+          declaredRoles={declaredRoles}
+          required={required}
+          activeLocale={activeLocale}
+          onUpdate={onUpdate}
+          onRequiredChange={onRequiredChange}
+          onDelete={onDelete}
+          onTypeSwap={onTypeSwap}
+          omType={omType}
+          swapTargets={swapTargets}
+          t={t}
+        />
+      </TabsContent>
+      <TabsContent value="style">
+        <div className="space-y-3">
+          {showWidth ? (
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-muted-foreground">
+                {t('forms.studio.style.field.width.label')}
+              </label>
+              <Select
+                value={String(Math.min(persistedSpan, sectionColumns))}
+                onValueChange={(next) =>
+                  onGridSpanChange(fieldKey, Number(next) as 1 | 2 | 3 | 4)
+                }
+              >
+                <SelectTrigger className="h-8">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {widthOptions.map((value) => (
+                    <SelectItem key={value} value={String(value)}>
+                      {value}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-muted-foreground">
+              {t('forms.studio.style.field.align.label')}
+            </label>
+            <Select
+              value={align}
+              onValueChange={(next) =>
+                onAlignChange(fieldKey, next as 'start' | 'center' | 'end')
+              }
+            >
+              <SelectTrigger className="h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="start">
+                  {t('forms.studio.style.field.align.start')}
+                </SelectItem>
+                <SelectItem value="center">
+                  {t('forms.studio.style.field.align.center')}
+                </SelectItem>
+                <SelectItem value="end">
+                  {t('forms.studio.style.field.align.end')}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <YesNoRow
+            label={t('forms.studio.style.field.hideMobile.label')}
+            value={hideMobile}
+            onChange={(next) => onHideMobileChange(fieldKey, next)}
+          />
+        </div>
+      </TabsContent>
+      <TabsContent value="appearance">
+        <FieldAppearanceTabContent
+          style={node['x-om-style'] as OmFieldStyle | undefined}
+          onStyleChange={(next) => onStyleChange(fieldKey, next)}
+          formSurface={resolveFormTheme(schema as Record<string, unknown>)?.surface ?? 'surface'}
+          t={t}
+        />
+      </TabsContent>
+      <TabsContent value="logic">
+        <ConditionBuilder
+          predicate={visibilityPredicate}
+          sources={sourceOptions}
+          onChange={(next) => onVisibilityChange(fieldKey, next)}
+        />
+      </TabsContent>
+    </Tabs>
+  )
+}
+
+type FieldTabContentProps = {
+  fieldKey: string
+  node: FieldNode
+  declaredRoles: string[]
+  required: boolean
+  activeLocale: string
+  onUpdate: (updater: (node: FieldNode) => FieldNode) => void
+  onRequiredChange: (value: boolean) => void
+  onDelete: () => void
+  onTypeSwap: (fieldKey: string, targetType: string) => void
+  omType: string
+  swapTargets: string[] | null
+  t: ReturnType<typeof useT>
+}
+
+function RoleCheckboxList({
+  legend,
+  selected,
+  options,
+  onToggle,
+}: {
+  legend: string
+  selected: string[]
+  options: string[]
+  onToggle: (role: string, checked: boolean) => void
+}) {
+  return (
+    <div>
+      <span className="block text-xs font-medium text-muted-foreground">{legend}</span>
+      <div className="mt-1 space-y-1">
+        {options.map((role) => (
+          <label key={role} className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={selected.includes(role)}
+              onCheckedChange={(value) => onToggle(role, Boolean(value))}
+            />
+            {role}
+          </label>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function FieldTabContent({
+  fieldKey,
+  node,
+  declaredRoles,
+  required,
+  activeLocale,
+  onUpdate,
+  onRequiredChange,
+  onDelete,
+  onTypeSwap,
+  omType,
+  swapTargets,
+  t,
+}: FieldTabContentProps) {
+  const label = (node['x-om-label']?.[activeLocale] as string) ?? ''
+  const help = (node['x-om-help']?.[activeLocale] as string) ?? ''
+  const editableBy = (node['x-om-editable-by'] as string[] | undefined) ?? ['admin']
+  const visibleTo = (node['x-om-visible-to'] as string[] | undefined) ?? []
+  const sensitive = node['x-om-sensitive'] === true
+  const roleOptions = React.useMemo(() => {
+    const set = new Set<string>(['admin'])
+    for (const role of declaredRoles) set.add(role)
+    return Array.from(set)
+  }, [declaredRoles])
+  const toggleRole = React.useCallback(
+    (keyword: 'x-om-editable-by' | 'x-om-visible-to', fallback: string[], role: string, checked: boolean) => {
+      onUpdate((current) => {
+        const next = new Set((current[keyword] as string[] | undefined) ?? fallback)
+        if (checked) next.add(role)
+        else next.delete(role)
+        return { ...current, [keyword]: Array.from(next) }
+      })
+    },
+    [onUpdate],
+  )
+  const handlePatternChange = React.useCallback(
+    (next: string | null) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (next === null || next.length === 0) {
+          delete updated['x-om-pattern']
+        } else {
+          updated['x-om-pattern'] = next
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleLengthRangeChange = React.useCallback(
+    (patch: { min?: number | null; max?: number | null }) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (patch.min !== undefined) {
+          if (patch.min === null) delete updated['x-om-min-length']
+          else updated['x-om-min-length'] = patch.min
+        }
+        if (patch.max !== undefined) {
+          if (patch.max === null) delete updated['x-om-max-length']
+          else updated['x-om-max-length'] = patch.max
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleNumberRangeChange = React.useCallback(
+    (patch: { min?: number | null; max?: number | null }) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (patch.min !== undefined) {
+          if (patch.min === null) delete updated['x-om-min']
+          else updated['x-om-min'] = patch.min
+        }
+        if (patch.max !== undefined) {
+          if (patch.max === null) delete updated['x-om-max']
+          else updated['x-om-max'] = patch.max
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleMessageChange = React.useCallback(
+    (patch: { rule: string; message: string | null }) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        const existing = current['x-om-validation-messages']
+        const cloned: Record<string, Record<string, string>> =
+          existing && typeof existing === 'object' && !Array.isArray(existing)
+            ? Object.fromEntries(
+                Object.entries(existing).map(([loc, inner]) => [
+                  loc,
+                  inner && typeof inner === 'object' && !Array.isArray(inner)
+                    ? { ...(inner as Record<string, string>) }
+                    : {},
+                ]),
+              )
+            : {}
+        const inner = cloned[activeLocale] ? { ...cloned[activeLocale] } : {}
+        const trimmed = typeof patch.message === 'string' ? patch.message : ''
+        if (!trimmed) {
+          delete inner[patch.rule]
+        } else {
+          inner[patch.rule] = trimmed
+        }
+        if (Object.keys(inner).length === 0) {
+          delete cloned[activeLocale]
+        } else {
+          cloned[activeLocale] = inner
+        }
+        if (Object.keys(cloned).length === 0) {
+          delete updated['x-om-validation-messages']
+        } else {
+          updated['x-om-validation-messages'] = cloned
+        }
+        return updated
+      })
+    },
+    [onUpdate, activeLocale],
+  )
+  const handleRankingExhaustiveChange = React.useCallback(
+    (next: boolean) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (next === false) {
+          delete updated['x-om-ranking-exhaustive']
+        } else {
+          updated['x-om-ranking-exhaustive'] = true
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleOpinionIconChange = React.useCallback(
+    (next: 'star' | 'dot' | 'thumb') => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (next === 'dot') {
+          delete updated['x-om-opinion-icon']
+        } else {
+          updated['x-om-opinion-icon'] = next
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleNpsAnchorChange = React.useCallback(
+    (patch: { anchor: 'low' | 'high'; label: string | null }) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        const existing = current['x-om-nps-anchors']
+        const sourceLow =
+          existing && typeof existing === 'object' && !Array.isArray(existing)
+            && (existing as Record<string, unknown>).low
+            && typeof (existing as Record<string, unknown>).low === 'object'
+            ? { ...((existing as Record<string, Record<string, string>>).low) }
+            : {}
+        const sourceHigh =
+          existing && typeof existing === 'object' && !Array.isArray(existing)
+            && (existing as Record<string, unknown>).high
+            && typeof (existing as Record<string, unknown>).high === 'object'
+            ? { ...((existing as Record<string, Record<string, string>>).high) }
+            : {}
+        const map: { low: Record<string, string>; high: Record<string, string> } = {
+          low: sourceLow,
+          high: sourceHigh,
+        }
+        const target = map[patch.anchor]
+        const trimmed = typeof patch.label === 'string' ? patch.label : ''
+        if (!trimmed) {
+          delete target[activeLocale]
+        } else {
+          target[activeLocale] = trimmed
+        }
+        const hasLow = Object.keys(map.low).length > 0
+        const hasHigh = Object.keys(map.high).length > 0
+        if (!hasLow && !hasHigh) {
+          delete updated['x-om-nps-anchors']
+        } else {
+          updated['x-om-nps-anchors'] = { low: map.low, high: map.high }
+        }
+        return updated
+      })
+    },
+    [onUpdate, activeLocale],
+  )
+  const handleMatrixRowsChange = React.useCallback(
+    (next: Array<{ key: string; label: Record<string, string>; multiple?: boolean; required?: boolean }>) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (!next || next.length === 0) {
+          delete updated['x-om-matrix-rows']
+        } else {
+          updated['x-om-matrix-rows'] = next.map((row) => {
+            const result: Record<string, unknown> = { key: row.key, label: row.label }
+            if (row.multiple === true) result.multiple = true
+            if (row.required === true) result.required = true
+            return result
+          }) as FieldNode['x-om-matrix-rows']
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleMatrixColumnsChange = React.useCallback(
+    (next: Array<{ value: string; label: Record<string, string> }>) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (!next || next.length === 0) {
+          delete updated['x-om-matrix-columns']
+        } else {
+          updated['x-om-matrix-columns'] = next.map((column) => ({
+            value: column.value,
+            label: column.label,
+          })) as FieldNode['x-om-matrix-columns']
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleFileAcceptChange = React.useCallback(
+    (next: string[]) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (!next || next.length === 0) {
+          delete updated['x-om-accept']
+        } else {
+          updated['x-om-accept'] = next as FieldNode['x-om-accept']
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleFileMaxSizeChange = React.useCallback(
+    (next: number | null) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (next === null) {
+          delete updated['x-om-max-size-bytes']
+        } else {
+          updated['x-om-max-size-bytes'] = next as FieldNode['x-om-max-size-bytes']
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleFileMultipleChange = React.useCallback(
+    (next: boolean) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (next) {
+          updated['x-om-multiple'] = true as FieldNode['x-om-multiple']
+        } else {
+          delete updated['x-om-multiple']
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleSignatureClauseChange = React.useCallback(
+    (next: string | null) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        const clause = { ...((updated['x-om-consent-clause'] as Record<string, string>) ?? {}) }
+        if (next === null) {
+          delete clause[activeLocale]
+        } else {
+          clause[activeLocale] = next
+        }
+        if (Object.keys(clause).length === 0) {
+          delete updated['x-om-consent-clause']
+        } else {
+          updated['x-om-consent-clause'] = clause as FieldNode['x-om-consent-clause']
+        }
+        return updated
+      })
+    },
+    [onUpdate, activeLocale],
+  )
+  const handleSignatureModesChange = React.useCallback(
+    (next: Array<'drawn' | 'typed'>) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        // Both modes is the default — persist nothing so the schema stays lean.
+        if (next.length === 0 || (next.includes('drawn') && next.includes('typed'))) {
+          delete updated['x-om-signature-modes']
+        } else {
+          updated['x-om-signature-modes'] = next as FieldNode['x-om-signature-modes']
+        }
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleOptionsChange = React.useCallback(
+    (next: FieldOption[]) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        updated['x-om-options'] = next.map((option) => ({
+          value: option.value,
+          label: option.label,
+        }))
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  // W6 — repeatable group sub-field + item-count handlers. Sub-fields live in
+  // `node.items.properties`; min/max counts are `x-om-min-items` /
+  // `x-om-max-items`. The autosave guard validates the full schema after each
+  // patch (sub-field key uniqueness, no nested groups, soft cap).
+  const handleGroupAddSubField = React.useCallback(() => {
+    onUpdate((current) => groupNodeAddSubField(current, { [activeLocale]: 'New sub-field' }))
+  }, [onUpdate, activeLocale])
+  const handleGroupRemoveSubField = React.useCallback(
+    (subFieldKey: string) => {
+      onUpdate((current) => groupNodeRemoveSubField(current, subFieldKey))
+    },
+    [onUpdate],
+  )
+  const handleGroupUpdateSubField = React.useCallback(
+    (subFieldKey: string, patch: { label?: string; type?: string; required?: boolean }) => {
+      onUpdate((current) => {
+        const nodePatch: { label?: { [locale: string]: string }; type?: string; required?: boolean } = {}
+        if (patch.label !== undefined) {
+          const existingLabel =
+            (((current.items as Record<string, unknown> | undefined)?.properties as
+              | Record<string, FieldNode>
+              | undefined)?.[subFieldKey]?.['x-om-label'] as Record<string, string> | undefined) ?? {}
+          nodePatch.label = { ...existingLabel, [activeLocale]: patch.label }
+        }
+        if (patch.type !== undefined) nodePatch.type = patch.type
+        if (patch.required !== undefined) nodePatch.required = patch.required
+        return groupNodeUpdateSubField(current, subFieldKey, nodePatch)
+      })
+    },
+    [onUpdate, activeLocale],
+  )
+  const handleGroupMinItemsChange = React.useCallback(
+    (next: number | null) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (next === null) delete updated['x-om-min-items']
+        else updated['x-om-min-items'] = next
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const handleGroupMaxItemsChange = React.useCallback(
+    (next: number | null) => {
+      onUpdate((current) => {
+        const updated: FieldNode = { ...current }
+        if (next === null || next < 1) delete updated['x-om-max-items']
+        else updated['x-om-max-items'] = next
+        return updated
+      })
+    },
+    [onUpdate],
+  )
+  const groupTypeOptions = React.useMemo(
+    () =>
+      defaultFieldTypeRegistry
+        .keys()
+        .filter((key) => key !== 'group' && key !== 'info_block')
+        .map((key) => ({ value: key, label: resolveTypeLabel(key, t) })),
+    [t],
+  )
+  const showOptionsEditor = omType === 'select_one' || omType === 'select_many' || omType === 'ranking'
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="block text-xs font-medium text-muted-foreground">
+          {t('forms.studio.field.type.label')}
+        </label>
+        {swapTargets && swapTargets.length > 1 ? (
+          <Select
+            value={omType}
+            onValueChange={(next) => {
+              if (next !== omType && isCompatibleFieldSwap(omType, next)) {
+                onTypeSwap(fieldKey, next)
+              }
+            }}
+          >
+            <SelectTrigger className="h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {swapTargets.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {resolveTypeLabel(value, t)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <p className="text-sm text-muted-foreground">{resolveTypeLabel(omType, t)}</p>
+        )}
+        <p className="text-xs text-muted-foreground">
+          {t('forms.studio.field.type.swapHint')}
+        </p>
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-muted-foreground">{t('forms.studio.fields.label')}</label>
+        <Input
+          value={label}
+          onChange={(event) => onUpdate((current) => ({
+            ...current,
+            'x-om-label': { ...(current['x-om-label'] ?? {}), [activeLocale]: event.target.value },
+          }))}
+        />
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-muted-foreground">{t('forms.studio.fields.help')}</label>
+        <Textarea
+          rows={2}
+          value={help}
+          onChange={(event) => onUpdate((current) => ({
+            ...current,
+            'x-om-help': { ...(current['x-om-help'] ?? {}), [activeLocale]: event.target.value },
+          }))}
+        />
+      </div>
+      <RoleCheckboxList
+        legend={t('forms.studio.fields.editableBy')}
+        selected={editableBy}
+        options={roleOptions}
+        onToggle={(role, checked) => toggleRole('x-om-editable-by', ['admin'], role, checked)}
+      />
+      <RoleCheckboxList
+        legend={t('forms.studio.fields.visibleTo')}
+        selected={visibleTo}
+        options={roleOptions}
+        onToggle={(role, checked) => toggleRole('x-om-visible-to', [], role, checked)}
+      />
+      <label className="flex items-center gap-2 text-sm">
+        <Checkbox checked={required} onCheckedChange={(value) => onRequiredChange(Boolean(value))} />
+        {t('forms.studio.fields.required')}
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        <Checkbox
+          checked={sensitive}
+          onCheckedChange={(value) => onUpdate((current) => ({ ...current, 'x-om-sensitive': Boolean(value) }))}
+        />
+        {t('forms.studio.fields.sensitive')}
+      </label>
+      <ValidationPanel
+        fieldKey={fieldKey}
+        fieldType={omType}
+        node={node}
+        locale={activeLocale}
+        onPatternChange={handlePatternChange}
+        onLengthRangeChange={handleLengthRangeChange}
+        onNumberRangeChange={handleNumberRangeChange}
+        onMessageChange={handleMessageChange}
+        onOpinionIconChange={handleOpinionIconChange}
+        onNpsAnchorChange={handleNpsAnchorChange}
+        onRankingExhaustiveChange={handleRankingExhaustiveChange}
+        onMatrixRowsChange={handleMatrixRowsChange}
+        onMatrixColumnsChange={handleMatrixColumnsChange}
+        onFileAcceptChange={handleFileAcceptChange}
+        onFileMaxSizeChange={handleFileMaxSizeChange}
+        onFileMultipleChange={handleFileMultipleChange}
+        onSignatureClauseChange={handleSignatureClauseChange}
+        onSignatureModesChange={handleSignatureModesChange}
+        groupTypeOptions={groupTypeOptions}
+        onGroupAddSubField={handleGroupAddSubField}
+        onGroupRemoveSubField={handleGroupRemoveSubField}
+        onGroupUpdateSubField={handleGroupUpdateSubField}
+        onGroupMinItemsChange={handleGroupMinItemsChange}
+        onGroupMaxItemsChange={handleGroupMaxItemsChange}
+      />
+      {showOptionsEditor ? (
+        <OptionsEditor
+          options={readFieldOptions(node)}
+          activeLocale={activeLocale}
+          onChange={handleOptionsChange}
+          t={t}
+        />
+      ) : null}
+      <Button type="button" variant="destructive-outline" onClick={onDelete}>
+        <Trash2 className="size-4" aria-hidden="true" />
+        {t('forms.studio.fields.deleteButton')}
+      </Button>
+    </div>
+  )
+}
+
+function readFieldOptions(node: FieldNode): FieldOption[] {
+  const raw = node['x-om-options']
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((entry): entry is { value: string; label?: Record<string, string> } =>
+      Boolean(entry) && typeof entry === 'object' && typeof entry.value === 'string',
+    )
+    .map((entry) => ({
+      value: entry.value,
+      label: entry.label && typeof entry.label === 'object' && !Array.isArray(entry.label)
+        ? { ...entry.label }
+        : { en: entry.value },
+    }))
+}
+
+function slugOptionValue(label: string, fallback: string): string {
+  const slug = label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  return slug || fallback
+}
+
+function nextOptionValue(options: FieldOption[]): string {
+  const used = new Set(options.map((option) => option.value))
+  let index = options.length + 1
+  let candidate = `option_${index}`
+  while (used.has(candidate)) {
+    index += 1
+    candidate = `option_${index}`
+  }
+  return candidate
+}
+
+function moveArrayItem<T>(items: T[], from: number, to: number): T[] {
+  const next = [...items]
+  const [item] = next.splice(from, 1)
+  if (!item) return items
+  next.splice(to, 0, item)
+  return next
+}
+
+function OptionsEditor({
+  options,
+  activeLocale,
+  onChange,
+  t,
+}: {
+  options: FieldOption[]
+  activeLocale: string
+  onChange: (options: FieldOption[]) => void
+  t: ReturnType<typeof useT>
+}) {
+  const addOption = React.useCallback(() => {
+    const value = nextOptionValue(options)
+    onChange([...options, { value, label: { [activeLocale]: t('forms.studio.field.options.defaultLabel', { n: String(options.length + 1) }) } }])
+  }, [onChange, options, t, activeLocale])
+
+  const updateOption = React.useCallback((index: number, patch: Partial<FieldOption>) => {
+    onChange(options.map((option, optionIndex) => {
+      if (optionIndex !== index) return option
+      return {
+        ...option,
+        ...patch,
+        label: patch.label ?? option.label,
+      }
+    }))
+  }, [onChange, options])
+
+  return (
+    <section className="space-y-2 rounded-md border border-border bg-muted/20 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-xs font-semibold uppercase text-muted-foreground">
+          {t('forms.studio.field.options.heading')}
+        </h3>
+        <Button type="button" variant="outline" size="sm" onClick={addOption}>
+          <Plus className="size-4" aria-hidden="true" />
+          {t('forms.studio.field.options.add')}
+        </Button>
+      </div>
+      {options.length === 0 ? (
+        <p className="text-xs text-muted-foreground">{t('forms.studio.field.options.empty')}</p>
+      ) : (
+        <div className="space-y-2">
+          {options.map((option, index) => {
+            const label = option.label[activeLocale] ?? ''
+            return (
+              <div key={`${option.value}:${index}`} className="rounded-md border border-border bg-background p-2">
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                  <label className="space-y-1">
+                    <span className="block text-xs font-medium text-muted-foreground">
+                      {t('forms.studio.field.options.label')}
+                    </span>
+                    <Input
+                      value={label}
+                      onChange={(event) => {
+                        const nextLabel = event.target.value
+                        const currentValue = option.value
+                        const generatedValue = slugOptionValue(nextLabel, currentValue || `option_${index + 1}`)
+                        updateOption(index, {
+                          value: currentValue.startsWith('option_') ? generatedValue : currentValue,
+                          label: { ...option.label, [activeLocale]: nextLabel },
+                        })
+                      }}
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="block text-xs font-medium text-muted-foreground">
+                      {t('forms.studio.field.options.value')}
+                    </span>
+                    <Input
+                      value={option.value}
+                      onChange={(event) => updateOption(index, {
+                        value: slugOptionValue(event.target.value, `option_${index + 1}`),
+                      })}
+                    />
+                  </label>
+                  <div className="flex items-end gap-1">
+                    <IconButton
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={index === 0}
+                      aria-label={t('forms.studio.field.options.moveUp')}
+                      onClick={() => onChange(moveArrayItem(options, index, index - 1))}
+                    >
+                      <ArrowUp className="size-4" aria-hidden="true" />
+                    </IconButton>
+                    <IconButton
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={index >= options.length - 1}
+                      aria-label={t('forms.studio.field.options.moveDown')}
+                      onClick={() => onChange(moveArrayItem(options, index, index + 1))}
+                    >
+                      <ArrowDown className="size-4" aria-hidden="true" />
+                    </IconButton>
+                    <IconButton
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      aria-label={t('forms.studio.field.options.delete')}
+                      onClick={() => onChange(options.filter((_, optionIndex) => optionIndex !== index))}
+                    >
+                      <Trash2 className="size-4" aria-hidden="true" />
+                    </IconButton>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </section>
+  )
+}
+
+type PublishDialogProps = {
+  formId: string
+  versionId: string
+  onClose: () => void
+  onPublished: () => void
+  t: ReturnType<typeof useT>
+}
+
+function PublishDialog({ formId, versionId, onClose, onPublished, t }: PublishDialogProps) {
+  const [changelog, setChangelog] = React.useState('')
+  const [busy, setBusy] = React.useState(false)
+
+  const submit = React.useCallback(async () => {
+    if (busy) return
+    setBusy(true)
+    const call = await apiCall<{ versionId: string }>(
+      `/api/forms/${encodeURIComponent(formId)}/versions/${encodeURIComponent(versionId)}/publish`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ changelog: changelog.trim() || null }),
+      },
+    )
+    setBusy(false)
+    if (!call.ok) {
+      const errPayload = call.result as { error?: string } | undefined
+      flash(errPayload?.error ?? 'forms.errors.internal', 'error')
+      return
+    }
+    onPublished()
+  }, [busy, changelog, formId, versionId, onPublished])
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
+      <DialogContent
+        onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+            event.preventDefault()
+            void submit()
+          }
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>{t('forms.version.publish.title')}</DialogTitle>
+        </DialogHeader>
+        <Alert variant="warning">{t('forms.version.publish.reassurance')}</Alert>
+        <div>
+          <label htmlFor="forms-publish-changelog" className="mb-1 block text-sm font-medium">
+            {t('forms.version.publish.changelog')}
+          </label>
+          <Textarea
+            id="forms-publish-changelog"
+            rows={4}
+            value={changelog}
+            placeholder={t('forms.version.publish.changelogPlaceholder')}
+            onChange={(event) => setChangelog(event.target.value)}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">{t('forms.version.publish.blastRadius')}</p>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
+            {t('forms.version.publish.actions.cancel')}
+          </Button>
+          <Button type="button" onClick={() => void submit()} disabled={busy}>
+            {t('forms.version.publish.actions.confirm')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
