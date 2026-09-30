@@ -67,6 +67,28 @@ export async function GET(req: Request) {
     em.count(MarketingContentBlock, { ...scope, deletedAt: null }),
   ])
 
+  /**
+   * Are the module's two periodic jobs registered?
+   *
+   * Read straight from the scheduler's own table rather than by asking the service, because the question is
+   * about persisted state and the answer has to be true for the worker process as well as this one. Null when
+   * the table is absent — the scheduler is an optional peer, and an installation without it has no scheduled
+   * campaigns by design rather than by omission.
+   */
+  let schedulesRegistered: boolean | null = null
+  try {
+    const rows = await em.getConnection().execute<Array<{ total: string }>>(
+      `select count(*)::text as total
+         from scheduled_jobs
+        where organization_id = ? and target_queue in (?, ?)`,
+      [scope.organizationId, 'marketing-automation-sweep', 'marketing-automation-resume'],
+    )
+    schedulesRegistered = (Number.parseInt(rows[0]?.total ?? '0', 10) || 0) >= 2
+  } catch {
+    // No such table: the scheduler is not installed here, which is a configuration rather than a fault.
+    schedulesRegistered = null
+  }
+
   const checks = evaluateReadiness({
     emailChannelConfigured,
     trackingSecretConfigured: resolveTrackingSecret() !== null,
@@ -76,6 +98,7 @@ export async function GET(req: Request) {
     runCount,
     segmentCount,
     contentBlockCount,
+    schedulesRegistered,
   })
 
   return NextResponse.json({

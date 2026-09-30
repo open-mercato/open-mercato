@@ -690,6 +690,8 @@
   "marketing_automation.setup.check.first_run.title": "Den ersten Kunden durchlaufen sehen",
   "marketing_automation.setup.check.publish.body": "Eine nicht aktivierte Kampagne läuft nie — wie fertig sie auch aussieht.",
   "marketing_automation.setup.check.publish.title": "Veröffentlichen",
+  "marketing_automation.setup.check.schedules.body": "Die beiden geplanten Aufgaben dieses Moduls sind nicht registriert. Kampagnen, die nach Zeitplan starten — Rückgewinnung, Bewertungsanfragen, Geburtstage, Nachbestellhinweise — laufen daher nie, und eine Wartezeit, deren Auftrag verloren ging, wird nicht fortgesetzt. Ereignisgesteuerte Kampagnen sind nicht betroffen. Führen Sie die Modul-Einrichtung für diese Organisation erneut aus.",
+  "marketing_automation.setup.check.schedules.title": "Periodische Aufgaben einschalten",
   "marketing_automation.setup.check.segments.body": "Ein einmal definiertes Segment lässt sich in jeder Kampagne verwenden.",
   "marketing_automation.setup.check.segments.title": "Eine Zielgruppe benennen",
   "marketing_automation.setup.check.tracking.body": "Nötig für Öffnungen, Klicks, Ein-Klick-Abmeldung und eingehende Hooks. Nachrichten gehen auch ohne raus, messbar ist dann nichts.",

@@ -9,6 +9,9 @@ const nothing = {
   runCount: 0,
   segmentCount: 0,
   contentBlockCount: 0,
+  // False, not null: "the scheduler is installed and this module is not on it" is the state this check
+  // exists to catch, and a fresh installation has not registered them yet.
+  schedulesRegistered: false,
 }
 
 describe('evaluateReadiness', () => {
@@ -58,9 +61,45 @@ describe('evaluateReadiness', () => {
       'first_campaign',
       'publish',
       'first_run',
+      'schedules',
       'segments',
       'content_blocks',
     ])
+  })
+
+  /**
+   * The check that exists because this module had no way of telling an operator their scheduled campaigns
+   * were never going to run.
+   *
+   * `setup.ts` registers the two periodic jobs from `onTenantCreated` and `seedDefaults`, so a tenant that
+   * predates the module has neither until somebody re-runs setup — and nothing anywhere said so. Every
+   * win-back, review request, birthday and reorder reminder silently does nothing, along with the safety net
+   * that resumes a wait whose delayed job was lost. Found on a real installation: thirteen scheduled jobs,
+   * none of them this module's.
+   */
+  describe('the scheduled half of the module', () => {
+    it('is reported missing when the scheduler is there and this module is not on it', () => {
+      const check = evaluateReadiness({ ...nothing, schedulesRegistered: false }).find((c) => c.id === 'schedules')
+      expect(check?.done).toBe(false)
+    })
+
+    it('is satisfied once both jobs are registered', () => {
+      const check = evaluateReadiness({ ...nothing, schedulesRegistered: true }).find((c) => c.id === 'schedules')
+      expect(check?.done).toBe(true)
+    })
+
+    it('says nothing when the scheduler is not installed at all', () => {
+      // An optional peer. An installation without it has no scheduled campaigns by design, and telling that
+      // operator they are missing something would be telling them to fix a choice they made.
+      const check = evaluateReadiness({ ...nothing, schedulesRegistered: null }).find((c) => c.id === 'schedules')
+      expect(check?.done).toBe(true)
+    })
+
+    it('never blocks sending', () => {
+      // Event-triggered campaigns work without a scheduler at all; this is a gap, not a stoppage.
+      const check = evaluateReadiness({ ...nothing, schedulesRegistered: false }).find((c) => c.id === 'schedules')
+      expect(check?.severity).toBe('recommended')
+    })
   })
 
   it('reports a first run only once one has happened', () => {

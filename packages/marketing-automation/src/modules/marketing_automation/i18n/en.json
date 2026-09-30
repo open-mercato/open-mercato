@@ -690,6 +690,8 @@
   "marketing_automation.setup.check.first_run.title": "Watch the first customer go through",
   "marketing_automation.setup.check.publish.body": "A campaign that is not enabled never runs, however complete it looks.",
   "marketing_automation.setup.check.publish.title": "Publish it",
+  "marketing_automation.setup.check.schedules.body": "This module's two scheduled jobs are not registered, so campaigns that start on a schedule — win-back, review requests, birthdays, reorder reminders — will never run, and a wait whose job was lost will never be picked back up. Event-triggered campaigns are unaffected. Re-run the module setup for this organization to register them.",
+  "marketing_automation.setup.check.schedules.title": "Turn on the periodic jobs",
   "marketing_automation.setup.check.segments.body": "A segment defined once can be targeted from every campaign.",
   "marketing_automation.setup.check.segments.title": "Name an audience you will reuse",
   "marketing_automation.setup.check.tracking.body": "Needed for opens, clicks, one-click unsubscribe and inbound hooks. Messages still send without them, but nothing can be measured.",

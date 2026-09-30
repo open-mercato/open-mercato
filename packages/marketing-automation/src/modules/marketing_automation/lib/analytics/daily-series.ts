@@ -73,10 +73,32 @@ export async function loadDailySeries(
     campaignId, scope.tenantId, scope.organizationId,
     campaignId, scope.tenantId, scope.organizationId,
   ])
-  return rows.map((row) => ({
+  return trimLeadingSilence(rows.map((row) => ({
     date: row.date,
     sent: row.sent ?? 0,
     opened: row.opened ?? 0,
     clicked: row.clicked ?? 0,
-  }))
+  })))
+}
+
+/** One day of flat line before the first activity, so the rise reads as a rise rather than as the y-axis. */
+const LEAD_IN_DAYS = 1
+
+/**
+ * Drops the run of empty days BEFORE anything happened.
+ *
+ * The window is ninety days because that is the period an author may ask about, and the SQL fills every day
+ * in it so a gap in the middle stays visible — a campaign that went quiet for a fortnight should look quiet
+ * for a fortnight. But a campaign that started last Tuesday has eighty-nine days of nothing in front of it,
+ * and a chart that is ninety-eight per cent empty space with a spike jammed against the right edge tells
+ * nobody anything. It reads as a broken chart, which is the opposite of what it is.
+ *
+ * Only the LEADING silence goes. Gaps after the first activity are data — they are the weeks nobody was
+ * messaged — and trimming those would flatter the campaign by hiding them.
+ */
+export function trimLeadingSilence(points: DailyPoint[]): DailyPoint[] {
+  const firstActive = points.findIndex((point) => point.sent > 0 || point.opened > 0 || point.clicked > 0)
+  // Nothing ever happened: the screen hides the chart entirely rather than drawing a flat line at zero.
+  if (firstActive === -1) return []
+  return points.slice(Math.max(0, firstActive - LEAD_IN_DAYS))
 }

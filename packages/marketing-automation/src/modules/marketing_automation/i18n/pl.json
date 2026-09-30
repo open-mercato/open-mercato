@@ -690,6 +690,8 @@
   "marketing_automation.setup.check.first_run.title": "Zobacz pierwszego klienta w przebiegu",
   "marketing_automation.setup.check.publish.body": "Kampania, która nie jest włączona, nigdy nie startuje, choćby wyglądała na gotową.",
   "marketing_automation.setup.check.publish.title": "Opublikuj ją",
+  "marketing_automation.setup.check.schedules.body": "Dwa zadania cykliczne tego modułu nie są zarejestrowane, więc kampanie startujące z harmonogramu — odzyskiwanie klientów, prośby o opinię, urodziny, przypomnienia o ponownym zakupie — nigdy nie ruszą, a przerwane czekanie nie zostanie wznowione. Kampanie wyzwalane zdarzeniem działają normalnie. Uruchom ponownie konfigurację modułu dla tej organizacji.",
+  "marketing_automation.setup.check.schedules.title": "Włącz zadania cykliczne",
   "marketing_automation.setup.check.segments.body": "Segment definiujesz raz i używasz go w każdej kampanii.",
   "marketing_automation.setup.check.segments.title": "Nazwij grupę odbiorców do ponownego użycia",
   "marketing_automation.setup.check.tracking.body": "Potrzebne do otwarć, kliknięć, wypisania jednym kliknięciem i wywołań z zewnątrz. Bez nich wiadomości nadal wychodzą, ale nic nie da się zmierzyć.",

@@ -81,12 +81,26 @@ export async function expireOccurrenceKeys(
   windowHours: number,
 ): Promise<number> {
   const cutoff = new Date(now.getTime() - windowHours * 3_600_000)
+  /**
+   * `$not` sits at the TOP of the where clause, not inside the field condition.
+   *
+   * Written as `occurrenceKey: { $ne: null, $not: { $like: … } }` this produced `syntax error at or near
+   * "not"` on every execution — and it executes on the periodic due-run scan, which is the first thing that
+   * pass does. So the statement threw, the whole scan aborted before it ever looked for a due run, and the
+   * job was recorded as failed once a minute, forever. Two things silently stopped: occurrence keys were
+   * never released, so `unlimited` re-entry stayed blocked for anything a sweep had claimed, and the safety
+   * net that resumes a wait whose delayed job was lost never resumed one.
+   *
+   * It was invisible because nothing depends on it in the happy path: a wait normally resumes from its own
+   * delayed job, and this pass exists only for when that job is gone.
+   */
   return em.nativeUpdate(
     MarketingCampaignRun,
     {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-      occurrenceKey: { $ne: null, $not: { $like: `${SWEEP_CLAIM_PREFIX}%` } },
+      occurrenceKey: { $ne: null },
+      $not: { occurrenceKey: { $like: `${SWEEP_CLAIM_PREFIX}%` } },
       startedAt: { $lt: cutoff },
     },
     { occurrenceKey: null },

@@ -19,6 +19,19 @@ export type ReadinessFacts = {
   runCount: number
   segmentCount: number
   contentBlockCount: number
+  /**
+   * Whether the module's two periodic jobs are registered with the scheduler.
+   *
+   * `setup.ts` registers them from `onTenantCreated` and `seedDefaults`, so a tenant that existed before this
+   * module was installed has neither until somebody re-runs setup. Nothing else notices: campaigns still save,
+   * event-triggered ones still fire, and the screen that exists to answer "is this ready" never asked. Every
+   * SCHEDULED campaign — win-back, review requests, birthdays, reorder reminders — then silently never runs,
+   * and so does the safety net that resumes a wait whose delayed job was lost.
+   *
+   * Null when the scheduler is not installed at all, which is a legitimate configuration rather than a fault:
+   * it is an optional peer, and an installation without it simply has no scheduled campaigns.
+   */
+  schedulesRegistered: boolean | null
 }
 
 export type ReadinessCheckId =
@@ -27,6 +40,7 @@ export type ReadinessCheckId =
   | 'first_campaign'
   | 'publish'
   | 'first_run'
+  | 'schedules'
   | 'segments'
   | 'content_blocks'
 
@@ -76,6 +90,19 @@ export function evaluateReadiness(facts: ReadinessFacts): ReadinessCheck[] {
       id: 'first_run',
       severity: 'recommended',
       done: facts.runCount > 0,
+    },
+    {
+      /**
+       * Recommended rather than blocking, and only when the scheduler is actually installed.
+       *
+       * An installation without the scheduler has no scheduled campaigns by design, and telling that operator
+       * they are missing something would be wrong. An installation WITH it and without these two is missing
+       * every periodic campaign and does not know.
+       */
+      id: 'schedules',
+      severity: 'recommended',
+      done: facts.schedulesRegistered !== false,
+      href: '/backend/settings/scheduler',
     },
     {
       id: 'segments',

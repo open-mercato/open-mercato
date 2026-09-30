@@ -53,9 +53,20 @@ describe('loadDailySeries', () => {
   })
 
   test('a null from the database becomes a zero, never a gap in the line', async () => {
-    const { em } = fakeEm([{ date: '2026-09-01', sent: null, opened: null, clicked: null }])
+    /**
+     * The quiet day sits AFTER an active one, deliberately.
+     *
+     * Leading silence is trimmed now — a campaign that started last Tuesday should not open with eighty-nine
+     * days of flat line — so a fixture of nothing but nulls would be trimmed away and this would assert on an
+     * empty array instead of on the coercion it exists to check.
+     */
+    const { em } = fakeEm([
+      { date: '2026-09-01', sent: 4, opened: 2, clicked: 1 },
+      { date: '2026-09-02', sent: null, opened: null, clicked: null },
+    ])
     expect(await loadDailySeries(em, 'camp-1', scope, window)).toEqual([
-      { date: '2026-09-01', sent: 0, opened: 0, clicked: 0 },
+      { date: '2026-09-01', sent: 4, opened: 2, clicked: 1 },
+      { date: '2026-09-02', sent: 0, opened: 0, clicked: 0 },
     ])
   })
 })

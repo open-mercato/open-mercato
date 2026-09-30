@@ -690,6 +690,8 @@
   "marketing_automation.setup.check.first_run.title": "Mira pasar al primer cliente",
   "marketing_automation.setup.check.publish.body": "Una campaña que no está activada nunca se ejecuta, por completa que parezca.",
   "marketing_automation.setup.check.publish.title": "Publícala",
+  "marketing_automation.setup.check.schedules.body": "Los dos trabajos programados de este módulo no están registrados, así que las campañas que arrancan por calendario — recuperación, solicitudes de reseña, cumpleaños, recordatorios de recompra — nunca se ejecutarán, y una espera cuyo trabajo se perdió no se retomará. Las campañas por evento no se ven afectadas. Vuelve a ejecutar la configuración del módulo para esta organización.",
+  "marketing_automation.setup.check.schedules.title": "Activa los trabajos periódicos",
   "marketing_automation.setup.check.segments.body": "Un segmento definido una vez se puede usar en todas las campañas.",
   "marketing_automation.setup.check.segments.title": "Nombra una audiencia para reutilizar",
   "marketing_automation.setup.check.tracking.body": "Necesarios para aperturas, clics, baja en un clic y llamadas entrantes. Los mensajes salen igual, pero nada se puede medir.",
