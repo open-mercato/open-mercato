@@ -25,7 +25,7 @@ The Open Questions gate was answered with the author's recommended defaults. An 
 
 | # | Question | Answer | Rationale |
 |---|---|---|---|
-| Q1 | One spec or several? | **One spec, three phases, ordered so that no contract is frozen before it has a real consumer.** Phases 1 and 2 are useful on their own; the manifest and its shared type land only in Phase 3, with real suite members. ⚠ The reviewer recommended **three separate specs**, one per phase. The owner decides on the PR. | Phases 1–2 help any module today. Phase 3 has content only once the suite lands. |
+| Q1 | One spec or several? | **One spec, three phases, ordered so that no contract is frozen before it has a real consumer.** Phases 1 and 2 are useful on their own; the manifest and its shared type land only in Phase 3, with real suite members. The reviewer recommended **three separate specs**; the owner kept one spec, but **each phase ships as its own implementation PR**, so each is still reviewed on its own. | Phases 1–2 help any module today. Phase 3 has content only once the suite lands. One document keeps the resolver, post-install and sets contracts consistent. |
 | Q2 | Name | **"module set"**; the ecommerce set id is `ecommerce-suite` | "bundle" already means ACL dependency bundles (`2026-05-27-acl-dependency-bundles.md`) and `IntegrationBundle` (`packages/shared/src/modules/integrations/types.ts:136`). The set id must differ from the `ecommerce` module id. |
 | Q3 | Relation to the draft module picker | **This spec owns the dependency resolver** (`packages/cli`); the picker reuses it. The picker spec gets a changelog note. | The picker is unimplemented. One resolver avoids two closure algorithms that could disagree. |
 | Q4 | Manifest location | **Per package, contributing to a set id:** `packages/<pkg>/src/module-sets.json`, merged across installed packages at read time | A package declares only its own modules. `@open-mercato/checkout` (which depends on core) adds `checkout` to `ecommerce-suite` itself, so no package names a module in a package it doesn't own. |
@@ -126,6 +126,7 @@ In short: the resolver answers *what the selected modules need*, and in Phase 3 
 
 - **Module index.** Built from the existing `node_modules/@open-mercato` enumeration (`packages/cli/src/lib/resolver.ts:402`) and the per-package discovery (`module-package.ts:75-102`, `discoverModulesInPackage`), plus the app's own `src/modules/*`.
   - `requires` is read statically from each module's `index.ts` (published packages ship `src/`), via a small helper extracted from `module-facts.ts`'s `readStringArrayPropertyInitializer`. `module-package.ts` does not import the 4 300-line `module-facts.ts`, and module code is never `require()`d.
+  - A `requires` the static reader cannot evaluate (computed or spread from a constant) is **unknown, never empty**. The generator `require()`s `index.ts` (`module-registry.ts` ~3684) and so still sees it. The plan lists the module as "requires unreadable — the generator will verify", and the batch proceeds with the generator as the final gate.
   - An ejected or `@app` module satisfies a `requires` on its id.
 - **Generator parity.** The generator is the final gate, and it resolves index files through app overrides (`discovered.resolve('index.ts')`). The resolver applies the same precedence: an app module shadows the package module with the same id. The parity test in Phase 1 enables a batch in a fixture app and runs the real generator.
 - **Consumers.** Today there are none; `enable` is single-module. Future consumers are the module picker (`2026-06-09-create-app-module-picker.md`, whose planned `resolveWithDependencies()` at l.244-261 becomes this one) and the Simple Checkout v2 upgrade path (see Risks).
@@ -160,7 +161,7 @@ There is no database schema change. Phase 3 adds one published data file per con
 }
 ```
 
-`@open-mercato/checkout`'s own file contributes `{ "id": "ecommerce-suite", "members": [{ "id": "checkout", "role": "recommended" }] }`. Only the set's *owner* (the first package to declare `title`) may set `title`/`description`; a contributor declares members only.
+`@open-mercato/checkout`'s own file contributes `{ "id": "ecommerce-suite", "members": [{ "id": "checkout", "role": "recommended" }] }`. Exactly one package per set id, the set's *owner*, may declare `title`/`description`; a contributor declares members only. Ownership never depends on package enumeration order: a second package declaring `title` or `description` for the same set id fails the read and names both packages. If no owner is installed, the set id is used as the title.
 
 - **Merge at read time.** Members are unioned by set id across installed packages. If two packages give the same module id conflicting roles, the read fails and names both packages.
 - **Roles.** `required` members cannot be excluded. `recommended` members are on by default and dropped with `--without`. `optional` members are off by default and added with `--with`.
@@ -186,7 +187,11 @@ yarn mercato module enable --set <setId> [--with <id>[,…]] [--without <id>[,�
 
 **Parser.** `enable` currently takes the first non-flag argument as the package (`mercato.ts:1416`), so `--set <id>` would be mis-read. Phase 1 reworks `parseModuleInstallArgs` into an explicit flag parser. Value-taking flags (`--module`, `--set`, `--with`, `--without`) consume their values before the positional package is picked up.
 
-**Batch flow**, used by the comma-list and `--set` forms:
+**Routing.** `--module cart` is both the legacy form and a one-element list, so the parser routes explicitly:
+- A single id with none of the new flags takes the **legacy path**, byte-for-byte unchanged: no closure, no plan, same output and errors.
+- A comma list, `--set`, **or** any of `--dry-run`/`--apply`/`--yes` selects the batch flow. `--module cart --dry-run` is the way to get the closure for one module.
+
+**Batch flow**, used by every form that routing sends to the batch path:
 1. **Select.**
    - With a comma list: the named modules of the given package.
    - With `--set`: the merged set's `required ∪ recommended ∪ --with − --without`.
@@ -202,7 +207,7 @@ yarn mercato module enable --set <setId> [--with <id>[,…]] [--without <id>[,�
 4. **Print the plan and confirm.** The plan has three groups: *to add*, *pulled in by `requires`* (each with its requiring parent), and *already enabled* (skipped). On a TTY it asks for confirmation unless `--yes`; on a non-TTY without `--yes` it prints the plan and exits non-zero. `--dry-run` stops after the plan with exit 0.
 5. **Append only the new entries** to the end of the `enabledModules` literal, in dependency order (dependencies first). Existing entries, their order and their comments are never touched.
    - This needs an append-only edit instead of `replaceArrayLiteral`'s whole-array rewrite (`modules-config.ts:332-351`), which drops comments.
-   - The original file is kept in memory and restored if generation fails.
+   - The original file is kept in memory and restored if generation fails. A partial generator run may already have rewritten `.mercato/generated/*`, so after restoring the file the generators run once more against it. If that run also fails, today's stale-artifacts notice is printed ("rerun `yarn mercato generate`").
 6. **Run the generators once** (`runModuleGenerators`, `module-install.ts:98-117`).
 7. **Post-install:** print the checklist, or run it with `--apply`.
 
@@ -214,7 +219,7 @@ Each step runs as a **child process** (`yarn mercato …`), so it bootstraps aga
 
 | # | Step | When |
 |---|---|---|
-| 1 | `mercato db migrate` | any added module ships `migrations/` |
+| 1 | `mercato db migrate` | any added module ships `migrations/`. This applies **every** pending migration in the app, not only the added modules' own, and the plan says so before confirmation. Scoping migrations per module is a non-goal |
 | 2 | `mercato auth sync-role-acls` | any added module declares `acl.ts` features |
 | 3 | `mercato customer_accounts sync-customer-role-acls` | `customer_accounts` is enabled and an added module declares `defaultCustomerRoleFeatures` |
 | 4 | `mercato module setup <added ids…>` | any added module's `setup.ts` has `onTenantCreated` or `seedDefaults` |
@@ -250,7 +255,9 @@ Semantics match tenant creation, so a backfilled tenant ends up like a new one:
 | A cross-package `optional` member is hard-required by a selected member | The resolver pulls it in and the plan labels it "pulled in by `requires`". Its optional role cannot be honoured, and the plan says why |
 | `requires` cycle | Fails before any write, with the cycle path |
 | `src/modules.ts` has no parseable `enabledModules` literal | Fails before any write, with the existing `modules-config.ts` error |
-| Generation fails after the append | The batch forms restore `modules.ts` and show the generator output |
+| Generation fails after the append | The batch forms restore `modules.ts`, re-run the generators against it, and show the generator output. If that re-run fails too, the stale-artifacts notice is printed |
+| A module's `requires` cannot be read statically | Treated as unknown, not empty: the plan flags it and the generator verifies it |
+| Two packages declare `title`/`description` for one set id | Fails with both packages named |
 | A migration fails in `--apply` | Stops at step 1. `modules.ts` stays updated (generation succeeded). Resume with `--apply` |
 | `module setup` fails for one tenant | That tenant's transaction rolls back. The run continues with the other tenants and exits non-zero with a summary. Re-running is safe |
 | Standalone app on a package version without `module-sets.json` | `--set` reports "no package publishes set `<id>`". Phases 1–2 are unaffected |
@@ -281,11 +288,11 @@ Semantics match tenant creation, so a backfilled tenant ends up like a new one:
 
 ### Phase 1 — Resolver + multi-module `module enable`
 
-1. **Static `requires` reader.** Extract `readStringArrayPropertyInitializer` from `packages/cli/src/lib/generators/module-facts.ts` into `packages/cli/src/lib/module-metadata-reader.ts`. `module-facts.ts` and `module-package.ts` (`parseModuleInfo` gains `requires`) both use it. Unit tests: fixture `index.ts` with and without `requires`, and a `metadata` object spread from a constant (unsupported → `null` + warning).
+1. **Static `requires` reader.** Extract `readStringArrayPropertyInitializer` from `packages/cli/src/lib/generators/module-facts.ts` into `packages/cli/src/lib/module-metadata-reader.ts`. `module-facts.ts` and `module-package.ts` (`parseModuleInfo` gains `requires`) both use it. Unit tests: fixture `index.ts` with and without `requires`, and a `metadata` object spread from a constant (unsupported → `null` + warning, which the resolver treats as *unknown*, never as no dependencies).
 2. **Module index.** Add `packages/cli/src/lib/module-index.ts`: package modules (via `resolver.ts:402` enumeration + `discoverModulesInPackage`) and app `src/modules/*`, with app-shadows-package precedence and duplicate detection. Unit tests with fixture roots.
 3. **Resolver.** Add `packages/cli/src/lib/module-resolver.ts` with `resolveWithDependencies(selection, index)`: closure, cycle path, missing target, ambiguity, dependency-ordered output. Unit tests: diamond, cycle, cross-package edge, app-module satisfaction, missing target.
 4. **Append-only registration.** In `modules-config.ts`, add `appendModuleRegistrations(path, entries[])`, which inserts after the last element without rewriting existing ones. Registrations in conditional `push` statements are detected regardless of env, and a rollback handle is returned. `ensureModuleRegistration` keeps its behavior. Unit tests: comments preserved, order preserved, a conditional push not duplicated.
-5. **Parser + CLI.** Rework `module-install-args.ts` into an explicit flag parser (Phase 3's `--set/--with/--without` are reserved now and rejected as "not yet available"). Add the comma list, `--dry-run`, `--yes`, the plan printer, the TTY confirm and the printed checklist, and update the help text. Unit tests on parsing. A CLI integration test next to `packages/cli/src/lib/__integration__/TC-INT-007.spec.ts` enables `--module a,b` in a scaffolded fixture app (one pulled in by `requires`), asserts `modules.ts` byte-for-byte outside the appended block, runs the real `yarn generate` (parity), and re-runs to prove idempotency.
+5. **Parser + CLI.** Rework `module-install-args.ts` into an explicit flag parser (Phase 3's `--set/--with/--without` are reserved now and rejected as "not yet available"). Add the comma list, `--dry-run`, `--yes`, the plan printer, the TTY confirm and the printed checklist, and update the help text. Unit tests on parsing and routing (a single id without new flags stays on the legacy path). A CLI integration test next to `packages/cli/src/lib/__integration__/TC-INT-007.spec.ts` enables `--module a,b` in a scaffolded fixture app (one pulled in by `requires`), asserts `modules.ts` byte-for-byte outside the appended block, runs the real `yarn generate` (parity), and re-runs to prove idempotency.
 6. **Docs.** Update `packages/cli/AGENTS.md`, the CLI docs page, and a changelog note in `2026-06-09-create-app-module-picker.md` pointing its resolver at `packages/cli`.
 
 ### Phase 2 — Post-install and `module setup`
@@ -332,6 +339,14 @@ Semantics match tenant creation, so a backfilled tenant ends up like a new one:
 | Optional peers stay soft | ✅ No new `requires` edges; optionality lives in the manifest |
 
 ## Changelog
+
+### 2026-09-30 (rev 3 — specification self-review applied)
+- **Set ownership:** exactly one package may declare a set's `title`/`description`, and a second declaration fails. Ownership no longer depends on package enumeration order.
+- **Batch rollback:** after restoring `modules.ts`, the generators re-run so `.mercato/generated` matches it. If that fails, the stale-artifacts notice is printed.
+- **Parity:** a `requires` the static reader cannot evaluate is unknown, not empty. The plan flags it, and the generator (which `require()`s `index.ts`) verifies it.
+- **Routing:** a single `--module` id with no new flags keeps the legacy path. A comma list, `--set` or `--dry-run`/`--apply`/`--yes` selects the batch flow.
+- **`--apply`:** the plan discloses that `db migrate` applies every pending migration.
+- **Q1:** resolved as one spec with one implementation PR per phase.
 
 ### 2026-09-29 (rev 2 — independent review applied)
 - **Phases reordered:** resolver + multi-module enable → post-install → sets + preset. The manifest and its shared type no longer freeze in Phase 1 without content. The reviewer's three-spec split is recorded under Q1 for the owner.
